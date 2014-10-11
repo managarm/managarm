@@ -4,5 +4,8 @@ as --64 -o obj/runtime0.o src/runtime0.asm
 g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/runtime1.o src/runtime1.cpp
 g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/main.o src/main.cpp
 g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/debug.o src/debug.cpp
-ld -nostdlib -z max-page-size=0x1000 -T src/link.ld -o bin/kernel.elf obj/runtime0.o obj/runtime1.o obj/main.o obj/debug.o
+g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/memory-physical-alloc.o src/memory/physical-alloc.cpp
+g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/memory-paging.o src/memory/paging.cpp
+g++ -ffreestanding -m64 -mno-red-zone -mcmodel=large -fno-exceptions -fno-rtti -std=c++0x -c -o obj/memory-kernel-alloc.o src/memory/kernel-alloc.cpp
+ld -nostdlib -z max-page-size=0x1000 -T src/link.ld -o bin/kernel.elf obj/runtime0.o obj/runtime1.o obj/main.o obj/debug.o obj/memory-physical-alloc.o obj/memory-paging.o obj/memory-kernel-alloc.o
 
