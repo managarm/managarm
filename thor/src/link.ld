@@ -1,5 +1,5 @@
 
-ENTRY(krt_entry)
+ENTRY(thorRtEntry)
 
 SECTIONS {
 	. = -0x100000;
@@ -9,8 +9,6 @@ SECTIONS {
 	}
 	.data : ALIGN(0x1000) {
 		*(.data)
-	}
-	.bss : ALIGN(0x1000) {
 		*(.bss)
 	}
 }

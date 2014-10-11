@@ -19,8 +19,10 @@ static const int print_height = 25;
 
 extern char pkrt_image;
 
-static const int page_present = 1;
-static const int page_write = 2;
+enum PageFlags {
+	kPagePresent = 1,
+	kPageWrite = 2
+};
 
 void print_put(int x, int y, char c) {
 	char *vidmem = (char*)0xB8000;
@@ -135,43 +137,43 @@ void pk_page_map4k(addr64_t virtual, addr64_t physical) {
 	
 	/* find the pdpt entry; create pdpt if necessary */
 	addr32_t pdpt = (addr32_t)(pml4_entry & 0xFFFFF000);
-	if((pml4_entry & page_present) == 0) {
+	if((pml4_entry & kPagePresent) == 0) {
 		pdpt = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
-		((uint64_t*)pml4)[pml4_index] = pdpt | page_present | page_write;
+		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
 	}
 	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
 	
 	/* find the pd entry; create pd if necessary */
 	addr32_t pd = (addr32_t)(pdpt_entry & 0xFFFFF000);
-	if((pdpt_entry & page_present) == 0) {
+	if((pdpt_entry & kPagePresent) == 0) {
 		pd = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
-		((uint64_t*)pdpt)[pdpt_index] = pd | page_present | page_write;
+		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
 	}
 	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
 	
 	/* find the pt entry; create pt if necessary */
 	addr32_t pt = (addr32_t)(pd_entry & 0xFFFFF000);
-	if((pd_entry & page_present) == 0) {
+	if((pd_entry & kPagePresent) == 0) {
 		pt = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
-		((uint64_t*)pd)[pd_index] = pt | page_present | page_write;
+		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite;
 	}
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
 	/* setup the new pt entry */
-	if((pt_entry & page_present) != 0) {
+	if((pt_entry & kPagePresent) != 0) {
 		print_str("pk_page_map(): Page already mapped!\n");
 		print_str("   page: 0x");
 		print_uint(virtual, 16);
 		print_str("\n");
 		pk_panic();
 	}
-	((uint64_t*)pt)[pt_index] = physical | page_present | page_write;
+	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite;
 }
 
 void pkrt_lgdt(addr32_t gdt_page, uint32_t size);
@@ -301,7 +303,7 @@ void pk_load_image(addr64_t *out_entry) {
 					image + (uint32_t)phdr->p_offset + page);
 			page += 0x1000;
 		}
-		print_str("phdr");
+		print_str("loaded phdr\n");
 	}
 	
 	*out_entry = ehdr->e_entry;
