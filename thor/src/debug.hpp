@@ -57,6 +57,7 @@ public:
 	
 	void log(const char *string);
 	void log(void *pointer);
+	void log(int number);
 
 	template<typename T>
 	void logUInt(T number, int radix);

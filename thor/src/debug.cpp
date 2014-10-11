@@ -56,8 +56,12 @@ void Terminal::advanceCursor() {
 }
 
 void Terminal::printChar(char c) {
-	p_screen->setChar(c);
-	advanceCursor();
+	if(c == '\n') {
+	p_screen->setCursor(0, p_screen->getCursorY() + 1);
+	}else{
+		p_screen->setChar(c);
+		advanceCursor();
+	}
 }
 
 void Terminal::clear() {
@@ -79,12 +83,19 @@ void Logger::log(const char *string) {
 		print(*string);
 		string++;
 	}
+	print('\n');
 }
 
 void Logger::log(void *pointer) {
 	print('0');
 	print('x');
 	logUInt((uintptr_t)pointer, 16);
+	print('\n');
+}
+
+void Logger::log(int number) {
+	logUInt(number, 10);
+	print('\n');
 }
 
 // --------------------------------------------------------

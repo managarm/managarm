@@ -1,6 +1,7 @@
 
 #include "runtime.hpp"
 #include "debug.hpp"
+#include "util/vector.hpp"
 
 namespace thor {
 
@@ -78,7 +79,7 @@ public:
 		volatile uint64_t *pdpt = (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFF000);
 		if((pml4_entry & kPagePresent) == 0) {
 			uintptr_t page = tableAllocator->allocate();
-			debug::criticalLogger->log("allocate pdpt\n");
+			debug::criticalLogger->log("allocate pdpt");
 			pdpt = (uint64_t *)physicalToVirtual(page);
 			for(int i = 0; i < 512; i++)
 				((uint64_t*)pdpt)[i] = 0;
@@ -90,7 +91,7 @@ public:
 		volatile uint64_t *pd = (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFF000);
 		if((pdpt_entry & kPagePresent) == 0) {
 			uintptr_t page = tableAllocator->allocate();
-			debug::criticalLogger->log("allocate pd\n");
+			debug::criticalLogger->log("allocate pd");
 			pd = (uint64_t *)physicalToVirtual(page);
 			for(int i = 0; i < 512; i++)
 				((uint64_t*)pd)[i] = 0;
@@ -102,7 +103,7 @@ public:
 		volatile uint64_t *pt = (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFF000);
 		if((pd_entry & kPagePresent) == 0) {
 			uintptr_t page = tableAllocator->allocate();
-			debug::criticalLogger->log("allocate pt\n");
+			debug::criticalLogger->log("allocate pt");
 			pt = (uint64_t *)physicalToVirtual(page);
 			for(int i = 0; i < 512; i++)
 				((uint64_t*)pt)[i] = 0;
@@ -111,10 +112,7 @@ public:
 		
 		// setup the new pt entry
 		if((pt[pt_index] & kPagePresent) != 0) {
-			debug::criticalLogger->log("pk_page_map(): Page already mapped!\n");
-			debug::criticalLogger->log("   page: 0x");
-			//print_uint(virtual, 16);
-			debug::criticalLogger->log("\n");
+			debug::criticalLogger->log("pk_page_map(): Page already mapped!");
 			debug::panic();
 		}
 		pt[pt_index] = physical | kPagePresent | kPageWrite;
@@ -186,8 +184,13 @@ extern "C" void thorMain() {
 
 	memory::kernelSpace.initialize(0x301000);
 	memory::kernelAllocator.initialize();
-	void *ptr = memory::kernelAllocator->allocate(10);
-	vgaLogger->log(ptr);
-	*(char *)ptr = 'x';
+
+	util::Vector<int, memory::StupidMemoryAllocator> vector(memory::kernelAllocator.access());
+	vector.push(42);
+	vector.push(21);
+	vector.push(99);
+
+	for(int i = 0; i < vector.size(); i++)
+		vgaLogger->log(vector[i]);
 }
 
