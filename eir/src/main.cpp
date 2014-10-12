@@ -1,15 +1,8 @@
 
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
-typedef unsigned long long uint64_t;
-typedef char int8_t;
-typedef short int16_t;
-typedef int int32_t;
-typedef long long int64_t;
+#include "../../frigg/include/arch_x86/types32.hpp"
+#include "../../frigg/include/elf.hpp"
 
 typedef uint32_t addr32_t;
-typedef uint16_t addr16_t;
 typedef uint64_t addr64_t;
 
 int print_x = 0;
@@ -66,7 +59,7 @@ void print_chr(char c) {
 		}
 	}
 }
-void print_str(char *string) {
+void print_str(const char *string) {
 	while(*string != 0)
 		print_chr(*(string++));
 }
@@ -76,7 +69,7 @@ void print_uint(unsigned int num, int radix) {
 		print_chr('0');
 		return;
 	}
-	char *digits = "0123456789abcdef";
+	const char *digits = "0123456789abcdef";
 	int log = 0;
 	unsigned int rem = num;
 	while(1) {
@@ -116,8 +109,8 @@ void pk_page_setup() {
 		((uint64_t*)pk_pml4)[i] = 0;
 }
 
-void pk_page_map4k(addr64_t virtual, addr64_t physical) {
-	if(virtual % 0x1000 != 0) {
+void pk_page_map4k(addr64_t address, addr64_t physical) {
+	if(address % 0x1000 != 0) {
 		print_str("pk_page_map(): Illegal virtual address alignment");
 		pk_panic();
 	}
@@ -126,10 +119,10 @@ void pk_page_map4k(addr64_t virtual, addr64_t physical) {
 		pk_panic();
 	}
 
-	int pml4_index = (int)((virtual >> 39) & 0x1FF);
-	int pdpt_index = (int)((virtual >> 30) & 0x1FF);
-	int pd_index = (int)((virtual >> 21) & 0x1FF);
-	int pt_index = (int)((virtual >> 12) & 0x1FF);
+	int pml4_index = (int)((address >> 39) & 0x1FF);
+	int pdpt_index = (int)((address >> 30) & 0x1FF);
+	int pd_index = (int)((address >> 21) & 0x1FF);
+	int pt_index = (int)((address >> 12) & 0x1FF);
 	
 	/* find the pml4_entry. the pml4 is always present */
 	addr32_t pml4 = pk_pml4;
@@ -169,20 +162,20 @@ void pk_page_map4k(addr64_t virtual, addr64_t physical) {
 	if((pt_entry & kPagePresent) != 0) {
 		print_str("pk_page_map(): Page already mapped!\n");
 		print_str("   page: 0x");
-		print_uint(virtual, 16);
+		print_uint(address, 16);
 		print_str("\n");
 		pk_panic();
 	}
 	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite;
 }
 
-void pkrt_lgdt(addr32_t gdt_page, uint32_t size);
-void pkrt_lidt(addr32_t idt_page, uint32_t size);
-void pkrt_kernel(uint32_t pml4, addr64_t entry);
+extern "C" void pkrt_lgdt(addr32_t gdt_page, uint32_t size);
+extern "C" void pkrt_lidt(addr32_t idt_page, uint32_t size);
+extern "C" void pkrt_kernel(uint32_t pml4, addr64_t entry);
 
 void pk_init_gdt() {
 	addr32_t gdt_page = alloc_page();
-	uint8_t *gdt = (uint8_t*)gdt_page;
+	char *gdt = (char *)gdt_page;
 	gdt[0] = 0;
 	gdt[1] = 0;
 	gdt[2] = 0;
@@ -228,45 +221,6 @@ void pk_init_idt() {
 
 }
 
-typedef uint64_t Elf64_Addr;
-typedef uint64_t Elf64_Off;
-typedef uint16_t Elf64_Half;
-typedef uint32_t Elf64_Word;
-typedef int32_t Elf64_Sword;
-typedef uint64_t Elf64_Xword;
-typedef int64_t Elf64_Sxword;
-
-typedef struct {
-	unsigned char e_ident[16]; /* ELF identification */
-	Elf64_Half e_type; /* Object file type */
-	Elf64_Half e_machine; /* Machine type */
-	Elf64_Word e_version; /* Object file version */
-	Elf64_Addr e_entry; /* Entry point address */
-	Elf64_Off e_phoff; /* Program header offset */
-	Elf64_Off e_shoff; /* Section header offset */
-	Elf64_Word e_flags; /* Processor-specific flags */
-	Elf64_Half e_ehsize; /* ELF header size */
-	Elf64_Half e_phentsize; /* Size of program header entry */
-	Elf64_Half e_phnum; /* Number of program header entries */
-	Elf64_Half e_shentsize; /* Size of section header entry */
-	Elf64_Half e_shnum; /* Number of section header entries */
-	Elf64_Half e_shstrndx; /* Section name string table index */
-} Elf64_Ehdr;
-
-const Elf64_Half ET_NONE = 0;
-const Elf64_Half ET_EXEC = 2;
-
-typedef struct {
-	Elf64_Word p_type; /* Type of segment */
-	Elf64_Word p_flags; /* Segment attributes */
-	Elf64_Off p_offset; /* Offset in file */
-	Elf64_Addr p_vaddr; /* Virtual address in memory */
-	Elf64_Addr p_paddr; /* Reserved */
-	Elf64_Xword p_filesz; /* Size of segment in file */
-	Elf64_Xword p_memsz; /* Size of segment in memory */
-	Elf64_Xword p_align; /* Alignment of segment */
-} Elf64_Phdr;
-
 void pk_load_image(addr64_t *out_entry) {
 	addr32_t image = (addr32_t)(&pkrt_image);
 	
@@ -309,7 +263,7 @@ void pk_load_image(addr64_t *out_entry) {
 	*out_entry = ehdr->e_entry;
 }
 
-void prekernel_main() {
+extern "C" void prekernel_main() {
 	print_str("pk: initializing\n");
 	print_uint(0xf0000001, 16);
 	print_str("\n");

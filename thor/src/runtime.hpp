@@ -1,8 +1,4 @@
 
-typedef unsigned long uint64_t;
-typedef uint64_t uintptr_t;
-typedef uintptr_t size_t;
-
 void *operator new (size_t size, void *pointer);
 extern "C" void __cxa_pure_virtual();
 

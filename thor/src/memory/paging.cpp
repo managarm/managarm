@@ -1,4 +1,5 @@
 
+#include "../../../frigg/include/arch_x86/types64.hpp"
 #include "../runtime.hpp"
 #include "../debug.hpp"
 #include "physical-alloc.hpp"
