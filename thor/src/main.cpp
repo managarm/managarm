@@ -87,18 +87,28 @@ extern "C" void thorMain(uint64_t init_image) {
 	stupidTableAllocator.initialize(0x400000);
 	memory::tableAllocator = stupidTableAllocator.access();
 
+	uintptr_t tss_page = stupidTableAllocator->allocate();
+	
+	uint32_t *tss_ptr = (uint32_t *)tss_page;
+	for(int i = 0; i < 1024; i++)
+		tss_ptr[i] = 0;
+	tss_ptr[1] = 0x200000;
+
 	uintptr_t gdt_page = stupidTableAllocator->allocate();
 	frigg::arch_x86::makeGdtNullSegment((uint32_t *)gdt_page, 0);
 	frigg::arch_x86::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 1);
 	frigg::arch_x86::makeGdtCode64UserSegment((uint32_t *)gdt_page, 2);
 	frigg::arch_x86::makeGdtFlatData32UserSegment((uint32_t *)gdt_page, 3);
+	frigg::arch_x86::makeGdtTss64Descriptor((uint32_t *)gdt_page, 4, tss_ptr);
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 8 * 4;
+	gdtr.limit = 6 * 8;
 	gdtr.pointer = gdt_page;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	thorRtLoadCs(0x8);
+	
+	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
 
 	uintptr_t idt_page = stupidTableAllocator->allocate();
 	for(int i = 0; i < 256; i++)

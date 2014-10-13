@@ -43,5 +43,16 @@ void makeGdtCode64UserSegment(uint32_t *gdt, int entry) {
 			| kGdtWord1Long | kGdtWord1Granularity;
 }
 
+void makeGdtTss64Descriptor(uint32_t *gdt, int entry, void *tss) {
+	uint64_t address = (uint64_t)tss;
+	uint32_t limit = 0x1000;
+	gdt[entry * 2 + 0] = (limit & 0xFFFF) | ((address & 0xFFFF) << 16);
+	gdt[entry * 2 + 1] = ((address >> 16) & 0xFF)
+			| kGdtWord1TssDescriptor | kGdtWord1Present
+			| (limit & 0x000F0000) | (address & 0xFF000000);
+	gdt[entry * 2 + 2] = address >> 32;
+	gdt[entry * 2 + 3] = 0;
+}
+
 }} // namespace frigg::arch_x86
 

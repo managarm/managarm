@@ -5,6 +5,7 @@ namespace arch_x86 {
 enum GdtFlags : uint32_t {
 	kGdtWord1CodeSegment = 0x1800,
 	kGdtWord1DataSegment = 0x1200,
+	kGdtWord1TssDescriptor = 0x0900,
 	kGdtWord1User = 0x6000,
 	kGdtWord1Present = 0x8000,
 	kGdtWord1Long = 0x00200000,
@@ -23,6 +24,7 @@ void makeGdtFlatData32SystemSegment(uint32_t *gdt, int entry);
 void makeGdtFlatData32UserSegment(uint32_t *gdt, int entry);
 void makeGdtCode64SystemSegment(uint32_t *gdt, int entry);
 void makeGdtCode64UserSegment(uint32_t *gdt, int entry);
+void makeGdtTss64Descriptor(uint32_t *gdt, int entry, void *tss);
 
 }} // namespace frigg::arch_x86
 

@@ -1,6 +1,7 @@
 
 .global thorRtEntry
 thorRtEntry:
+	movq $0x200000, %rsp
 	.extern thorMain
 	call thorMain
 	hlt
