@@ -50,6 +50,10 @@ pkrt_kernel:
 	ljmp $0x18, $pkrt_kernel_64bits
 pkrt_kernel_64bits:
 .code64
+	mov $0, %ax
+	mov %ax, %ds
+	mov %ax, %es
+	mov %ax, %ss
 	// load the kernel entry address and jump
 	mov 8(%rsp), %rax
 	jmp *%rax

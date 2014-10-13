@@ -1,6 +1,7 @@
 
 #include "../../frigg/include/arch_x86/types32.hpp"
 #include "../../frigg/include/elf.hpp"
+#include "../../frigg/include/arch_x86/gdt.hpp"
 
 typedef uint32_t addr32_t;
 typedef uint64_t addr64_t;
@@ -175,45 +176,10 @@ extern "C" void pkrt_kernel(uint32_t pml4, addr64_t entry);
 
 void pk_init_gdt() {
 	addr32_t gdt_page = alloc_page();
-	char *gdt = (char *)gdt_page;
-	gdt[0] = 0;
-	gdt[1] = 0;
-	gdt[2] = 0;
-	gdt[3] = 0;
-	gdt[4] = 0;
-	gdt[5] = 0;
-	gdt[6] = 0;
-	gdt[7] = 0;
-	
-	/* 32-bit code */
-	gdt[8] = 0xFF; /* segment limit 0-7 */
-	gdt[9] = 0xFF; /* segment limit 8-15 */
-	gdt[10] = 0; /* segment base 0-7 */
-	gdt[11] = 0; /* segment base 8-15 */
-	gdt[12] = 0; /* segment base 16-23 */
-	gdt[13] = 0x98; /* flags */
-	gdt[14] = 0xCF; /* segment limit 16-19 + flags */
-	gdt[15] = 0; /* segment base 24-31 */
-	
-	/* 32-bit data */
-	gdt[16] = 0xFF; /* segment limit 0-7 */
-	gdt[17] = 0xFF; /* segment limit 8-15 */
-	gdt[18] = 0; /* segment base 0-7 */
-	gdt[19] = 0; /* segment base 8-15 */
-	gdt[20] = 0; /* segment base 16-23 */
-	gdt[21] = 0x92; /* flags */
-	gdt[22] = 0xCF; /* segment limit 16-19 + flags */
-	gdt[23] = 0; /* segment base 24-31 */
-	
-	/* 64-bit code */
-	gdt[24] = 0xFF; /* segment limit 0-7 */
-	gdt[25] = 0xFF; /* segment limit 8-15 */
-	gdt[26] = 0; /* segment base 0-7 */
-	gdt[27] = 0; /* segment base 8-15 */
-	gdt[28] = 0; /* segment base 16-23 */
-	gdt[29] = 0x98; /* flags */
-	gdt[30] = 0xAF; /* segment limit 16-19 + flags */
-	gdt[31] = 0; /* segment base 24-31 */
+	frigg::arch_x86::makeGdtNullSegment((uint32_t *)gdt_page, 0);
+	frigg::arch_x86::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
+	frigg::arch_x86::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
 
 	pkrt_lgdt(gdt_page, 31); 
 }

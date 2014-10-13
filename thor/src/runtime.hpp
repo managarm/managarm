@@ -4,8 +4,12 @@ extern "C" void __cxa_pure_virtual();
 
 extern "C" void thorRtHalt();
 
+extern "C" void thorRtLoadCs(uint16_t selector);
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();
+
+extern "C" void thorRtIsrDoubleFault();
+extern "C" void thorRtIsrPageFault();
 
 template<typename T>
 class LazyInitializer {
