@@ -48,7 +48,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 		pdpt = (uint64_t *)physicalToVirtual(page);
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
-		pml4[pml4_index] = page | kPagePresent | kPageWrite;
+		pml4[pml4_index] = page | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
 	
@@ -60,7 +60,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 		pd = (uint64_t *)physicalToVirtual(page);
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
-		pdpt[pdpt_index] = page | kPagePresent | kPageWrite;
+		pdpt[pdpt_index] = page | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
 	
@@ -72,7 +72,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 		pt = (uint64_t *)physicalToVirtual(page);
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
-		pd[pd_index] = page | kPagePresent | kPageWrite;
+		pd[pd_index] = page | kPagePresent | kPageWrite | kPageUser;
 	}
 	
 	// setup the new pt entry
@@ -80,7 +80,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 		debug::criticalLogger->log("pk_page_map(): Page already mapped!");
 		debug::panic();
 	}
-	pt[pt_index] = physical | kPagePresent | kPageWrite;
+	pt[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
 }} // namespace thor::memory

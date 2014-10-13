@@ -6,8 +6,9 @@ void *physicalToVirtual(uintptr_t address);
 
 enum PageFlags {
 	kPageSize = 0x1000,
-	kPagePresent = 1,
-	kPageWrite = 2
+	kPagePresent = 0x1,
+	kPageWrite = 0x2,
+	kPageUser = 0x4
 };
 
 class PageSpace {

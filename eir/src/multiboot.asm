@@ -46,18 +46,22 @@ pkrt_kernel:
 	or $0x80000000, %eax
 	mov %eax, %cr0
 
+	// setup the kernel environment
+	mov $eirRtInitImage, %edi
+
 	// load a 64 bit code segment
 	ljmp $0x18, $pkrt_kernel_64bits
+
 pkrt_kernel_64bits:
 .code64
 	mov $0, %ax
 	mov %ax, %ds
 	mov %ax, %es
 	mov %ax, %ss
+	
 	// load the kernel entry address and jump
 	mov 8(%rsp), %rax
 	jmp *%rax
-	hlt /* should never be reached! */
 .code32
 
 .global pkrt_lgdt
@@ -95,9 +99,16 @@ pkrt_igdt:
 pkrt_trap_stub:
 	hlt
 
+// include init images here
 .section .image
-	.balign 0x1000
+
+.balign 0x1000
 .global pkrt_image
 pkrt_image:
 	.incbin "../thor/bin/kernel.elf"
+
+.balign 0x1000
+.global eirRtInitImage
+eirRtInitImage:
+	.incbin "../zisa/bin/init.elf"
 

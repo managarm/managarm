@@ -26,10 +26,20 @@ void makeGdtFlatData32SystemSegment(uint32_t *gdt, int entry) {
 	makeGdtSegment(gdt, entry, 0, 0x000FFFFF, kGdtWord1DataSegment | kGdtWord1Present
 			| kGdtWord1Default | kGdtWord1Granularity);
 }
+void makeGdtFlatData32UserSegment(uint32_t *gdt, int entry) {
+	makeGdtSegment(gdt, entry, 0, 0x000FFFFF, kGdtWord1DataSegment | kGdtWord1User | kGdtWord1Present
+			| kGdtWord1Default | kGdtWord1Granularity);
+}
 
 void makeGdtCode64SystemSegment(uint32_t *gdt, int entry) {
 	gdt[entry * 2 + 0] = 0;
 	gdt[entry * 2 + 1] = kGdtWord1CodeSegment | kGdtWord1Present
+			| kGdtWord1Long | kGdtWord1Granularity;
+}
+
+void makeGdtCode64UserSegment(uint32_t *gdt, int entry) {
+	gdt[entry * 2 + 0] = 0;
+	gdt[entry * 2 + 1] = kGdtWord1CodeSegment | kGdtWord1User | kGdtWord1Present
 			| kGdtWord1Long | kGdtWord1Granularity;
 }
 

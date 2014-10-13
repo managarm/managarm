@@ -15,7 +15,8 @@ extern char pkrt_image;
 
 enum PageFlags {
 	kPagePresent = 1,
-	kPageWrite = 2
+	kPageWrite = 2,
+	kPageUser = 4
 };
 
 void print_put(int x, int y, char c) {
@@ -135,7 +136,7 @@ void pk_page_map4k(addr64_t address, addr64_t physical) {
 		pdpt = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
-		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
+		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
 	
@@ -145,7 +146,7 @@ void pk_page_map4k(addr64_t address, addr64_t physical) {
 		pd = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
-		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
+		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
 	
@@ -155,7 +156,7 @@ void pk_page_map4k(addr64_t address, addr64_t physical) {
 		pt = alloc_page();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
-		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite;
+		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
@@ -167,7 +168,7 @@ void pk_page_map4k(addr64_t address, addr64_t physical) {
 		print_str("\n");
 		pk_panic();
 	}
-	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite;
+	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
 extern "C" void pkrt_lgdt(addr32_t gdt_page, uint32_t size);

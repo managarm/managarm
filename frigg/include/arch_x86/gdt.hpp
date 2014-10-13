@@ -20,6 +20,7 @@ struct Gdtr {
 void makeGdtNullSegment(uint32_t *gdt, int entry);
 void makeGdtFlatCode32SystemSegment(uint32_t *gdt, int entry);
 void makeGdtFlatData32SystemSegment(uint32_t *gdt, int entry);
+void makeGdtFlatData32UserSegment(uint32_t *gdt, int entry);
 void makeGdtCode64SystemSegment(uint32_t *gdt, int entry);
 void makeGdtCode64UserSegment(uint32_t *gdt, int entry);
 

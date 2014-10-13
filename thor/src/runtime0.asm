@@ -24,6 +24,15 @@ thorRtLoadCs:
 reloadCsFinish:
 	ret
 
+.global thorRtContinueThread
+thorRtContinueThread:
+	pushq $0x1B
+	pushq $0
+	pushfq
+	pushq %rdi
+	pushq %rsi
+	iretq
+
 .global thorRtIsrDoubleFault
 thorRtIsrDoubleFault:
 	call thorDoubleFault
