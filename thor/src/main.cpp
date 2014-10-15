@@ -9,22 +9,8 @@
 #include "memory/physical-alloc.hpp"
 #include "memory/paging.hpp"
 #include "memory/kernel-alloc.hpp"
-
-namespace thor {
-
-enum Error {
-	kErrSuccess = 0
-};
-
-class Resource {
-
-};
-
-class Descriptor {
-
-};
-
-}
+#include "core.hpp"
+#include "../../hel/include/hel.h"
 
 using namespace thor;
 
@@ -125,6 +111,8 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::kernelSpace.initialize(0x301000);
 	memory::kernelAllocator.initialize();
 
+	resourceMap.initialize(memory::kernelAllocator.access());
+
 	void *entry = loadInitImage(memory::kernelSpace.access(), (char *)init_image);
 	thorRtContinueThread(0x13, entry);
 }
@@ -139,8 +127,14 @@ extern "C" void thorPageFault() {
 	debug::panic();
 }
 
-extern "C" void thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
+extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
-//	vgaLogger->log("Syscall");
+	switch(index) {
+	case HEL_CALL_CREATE_MEMORY:
+		return hel_create_memory(arg0);
+	default:
+		vgaLogger->log("Illegal syscall");
+		debug::panic();
+	}
 }
 

@@ -46,6 +46,6 @@ thorRtIsrPageFault:
 
 .global thorRtIsrSyscall
 thorRtIsrSyscall:
-#	call thorSyscall
+	call thorSyscall
 	iretq
 
