@@ -11,6 +11,7 @@ extern "C" void thorRtContinueThread(uint16_t cs_selector, void *rip);
 
 extern "C" void thorRtIsrDoubleFault();
 extern "C" void thorRtIsrPageFault();
+extern "C" void thorRtIsrSyscall();
 
 template<typename T>
 class LazyInitializer {

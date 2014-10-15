@@ -44,3 +44,8 @@ thorRtIsrPageFault:
 	call thorPageFault
 	jmp thorRtHalt
 
+.global thorRtIsrSyscall
+thorRtIsrSyscall:
+#	call thorSyscall
+	iretq
+

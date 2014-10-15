@@ -113,8 +113,9 @@ extern "C" void thorMain(uint64_t init_image) {
 	uintptr_t idt_page = stupidTableAllocator->allocate();
 	for(int i = 0; i < 256; i++)
 		frigg::arch_x86::makeIdt64NullGate((uint32_t *)idt_page, i);
-	frigg::arch_x86::makeIdt64IntGate((uint32_t *)idt_page, 8, 0x8, (void *)&thorRtIsrDoubleFault);
-	frigg::arch_x86::makeIdt64IntGate((uint32_t *)idt_page, 14, 0x8, (void *)&thorRtIsrPageFault);
+	frigg::arch_x86::makeIdt64IntSystemGate((uint32_t *)idt_page, 8, 0x8, (void *)&thorRtIsrDoubleFault);
+	frigg::arch_x86::makeIdt64IntSystemGate((uint32_t *)idt_page, 14, 0x8, (void *)&thorRtIsrPageFault);
+	frigg::arch_x86::makeIdt64IntUserGate((uint32_t *)idt_page, 0x80, 0x8, (void *)&thorRtIsrSyscall);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 16 * 256;
@@ -136,5 +137,10 @@ extern "C" void thorDoubleFault() {
 extern "C" void thorPageFault() {
 	vgaLogger->log("Page fault");
 	debug::panic();
+}
+
+extern "C" void thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
+		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
+//	vgaLogger->log("Syscall");
 }
 

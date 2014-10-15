@@ -4,6 +4,7 @@ namespace arch_x86 {
 
 enum IdtFlags : uint32_t {
 	kIdtWord1InterruptGate = 0x0E00,
+	kIdtWord1User = 0x6000,
 	kIdtWord1Present = 0x8000
 };
 
@@ -13,7 +14,8 @@ struct Idtr {
 } __attribute__ (( packed ));
 
 void makeIdt64NullGate(uint32_t *idt, int entry);
-void makeIdt64IntGate(uint32_t *idt, int entry, int segment, void *handler);
+void makeIdt64IntSystemGate(uint32_t *idt, int entry, int segment, void *handler);
+void makeIdt64IntUserGate(uint32_t *idt, int entry, int segment, void *handler);
 
 }} // namespace frigg::arch_x86
 
