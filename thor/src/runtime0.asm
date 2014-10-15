@@ -1,7 +1,7 @@
 
 .global thorRtEntry
 thorRtEntry:
-	movq $0x200000, %rsp
+	movabs $0xFFFF800100200000, %rsp
 	.extern thorMain
 	call thorMain
 	hlt
@@ -14,7 +14,7 @@ thorRtHalt:
 .global thorRtLoadCs
 thorRtLoadCs:
 	movq %rsp, %rax
-	movq $reloadCsFinish, %rcx
+	movabs $reloadCsFinish, %rcx
 	pushq $0
 	pushq %rax
 	pushfq

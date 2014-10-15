@@ -10,7 +10,7 @@ enum IdtFlags : uint32_t {
 
 struct Idtr {
 	uint16_t limit;
-	uint64_t pointer;
+	uint32_t *pointer;
 } __attribute__ (( packed ));
 
 void makeIdt64NullGate(uint32_t *idt, int entry);

@@ -14,7 +14,7 @@ LazyInitializer<StupidMemoryAllocator> kernelAllocator;
 // StupidVirtualAllocator
 // --------------------------------------------------------
 
-StupidVirtualAllocator::StupidVirtualAllocator() : p_nextPointer((char *)0x800000) { }
+StupidVirtualAllocator::StupidVirtualAllocator() : p_nextPointer((char *)0xFFFF800200000000) { }
 
 void *StupidVirtualAllocator::allocate(size_t length) {
 	if(length % kPageSize != 0)

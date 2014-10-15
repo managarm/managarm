@@ -109,6 +109,15 @@ void pk_page_setup() {
 	pk_pml4 = alloc_page();
 	for(int i = 0; i < 512; i++)
 		((uint64_t*)pk_pml4)[i] = 0;
+	
+	for(int i = 256; i < 512; i++) {
+		addr32_t pdpt_page = alloc_page();
+		uint64_t *pdpt_pointer = (uint64_t *)pdpt_page;
+		for(int j = 0; j < 512; j++)
+			pdpt_pointer[j] = 0;
+
+		((uint64_t*)pk_pml4)[i] = pdpt_page | kPagePresent | kPageWrite | kPageUser;
+	}
 }
 
 void pk_page_map4k(addr64_t address, addr64_t physical) {
@@ -246,6 +255,9 @@ extern "C" void prekernel_main() {
 	pk_page_setup();
 	for(addr32_t addr = 0; addr < 0x800000; addr += 0x1000)
 		pk_page_map4k(addr, addr);
+
+	for(addr32_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
+		pk_page_map4k(0xFFFF800100000000 + addr, addr);
 
 	addr64_t kernel_entry;
 	pk_load_image(&kernel_entry);

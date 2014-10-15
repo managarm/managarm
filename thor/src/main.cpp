@@ -20,7 +20,9 @@ LazyInitializer<debug::TerminalLogger> vgaLogger;
 
 LazyInitializer<memory::StupidPhysicalAllocator> stupidTableAllocator;
 
-void *loadInitImage(memory::PageSpace *space, char *image) {
+void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
+	char *image = (char *)memory::physicalToVirtual(image_page);
+
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
 	if(ehdr->e_ident[0] != '\x7F'
 			|| ehdr->e_ident[1] != 'E'
@@ -51,7 +53,7 @@ void *loadInitImage(memory::PageSpace *space, char *image) {
 		uint32_t page = 0;
 		while(page < (uint32_t)phdr->p_filesz) {
 			space->mapSingle4k((void *)(phdr->p_vaddr + page),
-					(uintptr_t)(image + phdr->p_offset + page));
+					image_page + phdr->p_offset + page);
 			page += 0x1000;
 		}
 		vgaLogger->log("Loaded PHDR\n");
@@ -61,7 +63,7 @@ void *loadInitImage(memory::PageSpace *space, char *image) {
 }
 
 extern "C" void thorMain(uint64_t init_image) {
-	vgaScreen.initialize((char *)0xB8000, 80, 25);
+	vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
 	
 	vgaTerminal.initialize(vgaScreen.access());
 	vgaTerminal->clear();
@@ -70,26 +72,27 @@ extern "C" void thorMain(uint64_t init_image) {
 	vgaLogger->log("Starting Thor");
 	debug::criticalLogger = vgaLogger.access();
 
-	stupidTableAllocator.initialize(0x400000);
+	stupidTableAllocator.initialize(0x800000);
 	memory::tableAllocator = stupidTableAllocator.access();
 
 	uintptr_t tss_page = stupidTableAllocator->allocate();
-	
-	uint32_t *tss_ptr = (uint32_t *)tss_page;
+	uint32_t *tss_pointer = (uint32_t *)memory::physicalToVirtual(tss_page);
 	for(int i = 0; i < 1024; i++)
-		tss_ptr[i] = 0;
-	tss_ptr[1] = 0x200000;
+		tss_pointer[i] = 0;
+	tss_pointer[1] = 0x200000;
+	tss_pointer[2] = 0xFFFF8001;
 
 	uintptr_t gdt_page = stupidTableAllocator->allocate();
-	frigg::arch_x86::makeGdtNullSegment((uint32_t *)gdt_page, 0);
-	frigg::arch_x86::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 1);
-	frigg::arch_x86::makeGdtCode64UserSegment((uint32_t *)gdt_page, 2);
-	frigg::arch_x86::makeGdtFlatData32UserSegment((uint32_t *)gdt_page, 3);
-	frigg::arch_x86::makeGdtTss64Descriptor((uint32_t *)gdt_page, 4, tss_ptr);
+	uint32_t *gdt_pointer = (uint32_t *)memory::physicalToVirtual(gdt_page);
+	frigg::arch_x86::makeGdtNullSegment(gdt_pointer, 0);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt_pointer, 1);
+	frigg::arch_x86::makeGdtCode64UserSegment(gdt_pointer, 2);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt_pointer, 3);
+	frigg::arch_x86::makeGdtTss64Descriptor(gdt_pointer, 4, tss_pointer);
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 6 * 8;
-	gdtr.pointer = gdt_page;
+	gdtr.pointer = gdt_pointer;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	thorRtLoadCs(0x8);
@@ -97,23 +100,28 @@ extern "C" void thorMain(uint64_t init_image) {
 	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
 
 	uintptr_t idt_page = stupidTableAllocator->allocate();
+	uint32_t *idt_pointer = (uint32_t *)memory::physicalToVirtual(idt_page);
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate((uint32_t *)idt_page, i);
-	frigg::arch_x86::makeIdt64IntSystemGate((uint32_t *)idt_page, 8, 0x8, (void *)&thorRtIsrDoubleFault);
-	frigg::arch_x86::makeIdt64IntSystemGate((uint32_t *)idt_page, 14, 0x8, (void *)&thorRtIsrPageFault);
-	frigg::arch_x86::makeIdt64IntUserGate((uint32_t *)idt_page, 0x80, 0x8, (void *)&thorRtIsrSyscall);
+		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault);
+	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 16 * 256;
-	idtr.pointer = idt_page;
+	idtr.pointer = idt_pointer;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	memory::kernelSpace.initialize(0x301000);
 	memory::kernelAllocator.initialize();
 
+	memory::PageSpace user_space = memory::kernelSpace->clone();
+	user_space.switchTo();
+
 	resourceMap.initialize(memory::kernelAllocator.access());
 
-	void *entry = loadInitImage(memory::kernelSpace.access(), (char *)init_image);
+	void *entry = loadInitImage(&user_space, init_image);
+	thorRtInvalidateSpace();
 	thorRtContinueThread(0x13, entry);
 }
 
@@ -129,6 +137,7 @@ extern "C" void thorPageFault() {
 
 extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
+	vgaLogger->log("syscall");
 	switch(index) {
 	case HEL_CALL_CREATE_MEMORY:
 		return hel_create_memory(arg0);

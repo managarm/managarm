@@ -11,7 +11,7 @@ namespace memory {
 LazyInitializer<PageSpace> kernelSpace;
 
 void *physicalToVirtual(uintptr_t address) {
-	return (void *)address;
+	return (void *)(0xFFFF800100000000 + address);
 }
 
 // --------------------------------------------------------
@@ -20,6 +20,23 @@ void *physicalToVirtual(uintptr_t address) {
 
 PageSpace::PageSpace(uintptr_t pml4_address)
 			: p_pml4Address(pml4_address) { }
+
+void PageSpace::switchTo() {
+	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) );
+}
+
+PageSpace PageSpace::clone() {
+	uint64_t new_pml4_page = tableAllocator->allocate();
+	volatile uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	volatile uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
+
+	for(int i = 0; i < 256; i++)
+		new_pml4_pointer[i] = 0;
+	for(int i = 256; i < 512; i++)
+		new_pml4_pointer[i] = this_pml4_pointer[i];
+	
+	return PageSpace(new_pml4_page);
+}
 
 void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	if((uintptr_t)pointer % 0x1000 != 0) {
@@ -37,50 +54,50 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	int pt_index = (int)(((uintptr_t)pointer >> 12) & 0x1FF);
 	
 	// find the pml4_entry. the pml4 exists already
-	volatile uint64_t *pml4 = (uint64_t *)physicalToVirtual(p_pml4Address);
-	uint64_t pml4_entry = ((uint64_t*)pml4)[pml4_index];
-	
+	volatile uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t pml4_entry = pml4_pointer[pml4_index];
+
 	// find the pdpt entry; create pdpt if necessary
-	volatile uint64_t *pdpt = (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFF000);
+	volatile uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFFFFFFFFFF000);
 	if((pml4_entry & kPagePresent) == 0) {
-		uintptr_t page = tableAllocator->allocate();
+		uintptr_t pdpt_page = tableAllocator->allocate();
 		debug::criticalLogger->log("allocate pdpt");
-		pdpt = (uint64_t *)physicalToVirtual(page);
+		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
-			((uint64_t*)pdpt)[i] = 0;
-		pml4[pml4_index] = page | kPagePresent | kPageWrite | kPageUser;
+			pdpt_pointer[i] = 0;
+		pml4_pointer[pml4_index] = pdpt_page | kPagePresent | kPageWrite | kPageUser;
 	}
-	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
+	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// find the pd entry; create pd if necessary
-	volatile uint64_t *pd = (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFF000);
+	volatile uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFFFFFFFFFF000);
 	if((pdpt_entry & kPagePresent) == 0) {
-		uintptr_t page = tableAllocator->allocate();
+		uintptr_t pd_page = tableAllocator->allocate();
 		debug::criticalLogger->log("allocate pd");
-		pd = (uint64_t *)physicalToVirtual(page);
+		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
-			((uint64_t*)pd)[i] = 0;
-		pdpt[pdpt_index] = page | kPagePresent | kPageWrite | kPageUser;
+			pd_pointer[i] = 0;
+		pdpt_pointer[pdpt_index] = pd_page | kPagePresent | kPageWrite | kPageUser;
 	}
-	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
+	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// find the pt entry; create pt if necessary
-	volatile uint64_t *pt = (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFF000);
+	volatile uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFFFFFFFFFF000);
 	if((pd_entry & kPagePresent) == 0) {
-		uintptr_t page = tableAllocator->allocate();
+		uintptr_t pt_page = tableAllocator->allocate();
 		debug::criticalLogger->log("allocate pt");
-		pt = (uint64_t *)physicalToVirtual(page);
+		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)
-			((uint64_t*)pt)[i] = 0;
-		pd[pd_index] = page | kPagePresent | kPageWrite | kPageUser;
+			pt_pointer[i] = 0;
+		pd_pointer[pd_index] = pt_page | kPagePresent | kPageWrite | kPageUser;
 	}
 	
 	// setup the new pt entry
-	if((pt[pt_index] & kPagePresent) != 0) {
+	if((pt_pointer[pt_index] & kPagePresent) != 0) {
 		debug::criticalLogger->log("pk_page_map(): Page already mapped!");
 		debug::panic();
 	}
-	pt[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
+	pt_pointer[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
 }} // namespace thor::memory

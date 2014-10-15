@@ -15,7 +15,7 @@ enum GdtFlags : uint32_t {
 
 struct Gdtr {
 	uint16_t limit;
-	uint64_t pointer;
+	uint32_t *pointer;
 } __attribute__ (( packed ));
 
 void makeGdtNullSegment(uint32_t *gdt, int entry);
