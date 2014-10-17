@@ -8,8 +8,6 @@ enum Error {
 };
 
 class Resource;
-template<typename R>
-class ResourcePtr;
 class Descriptor;
 
 typedef uint64_t Handle;
@@ -24,40 +22,28 @@ private:
 	Handle p_resHandle;
 };
 
-template<typename R>
-class ResourcePtr {
-public:
-	Resource &operator* () {
-		return *p_resource;
-	}
-
-private:
-	R *p_resource;
-};
-
-class Descriptor {
-public:
-
-private:
-	Handle p_descHandle;
-
-	ResourcePtr<Resource> p_resource;
-};
-
 class ProcessResource : public Resource {
 private:
 };
 
 class AddressSpaceResource : public Resource {
+public:
+	AddressSpaceResource(memory::PageSpace page_space);
 
+	void mapSingle4k(void *address, uintptr_t physical);
+
+private:
+	memory::PageSpace p_pageSpace;
 };
 
 class ThreadResource : public Resource {
 public:
+	RefCountPtr<AddressSpaceResource> getAddressSpace();
+
+	void setAddressSpace(RefCountPtr<AddressSpaceResource> address_space);
 
 private:
-	ResourcePtr<AddressSpaceResource> p_addressSpace;
-	ResourcePtr<ProcessResource> p_process;
+	RefCountPtr<AddressSpaceResource> p_addressSpace;
 	void *p_threadStack;
 	void *p_threadIp;
 };
@@ -68,11 +54,25 @@ public:
 
 	void resize(size_t length);
 
+	uintptr_t getPage(int index);
+
 private:
 	util::Vector<uintptr_t, KernelAllocator> p_physicalPages;
 };
 
+class Descriptor {
+public:
+
+private:
+	Handle p_descHandle;
+
+	RefCountPtr<Resource> p_resource;
+};
+
+
 extern LazyInitializer<util::Vector<Resource *, KernelAllocator>> resourceMap;
+
+extern LazyInitializer<RefCountPtr<ThreadResource>> currentThread;
 
 } // namespace thor
 

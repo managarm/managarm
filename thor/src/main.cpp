@@ -6,6 +6,7 @@
 #include "../../frigg/include/arch_x86/idt.hpp"
 #include "../../frigg/include/elf.hpp"
 #include "util/vector.hpp"
+#include "util/smart-ptr.hpp"
 #include "memory/physical-alloc.hpp"
 #include "memory/paging.hpp"
 #include "memory/kernel-alloc.hpp"
@@ -115,11 +116,20 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::kernelSpace.initialize(0x301000);
 	memory::kernelAllocator.initialize();
 
+	resourceMap.initialize(memory::kernelAllocator.access());
+	
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
-
-	resourceMap.initialize(memory::kernelAllocator.access());
-
+	
+	auto address_space_resource = RefCountPtr<AddressSpaceResource>::make(
+			memory::kernelAllocator.access(), user_space);
+	
+	auto thread_resource = RefCountPtr<ThreadResource>::make(
+			memory::kernelAllocator.access());
+	thread_resource->setAddressSpace(address_space_resource);
+	
+	currentThread.initialize(thread_resource);
+	
 	void *entry = loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
 	thorRtContinueThread(0x13, entry);
@@ -139,8 +149,11 @@ extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
 	vgaLogger->log("syscall");
 	switch(index) {
-	case HEL_CALL_CREATE_MEMORY:
-		return hel_create_memory(arg0);
+	case kHelCallCreateMemory:
+		return helCreateMemory(arg0);
+	case kHelCallMapMemory:
+		helMapMemory((HelResource)arg0, (void *)arg1, (size_t)arg2);
+		return 0;
 	default:
 		vgaLogger->log("Illegal syscall");
 		debug::panic();

@@ -1,11 +1,13 @@
 
 enum {
-	HEL_CALL_CREATE_MEMORY = 1
+	kHelCallCreateMemory = 1,
+	kHelCallMapMemory = 2
 };
 
-typedef uint64_t hel_handle_t;
-typedef hel_handle_t hel_resource_t;
-typedef hel_handle_t hel_descriptor_t;
+typedef uint64_t HelHandle;
+typedef HelHandle HelResource;
+typedef HelHandle HelDescriptor;
 
-extern "C" hel_resource_t hel_create_memory(size_t length);
+extern "C" HelResource helCreateMemory(size_t length);
+extern "C" void helMapMemory(HelResource resource, void *pointer, size_t length);
 
