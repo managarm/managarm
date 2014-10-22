@@ -12,15 +12,16 @@ class Descriptor;
 
 typedef uint64_t Handle;
 
-class Resource {
+class Resource : public SharedObject {
 public:
-	void install();
-
 	Handle getResHandle();
+
+	void install();
 
 private:
 	Handle p_resHandle;
 };
+
 
 class ProcessResource : public Resource {
 private:
@@ -37,15 +38,19 @@ private:
 };
 
 class ThreadResource : public Resource {
+friend void switchTo(const SharedPtr<ThreadResource> &thread_res);
 public:
-	RefCountPtr<AddressSpaceResource> getAddressSpace();
+	void setup(void *entry, uintptr_t argument);
 
-	void setAddressSpace(RefCountPtr<AddressSpaceResource> address_space);
+	SharedPtr<AddressSpaceResource> getAddressSpace();
+
+	void setAddressSpace(SharedPtr<AddressSpaceResource> address_space);
+	
+	void switchTo();
 
 private:
-	RefCountPtr<AddressSpaceResource> p_addressSpace;
-	void *p_threadStack;
-	void *p_threadIp;
+	SharedPtr<AddressSpaceResource> p_addressSpace;
+	ThorRtThreadState p_state;
 };
 
 class MemoryResource : public Resource {
@@ -66,13 +71,13 @@ public:
 private:
 	Handle p_descHandle;
 
-	RefCountPtr<Resource> p_resource;
+	SharedPtr<Resource> p_resource;
 };
 
 
-extern LazyInitializer<util::Vector<Resource *, KernelAllocator>> resourceMap;
+extern LazyInitializer<util::Vector<UnsafePtr<Resource>, KernelAllocator>> resourceMap;
 
-extern LazyInitializer<RefCountPtr<ThreadResource>> currentThread;
+extern LazyInitializer<SharedPtr<ThreadResource>> currentThread;
 
 } // namespace thor
 

@@ -121,11 +121,8 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 	
-	auto address_space_resource = RefCountPtr<AddressSpaceResource>::make(
-			memory::kernelAllocator.access(), user_space);
-	
-	auto thread_resource = RefCountPtr<ThreadResource>::make(
-			memory::kernelAllocator.access());
+	auto address_space_resource = makeShared<AddressSpaceResource>(memory::kernelAllocator.access(), user_space);
+	auto thread_resource = makeShared<ThreadResource>(memory::kernelAllocator.access());
 	thread_resource->setAddressSpace(address_space_resource);
 	
 	currentThread.initialize(thread_resource);
@@ -151,8 +148,13 @@ extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 	switch(index) {
 	case kHelCallCreateMemory:
 		return helCreateMemory(arg0);
+	case kHelCallCreateThread:
+		return helCreateThread();
 	case kHelCallMapMemory:
 		helMapMemory((HelResource)arg0, (void *)arg1, (size_t)arg2);
+		return 0;
+	case kHelCallSwitchThread:
+		helSwitchThread((HelResource)arg0);
 		return 0;
 	default:
 		vgaLogger->log("Illegal syscall");

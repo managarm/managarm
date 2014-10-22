@@ -2,9 +2,6 @@
 #include "../../frigg/include/arch_x86/types64.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
-#include "../../frigg/include/arch_x86/gdt.hpp"
-#include "../../frigg/include/arch_x86/idt.hpp"
-#include "../../frigg/include/elf.hpp"
 #include "util/vector.hpp"
 #include "util/smart-ptr.hpp"
 #include "memory/physical-alloc.hpp"
@@ -14,18 +11,19 @@
 
 namespace thor {
 
-LazyInitializer<util::Vector<Resource *, KernelAllocator>> resourceMap;
+LazyInitializer<util::Vector<UnsafePtr<Resource>, KernelAllocator>> resourceMap;
 
-LazyInitializer<RefCountPtr<ThreadResource>> currentThread;
-
-void Resource::install() {
-	p_resHandle = resourceMap->size();
-	resourceMap->push(this);
-}
+LazyInitializer<SharedPtr<ThreadResource>> currentThread;
 
 Handle Resource::getResHandle() {
 	return p_resHandle;
 }
+
+void Resource::install() {
+	p_resHandle = resourceMap->size();
+	resourceMap->push(this->unsafe<Resource>());
+}
+
 
 // --------------------------------------------------------
 // AddressSpaceResource
@@ -42,12 +40,27 @@ void AddressSpaceResource::mapSingle4k(void *address, uintptr_t physical) {
 // ThreadResource
 // --------------------------------------------------------
 
-RefCountPtr<AddressSpaceResource> ThreadResource::getAddressSpace() {
+void ThreadResource::setup(void *entry, uintptr_t argument) {
+	size_t stack_size = 0x2000;
+	char *stack_base = (char *)memory::kernelAllocator->allocate(stack_size);
+	uint64_t *stack_ptr = (uint64_t *)(stack_base + stack_size);
+	stack_ptr--; *stack_ptr = (uint64_t)entry;
+	p_state.rsp = stack_ptr;
+}
+
+SharedPtr<AddressSpaceResource> ThreadResource::getAddressSpace() {
 	return p_addressSpace;
 }
 
-void ThreadResource::setAddressSpace(RefCountPtr<AddressSpaceResource> address_space) {
+void ThreadResource::setAddressSpace(SharedPtr<AddressSpaceResource> address_space) {
 	p_addressSpace = address_space;
+}
+
+void ThreadResource::switchTo() {
+	SharedPtr<ThreadResource> cur_thread_res = *currentThread;
+	*currentThread = this->shared<ThreadResource>();
+
+	thorRtSwitchThread(&cur_thread_res->p_state, &this->p_state);
 }
 
 // --------------------------------------------------------

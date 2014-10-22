@@ -2,9 +2,6 @@
 #include "../../frigg/include/arch_x86/types64.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
-#include "../../frigg/include/arch_x86/gdt.hpp"
-#include "../../frigg/include/arch_x86/idt.hpp"
-#include "../../frigg/include/elf.hpp"
 #include "util/vector.hpp"
 #include "util/smart-ptr.hpp"
 #include "memory/physical-alloc.hpp"
@@ -16,16 +13,16 @@
 using namespace thor;
 
 HelResource helCreateMemory(size_t length) {
-	auto resource = RefCountPtr<MemoryResource>::make(memory::kernelAllocator.access());
+	auto resource = makeShared<MemoryResource>(memory::kernelAllocator.access());
 	resource->install();
 	resource->resize(length);
 	return resource->getResHandle();
 }
 
 void helMapMemory(HelResource resource, void *pointer, size_t length) {
-	RefCountPtr<ThreadResource> thread = *currentThread.access();
-	RefCountPtr<AddressSpaceResource> address_space = thread->getAddressSpace();
-	MemoryResource *memory = (MemoryResource *)(*resourceMap.access())[(int)resource];
+	SharedPtr<ThreadResource> thread = *currentThread.access();
+	SharedPtr<AddressSpaceResource> address_space = thread->getAddressSpace();
+	UnsafePtr<MemoryResource> memory = (*resourceMap.access())[(int)resource]->unsafe<MemoryResource>();
 
 	for(int offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
 		address_space->mapSingle4k((void *)((uintptr_t)pointer + offset),
@@ -33,5 +30,22 @@ void helMapMemory(HelResource resource, void *pointer, size_t length) {
 	}
 	
 	thorRtInvalidateSpace();
+}
+
+HelResource helCreateThread() {
+	SharedPtr<ThreadResource> thread = *currentThread.access();
+	SharedPtr<AddressSpaceResource> address_space = thread->getAddressSpace();
+
+	auto resource = makeShared<ThreadResource>(memory::kernelAllocator.access());
+	resource->install();
+	resource->setup((void *)&thorRtThreadEntry, 0);
+	resource->setAddressSpace(address_space);
+	return resource->getResHandle();
+}
+
+void helSwitchThread(HelResource thread_handle) {
+	SharedPtr<ThreadResource> cur_thread = *currentThread.access();
+	UnsafePtr<ThreadResource> next_thread = (*resourceMap.access())[(int)thread_handle]->unsafe<ThreadResource>();
+	next_thread->switchTo();
 }
 

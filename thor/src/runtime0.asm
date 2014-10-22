@@ -34,6 +34,32 @@ thorRtContinueThread:
 	pushq %rsi
 	iretq
 
+.global thorRtSwitchThread
+thorRtSwitchThread:
+	# save thread state
+	mov %rbx, 0x0(%rdi)
+	mov %rbp, 0x8(%rdi)
+	mov %r12, 0x10(%rdi)
+	mov %r13, 0x18(%rdi)
+	mov %r14, 0x20(%rdi)
+	mov %r15, 0x28(%rdi)
+	mov %rsp, 0x30(%rdi)
+
+	# restore thread state
+	mov 0x0(%rsi), %rbx
+	mov 0x8(%rsi), %rbp
+	mov 0x10(%rsi), %r12
+	mov 0x18(%rsi), %r13
+	mov 0x20(%rsi), %r14
+	mov 0x28(%rsi), %r15
+	mov 0x30(%rsi), %rsp
+	ret
+
+.global thorRtThreadEntry
+thorRtThreadEntry:
+	hlt
+	jmp thorRtThreadEntry
+
 .global thorRtIsrDoubleFault
 thorRtIsrDoubleFault:
 	call thorDoubleFault
