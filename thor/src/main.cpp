@@ -1,5 +1,6 @@
 
 #include "../../frigg/include/arch_x86/types64.hpp"
+#include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
@@ -122,10 +123,10 @@ extern "C" void thorMain(uint64_t init_image) {
 	auto process = makeShared<Process>(memory::kernelAllocator.access());
 	auto address_space = makeShared<AddressSpace>(memory::kernelAllocator.access(), user_space);
 	auto thread = makeShared<Thread>(memory::kernelAllocator.access());
-	thread->setProcess(process->unsafe<Process>());
-	thread->setAddressSpace(address_space->unsafe<AddressSpace>());
+	thread->setProcess(process->shared<Process>());
+	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
-	currentThread.initialize(thread);
+	currentThread.initialize(thread->shared<Thread>());
 	
 	void *entry = loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();

@@ -19,7 +19,22 @@ class SharedPtr {
 	friend class SharedObject;
 public:
 	SharedPtr() : p_pointer(nullptr) { }
-	
+
+	SharedPtr(const SharedPtr &other) = delete;
+
+	SharedPtr(SharedPtr &&other) {
+		p_pointer = other.p_pointer;
+		other.p_pointer = nullptr;
+	}
+
+	SharedPtr &operator= (const SharedPtr &other) = delete;
+
+	SharedPtr &operator= (SharedPtr &&other) {
+		p_pointer = other.p_pointer;
+		other.p_pointer = nullptr;
+		return *this;
+	}
+
 	T *operator-> () {
 		return p_pointer;
 	}
@@ -57,7 +72,7 @@ UnsafePtr<T> SharedObject::unsafe() {
 }
 
 template<typename T, typename Allocator, typename... Args>
-SharedPtr<T> makeShared(Allocator *allocator, Args... args) {
+SharedPtr<T> makeShared(Allocator *allocator, Args&&... args) {
 	auto pointer = new (allocator) T(args...);
 	return pointer->template shared<T>();
 }

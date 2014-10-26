@@ -1,5 +1,6 @@
 
 #include "../../frigg/include/arch_x86/types64.hpp"
+#include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
 #include "util/vector.hpp"
@@ -19,7 +20,7 @@ HelDescriptor helCreateMemory(size_t length) {
 	auto memory = makeShared<Memory>(memory::kernelAllocator.access());
 	memory->resize(length);
 	
-	auto descriptor = new (memory::kernelAllocator.access()) Memory::AccessDescriptor(memory->unsafe<Memory>());
+	auto descriptor = new (memory::kernelAllocator.access()) Memory::AccessDescriptor(util::move(memory));
 	cur_process->attachDescriptor(descriptor);
 	return descriptor->getHandle();
 }
@@ -47,10 +48,10 @@ HelDescriptor helCreateThread(void *entry) {
 
 	auto new_thread = makeShared<Thread>(memory::kernelAllocator.access());
 	new_thread->setup((void *)&thorRtThreadEntry, (uintptr_t)entry);
-	new_thread->setProcess(cur_process);
-	new_thread->setAddressSpace(address_space);
+	new_thread->setProcess(cur_process->shared<Process>());
+	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
 
-	auto descriptor = new (memory::kernelAllocator.access()) Thread::ThreadDescriptor(new_thread->unsafe<Thread>());
+	auto descriptor = new (memory::kernelAllocator.access()) Thread::ThreadDescriptor(util::move(new_thread));
 	cur_process->attachDescriptor(descriptor);
 	return descriptor->getHandle();
 }

@@ -48,14 +48,14 @@ public:
 	UnsafePtr<Process> getProcess();
 	UnsafePtr<AddressSpace> getAddressSpace();
 	
-	void setProcess(UnsafePtr<Process> process);
-	void setAddressSpace(UnsafePtr<AddressSpace> address_space);
+	void setProcess(SharedPtr<Process> &&process);
+	void setAddressSpace(SharedPtr<AddressSpace> &&address_space);
 	
 	void switchTo();
 
 	class ThreadDescriptor : public Descriptor {
 	public:
-		ThreadDescriptor(UnsafePtr<Thread> thread);
+		ThreadDescriptor(SharedPtr<Thread> &&thread);
 		
 		UnsafePtr<Thread> getThread();
 
@@ -79,7 +79,7 @@ public:
 
 	class AccessDescriptor : public Descriptor {
 	public:
-		AccessDescriptor(UnsafePtr<Memory> memory);
+		AccessDescriptor(SharedPtr<Memory> &&memory);
 
 		UnsafePtr<Memory> getMemory();
 

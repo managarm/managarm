@@ -1,5 +1,6 @@
 
 #include "../../frigg/include/arch_x86/types64.hpp"
+#include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
 #include "util/vector.hpp"
@@ -73,15 +74,15 @@ UnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return p_addressSpace->unsafe<AddressSpace>();
 }
 
-void Thread::setProcess(UnsafePtr<Process> process) {
-	p_process = process->shared<Process>();
+void Thread::setProcess(SharedPtr<Process> &&process) {
+	p_process = util::move(process);
 }
-void Thread::setAddressSpace(UnsafePtr<AddressSpace> address_space) {
-	p_addressSpace = address_space->shared<AddressSpace>();
+void Thread::setAddressSpace(SharedPtr<AddressSpace> &&address_space) {
+	p_addressSpace = util::move(address_space);
 }
 
 void Thread::switchTo() {
-	SharedPtr<Thread> cur_thread_res = *currentThread;
+	UnsafePtr<Thread> cur_thread_res = (*currentThread)->unsafe<Thread>();
 	*currentThread = this->shared<Thread>();
 
 	thorRtSwitchThread(&cur_thread_res->p_state, &this->p_state);
@@ -91,8 +92,8 @@ void Thread::switchTo() {
 // Thread::ThreadDescriptor
 // --------------------------------------------------------
 
-Thread::ThreadDescriptor::ThreadDescriptor(UnsafePtr<Thread> thread)
-		: p_thread(thread->shared<Thread>()) { }
+Thread::ThreadDescriptor::ThreadDescriptor(SharedPtr<Thread> &&thread)
+		: p_thread(util::move(thread)) { }
 
 UnsafePtr<Thread> Thread::ThreadDescriptor::getThread() {
 	return p_thread->unsafe<Thread>();
@@ -118,8 +119,8 @@ uintptr_t Memory::getPage(int index) {
 // Memory::AccessDescriptor
 // --------------------------------------------------------
 
-Memory::AccessDescriptor::AccessDescriptor(UnsafePtr<Memory> memory)
-		: p_memory(memory->shared<Memory>()) { }
+Memory::AccessDescriptor::AccessDescriptor(SharedPtr<Memory> &&memory)
+		: p_memory(util::move(memory)) { }
 
 UnsafePtr<Memory> Memory::AccessDescriptor::getMemory() {
 	return p_memory->unsafe<Memory>();

@@ -32,8 +32,8 @@ template<typename T>
 class LazyInitializer {
 public:
 	template<typename... Args>
-	void initialize(Args... args) {
-		new(p_object) T(args...);
+	void initialize(Args&&... args) {
+		new(p_object) T(thor::util::forward<Args>(args)...);
 	}
 
 	T *access() {
