@@ -25,15 +25,6 @@ thorRtLoadCs:
 reloadCsFinish:
 	ret
 
-.global thorRtContinueThread
-thorRtContinueThread:
-	pushq $0x1B
-	pushq $0
-	pushfq
-	pushq %rdi
-	pushq %rsi
-	iretq
-
 .global thorRtSwitchThread
 thorRtSwitchThread:
 	# save thread state
@@ -55,10 +46,20 @@ thorRtSwitchThread:
 	mov 0x30(%rsi), %rsp
 	ret
 
+.global thorRtEnterUserThread
+thorRtEnterUserThread:
+	pushq $0x1B
+	pushq $0
+	pushfq
+	pushq %rdi
+	pushq %rsi
+	iretq
+
 .global thorRtThreadEntry
 thorRtThreadEntry:
-	hlt
-	jmp thorRtThreadEntry
+	mov $0x13, %rdi
+	mov %rbx, %rsi
+	jmp thorRtEnterUserThread
 
 .global thorRtIsrDoubleFault
 thorRtIsrDoubleFault:

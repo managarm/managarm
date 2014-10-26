@@ -32,13 +32,13 @@ void helMapMemory(HelResource resource, void *pointer, size_t length) {
 	thorRtInvalidateSpace();
 }
 
-HelResource helCreateThread() {
+HelResource helCreateThread(void *entry) {
 	SharedPtr<ThreadResource> thread = *currentThread.access();
 	SharedPtr<AddressSpaceResource> address_space = thread->getAddressSpace();
 
 	auto resource = makeShared<ThreadResource>(memory::kernelAllocator.access());
 	resource->install();
-	resource->setup((void *)&thorRtThreadEntry, 0);
+	resource->setup((void *)&thorRtThreadEntry, (uintptr_t)entry);
 	resource->setAddressSpace(address_space);
 	return resource->getResHandle();
 }

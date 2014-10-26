@@ -129,7 +129,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	
 	void *entry = loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
-	thorRtContinueThread(0x13, entry);
+	thorRtEnterUserThread(0x13, entry);
 }
 
 extern "C" void thorDoubleFault() {
@@ -147,9 +147,9 @@ extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 	vgaLogger->log("syscall");
 	switch(index) {
 	case kHelCallCreateMemory:
-		return helCreateMemory(arg0);
+		return helCreateMemory((size_t)arg0);
 	case kHelCallCreateThread:
-		return helCreateThread();
+		return helCreateThread((void *)arg0);
 	case kHelCallMapMemory:
 		helMapMemory((HelResource)arg0, (void *)arg1, (size_t)arg2);
 		return 0;

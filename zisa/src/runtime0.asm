@@ -14,6 +14,7 @@ zisaRtEntry:
 	mov $0x2001000, %rsp
 
 	mov $2, %rdi
+	mov $zisaIdle, %rsi
 	int $0x80
 
 	mov $4, %rdi

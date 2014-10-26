@@ -17,9 +17,10 @@ struct ThorRtThreadState {
 extern "C" void thorRtLoadCs(uint16_t selector);
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();
-extern "C" void thorRtContinueThread(uint16_t cs_selector, void *rip);
 extern "C" void thorRtSwitchThread(ThorRtThreadState *save_state,
 		ThorRtThreadState *restore_state);
+
+extern "C" void thorRtEnterUserThread(uint16_t cs_selector, void *rip);
 
 extern "C" void thorRtThreadEntry();
 

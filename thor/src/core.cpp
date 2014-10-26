@@ -42,9 +42,12 @@ void AddressSpaceResource::mapSingle4k(void *address, uintptr_t physical) {
 
 void ThreadResource::setup(void *entry, uintptr_t argument) {
 	size_t stack_size = 0x2000;
+
 	char *stack_base = (char *)memory::kernelAllocator->allocate(stack_size);
 	uint64_t *stack_ptr = (uint64_t *)(stack_base + stack_size);
 	stack_ptr--; *stack_ptr = (uint64_t)entry;
+	
+	p_state.rbx = (uintptr_t)argument;
 	p_state.rsp = stack_ptr;
 }
 
