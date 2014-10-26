@@ -6,12 +6,10 @@ enum {
 	kHelCallSwitchThread = 4
 };
 
-typedef uint64_t HelHandle;
-typedef HelHandle HelResource;
-typedef HelHandle HelDescriptor;
+typedef uint64_t HelDescriptor;
 
-extern "C" HelResource helCreateMemory(size_t length);
-extern "C" void helMapMemory(HelResource resource, void *pointer, size_t length);
-extern "C" HelResource helCreateThread(void *entry);
-extern "C" void helSwitchThread(HelResource thread_handle);
+extern "C" HelDescriptor helCreateMemory(size_t length);
+extern "C" void helMapMemory(HelDescriptor resource, void *pointer, size_t length);
+extern "C" HelDescriptor helCreateThread(void *entry);
+extern "C" void helSwitchThread(HelDescriptor thread_handle);
 

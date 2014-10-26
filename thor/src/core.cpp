@@ -11,36 +11,51 @@
 
 namespace thor {
 
-LazyInitializer<util::Vector<UnsafePtr<Resource>, KernelAllocator>> resourceMap;
-
-LazyInitializer<SharedPtr<ThreadResource>> currentThread;
-
-Handle Resource::getResHandle() {
-	return p_resHandle;
-}
-
-void Resource::install() {
-	p_resHandle = resourceMap->size();
-	resourceMap->push(this->unsafe<Resource>());
-}
-
+LazyInitializer<SharedPtr<Thread>> currentThread;
 
 // --------------------------------------------------------
-// AddressSpaceResource
+// Descriptor
 // --------------------------------------------------------
 
-AddressSpaceResource::AddressSpaceResource(memory::PageSpace page_space)
+Descriptor::Descriptor()
+		: p_handle(0) { }
+
+Handle Descriptor::getHandle() {
+	return p_handle;
+}
+
+// --------------------------------------------------------
+// Process
+// --------------------------------------------------------
+
+Process::Process()
+		: p_descriptorMap(memory::kernelAllocator.access()) { }
+
+void Process::attachDescriptor(Descriptor *descriptor) {
+	descriptor->p_handle = p_descriptorMap.size();
+	p_descriptorMap.push(descriptor);
+}
+
+Descriptor *Process::getDescriptor(Handle handle) {
+	return p_descriptorMap[handle];
+}
+
+// --------------------------------------------------------
+// AddressSpace
+// --------------------------------------------------------
+
+AddressSpace::AddressSpace(memory::PageSpace page_space)
 		: p_pageSpace(page_space) { }
 
-void AddressSpaceResource::mapSingle4k(void *address, uintptr_t physical) {
+void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
 	p_pageSpace.mapSingle4k(address, physical);
 }
 
 // --------------------------------------------------------
-// ThreadResource
+// Thread
 // --------------------------------------------------------
 
-void ThreadResource::setup(void *entry, uintptr_t argument) {
+void Thread::setup(void *entry, uintptr_t argument) {
 	size_t stack_size = 0x2000;
 
 	char *stack_base = (char *)memory::kernelAllocator->allocate(stack_size);
@@ -51,35 +66,63 @@ void ThreadResource::setup(void *entry, uintptr_t argument) {
 	p_state.rsp = stack_ptr;
 }
 
-SharedPtr<AddressSpaceResource> ThreadResource::getAddressSpace() {
-	return p_addressSpace;
+UnsafePtr<Process> Thread::getProcess() {
+	return p_process->unsafe<Process>();
+}
+UnsafePtr<AddressSpace> Thread::getAddressSpace() {
+	return p_addressSpace->unsafe<AddressSpace>();
 }
 
-void ThreadResource::setAddressSpace(SharedPtr<AddressSpaceResource> address_space) {
-	p_addressSpace = address_space;
+void Thread::setProcess(UnsafePtr<Process> process) {
+	p_process = process->shared<Process>();
+}
+void Thread::setAddressSpace(UnsafePtr<AddressSpace> address_space) {
+	p_addressSpace = address_space->shared<AddressSpace>();
 }
 
-void ThreadResource::switchTo() {
-	SharedPtr<ThreadResource> cur_thread_res = *currentThread;
-	*currentThread = this->shared<ThreadResource>();
+void Thread::switchTo() {
+	SharedPtr<Thread> cur_thread_res = *currentThread;
+	*currentThread = this->shared<Thread>();
 
 	thorRtSwitchThread(&cur_thread_res->p_state, &this->p_state);
 }
 
 // --------------------------------------------------------
-// MemoryResource
+// Thread::ThreadDescriptor
 // --------------------------------------------------------
 
-MemoryResource::MemoryResource()
+Thread::ThreadDescriptor::ThreadDescriptor(UnsafePtr<Thread> thread)
+		: p_thread(thread->shared<Thread>()) { }
+
+UnsafePtr<Thread> Thread::ThreadDescriptor::getThread() {
+	return p_thread->unsafe<Thread>();
+}
+
+// --------------------------------------------------------
+// Memory
+// --------------------------------------------------------
+
+Memory::Memory()
 		: p_physicalPages(memory::kernelAllocator.access()) { }
 
-void MemoryResource::resize(size_t length) {
+void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000)
 		p_physicalPages.push(memory::tableAllocator->allocate());
 }
 
-uintptr_t MemoryResource::getPage(int index) {
+uintptr_t Memory::getPage(int index) {
 	return p_physicalPages[index];
+}
+
+// --------------------------------------------------------
+// Memory::AccessDescriptor
+// --------------------------------------------------------
+
+Memory::AccessDescriptor::AccessDescriptor(UnsafePtr<Memory> memory)
+		: p_memory(memory->shared<Memory>()) { }
+
+UnsafePtr<Memory> Memory::AccessDescriptor::getMemory() {
+	return p_memory->unsafe<Memory>();
 }
 
 } // namespace thor

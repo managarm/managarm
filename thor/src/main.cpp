@@ -116,16 +116,16 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::kernelSpace.initialize(0x301000);
 	memory::kernelAllocator.initialize();
 
-	resourceMap.initialize(memory::kernelAllocator.access());
-	
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 	
-	auto address_space_resource = makeShared<AddressSpaceResource>(memory::kernelAllocator.access(), user_space);
-	auto thread_resource = makeShared<ThreadResource>(memory::kernelAllocator.access());
-	thread_resource->setAddressSpace(address_space_resource);
+	auto process = makeShared<Process>(memory::kernelAllocator.access());
+	auto address_space = makeShared<AddressSpace>(memory::kernelAllocator.access(), user_space);
+	auto thread = makeShared<Thread>(memory::kernelAllocator.access());
+	thread->setProcess(process->unsafe<Process>());
+	thread->setAddressSpace(address_space->unsafe<AddressSpace>());
 	
-	currentThread.initialize(thread_resource);
+	currentThread.initialize(thread);
 	
 	void *entry = loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
@@ -151,10 +151,10 @@ extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 	case kHelCallCreateThread:
 		return helCreateThread((void *)arg0);
 	case kHelCallMapMemory:
-		helMapMemory((HelResource)arg0, (void *)arg1, (size_t)arg2);
+		helMapMemory((HelDescriptor)arg0, (void *)arg1, (size_t)arg2);
 		return 0;
 	case kHelCallSwitchThread:
-		helSwitchThread((HelResource)arg0);
+		helSwitchThread((HelDescriptor)arg0);
 		return 0;
 	default:
 		vgaLogger->log("Illegal syscall");

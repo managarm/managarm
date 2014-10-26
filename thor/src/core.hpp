@@ -7,29 +7,33 @@ enum Error {
 	kErrSuccess = 0
 };
 
-class Resource;
-class Descriptor;
-
 typedef uint64_t Handle;
 
-class Resource : public SharedObject {
+class Descriptor {
+friend class Process;
 public:
-	Handle getResHandle();
+	Descriptor();
 
-	void install();
+	Handle getHandle();
 
 private:
-	Handle p_resHandle;
+	Handle p_handle;
 };
 
-
-class ProcessResource : public Resource {
-private:
-};
-
-class AddressSpaceResource : public Resource {
+class Process : public SharedObject {
 public:
-	AddressSpaceResource(memory::PageSpace page_space);
+	Process();
+
+	void attachDescriptor(Descriptor *descriptor);
+	Descriptor *getDescriptor(Handle handle);
+
+private:
+	util::Vector<Descriptor *, KernelAllocator> p_descriptorMap;
+};
+
+class AddressSpace : public SharedObject {
+public:
+	AddressSpace(memory::PageSpace page_space);
 
 	void mapSingle4k(void *address, uintptr_t physical);
 
@@ -37,47 +41,56 @@ private:
 	memory::PageSpace p_pageSpace;
 };
 
-class ThreadResource : public Resource {
-friend void switchTo(const SharedPtr<ThreadResource> &thread_res);
+class Thread : public SharedObject {
 public:
 	void setup(void *entry, uintptr_t argument);
-
-	SharedPtr<AddressSpaceResource> getAddressSpace();
-
-	void setAddressSpace(SharedPtr<AddressSpaceResource> address_space);
+	
+	UnsafePtr<Process> getProcess();
+	UnsafePtr<AddressSpace> getAddressSpace();
+	
+	void setProcess(UnsafePtr<Process> process);
+	void setAddressSpace(UnsafePtr<AddressSpace> address_space);
 	
 	void switchTo();
 
+	class ThreadDescriptor : public Descriptor {
+	public:
+		ThreadDescriptor(UnsafePtr<Thread> thread);
+		
+		UnsafePtr<Thread> getThread();
+
+	private:
+		SharedPtr<Thread> p_thread;
+	};
+
 private:
-	SharedPtr<AddressSpaceResource> p_addressSpace;
+	SharedPtr<Process> p_process;
+	SharedPtr<AddressSpace> p_addressSpace;
 	ThorRtThreadState p_state;
 };
 
-class MemoryResource : public Resource {
+class Memory : public SharedObject {
 public:
-	MemoryResource();
+	Memory();
 
 	void resize(size_t length);
 
 	uintptr_t getPage(int index);
 
+	class AccessDescriptor : public Descriptor {
+	public:
+		AccessDescriptor(UnsafePtr<Memory> memory);
+
+		UnsafePtr<Memory> getMemory();
+
+	private:
+		SharedPtr<Memory> p_memory;
+	};
 private:
 	util::Vector<uintptr_t, KernelAllocator> p_physicalPages;
 };
 
-class Descriptor {
-public:
-
-private:
-	Handle p_descHandle;
-
-	SharedPtr<Resource> p_resource;
-};
-
-
-extern LazyInitializer<util::Vector<UnsafePtr<Resource>, KernelAllocator>> resourceMap;
-
-extern LazyInitializer<SharedPtr<ThreadResource>> currentThread;
+extern LazyInitializer<SharedPtr<Thread>> currentThread;
 
 } // namespace thor
 
