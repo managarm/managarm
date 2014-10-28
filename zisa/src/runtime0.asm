@@ -1,11 +1,13 @@
 
 .global zisaRtEntry
 zisaRtEntry:
-	mov $1, %rdi
+	# create a memory descriptor
+	mov $2, %rdi
 	mov $0x1000, %rsi
 	int $0x80
 	
-	mov $3, %rdi
+	# map stack memory into this address space
+	mov $5, %rdi
 	mov %rax, %rsi
 	mov $0x2000000, %rdx
 	mov $0x1000, %rcx
@@ -13,14 +15,14 @@ zisaRtEntry:
 	
 	mov $0x2001000, %rsp
 
-	mov $2, %rdi
-	mov $zisaIdle, %rsi
-	int $0x80
-
-	mov $4, %rdi
-	mov %rax, %rsi
-	int $0x80
+	.extern main
+	call main
 
 zisaIdle:
 	jmp zisaIdle
+
+.global syscall2
+syscall2:
+	int $0x80
+	ret
 

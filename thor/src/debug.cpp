@@ -88,6 +88,13 @@ void Logger::log(const char *string) {
 	print('\n');
 }
 
+void Logger::log(const char *string, size_t length) {
+	for(size_t i = 0; i < length; i++) {
+		print(string[i]);
+	}
+	print('\n');
+}
+
 void Logger::log(void *pointer) {
 	print('0');
 	print('x');

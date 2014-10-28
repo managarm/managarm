@@ -56,6 +56,7 @@ public:
 	virtual void print(char c) = 0;
 	
 	void log(const char *string);
+	void log(const char *string, size_t length);
 	void log(void *pointer);
 	void log(int number);
 

@@ -147,6 +147,9 @@ extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
 		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
 	vgaLogger->log("syscall");
 	switch(index) {
+	case kHelCallLog:
+		helLog((const char *)arg0, (size_t)arg1);
+		return 0;
 	case kHelCallCreateMemory:
 		return helCreateMemory((size_t)arg0);
 	case kHelCallCreateThread:

@@ -13,6 +13,10 @@
 
 using namespace thor;
 
+void helLog(const char *string, size_t length) {
+	debug::criticalLogger->log(string, length);
+}
+
 HelDescriptor helCreateMemory(size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Process> cur_process = cur_thread->getProcess();
