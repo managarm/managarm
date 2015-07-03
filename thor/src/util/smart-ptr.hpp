@@ -73,7 +73,7 @@ UnsafePtr<T> SharedObject::unsafe() {
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T> makeShared(Allocator *allocator, Args&&... args) {
-	auto pointer = new (allocator) T(args...);
+	auto pointer = new (allocator) T(thor::util::forward<Args>(args)...);
 	return pointer->template shared<T>();
 }
 

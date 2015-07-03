@@ -14,31 +14,171 @@ namespace thor {
 
 LazyInitializer<SharedPtr<Thread>> currentThread;
 
+LazyInitializer<KernelAlloc> kernelAlloc;
+
 // --------------------------------------------------------
-// Descriptor
+// Memory related classes
 // --------------------------------------------------------
 
-Descriptor::Descriptor()
-		: p_handle(0) { }
+Memory::Memory()
+		: p_physicalPages(kernelAlloc.get()) { }
 
-Handle Descriptor::getHandle() {
-	return p_handle;
+void Memory::resize(size_t length) {
+	for(size_t l = 0; l < length; l += 0x1000)
+		p_physicalPages.push(memory::tableAllocator->allocate());
+}
+
+uintptr_t Memory::getPage(int index) {
+	return p_physicalPages[index];
 }
 
 // --------------------------------------------------------
-// Process
+// IPC related classes
 // --------------------------------------------------------
 
-Process::Process()
-		: p_descriptorMap(memory::kernelAllocator.access()) { }
+Channel::Channel() : p_messages(kernelAlloc.get()) { }
 
-void Process::attachDescriptor(Descriptor *descriptor) {
-	descriptor->p_handle = p_descriptorMap.size();
-	p_descriptorMap.push(descriptor);
+void Channel::recvString(char *user_buffer, size_t length) {
+	auto &message = p_messages[0];
+
+	for(size_t i = 0; i < message.getLength(); i++)
+		user_buffer[i] = message.getBuffer()[i];
 }
 
-Descriptor *Process::getDescriptor(Handle handle) {
-	return p_descriptorMap[handle];
+void Channel::sendString(const char *user_buffer, size_t length) {
+	char *buffer = (char *)kernelAlloc->allocate(length);
+	for(size_t i = 0; i < length; i++)
+		buffer[i] = user_buffer[i];
+	
+	p_messages.push(Message(buffer, length));
+}
+
+
+Channel::Message::Message(char *buffer, size_t length)
+		: p_buffer(buffer), p_length(length) { }
+
+char *Channel::Message::getBuffer() {
+	return p_buffer;
+}
+
+size_t Channel::Message::getLength() {
+	return p_length;
+}
+
+
+BiDirectionPipe::BiDirectionPipe() {
+
+}
+
+Channel *BiDirectionPipe::getFirstChannel() {
+	return &p_firstChannel;
+}
+
+Channel *BiDirectionPipe::getSecondChannel() {
+	return &p_secondChannel;
+}
+
+// --------------------------------------------------------
+// Descriptors
+// --------------------------------------------------------
+
+MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory> &&memory)
+		: p_memory(util::move(memory)) { }
+
+UnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
+	return p_memory->unsafe<Memory>();
+}
+
+
+BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
+		: p_pipe(util::move(pipe)) { }
+
+void BiDirectionFirstDescriptor::recvString(char *buffer, size_t length) {
+	p_pipe->getFirstChannel()->recvString(buffer, length);
+}
+
+void BiDirectionFirstDescriptor::sendString(const char *buffer, size_t length) {
+	p_pipe->getSecondChannel()->sendString(buffer, length);
+}
+
+
+BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
+		: p_pipe(util::move(pipe)) { }
+
+void BiDirectionSecondDescriptor::recvString(char *buffer, size_t length) {
+	p_pipe->getSecondChannel()->recvString(buffer, length);
+}
+
+void BiDirectionSecondDescriptor::sendString(const char *buffer, size_t length) {
+	p_pipe->getFirstChannel()->sendString(buffer, length);
+}
+
+// --------------------------------------------------------
+// Threading related functions
+// --------------------------------------------------------
+
+AnyDescriptor::AnyDescriptor(MemoryAccessDescriptor &&descriptor)
+		: p_type(kTypeMemoryAccess), p_memoryAccessDescriptor(util::move(descriptor)) { }
+
+AnyDescriptor::AnyDescriptor(BiDirectionFirstDescriptor &&descriptor)
+		: p_type(kTypeBiDirectionFirst), p_biDirectionFirstDescriptor(util::move(descriptor)) { }
+
+AnyDescriptor::AnyDescriptor(BiDirectionSecondDescriptor &&descriptor)
+		: p_type(kTypeBiDirectionSecond), p_biDirectionSecondDescriptor(util::move(descriptor)) { }
+
+AnyDescriptor::AnyDescriptor(AnyDescriptor &&other) : p_type(other.p_type) {
+	switch(p_type) {
+	case kTypeMemoryAccess:
+		new (&p_memoryAccessDescriptor) MemoryAccessDescriptor(util::move(other.p_memoryAccessDescriptor));
+		break;
+	case kTypeBiDirectionFirst:
+		new (&p_biDirectionFirstDescriptor) BiDirectionFirstDescriptor(util::move(other.p_biDirectionFirstDescriptor));
+		break;
+	case kTypeBiDirectionSecond:
+		new (&p_biDirectionSecondDescriptor) BiDirectionSecondDescriptor(util::move(other.p_biDirectionSecondDescriptor));
+		break;
+	default:
+		debug::criticalLogger->log("Illegal descriptor");
+		debug::panic();
+	}
+}
+AnyDescriptor &AnyDescriptor::operator= (AnyDescriptor &&other) {
+	p_type = other.p_type;
+	switch(p_type) {
+	case kTypeMemoryAccess:
+		p_memoryAccessDescriptor = util::move(other.p_memoryAccessDescriptor);
+		break;
+	case kTypeBiDirectionFirst:
+		p_biDirectionFirstDescriptor = util::move(other.p_biDirectionFirstDescriptor);
+		break;
+	case kTypeBiDirectionSecond:
+		p_biDirectionSecondDescriptor = util::move(other.p_biDirectionSecondDescriptor);
+		break;
+	default:
+		debug::criticalLogger->log("Illegal descriptor");
+		debug::panic();
+	}
+}
+
+auto AnyDescriptor::getType() -> Type {
+	return p_type;
+}
+
+MemoryAccessDescriptor &AnyDescriptor::asMemoryAccess() {
+	return p_memoryAccessDescriptor;
+}
+BiDirectionFirstDescriptor &AnyDescriptor::asBiDirectionFirst() {
+	return p_biDirectionFirstDescriptor;
+}
+BiDirectionSecondDescriptor &AnyDescriptor::asBiDirectionSecond() {
+	return p_biDirectionSecondDescriptor;
+}
+
+Universe::Universe()
+		: p_descriptorMap(util::DefaultHasher<Handle>(), kernelAlloc.get()) { }
+
+AnyDescriptor &Universe::getDescriptor(Handle handle) {
+	return p_descriptorMap.get(handle);
 }
 
 // --------------------------------------------------------
@@ -59,23 +199,23 @@ void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
 void Thread::setup(void *entry, uintptr_t argument) {
 	size_t stack_size = 0x2000;
 
-	char *stack_base = (char *)memory::kernelAllocator->allocate(stack_size);
+	char *stack_base = (char *)kernelAlloc->allocate(stack_size);
 	uint64_t *stack_ptr = (uint64_t *)(stack_base + stack_size);
 	stack_ptr--; *stack_ptr = (uint64_t)entry;
 	
-	p_state.rbx = (uintptr_t)argument;
-	p_state.rsp = stack_ptr;
+	p_state.rbx = (Word)argument;
+	p_state.rsp = (Word)stack_ptr;
 }
 
-UnsafePtr<Process> Thread::getProcess() {
-	return p_process->unsafe<Process>();
+UnsafePtr<Universe> Thread::getNamespace() {
+	return p_universe->unsafe<Universe>();
 }
 UnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return p_addressSpace->unsafe<AddressSpace>();
 }
 
-void Thread::setProcess(SharedPtr<Process> &&process) {
-	p_process = util::move(process);
+void Thread::setUniverse(SharedPtr<Universe> &&universe) {
+	p_universe = util::move(universe);
 }
 void Thread::setAddressSpace(SharedPtr<AddressSpace> &&address_space) {
 	p_addressSpace = util::move(address_space);
@@ -84,47 +224,12 @@ void Thread::setAddressSpace(SharedPtr<AddressSpace> &&address_space) {
 void Thread::switchTo() {
 	UnsafePtr<Thread> cur_thread_res = (*currentThread)->unsafe<Thread>();
 	*currentThread = this->shared<Thread>();
-
-	thorRtSwitchThread(&cur_thread_res->p_state, &this->p_state);
-}
-
-// --------------------------------------------------------
-// Thread::ThreadDescriptor
-// --------------------------------------------------------
-
-Thread::ThreadDescriptor::ThreadDescriptor(SharedPtr<Thread> &&thread)
-		: p_thread(util::move(thread)) { }
-
-UnsafePtr<Thread> Thread::ThreadDescriptor::getThread() {
-	return p_thread->unsafe<Thread>();
-}
-
-// --------------------------------------------------------
-// Memory
-// --------------------------------------------------------
-
-Memory::Memory()
-		: p_physicalPages(memory::kernelAllocator.access()) { }
-
-void Memory::resize(size_t length) {
-	for(size_t l = 0; l < length; l += 0x1000)
-		p_physicalPages.push(memory::tableAllocator->allocate());
-}
-
-uintptr_t Memory::getPage(int index) {
-	return p_physicalPages[index];
-}
-
-// --------------------------------------------------------
-// Memory::AccessDescriptor
-// --------------------------------------------------------
-
-Memory::AccessDescriptor::AccessDescriptor(SharedPtr<Memory> &&memory)
-		: p_memory(util::move(memory)) { }
-
-UnsafePtr<Memory> Memory::AccessDescriptor::getMemory() {
-	return p_memory->unsafe<Memory>();
+	thorRtUserContext = &p_state;
 }
 
 } // namespace thor
+
+void *operator new(size_t length, thor::KernelAlloc *allocator) {
+	return allocator->allocate(length);
+}
 

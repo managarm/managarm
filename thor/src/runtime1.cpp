@@ -4,6 +4,8 @@
 #include "runtime.hpp"
 #include "debug.hpp"
 
+ThorRtThreadState *thorRtUserContext = nullptr;
+
 void *operator new (size_t size, void *pointer) {
 	return pointer;
 }

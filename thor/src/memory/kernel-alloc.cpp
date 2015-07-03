@@ -9,8 +9,6 @@
 namespace thor {
 namespace memory {
 
-LazyInitializer<StupidMemoryAllocator> kernelAllocator;
-
 // --------------------------------------------------------
 // StupidVirtualAllocator
 // --------------------------------------------------------
@@ -39,8 +37,4 @@ void *StupidMemoryAllocator::allocate(size_t length) {
 }
 
 }} // namespace thor::memory
-
-void *operator new(size_t length, thor::memory::StupidMemoryAllocator *allocator) {
-	return allocator->allocate(length);
-}
 

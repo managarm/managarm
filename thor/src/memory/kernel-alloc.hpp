@@ -20,9 +20,5 @@ private:
 	StupidVirtualAllocator p_virtualAllocator;
 };
 
-extern LazyInitializer<StupidMemoryAllocator> kernelAllocator;
-
 }} // namespace thor::memory
-
-void *operator new(size_t length, thor::memory::StupidMemoryAllocator *);
 

@@ -1,7 +1,11 @@
 
+#include "util/hashmap.hpp"
+
 namespace thor {
 
-typedef memory::StupidMemoryAllocator KernelAllocator;
+typedef memory::StupidMemoryAllocator KernelAlloc;
+
+extern LazyInitializer<KernelAlloc> kernelAlloc;
 
 enum Error {
 	kErrSuccess = 0
@@ -9,26 +13,154 @@ enum Error {
 
 typedef uint64_t Handle;
 
-class Descriptor {
-friend class Process;
-public:
-	Descriptor();
+class Universe;
+class Channel;
 
-	Handle getHandle();
+// --------------------------------------------------------
+// Memory related classes
+// --------------------------------------------------------
+
+class Memory : public SharedObject {
+public:
+	Memory();
+
+	void resize(size_t length);
+
+	uintptr_t getPage(int index);
 
 private:
-	Handle p_handle;
+	util::Vector<uintptr_t, KernelAlloc> p_physicalPages;
 };
 
-class Process : public SharedObject {
-public:
-	Process();
 
-	void attachDescriptor(Descriptor *descriptor);
-	Descriptor *getDescriptor(Handle handle);
+// --------------------------------------------------------
+// IPC-related classes
+// --------------------------------------------------------
+
+// Single producer, single consumer connection
+class Channel {
+public:
+	class Message {
+	public:
+		Message(char *buffer, size_t length);
+
+		char *getBuffer();
+		size_t getLength();
+
+	private:
+		char *p_buffer;
+		size_t p_length;
+	};
+
+	Channel();
+
+	void recvString(char *buffer, size_t length);
+	void sendString(const char *buffer, size_t length);
 
 private:
-	util::Vector<Descriptor *, KernelAllocator> p_descriptorMap;
+	util::Vector<Message, KernelAlloc> p_messages;
+};
+
+class BiDirectionPipe : public SharedObject {
+public:
+	BiDirectionPipe();
+
+	Channel *getFirstChannel();
+	Channel *getSecondChannel();
+
+private:
+	Channel p_firstChannel;
+	Channel p_secondChannel;
+};
+
+// --------------------------------------------------------
+// Descriptors
+// --------------------------------------------------------
+
+class MemoryAccessDescriptor {
+public:
+	MemoryAccessDescriptor(SharedPtr<Memory> &&memory);
+
+	UnsafePtr<Memory> getMemory();
+
+private:
+	SharedPtr<Memory> p_memory;
+};
+
+
+// Reads from the first channel, writes to the second
+class BiDirectionFirstDescriptor {
+public:
+	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
+	
+	void recvString(char *buffer, size_t length);
+	void sendString(const char *buffer, size_t length);
+
+private:
+	SharedPtr<BiDirectionPipe> p_pipe;
+};
+
+// Reads from the second channel, writes to the first
+class BiDirectionSecondDescriptor {
+public:
+	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
+	
+	void recvString(char *buffer, size_t length);
+	void sendString(const char *buffer, size_t length);
+
+private:
+	SharedPtr<BiDirectionPipe> p_pipe;
+};
+
+// --------------------------------------------------------
+// Process related classes
+// --------------------------------------------------------
+
+class AnyDescriptor {
+public:
+	enum Type {
+		kTypeMemoryAccess = 1,
+		kTypeBiDirectionFirst = 2,
+		kTypeBiDirectionSecond = 3
+	};
+	
+	AnyDescriptor(BiDirectionFirstDescriptor &&descriptor);
+	AnyDescriptor(BiDirectionSecondDescriptor &&descriptor);
+	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
+	
+	AnyDescriptor(AnyDescriptor &&other);
+	AnyDescriptor &operator= (AnyDescriptor &&other);
+	
+	Type getType();
+	BiDirectionFirstDescriptor &asBiDirectionFirst();
+	BiDirectionSecondDescriptor &asBiDirectionSecond();
+	MemoryAccessDescriptor &asMemoryAccess();
+
+private:
+	Type p_type;
+	union {
+		BiDirectionFirstDescriptor p_biDirectionFirstDescriptor;
+		BiDirectionSecondDescriptor p_biDirectionSecondDescriptor;
+		MemoryAccessDescriptor p_memoryAccessDescriptor;
+	};
+};
+
+class Universe : public SharedObject {
+public:
+	Universe();
+
+	template<typename... Args>
+	Handle attachDescriptor(Args &&... args) {
+		Handle handle = p_nextHandle++;
+		p_descriptorMap.insert(handle, AnyDescriptor(util::forward<Args>(args)...));
+		return handle;
+	}
+
+	AnyDescriptor &getDescriptor(Handle handle);
+
+private:
+	util::Hashmap<Handle, AnyDescriptor, util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
+	Handle p_nextHandle;
 };
 
 class AddressSpace : public SharedObject {
@@ -45,52 +177,23 @@ class Thread : public SharedObject {
 public:
 	void setup(void *entry, uintptr_t argument);
 	
-	UnsafePtr<Process> getProcess();
+	UnsafePtr<Universe> getNamespace();
 	UnsafePtr<AddressSpace> getAddressSpace();
 	
-	void setProcess(SharedPtr<Process> &&process);
+	void setUniverse(SharedPtr<Universe> &&universe);
 	void setAddressSpace(SharedPtr<AddressSpace> &&address_space);
 	
 	void switchTo();
 
-	class ThreadDescriptor : public Descriptor {
-	public:
-		ThreadDescriptor(SharedPtr<Thread> &&thread);
-		
-		UnsafePtr<Thread> getThread();
-
-	private:
-		SharedPtr<Thread> p_thread;
-	};
-
 private:
-	SharedPtr<Process> p_process;
+	SharedPtr<Universe> p_universe;
 	SharedPtr<AddressSpace> p_addressSpace;
 	ThorRtThreadState p_state;
-};
-
-class Memory : public SharedObject {
-public:
-	Memory();
-
-	void resize(size_t length);
-
-	uintptr_t getPage(int index);
-
-	class AccessDescriptor : public Descriptor {
-	public:
-		AccessDescriptor(SharedPtr<Memory> &&memory);
-
-		UnsafePtr<Memory> getMemory();
-
-	private:
-		SharedPtr<Memory> p_memory;
-	};
-private:
-	util::Vector<uintptr_t, KernelAllocator> p_physicalPages;
 };
 
 extern LazyInitializer<SharedPtr<Thread>> currentThread;
 
 } // namespace thor
+
+void *operator new(size_t length, thor::KernelAlloc *);
 

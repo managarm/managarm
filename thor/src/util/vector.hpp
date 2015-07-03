@@ -9,7 +9,8 @@ public:
 
 	Vector(Allocator *allocator);
 
-	void push(T element);
+	T &push(const T &element);
+	T &push(T &&element);
 	SizeType size();
 	T &operator[] (SizeType index);
 
@@ -27,10 +28,19 @@ Vector<T, Allocator>::Vector(Allocator *allocator)
 		: p_allocator(allocator), p_elements(nullptr), p_size(0), p_capacity(0) { }
 
 template<typename T, typename Allocator>
-void Vector<T, Allocator>::push(T element) {
+T &Vector<T, Allocator>::push(const T &element) {
 	ensureCapacity(p_size + 1);
 	p_elements[p_size] = element;
 	p_size++;
+	return p_elements[p_size - 1];
+}
+
+template<typename T, typename Allocator>
+T &Vector<T, Allocator>::push(T &&element) {
+	ensureCapacity(p_size + 1);
+	p_elements[p_size] = util::move(element);
+	p_size++;
+	return p_elements[p_size - 1];
 }
 
 template<typename T, typename Allocator>
@@ -51,7 +61,7 @@ void Vector<T, Allocator>::ensureCapacity(SizeType capacity) {
 	SizeType new_capacity = capacity * 2;	
 	T *new_array = reinterpret_cast<T *>(p_allocator->allocate(sizeof(T) * new_capacity));
 	for(SizeType i = 0; i < p_capacity; i++)
-		new_array[i] = p_elements[i];
+		new_array[i] = util::move(p_elements[i]);
 	p_elements = new_array;
 	p_capacity = new_capacity;
 }

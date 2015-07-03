@@ -67,15 +67,15 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 extern "C" void thorMain(uint64_t init_image) {
 	vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
 	
-	vgaTerminal.initialize(vgaScreen.access());
+	vgaTerminal.initialize(vgaScreen.get());
 	vgaTerminal->clear();
 
-	vgaLogger.initialize(vgaTerminal.access());
+	vgaLogger.initialize(vgaTerminal.get());
 	vgaLogger->log("Starting Thor");
-	debug::criticalLogger = vgaLogger.access();
+	debug::criticalLogger = vgaLogger.get();
 
 	stupidTableAllocator.initialize(0x800000);
-	memory::tableAllocator = stupidTableAllocator.access();
+	memory::tableAllocator = stupidTableAllocator.get();
 
 	uintptr_t tss_page = stupidTableAllocator->allocate();
 	uint32_t *tss_pointer = (uint32_t *)memory::physicalToVirtual(tss_page);
@@ -115,18 +115,19 @@ extern "C" void thorMain(uint64_t init_image) {
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	memory::kernelSpace.initialize(0x301000);
-	memory::kernelAllocator.initialize();
+	kernelAlloc.initialize();
 
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 	
-	auto process = makeShared<Process>(memory::kernelAllocator.access());
-	auto address_space = makeShared<AddressSpace>(memory::kernelAllocator.access(), user_space);
-	auto thread = makeShared<Thread>(memory::kernelAllocator.access());
-	thread->setProcess(process->shared<Process>());
+	auto universe = makeShared<Universe>(kernelAlloc.get());
+	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
+	auto thread = makeShared<Thread>(kernelAlloc.get());
+	thread->setUniverse(universe->shared<Universe>());
 	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
 	currentThread.initialize(thread->shared<Thread>());
+	(*currentThread)->switchTo();
 	
 	void *entry = loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
@@ -143,26 +144,50 @@ extern "C" void thorPageFault() {
 	debug::panic();
 }
 
-extern "C" uint64_t thorSyscall(uint64_t index, uint64_t arg0, uint64_t arg1,
-		uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
+extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
+		Word arg2, Word arg3, Word arg4, Word arg5) {
 	vgaLogger->log("syscall");
 	switch(index) {
-	case kHelCallLog:
-		helLog((const char *)arg0, (size_t)arg1);
-		return 0;
-	case kHelCallCreateMemory:
-		return helCreateMemory((size_t)arg0);
-	case kHelCallCreateThread:
-		return helCreateThread((void *)arg0);
-	case kHelCallMapMemory:
-		helMapMemory((HelDescriptor)arg0, (void *)arg1, (size_t)arg2);
-		return 0;
-	case kHelCallSwitchThread:
-		helSwitchThread((HelDescriptor)arg0);
-		return 0;
-	default:
-		vgaLogger->log("Illegal syscall");
-		debug::panic();
+		case kHelCallLog: {
+			HelError error = helLog((const char *)arg0, (size_t)arg1);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		case kHelCallCreateMemory: {
+			HelHandle handle;
+			HelError error = helCreateMemory((size_t)arg0, &handle);
+			
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		
+		case kHelCallCreateBiDirectionPipe: {
+			HelHandle first;
+			HelHandle second;
+			HelError error = helCreateBiDirectionPipe(&first, &second);
+			
+			thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
+		}
+		case kHelCallRecvString: {
+			HelError error = helRecvString((HelHandle)arg0, (char *)arg1, (size_t)arg2);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		case kHelCallSendString: {
+			HelError error = helSendString((HelHandle)arg0, (const char *)arg1, (size_t)arg2);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		
+
+		case kHelCallMapMemory:
+			helMapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
+
+			thorRtReturnSyscall1(0);
+		default:
+			vgaLogger->log("Illegal syscall");
+			debug::panic();
 	}
+	vgaLogger->log("No return at end of syscall");
+	debug::panic();
 }
 

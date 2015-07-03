@@ -3,6 +3,16 @@
 #include "../../hel/include/hel.h"
 
 int main() {
-	helLog("hello", 5);
+	const char *hello = "hello";
+
+	HelHandle first, second;
+	helCreateBiDirectionPipe(&first, &second);
+	
+	char buffer[5];
+	helSendString(first, hello, 5);
+	helRecvString(second, buffer, 5);
+	helLog(buffer, 5);
+
+	helLog("ok", 2);
 }
 
