@@ -139,14 +139,14 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 	
-	void *entry = loadInitImage(&user_space, init_image);
+	auto entry = (void (*)(uintptr_t))loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
 	
 	auto universe = makeShared<Universe>(kernelAlloc.get());
 	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
 
 	auto thread = makeShared<Thread>(kernelAlloc.get());
-	thread->setup(entry);
+	thread->setup(entry, 0, nullptr);
 	thread->setUniverse(universe->shared<Universe>());
 	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
@@ -191,13 +191,28 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
-		case kHelCallCreateMemory: {
+
+		case kHelCallAllocateMemory: {
 			HelHandle handle;
-			HelError error = helCreateMemory((size_t)arg0, &handle);
+			HelError error = helAllocateMemory((size_t)arg0, &handle);
 			
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
-		
+		case kHelCallMapMemory: {
+			HelError error = helMapMemory((HelHandle)arg0,
+					(void *)arg1, (size_t)arg2);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+
+		case kHelCallCreateThread: {
+			HelHandle handle;
+			HelError error = helCreateThread((void (*) (uintptr_t))arg0,
+					(uintptr_t)arg1, (void *)arg2, &handle);
+
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+
 		case kHelCallCreateBiDirectionPipe: {
 			HelHandle first;
 			HelHandle second;
@@ -215,12 +230,6 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
-		
-
-		case kHelCallMapMemory:
-			helMapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
-
-			thorRtReturnSyscall1(0);
 		default:
 			vgaLogger->log("Illegal syscall");
 			debug::panic();

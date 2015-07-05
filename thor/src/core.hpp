@@ -80,7 +80,8 @@ private:
 
 class Thread : public SharedObject {
 public:
-	void setup(void *entry);
+	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,
+			void *user_stack_ptr);
 	
 	UnsafePtr<Universe> getUniverse();
 	UnsafePtr<AddressSpace> getAddressSpace();

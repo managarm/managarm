@@ -23,6 +23,51 @@ HelError helLog(const char *string, size_t length) {
 	return (HelError)out_error;
 }
 
+
+HelError helAllocateMemory(size_t size, HelHandle *handle) {
+	register Word in_syscall asm ("rdi") = (Word)kHelCallAllocateMemory;
+	register Word in_size asm ("rsi") = (Word)size;
+	register Word out_error asm ("rdi");
+	register Word out_handle asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error),
+			"=r" (out_handle)
+		: "r" (in_syscall), "r" (in_size)
+		: "rdx", "rcx", "r8", "r9", "rax", "rbx" );
+	*handle = out_handle;
+	return (HelError)out_error;
+}
+
+HelError helMapMemory(HelHandle handle, void *pointer, size_t size) {
+	register Word in_syscall asm ("rdi") = (Word)kHelCallMapMemory;
+	register Word in_handle asm ("rsi") = (Word)handle;
+	register Word in_pointer asm ("rdx") = (Word)pointer;
+	register Word in_size asm ("rcx") = (Word)size;
+	register Word out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_pointer), "r" (in_size)
+		: "r8", "r9", "rax", "rbx" );
+	return (HelError)out_error;
+}
+
+
+HelError helCreateThread(void (*entry)(uintptr_t),
+		uintptr_t argument, void *stack_ptr, HelHandle *handle) {
+	register Word in_syscall asm ("rdi") = (Word)kHelCallCreateThread;
+	register Word in_entry asm ("rsi") = (Word)entry;
+	register Word in_argument asm ("rdx") = (Word)argument;
+	register Word in_stack_ptr asm ("rcx") = (Word)stack_ptr;
+	register Word out_error asm ("rdi");
+	register Word out_handle asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error),
+			"=r" (out_handle)
+		: "r" (in_syscall), "r" (in_entry), "r" (in_argument),
+			"r" (in_stack_ptr)
+		: "r8", "r9", "rax", "rbx" );
+	*handle = out_handle;
+	return (HelError)out_error;
+}
+
+
 HelError helCreateBiDirectionPipe(HelHandle *first,
 		HelHandle *second) {
 	register Word in_syscall asm ("rdi") = (Word)kHelCallCreateBiDirectionPipe;

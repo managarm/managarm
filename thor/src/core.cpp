@@ -199,9 +199,12 @@ void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
 const Word kRflagsBase = 0x1;
 const Word kRflagsIf = 0x200;
 
-void Thread::setup(void *entry) {
+void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
+		void *user_stack_ptr) {
 	p_state.rflags = kRflagsBase | kRflagsIf;
-	p_state.rip = (Word)entry;
+	p_state.rdi = (Word)argument;
+	p_state.rip = (Word)user_entry;
+	p_state.rsp = (Word)user_stack_ptr;
 }
 
 UnsafePtr<Universe> Thread::getUniverse() {

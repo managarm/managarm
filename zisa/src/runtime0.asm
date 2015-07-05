@@ -1,7 +1,7 @@
 
 .global zisaRtEntry
 zisaRtEntry:
-	# create a memory descriptor
+	# allocate memory for the stack
 	mov $2, %rdi
 	mov $0x1000, %rsi
 	int $0x80
