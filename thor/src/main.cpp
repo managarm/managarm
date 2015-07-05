@@ -1,5 +1,5 @@
 
-#include "../../frigg/include/arch_x86/types64.hpp"
+#include "../../frigg/include/types.hpp"
 #include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
@@ -12,6 +12,7 @@
 #include "memory/paging.hpp"
 #include "memory/kernel-alloc.hpp"
 #include "core.hpp"
+#include "schedule.hpp"
 #include "../../hel/include/hel.h"
 
 using namespace thor;
@@ -107,6 +108,22 @@ extern "C" void thorMain(uint64_t init_image) {
 		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 66, 0x8, (void *)&thorRtIsrIrq2);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 67, 0x8, (void *)&thorRtIsrIrq3);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 68, 0x8, (void *)&thorRtIsrIrq4);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 69, 0x8, (void *)&thorRtIsrIrq5);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 70, 0x8, (void *)&thorRtIsrIrq6);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 71, 0x8, (void *)&thorRtIsrIrq7);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 72, 0x8, (void *)&thorRtIsrIrq8);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 73, 0x8, (void *)&thorRtIsrIrq9);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 74, 0x8, (void *)&thorRtIsrIrq10);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 75, 0x8, (void *)&thorRtIsrIrq11);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 76, 0x8, (void *)&thorRtIsrIrq12);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 77, 0x8, (void *)&thorRtIsrIrq13);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 78, 0x8, (void *)&thorRtIsrIrq14);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 79, 0x8, (void *)&thorRtIsrIrq15);
 	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall);
 
 	frigg::arch_x86::Idtr idtr;
@@ -116,22 +133,28 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	memory::kernelSpace.initialize(0x301000);
 	kernelAlloc.initialize();
+	
+	thorRtSetupIrqs();
 
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 	
+	void *entry = loadInitImage(&user_space, init_image);
+	thorRtInvalidateSpace();
+	
 	auto universe = makeShared<Universe>(kernelAlloc.get());
 	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
+
 	auto thread = makeShared<Thread>(kernelAlloc.get());
+	thread->setup(entry);
 	thread->setUniverse(universe->shared<Universe>());
 	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
-	currentThread.initialize(thread->shared<Thread>());
-	(*currentThread)->switchTo();
-	
-	void *entry = loadInitImage(&user_space, init_image);
-	thorRtInvalidateSpace();
-	thorRtEnterUserThread(0x13, entry);
+	currentThread.initialize(SharedPtr<Thread>());
+	scheduleQueue.initialize(kernelAlloc.get());
+
+	scheduleQueue->addBack(util::move(thread));
+	schedule();
 }
 
 extern "C" void thorDoubleFault() {
@@ -139,8 +162,23 @@ extern "C" void thorDoubleFault() {
 	debug::panic();
 }
 
-extern "C" void thorPageFault() {
+extern "C" void thorPageFault(uintptr_t address) {
 	vgaLogger->log("Page fault");
+	vgaLogger->log((void *)address);
+	debug::panic();
+}
+
+extern "C" void thorIrq(int irq) {
+	thorRtAcknowledgeIrq(irq);
+
+	if(irq == 0) {
+		schedule();
+	}else{
+		thorRtFullReturn();
+	}
+	vgaLogger->log("Other irq");
+	
+	vgaLogger->log("No return at end of thorIrq()");
 	debug::panic();
 }
 
@@ -187,7 +225,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			vgaLogger->log("Illegal syscall");
 			debug::panic();
 	}
-	vgaLogger->log("No return at end of syscall");
+	vgaLogger->log("No return at end of thorSyscall()");
 	debug::panic();
 }
 

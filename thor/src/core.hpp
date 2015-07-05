@@ -14,6 +14,7 @@ enum Error {
 typedef uint64_t Handle;
 
 class Universe;
+class AddressSpace;
 class Channel;
 
 // --------------------------------------------------------
@@ -74,6 +75,28 @@ private:
 };
 
 // --------------------------------------------------------
+// Threading related functions
+// --------------------------------------------------------
+
+class Thread : public SharedObject {
+public:
+	void setup(void *entry);
+	
+	UnsafePtr<Universe> getUniverse();
+	UnsafePtr<AddressSpace> getAddressSpace();
+	
+	void setUniverse(SharedPtr<Universe> &&universe);
+	void setAddressSpace(SharedPtr<AddressSpace> &&address_space);
+	
+	void switchTo();
+
+private:
+	SharedPtr<Universe> p_universe;
+	SharedPtr<AddressSpace> p_addressSpace;
+	ThorRtThreadState p_state;
+};
+
+// --------------------------------------------------------
 // Descriptors
 // --------------------------------------------------------
 
@@ -85,6 +108,17 @@ public:
 
 private:
 	SharedPtr<Memory> p_memory;
+};
+
+
+class ThreadObserveDescriptor {
+public:
+	ThreadObserveDescriptor(SharedPtr<Thread> &&thread);
+	
+	UnsafePtr<Thread> getThread();
+
+private:
+	SharedPtr<Thread> p_thread;
 };
 
 
@@ -120,21 +154,24 @@ class AnyDescriptor {
 public:
 	enum Type {
 		kTypeMemoryAccess = 1,
-		kTypeBiDirectionFirst = 2,
-		kTypeBiDirectionSecond = 3
+		kTypeThreadObserve = 2,
+		kTypeBiDirectionFirst = 3,
+		kTypeBiDirectionSecond = 4
 	};
 	
+	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
+	AnyDescriptor(ThreadObserveDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionFirstDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionSecondDescriptor &&descriptor);
-	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
 	
 	AnyDescriptor(AnyDescriptor &&other);
 	AnyDescriptor &operator= (AnyDescriptor &&other);
 	
 	Type getType();
+	MemoryAccessDescriptor &asMemoryAccess();
+	ThreadObserveDescriptor &asThreadObserve();
 	BiDirectionFirstDescriptor &asBiDirectionFirst();
 	BiDirectionSecondDescriptor &asBiDirectionSecond();
-	MemoryAccessDescriptor &asMemoryAccess();
 
 private:
 	Type p_type;
@@ -171,24 +208,6 @@ public:
 
 private:
 	memory::PageSpace p_pageSpace;
-};
-
-class Thread : public SharedObject {
-public:
-	void setup(void *entry, uintptr_t argument);
-	
-	UnsafePtr<Universe> getNamespace();
-	UnsafePtr<AddressSpace> getAddressSpace();
-	
-	void setUniverse(SharedPtr<Universe> &&universe);
-	void setAddressSpace(SharedPtr<AddressSpace> &&address_space);
-	
-	void switchTo();
-
-private:
-	SharedPtr<Universe> p_universe;
-	SharedPtr<AddressSpace> p_addressSpace;
-	ThorRtThreadState p_state;
 };
 
 extern LazyInitializer<SharedPtr<Thread>> currentThread;

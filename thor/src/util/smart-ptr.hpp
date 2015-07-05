@@ -38,6 +38,9 @@ public:
 	T *operator-> () {
 		return p_pointer;
 	}
+	T *get() {
+		return p_pointer;
+	}
 
 private:
 	SharedPtr(T *pointer) : p_pointer(pointer) { }

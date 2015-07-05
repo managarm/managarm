@@ -19,10 +19,23 @@ HelError helLog(const char *string, size_t length) {
 	return kHelErrNone;
 }
 
+HelError helCreateMemory(size_t length, HelHandle *handle) {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+
+	auto memory = makeShared<Memory>(kernelAlloc.get());
+	memory->resize(length);
+	
+	MemoryAccessDescriptor base(util::move(memory));
+	*handle = cur_universe->attachDescriptor(util::move(base));
+
+	return 0;
+}
+
 HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
 	auto pipe = makeShared<BiDirectionPipe>(kernelAlloc.get());
 
@@ -37,7 +50,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 
 HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
 	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
@@ -60,7 +73,7 @@ HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
 
 HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
 	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
@@ -85,37 +98,25 @@ HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
 // FIXME
 // --------------------------------------------------------
 
-HelError helCreateMemory(size_t length, HelHandle *handle) {
+HelError helCreateThread(void *user_entry, HelHandle *handle) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
 
-	auto memory = makeShared<Memory>(kernelAlloc.get());
-	memory->resize(length);
-	
-	MemoryAccessDescriptor base(util::move(memory));
-	*handle = cur_universe->attachDescriptor(util::move(base));
+	auto new_thread = makeShared<Thread>(kernelAlloc.get());
+	new_thread->setup(user_entry);
+	new_thread->setUniverse(cur_universe->shared<Universe>());
+	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
+
+//	ThreadObserveDescriptor base(util::move(new_thread));
+//	*handle = cur_universe->attachDescriptor(util::move(base));
 
 	return 0;
 }
 
-HelHandle helCreateThread(void *entry) {
-/*	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
-	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
-
-	auto new_thread = makeShared<Thread>(kernelAlloc.get());
-	new_thread->setup((void *)&thorRtThreadEntry, (uintptr_t)entry);
-	new_thread->setNamespace(cur_universe->shared<Universe>());
-	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
-
-	auto descriptor = new (kernelAlloc.get()) Thread::ThreadDescriptor(util::move(new_thread));
-	cur_universe->attachDescriptor(descriptor);
-	return descriptor->getHandle();*/
-}
-
 void helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
 	
 	auto &descriptor = cur_universe->getDescriptor(memory_handle).asMemoryAccess();
@@ -131,7 +132,7 @@ void helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
 
 void helSwitchThread(HelHandle thread_handle) {
 /*	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getNamespace();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
 	auto thread_descriptor = (Thread::ThreadDescriptor *)cur_universe->getDescriptor(thread_handle);
 	UnsafePtr<Thread> thread = thread_descriptor->getThread();

@@ -196,18 +196,15 @@ void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
 // Thread
 // --------------------------------------------------------
 
-void Thread::setup(void *entry, uintptr_t argument) {
-	size_t stack_size = 0x2000;
+const Word kRflagsBase = 0x1;
+const Word kRflagsIf = 0x200;
 
-	char *stack_base = (char *)kernelAlloc->allocate(stack_size);
-	uint64_t *stack_ptr = (uint64_t *)(stack_base + stack_size);
-	stack_ptr--; *stack_ptr = (uint64_t)entry;
-	
-	p_state.rbx = (Word)argument;
-	p_state.rsp = (Word)stack_ptr;
+void Thread::setup(void *entry) {
+	p_state.rflags = kRflagsBase | kRflagsIf;
+	p_state.rip = (Word)entry;
 }
 
-UnsafePtr<Universe> Thread::getNamespace() {
+UnsafePtr<Universe> Thread::getUniverse() {
 	return p_universe->unsafe<Universe>();
 }
 UnsafePtr<AddressSpace> Thread::getAddressSpace() {
@@ -222,7 +219,7 @@ void Thread::setAddressSpace(SharedPtr<AddressSpace> &&address_space) {
 }
 
 void Thread::switchTo() {
-	UnsafePtr<Thread> cur_thread_res = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> previous_thread = (*currentThread)->unsafe<Thread>();
 	*currentThread = this->shared<Thread>();
 	thorRtUserContext = &p_state;
 }

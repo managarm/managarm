@@ -1,4 +1,8 @@
 
+// --------------------------------------------------------
+// Global runtime functions
+// --------------------------------------------------------
+
 typedef uint64_t Word;
 
 typedef uint64_t PhysicalAddr;
@@ -35,22 +39,41 @@ struct ThorRtThreadState {
 
 extern ThorRtThreadState *thorRtUserContext;
 
-extern "C" void thorRtLoadCs(uint16_t selector);
+void thorRtSetupIrqs();
+void thorRtAcknowledgeIrq(int irq);
+
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();
-extern "C" void thorRtSwitchThread(ThorRtThreadState *save_state,
-		ThorRtThreadState *restore_state);
 
-extern "C" void thorRtEnterUserThread(uint16_t cs_selector, void *rip);
+extern "C" void thorRtFullReturn();
+extern "C" void thorRtReturnSyscall1(Word out0);
+extern "C" void thorRtReturnSyscall2(Word out0, Word out1);
+extern "C" void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
 
-extern "C" void thorRtReturnSyscall1(uint64_t out0);
-extern "C" void thorRtReturnSyscall2(uint64_t out0, uint64_t out1);
-extern "C" void thorRtReturnSyscall3(uint64_t out0, uint64_t out1, uint64_t out2);
+// --------------------------------------------------------
+// Internal runtime functions
+// --------------------------------------------------------
 
-extern "C" void thorRtThreadEntry();
+extern "C" void thorRtLoadCs(uint16_t selector);
 
 extern "C" void thorRtIsrDoubleFault();
 extern "C" void thorRtIsrPageFault();
+extern "C" void thorRtIsrIrq0();
+extern "C" void thorRtIsrIrq1();
+extern "C" void thorRtIsrIrq2();
+extern "C" void thorRtIsrIrq3();
+extern "C" void thorRtIsrIrq4();
+extern "C" void thorRtIsrIrq5();
+extern "C" void thorRtIsrIrq6();
+extern "C" void thorRtIsrIrq7();
+extern "C" void thorRtIsrIrq8();
+extern "C" void thorRtIsrIrq9();
+extern "C" void thorRtIsrIrq10();
+extern "C" void thorRtIsrIrq11();
+extern "C" void thorRtIsrIrq12();
+extern "C" void thorRtIsrIrq13();
+extern "C" void thorRtIsrIrq14();
+extern "C" void thorRtIsrIrq15();
 extern "C" void thorRtIsrSyscall();
 
 template<typename T>
