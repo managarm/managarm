@@ -1,4 +1,10 @@
 
+#ifdef __cplusplus
+#define HEL_C_LINKAGE extern "C"
+#else
+#define HEL_C_LINKAGE
+#endif
+
 enum {
 	kHelCallLog = 1,
 
@@ -21,17 +27,17 @@ enum {
 typedef int HelError;
 typedef uint64_t HelHandle;
 
-extern "C" HelError helLog(const char *string, size_t length);
+HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 
-extern "C" HelError helAllocateMemory(size_t size, HelHandle *handle);
-extern "C" HelError helMapMemory(HelHandle resource, void *pointer, size_t size);
+HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError helMapMemory(HelHandle resource, void *pointer, size_t size);
 
-extern "C" HelError helCreateThread(void (*entry)(uintptr_t argument),
+HEL_C_LINKAGE HelError helCreateThread(void (*entry)(uintptr_t argument),
 		uintptr_t argument, void *stack_ptr, HelHandle *handle);
 
-extern "C" HelError helCreateBiDirectionPipe(HelHandle *first,
+HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 		HelHandle *second);
-extern "C" HelError helRecvString(HelHandle handle, char *buffer, size_t length);
-extern "C" HelError helSendString(HelHandle handle, const char *buffer, size_t length);
+HEL_C_LINKAGE HelError helRecvString(HelHandle handle, char *buffer, size_t length);
+HEL_C_LINKAGE HelError helSendString(HelHandle handle, const char *buffer, size_t length);
 
-extern "C" void helSwitchThread(HelHandle thread_handle);
+HEL_C_LINKAGE void helSwitchThread(HelHandle thread_handle);
