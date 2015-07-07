@@ -61,8 +61,8 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	// find the pdpt entry; create pdpt if necessary
 	volatile uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFFFFFFFFFF000);
 	if((pml4_entry & kPagePresent) == 0) {
+		// allocate a new pdpt
 		uintptr_t pdpt_page = tableAllocator->allocate();
-		debug::criticalLogger->log("allocate pdpt");
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
 			pdpt_pointer[i] = 0;
@@ -73,8 +73,8 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	// find the pd entry; create pd if necessary
 	volatile uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFFFFFFFFFF000);
 	if((pdpt_entry & kPagePresent) == 0) {
+		// allocate a new pd
 		uintptr_t pd_page = tableAllocator->allocate();
-		debug::criticalLogger->log("allocate pd");
 		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
 			pd_pointer[i] = 0;
@@ -85,8 +85,8 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	// find the pt entry; create pt if necessary
 	volatile uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFFFFFFFFFF000);
 	if((pd_entry & kPagePresent) == 0) {
+		// allocate a new pt
 		uintptr_t pt_page = tableAllocator->allocate();
-		debug::criticalLogger->log("allocate pt");
 		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)
 			pt_pointer[i] = 0;

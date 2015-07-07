@@ -42,24 +42,44 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-		if(phdr->p_offset % 0x1000 != 0) {
-			vgaLogger->log("PHDR not aligned in file");
-			debug::panic();
-		}else if(phdr->p_vaddr % 0x1000 != 0) {
-			vgaLogger->log("PHDR not aligned in memory");
-			debug::panic();
-		}else if(phdr->p_filesz != phdr->p_memsz) {
-			vgaLogger->log("PHDR file size != memory size");
-			debug::panic();
-		}
+
+		uintptr_t bottom = phdr->p_vaddr;
+		uintptr_t top = phdr->p_vaddr + phdr->p_memsz;
+
+		if(bottom == top)
+			continue;
 		
-		uint32_t page = 0;
-		while(page < (uint32_t)phdr->p_filesz) {
-			space->mapSingle4k((void *)(phdr->p_vaddr + page),
-					image_page + phdr->p_offset + page);
-			page += 0x1000;
+		size_t page_size = 0x1000;
+		uintptr_t bottom_page = bottom / page_size;
+		uintptr_t top_page = top / page_size;
+		uintptr_t num_pages = top_page - bottom_page;
+		if(top % page_size != 0)
+			num_pages++;
+
+		auto memory = makeShared<Memory>(kernelAlloc.get());
+		memory->resize(num_pages);
+
+		for(uintptr_t page = 0; page < num_pages; page++) {
+			PhysicalAddr physical = memory->getPage(page);
+			for(int p = 0; p < page_size; p++)
+				*((char *)memory::physicalToVirtual(physical) + p) = 0;
 		}
-		vgaLogger->log("Loaded PHDR\n");
+
+		for(size_t p = 0; p < phdr->p_filesz; p++) {
+			uintptr_t page = p / page_size;
+			uintptr_t virt_offset = (phdr->p_vaddr + p) % page_size;
+			
+			PhysicalAddr physical = memory->getPage(page);
+			char *ptr = (char *)memory::physicalToVirtual(physical);
+			*(ptr + virt_offset) = *(image + phdr->p_offset + p);
+		}
+
+		for(uintptr_t page = 0; page < num_pages; page++) {
+			PhysicalAddr physical = memory->getPage(page);
+			
+			space->mapSingle4k((void *)((bottom_page + page) * page_size),
+					physical);
+		}
 	}
 	
 	return (void *)ehdr->e_entry;
@@ -141,7 +161,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	
 	auto entry = (void (*)(uintptr_t))loadInitImage(&user_space, init_image);
 	thorRtInvalidateSpace();
-	
+
 	auto universe = makeShared<Universe>(kernelAlloc.get());
 	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
 
@@ -184,7 +204,6 @@ extern "C" void thorIrq(int irq) {
 
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		Word arg2, Word arg3, Word arg4, Word arg5) {
-	vgaLogger->log("syscall");
 	switch(index) {
 		case kHelCallLog: {
 			HelError error = helLog((const char *)arg0, (size_t)arg1);

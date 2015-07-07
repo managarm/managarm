@@ -12,6 +12,7 @@ enum {
 	kHelCallMapMemory = 6,
 	
 	kHelCallCreateThread = 3,
+	kHelCallExitThisThread = 5,
 
 	kHelCallCreateBiDirectionPipe = 4,
 	kHelCallRecvString = 9,
