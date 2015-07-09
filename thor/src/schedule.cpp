@@ -13,7 +13,7 @@
 
 namespace thor {
 
-LazyInitializer<util::LinkedList<SharedPtr<Thread>, KernelAlloc>> scheduleQueue;
+LazyInitializer<ThreadQueue> scheduleQueue;
 
 void schedule() {
 	if(scheduleQueue->empty()) {

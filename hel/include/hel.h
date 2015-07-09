@@ -37,6 +37,7 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle resource, void *pointer, size_t si
 
 HEL_C_LINKAGE HelError helCreateThread(void (*entry)(uintptr_t argument),
 		uintptr_t argument, void *stack_ptr, HelHandle *handle);
+HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 		HelHandle *second);

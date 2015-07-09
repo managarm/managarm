@@ -1,9 +1,7 @@
 
-#include "util/linked.hpp"
-
 namespace thor {
 
-extern LazyInitializer<util::LinkedList<SharedPtr<Thread>, KernelAlloc>> scheduleQueue;
+extern LazyInitializer<ThreadQueue> scheduleQueue;
 
 void schedule();
 

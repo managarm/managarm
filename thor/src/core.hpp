@@ -79,6 +79,7 @@ private:
 // --------------------------------------------------------
 
 class Thread : public SharedObject {
+friend class ThreadQueue;
 public:
 	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 			void *user_stack_ptr);
@@ -94,7 +95,25 @@ public:
 private:
 	SharedPtr<Universe> p_universe;
 	SharedPtr<AddressSpace> p_addressSpace;
+
+	SharedPtr<Thread> p_nextInQueue;
+	UnsafePtr<Thread> p_previousInQueue;
+
 	ThorRtThreadState p_state;
+};
+
+class ThreadQueue {
+public:
+	bool empty();
+
+	void addBack(SharedPtr<Thread> &&thread);
+	
+	SharedPtr<Thread> removeFront();
+	SharedPtr<Thread> remove(UnsafePtr<Thread> thread);
+
+private:
+	SharedPtr<Thread> p_front;
+	UnsafePtr<Thread> p_back;
 };
 
 // --------------------------------------------------------

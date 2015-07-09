@@ -57,6 +57,9 @@ public:
 	T *operator-> () {
 		return p_pointer;
 	}
+	T *get() {
+		return p_pointer;
+	}
 
 private:
 	UnsafePtr(T *pointer) : p_pointer(pointer) { }

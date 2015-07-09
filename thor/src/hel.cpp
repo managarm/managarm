@@ -64,13 +64,17 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 	new_thread->setUniverse(cur_universe->shared<Universe>());
 	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
 
-	debug::criticalLogger->log("x");
 	scheduleQueue->addBack(util::move(new_thread));
 
 //	ThreadObserveDescriptor base(util::move(new_thread));
 //	*handle = cur_universe->attachDescriptor(util::move(base));
 
 	return 0;
+}
+
+HelError helExitThisThread() {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+	scheduleQueue->remove(cur_thread);
 }
 
 

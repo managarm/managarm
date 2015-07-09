@@ -11,6 +11,7 @@ extern inline HelError helLog(const char *string, size_t length) {
 		: "rcx", "r8", "r9", "rax", "rbx" );
 	return (HelError)out_error;
 }
+
 extern inline void helPanic(const char *string, size_t length) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallPanic;
 	register HelWord in_string asm ("rsi") = (HelWord)string;
@@ -61,6 +62,15 @@ extern inline HelError helCreateThread(void (*entry)(uintptr_t),
 			"r" (in_stack_ptr)
 		: "r8", "r9", "rax", "rbx" );
 	*handle = out_handle;
+	return (HelError)out_error;
+}
+
+extern inline HelError helExitThisThread() {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallExitThisThread;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall)
+		: "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbx" );
 	return (HelError)out_error;
 }
 

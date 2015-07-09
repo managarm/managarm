@@ -227,6 +227,76 @@ void Thread::switchTo() {
 	thorRtUserContext = &p_state;
 }
 
+
+bool ThreadQueue::empty() {
+	return p_front.get() == nullptr;
+}
+
+void ThreadQueue::addBack(SharedPtr<Thread> &&thread) {
+	// setup the back pointer before moving the thread pointer
+	UnsafePtr<Thread> back = p_back;
+	p_back = thread->unsafe<Thread>();
+	
+	// move the thread pointer into the queue
+	if(empty()) {
+		p_front = util::move(thread);
+	}else{
+		thread->p_previousInQueue = back;
+		back->p_nextInQueue = util::move(thread);
+	}
+}
+
+SharedPtr<Thread> ThreadQueue::removeFront() {
+	if(empty()) {
+		debug::criticalLogger->log("ThreadQueue::removeFront(): List is empty!");
+		debug::panic();
+	}
+	
+	// move the front and second element out of the queue
+	SharedPtr<Thread> front = util::move(p_front);
+	SharedPtr<Thread> next = util::move(front->p_nextInQueue);
+	front->p_previousInQueue = UnsafePtr<Thread>();
+
+	// fix the pointers to previous elements
+	if(next.get() == nullptr) {
+		p_back = UnsafePtr<Thread>();
+	}else{
+		next->p_previousInQueue = UnsafePtr<Thread>();
+	}
+
+	// move the second element back to the queue
+	p_front = util::move(next);
+
+	return front;
+}
+
+SharedPtr<Thread> ThreadQueue::remove(UnsafePtr<Thread> thread) {
+	// move the successor out of the queue
+	SharedPtr<Thread> next = util::move(thread->p_nextInQueue);
+	UnsafePtr<Thread> previous = thread->p_previousInQueue;
+	thread->p_previousInQueue = UnsafePtr<Thread>();
+
+	// fix pointers to previous elements
+	if(p_back.get() == thread.get()) {
+		p_back = previous;
+	}else{
+		next->p_previousInQueue = previous;
+	}
+	
+	// move the successor back to the queue
+	// move the thread out of the queue
+	SharedPtr<Thread> reference;
+	if(p_front.get() == thread.get()) {
+		reference = util::move(p_front);
+		p_front = util::move(next);
+	}else{
+		reference = util::move(previous->p_nextInQueue);
+		previous->p_nextInQueue = util::move(next);
+	}
+
+	return reference;
+}
+
 } // namespace thor
 
 void *operator new(size_t length, thor::KernelAlloc *allocator) {

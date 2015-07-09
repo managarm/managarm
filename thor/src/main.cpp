@@ -171,7 +171,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
 	currentThread.initialize(SharedPtr<Thread>());
-	scheduleQueue.initialize(kernelAlloc.get());
+	scheduleQueue.initialize();
 
 	scheduleQueue->addBack(util::move(thread));
 	schedule();
@@ -235,6 +235,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 					(uintptr_t)arg1, (void *)arg2, &handle);
 
 			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallExitThisThread: {
+			HelError error = helExitThisThread();
+			
+			schedule();
 		}
 
 		case kHelCallCreateBiDirectionPipe: {
