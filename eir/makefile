@@ -26,10 +26,19 @@ $(KERNEL): $(OBJECTS)
 
 obj/%.o: src/%.cpp
 	$(CXX) $(CXX_FLAGS) -c -o $@ $(SRCDIR)/$(@:obj/%.o=%.cpp)
+	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
+		$(SRCDIR)/$(@:obj/%.o=%.cpp)
 
 obj/%.o: src/%.asm
 	$(AS) $(AS_FLAGS) -o $@ $(SRCDIR)/$(@:obj/%.o=%.asm)
 
 obj/frigg-%.o: $(FRIGG_SRCDIR)/%.cpp
 	$(CXX) $(CXX_FLAGS) -c -o $@ $(FRIGG_SRCDIR)/$(patsubst obj/frigg-%.o,%.cpp,$@)
+	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
+		$(FRIGG_SRCDIR)/$(@:obj/frigg-%.o=%.cpp)
+
+-include $(OBJECTS:%.o=%.d)
+
+# "special" dependencies: eir depends on thor and zisa
+obj/multiboot.o: ../thor/bin/kernel.elf ../zisa/bin/init.elf
 

@@ -19,4 +19,8 @@ $(PROGRAM): $(OBJECTS)
 
 obj/%.o: src/%.cpp
 	$(CXX) $(CXX_INCLUDE) -c -o $@ $(SRCDIR)/$(@:obj/%.o=%.cpp)
+	$(CXX) $(CXX_INCLUDE) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
+		$(SRCDIR)/$(@:obj/%.o=%.cpp)
+
+-include $(OBJECTS:%.o=%.d)
 
