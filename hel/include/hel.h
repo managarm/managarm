@@ -7,6 +7,7 @@
 
 enum {
 	kHelCallLog = 1,
+	kHelCallPanic = 10,
 
 	kHelCallAllocateMemory = 2,
 	kHelCallMapMemory = 6,
@@ -29,6 +30,7 @@ typedef int HelError;
 typedef uint64_t HelHandle;
 
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
+HEL_C_LINKAGE void helPanic(const char *string, size_t length);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle resource, void *pointer, size_t size);

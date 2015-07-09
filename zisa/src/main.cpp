@@ -8,6 +8,7 @@
 //}
 
 int main() {
+	exit(0);
 /*	HelHandle memory;
 	helAllocateMemory(0x1000, &memory);
 	helMapMemory(memory, (void *)0x2001000, 0x1000);

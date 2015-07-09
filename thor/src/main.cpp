@@ -210,6 +210,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
+		case kHelCallPanic: {
+			HelError error = helLog((const char *)arg0, (size_t)arg1);
+			
+			while(true) { }
+		}
 
 		case kHelCallAllocateMemory: {
 			HelHandle handle;
