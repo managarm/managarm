@@ -16,3 +16,6 @@ $(ALL_SUBDIRS):
 $(CLEAN_SUBDIRS):
 	make -C $(@:clean-%=%) clean
 
+# "special" dependencies: eir has to be build last
+all-eir: all-thor all-zisa
+
