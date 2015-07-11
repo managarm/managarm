@@ -34,7 +34,7 @@ struct ThorRtThreadState {
 	
 	Word rsp;		// offset 0x78
 	Word rip;		// offset 0x80
-	Word rflags;	// offset 0x88
+	Word rflags;		// offset 0x88
 };
 
 extern ThorRtThreadState *thorRtUserContext;

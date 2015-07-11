@@ -59,6 +59,7 @@ public:
 	void log(const char *string, size_t length);
 	void log(void *pointer);
 	void log(int number);
+	void logHex(int number);
 
 	template<typename T>
 	void logUInt(T number, int radix);

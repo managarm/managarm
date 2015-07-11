@@ -1,11 +1,12 @@
 
-CXX = g++
+CXX = x86_64-elf-g++
 CXX_INCLUDE =
 CXX_FLAGS = -ffreestanding -m32 -fno-exceptions -fno-rtti -std=c++0x $(CXX_INCLUDE)
 
-AS = as
+AS = x86_64-elf-as
 AS_FLAGS = --32
 
+LD = x86_64-elf-ld
 LD_FLAGS = -m elf_i386 -nostdlib -T src/link.ld
 
 KERNEL = bin/kernel.elf

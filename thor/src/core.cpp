@@ -24,8 +24,10 @@ Memory::Memory()
 		: p_physicalPages(kernelAlloc.get()) { }
 
 void Memory::resize(size_t length) {
-	for(size_t l = 0; l < length; l += 0x1000)
-		p_physicalPages.push(memory::tableAllocator->allocate());
+	for(size_t l = 0; l < length; l += 0x1000) {
+		uintptr_t page = memory::tableAllocator->allocate();
+		p_physicalPages.push(page);
+	}
 }
 
 uintptr_t Memory::getPage(int index) {
@@ -216,7 +218,8 @@ const Word kRflagsIf = 0x200;
 
 void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 		void *user_stack_ptr) {
-	p_state.rflags = kRflagsBase | kRflagsIf;
+	p_state.rflags = kRflagsBase;
+	//p_state.rflags = kRflagsBase | kRflagsIf;
 	p_state.rdi = (Word)argument;
 	p_state.rip = (Word)user_entry;
 	p_state.rsp = (Word)user_stack_ptr;

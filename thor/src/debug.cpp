@@ -107,6 +107,13 @@ void Logger::log(int number) {
 	print('\n');
 }
 
+void Logger::logHex(int number) {
+	print('0');
+	print('x');
+	logUInt(number, 16);
+	print('\n');
+}
+
 // --------------------------------------------------------
 // TerminalLogger
 // --------------------------------------------------------

@@ -1,18 +1,34 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
+
 #include <hel.h>
 #include <hel-syscalls.h>
 
+/*
 void secondThread(uintptr_t argument) {
 	helExitThisThread();
 }
+*/
+
+//extern "C" void putchar(char c);
 
 int main() {
+/*
 	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
 
 	HelHandle io_space;
 	helAccessIo(ports, 9, &io_space);
+*/
+//	if(stdout == NULL)
+//		helLog("wtf", 3);
+//	putc('x', stdout);
+
+//	void *x = malloc(15);
+	putchar('x');
+//	printf("Hello World!");
+//	exit(0);
 
 /*	HelHandle memory;
 	helAllocateMemory(0x1000, &memory);

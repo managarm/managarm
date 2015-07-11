@@ -58,6 +58,16 @@ thorRtIsrDoubleFault:
 
 .global thorRtIsrPageFault
 thorRtIsrPageFault:
+	movabs $thorRtUserContext, %rax
+	mov (%rax), %rbx
+	
+	popq %rsi # pop error code
+	popq kContextRip(%rbx)
+	add $8, %rsp # skip cs
+	popq kContextRflags(%rbx)
+	popq kContextRsp(%rbx)
+	add $8, %rsp # skip ss
+	
 	mov %cr2, %rdi
 	call thorPageFault
 	jmp thorRtHalt

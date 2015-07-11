@@ -7,6 +7,7 @@ CXX_FLAGS = -ffreestanding -m64 -mno-red-zone -mcmodel=large \
 AS = x86_64-managarm-as
 AS_FLAGS = --64
 
+LD = x86_64-managarm-ld
 LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 
 KERNEL = bin/kernel.elf

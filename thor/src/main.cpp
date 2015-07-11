@@ -57,7 +57,7 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 			num_pages++;
 
 		auto memory = makeShared<Memory>(kernelAlloc.get());
-		memory->resize(num_pages);
+		memory->resize(num_pages * page_size);
 
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
@@ -182,9 +182,16 @@ extern "C" void thorDoubleFault() {
 	debug::panic();
 }
 
-extern "C" void thorPageFault(uintptr_t address) {
+extern "C" void thorPageFault(uintptr_t address, Word error) {
 	vgaLogger->log("Page fault");
 	vgaLogger->log((void *)address);
+	vgaLogger->log((void *)thorRtUserContext->rip);
+	vgaLogger->log(error);
+
+	char *disasm = (char *)thorRtUserContext->rip;
+	for(size_t i = 0; i < 5; i++)
+		vgaLogger->logHex(disasm[i]);
+
 	debug::panic();
 }
 
