@@ -218,8 +218,7 @@ const Word kRflagsIf = 0x200;
 
 void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 		void *user_stack_ptr) {
-	p_state.rflags = kRflagsBase;
-	//p_state.rflags = kRflagsBase | kRflagsIf;
+	p_state.rflags = kRflagsBase | kRflagsIf;
 	p_state.rdi = (Word)argument;
 	p_state.rip = (Word)user_entry;
 	p_state.rsp = (Word)user_stack_ptr;

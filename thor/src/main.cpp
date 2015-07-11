@@ -66,7 +66,7 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 		}
 
 		for(size_t p = 0; p < phdr->p_filesz; p++) {
-			uintptr_t page = p / page_size;
+			uintptr_t page = (phdr->p_vaddr + p) / page_size - bottom_page;
 			uintptr_t virt_offset = (phdr->p_vaddr + p) % page_size;
 			
 			PhysicalAddr physical = memory->getPage(page);
@@ -188,7 +188,7 @@ extern "C" void thorPageFault(uintptr_t address, Word error) {
 	vgaLogger->log((void *)thorRtUserContext->rip);
 	vgaLogger->log(error);
 
-	char *disasm = (char *)thorRtUserContext->rip;
+	uint8_t *disasm = (uint8_t *)thorRtUserContext->rip;
 	for(size_t i = 0; i < 5; i++)
 		vgaLogger->logHex(disasm[i]);
 

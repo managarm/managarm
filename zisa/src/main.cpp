@@ -25,9 +25,13 @@ int main() {
 //		helLog("wtf", 3);
 //	putc('x', stdout);
 
-//	void *x = malloc(15);
-	putchar('x');
-//	printf("Hello World!");
+	/*char *x = (char *)malloc(2);
+	x[0] = 'h';
+	x[1] = 'i';
+	helLog(x, 2);*/
+
+	//putchar('x');
+	printf("Hello World!");
 //	exit(0);
 
 /*	HelHandle memory;
