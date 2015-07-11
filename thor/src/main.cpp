@@ -259,6 +259,13 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
+
+		case kHelCallAccessIo: {
+			HelHandle handle;
+			HelError error = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
+			
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
 		default:
 			vgaLogger->log("Illegal syscall");
 			debug::panic();

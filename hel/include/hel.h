@@ -19,7 +19,8 @@ enum {
 	kHelCallRecvString = 9,
 	kHelCallSendString = 8,
 	
-	kHelCallSwitchThread = 7
+	kHelCallAccessIo = 11,
+	kHelCallEnableIo = 12
 };
 
 enum {
@@ -44,4 +45,7 @@ HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 HEL_C_LINKAGE HelError helRecvString(HelHandle handle, char *buffer, size_t length);
 HEL_C_LINKAGE HelError helSendString(HelHandle handle, const char *buffer, size_t length);
 
-HEL_C_LINKAGE void helSwitchThread(HelHandle thread_handle);
+HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+		HelHandle *handle);
+HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
+

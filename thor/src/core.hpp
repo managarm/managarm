@@ -117,6 +117,20 @@ private:
 };
 
 // --------------------------------------------------------
+// IoSpace
+// --------------------------------------------------------
+
+class IoSpace : public SharedObject {
+public:
+	IoSpace();
+
+	void addPort(uintptr_t port);
+
+private:
+	util::Vector<uintptr_t, KernelAlloc> p_ports;
+};
+
+// --------------------------------------------------------
 // Descriptors
 // --------------------------------------------------------
 
@@ -166,6 +180,17 @@ private:
 	SharedPtr<BiDirectionPipe> p_pipe;
 };
 
+
+class IoDescriptor {
+public:
+	IoDescriptor(SharedPtr<IoSpace> &&thread);
+	
+	UnsafePtr<IoSpace> getIoSpace();
+
+private:
+	SharedPtr<IoSpace> p_ioSpace;
+};
+
 // --------------------------------------------------------
 // Process related classes
 // --------------------------------------------------------
@@ -176,13 +201,15 @@ public:
 		kTypeMemoryAccess = 1,
 		kTypeThreadObserve = 2,
 		kTypeBiDirectionFirst = 3,
-		kTypeBiDirectionSecond = 4
+		kTypeBiDirectionSecond = 4,
+		kTypeIo = 5
 	};
 	
 	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
 	AnyDescriptor(ThreadObserveDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionFirstDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionSecondDescriptor &&descriptor);
+	AnyDescriptor(IoDescriptor &&descriptor);
 	
 	AnyDescriptor(AnyDescriptor &&other);
 	AnyDescriptor &operator= (AnyDescriptor &&other);
@@ -192,13 +219,15 @@ public:
 	ThreadObserveDescriptor &asThreadObserve();
 	BiDirectionFirstDescriptor &asBiDirectionFirst();
 	BiDirectionSecondDescriptor &asBiDirectionSecond();
+	IoDescriptor &asIo();
 
 private:
 	Type p_type;
 	union {
+		MemoryAccessDescriptor p_memoryAccessDescriptor;
 		BiDirectionFirstDescriptor p_biDirectionFirstDescriptor;
 		BiDirectionSecondDescriptor p_biDirectionSecondDescriptor;
-		MemoryAccessDescriptor p_memoryAccessDescriptor;
+		IoDescriptor p_ioDescriptor;
 	};
 };
 
@@ -229,6 +258,7 @@ public:
 private:
 	memory::PageSpace p_pageSpace;
 };
+
 
 extern LazyInitializer<SharedPtr<Thread>> currentThread;
 

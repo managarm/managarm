@@ -112,3 +112,27 @@ extern inline HelError helSendString(HelHandle handle, const char *buffer, size_
 	return (HelError)out_error;
 }
 
+
+extern inline HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
+		HelHandle *handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallAccessIo;
+	register HelWord in_port_array asm ("rsi") = (HelWord)port_array;
+	register HelWord in_num_ports asm ("rdx") = (HelWord)num_ports;
+	register HelWord out_error asm ("rdi");
+	register HelWord out_handle asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_handle)
+		: "r" (in_syscall), "r" (in_port_array), "r" (in_num_ports)
+		: "rcx", "r8", "r9", "rax", "rbx" );
+	*handle = out_handle;
+	return (HelError)out_error;
+}
+extern inline HelError helEnableIo(HelHandle handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallEnableIo;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle)
+		: "rdx", "rcx", "r8", "r9", "rax", "rbx" );
+	return (HelError)out_error;
+}
+

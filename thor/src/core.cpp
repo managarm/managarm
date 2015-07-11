@@ -113,6 +113,9 @@ void BiDirectionSecondDescriptor::sendString(const char *buffer, size_t length) 
 	p_pipe->getFirstChannel()->sendString(buffer, length);
 }
 
+IoDescriptor::IoDescriptor(SharedPtr<IoSpace> &&io_space)
+		: p_ioSpace(util::move(io_space)) { }
+
 // --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
@@ -126,6 +129,9 @@ AnyDescriptor::AnyDescriptor(BiDirectionFirstDescriptor &&descriptor)
 AnyDescriptor::AnyDescriptor(BiDirectionSecondDescriptor &&descriptor)
 		: p_type(kTypeBiDirectionSecond), p_biDirectionSecondDescriptor(util::move(descriptor)) { }
 
+AnyDescriptor::AnyDescriptor(IoDescriptor &&descriptor)
+		: p_type(kTypeIo), p_ioDescriptor(util::move(descriptor)) { }
+
 AnyDescriptor::AnyDescriptor(AnyDescriptor &&other) : p_type(other.p_type) {
 	switch(p_type) {
 	case kTypeMemoryAccess:
@@ -136,6 +142,9 @@ AnyDescriptor::AnyDescriptor(AnyDescriptor &&other) : p_type(other.p_type) {
 		break;
 	case kTypeBiDirectionSecond:
 		new (&p_biDirectionSecondDescriptor) BiDirectionSecondDescriptor(util::move(other.p_biDirectionSecondDescriptor));
+		break;
+	case kTypeIo:
+		new (&p_ioDescriptor) IoDescriptor(util::move(other.p_ioDescriptor));
 		break;
 	default:
 		debug::criticalLogger->log("Illegal descriptor");
@@ -153,6 +162,9 @@ AnyDescriptor &AnyDescriptor::operator= (AnyDescriptor &&other) {
 		break;
 	case kTypeBiDirectionSecond:
 		p_biDirectionSecondDescriptor = util::move(other.p_biDirectionSecondDescriptor);
+		break;
+	case kTypeIo:
+		p_ioDescriptor = util::move(other.p_ioDescriptor);
 		break;
 	default:
 		debug::criticalLogger->log("Illegal descriptor");
@@ -172,6 +184,9 @@ BiDirectionFirstDescriptor &AnyDescriptor::asBiDirectionFirst() {
 }
 BiDirectionSecondDescriptor &AnyDescriptor::asBiDirectionSecond() {
 	return p_biDirectionSecondDescriptor;
+}
+IoDescriptor &AnyDescriptor::asIo() {
+	return p_ioDescriptor;
 }
 
 Universe::Universe()
@@ -295,6 +310,16 @@ SharedPtr<Thread> ThreadQueue::remove(UnsafePtr<Thread> thread) {
 	}
 
 	return reference;
+}
+
+// --------------------------------------------------------
+// Io
+// --------------------------------------------------------
+
+IoSpace::IoSpace() : p_ports(kernelAlloc.get()) { }
+
+void IoSpace::addPort(uintptr_t port) {
+	p_ports.push(port);
 }
 
 } // namespace thor

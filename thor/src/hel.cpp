@@ -98,6 +98,8 @@ HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
+	// TODO: check userspace page access rights
+	
 	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
 		case AnyDescriptor::kTypeBiDirectionFirst: {
@@ -121,6 +123,8 @@ HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
+	// TODO: check userspace page access rights
+	
 	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
 		case AnyDescriptor::kTypeBiDirectionFirst: {
@@ -140,17 +144,18 @@ HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
 	return 0;
 }
 
-// --------------------------------------------------------
-// FIXME
-// --------------------------------------------------------
 
-void helSwitchThread(HelHandle thread_handle) {
-/*	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
+		HelHandle *handle) {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
-	auto thread_descriptor = (Thread::ThreadDescriptor *)cur_universe->getDescriptor(thread_handle);
-	UnsafePtr<Thread> thread = thread_descriptor->getThread();
+	// TODO: check userspace page access rights
+	auto io_space = makeShared<IoSpace>(kernelAlloc.get());
+	for(size_t i = 0; i < num_ports; i++)
+		io_space->addPort(user_port_array[num_ports]);
 
-	thread->switchTo();*/
+	IoDescriptor base(util::move(io_space));
+	*handle = cur_universe->attachDescriptor(util::move(base));
 }
 

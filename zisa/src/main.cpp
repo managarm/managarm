@@ -9,12 +9,17 @@ void secondThread(uintptr_t argument) {
 }
 
 int main() {
-	HelHandle memory;
+	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
+
+	HelHandle io_space;
+	helAccessIo(ports, 9, &io_space);
+
+/*	HelHandle memory;
 	helAllocateMemory(0x1000, &memory);
 	helMapMemory(memory, (void *)0x2001000, 0x1000);
 
 	HelHandle thread;
-	helCreateThread(&secondThread, 0, (void *)0x2002000, &thread);
+	helCreateThread(&secondThread, 0, (void *)0x2002000, &thread);*/
 
 //	const char *hello = "hello";
 
