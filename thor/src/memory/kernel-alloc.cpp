@@ -1,5 +1,5 @@
 
-#include "../../../frigg/include/arch_x86/types64.hpp"
+#include "../../../frigg/include/types.hpp"
 #include "../util/general.hpp"
 #include "../runtime.hpp"
 #include "physical-alloc.hpp"
@@ -31,7 +31,7 @@ void *StupidVirtualAllocator::allocate(size_t length) {
 void *StupidMemoryAllocator::allocate(size_t length) {
 	void *pointer = p_virtualAllocator.allocate(length);
 	for(size_t offset = 0; offset < length; offset += kPageSize)
-		kernelSpace->mapSingle4k((char *)pointer + offset, tableAllocator->allocate());
+		kernelSpace->mapSingle4k((char *)pointer + offset, tableAllocator->allocate(1));
 	thorRtInvalidateSpace();
 	return pointer;
 }

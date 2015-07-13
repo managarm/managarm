@@ -1,5 +1,5 @@
 
-#include "../../frigg/include/arch_x86/types64.hpp"
+#include "../../frigg/include/types.hpp"
 #include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
@@ -25,7 +25,7 @@ Memory::Memory()
 
 void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000) {
-		uintptr_t page = memory::tableAllocator->allocate();
+		uintptr_t page = memory::tableAllocator->allocate(1);
 		p_physicalPages.push(page);
 	}
 }
@@ -117,6 +117,10 @@ void BiDirectionSecondDescriptor::sendString(const char *buffer, size_t length) 
 
 IoDescriptor::IoDescriptor(SharedPtr<IoSpace> &&io_space)
 		: p_ioSpace(util::move(io_space)) { }
+
+UnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
+	return p_ioSpace->unsafe<IoSpace>();
+}
 
 // --------------------------------------------------------
 // Threading related functions
@@ -222,6 +226,10 @@ void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 	p_state.rdi = (Word)argument;
 	p_state.rip = (Word)user_entry;
 	p_state.rsp = (Word)user_stack_ptr;
+	
+	frigg::arch_x86::initializeTss64(&p_tss);
+	p_tss.rsp0 = 0xFFFF800100200000;
+
 }
 
 UnsafePtr<Universe> Thread::getUniverse() {
@@ -238,10 +246,16 @@ void Thread::setAddressSpace(SharedPtr<AddressSpace> &&address_space) {
 	p_addressSpace = util::move(address_space);
 }
 
+void Thread::enableIoPort(uintptr_t port) {
+	p_tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+}
+
 void Thread::switchTo() {
 	UnsafePtr<Thread> previous_thread = (*currentThread)->unsafe<Thread>();
 	*currentThread = this->shared<Thread>();
+	
 	thorRtUserContext = &p_state;
+	thorRtEnableTss(&p_tss);
 }
 
 
@@ -322,6 +336,11 @@ IoSpace::IoSpace() : p_ports(kernelAlloc.get()) { }
 
 void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);
+}
+
+void IoSpace::enableInThread(UnsafePtr<Thread> thread) {
+	for(size_t i = 0; i < p_ports.size(); i++)
+		thread->enableIoPort(p_ports[i]);
 }
 
 } // namespace thor

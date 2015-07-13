@@ -1,5 +1,5 @@
 
-#include "../../../frigg/include/arch_x86/types64.hpp"
+#include "../../../frigg/include/types.hpp"
 #include "../util/general.hpp"
 #include "../runtime.hpp"
 #include "physical-alloc.hpp"
@@ -16,9 +16,9 @@ PhysicalAllocator *tableAllocator;
 StupidPhysicalAllocator::StupidPhysicalAllocator(uintptr_t next_page)
 			: p_nextPage(next_page) { }
 
-uintptr_t StupidPhysicalAllocator::allocate() {
+uintptr_t StupidPhysicalAllocator::allocate(size_t num_pages) {
 	uintptr_t page = p_nextPage;
-	p_nextPage += 0x1000;
+	p_nextPage += 0x1000 * num_pages;
 	return page;
 }
 

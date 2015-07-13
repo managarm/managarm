@@ -1,5 +1,5 @@
 
-#include "../../../frigg/include/arch_x86/types64.hpp"
+#include "../../../frigg/include/types.hpp"
 #include "../util/general.hpp"
 #include "../runtime.hpp"
 #include "../debug.hpp"
@@ -27,7 +27,7 @@ void PageSpace::switchTo() {
 }
 
 PageSpace PageSpace::clone() {
-	uint64_t new_pml4_page = tableAllocator->allocate();
+	uint64_t new_pml4_page = tableAllocator->allocate(1);
 	volatile uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
 	volatile uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
 
@@ -62,7 +62,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	volatile uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFFFFFFFFFF000);
 	if((pml4_entry & kPagePresent) == 0) {
 		// allocate a new pdpt
-		uintptr_t pdpt_page = tableAllocator->allocate();
+		uintptr_t pdpt_page = tableAllocator->allocate(1);
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
 			pdpt_pointer[i] = 0;
@@ -74,7 +74,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	volatile uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFFFFFFFFFF000);
 	if((pdpt_entry & kPagePresent) == 0) {
 		// allocate a new pd
-		uintptr_t pd_page = tableAllocator->allocate();
+		uintptr_t pd_page = tableAllocator->allocate(1);
 		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
 			pd_pointer[i] = 0;
@@ -86,7 +86,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	volatile uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFFFFFFFFFF000);
 	if((pd_entry & kPagePresent) == 0) {
 		// allocate a new pt
-		uintptr_t pt_page = tableAllocator->allocate();
+		uintptr_t pt_page = tableAllocator->allocate(1);
 		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)
 			pt_pointer[i] = 0;

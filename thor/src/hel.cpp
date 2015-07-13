@@ -1,5 +1,5 @@
 
-#include "../../frigg/include/arch_x86/types64.hpp"
+#include "../../frigg/include/types.hpp"
 #include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
@@ -153,9 +153,18 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	// TODO: check userspace page access rights
 	auto io_space = makeShared<IoSpace>(kernelAlloc.get());
 	for(size_t i = 0; i < num_ports; i++)
-		io_space->addPort(user_port_array[num_ports]);
+		io_space->addPort(user_port_array[i]);
 
 	IoDescriptor base(util::move(io_space));
 	*handle = cur_universe->attachDescriptor(util::move(base));
+}
+HelError helEnableIo(HelHandle handle) {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	
+	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
+	IoDescriptor &descriptor = any_desc.asIo();
+	
+	descriptor.getIoSpace()->enableInThread(cur_thread);
 }
 

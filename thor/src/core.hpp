@@ -89,6 +89,8 @@ public:
 	
 	void setUniverse(SharedPtr<Universe> &&universe);
 	void setAddressSpace(SharedPtr<AddressSpace> &&address_space);
+
+	void enableIoPort(uintptr_t port);
 	
 	void switchTo();
 
@@ -100,6 +102,7 @@ private:
 	UnsafePtr<Thread> p_previousInQueue;
 
 	ThorRtThreadState p_state;
+	frigg::arch_x86::Tss64 p_tss;
 };
 
 class ThreadQueue {
@@ -125,6 +128,8 @@ public:
 	IoSpace();
 
 	void addPort(uintptr_t port);
+
+	void enableInThread(UnsafePtr<Thread> thread);
 
 private:
 	util::Vector<uintptr_t, KernelAlloc> p_ports;

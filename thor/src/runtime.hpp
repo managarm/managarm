@@ -1,4 +1,8 @@
 
+#include "../../frigg/include/arch_x86/gdt.hpp"
+#include "../../frigg/include/arch_x86/idt.hpp"
+#include "../../frigg/include/arch_x86/tss.hpp"
+
 // --------------------------------------------------------
 // Global runtime functions
 // --------------------------------------------------------
@@ -39,6 +43,7 @@ struct ThorRtThreadState {
 
 extern ThorRtThreadState *thorRtUserContext;
 
+void thorRtInitializeProcessor();
 void thorRtSetupIrqs();
 void thorRtAcknowledgeIrq(int irq);
 
@@ -49,6 +54,8 @@ extern "C" void thorRtFullReturn();
 extern "C" void thorRtReturnSyscall1(Word out0);
 extern "C" void thorRtReturnSyscall2(Word out0, Word out1);
 extern "C" void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
+
+void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer);
 
 // --------------------------------------------------------
 // Internal runtime functions

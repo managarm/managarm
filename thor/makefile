@@ -11,7 +11,7 @@ LD = x86_64-managarm-ld
 LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 
 KERNEL = bin/kernel.elf
-OBJECTS = obj/frigg-gdt.o obj/frigg-idt.o \
+OBJECTS = obj/frigg-gdt.o obj/frigg-idt.o obj/frigg-tss.o \
 	obj/runtime0.o obj/runtime1.o \
 	obj/main.o obj/core.o obj/schedule.o obj/hel.o \
 	obj/debug.o \

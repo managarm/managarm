@@ -24,7 +24,8 @@ void makeGdtFlatData32SystemSegment(uint32_t *gdt, int entry);
 void makeGdtFlatData32UserSegment(uint32_t *gdt, int entry);
 void makeGdtCode64SystemSegment(uint32_t *gdt, int entry);
 void makeGdtCode64UserSegment(uint32_t *gdt, int entry);
-void makeGdtTss64Descriptor(uint32_t *gdt, int entry, void *tss);
+void makeGdtTss64Descriptor(uint32_t *gdt, int entry, void *tss,
+		size_t size);
 
 }} // namespace frigg::arch_x86
 

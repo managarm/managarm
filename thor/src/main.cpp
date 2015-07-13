@@ -3,8 +3,6 @@
 #include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
-#include "../../frigg/include/arch_x86/gdt.hpp"
-#include "../../frigg/include/arch_x86/idt.hpp"
 #include "../../frigg/include/elf.hpp"
 #include "util/vector.hpp"
 #include "util/smart-ptr.hpp"
@@ -97,60 +95,9 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	stupidTableAllocator.initialize(0x800000);
 	memory::tableAllocator = stupidTableAllocator.get();
-
-	uintptr_t tss_page = stupidTableAllocator->allocate();
-	uint32_t *tss_pointer = (uint32_t *)memory::physicalToVirtual(tss_page);
-	for(int i = 0; i < 1024; i++)
-		tss_pointer[i] = 0;
-	tss_pointer[1] = 0x200000;
-	tss_pointer[2] = 0xFFFF8001;
-
-	uintptr_t gdt_page = stupidTableAllocator->allocate();
-	uint32_t *gdt_pointer = (uint32_t *)memory::physicalToVirtual(gdt_page);
-	frigg::arch_x86::makeGdtNullSegment(gdt_pointer, 0);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt_pointer, 1);
-	frigg::arch_x86::makeGdtCode64UserSegment(gdt_pointer, 2);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt_pointer, 3);
-	frigg::arch_x86::makeGdtTss64Descriptor(gdt_pointer, 4, tss_pointer);
-
-	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 6 * 8;
-	gdtr.pointer = gdt_pointer;
-	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
-
-	thorRtLoadCs(0x8);
 	
-	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
-
-	uintptr_t idt_page = stupidTableAllocator->allocate();
-	uint32_t *idt_pointer = (uint32_t *)memory::physicalToVirtual(idt_page);
-	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 66, 0x8, (void *)&thorRtIsrIrq2);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 67, 0x8, (void *)&thorRtIsrIrq3);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 68, 0x8, (void *)&thorRtIsrIrq4);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 69, 0x8, (void *)&thorRtIsrIrq5);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 70, 0x8, (void *)&thorRtIsrIrq6);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 71, 0x8, (void *)&thorRtIsrIrq7);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 72, 0x8, (void *)&thorRtIsrIrq8);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 73, 0x8, (void *)&thorRtIsrIrq9);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 74, 0x8, (void *)&thorRtIsrIrq10);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 75, 0x8, (void *)&thorRtIsrIrq11);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 76, 0x8, (void *)&thorRtIsrIrq12);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 77, 0x8, (void *)&thorRtIsrIrq13);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 78, 0x8, (void *)&thorRtIsrIrq14);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 79, 0x8, (void *)&thorRtIsrIrq15);
-	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall);
-
-	frigg::arch_x86::Idtr idtr;
-	idtr.limit = 16 * 256;
-	idtr.pointer = idt_pointer;
-	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
-
+	thorRtInitializeProcessor();
+	
 	memory::kernelSpace.initialize(0x301000);
 	kernelAlloc.initialize();
 	
@@ -272,6 +219,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelError error = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
 			
 			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallEnableIo: {
+			HelError error = helEnableIo((HelHandle)arg0);
+			
+			thorRtReturnSyscall1((Word)error);
 		}
 		default:
 			vgaLogger->log("Illegal syscall");

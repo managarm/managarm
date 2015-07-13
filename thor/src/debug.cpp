@@ -1,5 +1,5 @@
 
-#include "../../frigg/include/arch_x86/types64.hpp"
+#include "../../frigg/include/types.hpp"
 #include "util/general.hpp"
 #include "runtime.hpp"
 #include "debug.hpp"
