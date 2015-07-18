@@ -101,6 +101,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::kernelSpace.initialize(0x301000);
 	kernelAlloc.initialize();
 	
+	irqRelays.initialize();
 	thorRtSetupIrqs();
 
 	memory::PageSpace user_space = memory::kernelSpace->clone();
@@ -144,6 +145,8 @@ extern "C" void thorPageFault(uintptr_t address, Word error) {
 
 extern "C" void thorIrq(int irq) {
 	thorRtAcknowledgeIrq(irq);
+
+	(*irqRelays)[irq].fire();
 
 	if(irq == 0) {
 		schedule();

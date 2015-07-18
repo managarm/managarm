@@ -123,6 +123,8 @@ HelError helWaitForEvents(HelHandle handle,
 		user_evt->submitObject = event.submitInfo.submitObject;
 	}
 	*num_items = count;
+
+	return 0;
 }
 
 
@@ -215,8 +217,12 @@ HelError helSubmitIrq(HelHandle handle, HelHandle hub_handle,
 	IrqDescriptor &irq_descriptor = irq_wrapper.asIrq();
 	EventHubDescriptor &hub_descriptor = hub_wrapper.asEventHub();
 	
+	int number = irq_descriptor.getIrqLine()->getNumber();
+
+	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
-	hub_descriptor.getEventHub()->raiseIrqEvent(submit_info);
+	(*irqRelays)[number].submitWaitRequest(util::move(event_hub),
+			submit_info);
 }
 
 HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,

@@ -14,6 +14,7 @@ typedef uint64_t VirtualAddr;
 typedef uint64_t VirtualOffset;
 
 void *operator new (size_t size, void *pointer);
+void *operator new[] (size_t size, void *pointer);
 extern "C" void __cxa_pure_virtual();
 
 extern "C" void thorRtHalt();

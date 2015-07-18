@@ -399,11 +399,34 @@ SharedPtr<Thread> ThreadQueue::remove(UnsafePtr<Thread> thread) {
 // Io
 // --------------------------------------------------------
 
+IrqRelay::Request::Request(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info)
+	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+
+LazyInitializer<IrqRelay[16]> irqRelays;
+
+IrqRelay::IrqRelay() : p_requests(kernelAlloc.get()) { }
+
+void IrqRelay::submitWaitRequest(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info) {
+	Request request(util::move(event_hub), submit_info);
+	p_requests.addBack(util::move(request));
+}
+
+void IrqRelay::fire() {
+	while(!p_requests.empty()) {
+		Request request = p_requests.removeFront();
+		request.eventHub->raiseIrqEvent(request.submitInfo);
+	}
+}
+
+
 IrqLine::IrqLine(int number) : p_number(number) { }
 
 int IrqLine::getNumber() {
 	return p_number;
 }
+
 
 IoSpace::IoSpace() : p_ports(kernelAlloc.get()) { }
 

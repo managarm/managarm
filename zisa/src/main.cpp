@@ -5,6 +5,7 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 
 uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
@@ -93,21 +94,56 @@ void readAta() {
 	printf("%x\n", buffer[0]);
 }
 
-int main() {
-	HelHandle event_handle;
-	helCreateEventHub(&event_handle);
-
-	HelHandle irq_handle;
-	helAccessIrq(0, &irq_handle);
-	helSubmitIrq(irq_handle, event_handle, 
-		0, 0, 0);
+class Keyboard {
+public:
+	Keyboard(helx::EventHub &event_hub);
 	
-	HelEvent list[8];
-	size_t num_items;
-	helWaitForEvents(event_handle, list, 8, 0, &num_items);
+	void run();
 
-	printf("%d items\n", num_items);
+private:
+	void onScancode(int64_t submit_id);
 
-	while(true) { }
+	helx::EventHub &p_eventHub;
+	HelHandle p_irqHandle;
+	HelHandle p_ioHandle;
+};
+
+Keyboard::Keyboard(helx::EventHub &event_hub)
+		: p_eventHub(event_hub) {
+	helAccessIrq(1, &p_irqHandle);
+	
+	uintptr_t ports[] = { 0x60, 0x64 };
+	helAccessIo(ports, 2, &p_ioHandle);
+	helEnableIo(p_ioHandle);
+}
+
+void Keyboard::run() {
+	helx::IrqCb callback = HELX_MEMBER(this, &Keyboard::onScancode);
+	helSubmitIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+		(uintptr_t)callback.getFunction(),
+		(uintptr_t)callback.getObject());
+}
+
+void Keyboard::onScancode(int64_t submit_id) {
+	while(true) {
+		uint8_t status = ioInByte(0x64);
+		if((status & 0x01) == 0)
+			break;
+
+		uint8_t code = ioInByte(0x60);
+		printf("0x%X\n", code);
+	}
+
+	run();
+}
+
+int main() {
+	helx::EventHub event_hub;
+	
+	Keyboard keyboard(event_hub);
+	keyboard.run();
+
+	while(true)
+		event_hub.defaultProcessEvents();
 }
 

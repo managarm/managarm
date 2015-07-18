@@ -160,6 +160,29 @@ private:
 // I/O related functions
 // --------------------------------------------------------
 
+class IrqRelay {
+public:
+	IrqRelay();
+
+	void submitWaitRequest(SharedPtr<EventHub> &&event_hub,
+			SubmitInfo submit_info);
+	
+	void fire();
+
+private:
+	struct Request {
+		Request(SharedPtr<EventHub> &&event_hub,
+				SubmitInfo submit_info);
+
+		SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+	};
+
+	util::LinkedList<Request, KernelAlloc> p_requests;
+};
+
+extern LazyInitializer<IrqRelay[16]> irqRelays;
+
 class IrqLine : public SharedObject {
 public:
 	IrqLine(int number);
