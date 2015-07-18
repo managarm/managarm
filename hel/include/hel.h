@@ -66,7 +66,7 @@ HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);
 HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
-		HelEvent *list, size_t max_items,
+		struct HelEvent *list, size_t max_items,
 		HelNanotime max_time, size_t *num_items);
 
 HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,

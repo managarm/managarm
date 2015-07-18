@@ -93,12 +93,12 @@ extern "C" void thorMain(uint64_t init_image) {
 	vgaLogger->log("Starting Thor");
 	debug::criticalLogger = vgaLogger.get();
 
-	stupidTableAllocator.initialize(0x800000);
+	stupidTableAllocator.initialize(0x5000000);
 	memory::tableAllocator = stupidTableAllocator.get();
 	
 	thorRtInitializeProcessor();
 	
-	memory::kernelSpace.initialize(0x301000);
+	memory::kernelSpace.initialize(0x4001000);
 	kernelAlloc.initialize();
 	
 	irqRelays.initialize();

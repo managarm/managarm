@@ -7,6 +7,8 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
+#include <queue>
+
 uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t out_value asm("al");
@@ -26,72 +28,128 @@ void ioOutByte(uint16_t port, uint8_t value) {
 	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
 }
 
-enum AtaPorts {
-	kPortReadData = 0,
-	kPortWriteSectorCount = 2,
-	kPortWriteLba1 = 3,
-	kPortWriteLba2 = 4,
-	kPortWriteLba3 = 5,
-	kPortWriteDevice = 6,
-	kPortWriteCommand = 7,
-	kPortReadStatus = 7,
+class AtaDriver {
+public:
+	AtaDriver(helx::EventHub &event_hub);
+
+	void readSectors(int64_t sector, uint8_t *buffer,
+			size_t num_sectors, helx::Callback<> callback);
+
+private:
+	void performRequest();
+	void onReadComplete(int64_t submit_id);
+
+	enum Ports {
+		kPortReadData = 0,
+		kPortWriteSectorCount = 2,
+		kPortWriteLba1 = 3,
+		kPortWriteLba2 = 4,
+		kPortWriteLba3 = 5,
+		kPortWriteDevice = 6,
+		kPortWriteCommand = 7,
+		kPortReadStatus = 7,
+	};
+
+	enum Commands {
+		kCommandReadSectorsExt = 0x24
+	};
+
+	enum Flags {
+		kStatusDrq = 0x08,
+		kStatusBsy = 0x80,
+
+		kDeviceSlave = 0x10,
+		kDeviceLba = 0x40
+	};
+
+	struct Request {
+		int64_t sector;
+		size_t numSectors;
+		uint8_t *buffer;
+		helx::Callback<> callback;
+	};
+
+	std::queue<Request> p_requestQueue;
+
+	helx::EventHub &p_eventHub;
+	HelHandle p_irqHandle;
+	HelHandle p_ioHandle;
+	uint16_t p_basePort;
+	bool p_inRequest;
 };
 
-enum AtaCommands {
-	kCommandReadSectorsExt = 0x24
-};
+AtaDriver::AtaDriver(helx::EventHub &event_hub)
+		: p_eventHub(event_hub), p_basePort(0x1F0), p_inRequest(false) {
+	helAccessIrq(14, &p_irqHandle);
 
-enum AtaFlags {
-	kStatusDrq = 0x08,
-	kStatusBsy = 0x80,
-
-	kDeviceSlave = 0x10,
-	kDeviceLba = 0x40
-};
-
-void readAta() {
 	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
+	helAccessIo(ports, 9, &p_ioHandle);
+	helEnableIo(p_ioHandle);
+}
 
-	HelHandle io_space;
-	helAccessIo(ports, 9, &io_space);
-	helEnableIo(io_space);
+void AtaDriver::readSectors(int64_t sector, uint8_t *buffer,
+			size_t num_sectors, helx::Callback<> callback) {
+	Request request;
+	request.sector = sector;
+	request.numSectors = num_sectors;
+	request.buffer = buffer;
+	request.callback = callback;
+	p_requestQueue.push(request);
 
-	uint16_t port_base = 0x1F0;
-	
-	uint16_t count = 1;
-	uint64_t lba = 0;
+	if(!p_inRequest)
+		performRequest();
+}
 
-	ioOutByte(port_base + kPortWriteDevice, kDeviceLba);
-	
-	ioOutByte(port_base + kPortWriteSectorCount, (count >> 8) & 0xFF);
-	ioOutByte(port_base + kPortWriteLba1, (lba >> 24) & 0xFF);
-	ioOutByte(port_base + kPortWriteLba2, (lba >> 32) & 0xFF);
-	ioOutByte(port_base + kPortWriteLba3, (lba >> 40) & 0xFF);	
-	
-	ioOutByte(port_base + kPortWriteSectorCount, count & 0xFF);
-	ioOutByte(port_base + kPortWriteLba1, lba & 0xFF);
-	ioOutByte(port_base + kPortWriteLba2, (lba >> 8) & 0xFF);
-	ioOutByte(port_base + kPortWriteLba3, (lba >> 16) & 0xFF);
-	
-	ioOutByte(port_base + kPortWriteCommand, kCommandReadSectorsExt);
+void AtaDriver::performRequest() {
+	p_inRequest = true;
 
-	while(true) {
-		uint8_t status = ioInByte(port_base + kPortReadStatus);
+	Request &request = p_requestQueue.front();
+
+	helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadComplete);
+	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+		(uintptr_t)callback.getFunction(),
+		(uintptr_t)callback.getObject());
+
+	ioOutByte(p_basePort + kPortWriteDevice, kDeviceLba);
+	
+	ioOutByte(p_basePort + kPortWriteSectorCount, (request.numSectors >> 8) & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba1, (request.sector >> 24) & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba2, (request.sector >> 32) & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba3, (request.sector >> 40) & 0xFF);	
+	
+	ioOutByte(p_basePort + kPortWriteSectorCount, request.numSectors & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba1, request.sector & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba2, (request.sector >> 8) & 0xFF);
+	ioOutByte(p_basePort + kPortWriteLba3, (request.sector >> 16) & 0xFF);
+	
+	ioOutByte(p_basePort + kPortWriteCommand, kCommandReadSectorsExt);
+}
+
+void AtaDriver::onReadComplete(int64_t submit_id) {
+	/*while(true) {
+		uint8_t status = ioInByte(p_basePort + kPortReadStatus);
 		if((status & kStatusBsy) != 0)
 			continue;
 		if((status & kStatusDrq) == 0)
 			continue;
 		break;
-	}
+	}*/
 
-	uint8_t buffer[512];
+	Request &request = p_requestQueue.front();
+
 	for(int i = 0; i < 256; i++) {
-		uint16_t word = ioInShort(port_base + kPortReadData);
-		buffer[2 * i] = word & 0xFF;
-		buffer[2 * i + 1] = (word >> 16) & 0xFF;
+		uint16_t word = ioInShort(p_basePort + kPortReadData);
+		request.buffer[2 * i] = word & 0xFF;
+		request.buffer[2 * i + 1] = (word >> 16) & 0xFF;
 	}
 
-	printf("%x\n", buffer[0]);
+	request.callback();
+
+	p_requestQueue.pop();
+
+	p_inRequest = false;
+	if(!p_requestQueue.empty())
+		performRequest();
 }
 
 class Keyboard {
@@ -137,9 +195,18 @@ void Keyboard::onScancode(int64_t submit_id) {
 	run();
 }
 
+void onTestComplete(void *object) {
+	printf("ok\n");
+}
+
 int main() {
 	helx::EventHub event_hub;
 	
+	AtaDriver ata(event_hub);
+
+	uint8_t buffer[512];
+	ata.readSectors(0, buffer, 1, helx::Callback<>(nullptr, &onTestComplete));
+
 	Keyboard keyboard(event_hub);
 	keyboard.run();
 

@@ -95,7 +95,7 @@ void pk_panic() {
 	while(1) { }
 }
 
-addr32_t next_page = 0x300000;
+addr32_t next_page = 0x4000000;
 
 addr32_t alloc_page() {
 	addr32_t page = next_page;
@@ -253,7 +253,7 @@ extern "C" void prekernel_main() {
 	pk_init_idt();
 
 	pk_page_setup();
-	for(addr32_t addr = 0; addr < 0x800000; addr += 0x1000)
+	for(addr32_t addr = 0; addr < 0x8000000; addr += 0x1000)
 		pk_page_map4k(addr, addr);
 
 	for(addr32_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)

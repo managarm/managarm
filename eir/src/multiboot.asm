@@ -17,7 +17,7 @@ pkrt_idtr:
 .section .text
 .global mb_entry
 mb_entry:
-	mov $0x200000, %esp
+	mov $0x3000000, %esp
 	call prekernel_main
 
 halt_kernel:

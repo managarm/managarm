@@ -87,7 +87,7 @@ extern inline HelError helCreateEventHub(HelHandle *handle) {
 	return (HelError)out_error;
 }
 extern inline HelError helWaitForEvents(HelHandle handle,
-		HelEvent *list, size_t max_items, HelNanotime max_time,
+		struct HelEvent *list, size_t max_items, HelNanotime max_time,
 		size_t *num_items) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallWaitForEvents;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;

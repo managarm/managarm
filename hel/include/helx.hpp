@@ -13,7 +13,9 @@ class Callback {
 public:
 	typedef void (*FunctionPtr) (void *, Args...);
 
-	inline Callback(void *object, FunctionPtr function)
+	Callback() : p_object(nullptr), p_function(nullptr) { }
+
+	Callback(void *object, FunctionPtr function)
 			: p_object(object), p_function(function) { }
 	
 	template<typename T, void (T::*function) (Args...)>
