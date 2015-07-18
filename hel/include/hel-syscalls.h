@@ -154,10 +154,10 @@ extern inline HelError helAccessIrq(int number, HelHandle *handle) {
 	*handle = out_handle;
 	return (HelError)out_error;
 }
-extern inline HelError helSubmitIrq(HelHandle handle,
+extern inline HelError helSubmitWaitForIrq(HelHandle handle,
 		HelHandle hub_handle, int64_t submit_id,
 		uintptr_t submit_function, uintptr_t submit_object) {
-	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitIrq;
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitWaitForIrq;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;
 	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
 	register HelWord in_submit_id asm ("rcx") = (HelWord)submit_id;

@@ -119,7 +119,7 @@ Keyboard::Keyboard(helx::EventHub &event_hub)
 
 void Keyboard::run() {
 	helx::IrqCb callback = HELX_MEMBER(this, &Keyboard::onScancode);
-	helSubmitIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
 		(uintptr_t)callback.getFunction(),
 		(uintptr_t)callback.getObject());
 }

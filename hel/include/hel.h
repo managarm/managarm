@@ -23,7 +23,7 @@ enum {
 	kHelCallSendString = 8,
 	
 	kHelCallAccessIrq = 14,
-	kHelCallSubmitIrq = 15,
+	kHelCallSubmitWaitForIrq = 15,
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12
@@ -75,7 +75,7 @@ HEL_C_LINKAGE HelError helRecvString(HelHandle handle, char *buffer, size_t leng
 HEL_C_LINKAGE HelError helSendString(HelHandle handle, const char *buffer, size_t length);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
-HEL_C_LINKAGE HelError helSubmitIrq(HelHandle handle,
+HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle,
 		HelHandle hub_handle, int64_t submit_id,
 		uintptr_t submit_function, uintptr_t submit_object);
 

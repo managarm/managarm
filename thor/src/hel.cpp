@@ -207,7 +207,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	return 0;
 }
-HelError helSubmitIrq(HelHandle handle, HelHandle hub_handle,
+HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();

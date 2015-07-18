@@ -238,8 +238,8 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
-		case kHelCallSubmitIrq: {
-			HelError error = helSubmitIrq((HelHandle)arg0,
+		case kHelCallSubmitWaitForIrq: {
+			HelError error = helSubmitWaitForIrq((HelHandle)arg0,
 					(HelHandle)arg1, (int64_t)arg2,
 					(uintptr_t)arg3, (uintptr_t)arg4);
 
