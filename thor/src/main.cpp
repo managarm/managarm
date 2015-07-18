@@ -196,6 +196,21 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			schedule();
 		}
 
+		case kHelCallCreateEventHub: {
+			HelHandle handle;
+			HelError error = helCreateEventHub(&handle);
+
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallWaitForEvents: {
+			size_t num_items;
+			HelError error = helWaitForEvents((HelHandle)arg0,
+					(HelEvent *)arg1, (size_t)arg2, (HelNanotime)arg3,
+					&num_items);
+
+			thorRtReturnSyscall2((Word)error, (Word)num_items);
+		}
+
 		case kHelCallCreateBiDirectionPipe: {
 			HelHandle first;
 			HelHandle second;
@@ -210,6 +225,20 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		}
 		case kHelCallSendString: {
 			HelError error = helSendString((HelHandle)arg0, (const char *)arg1, (size_t)arg2);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+
+		case kHelCallAccessIrq: {
+			HelHandle handle;
+			HelError error = helAccessIrq((int)arg0, &handle);
+
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallSubmitIrq: {
+			HelError error = helSubmitIrq((HelHandle)arg0,
+					(HelHandle)arg1, (int64_t)arg2,
+					(uintptr_t)arg3, (uintptr_t)arg4);
 
 			thorRtReturnSyscall1((Word)error);
 		}

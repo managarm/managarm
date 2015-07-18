@@ -35,6 +35,33 @@ uintptr_t Memory::getPage(int index) {
 }
 
 // --------------------------------------------------------
+// Event related classes
+// --------------------------------------------------------
+
+SubmitInfo::SubmitInfo(int64_t submit_id,
+		uintptr_t submit_function, uintptr_t submit_object)
+	: submitId(submit_id), submitFunction(submit_function),
+		submitObject(submit_object) { }
+
+EventHub::Event::Event(Type type, SubmitInfo submit_info)
+		: type(type), submitInfo(submit_info) { }
+
+EventHub::EventHub() : p_queue(kernelAlloc.get()) { }
+
+void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
+	Event event(Event::kTypeIrq, submit_info);
+	p_queue.addBack(util::move(event));
+}
+
+bool EventHub::hasEvent() {
+	return !p_queue.empty();
+}
+
+EventHub::Event EventHub::dequeueEvent() {
+	return p_queue.removeFront();
+}
+
+// --------------------------------------------------------
 // IPC related classes
 // --------------------------------------------------------
 
@@ -92,6 +119,14 @@ UnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
 }
 
 
+EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub> &&event_hub)
+		: p_eventHub(util::move(event_hub)) { }
+
+UnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
+	return p_eventHub->unsafe<EventHub>();
+}
+
+
 BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
@@ -115,6 +150,14 @@ void BiDirectionSecondDescriptor::sendString(const char *buffer, size_t length) 
 	p_pipe->getFirstChannel()->sendString(buffer, length);
 }
 
+
+IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine> &&irq_line)
+		: p_irqLine(util::move(irq_line)) { }
+
+UnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
+	return p_irqLine->unsafe<IrqLine>();
+}
+
 IoDescriptor::IoDescriptor(SharedPtr<IoSpace> &&io_space)
 		: p_ioSpace(util::move(io_space)) { }
 
@@ -129,11 +172,17 @@ UnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
 AnyDescriptor::AnyDescriptor(MemoryAccessDescriptor &&descriptor)
 		: p_type(kTypeMemoryAccess), p_memoryAccessDescriptor(util::move(descriptor)) { }
 
+AnyDescriptor::AnyDescriptor(EventHubDescriptor &&descriptor)
+		: p_type(kTypeEventHub), p_eventHubDescriptor(util::move(descriptor)) { }
+
 AnyDescriptor::AnyDescriptor(BiDirectionFirstDescriptor &&descriptor)
 		: p_type(kTypeBiDirectionFirst), p_biDirectionFirstDescriptor(util::move(descriptor)) { }
 
 AnyDescriptor::AnyDescriptor(BiDirectionSecondDescriptor &&descriptor)
 		: p_type(kTypeBiDirectionSecond), p_biDirectionSecondDescriptor(util::move(descriptor)) { }
+
+AnyDescriptor::AnyDescriptor(IrqDescriptor &&descriptor)
+		: p_type(kTypeIrq), p_irqDescriptor(util::move(descriptor)) { }
 
 AnyDescriptor::AnyDescriptor(IoDescriptor &&descriptor)
 		: p_type(kTypeIo), p_ioDescriptor(util::move(descriptor)) { }
@@ -143,11 +192,17 @@ AnyDescriptor::AnyDescriptor(AnyDescriptor &&other) : p_type(other.p_type) {
 	case kTypeMemoryAccess:
 		new (&p_memoryAccessDescriptor) MemoryAccessDescriptor(util::move(other.p_memoryAccessDescriptor));
 		break;
+	case kTypeEventHub:
+		new (&p_eventHubDescriptor) EventHubDescriptor(util::move(other.p_eventHubDescriptor));
+		break;
 	case kTypeBiDirectionFirst:
 		new (&p_biDirectionFirstDescriptor) BiDirectionFirstDescriptor(util::move(other.p_biDirectionFirstDescriptor));
 		break;
 	case kTypeBiDirectionSecond:
 		new (&p_biDirectionSecondDescriptor) BiDirectionSecondDescriptor(util::move(other.p_biDirectionSecondDescriptor));
+		break;
+	case kTypeIrq:
+		new (&p_irqDescriptor) IrqDescriptor(util::move(other.p_irqDescriptor));
 		break;
 	case kTypeIo:
 		new (&p_ioDescriptor) IoDescriptor(util::move(other.p_ioDescriptor));
@@ -163,11 +218,17 @@ AnyDescriptor &AnyDescriptor::operator= (AnyDescriptor &&other) {
 	case kTypeMemoryAccess:
 		p_memoryAccessDescriptor = util::move(other.p_memoryAccessDescriptor);
 		break;
+	case kTypeEventHub:
+		p_eventHubDescriptor = util::move(other.p_eventHubDescriptor);
+		break;
 	case kTypeBiDirectionFirst:
 		p_biDirectionFirstDescriptor = util::move(other.p_biDirectionFirstDescriptor);
 		break;
 	case kTypeBiDirectionSecond:
 		p_biDirectionSecondDescriptor = util::move(other.p_biDirectionSecondDescriptor);
+		break;
+	case kTypeIrq:
+		p_irqDescriptor = util::move(other.p_irqDescriptor);
 		break;
 	case kTypeIo:
 		p_ioDescriptor = util::move(other.p_ioDescriptor);
@@ -185,11 +246,17 @@ auto AnyDescriptor::getType() -> Type {
 MemoryAccessDescriptor &AnyDescriptor::asMemoryAccess() {
 	return p_memoryAccessDescriptor;
 }
+EventHubDescriptor &AnyDescriptor::asEventHub() {
+	return p_eventHubDescriptor;
+}
 BiDirectionFirstDescriptor &AnyDescriptor::asBiDirectionFirst() {
 	return p_biDirectionFirstDescriptor;
 }
 BiDirectionSecondDescriptor &AnyDescriptor::asBiDirectionSecond() {
 	return p_biDirectionSecondDescriptor;
+}
+IrqDescriptor &AnyDescriptor::asIrq() {
+	return p_irqDescriptor;
 }
 IoDescriptor &AnyDescriptor::asIo() {
 	return p_ioDescriptor;
@@ -331,6 +398,12 @@ SharedPtr<Thread> ThreadQueue::remove(UnsafePtr<Thread> thread) {
 // --------------------------------------------------------
 // Io
 // --------------------------------------------------------
+
+IrqLine::IrqLine(int number) : p_number(number) { }
+
+int IrqLine::getNumber() {
+	return p_number;
+}
 
 IoSpace::IoSpace() : p_ports(kernelAlloc.get()) { }
 

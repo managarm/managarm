@@ -48,7 +48,7 @@ enum AtaFlags {
 	kDeviceLba = 0x40
 };
 
-int main() {
+void readAta() {
 	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
 
 	HelHandle io_space;
@@ -91,5 +91,23 @@ int main() {
 	}
 
 	printf("%x\n", buffer[0]);
+}
+
+int main() {
+	HelHandle event_handle;
+	helCreateEventHub(&event_handle);
+
+	HelHandle irq_handle;
+	helAccessIrq(0, &irq_handle);
+	helSubmitIrq(irq_handle, event_handle, 
+		0, 0, 0);
+	
+	HelEvent list[8];
+	size_t num_items;
+	helWaitForEvents(event_handle, list, 8, 0, &num_items);
+
+	printf("%d items\n", num_items);
+
+	while(true) { }
 }
 

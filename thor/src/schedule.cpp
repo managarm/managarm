@@ -23,7 +23,6 @@ void schedule() {
 	
 	SharedPtr<Thread> thread_ptr = scheduleQueue->removeFront();
 	thread_ptr->switchTo();
-	debug::criticalLogger->log(thread_ptr.get());
 
 	scheduleQueue->addBack(util::move(thread_ptr));
 	

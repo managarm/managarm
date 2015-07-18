@@ -78,6 +78,54 @@ HelError helExitThisThread() {
 }
 
 
+HelError helCreateEventHub(HelHandle *handle) {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	
+	auto event_hub = makeShared<EventHub>(kernelAlloc.get());
+
+	EventHubDescriptor base(util::move(event_hub));
+
+	*handle = cur_universe->attachDescriptor(util::move(base));
+
+	return 0;
+}
+
+HelError helWaitForEvents(HelHandle handle,
+		HelEvent *user_list, size_t max_items,
+		HelNanotime max_time, size_t *num_items) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(handle);
+	UnsafePtr<EventHub> event_hub = hub_wrapper.asEventHub().getEventHub();
+
+	// TODO: check userspace page access rights
+
+	size_t count; 
+	for(count = 0; count < max_items; count++) {
+		if(!event_hub->hasEvent())
+			break;
+		EventHub::Event event = event_hub->dequeueEvent();
+
+		HelEvent *user_evt = &user_list[count];
+		switch(event.type) {
+		case EventHub::Event::kTypeIrq: {
+			user_evt->type = kHelEventIrq;
+		} break;
+		default:
+			debug::criticalLogger->log("Illegal event type");
+			debug::panic();
+		}
+
+		user_evt->submitId = event.submitInfo.submitId;
+		user_evt->submitFunction = event.submitInfo.submitFunction;
+		user_evt->submitObject = event.submitInfo.submitObject;
+	}
+	*num_items = count;
+}
+
+
 HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
@@ -144,6 +192,32 @@ HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
 	return 0;
 }
 
+
+HelError helAccessIrq(int number, HelHandle *handle) {
+	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	
+	auto irq_line = makeShared<IrqLine>(kernelAlloc.get(), number);
+
+	IrqDescriptor base(util::move(irq_line));
+
+	*handle = cur_universe->attachDescriptor(util::move(base));
+
+	return 0;
+}
+HelError helSubmitIrq(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	AnyDescriptor &irq_wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	IrqDescriptor &irq_descriptor = irq_wrapper.asIrq();
+	EventHubDescriptor &hub_descriptor = hub_wrapper.asEventHub();
+	
+	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	hub_descriptor.getEventHub()->raiseIrqEvent(submit_info);
+}
 
 HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 		HelHandle *handle) {

@@ -1,5 +1,6 @@
 
 #include "util/hashmap.hpp"
+#include "util/linked.hpp"
 
 namespace thor {
 
@@ -33,6 +34,42 @@ private:
 	util::Vector<uintptr_t, KernelAlloc> p_physicalPages;
 };
 
+// --------------------------------------------------------
+// Event-related classes
+// --------------------------------------------------------
+
+struct SubmitInfo {
+	SubmitInfo(int64_t submit_id, uintptr_t submit_function,
+			uintptr_t submit_object);
+	
+	int64_t submitId;
+	uintptr_t submitFunction;
+	uintptr_t submitObject;
+};
+
+class EventHub : public SharedObject {
+public:
+	struct Event {
+		enum Type {
+			kTypeNone,
+			kTypeIrq
+		};
+
+		Event(Type type, SubmitInfo submit_info);
+		
+		Type type;
+		SubmitInfo submitInfo;
+	};
+
+	EventHub();
+
+	void raiseIrqEvent(SubmitInfo submit_info);
+	bool hasEvent();
+	Event dequeueEvent();
+
+private:
+	util::LinkedList<Event, KernelAlloc> p_queue;
+};
 
 // --------------------------------------------------------
 // IPC-related classes
@@ -120,8 +157,18 @@ private:
 };
 
 // --------------------------------------------------------
-// IoSpace
+// I/O related functions
 // --------------------------------------------------------
+
+class IrqLine : public SharedObject {
+public:
+	IrqLine(int number);
+
+	int getNumber();
+
+private:
+	int p_number;
+};
 
 class IoSpace : public SharedObject {
 public:
@@ -161,6 +208,17 @@ private:
 };
 
 
+class EventHubDescriptor {
+public:
+	EventHubDescriptor(SharedPtr<EventHub> &&event_hub);
+
+	UnsafePtr<EventHub> getEventHub();
+
+private:
+	SharedPtr<EventHub> p_eventHub;
+};
+
+
 // Reads from the first channel, writes to the second
 class BiDirectionFirstDescriptor {
 public:
@@ -186,6 +244,16 @@ private:
 };
 
 
+class IrqDescriptor {
+public:
+	IrqDescriptor(SharedPtr<IrqLine> &&thread);
+	
+	UnsafePtr<IrqLine> getIrqLine();
+
+private:
+	SharedPtr<IrqLine> p_irqLine;
+};
+
 class IoDescriptor {
 public:
 	IoDescriptor(SharedPtr<IoSpace> &&thread);
@@ -203,17 +271,22 @@ private:
 class AnyDescriptor {
 public:
 	enum Type {
-		kTypeMemoryAccess = 1,
-		kTypeThreadObserve = 2,
-		kTypeBiDirectionFirst = 3,
-		kTypeBiDirectionSecond = 4,
-		kTypeIo = 5
+		kTypeIllegal,
+		kTypeMemoryAccess,
+		kTypeThreadObserve,
+		kTypeEventHub,
+		kTypeBiDirectionFirst,
+		kTypeBiDirectionSecond,
+		kTypeIrq,
+		kTypeIo
 	};
 	
 	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
 	AnyDescriptor(ThreadObserveDescriptor &&descriptor);
+	AnyDescriptor(EventHubDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionFirstDescriptor &&descriptor);
 	AnyDescriptor(BiDirectionSecondDescriptor &&descriptor);
+	AnyDescriptor(IrqDescriptor &&descriptor);
 	AnyDescriptor(IoDescriptor &&descriptor);
 	
 	AnyDescriptor(AnyDescriptor &&other);
@@ -222,16 +295,20 @@ public:
 	Type getType();
 	MemoryAccessDescriptor &asMemoryAccess();
 	ThreadObserveDescriptor &asThreadObserve();
+	EventHubDescriptor &asEventHub();
 	BiDirectionFirstDescriptor &asBiDirectionFirst();
 	BiDirectionSecondDescriptor &asBiDirectionSecond();
+	IrqDescriptor &asIrq();
 	IoDescriptor &asIo();
 
 private:
 	Type p_type;
 	union {
 		MemoryAccessDescriptor p_memoryAccessDescriptor;
+		EventHubDescriptor p_eventHubDescriptor;
 		BiDirectionFirstDescriptor p_biDirectionFirstDescriptor;
 		BiDirectionSecondDescriptor p_biDirectionSecondDescriptor;
+		IrqDescriptor p_irqDescriptor;
 		IoDescriptor p_ioDescriptor;
 	};
 };
