@@ -1,0 +1,62 @@
+
+option optimize_for = LITE_RUNTIME;
+
+package managarm.keyboard;
+
+enum Key {
+	KEY_A = 1;
+	KEY_B = 2;
+	KEY_C = 3;
+	KEY_D = 4;
+	KEY_E = 5;
+	KEY_F = 6;
+	KEY_G = 7;
+	KEY_H = 8;
+	KEY_I = 9;
+	KEY_J = 10;
+	KEY_K = 11;
+	KEY_L = 12;
+	KEY_M = 13;
+	KEY_N = 14;
+	KEY_O = 15;
+	KEY_P = 16;
+	KEY_Q = 17;
+	KEY_R = 18;
+	KEY_S = 19;
+	KEY_T = 20;
+	KEY_U = 21;
+	KEY_V = 22;
+	KEY_W = 23;
+	KEY_X = 24;
+	KEY_Y = 25;
+	KEY_Z = 26;
+
+	KEY_0 = 30;
+	KEY_1 = 31;
+	KEY_2 = 32;
+	KEY_3 = 33;
+	KEY_4 = 34;
+	KEY_5 = 35;
+	KEY_6 = 36;
+	KEY_7 = 37;
+	KEY_8 = 38;
+	KEY_9 = 39;
+}
+
+message ServerReq {
+	enum Action {
+		ACTION_KEY_DOWN = 1;
+		ACTION_KEY_PRESS = 2;
+		ACTION_KEY_UP = 3;
+	}
+
+	optional Action action = 1;
+	optional Key key = 2;
+
+	optional bool shift = 10;
+	optional bool ctrl = 11;
+	optional bool alt = 12;
+	optional bool alt_gr = 13;
+	optional bool meta = 14;
+}
+

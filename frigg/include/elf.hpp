@@ -27,6 +27,11 @@ typedef struct {
 const Elf64_Half ET_NONE = 0;
 const Elf64_Half ET_EXEC = 2;
 
+enum {
+	PT_LOAD = 1,
+	PT_TLS = 7
+};
+
 typedef struct {
 	Elf64_Word p_type; /* Type of segment */
 	Elf64_Word p_flags; /* Segment attributes */

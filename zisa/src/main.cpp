@@ -9,6 +9,8 @@
 
 #include <queue>
 
+#include "keyboard.pb.h"
+
 uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t out_value asm("al");
@@ -200,7 +202,7 @@ void onTestComplete(void *object) {
 }
 
 int main() {
-	helx::EventHub event_hub;
+/*	helx::EventHub event_hub;
 	
 	AtaDriver ata(event_hub);
 
@@ -211,6 +213,16 @@ int main() {
 	keyboard.run();
 
 	while(true)
-		event_hub.defaultProcessEvents();
+		event_hub.defaultProcessEvents();*/
+	
+	managarm::keyboard::ServerReq request;
+	request.set_key(managarm::keyboard::KEY_A);
+
+	std::string bytes;
+	request.SerializeToString(&bytes);
+
+	for(size_t i = 0; i < bytes.length(); i++)
+		printf("%x ", bytes[i]);
+	printf("\n");
 }
 

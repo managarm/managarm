@@ -41,6 +41,9 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
 
+		if(phdr->p_type != PT_LOAD)
+			continue;
+
 		uintptr_t bottom = phdr->p_vaddr;
 		uintptr_t top = phdr->p_vaddr + phdr->p_memsz;
 
