@@ -131,8 +131,6 @@ thorRtIsrSyscall:
 	mov (%rax), %rbx
 
 	mov %rbp, kContextRbp(%rbx)
-	mov %r10, kContextR10(%rbx)
-	mov %r11, kContextR11(%rbx)
 	mov %r12, kContextR12(%rbx)
 	mov %r13, kContextR13(%rbx)
 	mov %r14, kContextR14(%rbx)
@@ -143,6 +141,9 @@ thorRtIsrSyscall:
 	popq kContextRflags(%rbx)
 	popq kContextRsp(%rbx)
 	add $8, %rsp # skip ss
+
+	push %r11
+	push %r10
 
 	call thorSyscall
 	jmp thorRtHalt

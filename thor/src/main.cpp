@@ -163,7 +163,8 @@ extern "C" void thorIrq(int irq) {
 }
 
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
-		Word arg2, Word arg3, Word arg4, Word arg5) {
+		Word arg2, Word arg3, Word arg4, Word arg5,
+		Word arg6, Word arg7) {
 	switch(index) {
 		case kHelCallLog: {
 			HelError error = helLog((const char *)arg0, (size_t)arg1);
@@ -224,13 +225,15 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			
 			thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
 		}
-		case kHelCallRecvString: {
-			HelError error = helRecvString((HelHandle)arg0, (char *)arg1, (size_t)arg2);
+		case kHelCallSendString: {
+			HelError error = helSendString((HelHandle)arg0, (const uint8_t *)arg1, (size_t)arg2);
 
 			thorRtReturnSyscall1((Word)error);
 		}
-		case kHelCallSendString: {
-			HelError error = helSendString((HelHandle)arg0, (const char *)arg1, (size_t)arg2);
+		case kHelCallSubmitRecvString: {
+			HelError error = helSubmitRecvString((HelHandle)arg0,
+					(HelHandle)arg1, (uint8_t *)arg2, (size_t)arg3,
+					(int64_t)arg4, (uintptr_t)arg5, (uintptr_t)arg6);
 
 			thorRtReturnSyscall1((Word)error);
 		}

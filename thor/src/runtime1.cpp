@@ -10,12 +10,6 @@ ThorRtThreadState *thorRtUserContext = nullptr;
 
 uint32_t *thorRtGdtPointer;
 
-extern "C" void *memset(void *dest, int byte, size_t count) {
-	for(size_t i = 0; i < count; i++)
-		((char *)dest)[i] = (char)byte;
-	return dest;
-}
-
 void *operator new (size_t size, void *pointer) {
 	return pointer;
 }
@@ -26,6 +20,17 @@ void *operator new[] (size_t size, void *pointer) {
 void __cxa_pure_virtual() {
 	thor::debug::criticalLogger->log("Pure virtual call");
 	thorRtHalt();
+}
+
+extern "C" void *memcpy(void *dest, const void *src, size_t n) {
+	for(size_t i = 0; i < n; i++)
+		((char *)dest)[i] = ((const char *)src)[i];
+	return dest;
+}
+extern "C" void *memset(void *dest, int byte, size_t count) {
+	for(size_t i = 0; i < count; i++)
+		((char *)dest)[i] = (char)byte;
+	return dest;
 }
 
 void thorRtInvalidateSpace() {

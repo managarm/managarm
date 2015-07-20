@@ -197,25 +197,25 @@ void Keyboard::onScancode(int64_t submit_id) {
 	run();
 }
 
-void onTestComplete(void *object) {
-	printf("ok\n");
+
+uint8_t recvBuffer[10];
+
+void onTestComplete(void *object, int64_t submit_id, size_t length) {
+	printf("ok %u %s\n", length, recvBuffer);
 }
 
 int main() {
-/*	helx::EventHub event_hub;
+	helx::EventHub event_hub;
 	
-	AtaDriver ata(event_hub);
+/*	AtaDriver ata(event_hub);
 
 	uint8_t buffer[512];
 	ata.readSectors(0, buffer, 1, helx::Callback<>(nullptr, &onTestComplete));
 
 	Keyboard keyboard(event_hub);
-	keyboard.run();
-
-	while(true)
-		event_hub.defaultProcessEvents();*/
+	keyboard.run();*/
 	
-	managarm::keyboard::ServerReq request;
+/*	managarm::keyboard::ServerReq request;
 	request.set_key(managarm::keyboard::KEY_A);
 
 	std::string bytes;
@@ -223,6 +223,19 @@ int main() {
 
 	for(size_t i = 0; i < bytes.length(); i++)
 		printf("%x ", bytes[i]);
-	printf("\n");
+	printf("\n");*/
+
+	helx::RecvStringCb callback(nullptr, &onTestComplete);
+
+	HelHandle first, second;
+	helCreateBiDirectionPipe(&first, &second);
+	helSubmitRecvString(second, event_hub.getHandle(),
+			recvBuffer, 10, 0,
+			(uintptr_t)callback.getFunction(),
+			(uintptr_t)callback.getObject());
+	helSendString(first, (const uint8_t *)"hello", 6);
+
+	while(true)
+		event_hub.defaultProcessEvents();
 }
 

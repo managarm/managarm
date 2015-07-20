@@ -8,7 +8,7 @@ extern inline HelError helLog(const char *string, size_t length) {
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_string), "r" (in_length)
-		: "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 
@@ -18,7 +18,7 @@ extern inline void helPanic(const char *string, size_t length) {
 	register HelWord in_length asm ("rdx") = (HelWord)length;
 	asm volatile ( "int $0x80" :
 		: "r" (in_syscall), "r" (in_string), "r" (in_length)
-		: "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 }
 
 
@@ -30,7 +30,7 @@ extern inline HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	asm volatile ( "int $0x80" : "=r" (out_error),
 			"=r" (out_handle)
 		: "r" (in_syscall), "r" (in_size)
-		: "rdx", "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
 }
@@ -43,7 +43,7 @@ extern inline HelError helMapMemory(HelHandle handle, void *pointer, size_t size
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_pointer), "r" (in_size)
-		: "r8", "r9", "rax", "rbx", "memory" );
+		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 
@@ -60,7 +60,7 @@ extern inline HelError helCreateThread(void (*entry)(uintptr_t),
 			"=r" (out_handle)
 		: "r" (in_syscall), "r" (in_entry), "r" (in_argument),
 			"r" (in_stack_ptr)
-		: "r8", "r9", "rax", "rbx", "memory" );
+		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
 }
@@ -70,7 +70,7 @@ extern inline HelError helExitThisThread() {
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall)
-		: "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rsi", "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 
@@ -82,7 +82,7 @@ extern inline HelError helCreateEventHub(HelHandle *handle) {
 	asm volatile ( "int $0x80" : "=r" (out_error),
 			"=r" (out_handle)
 		: "r" (in_syscall)
-		: "rdx", "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
 }
@@ -99,7 +99,7 @@ extern inline HelError helWaitForEvents(HelHandle handle,
 	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_num_items)
 		: "r" (in_syscall), "r" (in_handle), "r" (in_list),
 			"r" (in_max_items), "r" (in_max_time)
-		: "r9", "rax", "rbx", "memory" );
+		: "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*num_items = out_num_items;
 	return (HelError)out_error;
 }
@@ -114,23 +114,12 @@ extern inline HelError helCreateBiDirectionPipe(HelHandle *first,
 	asm volatile ( "int $0x80" : "=r" (out_error),
 			"=r" (out_first), "=r" (out_second)
 		: "r" (in_syscall)
-		: "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*first = (HelHandle)out_first;
 	*second = (HelHandle)out_second;
 	return (HelError)out_error;
 }
-extern inline HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
-	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallRecvString;
-	register HelWord in_handle asm ("rsi") = (HelWord)handle;
-	register HelWord in_buffer asm ("rdx") = (HelWord)buffer;
-	register HelWord in_length asm ("rcx") = (HelWord)length;
-	register HelWord out_error asm ("rdi");
-	asm volatile ( "int $0x80" : "=r" (out_error)
-		: "r" (in_syscall), "r" (in_handle), "r" (in_buffer), "r" (in_length)
-		: "r8", "r9", "rax", "rbx", "memory" );
-	return (HelError)out_error;
-}
-extern inline HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
+extern inline HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSendString;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;
 	register HelWord in_buffer asm ("rdx") = (HelWord)buffer;
@@ -138,7 +127,26 @@ extern inline HelError helSendString(HelHandle handle, const char *buffer, size_
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_handle), "r" (in_buffer), "r" (in_length)
-		: "r8", "r9", "rax", "rbx", "memory" );
+		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
+extern inline HelError helSubmitRecvString(HelHandle handle,
+		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitRecvString;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
+	register HelWord in_buffer asm ("rcx") = (HelWord)buffer;
+	register HelWord in_max_length asm ("r8") = (HelWord)max_length;
+	register HelWord in_submit_id asm ("r9") = (HelWord)submit_id;
+	register HelWord in_submit_function asm ("r10") = (HelWord)submit_function;
+	register HelWord in_submit_object asm ("r11") = (HelWord)submit_object;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
+			"r" (in_buffer), "r" (in_max_length),
+			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
+		: "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 
@@ -150,7 +158,7 @@ extern inline HelError helAccessIrq(int number, HelHandle *handle) {
 	register HelWord out_handle asm ("rsi");
 	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_handle)
 		: "r" (in_syscall), "r" (in_number)
-		: "rdx", "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
 }
@@ -167,7 +175,7 @@ extern inline HelError helSubmitWaitForIrq(HelHandle handle,
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
 			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
-		: "rax", "rbx", "memory" );
+		: "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 
@@ -180,7 +188,7 @@ extern inline HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	register HelWord out_handle asm ("rsi");
 	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_handle)
 		: "r" (in_syscall), "r" (in_port_array), "r" (in_num_ports)
-		: "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
 }
@@ -190,7 +198,7 @@ extern inline HelError helEnableIo(HelHandle handle) {
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_handle)
-		: "rdx", "rcx", "r8", "r9", "rax", "rbx", "memory" );
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 

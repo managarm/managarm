@@ -53,6 +53,15 @@ void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
 	p_queue.addBack(util::move(event));
 }
 
+void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
+		uint8_t *user_buffer, size_t length, SubmitInfo submit_info) {
+	Event event(Event::kTypeRecvStringTransfer, submit_info);
+	event.kernelBuffer = kernel_buffer;
+	event.userBuffer = user_buffer;
+	event.length = length;
+	p_queue.addBack(util::move(event));
+}
+
 bool EventHub::hasEvent() {
 	return !p_queue.empty();
 }
@@ -65,34 +74,53 @@ EventHub::Event EventHub::dequeueEvent() {
 // IPC related classes
 // --------------------------------------------------------
 
-Channel::Channel() : p_messages(kernelAlloc.get()) { }
+Channel::Channel() : p_messages(kernelAlloc.get()),
+		p_requests(kernelAlloc.get()) { }
 
-void Channel::recvString(char *user_buffer, size_t length) {
-	auto &message = p_messages[0];
-
-	for(size_t i = 0; i < message.getLength(); i++)
-		user_buffer[i] = message.getBuffer()[i];
-}
-
-void Channel::sendString(const char *user_buffer, size_t length) {
-	char *buffer = (char *)kernelAlloc->allocate(length);
+void Channel::sendString(const uint8_t *user_buffer, size_t length) {
+	uint8_t *buffer = (uint8_t *)kernelAlloc->allocate(length);
 	for(size_t i = 0; i < length; i++)
 		buffer[i] = user_buffer[i];
 	
-	p_messages.push(Message(buffer, length));
+	Message message(buffer, length);
+
+	if(!p_requests.empty()) {
+		matchStringRequest(util::move(message),
+				p_requests.removeFront());
+	}else{
+		p_messages.addBack(util::move(message));
+	}
+}
+
+void Channel::submitRecvString(SharedPtr<EventHub> &&event_hub,
+		uint8_t *user_buffer, size_t max_length,
+		SubmitInfo submit_info) {
+	Request request(util::move(event_hub), submit_info);
+	request.userBuffer = user_buffer;
+	request.maxLength = max_length;
+	
+	if(!p_messages.empty()) {
+		matchStringRequest(p_messages.removeFront(),
+				util::move(request));
+	}else{
+		p_requests.addBack(util::move(request));
+	}
+}
+
+void Channel::matchStringRequest(Message &&message, Request &&request) {
+	request.eventHub->raiseRecvStringTransferEvent(message.kernelBuffer,
+			request.userBuffer, message.length, request.submitInfo);
 }
 
 
-Channel::Message::Message(char *buffer, size_t length)
-		: p_buffer(buffer), p_length(length) { }
+Channel::Message::Message(uint8_t *buffer, size_t length)
+		: kernelBuffer(buffer), length(length) { }
 
-char *Channel::Message::getBuffer() {
-	return p_buffer;
-}
 
-size_t Channel::Message::getLength() {
-	return p_length;
-}
+Channel::Request::Request(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info)
+	: eventHub(util::move(event_hub)), submitInfo(submit_info),
+		userBuffer(nullptr), maxLength(0) { }
 
 
 BiDirectionPipe::BiDirectionPipe() {
@@ -130,11 +158,11 @@ UnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
-void BiDirectionFirstDescriptor::recvString(char *buffer, size_t length) {
-	p_pipe->getFirstChannel()->recvString(buffer, length);
+UnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
+	return p_pipe->unsafe<BiDirectionPipe>();
 }
 
-void BiDirectionFirstDescriptor::sendString(const char *buffer, size_t length) {
+void BiDirectionFirstDescriptor::sendString(const uint8_t *buffer, size_t length) {
 	p_pipe->getSecondChannel()->sendString(buffer, length);
 }
 
@@ -142,11 +170,11 @@ void BiDirectionFirstDescriptor::sendString(const char *buffer, size_t length) {
 BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
-void BiDirectionSecondDescriptor::recvString(char *buffer, size_t length) {
-	p_pipe->getSecondChannel()->recvString(buffer, length);
+UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
+	return p_pipe->unsafe<BiDirectionPipe>();
 }
 
-void BiDirectionSecondDescriptor::sendString(const char *buffer, size_t length) {
+void BiDirectionSecondDescriptor::sendString(const uint8_t *buffer, size_t length) {
 	p_pipe->getFirstChannel()->sendString(buffer, length);
 }
 

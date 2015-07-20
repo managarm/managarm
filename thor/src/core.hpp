@@ -52,6 +52,7 @@ public:
 	struct Event {
 		enum Type {
 			kTypeNone,
+			kTypeRecvStringTransfer,
 			kTypeIrq
 		};
 
@@ -59,11 +60,18 @@ public:
 		
 		Type type;
 		SubmitInfo submitInfo;
+		uint8_t *kernelBuffer;
+		uint8_t *userBuffer;
+		size_t length;
 	};
 
 	EventHub();
 
+	void raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
+			uint8_t *user_buffer, size_t length,
+			SubmitInfo submit_info);
 	void raiseIrqEvent(SubmitInfo submit_info);
+
 	bool hasEvent();
 	Event dequeueEvent();
 
@@ -78,25 +86,37 @@ private:
 // Single producer, single consumer connection
 class Channel {
 public:
-	class Message {
+	struct Message {
 	public:
-		Message(char *buffer, size_t length);
+		Message(uint8_t *kernel_buffer, size_t length);
 
-		char *getBuffer();
-		size_t getLength();
-
-	private:
-		char *p_buffer;
-		size_t p_length;
+		uint8_t *kernelBuffer;
+		size_t length;
 	};
 
 	Channel();
 
-	void recvString(char *buffer, size_t length);
-	void sendString(const char *buffer, size_t length);
+	void sendString(const uint8_t *buffer, size_t length);
+	void submitRecvString(SharedPtr<EventHub> &&event_hub,
+			uint8_t *user_buffer, size_t length,
+			SubmitInfo submit_info);
 
 private:
-	util::Vector<Message, KernelAlloc> p_messages;
+	struct Request {
+		Request(SharedPtr<EventHub> &&event_hub,
+				SubmitInfo submit_info);
+
+		SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+		uint8_t *userBuffer;
+		size_t maxLength;
+	};
+
+	void matchStringRequest(Message &&message,
+			Request &&request);
+
+	util::LinkedList<Message, KernelAlloc> p_messages;
+	util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
 class BiDirectionPipe : public SharedObject {
@@ -247,8 +267,8 @@ class BiDirectionFirstDescriptor {
 public:
 	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
 	
-	void recvString(char *buffer, size_t length);
-	void sendString(const char *buffer, size_t length);
+	UnsafePtr<BiDirectionPipe> getPipe();
+	void sendString(const uint8_t *buffer, size_t length);
 
 private:
 	SharedPtr<BiDirectionPipe> p_pipe;
@@ -259,8 +279,8 @@ class BiDirectionSecondDescriptor {
 public:
 	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
 	
-	void recvString(char *buffer, size_t length);
-	void sendString(const char *buffer, size_t length);
+	UnsafePtr<BiDirectionPipe> getPipe();
+	void sendString(const uint8_t *buffer, size_t length);
 
 private:
 	SharedPtr<BiDirectionPipe> p_pipe;

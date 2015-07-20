@@ -110,6 +110,15 @@ HelError helWaitForEvents(HelHandle handle,
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
+		case EventHub::Event::kTypeRecvStringTransfer: {
+			user_evt->type = kHelEventRecvString;
+
+			// TODO: check userspace page access rights
+	
+			// do the actual memory transfer
+			memcpy(event.userBuffer, event.kernelBuffer, event.length);
+			user_evt->length = event.length;
+		} break;
 		case EventHub::Event::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
 		} break;
@@ -144,7 +153,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	return 0;
 }
 
-HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
+HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
@@ -154,11 +163,11 @@ HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
 	switch(any_desc.getType()) {
 		case AnyDescriptor::kTypeBiDirectionFirst: {
 			auto &descriptor = any_desc.asBiDirectionFirst();
-			descriptor.recvString(buffer, length);
+			descriptor.sendString(buffer, length);
 		} break;
 		case AnyDescriptor::kTypeBiDirectionSecond: {
 			auto &descriptor = any_desc.asBiDirectionSecond();
-			descriptor.recvString(buffer, length);
+			descriptor.sendString(buffer, length);
 		} break;
 		default: {
 			debug::criticalLogger->log("Descriptor is not a source");
@@ -169,21 +178,31 @@ HelError helRecvString(HelHandle handle, char *buffer, size_t length) {
 	return 0;
 }
 
-HelError helSendString(HelHandle handle, const char *buffer, size_t length) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+HelError helSubmitRecvString(HelHandle handle,
+		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	// TODO: check userspace page access rights
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	EventHubDescriptor &hub_descriptor = hub_wrapper.asEventHub();
 	
-	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
+	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	
+	AnyDescriptor &any_desc = universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
 		case AnyDescriptor::kTypeBiDirectionFirst: {
 			auto &descriptor = any_desc.asBiDirectionFirst();
-			descriptor.sendString(buffer, length);
+			Channel *channel = descriptor.getPipe()->getFirstChannel();
+			channel->submitRecvString(util::move(event_hub),
+					user_buffer, max_length, submit_info);
 		} break;
 		case AnyDescriptor::kTypeBiDirectionSecond: {
-			auto &descriptor = any_desc.asBiDirectionSecond();
-			descriptor.sendString(buffer, length);
+			auto &descriptor = any_desc.asBiDirectionFirst();
+			Channel *channel = descriptor.getPipe()->getSecondChannel();
+			channel->submitRecvString(util::move(event_hub),
+					user_buffer, max_length, submit_info);
 		} break;
 		default: {
 			debug::criticalLogger->log("Descriptor is not a source");
