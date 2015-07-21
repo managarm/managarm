@@ -22,24 +22,24 @@ HelError helLog(const char *string, size_t length) {
 
 
 HelError helAllocateMemory(size_t size, HelHandle *handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	auto memory = makeShared<Memory>(kernelAlloc.get());
 	memory->resize(size);
 	
 	MemoryAccessDescriptor base(util::move(memory));
-	*handle = cur_universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(util::move(base));
 
 	return 0;
 }
 
 HelError helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
-	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 	
-	auto &wrapper = cur_universe->getDescriptor(memory_handle);
+	auto &wrapper = universe->getDescriptor(memory_handle);
 	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
 	UnsafePtr<Memory> memory = descriptor.getMemory();
 
@@ -56,38 +56,38 @@ HelError helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
 
 HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 		void *user_stack_ptr, HelHandle *handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
-	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
 	auto new_thread = makeShared<Thread>(kernelAlloc.get());
 	new_thread->setup(user_entry, argument, user_stack_ptr);
-	new_thread->setUniverse(cur_universe->shared<Universe>());
+	new_thread->setUniverse(universe->shared<Universe>());
 	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
 
 	scheduleQueue->addBack(util::move(new_thread));
 
 //	ThreadObserveDescriptor base(util::move(new_thread));
-//	*handle = cur_universe->attachDescriptor(util::move(base));
+//	*handle = universe->attachDescriptor(util::move(base));
 
 	return 0;
 }
 
 HelError helExitThisThread() {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	scheduleQueue->remove(cur_thread);
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	scheduleQueue->remove(this_thread);
 }
 
 
 HelError helCreateEventHub(HelHandle *handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto event_hub = makeShared<EventHub>(kernelAlloc.get());
 
 	EventHubDescriptor base(util::move(event_hub));
 
-	*handle = cur_universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(util::move(base));
 
 	return 0;
 }
@@ -98,7 +98,7 @@ HelError helWaitForEvents(HelHandle handle,
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto &hub_wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(handle);
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	UnsafePtr<EventHub> event_hub = hub_descriptor.getEventHub();
 
@@ -154,16 +154,16 @@ HelError helWaitForEvents(HelHandle handle,
 
 HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto pipe = makeShared<BiDirectionPipe>(kernelAlloc.get());
 
 	BiDirectionFirstDescriptor first_base(pipe->shared<BiDirectionPipe>());
 	BiDirectionSecondDescriptor second_base(pipe->shared<BiDirectionPipe>());
 
-	*first_handle = cur_universe->attachDescriptor(util::move(first_base));
-	*second_handle = cur_universe->attachDescriptor(util::move(second_base));
+	*first_handle = universe->attachDescriptor(util::move(first_base));
+	*second_handle = universe->attachDescriptor(util::move(second_base));
 
 	return 0;
 }
@@ -241,14 +241,14 @@ HelError helSubmitRecvString(HelHandle handle,
 
 
 HelError helAccessIrq(int number, HelHandle *handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto irq_line = makeShared<IrqLine>(kernelAlloc.get(), number);
 
 	IrqDescriptor base(util::move(irq_line));
 
-	*handle = cur_universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(util::move(base));
 
 	return 0;
 }
@@ -272,8 +272,8 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 
 HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 		HelHandle *handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
 	auto io_space = makeShared<IoSpace>(kernelAlloc.get());
@@ -281,15 +281,15 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 		io_space->addPort(user_port_array[i]);
 
 	IoDescriptor base(util::move(io_space));
-	*handle = cur_universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(util::move(base));
 }
 HelError helEnableIo(HelHandle handle) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &wrapper = cur_universe->getDescriptor(handle);
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
 	auto &descriptor = wrapper.get<IoDescriptor>();
 	
-	descriptor.getIoSpace()->enableInThread(cur_thread);
+	descriptor.getIoSpace()->enableInThread(this_thread);
 }
 

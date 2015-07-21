@@ -347,7 +347,8 @@ public:
 	AnyDescriptor &getDescriptor(Handle handle);
 
 private:
-	util::Hashmap<Handle, AnyDescriptor, util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
+	util::Hashmap<Handle, AnyDescriptor,
+			util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
 	Handle p_nextHandle;
 };
 
