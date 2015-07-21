@@ -112,12 +112,25 @@ HelError helWaitForEvents(HelHandle handle,
 		switch(event.type) {
 		case EventHub::Event::kTypeRecvStringTransfer: {
 			user_evt->type = kHelEventRecvString;
+			user_evt->error = kHelErrNone;
 
 			// TODO: check userspace page access rights
 	
 			// do the actual memory transfer
 			memcpy(event.userBuffer, event.kernelBuffer, event.length);
 			user_evt->length = event.length;
+		} break;
+		case EventHub::Event::kTypeRecvStringError: {
+			user_evt->type = kHelEventRecvString;
+
+			switch(event.error) {
+			case kErrBufferTooSmall:
+				user_evt->error = kHelErrBufferTooSmall;
+				break;
+			default:
+				debug::criticalLogger->log("Unexpected error");
+				debug::panic();
+			}
 		} break;
 		case EventHub::Event::kTypeIrq: {
 			user_evt->type = kHelEventIrq;

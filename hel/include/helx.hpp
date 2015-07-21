@@ -58,7 +58,7 @@ struct MemberHelper<void (Object::*) (Args...), function> {
 
 #define HELX_MEMBER(x, f) ::helx::MemberHelper<decltype(f), f>::make(x)
 
-typedef Callback<int64_t, size_t> RecvStringCb;
+typedef Callback<HelError, int64_t, size_t> RecvStringCb;
 typedef Callback<int64_t> IrqCb;
 
 class EventHub {
@@ -88,7 +88,7 @@ public:
 			switch(evt.type) {
 			case kHelEventRecvString: {
 				auto cb = (RecvStringCb::FunctionPtr)evt.submitFunction;
-				cb((void *)evt.submitObject, evt.submitId, evt.length);
+				cb((void *)evt.submitObject, evt.error, evt.submitId, evt.length);
 			} break;
 			case kHelEventIrq: {
 				auto cb = (IrqCb::FunctionPtr)evt.submitFunction;

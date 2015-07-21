@@ -53,6 +53,13 @@ void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
 	p_queue.addBack(util::move(event));
 }
 
+void EventHub::raiseRecvStringErrorEvent(Error error,
+		SubmitInfo submit_info) {
+	Event event(Event::kTypeRecvStringError, submit_info);
+	event.error = error;
+	p_queue.addBack(util::move(event));
+}
+
 void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
 		uint8_t *user_buffer, size_t length, SubmitInfo submit_info) {
 	Event event(Event::kTypeRecvStringTransfer, submit_info);
@@ -84,17 +91,22 @@ void Channel::sendString(const uint8_t *user_buffer, size_t length,
 		buffer[i] = user_buffer[i];
 	
 	Message message(buffer, length, msg_request, msg_sequence);
-
+	
+	bool queue_message = true;
 	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
 		if(!matchRequest(message, *it))
 			continue;
-
-		processStringRequest(message, *it);
-		p_requests.remove(it);
-		return;
+		
+		if(processStringRequest(message, *it)) {
+			p_requests.remove(it);
+			// don't queue the message if a request succeeds
+			queue_message = false;
+			break;
+		}
 	}
 
-	p_messages.addBack(util::move(message));
+	if(queue_message)
+		p_messages.addBack(util::move(message));
 }
 
 void Channel::submitRecvString(SharedPtr<EventHub> &&event_hub,
@@ -106,16 +118,20 @@ void Channel::submitRecvString(SharedPtr<EventHub> &&event_hub,
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
 
+	bool queue_request = true;
 	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
 		if(!matchRequest(*it, request))
 			continue;
 		
-		processStringRequest(*it, request);
-		p_messages.remove(it);
-		return;
+		if(processStringRequest(*it, request))
+			p_messages.remove(it);
+		// NOTE: we never queue failed requests
+		queue_request = false;
+		break;
 	}
 	
-	p_requests.addBack(util::move(request));
+	if(queue_request)
+		p_requests.addBack(util::move(request));
 }
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
@@ -130,9 +146,16 @@ bool Channel::matchRequest(const Message &message, const Request &request) {
 	return true;
 }
 
-void Channel::processStringRequest(const Message &message, const Request &request) {
-	request.eventHub->raiseRecvStringTransferEvent(message.kernelBuffer,
-			request.userBuffer, message.length, request.submitInfo);
+bool Channel::processStringRequest(const Message &message, const Request &request) {
+	if(message.length > request.maxLength) {
+		request.eventHub->raiseRecvStringErrorEvent(kErrBufferTooSmall,
+				request.submitInfo);
+		return false;
+	}else{
+		request.eventHub->raiseRecvStringTransferEvent(message.kernelBuffer,
+				request.userBuffer, message.length, request.submitInfo);
+		return true;
+	}
 }
 
 

@@ -30,7 +30,8 @@ enum {
 };
 
 enum {
-	kHelErrNone = 0
+	kHelErrNone = 0,
+	kHelErrBufferTooSmall = 1
 };
 
 typedef int HelError;

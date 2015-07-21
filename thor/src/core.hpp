@@ -9,7 +9,8 @@ typedef memory::StupidMemoryAllocator KernelAlloc;
 extern LazyInitializer<KernelAlloc> kernelAlloc;
 
 enum Error {
-	kErrSuccess = 0
+	kErrSuccess,
+	kErrBufferTooSmall
 };
 
 typedef uint64_t Handle;
@@ -53,12 +54,14 @@ public:
 		enum Type {
 			kTypeNone,
 			kTypeRecvStringTransfer,
+			kTypeRecvStringError,
 			kTypeIrq
 		};
 
 		Event(Type type, SubmitInfo submit_info);
 		
 		Type type;
+		Error error;
 		SubmitInfo submitInfo;
 		uint8_t *kernelBuffer;
 		uint8_t *userBuffer;
@@ -69,6 +72,8 @@ public:
 
 	void raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
 			uint8_t *user_buffer, size_t length,
+			SubmitInfo submit_info);
+	void raiseRecvStringErrorEvent(Error error,
 			SubmitInfo submit_info);
 	void raiseIrqEvent(SubmitInfo submit_info);
 
@@ -121,7 +126,9 @@ private:
 	};
 
 	bool matchRequest(const Message &message, const Request &request);
-	void processStringRequest(const Message &message, const Request &request);
+
+	// returns true if the message + request are consumed
+	bool processStringRequest(const Message &message, const Request &request);
 
 	util::LinkedList<Message, KernelAlloc> p_messages;
 	util::LinkedList<Request, KernelAlloc> p_requests;

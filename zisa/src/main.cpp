@@ -200,8 +200,9 @@ void Keyboard::onScancode(int64_t submit_id) {
 
 uint8_t recvBuffer[10];
 
-void onTestComplete(void *object, int64_t submit_id, size_t length) {
-	printf("ok %u %s\n", length, recvBuffer);
+void onTestComplete(void *object, HelError error,
+		int64_t submit_id, size_t length) {
+	printf("ok %d %u %s\n", error, length, recvBuffer);
 }
 
 int main() {
@@ -229,11 +230,15 @@ int main() {
 
 	HelHandle first, second;
 	helCreateBiDirectionPipe(&first, &second);
-	helSendString(first, (const uint8_t *)"hello", 6, 7, 13);
 	helSubmitRecvString(second, event_hub.getHandle(),
-			recvBuffer, 10, -1, 13, 0,
+			recvBuffer, 3, -1, 13, 0,
 			(uintptr_t)callback.getFunction(),
 			(uintptr_t)callback.getObject());
+	helSubmitRecvString(second, event_hub.getHandle(),
+			recvBuffer, 6, -1, 13, 0,
+			(uintptr_t)callback.getFunction(),
+			(uintptr_t)callback.getObject());
+	helSendString(first, (const uint8_t *)"hello", 6, 7, 13);
 
 	while(true)
 		event_hub.defaultProcessEvents();
