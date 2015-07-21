@@ -4,7 +4,41 @@ namespace util {
 
 template<typename T, typename Allocator>
 class LinkedList {
+private:
+	struct Item {
+		T element;
+		Item *previous;
+		Item *next;
+
+		Item(const T &new_element) : element(new_element),
+				next(nullptr), previous(nullptr) { }
+		Item(T &&new_element) : element(util::move(new_element)),
+				next(nullptr), previous(nullptr) { }
+	};
+
 public:
+	class Iterator {
+	friend class LinkedList;
+	public:
+		T &operator* () {
+			return p_current->element;
+		}
+
+		Iterator &operator++ () {
+			p_current = p_current->next;
+			return *this;
+		}
+		
+		bool okay() {
+			return p_current != nullptr;
+		}
+
+	private:
+		Iterator(Item *item) : p_current(item) { }
+
+		Item *p_current;
+	};
+
 	LinkedList(Allocator *allocator)
 			: p_allocator(allocator), p_front(nullptr), p_back(nullptr) { }
 
@@ -18,37 +52,37 @@ public:
 	}
 
 	T removeFront() {
-		Item *front = p_front;
-		if(front == nullptr) {
-			debug::criticalLogger->log("LinkedList::removeFront(): List is empty!");
-			debug::panic();
-		}
+		return remove(frontIter());
+	}
 
-		T element = util::move(front->element);
+	T remove(const Iterator &iter) {
+		Item *item = iter.p_current;
+		
+		T element = util::move(item->element);
 
-		Item *next = front->next;
+		Item *next = item->next;
+		Item *previous = item->previous;
+
 		if(next == nullptr) {
-			p_back = nullptr;
+			p_back = previous;
 		}else{
-			next->previous = nullptr;
+			next->previous = previous;
 		}
-		p_front = next;
+
+		if(previous == nullptr) {
+			p_front = next;
+		}else{
+			previous->next = next;
+		}
 
 		return element;
 	}
 
+	Iterator frontIter() {
+		return Iterator(p_front);
+	}
+
 private:
-	struct Item {
-		T element;
-		Item *previous;
-		Item *next;
-
-		Item(const T &new_element) : element(new_element),
-				next(nullptr), previous(nullptr) { }
-		Item(T &&new_element) : element(util::move(new_element)),
-				next(nullptr), previous(nullptr) { }
-	};
-
 	void addItemBack(Item *item) {
 		if(p_back == nullptr) {
 			p_front = item;

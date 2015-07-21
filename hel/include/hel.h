@@ -74,9 +74,12 @@ HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 
 HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 		HelHandle *second);
-HEL_C_LINKAGE HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length);
+HEL_C_LINKAGE HelError helSendString(HelHandle handle,
+		const uint8_t *buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);

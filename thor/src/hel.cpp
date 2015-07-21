@@ -153,21 +153,27 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	return 0;
 }
 
-HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length) {
-	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
-	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
+HelError helSendString(HelHandle handle,
+		const uint8_t *user_buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
 	
-	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
+	AnyDescriptor &any_desc = universe->getDescriptor(handle);
 	switch(any_desc.getType()) {
 		case AnyDescriptor::kTypeBiDirectionFirst: {
 			auto &descriptor = any_desc.asBiDirectionFirst();
-			descriptor.sendString(buffer, length);
+			Channel *channel = descriptor.getPipe()->getSecondChannel();
+			channel->sendString(user_buffer, length,
+					msg_request, msg_sequence);
 		} break;
 		case AnyDescriptor::kTypeBiDirectionSecond: {
 			auto &descriptor = any_desc.asBiDirectionSecond();
-			descriptor.sendString(buffer, length);
+			Channel *channel = descriptor.getPipe()->getFirstChannel();
+			channel->sendString(user_buffer, length,
+					msg_request, msg_sequence);
 		} break;
 		default: {
 			debug::criticalLogger->log("Descriptor is not a source");
@@ -180,6 +186,7 @@ HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length) {
 
 HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -196,13 +203,17 @@ HelError helSubmitRecvString(HelHandle handle,
 			auto &descriptor = any_desc.asBiDirectionFirst();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
 			channel->submitRecvString(util::move(event_hub),
-					user_buffer, max_length, submit_info);
+					user_buffer, max_length,
+					filter_request, filter_sequence,
+					submit_info);
 		} break;
 		case AnyDescriptor::kTypeBiDirectionSecond: {
 			auto &descriptor = any_desc.asBiDirectionFirst();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
 			channel->submitRecvString(util::move(event_hub),
-					user_buffer, max_length, submit_info);
+					user_buffer, max_length,
+					filter_request, filter_sequence,
+					submit_info);
 		} break;
 		default: {
 			debug::criticalLogger->log("Descriptor is not a source");

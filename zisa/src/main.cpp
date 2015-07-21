@@ -229,11 +229,11 @@ int main() {
 
 	HelHandle first, second;
 	helCreateBiDirectionPipe(&first, &second);
+	helSendString(first, (const uint8_t *)"hello", 6, 7, 13);
 	helSubmitRecvString(second, event_hub.getHandle(),
-			recvBuffer, 10, 0,
+			recvBuffer, 10, -1, 13, 0,
 			(uintptr_t)callback.getFunction(),
 			(uintptr_t)callback.getObject());
-	helSendString(first, (const uint8_t *)"hello", 6);
 
 	while(true)
 		event_hub.defaultProcessEvents();

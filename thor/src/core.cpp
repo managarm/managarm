@@ -77,50 +77,77 @@ EventHub::Event EventHub::dequeueEvent() {
 Channel::Channel() : p_messages(kernelAlloc.get()),
 		p_requests(kernelAlloc.get()) { }
 
-void Channel::sendString(const uint8_t *user_buffer, size_t length) {
+void Channel::sendString(const uint8_t *user_buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence) {
 	uint8_t *buffer = (uint8_t *)kernelAlloc->allocate(length);
 	for(size_t i = 0; i < length; i++)
 		buffer[i] = user_buffer[i];
 	
-	Message message(buffer, length);
+	Message message(buffer, length, msg_request, msg_sequence);
 
-	if(!p_requests.empty()) {
-		matchStringRequest(util::move(message),
-				p_requests.removeFront());
-	}else{
-		p_messages.addBack(util::move(message));
+	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
+		if(!matchRequest(message, *it))
+			continue;
+
+		processStringRequest(message, *it);
+		p_requests.remove(it);
+		return;
 	}
+
+	p_messages.addBack(util::move(message));
 }
 
 void Channel::submitRecvString(SharedPtr<EventHub> &&event_hub,
 		uint8_t *user_buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
-	Request request(util::move(event_hub), submit_info);
+	Request request(util::move(event_hub),
+			filter_request, filter_sequence, submit_info);
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
-	
-	if(!p_messages.empty()) {
-		matchStringRequest(p_messages.removeFront(),
-				util::move(request));
-	}else{
-		p_requests.addBack(util::move(request));
+
+	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
+		if(!matchRequest(*it, request))
+			continue;
+		
+		processStringRequest(*it, request);
+		p_messages.remove(it);
+		return;
 	}
+	
+	p_requests.addBack(util::move(request));
 }
 
-void Channel::matchStringRequest(Message &&message, Request &&request) {
+bool Channel::matchRequest(const Message &message, const Request &request) {
+	if(request.filterRequest != -1)
+		if(request.filterRequest != message.msgRequest)
+			return false;
+	
+	if(request.filterSequence != -1)
+		if(request.filterSequence != message.msgSequence)
+			return false;
+	
+	return true;
+}
+
+void Channel::processStringRequest(const Message &message, const Request &request) {
 	request.eventHub->raiseRecvStringTransferEvent(message.kernelBuffer,
 			request.userBuffer, message.length, request.submitInfo);
 }
 
 
-Channel::Message::Message(uint8_t *buffer, size_t length)
-		: kernelBuffer(buffer), length(length) { }
+Channel::Message::Message(uint8_t *buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence)
+	: kernelBuffer(buffer), length(length),
+		msgRequest(msg_request), msgSequence(msg_sequence) { }
 
 
 Channel::Request::Request(SharedPtr<EventHub> &&event_hub,
+		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info),
-		userBuffer(nullptr), maxLength(0) { }
+		userBuffer(nullptr), maxLength(0),
+		filterRequest(filter_request), filterSequence(filter_sequence) { }
 
 
 BiDirectionPipe::BiDirectionPipe() {
@@ -162,20 +189,12 @@ UnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
 	return p_pipe->unsafe<BiDirectionPipe>();
 }
 
-void BiDirectionFirstDescriptor::sendString(const uint8_t *buffer, size_t length) {
-	p_pipe->getSecondChannel()->sendString(buffer, length);
-}
-
 
 BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
 UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 	return p_pipe->unsafe<BiDirectionPipe>();
-}
-
-void BiDirectionSecondDescriptor::sendString(const uint8_t *buffer, size_t length) {
-	p_pipe->getFirstChannel()->sendString(buffer, length);
 }
 
 

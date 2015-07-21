@@ -35,10 +35,10 @@ public:
 		return *this;
 	}
 
-	T *operator-> () {
+	T *operator-> () const {
 		return p_pointer;
 	}
-	T *get() {
+	T *get() const {
 		return p_pointer;
 	}
 

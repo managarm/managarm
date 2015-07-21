@@ -119,32 +119,41 @@ extern inline HelError helCreateBiDirectionPipe(HelHandle *first,
 	*second = (HelHandle)out_second;
 	return (HelError)out_error;
 }
-extern inline HelError helSendString(HelHandle handle, const uint8_t *buffer, size_t length) {
+extern inline HelError helSendString(HelHandle handle,
+		const uint8_t *buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSendString;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;
 	register HelWord in_buffer asm ("rdx") = (HelWord)buffer;
 	register HelWord in_length asm ("rcx") = (HelWord)length;
+	register HelWord in_msg_request asm ("r8") = (HelWord)msg_request;
+	register HelWord in_msg_sequence asm ("r9") = (HelWord)msg_sequence;
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
-		: "r" (in_syscall), "r" (in_handle), "r" (in_buffer), "r" (in_length)
-		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+		: "r" (in_syscall), "r" (in_handle), "r" (in_buffer), "r" (in_length),
+			"r" (in_msg_request), "r" (in_msg_sequence)
+		: "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
 extern inline HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitRecvString;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;
 	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
 	register HelWord in_buffer asm ("rcx") = (HelWord)buffer;
 	register HelWord in_max_length asm ("r8") = (HelWord)max_length;
-	register HelWord in_submit_id asm ("r9") = (HelWord)submit_id;
-	register HelWord in_submit_function asm ("r10") = (HelWord)submit_function;
-	register HelWord in_submit_object asm ("r11") = (HelWord)submit_object;
+	register HelWord in_filter_request asm ("r9") = (HelWord)filter_request;
+	register HelWord in_filter_sequence asm ("r10") = (HelWord)filter_sequence;
+	register HelWord in_submit_id asm ("r11") = (HelWord)submit_id;
+	register HelWord in_submit_function asm ("r12") = (HelWord)submit_function;
+	register HelWord in_submit_object asm ("r13") = (HelWord)submit_object;
 	register HelWord out_error asm ("rdi");
 	asm volatile ( "int $0x80" : "=r" (out_error)
 		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
 			"r" (in_buffer), "r" (in_max_length),
+			"r" (in_filter_request), "r" (in_filter_sequence),
 			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
 		: "rax", "rbx", "memory" );
 	return (HelError)out_error;

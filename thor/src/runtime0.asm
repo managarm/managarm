@@ -142,6 +142,8 @@ thorRtIsrSyscall:
 	popq kContextRsp(%rbx)
 	add $8, %rsp # skip ss
 
+	push %r13
+	push %r12
 	push %r11
 	push %r10
 

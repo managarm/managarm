@@ -88,32 +88,40 @@ class Channel {
 public:
 	struct Message {
 	public:
-		Message(uint8_t *kernel_buffer, size_t length);
+		Message(uint8_t *kernel_buffer, size_t length,
+			int64_t msg_request, int64_t msg_sequence);
 
 		uint8_t *kernelBuffer;
 		size_t length;
+		int64_t msgRequest;
+		int64_t msgSequence;
 	};
 
 	Channel();
 
-	void sendString(const uint8_t *buffer, size_t length);
+	void sendString(const uint8_t *buffer, size_t length,
+			int64_t msg_request, int64_t msg_sequence);
 	void submitRecvString(SharedPtr<EventHub> &&event_hub,
 			uint8_t *user_buffer, size_t length,
+			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 
 private:
 	struct Request {
 		Request(SharedPtr<EventHub> &&event_hub,
+				int64_t filter_request, int64_t filter_sequence,
 				SubmitInfo submit_info);
 
 		SharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
 		uint8_t *userBuffer;
 		size_t maxLength;
+		int64_t filterRequest;
+		int64_t filterSequence;
 	};
 
-	void matchStringRequest(Message &&message,
-			Request &&request);
+	bool matchRequest(const Message &message, const Request &request);
+	void processStringRequest(const Message &message, const Request &request);
 
 	util::LinkedList<Message, KernelAlloc> p_messages;
 	util::LinkedList<Request, KernelAlloc> p_requests;
@@ -268,7 +276,6 @@ public:
 	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
 	
 	UnsafePtr<BiDirectionPipe> getPipe();
-	void sendString(const uint8_t *buffer, size_t length);
 
 private:
 	SharedPtr<BiDirectionPipe> p_pipe;
@@ -280,7 +287,6 @@ public:
 	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
 	
 	UnsafePtr<BiDirectionPipe> getPipe();
-	void sendString(const uint8_t *buffer, size_t length);
 
 private:
 	SharedPtr<BiDirectionPipe> p_pipe;
