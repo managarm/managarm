@@ -159,6 +159,50 @@ extern inline HelError helSubmitRecvString(HelHandle handle,
 	return (HelError)out_error;
 }
 
+extern inline HelError helCreateServer(HelHandle *server_handle,
+		HelHandle *client_handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallCreateServer;
+	register HelWord out_error asm ("rdi");
+	register HelWord out_server_handle asm ("rsi");
+	register HelWord out_client_handle asm ("rdx");
+	asm volatile ( "int $0x80" : "=r" (out_error),
+			"=r" (out_server_handle), "=r" (out_client_handle)
+		: "r" (in_syscall)
+		: "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+	*server_handle = out_server_handle;
+	*client_handle = out_client_handle;
+	return (HelError)out_error;
+}
+extern inline HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitAccept;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
+	register HelWord in_submit_id asm ("rcx") = (HelWord)submit_id;
+	register HelWord in_submit_function asm ("r8") = (HelWord)submit_function;
+	register HelWord in_submit_object asm ("r9") = (HelWord)submit_object;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
+			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
+		: "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
+extern inline HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitConnect;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
+	register HelWord in_submit_id asm ("rcx") = (HelWord)submit_id;
+	register HelWord in_submit_function asm ("r8") = (HelWord)submit_function;
+	register HelWord in_submit_object asm ("r9") = (HelWord)submit_object;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
+			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
+		: "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
 
 extern inline HelError helAccessIrq(int number, HelHandle *handle) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallAccessIrq;

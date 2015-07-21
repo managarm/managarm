@@ -22,6 +22,10 @@ enum {
 	kHelCallSendString = 8,
 	kHelCallSubmitRecvString = 9,
 	
+	kHelCallCreateServer = 17,
+	kHelCallSubmitAccept = 18,
+	kHelCallSubmitConnect = 19,
+
 	kHelCallAccessIrq = 14,
 	kHelCallSubmitWaitForIrq = 15,
 
@@ -44,7 +48,9 @@ enum {
 
 enum {
 	kHelEventRecvString = 1,
-	kHelEventIrq = 2
+	kHelEventAccept = 2,
+	kHelEventConnect = 3,
+	kHelEventIrq = 4
 };
 
 struct HelEvent {
@@ -52,6 +58,7 @@ struct HelEvent {
 	int error;
 
 	size_t length;
+	HelHandle handle;
 
 	uintptr_t submitFunction;
 	uintptr_t submitObject;
@@ -81,6 +88,13 @@ HEL_C_LINKAGE HelError helSendString(HelHandle handle,
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+
+HEL_C_LINKAGE HelError helCreateServer(HelHandle *server_handle,
+		HelHandle *client_handle);
+HEL_C_LINKAGE HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+HEL_C_LINKAGE HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);

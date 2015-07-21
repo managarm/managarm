@@ -51,6 +51,10 @@ public:
 		return p_front == nullptr;
 	}
 
+	T &front() {
+		return p_front->element;
+	}
+
 	T removeFront() {
 		return remove(frontIter());
 	}

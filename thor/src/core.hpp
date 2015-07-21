@@ -19,6 +19,7 @@ typedef uint64_t Handle;
 class Universe;
 class AddressSpace;
 class Channel;
+class BiDirectionPipe;
 
 // --------------------------------------------------------
 // Memory related classes
@@ -56,17 +57,26 @@ public:
 			kTypeNone,
 			kTypeRecvStringTransfer,
 			kTypeRecvStringError,
+			kTypeAccept,
+			kTypeConnect,
 			kTypeIrq
 		};
 
 		Event(Type type, SubmitInfo submit_info);
 		
 		Type type;
-		Error error;
 		SubmitInfo submitInfo;
+
+		// used by kTypeRecvStringError
+		Error error;
+
+		// used by kTypeRecvStringTransfer
 		uint8_t *kernelBuffer;
 		uint8_t *userBuffer;
 		size_t length;
+
+		// used by kTypeAccept, kTypeConnect
+		SharedPtr<BiDirectionPipe> pipe;
 	};
 
 	EventHub();
@@ -76,6 +86,12 @@ public:
 			SubmitInfo submit_info);
 	void raiseRecvStringErrorEvent(Error error,
 			SubmitInfo submit_info);
+	
+	void raiseAcceptEvent(SharedPtr<BiDirectionPipe> &&pipe,
+			SubmitInfo submit_info);
+	void raiseConnectEvent(SharedPtr<BiDirectionPipe> &&pipe,
+			SubmitInfo submit_info);
+
 	void raiseIrqEvent(SubmitInfo submit_info);
 
 	bool hasEvent();
@@ -145,6 +161,39 @@ public:
 private:
 	Channel p_firstChannel;
 	Channel p_secondChannel;
+};
+
+class Server : public SharedObject {
+public:
+	Server();
+
+	void submitAccept(SharedPtr<EventHub> &&event_hub,
+			SubmitInfo submit_info);
+	
+	void submitConnect(SharedPtr<EventHub> &&event_hub,
+			SubmitInfo submit_info);
+
+private:
+	struct AcceptRequest {
+		AcceptRequest(SharedPtr<EventHub> &&event_hub,
+				SubmitInfo submit_info);
+
+		SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+	};
+	struct ConnectRequest {
+		ConnectRequest(SharedPtr<EventHub> &&event_hub,
+				SubmitInfo submit_info);
+
+		SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+	};
+
+	void processRequests(const AcceptRequest &accept,
+			const ConnectRequest &connect);
+	
+	util::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
+	util::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
 };
 
 // --------------------------------------------------------
@@ -301,9 +350,30 @@ private:
 };
 
 
+class ServerDescriptor {
+public:
+	ServerDescriptor(SharedPtr<Server> &&server);
+	
+	UnsafePtr<Server> getServer();
+
+private:
+	SharedPtr<Server> p_server;
+};
+
+class ClientDescriptor {
+public:
+	ClientDescriptor(SharedPtr<Server> &&server);
+	
+	UnsafePtr<Server> getServer();
+
+private:
+	SharedPtr<Server> p_server;
+};
+
+
 class IrqDescriptor {
 public:
-	IrqDescriptor(SharedPtr<IrqLine> &&thread);
+	IrqDescriptor(SharedPtr<IrqLine> &&irq_line);
 	
 	UnsafePtr<IrqLine> getIrqLine();
 
@@ -313,7 +383,7 @@ private:
 
 class IoDescriptor {
 public:
-	IoDescriptor(SharedPtr<IoSpace> &&thread);
+	IoDescriptor(SharedPtr<IoSpace> &&io_space);
 	
 	UnsafePtr<IoSpace> getIoSpace();
 
@@ -330,6 +400,8 @@ typedef util::Variant<MemoryAccessDescriptor,
 		EventHubDescriptor,
 		BiDirectionFirstDescriptor,
 		BiDirectionSecondDescriptor,
+		ServerDescriptor,
+		ClientDescriptor,
 		IrqDescriptor,
 		IoDescriptor> AnyDescriptor;
 

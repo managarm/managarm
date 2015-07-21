@@ -200,14 +200,29 @@ void Keyboard::onScancode(int64_t submit_id) {
 
 uint8_t recvBuffer[10];
 
-void onTestComplete(void *object, HelError error,
-		int64_t submit_id, size_t length) {
+helx::EventHub event_hub;
+
+void onReceive(void *object, int64_t submit_id,
+		HelError error, size_t length) {
 	printf("ok %d %u %s\n", error, length, recvBuffer);
 }
 
-int main() {
-	helx::EventHub event_hub;
+void onAccept(void *object, int64_t submit_id, HelHandle handle) {
+	printf("accept\n");
 	
+	helSendString(handle, (const uint8_t *)"hello", 6, 1, 1);
+}
+void onConnect(void *object, int64_t submit_id, HelHandle handle) {
+	printf("connect\n");
+
+	helx::RecvStringCb callback(nullptr, &onReceive);
+	helSubmitRecvString(handle, event_hub.getHandle(),
+			recvBuffer, 10, -1, -1, 0,
+			(uintptr_t)callback.getFunction(),
+			(uintptr_t)callback.getObject());
+}
+
+int main() {
 /*	AtaDriver ata(event_hub);
 
 	uint8_t buffer[512];
@@ -226,19 +241,19 @@ int main() {
 		printf("%x ", bytes[i]);
 	printf("\n");*/
 
-	helx::RecvStringCb callback(nullptr, &onTestComplete);
+	helx::AcceptCb accept_cb(nullptr, &onAccept);
+	helx::ConnectCb connect_cb(nullptr, &onConnect);
 
-	HelHandle first, second;
-	helCreateBiDirectionPipe(&first, &second);
-	helSubmitRecvString(second, event_hub.getHandle(),
-			recvBuffer, 3, -1, 13, 0,
-			(uintptr_t)callback.getFunction(),
-			(uintptr_t)callback.getObject());
-	helSubmitRecvString(second, event_hub.getHandle(),
-			recvBuffer, 6, -1, 13, 0,
-			(uintptr_t)callback.getFunction(),
-			(uintptr_t)callback.getObject());
-	helSendString(first, (const uint8_t *)"hello", 6, 7, 13);
+	HelHandle socket;
+
+	HelHandle server, client;
+	helCreateServer(&server, &client);
+	helSubmitAccept(server, event_hub.getHandle(), 0,
+			(uintptr_t)accept_cb.getFunction(),
+			(uintptr_t)accept_cb.getObject());
+	helSubmitConnect(client, event_hub.getHandle(), 0,
+			(uintptr_t)connect_cb.getFunction(),
+			(uintptr_t)connect_cb.getObject());
 
 	while(true)
 		event_hub.defaultProcessEvents();

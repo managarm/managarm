@@ -69,6 +69,20 @@ void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
 	p_queue.addBack(util::move(event));
 }
 
+void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe> &&pipe,
+		SubmitInfo submit_info) {
+	Event event(Event::kTypeAccept, submit_info);
+	event.pipe = util::move(pipe);
+	p_queue.addBack(util::move(event));
+}
+
+void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe> &&pipe,
+		SubmitInfo submit_info) {
+	Event event(Event::kTypeConnect, submit_info);
+	event.pipe = util::move(pipe);
+	p_queue.addBack(util::move(event));
+}
+
 bool EventHub::hasEvent() {
 	return !p_queue.empty();
 }
@@ -185,6 +199,52 @@ Channel *BiDirectionPipe::getSecondChannel() {
 	return &p_secondChannel;
 }
 
+
+Server::Server() : p_acceptRequests(kernelAlloc.get()),
+		p_connectRequests(kernelAlloc.get()) { }
+
+void Server::submitAccept(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info) {
+	AcceptRequest request(util::move(event_hub), submit_info);
+	
+	if(!p_connectRequests.empty()) {
+		processRequests(request, p_connectRequests.front());
+		p_connectRequests.removeFront();
+	}else{
+		p_acceptRequests.addBack(util::move(request));
+	}
+}
+
+void Server::submitConnect(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info) {
+	ConnectRequest request(util::move(event_hub), submit_info);
+
+	if(!p_acceptRequests.empty()) {
+		processRequests(p_acceptRequests.front(), request);
+		p_acceptRequests.removeFront();
+	}else{
+		p_connectRequests.addBack(util::move(request));
+	}
+}
+
+void Server::processRequests(const AcceptRequest &accept,
+		const ConnectRequest &connect) {
+	auto pipe = makeShared<BiDirectionPipe>(kernelAlloc.get());
+
+	accept.eventHub->raiseAcceptEvent(pipe->shared<BiDirectionPipe>(),
+			accept.submitInfo);
+	connect.eventHub->raiseConnectEvent(pipe->shared<BiDirectionPipe>(),
+			connect.submitInfo);
+}
+
+Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info)
+	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+
+Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub> &&event_hub,
+		SubmitInfo submit_info)
+	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+
 // --------------------------------------------------------
 // Descriptors
 // --------------------------------------------------------
@@ -218,6 +278,21 @@ BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPi
 
 UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 	return p_pipe->unsafe<BiDirectionPipe>();
+}
+
+
+ServerDescriptor::ServerDescriptor(SharedPtr<Server> &&server)
+		: p_server(util::move(server)) { }
+
+UnsafePtr<Server> ServerDescriptor::getServer() {
+	return p_server->unsafe<Server>();
+}
+
+ClientDescriptor::ClientDescriptor(SharedPtr<Server> &&server)
+		: p_server(util::move(server)) { }
+
+UnsafePtr<Server> ClientDescriptor::getServer() {
+	return p_server->unsafe<Server>();
 }
 
 

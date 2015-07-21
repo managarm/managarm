@@ -134,6 +134,18 @@ HelError helWaitForEvents(HelHandle handle,
 				debug::panic();
 			}
 		} break;
+		case EventHub::Event::kTypeAccept: {
+			user_evt->type = kHelEventAccept;
+
+			BiDirectionFirstDescriptor descriptor(util::move(event.pipe));
+			user_evt->handle = universe->attachDescriptor(util::move(descriptor));
+		} break;
+		case EventHub::Event::kTypeConnect: {
+			user_evt->type = kHelEventConnect;
+
+			BiDirectionSecondDescriptor descriptor(util::move(event.pipe));
+			user_evt->handle = universe->attachDescriptor(util::move(descriptor));
+		} break;
 		case EventHub::Event::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
 		} break;
@@ -240,6 +252,58 @@ HelError helSubmitRecvString(HelHandle handle,
 }
 
 
+HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	auto server = makeShared<Server>(kernelAlloc.get());
+
+	ServerDescriptor server_descriptor(server->shared<Server>());
+	ClientDescriptor client_descriptor(server->shared<Server>());
+
+	*server_handle = universe->attachDescriptor(util::move(server_descriptor));
+	*client_handle = universe->attachDescriptor(util::move(client_descriptor));
+
+	return 0;
+}
+
+HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	auto &descriptor = wrapper.get<ServerDescriptor>();
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
+	
+	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	
+	descriptor.getServer()->submitAccept(util::move(event_hub), submit_info);
+	
+	return 0;
+}
+
+HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	auto &descriptor = wrapper.get<ClientDescriptor>();
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
+	
+	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	
+	descriptor.getServer()->submitConnect(util::move(event_hub), submit_info);
+	
+	return 0;
+}
+
+
 HelError helAccessIrq(int number, HelHandle *handle) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -266,6 +330,7 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 
 	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	
 	(*irqRelays)[number].submitWaitRequest(util::move(event_hub),
 			submit_info);
 }

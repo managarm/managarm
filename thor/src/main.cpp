@@ -240,6 +240,26 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
+		
+		case kHelCallCreateServer: {
+			HelHandle server_handle;
+			HelHandle client_handle;
+			HelError error = helCreateServer(&server_handle, &client_handle);
+			
+			thorRtReturnSyscall3((Word)error, (Word)server_handle, (Word)client_handle);
+		}
+		case kHelCallSubmitAccept: {
+			HelError error = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
+					(int64_t)arg2, (uintptr_t)arg3, (uintptr_t)arg4);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		case kHelCallSubmitConnect: {
+			HelError error = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
+					(int64_t)arg2, (uintptr_t)arg3, (uintptr_t)arg4);
+
+			thorRtReturnSyscall1((Word)error);
+		}
 
 		case kHelCallAccessIrq: {
 			HelHandle handle;
