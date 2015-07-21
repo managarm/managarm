@@ -1,6 +1,7 @@
 
 #include "util/hashmap.hpp"
 #include "util/linked.hpp"
+#include "util/variant.hpp"
 
 namespace thor {
 
@@ -324,50 +325,13 @@ private:
 // Process related classes
 // --------------------------------------------------------
 
-class AnyDescriptor {
-public:
-	enum Type {
-		kTypeIllegal,
-		kTypeMemoryAccess,
-		kTypeThreadObserve,
-		kTypeEventHub,
-		kTypeBiDirectionFirst,
-		kTypeBiDirectionSecond,
-		kTypeIrq,
-		kTypeIo
-	};
-	
-	AnyDescriptor(MemoryAccessDescriptor &&descriptor);
-	AnyDescriptor(ThreadObserveDescriptor &&descriptor);
-	AnyDescriptor(EventHubDescriptor &&descriptor);
-	AnyDescriptor(BiDirectionFirstDescriptor &&descriptor);
-	AnyDescriptor(BiDirectionSecondDescriptor &&descriptor);
-	AnyDescriptor(IrqDescriptor &&descriptor);
-	AnyDescriptor(IoDescriptor &&descriptor);
-	
-	AnyDescriptor(AnyDescriptor &&other);
-	AnyDescriptor &operator= (AnyDescriptor &&other);
-	
-	Type getType();
-	MemoryAccessDescriptor &asMemoryAccess();
-	ThreadObserveDescriptor &asThreadObserve();
-	EventHubDescriptor &asEventHub();
-	BiDirectionFirstDescriptor &asBiDirectionFirst();
-	BiDirectionSecondDescriptor &asBiDirectionSecond();
-	IrqDescriptor &asIrq();
-	IoDescriptor &asIo();
-
-private:
-	Type p_type;
-	union {
-		MemoryAccessDescriptor p_memoryAccessDescriptor;
-		EventHubDescriptor p_eventHubDescriptor;
-		BiDirectionFirstDescriptor p_biDirectionFirstDescriptor;
-		BiDirectionSecondDescriptor p_biDirectionSecondDescriptor;
-		IrqDescriptor p_irqDescriptor;
-		IoDescriptor p_ioDescriptor;
-	};
-};
+typedef util::Variant<MemoryAccessDescriptor,
+		ThreadObserveDescriptor,
+		EventHubDescriptor,
+		BiDirectionFirstDescriptor,
+		BiDirectionSecondDescriptor,
+		IrqDescriptor,
+		IoDescriptor> AnyDescriptor;
 
 class Universe : public SharedObject {
 public:

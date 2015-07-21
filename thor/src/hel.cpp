@@ -39,7 +39,8 @@ HelError helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = cur_thread->getAddressSpace();
 	
-	auto &descriptor = cur_universe->getDescriptor(memory_handle).asMemoryAccess();
+	auto &wrapper = cur_universe->getDescriptor(memory_handle);
+	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
 	UnsafePtr<Memory> memory = descriptor.getMemory();
 
 	for(int offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
@@ -97,8 +98,9 @@ HelError helWaitForEvents(HelHandle handle,
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(handle);
-	UnsafePtr<EventHub> event_hub = hub_wrapper.asEventHub().getEventHub();
+	auto &hub_wrapper = universe->getDescriptor(handle);
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
+	UnsafePtr<EventHub> event_hub = hub_descriptor.getEventHub();
 
 	// TODO: check userspace page access rights
 
@@ -174,16 +176,16 @@ HelError helSendString(HelHandle handle,
 	
 	// TODO: check userspace page access rights
 	
-	AnyDescriptor &any_desc = universe->getDescriptor(handle);
-	switch(any_desc.getType()) {
-		case AnyDescriptor::kTypeBiDirectionFirst: {
-			auto &descriptor = any_desc.asBiDirectionFirst();
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	switch(wrapper.tag()) {
+		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
 			channel->sendString(user_buffer, length,
 					msg_request, msg_sequence);
 		} break;
-		case AnyDescriptor::kTypeBiDirectionSecond: {
-			auto &descriptor = any_desc.asBiDirectionSecond();
+		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
 			channel->sendString(user_buffer, length,
 					msg_request, msg_sequence);
@@ -205,23 +207,23 @@ HelError helSubmitRecvString(HelHandle handle,
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
-	EventHubDescriptor &hub_descriptor = hub_wrapper.asEventHub();
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
-	AnyDescriptor &any_desc = universe->getDescriptor(handle);
-	switch(any_desc.getType()) {
-		case AnyDescriptor::kTypeBiDirectionFirst: {
-			auto &descriptor = any_desc.asBiDirectionFirst();
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	switch(wrapper.tag()) {
+		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
 			channel->submitRecvString(util::move(event_hub),
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
 		} break;
-		case AnyDescriptor::kTypeBiDirectionSecond: {
-			auto &descriptor = any_desc.asBiDirectionFirst();
+		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
 			channel->submitRecvString(util::move(event_hub),
 					user_buffer, max_length,
@@ -257,8 +259,8 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	
 	AnyDescriptor &irq_wrapper = universe->getDescriptor(handle);
 	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
-	IrqDescriptor &irq_descriptor = irq_wrapper.asIrq();
-	EventHubDescriptor &hub_descriptor = hub_wrapper.asEventHub();
+	auto &irq_descriptor = irq_wrapper.get<IrqDescriptor>();
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	int number = irq_descriptor.getIrqLine()->getNumber();
 
@@ -285,8 +287,8 @@ HelError helEnableIo(HelHandle handle) {
 	UnsafePtr<Thread> cur_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> cur_universe = cur_thread->getUniverse();
 	
-	AnyDescriptor &any_desc = cur_universe->getDescriptor(handle);
-	IoDescriptor &descriptor = any_desc.asIo();
+	AnyDescriptor &wrapper = cur_universe->getDescriptor(handle);
+	auto &descriptor = wrapper.get<IoDescriptor>();
 	
 	descriptor.getIoSpace()->enableInThread(cur_thread);
 }
