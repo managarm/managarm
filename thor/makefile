@@ -13,7 +13,9 @@ LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 KERNEL = bin/kernel.elf
 OBJECTS = obj/frigg-gdt.o obj/frigg-idt.o obj/frigg-tss.o \
 	obj/runtime0.o obj/runtime1.o \
-	obj/main.o obj/core.o obj/schedule.o obj/hel.o \
+	obj/main.o obj/hel.o \
+	obj/core.o obj/usermem.o obj/schedule.o obj/ipc.o obj/event.o \
+	obj/thread.o \
 	obj/debug.o \
 	obj/memory/physical-alloc.o obj/memory/paging.o \
 	obj/memory/kernel-alloc.o
