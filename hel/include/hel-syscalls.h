@@ -35,15 +35,18 @@ extern inline HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	return (HelError)out_error;
 }
 
-extern inline HelError helMapMemory(HelHandle handle, void *pointer, size_t size) {
+extern inline HelError helMapMemory(HelHandle handle,
+		void *pointer, size_t size, void **actual_pointer) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallMapMemory;
 	register HelWord in_handle asm ("rsi") = (HelWord)handle;
 	register HelWord in_pointer asm ("rdx") = (HelWord)pointer;
 	register HelWord in_size asm ("rcx") = (HelWord)size;
 	register HelWord out_error asm ("rdi");
-	asm volatile ( "int $0x80" : "=r" (out_error)
+	register HelWord out_actual_pointer asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_actual_pointer)
 		: "r" (in_syscall), "r" (in_pointer), "r" (in_size)
 		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+	*actual_pointer = (void *)out_actual_pointer;
 	return (HelError)out_error;
 }
 

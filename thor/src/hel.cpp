@@ -34,7 +34,8 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	return 0;
 }
 
-HelError helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
+HelError helMapMemory(HelHandle memory_handle,
+		void *pointer, size_t length, void **actual_pointer) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
@@ -43,13 +44,24 @@ HelError helMapMemory(HelHandle memory_handle, void *pointer, size_t length) {
 	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
 	UnsafePtr<Memory> memory = descriptor.getMemory();
 
+	// TODO: check proper alignment
+
+	Mapping *mapping;
+	if(pointer == nullptr) {
+		mapping = address_space->allocate(length);
+	}else{
+		mapping = address_space->allocateAt((VirtualAddr)pointer, length);
+	}
+
 	for(int offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
-		address_space->mapSingle4k((void *)((uintptr_t)pointer + offset),
+		address_space->mapSingle4k((void *)(mapping->baseAddress + offset),
 				memory->getPage(i));
 	}
 	
 	thorRtInvalidateSpace();
 	
+	*actual_pointer = (void *)mapping->baseAddress;
+
 	return 0;
 }
 

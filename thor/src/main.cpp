@@ -21,7 +21,7 @@ LazyInitializer<debug::TerminalLogger> vgaLogger;
 
 LazyInitializer<memory::StupidPhysicalAllocator> stupidTableAllocator;
 
-void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
+void *loadInitImage(UnsafePtr<AddressSpace> space, uintptr_t image_page) {
 	char *image = (char *)memory::physicalToVirtual(image_page);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
@@ -56,6 +56,8 @@ void *loadInitImage(memory::PageSpace *space, uintptr_t image_page) {
 		uintptr_t num_pages = top_page - bottom_page;
 		if(top % page_size != 0)
 			num_pages++;
+
+		Mapping *mapping = space->allocateAt(bottom, page_size * num_pages);
 
 		auto memory = makeShared<Memory>(kernelAlloc.get());
 		memory->resize(num_pages * page_size);
@@ -109,15 +111,26 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
-	
-	auto entry = (void (*)(uintptr_t))loadInitImage(&user_space, init_image);
-	thorRtInvalidateSpace();
 
 	auto universe = makeShared<Universe>(kernelAlloc.get());
 	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
+	
+	auto entry = (void (*)(uintptr_t))loadInitImage(address_space->unsafe<AddressSpace>(),
+			init_image);
+	thorRtInvalidateSpace();
+	
+	// allocate and memory memory for the user stack
+	size_t stack_size = 0x200000;
+	auto stack_memory = makeShared<Memory>(kernelAlloc.get());
+	stack_memory->resize(stack_size);
+
+	Mapping *stack_mapping = address_space->allocate(stack_size);
+	for(size_t i = 0; i < stack_size / 0x1000; i++)
+		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
+				+ i * 0x1000), stack_memory->getPage(i));
 
 	auto thread = makeShared<Thread>(kernelAlloc.get());
-	thread->setup(entry, 0, nullptr);
+	thread->setup(entry, 0, (void *)(stack_mapping->baseAddress + stack_size));
 	thread->setUniverse(universe->shared<Universe>());
 	thread->setAddressSpace(address_space->shared<AddressSpace>());
 	
@@ -184,10 +197,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallMapMemory: {
+			void *actual_pointer;
 			HelError error = helMapMemory((HelHandle)arg0,
-					(void *)arg1, (size_t)arg2);
+					(void *)arg1, (size_t)arg2, &actual_pointer);
 
-			thorRtReturnSyscall1((Word)error);
+			thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
 		}
 
 		case kHelCallCreateThread: {

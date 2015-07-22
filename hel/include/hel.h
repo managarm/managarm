@@ -69,7 +69,8 @@ HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
-HEL_C_LINKAGE HelError helMapMemory(HelHandle resource, void *pointer, size_t size);
+HEL_C_LINKAGE HelError helMapMemory(HelHandle resource,
+		void *pointer, size_t size, void **actual_pointer);
 
 HEL_C_LINKAGE HelError helCreateThread(void (*entry)(uintptr_t argument),
 		uintptr_t argument, void *stack_ptr, HelHandle *handle);
