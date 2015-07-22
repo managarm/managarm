@@ -4,6 +4,9 @@ namespace debug {
 
 void panic();
 
+#define ASSERT(c) do { if(!(c)) ::thor::debug::assertionFail(#c); } while(0)
+#define ASSERT_UNREACHABLE() do { ::thor::debug::assertionFail("unreachable"); } while(0)
+
 class Screen {
 public:
 	virtual int getWidth() = 0;
@@ -106,6 +109,8 @@ void Logger::logUInt(T number, int radix) {
 		p /= radix;
 	}
 }
+
+void assertionFail(const char *message);
 
 }} // namespace thor::debug
 

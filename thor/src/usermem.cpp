@@ -78,8 +78,7 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 		}else if(address >= current->baseAddress + current->length) {
 			current = current->rightPtr;
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 	}
 
@@ -105,40 +104,23 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length) {
 			&& mapping->rightPtr->largestHole >= length)
 		return allocateDfs(mapping->rightPtr, length);
 	
-	debug::criticalLogger->log("Broken largestHole values");
-	debug::panic();
+	ASSERT_UNREACHABLE();
 }
 
 Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
 	Mapping *hole = getMapping(address);
-	if(hole == nullptr) {
-		debug::criticalLogger->log("Address not in mapping");
-		debug::panic();
-	}
-
-	if(hole->type != Mapping::kTypeHole) {
-		debug::criticalLogger->log("Mapping is not a hole");
-		debug::panic();
-	}
+	ASSERT(hole != nullptr);
+	ASSERT(hole->type == Mapping::kTypeHole);
 	
 	return splitHole(hole, address - hole->baseAddress, length);
 }
 
 Mapping *AddressSpace::splitHole(Mapping *mapping,
 		VirtualAddr split_offset, size_t split_length) {
-	if(mapping->type != Mapping::kTypeHole) {
-		debug::criticalLogger->log("Mapping is not a hole");
-		debug::panic();
-	}
-	if(split_offset + split_length > mapping->length) {
-		debug::criticalLogger->log("Address out of mapping bounds");
-		debug::panic();
-	}
-	if(split_length == 0) {
-		debug::criticalLogger->log("split_length == 0");
-		debug::panic();
-	}
-
+	ASSERT(split_length > 0);
+	ASSERT(mapping->type == Mapping::kTypeHole);
+	ASSERT(split_offset + split_length <= mapping->length);
+	
 	Mapping *lower = mapping->lowerPtr;
 	Mapping *higher = mapping->higherPtr;
 	VirtualAddr hole_address = mapping->baseAddress;
@@ -186,8 +168,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 		if(higher != nullptr)
 			higher->lowerPtr = split;
 	}else{
-		debug::criticalLogger->log("Address out of mapping bounds");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 
 	return split;
@@ -195,10 +176,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 
 void AddressSpace::rotateLeft(Mapping *n) {
 	Mapping *u = n->parentPtr;
-	if(u == nullptr || u->rightPtr != n) {
-		debug::criticalLogger->log("Bad situation for rotateLeft()");
-		debug::panic();
-	}
+	ASSERT(u != nullptr && u->rightPtr == n);
 	Mapping *v = n->leftPtr;
 	Mapping *w = u->parentPtr;
 
@@ -216,17 +194,13 @@ void AddressSpace::rotateLeft(Mapping *n) {
 	}else if(w->rightPtr == u) {
 		w->rightPtr = n;
 	}else{
-		debug::criticalLogger->log("Broken tree pointers");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 }
 
 void AddressSpace::rotateRight(Mapping *n) {
 	Mapping *u = n->parentPtr;
-	if(u == nullptr || u->leftPtr != n) {
-		debug::criticalLogger->log("Bad situation for rotateLeft()");
-		debug::panic();
-	}
+	ASSERT(u != nullptr && u->leftPtr == n);
 	Mapping *v = n->rightPtr;
 	Mapping *w = u->parentPtr;
 	
@@ -244,8 +218,7 @@ void AddressSpace::rotateRight(Mapping *n) {
 	}else if(w->rightPtr == u) {
 		w->rightPtr = n;
 	}else{
-		debug::criticalLogger->log("Broken tree pointers");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 }
 
@@ -296,8 +269,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 				current = current->rightPtr;
 			}
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 	}
 }
@@ -317,10 +289,7 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	
 	// the rb invariants guarantee that a grandparent exists
 	Mapping *grand = parent->parentPtr;
-	if(grand == nullptr) {
-		debug::criticalLogger->log("Rb tree invariant violated");
-		debug::panic();
-	}
+	ASSERT(grand != nullptr);
 	
 	Mapping *uncle;
 	if(grand->leftPtr == parent) {
@@ -328,8 +297,7 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	}else if(grand->rightPtr == parent) {
 		uncle = grand->leftPtr;
 	}else{
-		debug::criticalLogger->log("Broken tree pointers");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 
 	if(uncle != nullptr && uncle->color == Mapping::kColorRed) {
@@ -376,8 +344,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->rightPtr) {
 			parent->rightPtr = right;
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 		if(right) {
 			right->parentPtr = parent;
@@ -399,8 +366,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->rightPtr) {
 			parent->rightPtr = left;
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 		if(left) {
 			left->parentPtr = parent;
@@ -427,8 +393,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(predecessor == pre_parent->rightPtr) {
 			pre_parent->rightPtr = pre_replace;
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 		if(pre_replace) {
 			pre_replace->parentPtr = pre_parent;
@@ -452,8 +417,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->rightPtr) {
 			parent->rightPtr = predecessor;
 		}else{
-			debug::criticalLogger->log("Broken mapping tree");
-			debug::panic();
+			ASSERT_UNREACHABLE();
 		}
 		predecessor->leftPtr = left;
 		left->parentPtr = predecessor;
@@ -495,8 +459,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		
 		s = parent->leftPtr;
 	}else{
-		debug::criticalLogger->log("Broken tree pointers");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 	
 	if(parent->color == Mapping::kColorBlack
@@ -546,8 +509,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		s->color = parent_color;
 		s->leftPtr->color = Mapping::kColorBlack;
 	}else{
-		debug::criticalLogger->log("Broken tree pointers");
-		debug::panic();
+		ASSERT_UNREACHABLE();
 	}
 }
 

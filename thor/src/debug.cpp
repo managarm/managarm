@@ -125,5 +125,14 @@ void TerminalLogger::print(char c) {
 	p_terminal->printChar(c);
 }
 
+// --------------------------------------------------------
+// Namespace scope functions
+// --------------------------------------------------------
+
+void assertionFail(const char *message) {
+	criticalLogger->log(message);
+	panic();
+}
+
 }} // namespace thor::debug
 
