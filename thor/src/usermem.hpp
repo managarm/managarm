@@ -30,6 +30,12 @@ struct Mapping {
 		kTypeMemory
 	};
 
+	enum Color {
+		kColorNone,
+		kColorRed,
+		kColorBlack
+	};
+
 	VirtualAddr baseAddress;
 	size_t length;
 	Type type;
@@ -42,6 +48,7 @@ struct Mapping {
 	Mapping *leftPtr;
 	Mapping *rightPtr;
 	Mapping *parentPtr;
+	Color color;
 	
 	// larget hole in the subtree of this node
 	size_t largestHole;
@@ -71,10 +78,36 @@ public:
 private:
 	Mapping *allocateDfs(Mapping *mapping, size_t length);
 
-	void dumpMappingsDfs(Mapping *mapping);
+	// Left rotation (n denotes the given mapping):
+	//   w                 w
+	//   |                 |
+	//   u                 n
+	//  / \      -->      / \
+	// x   n             u   y
+	//    / \           / \
+	//   v   y         x   v
+	// Note that x and y are left unchanged
+	void rotateLeft(Mapping *mapping);
+
+	// Right rotation (n denotes the given mapping):
+	//     w             w
+	//     |             |
+	//     u             n
+	//    / \    -->    / \
+	//   n   x         y   u
+	//  / \               / \
+	// y   v             v   x
+	// Note that x and y are left unchanged
+	void rotateRight(Mapping *mapping);
+
+	bool isRed(Mapping *mapping);
+	bool isBlack(Mapping *mapping);
 
 	void addressTreeInsert(Mapping *mapping);
+	void fixAfterInsert(Mapping *mapping);
+
 	void addressTreeRemove(Mapping *mapping);
+	void fixAfterRemove(Mapping *mapping);
 
 	void updateLargestHole(Mapping *mapping);
 	

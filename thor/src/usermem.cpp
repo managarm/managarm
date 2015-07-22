@@ -48,7 +48,8 @@ UnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
 Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 : baseAddress(base_address), length(length), type(type),
 		lowerPtr(nullptr), higherPtr(nullptr),
-		leftPtr(nullptr), rightPtr(nullptr), parentPtr(nullptr) { }
+		leftPtr(nullptr), rightPtr(nullptr),
+		parentPtr(nullptr), color(kColorNone) { }
 
 // --------------------------------------------------------
 // AddressSpace
@@ -56,9 +57,9 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 
 AddressSpace::AddressSpace(memory::PageSpace page_space)
 : p_pageSpace(page_space) {
-	p_root = new (kernelAlloc.get()) Mapping(Mapping::kTypeHole,
+	Mapping *mapping = new (kernelAlloc.get()) Mapping(Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);
-	p_root->largestHole = p_root->length;
+	addressTreeInsert(mapping);
 }
 
 void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
@@ -192,9 +193,78 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	return split;
 }
 
+void AddressSpace::rotateLeft(Mapping *n) {
+	Mapping *u = n->parentPtr;
+	if(u == nullptr || u->rightPtr != n) {
+		debug::criticalLogger->log("Bad situation for rotateLeft()");
+		debug::panic();
+	}
+	Mapping *v = n->leftPtr;
+	Mapping *w = u->parentPtr;
+
+	if(v != nullptr)
+		v->parentPtr = u;
+	u->rightPtr = v;
+	u->parentPtr = n;
+	n->leftPtr = u;
+	n->parentPtr = w;
+
+	if(w == nullptr) {
+		p_root = n;
+	}else if(w->leftPtr == u) {
+		w->leftPtr = n;
+	}else if(w->rightPtr == u) {
+		w->rightPtr = n;
+	}else{
+		debug::criticalLogger->log("Broken tree pointers");
+		debug::panic();
+	}
+}
+
+void AddressSpace::rotateRight(Mapping *n) {
+	Mapping *u = n->parentPtr;
+	if(u == nullptr || u->leftPtr != n) {
+		debug::criticalLogger->log("Bad situation for rotateLeft()");
+		debug::panic();
+	}
+	Mapping *v = n->rightPtr;
+	Mapping *w = u->parentPtr;
+	
+	if(v != nullptr)
+		v->parentPtr = u;
+	u->leftPtr = v;
+	u->parentPtr = n;
+	n->rightPtr = u;
+	n->parentPtr = w;
+
+	if(w == nullptr) {
+		p_root = n;
+	}else if(w->leftPtr == u) {
+		w->leftPtr = n;
+	}else if(w->rightPtr == u) {
+		w->rightPtr = n;
+	}else{
+		debug::criticalLogger->log("Broken tree pointers");
+		debug::panic();
+	}
+}
+
+bool AddressSpace::isRed(Mapping *mapping) {
+	if(mapping == nullptr)
+		return false;
+	return mapping->color == Mapping::kColorRed;
+}
+bool AddressSpace::isBlack(Mapping *mapping) {
+	if(mapping == nullptr)
+		return true;
+	return mapping->color == Mapping::kColorBlack;
+}
+
 void AddressSpace::addressTreeInsert(Mapping *mapping) {
 	if(p_root == nullptr) {
 		p_root = mapping;
+
+		fixAfterInsert(mapping);
 		return;
 	}
 
@@ -208,6 +278,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 
 				updateLargestHole(mapping);
 
+				fixAfterInsert(mapping);
 				return;
 			}else{
 				current = current->leftPtr;
@@ -219,6 +290,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 				
 				updateLargestHole(mapping);
 				
+				fixAfterInsert(mapping);
 				return;
 			}else{
 				current = current->rightPtr;
@@ -227,6 +299,66 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 			debug::criticalLogger->log("Broken mapping tree");
 			debug::panic();
 		}
+	}
+}
+
+void AddressSpace::fixAfterInsert(Mapping *n) {
+	Mapping *parent = n->parentPtr;
+
+	if(parent == nullptr) {
+		n->color = Mapping::kColorBlack;
+		return;
+	}
+
+	n->color = Mapping::kColorRed;
+
+	if(parent->color == Mapping::kColorBlack)
+		return;
+	
+	// the rb invariants guarantee that a grandparent exists
+	Mapping *grand = parent->parentPtr;
+	if(grand == nullptr) {
+		debug::criticalLogger->log("Rb tree invariant violated");
+		debug::panic();
+	}
+	
+	Mapping *uncle;
+	if(grand->leftPtr == parent) {
+		uncle = grand->rightPtr;
+	}else if(grand->rightPtr == parent) {
+		uncle = grand->leftPtr;
+	}else{
+		debug::criticalLogger->log("Broken tree pointers");
+		debug::panic();
+	}
+
+	if(uncle != nullptr && uncle->color == Mapping::kColorRed) {
+		parent->color = Mapping::kColorBlack;
+		uncle->color = Mapping::kColorBlack;
+		grand->color = Mapping::kColorRed;
+
+		fixAfterInsert(grand);
+		return;
+	}
+	
+	if(parent == grand->leftPtr) {
+		if(n == parent->rightPtr)
+			rotateLeft(n);
+
+		rotateRight(parent);
+		parent->color = Mapping::kColorBlack;
+		grand->color = Mapping::kColorRed;
+
+		fixAfterInsert(grand);
+	}else if(parent == grand->rightPtr) {
+		if(n == parent->leftPtr)
+			rotateRight(n);
+
+		rotateLeft(parent);
+		parent->color = Mapping::kColorBlack;
+		grand->color = Mapping::kColorRed;
+
+		fixAfterInsert(grand);
 	}
 }
 
@@ -247,8 +379,17 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			debug::criticalLogger->log("Broken mapping tree");
 			debug::panic();
 		}
-		if(right)
+		if(right) {
 			right->parentPtr = parent;
+			
+			if(mapping->color == Mapping::kColorBlack) {
+				if(right->color == Mapping::kColorRed) {
+					right->color = Mapping::kColorBlack;
+				}else{
+					fixAfterRemove(right);
+				}
+			}
+		}
 	}else if(mapping->rightPtr == nullptr) {
 		// replace the mapping by its left child
 		if(parent == nullptr) {
@@ -261,8 +402,17 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			debug::criticalLogger->log("Broken mapping tree");
 			debug::panic();
 		}
-		if(left)
+		if(left) {
 			left->parentPtr = parent;
+
+			if(mapping->color == Mapping::kColorBlack) {
+				if(left->color == Mapping::kColorRed) {
+					left->color = Mapping::kColorBlack;
+				}else{
+					fixAfterRemove(left);
+				}
+			}
+		}
 	}else{
 		// TODO: replace by mapping->lowerPtr
 		Mapping *predecessor = mapping->leftPtr;
@@ -271,18 +421,27 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 
 		// replace the predecessor by its left child
 		Mapping *pre_parent = predecessor->parentPtr;
-		Mapping *pre_left = predecessor->leftPtr;
+		Mapping *pre_replace = predecessor->leftPtr;
 		if(predecessor == pre_parent->leftPtr) {
-			pre_parent->leftPtr = pre_left;
+			pre_parent->leftPtr = pre_replace;
 		}else if(predecessor == pre_parent->rightPtr) {
-			pre_parent->rightPtr = pre_left;
+			pre_parent->rightPtr = pre_replace;
 		}else{
 			debug::criticalLogger->log("Broken mapping tree");
 			debug::panic();
 		}
-		if(pre_left)
-			pre_left->parentPtr = pre_parent;
-		
+		if(pre_replace) {
+			pre_replace->parentPtr = pre_parent;
+			
+			if(predecessor->color == Mapping::kColorBlack) {
+				if(pre_replace->color == Mapping::kColorRed) {
+					pre_replace->color = Mapping::kColorBlack;
+				}else{
+					fixAfterRemove(pre_replace);
+				}
+			}
+		}
+
 		updateLargestHole(pre_parent);
 
 		// replace the mapping by its predecessor
@@ -301,10 +460,95 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		predecessor->rightPtr = right;
 		right->parentPtr = predecessor;
 		predecessor->parentPtr = parent;
+		predecessor->color = mapping->color;
 	}
 	
 	if(parent != nullptr)
 		updateLargestHole(parent);
+}
+
+void AddressSpace::fixAfterRemove(Mapping *n) {
+	Mapping *parent = n->parentPtr;
+	if(parent == nullptr)
+		return;
+	
+	// this will always be the sibling of our node
+	Mapping *s;
+	
+	// rotate so that our node has a black sibling
+	if(parent->leftPtr == n) {
+		if(isRed(parent->rightPtr)) {
+			rotateLeft(parent->rightPtr);
+			
+			parent->color = Mapping::kColorRed;
+			parent->rightPtr->color = Mapping::kColorBlack;
+		}
+		
+		s = parent->rightPtr;
+	}else if(parent->rightPtr == n) {
+		if(isRed(parent->leftPtr)) {
+			rotateLeft(parent->leftPtr);
+			
+			parent->color = Mapping::kColorRed;
+			parent->leftPtr->color = Mapping::kColorBlack;
+		}
+		
+		s = parent->leftPtr;
+	}else{
+		debug::criticalLogger->log("Broken tree pointers");
+		debug::panic();
+	}
+	
+	if(parent->color == Mapping::kColorBlack
+			&& isBlack(s->leftPtr) && isBlack(s->rightPtr)) {
+		s->color = Mapping::kColorRed;
+		fixAfterRemove(parent);
+		return;
+	}
+
+	if(isBlack(s->leftPtr) && isBlack(s->rightPtr)) {
+		parent->color = Mapping::kColorBlack;
+		s->color = Mapping::kColorRed;
+		return;
+	}
+
+	if(parent->leftPtr == n
+			&& isRed(s->leftPtr) && isBlack(s->rightPtr)) {
+		Mapping *child = s->leftPtr;
+		rotateRight(child);
+
+		s->color = Mapping::kColorRed;
+		child->color = Mapping::kColorBlack;
+
+		s = child;
+	}else if(parent->rightPtr == n
+			&& isRed(s->rightPtr) && isBlack(s->leftPtr)) {
+		Mapping *child = s->rightPtr;
+		rotateRight(child);
+
+		s->color = Mapping::kColorRed;
+		child->color = Mapping::kColorBlack;
+
+		s = child;
+	}
+
+	Mapping::Color parent_color = parent->color;
+	if(parent->leftPtr == n) {
+		rotateLeft(s);
+
+		parent->color = Mapping::kColorBlack;
+		s->color = parent_color;
+		s->rightPtr->color = Mapping::kColorBlack;
+	}else if(parent->rightPtr == n) {
+		rotateRight(s);
+		
+		parent->color = Mapping::kColorBlack;
+		s->color = parent_color;
+		s->leftPtr->color = Mapping::kColorBlack;
+	}else{
+		debug::criticalLogger->log("Broken tree pointers");
+		debug::panic();
+	}
 }
 
 void AddressSpace::updateLargestHole(Mapping *mapping) {
