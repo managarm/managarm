@@ -5,7 +5,6 @@ namespace debug {
 void panic();
 
 #define ASSERT(c) do { if(!(c)) ::thor::debug::assertionFail(#c); } while(0)
-#define ASSERT_UNREACHABLE() do { ::thor::debug::assertionFail("unreachable"); } while(0)
 
 class Screen {
 public:

@@ -70,15 +70,14 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 	Mapping *current = p_root;
 
 	while(current != nullptr) {
-		if(address >= current->baseAddress
-				&& address < current->baseAddress + current->length) {
-			return current;
-		}else if(address < current->baseAddress) {
+		if(address < current->baseAddress) {
 			current = current->leftPtr;
 		}else if(address >= current->baseAddress + current->length) {
 			current = current->rightPtr;
 		}else{
-			ASSERT_UNREACHABLE();
+			ASSERT(address >= current->baseAddress
+					&& address < current->baseAddress + current->length);
+			return current;
 		}
 	}
 
@@ -100,11 +99,9 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length) {
 			&& mapping->leftPtr->largestHole >= length)
 		return allocateDfs(mapping->leftPtr, length);
 	
-	if(mapping->rightPtr != nullptr
-			&& mapping->rightPtr->largestHole >= length)
-		return allocateDfs(mapping->rightPtr, length);
-	
-	ASSERT_UNREACHABLE();
+	ASSERT(mapping->rightPtr != nullptr
+			&& mapping->rightPtr->largestHole >= length);
+	return allocateDfs(mapping->rightPtr, length);
 }
 
 Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
@@ -162,13 +159,13 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 			higher->lowerPtr = following;
 
 		addressTreeInsert(following);
-	}else if(hole_length == split_offset + split_length) {
+	}else{
+		ASSERT(hole_length == split_offset + split_length);
+
 		// the split mapping goes on until the end of the hole
 		split->higherPtr = higher;
 		if(higher != nullptr)
 			higher->lowerPtr = split;
-	}else{
-		ASSERT_UNREACHABLE();
 	}
 
 	return split;
@@ -191,10 +188,9 @@ void AddressSpace::rotateLeft(Mapping *n) {
 		p_root = n;
 	}else if(w->leftPtr == u) {
 		w->leftPtr = n;
-	}else if(w->rightPtr == u) {
-		w->rightPtr = n;
 	}else{
-		ASSERT_UNREACHABLE();
+		ASSERT(w->rightPtr == u);
+		w->rightPtr = n;
 	}
 }
 
@@ -215,10 +211,9 @@ void AddressSpace::rotateRight(Mapping *n) {
 		p_root = n;
 	}else if(w->leftPtr == u) {
 		w->leftPtr = n;
-	}else if(w->rightPtr == u) {
-		w->rightPtr = n;
 	}else{
-		ASSERT_UNREACHABLE();
+		ASSERT(w->rightPtr == u);
+		w->rightPtr = n;
 	}
 }
 
@@ -256,7 +251,8 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 			}else{
 				current = current->leftPtr;
 			}
-		}else if(mapping->baseAddress > current->baseAddress) {
+		}else{
+			ASSERT(mapping->baseAddress > current->baseAddress);
 			if(current->rightPtr == nullptr) {
 				current->rightPtr = mapping;
 				mapping->parentPtr = current;
@@ -268,8 +264,6 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 			}else{
 				current = current->rightPtr;
 			}
-		}else{
-			ASSERT_UNREACHABLE();
 		}
 	}
 }
@@ -291,19 +285,18 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	Mapping *grand = parent->parentPtr;
 	ASSERT(grand != nullptr);
 	
-	Mapping *uncle;
-	if(grand->leftPtr == parent) {
-		uncle = grand->rightPtr;
-	}else if(grand->rightPtr == parent) {
-		uncle = grand->leftPtr;
-	}else{
-		ASSERT_UNREACHABLE();
-	}
-
-	if(uncle != nullptr && uncle->color == Mapping::kColorRed) {
-		parent->color = Mapping::kColorBlack;
-		uncle->color = Mapping::kColorBlack;
+	// handle the red uncle case
+	if(grand->leftPtr == parent && isRed(grand->rightPtr)) {
 		grand->color = Mapping::kColorRed;
+		parent->color = Mapping::kColorBlack;
+		grand->rightPtr->color = Mapping::kColorBlack;
+
+		fixAfterInsert(grand);
+		return;
+	}else if(grand->rightPtr == parent && isRed(grand->leftPtr)) {
+		grand->color = Mapping::kColorRed;
+		parent->color = Mapping::kColorBlack;
+		grand->leftPtr->color = Mapping::kColorBlack;
 
 		fixAfterInsert(grand);
 		return;
@@ -341,10 +334,9 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			p_root = right;
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = right;
-		}else if(mapping == parent->rightPtr) {
-			parent->rightPtr = right;
 		}else{
-			ASSERT_UNREACHABLE();
+			ASSERT(mapping == parent->rightPtr);
+			parent->rightPtr = right;
 		}
 		if(right) {
 			right->parentPtr = parent;
@@ -363,10 +355,9 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			p_root = left;
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = left;
-		}else if(mapping == parent->rightPtr) {
-			parent->rightPtr = left;
 		}else{
-			ASSERT_UNREACHABLE();
+			ASSERT(mapping == parent->rightPtr);
+			parent->rightPtr = left;
 		}
 		if(left) {
 			left->parentPtr = parent;
@@ -384,16 +375,16 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		Mapping *predecessor = mapping->leftPtr;
 		while(predecessor->rightPtr != nullptr)
 			predecessor = predecessor->rightPtr;
+		ASSERT(predecessor == mapping->lowerPtr);
 
 		// replace the predecessor by its left child
 		Mapping *pre_parent = predecessor->parentPtr;
 		Mapping *pre_replace = predecessor->leftPtr;
 		if(predecessor == pre_parent->leftPtr) {
 			pre_parent->leftPtr = pre_replace;
-		}else if(predecessor == pre_parent->rightPtr) {
-			pre_parent->rightPtr = pre_replace;
 		}else{
-			ASSERT_UNREACHABLE();
+			ASSERT(predecessor == pre_parent->rightPtr);
+			pre_parent->rightPtr = pre_replace;
 		}
 		if(pre_replace) {
 			pre_replace->parentPtr = pre_parent;
@@ -414,10 +405,9 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			p_root = predecessor;
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = predecessor;
-		}else if(mapping == parent->rightPtr) {
-			parent->rightPtr = predecessor;
 		}else{
-			ASSERT_UNREACHABLE();
+			ASSERT(mapping == parent->rightPtr);
+			parent->rightPtr = predecessor;
 		}
 		predecessor->leftPtr = left;
 		left->parentPtr = predecessor;
@@ -449,7 +439,8 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		}
 		
 		s = parent->rightPtr;
-	}else if(parent->rightPtr == n) {
+	}else{
+		ASSERT(parent->rightPtr == n);
 		if(isRed(parent->leftPtr)) {
 			rotateLeft(parent->leftPtr);
 			
@@ -458,58 +449,58 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		}
 		
 		s = parent->leftPtr;
-	}else{
-		ASSERT_UNREACHABLE();
 	}
 	
-	if(parent->color == Mapping::kColorBlack
-			&& isBlack(s->leftPtr) && isBlack(s->rightPtr)) {
-		s->color = Mapping::kColorRed;
-		fixAfterRemove(parent);
-		return;
-	}
-
 	if(isBlack(s->leftPtr) && isBlack(s->rightPtr)) {
-		parent->color = Mapping::kColorBlack;
-		s->color = Mapping::kColorRed;
-		return;
+		if(parent->color == Mapping::kColorBlack) {
+			s->color = Mapping::kColorRed;
+			fixAfterRemove(parent);
+			return;
+		}else{
+			parent->color = Mapping::kColorBlack;
+			s->color = Mapping::kColorRed;
+			return;
+		}
 	}
-
-	if(parent->leftPtr == n
-			&& isRed(s->leftPtr) && isBlack(s->rightPtr)) {
-		Mapping *child = s->leftPtr;
-		rotateRight(child);
-
-		s->color = Mapping::kColorRed;
-		child->color = Mapping::kColorBlack;
-
-		s = child;
-	}else if(parent->rightPtr == n
-			&& isRed(s->rightPtr) && isBlack(s->leftPtr)) {
-		Mapping *child = s->rightPtr;
-		rotateRight(child);
-
-		s->color = Mapping::kColorRed;
-		child->color = Mapping::kColorBlack;
-
-		s = child;
-	}
-
+	
+	// now at least one of s children is red
 	Mapping::Color parent_color = parent->color;
 	if(parent->leftPtr == n) {
-		rotateLeft(s);
+		// rotate so that s->rightPtr is red
+		if(isRed(s->leftPtr) && isBlack(s->rightPtr)) {
+			Mapping *child = s->leftPtr;
+			rotateRight(child);
 
+			s->color = Mapping::kColorRed;
+			child->color = Mapping::kColorBlack;
+
+			s = child;
+		}
+		ASSERT(isRed(s->rightPtr));
+
+		rotateLeft(s);
 		parent->color = Mapping::kColorBlack;
 		s->color = parent_color;
 		s->rightPtr->color = Mapping::kColorBlack;
-	}else if(parent->rightPtr == n) {
+	}else{
+		ASSERT(parent->rightPtr == n);
+
+		// rotate so that s->leftPtr is red
+		if(isRed(s->rightPtr) && isBlack(s->leftPtr)) {
+			Mapping *child = s->rightPtr;
+			rotateRight(child);
+
+			s->color = Mapping::kColorRed;
+			child->color = Mapping::kColorBlack;
+
+			s = child;
+		}
+		ASSERT(isRed(s->leftPtr));
+
 		rotateRight(s);
-		
 		parent->color = Mapping::kColorBlack;
 		s->color = parent_color;
 		s->leftPtr->color = Mapping::kColorBlack;
-	}else{
-		ASSERT_UNREACHABLE();
 	}
 }
 
