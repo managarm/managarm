@@ -16,7 +16,7 @@ using namespace thor;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
-		debug::criticalLogger->print(string[i]);
+		debug::infoSink->print(string[i]);
 
 	return kHelErrNone;
 }
@@ -143,8 +143,7 @@ HelError helWaitForEvents(HelHandle handle,
 				user_evt->error = kHelErrBufferTooSmall;
 				break;
 			default:
-				debug::criticalLogger->log("Unexpected error");
-				debug::panic();
+				ASSERT(!"Unexpected error");
 			}
 		} break;
 		case EventHub::Event::kTypeAccept: {
@@ -163,8 +162,7 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->type = kHelEventIrq;
 		} break;
 		default:
-			debug::criticalLogger->log("Illegal event type");
-			debug::panic();
+			ASSERT(!"Illegal event type");
 		}
 
 		user_evt->submitId = event.submitInfo.submitId;
@@ -216,8 +214,7 @@ HelError helSendString(HelHandle handle,
 					msg_request, msg_sequence);
 		} break;
 		default: {
-			debug::criticalLogger->log("Descriptor is not a source");
-			debug::panic();
+			ASSERT(!"Descriptor is not a sink");
 		}
 	}
 
@@ -256,8 +253,7 @@ HelError helSubmitRecvString(HelHandle handle,
 					submit_info);
 		} break;
 		default: {
-			debug::criticalLogger->log("Descriptor is not a source");
-			debug::panic();
+			ASSERT(!"Descriptor is not a source");
 		}
 	}
 

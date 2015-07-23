@@ -2,9 +2,17 @@
 namespace thor {
 namespace debug {
 
-void panic();
-
 #define ASSERT(c) do { if(!(c)) ::thor::debug::assertionFail(#c); } while(0)
+
+class LogSink {
+public:
+	virtual void print(char c) = 0;
+	virtual void print(const char *str) = 0;
+};
+
+// --------------------------------------------------------
+// Terminal related classes
+// --------------------------------------------------------
 
 class Screen {
 public:
@@ -39,54 +47,29 @@ private:
 	int p_cursorY;
 };
 
-class Terminal {
+class Terminal : public LogSink {
 public:
 	Terminal(Screen *screen);
 
-	void advanceCursor();
+	virtual void print(char c);
+	virtual void print(const char *str);
 
-	void printChar(char c);
+private:
+	void advanceCursor();
 
 	void clear();
 
-private:
 	Screen *p_screen;
 };
 
-class Logger {
-public:
-	virtual void print(char c) = 0;
-	
-	void log(const char *string);
-	void log(const char *string, size_t length);
-	void log(void *pointer);
-	void log(int number);
-	void logHex(int number);
-
-	template<typename T>
-	void logUInt(T number, int radix);
-};
-
-class TerminalLogger : public Logger {
-public:
-	TerminalLogger(Terminal *terminal);
-
-	virtual void print(char c);
-
-private:
-	Terminal *p_terminal;
-};
-
-extern Logger *criticalLogger;
-
 // --------------------------------------------------------
-// Logger inline functions
+// Logging
 // --------------------------------------------------------
 
-template<typename T>
-void Logger::logUInt(T number, int radix) {
+template<typename P, typename T>
+void printUInt(P &printer, T number, int radix) {
 	if(number == 0) {
-		print('0');
+		printer.print('0');
 		return;
 	}
 	const char *digits = "0123456789abcdef";
@@ -103,11 +86,132 @@ void Logger::logUInt(T number, int radix) {
 		p *= radix;
 	while(p > 0) {
 		int d = number / p;
-		print(digits[d]);
+		printer.print(digits[d]);
 		number %= p;
 		p /= radix;
 	}
 }
+
+
+class Finish { };
+
+template<typename P, typename T, typename E = void>
+struct Print;
+
+template<typename P>
+struct Print<P, Finish> {
+	static void print(P &printer, Finish token) {
+		printer.finish();
+	}
+};
+
+template<typename P>
+struct Print<P, const char *> {
+	static void print(P &printer, const char *string) {
+		printer.print(string);
+	}
+};
+
+template<typename P, typename IntType>
+struct Print<P, IntType, typename util::EnableIf<util::IsIntegral<IntType>::value
+			&& util::IsSigned<IntType>::value>::type> {
+	static void print(P &printer, IntType number) {
+		if(number < 0) {
+			printer.print('-');
+			printUInt(printer, -number, 10);
+		}else{
+			printUInt(printer, number, 10);
+		}
+	}
+};
+
+template<typename P, typename UIntType>
+struct Print<P, UIntType, typename util::EnableIf<util::IsIntegral<UIntType>::value
+				&& util::IsUnsigned<UIntType>::value>::type> {
+	static void print(P &printer, UIntType number) {
+		printUInt(printer, number);
+	}
+};
+
+template<typename P, typename T>
+struct Print<P, T *> {
+	static void print(P &printer, T *pointer) {
+		printer.print("0x");
+		printUInt(printer, (uintptr_t)pointer, 16);
+	}
+};
+
+template<typename P, typename T,
+		typename E = typename P::IsPrinter>
+P operator<< (P &&printer, T object) {
+	Print<P, T>::print(printer, object);
+	return printer;
+}
+
+template<typename P, typename T,
+		typename E = typename P::IsPrinter>
+P &operator<< (P &printer, T object) {
+	Print<P, T>::print(printer, object);
+	return printer;
+}
+
+class DefaultLogger {
+public:
+	class Printer {
+	public:
+		struct IsPrinter { };
+
+		Printer(LogSink *sink);
+
+		void print(char c);
+		void print(const char *str);
+
+		void finish();
+
+	private:
+		LogSink *p_sink;
+	};
+
+	DefaultLogger(LogSink *sink);
+
+	Printer log();
+
+private:
+	LogSink *p_sink;
+};
+
+class PanicLogger {
+public:
+	class Printer {
+	public:
+		struct IsPrinter { };
+
+		Printer(LogSink *sink);
+
+		void print(char c);
+		void print(const char *str);
+
+		void finish();
+
+	private:
+		LogSink *p_sink;
+	};
+
+	PanicLogger(LogSink *sink);
+
+	Printer log();
+
+private:
+	LogSink *p_sink;
+};
+
+extern LogSink *infoSink;
+extern LazyInitializer<DefaultLogger> infoLogger;
+extern LazyInitializer<PanicLogger> panicLogger;
+
+// --------------------------------------------------------
+// Namespace scope functions
+// --------------------------------------------------------
 
 void assertionFail(const char *message);
 

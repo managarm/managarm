@@ -40,14 +40,8 @@ PageSpace PageSpace::clone() {
 }
 
 void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
-	if((uintptr_t)pointer % 0x1000 != 0) {
-		debug::criticalLogger->log("pk_page_map(): Illegal virtual address alignment");
-		debug::panic();
-	}
-	if(physical % 0x1000 != 0) {
-		debug::criticalLogger->log("pk_page_map(): Illegal physical address alignment");
-		debug::panic();
-	}
+	ASSERT(((uintptr_t)pointer % 0x1000) == 0);
+	ASSERT((physical % 0x1000) == 0);
 
 	int pml4_index = (int)(((uintptr_t)pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)(((uintptr_t)pointer >> 30) & 0x1FF);
@@ -94,10 +88,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	}
 	
 	// setup the new pt entry
-	if((pt_pointer[pt_index] & kPagePresent) != 0) {
-		debug::criticalLogger->log("pk_page_map(): Page already mapped!");
-		debug::panic();
-	}
+	ASSERT((pt_pointer[pt_index] & kPagePresent) == 0);
 	pt_pointer[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 

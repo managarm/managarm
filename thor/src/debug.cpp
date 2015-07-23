@@ -7,12 +7,9 @@
 namespace thor {
 namespace debug {
 
-Logger *criticalLogger;
-
-void panic() {
-	criticalLogger->log("Kernel panic!");
-	thorRtHalt();
-}
+LogSink *infoSink;
+LazyInitializer<DefaultLogger> infoLogger;
+LazyInitializer<PanicLogger> panicLogger;
 
 // --------------------------------------------------------
 // VgaScreen
@@ -51,19 +48,26 @@ void VgaScreen::setChar(char c) {
 // --------------------------------------------------------
 
 Terminal::Terminal(Screen *screen)
-		: p_screen(screen) { }
-
-void Terminal::advanceCursor() {
-	p_screen->setCursor(p_screen->getCursorX() + 1, p_screen->getCursorY());
+: p_screen(screen) {
+	clear();
 }
 
-void Terminal::printChar(char c) {
+void Terminal::print(char c) {
 	if(c == '\n') {
-	p_screen->setCursor(0, p_screen->getCursorY() + 1);
+		p_screen->setCursor(0, p_screen->getCursorY() + 1);
 	}else{
 		p_screen->setChar(c);
 		advanceCursor();
 	}
+}
+
+void Terminal::print(const char *str) {
+	while(*str != 0)
+		Terminal::print(*str++);
+}
+
+void Terminal::advanceCursor() {
+	p_screen->setCursor(p_screen->getCursorX() + 1, p_screen->getCursorY());
 }
 
 void Terminal::clear() {
@@ -77,52 +81,63 @@ void Terminal::clear() {
 }
 
 // --------------------------------------------------------
-// Logger
+// DefaultLogger
 // --------------------------------------------------------
 
-void Logger::log(const char *string) {
-	while(*string != 0) {
-		print(*string);
-		string++;
-	}
-	print('\n');
-}
+DefaultLogger::DefaultLogger(LogSink *sink)
+: p_sink(sink) { }
 
-void Logger::log(const char *string, size_t length) {
-	for(size_t i = 0; i < length; i++) {
-		print(string[i]);
-	}
-	print('\n');
-}
-
-void Logger::log(void *pointer) {
-	print('0');
-	print('x');
-	logUInt((uintptr_t)pointer, 16);
-	print('\n');
-}
-
-void Logger::log(int number) {
-	logUInt(number, 10);
-	print('\n');
-}
-
-void Logger::logHex(int number) {
-	print('0');
-	print('x');
-	logUInt(number, 16);
-	print('\n');
+DefaultLogger::Printer DefaultLogger::log() {
+	return Printer(p_sink);
 }
 
 // --------------------------------------------------------
-// TerminalLogger
+// DefaultLogger::Printer
 // --------------------------------------------------------
 
-TerminalLogger::TerminalLogger(Terminal *terminal)
-		: p_terminal(terminal) { }
+DefaultLogger::Printer::Printer(LogSink *sink)
+: p_sink(sink) { }
 
-void TerminalLogger::print(char c) {
-	p_terminal->printChar(c);
+void DefaultLogger::Printer::print(char c) {
+	p_sink->print(c);
+}
+void DefaultLogger::Printer::print(const char *str) {
+	p_sink->print(str);
+}
+
+void DefaultLogger::Printer::finish() {
+	p_sink->print('\n');
+}
+
+// --------------------------------------------------------
+// PanicLogger
+// --------------------------------------------------------
+
+PanicLogger::PanicLogger(LogSink *sink)
+: p_sink(sink) { }
+
+PanicLogger::Printer PanicLogger::log() {
+	p_sink->print("Kernel panic!\n");
+	return Printer(p_sink);
+}
+
+// --------------------------------------------------------
+// PanicLogger::Printer
+// --------------------------------------------------------
+
+PanicLogger::Printer::Printer(LogSink *sink)
+: p_sink(sink) { }
+
+void PanicLogger::Printer::print(char c) {
+	p_sink->print(c);
+}
+void PanicLogger::Printer::print(const char *str) {
+	p_sink->print(str);
+}
+
+void PanicLogger::Printer::finish() {
+	p_sink->print('\n');
+	thorRtHalt();
 }
 
 // --------------------------------------------------------
@@ -130,8 +145,7 @@ void TerminalLogger::print(char c) {
 // --------------------------------------------------------
 
 void assertionFail(const char *message) {
-	criticalLogger->log(message);
-	panic();
+	panicLogger->log() << "Assertion failed: " << message << Finish();
 }
 
 }} // namespace thor::debug

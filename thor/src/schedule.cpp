@@ -16,10 +16,7 @@ namespace thor {
 LazyInitializer<ThreadQueue> scheduleQueue;
 
 void schedule() {
-	if(scheduleQueue->empty()) {
-		debug::criticalLogger->log("No threads to schedule!");
-		debug::panic();
-	}
+	ASSERT(!scheduleQueue->empty());
 	
 	SharedPtr<Thread> thread_ptr = scheduleQueue->removeFront();
 	thread_ptr->switchTo();

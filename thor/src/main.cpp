@@ -17,7 +17,6 @@ using namespace thor;
 
 LazyInitializer<debug::VgaScreen> vgaScreen;
 LazyInitializer<debug::Terminal> vgaTerminal;
-LazyInitializer<debug::TerminalLogger> vgaLogger;
 
 LazyInitializer<memory::StupidPhysicalAllocator> stupidTableAllocator;
 
@@ -25,17 +24,11 @@ void *loadInitImage(UnsafePtr<AddressSpace> space, uintptr_t image_page) {
 	char *image = (char *)memory::physicalToVirtual(image_page);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
-	if(ehdr->e_ident[0] != '\x7F'
-			|| ehdr->e_ident[1] != 'E'
-			|| ehdr->e_ident[2] != 'L'
-			|| ehdr->e_ident[3] != 'F') {
-		vgaLogger->log("Illegal magic fields");
-		debug::panic();
-	}
-	if(ehdr->e_type != ET_EXEC) {
-		vgaLogger->log("init image must be ET_EXEC");
-		debug::panic();
-	}
+	ASSERT(ehdr->e_ident[0] == '\x7F'
+			&& ehdr->e_ident[1] == 'E'
+			&& ehdr->e_ident[2] == 'L'
+			&& ehdr->e_ident[3] == 'F');
+	ASSERT(ehdr->e_type == ET_EXEC);
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + ehdr->e_phoff
@@ -92,11 +85,11 @@ extern "C" void thorMain(uint64_t init_image) {
 	vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
 	
 	vgaTerminal.initialize(vgaScreen.get());
-	vgaTerminal->clear();
+	debug::infoSink = vgaTerminal.get();
+	debug::infoLogger.initialize(vgaTerminal.get());
+	debug::panicLogger.initialize(vgaTerminal.get());
 
-	vgaLogger.initialize(vgaTerminal.get());
-	vgaLogger->log("Starting Thor");
-	debug::criticalLogger = vgaLogger.get();
+	debug::infoLogger->log() << "Starting Thor" << debug::Finish();
 
 	stupidTableAllocator.initialize(0x5000000);
 	memory::tableAllocator = stupidTableAllocator.get();
@@ -142,21 +135,14 @@ extern "C" void thorMain(uint64_t init_image) {
 }
 
 extern "C" void thorDoubleFault() {
-	vgaLogger->log("Double fault");
-	debug::panic();
+	debug::panicLogger->log() << "Double fault" << debug::Finish();
 }
 
 extern "C" void thorPageFault(uintptr_t address, Word error) {
-	vgaLogger->log("Page fault");
-	vgaLogger->log((void *)address);
-	vgaLogger->log((void *)thorRtUserContext->rip);
-	vgaLogger->log(error);
-
-	uint8_t *disasm = (uint8_t *)thorRtUserContext->rip;
-	for(size_t i = 0; i < 5; i++)
-		vgaLogger->logHex(disasm[i]);
-
-	debug::panic();
+	debug::panicLogger->log() << "Page fault"
+			<< " at " << (void *)address
+			<< ", faulting ip: " << (void *)thorRtUserContext->rip
+			<< debug::Finish();
 }
 
 extern "C" void thorIrq(int irq) {
@@ -169,10 +155,8 @@ extern "C" void thorIrq(int irq) {
 	}else{
 		thorRtFullReturn();
 	}
-	vgaLogger->log("Other irq");
 	
-	vgaLogger->log("No return at end of thorIrq()");
-	debug::panic();
+	ASSERT(!"No return at end of thorIrq()");
 }
 
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
@@ -301,10 +285,9 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall1((Word)error);
 		}
 		default:
-			vgaLogger->log("Illegal syscall");
-			debug::panic();
+			ASSERT(!"Illegal syscall");
 	}
-	vgaLogger->log("No return at end of thorSyscall()");
-	debug::panic();
+
+	ASSERT(!"No return at end of thorSyscall()");
 }
 

@@ -18,8 +18,7 @@ void *operator new[] (size_t size, void *pointer) {
 }
 
 void __cxa_pure_virtual() {
-	thor::debug::criticalLogger->log("Pure virtual call");
-	thorRtHalt();
+	ASSERT(!"Pure virtual call");
 }
 
 extern "C" void *memcpy(void *dest, const void *src, size_t n) {

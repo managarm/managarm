@@ -129,8 +129,7 @@ struct Destruct<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct Destruct<tag_iter> {
 	static void destruct(int tag, Storage<> &storage) {
-		debug::criticalLogger->log("Illegal variant tag");
-		debug::panic();
+		ASSERT(!"Destruct: Illegal variant tag");
 	}
 };
 
@@ -201,7 +200,6 @@ struct MoveConstruct<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct MoveConstruct<tag_iter> {
 	static void construct(int tag, Storage<> &dest, Storage<> &src) {
-		debug::criticalLogger->log(tag);
 		ASSERT(!"MoveConstruct: Illegal variant tag");
 	}
 };

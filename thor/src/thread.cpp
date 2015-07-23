@@ -80,10 +80,7 @@ void ThreadQueue::addBack(SharedPtr<Thread> &&thread) {
 }
 
 SharedPtr<Thread> ThreadQueue::removeFront() {
-	if(empty()) {
-		debug::criticalLogger->log("ThreadQueue::removeFront(): List is empty!");
-		debug::panic();
-	}
+	ASSERT(!empty());
 	
 	// move the front and second element out of the queue
 	SharedPtr<Thread> front = util::move(p_front);

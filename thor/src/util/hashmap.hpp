@@ -77,13 +77,12 @@ Value &Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
 			return item->value;
 	}
 
-	debug::criticalLogger->log("Hashmap::get(): Element not found");
-	debug::panic();
+	ASSERT(!"get(): Element not found");
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::rehash(SizeType new_capacity) {
-	debug::criticalLogger->log("FIXME: Implement rehash");
+	ASSERT(!"FIXME: Implement rehash");
 }
 
 template<typename T>
