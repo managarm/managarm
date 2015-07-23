@@ -85,7 +85,7 @@ EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub> &&event_hub)
 		: p_eventHub(util::move(event_hub)) { }
 
 UnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
-	return p_eventHub->unsafe<EventHub>();
+	return p_eventHub;
 }
 
 } // namespace thor

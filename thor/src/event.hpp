@@ -10,7 +10,7 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-class EventHub : public SharedObject {
+class EventHub : public SharedBase<EventHub> {
 public:
 	struct Event {
 		enum Type {

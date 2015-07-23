@@ -47,7 +47,7 @@ private:
 	util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-class BiDirectionPipe : public SharedObject {
+class BiDirectionPipe : public SharedBase<BiDirectionPipe> {
 public:
 	BiDirectionPipe();
 
@@ -81,7 +81,7 @@ private:
 	SharedPtr<BiDirectionPipe> p_pipe;
 };
 
-class Server : public SharedObject {
+class Server : public SharedBase<Server> {
 public:
 	Server();
 

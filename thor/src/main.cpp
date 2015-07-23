@@ -108,8 +108,8 @@ extern "C" void thorMain(uint64_t init_image) {
 	auto universe = makeShared<Universe>(*kernelAlloc);
 	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
 	
-	auto entry = (void (*)(uintptr_t))loadInitImage(address_space->unsafe<AddressSpace>(),
-			init_image);
+	auto entry = (void (*)(uintptr_t))loadInitImage(
+			address_space, init_image);
 	thorRtInvalidateSpace();
 	
 	// allocate and memory memory for the user stack
@@ -124,8 +124,8 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	auto thread = makeShared<Thread>(*kernelAlloc);
 	thread->setup(entry, 0, (void *)(stack_mapping->baseAddress + stack_size));
-	thread->setUniverse(universe->shared<Universe>());
-	thread->setAddressSpace(address_space->shared<AddressSpace>());
+	thread->setUniverse(util::move(universe));
+	thread->setAddressSpace(util::move(address_space));
 	
 	currentThread.initialize(SharedPtr<Thread>());
 	scheduleQueue.initialize();

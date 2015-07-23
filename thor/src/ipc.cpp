@@ -137,7 +137,7 @@ BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe
 		: p_pipe(util::move(pipe)) { }
 
 UnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
-	return p_pipe->unsafe<BiDirectionPipe>();
+	return p_pipe;
 }
 
 // --------------------------------------------------------
@@ -148,7 +148,7 @@ BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPi
 		: p_pipe(util::move(pipe)) { }
 
 UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
-	return p_pipe->unsafe<BiDirectionPipe>();
+	return p_pipe;
 }
 
 // --------------------------------------------------------
@@ -185,10 +185,11 @@ void Server::submitConnect(SharedPtr<EventHub> &&event_hub,
 void Server::processRequests(const AcceptRequest &accept,
 		const ConnectRequest &connect) {
 	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
+	SharedPtr<BiDirectionPipe> copy(pipe);
 
-	accept.eventHub->raiseAcceptEvent(pipe->shared<BiDirectionPipe>(),
+	accept.eventHub->raiseAcceptEvent(util::move(pipe),
 			accept.submitInfo);
-	connect.eventHub->raiseConnectEvent(pipe->shared<BiDirectionPipe>(),
+	connect.eventHub->raiseConnectEvent(util::move(copy),
 			connect.submitInfo);
 }
 
@@ -216,7 +217,7 @@ ServerDescriptor::ServerDescriptor(SharedPtr<Server> &&server)
 		: p_server(util::move(server)) { }
 
 UnsafePtr<Server> ServerDescriptor::getServer() {
-	return p_server->unsafe<Server>();
+	return p_server;
 }
 
 // --------------------------------------------------------
@@ -227,7 +228,7 @@ ClientDescriptor::ClientDescriptor(SharedPtr<Server> &&server)
 		: p_server(util::move(server)) { }
 
 UnsafePtr<Server> ClientDescriptor::getServer() {
-	return p_server->unsafe<Server>();
+	return p_server;
 }
 
 } // namespace thor

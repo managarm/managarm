@@ -1,7 +1,7 @@
 
 namespace thor {
 
-class Thread : public SharedObject {
+class Thread : public SharedBase<Thread> {
 friend class ThreadQueue;
 public:
 	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,

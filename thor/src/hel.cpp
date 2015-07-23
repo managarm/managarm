@@ -23,7 +23,7 @@ HelError helLog(const char *string, size_t length) {
 
 
 HelError helAllocateMemory(size_t size, HelHandle *handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	auto memory = makeShared<Memory>(*kernelAlloc);
@@ -37,7 +37,7 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 
 HelError helMapMemory(HelHandle memory_handle,
 		void *pointer, size_t length, void **actual_pointer) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 	
@@ -69,14 +69,14 @@ HelError helMapMemory(HelHandle memory_handle,
 
 HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 		void *user_stack_ptr, HelHandle *handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
 	auto new_thread = makeShared<Thread>(*kernelAlloc);
 	new_thread->setup(user_entry, argument, user_stack_ptr);
-	new_thread->setUniverse(universe->shared<Universe>());
-	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
+	new_thread->setUniverse(SharedPtr<Universe>(universe));
+	new_thread->setAddressSpace(SharedPtr<AddressSpace>(address_space));
 
 	scheduleQueue->addBack(util::move(new_thread));
 
@@ -87,13 +87,13 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 }
 
 HelError helExitThisThread() {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	scheduleQueue->remove(this_thread);
 }
 
 
 HelError helCreateEventHub(HelHandle *handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto event_hub = makeShared<EventHub>(*kernelAlloc);
@@ -108,7 +108,7 @@ HelError helCreateEventHub(HelHandle *handle) {
 HelError helWaitForEvents(HelHandle handle,
 		HelEvent *user_list, size_t max_items,
 		HelNanotime max_time, size_t *num_items) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &hub_wrapper = universe->getDescriptor(handle);
@@ -177,14 +177,15 @@ HelError helWaitForEvents(HelHandle handle,
 
 HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
+	SharedPtr<BiDirectionPipe> copy(pipe);
 
-	BiDirectionFirstDescriptor first_base(pipe->shared<BiDirectionPipe>());
-	BiDirectionSecondDescriptor second_base(pipe->shared<BiDirectionPipe>());
-
+	BiDirectionFirstDescriptor first_base(util::move(pipe));
+	BiDirectionSecondDescriptor second_base(util::move(copy));
+	
 	*first_handle = universe->attachDescriptor(util::move(first_base));
 	*second_handle = universe->attachDescriptor(util::move(second_base));
 
@@ -194,7 +195,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 HelError helSendString(HelHandle handle,
 		const uint8_t *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
@@ -225,13 +226,13 @@ HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
-	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);
@@ -239,7 +240,7 @@ HelError helSubmitRecvString(HelHandle handle,
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
-			channel->submitRecvString(util::move(event_hub),
+			channel->submitRecvString(SharedPtr<EventHub>(event_hub),
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
@@ -247,7 +248,7 @@ HelError helSubmitRecvString(HelHandle handle,
 		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
-			channel->submitRecvString(util::move(event_hub),
+			channel->submitRecvString(SharedPtr<EventHub>(event_hub),
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
@@ -262,13 +263,14 @@ HelError helSubmitRecvString(HelHandle handle,
 
 
 HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto server = makeShared<Server>(*kernelAlloc);
+	SharedPtr<Server> copy(server);
 
-	ServerDescriptor server_descriptor(server->shared<Server>());
-	ClientDescriptor client_descriptor(server->shared<Server>());
+	ServerDescriptor server_descriptor(util::move(server));
+	ClientDescriptor client_descriptor(util::move(copy));
 
 	*server_handle = universe->attachDescriptor(util::move(server_descriptor));
 	*client_handle = universe->attachDescriptor(util::move(client_descriptor));
@@ -278,7 +280,7 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 
 HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);
@@ -286,17 +288,17 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	auto &descriptor = wrapper.get<ServerDescriptor>();
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
-	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
-	descriptor.getServer()->submitAccept(util::move(event_hub), submit_info);
+	descriptor.getServer()->submitAccept(SharedPtr<EventHub>(event_hub), submit_info);
 	
 	return 0;
 }
 
 HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);
@@ -304,17 +306,17 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	auto &descriptor = wrapper.get<ClientDescriptor>();
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
-	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
-	descriptor.getServer()->submitConnect(util::move(event_hub), submit_info);
+	descriptor.getServer()->submitConnect(SharedPtr<EventHub>(event_hub), submit_info);
 	
 	return 0;
 }
 
 
 HelError helAccessIrq(int number, HelHandle *handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto irq_line = makeShared<IrqLine>(*kernelAlloc, number);
@@ -327,7 +329,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 }
 HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &irq_wrapper = universe->getDescriptor(handle);
@@ -337,16 +339,16 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	
 	int number = irq_descriptor.getIrqLine()->getNumber();
 
-	auto event_hub = hub_descriptor.getEventHub()->shared<EventHub>();
+	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
-	(*irqRelays)[number].submitWaitRequest(util::move(event_hub),
+	(*irqRelays)[number].submitWaitRequest(SharedPtr<EventHub>(event_hub),
 			submit_info);
 }
 
 HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 		HelHandle *handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
@@ -358,7 +360,7 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	*handle = universe->attachDescriptor(util::move(base));
 }
 HelError helEnableIo(HelHandle handle) {
-	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
+	UnsafePtr<Thread> this_thread = *currentThread;
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);

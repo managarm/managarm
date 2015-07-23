@@ -57,7 +57,7 @@ private:
 
 extern LazyInitializer<IrqRelay[16]> irqRelays;
 
-class IrqLine : public SharedObject {
+class IrqLine : public SharedBase<IrqLine> {
 public:
 	IrqLine(int number);
 
@@ -67,7 +67,7 @@ private:
 	int p_number;
 };
 
-class IoSpace : public SharedObject {
+class IoSpace : public SharedBase<IoSpace> {
 public:
 	IoSpace();
 
@@ -128,7 +128,7 @@ typedef util::Variant<MemoryAccessDescriptor,
 		IrqDescriptor,
 		IoDescriptor> AnyDescriptor;
 
-class Universe : public SharedObject {
+class Universe : public SharedBase<Universe> {
 public:
 	Universe();
 

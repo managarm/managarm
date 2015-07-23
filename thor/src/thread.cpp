@@ -32,10 +32,10 @@ void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 }
 
 UnsafePtr<Universe> Thread::getUniverse() {
-	return p_universe->unsafe<Universe>();
+	return p_universe;
 }
 UnsafePtr<AddressSpace> Thread::getAddressSpace() {
-	return p_addressSpace->unsafe<AddressSpace>();
+	return p_addressSpace;
 }
 
 void Thread::setUniverse(SharedPtr<Universe> &&universe) {
@@ -50,8 +50,8 @@ void Thread::enableIoPort(uintptr_t port) {
 }
 
 void Thread::switchTo() {
-	UnsafePtr<Thread> previous_thread = (*currentThread)->unsafe<Thread>();
-	*currentThread = this->shared<Thread>();
+	UnsafePtr<Thread> previous_thread = *currentThread;;
+	*currentThread = SharedPtr<Thread>(thisPtr());
 	
 	thorRtUserContext = &p_state;
 	thorRtEnableTss(&p_tss);
@@ -68,7 +68,7 @@ bool ThreadQueue::empty() {
 void ThreadQueue::addBack(SharedPtr<Thread> &&thread) {
 	// setup the back pointer before moving the thread pointer
 	UnsafePtr<Thread> back = p_back;
-	p_back = thread->unsafe<Thread>();
+	p_back = thread;
 	
 	// move the thread pointer into the queue
 	if(empty()) {

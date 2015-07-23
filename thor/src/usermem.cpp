@@ -38,7 +38,7 @@ MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory> &&memory)
 		: p_memory(util::move(memory)) { }
 
 UnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
-	return p_memory->unsafe<Memory>();
+	return p_memory;
 }
 
 // --------------------------------------------------------

@@ -24,14 +24,14 @@ IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine> &&irq_line)
 		: p_irqLine(util::move(irq_line)) { }
 
 UnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
-	return p_irqLine->unsafe<IrqLine>();
+	return p_irqLine;
 }
 
 IoDescriptor::IoDescriptor(SharedPtr<IoSpace> &&io_space)
 		: p_ioSpace(util::move(io_space)) { }
 
 UnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
-	return p_ioSpace->unsafe<IoSpace>();
+	return p_ioSpace;
 }
 
 // --------------------------------------------------------
