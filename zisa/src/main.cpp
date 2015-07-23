@@ -39,7 +39,7 @@ public:
 
 private:
 	void performRequest();
-	void onReadComplete(int64_t submit_id);
+	void onReadIrq(int64_t submit_id);
 
 	enum Ports {
 		kPortReadData = 0,
@@ -67,6 +67,7 @@ private:
 	struct Request {
 		int64_t sector;
 		size_t numSectors;
+		size_t sectorsRead;
 		uint8_t *buffer;
 		helx::Callback<> callback;
 	};
@@ -94,6 +95,7 @@ void AtaDriver::readSectors(int64_t sector, uint8_t *buffer,
 	Request request;
 	request.sector = sector;
 	request.numSectors = num_sectors;
+	request.sectorsRead = 0;
 	request.buffer = buffer;
 	request.callback = callback;
 	p_requestQueue.push(request);
@@ -107,7 +109,7 @@ void AtaDriver::performRequest() {
 
 	Request &request = p_requestQueue.front();
 
-	helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadComplete);
+	helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
 	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
 		(uintptr_t)callback.getFunction(),
 		(uintptr_t)callback.getObject());
@@ -127,31 +129,39 @@ void AtaDriver::performRequest() {
 	ioOutByte(p_basePort + kPortWriteCommand, kCommandReadSectorsExt);
 }
 
-void AtaDriver::onReadComplete(int64_t submit_id) {
-	/*while(true) {
-		uint8_t status = ioInByte(p_basePort + kPortReadStatus);
-		if((status & kStatusBsy) != 0)
-			continue;
-		if((status & kStatusDrq) == 0)
-			continue;
-		break;
+void AtaDriver::onReadIrq(int64_t submit_id) {
+	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
+	/*if((status & kStatusBsy) != 0)
+		continue;
+	if((status & kStatusDrq) == 0)
+		continue;
+	break;
 	}*/
 
 	Request &request = p_requestQueue.front();
-
+	
+	size_t offset = request.sectorsRead * 512;
 	for(int i = 0; i < 256; i++) {
 		uint16_t word = ioInShort(p_basePort + kPortReadData);
-		request.buffer[2 * i] = word & 0xFF;
-		request.buffer[2 * i + 1] = (word >> 16) & 0xFF;
+		request.buffer[offset + 2 * i] = word & 0xFF;
+		request.buffer[offset + 2 * i + 1] = (word >> 8) & 0xFF;
 	}
+	
+	request.sectorsRead++;
+	if(request.sectorsRead < request.numSectors) {
+		helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
+		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+			(uintptr_t)callback.getFunction(),
+			(uintptr_t)callback.getObject());
+	}else{
+		request.callback();
 
-	request.callback();
+		p_requestQueue.pop();
 
-	p_requestQueue.pop();
-
-	p_inRequest = false;
-	if(!p_requestQueue.empty())
-		performRequest();
+		p_inRequest = false;
+		if(!p_requestQueue.empty())
+			performRequest();
+	}
 }
 
 class Keyboard {
@@ -197,10 +207,29 @@ void Keyboard::onScancode(int64_t submit_id) {
 	run();
 }
 
+helx::EventHub eventHub;
+
+// --------------------------------------------------------
+// ATA testing code
+// --------------------------------------------------------
+
+AtaDriver ataDriver(eventHub);
+uint8_t ataBuffer[512];
+
+void onAtaRead(void *object) {
+	printf("Read complete!\n");
+}
+
+void testAta() {
+	ataDriver.readSectors(0, ataBuffer, 1,
+			helx::Callback<>(nullptr, &onAtaRead));
+}
+
+// --------------------------------------------------------
+// IPC testing code
+// --------------------------------------------------------
 
 uint8_t recvBuffer[10];
-
-helx::EventHub event_hub;
 
 void onReceive(void *object, int64_t submit_id,
 		HelError error, size_t length) {
@@ -216,31 +245,13 @@ void onConnect(void *object, int64_t submit_id, HelHandle handle) {
 	printf("connect\n");
 
 	helx::RecvStringCb callback(nullptr, &onReceive);
-	helSubmitRecvString(handle, event_hub.getHandle(),
+	helSubmitRecvString(handle, eventHub.getHandle(),
 			recvBuffer, 10, -1, -1, 0,
 			(uintptr_t)callback.getFunction(),
 			(uintptr_t)callback.getObject());
 }
 
-int main() {
-/*	AtaDriver ata(event_hub);
-
-	uint8_t buffer[512];
-	ata.readSectors(0, buffer, 1, helx::Callback<>(nullptr, &onTestComplete));
-
-	Keyboard keyboard(event_hub);
-	keyboard.run();*/
-	
-/*	managarm::keyboard::ServerReq request;
-	request.set_key(managarm::keyboard::KEY_A);
-
-	std::string bytes;
-	request.SerializeToString(&bytes);
-
-	for(size_t i = 0; i < bytes.length(); i++)
-		printf("%x ", bytes[i]);
-	printf("\n");*/
-
+void testIpc() {
 	helx::AcceptCb accept_cb(nullptr, &onAccept);
 	helx::ConnectCb connect_cb(nullptr, &onConnect);
 
@@ -248,14 +259,22 @@ int main() {
 
 	HelHandle server, client;
 	helCreateServer(&server, &client);
-	helSubmitAccept(server, event_hub.getHandle(), 0,
+	helSubmitAccept(server, eventHub.getHandle(), 0,
 			(uintptr_t)accept_cb.getFunction(),
 			(uintptr_t)accept_cb.getObject());
-	helSubmitConnect(client, event_hub.getHandle(), 0,
+	helSubmitConnect(client, eventHub.getHandle(), 0,
 			(uintptr_t)connect_cb.getFunction(),
 			(uintptr_t)connect_cb.getObject());
+}
+
+// --------------------------------------------------------
+// main
+// --------------------------------------------------------
+
+int main() {
+	testAta();
 
 	while(true)
-		event_hub.defaultProcessEvents();
+		eventHub.defaultProcessEvents();
 }
 
