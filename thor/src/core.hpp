@@ -150,17 +150,6 @@ private:
 
 extern LazyInitializer<SharedPtr<Thread>> currentThread;
 
-template<typename T, typename... Args>
-T *construct(thor::KernelAlloc &allocator, Args &&... args) {
-	void *pointer = allocator.allocate(sizeof(T));
-	return new(pointer) T(util::forward<Args>(args)...);
-}
-
-template<typename T>
-void destruct(thor::KernelAlloc &allocator, T *pointer) {
-	allocator.free(pointer);
-}
-
 } // namespace thor
 
 void *operator new(size_t length, thor::KernelAlloc *);

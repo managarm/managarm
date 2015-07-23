@@ -73,3 +73,14 @@ T &&forward(typename RemoveRef<T>::type &arg) noexcept {
 
 }} // namespace thor::util
 
+template<typename T, typename Allocator, typename... Args>
+T *construct(Allocator &allocator, Args &&... args) {
+	void *pointer = allocator.allocate(sizeof(T));
+	return new(pointer) T(thor::util::forward<Args>(args)...);
+}
+
+template<typename T, typename Allocator>
+void destruct(Allocator &allocator, T *pointer) {
+	allocator.free(pointer);
+}
+

@@ -56,7 +56,7 @@ IrqRelay::Request::Request(SharedPtr<EventHub> &&event_hub,
 
 LazyInitializer<IrqRelay[16]> irqRelays;
 
-IrqRelay::IrqRelay() : p_requests(kernelAlloc.get()) { }
+IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 
 void IrqRelay::submitWaitRequest(SharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {

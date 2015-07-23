@@ -39,11 +39,19 @@ public:
 		Item *p_current;
 	};
 
-	LinkedList(Allocator *allocator)
+	LinkedList(Allocator &allocator)
 			: p_allocator(allocator), p_front(nullptr), p_back(nullptr) { }
+	~LinkedList() {
+		Item *item = p_front;
+		while(item != nullptr) {
+			Item *next = item->next;
+			destruct(p_allocator, next);
+			item = next;
+		}
+	}
 
 	void addBack(T &&element) {
-		Item *item = new (p_allocator) Item(util::move(element));
+		auto item = construct<Item>(p_allocator, util::move(element));
 		addItemBack(item);
 	}
 
@@ -66,6 +74,7 @@ public:
 
 		Item *next = item->next;
 		Item *previous = item->previous;
+		destruct(p_allocator, item);
 
 		if(next == nullptr) {
 			p_back = previous;
@@ -97,7 +106,7 @@ private:
 		p_back = item;
 	}
 	
-	Allocator *p_allocator;
+	Allocator &p_allocator;
 	Item *p_front;
 	Item *p_back;
 };

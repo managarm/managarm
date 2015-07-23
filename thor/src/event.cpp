@@ -25,7 +25,7 @@ SubmitInfo::SubmitInfo(int64_t submit_id,
 // EventHub
 // --------------------------------------------------------
 
-EventHub::EventHub() : p_queue(kernelAlloc.get()) { }
+EventHub::EventHub() : p_queue(*kernelAlloc) { }
 
 void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
 	Event event(Event::kTypeIrq, submit_info);

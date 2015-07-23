@@ -16,8 +16,8 @@ namespace thor {
 // Channel
 // --------------------------------------------------------
 
-Channel::Channel() : p_messages(kernelAlloc.get()),
-		p_requests(kernelAlloc.get()) { }
+Channel::Channel() : p_messages(*kernelAlloc),
+		p_requests(*kernelAlloc) { }
 
 void Channel::sendString(const uint8_t *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
@@ -155,8 +155,8 @@ UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 // Server
 // --------------------------------------------------------
 
-Server::Server() : p_acceptRequests(kernelAlloc.get()),
-		p_connectRequests(kernelAlloc.get()) { }
+Server::Server() : p_acceptRequests(*kernelAlloc),
+		p_connectRequests(*kernelAlloc) { }
 
 void Server::submitAccept(SharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
