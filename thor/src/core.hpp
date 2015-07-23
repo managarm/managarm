@@ -152,5 +152,3 @@ extern LazyInitializer<SharedPtr<Thread>> currentThread;
 
 } // namespace thor
 
-void *operator new(size_t length, thor::KernelAlloc *);
-

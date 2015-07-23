@@ -26,7 +26,7 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto memory = makeShared<Memory>(kernelAlloc.get());
+	auto memory = makeShared<Memory>(*kernelAlloc);
 	memory->resize(size);
 	
 	MemoryAccessDescriptor base(util::move(memory));
@@ -73,7 +73,7 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
-	auto new_thread = makeShared<Thread>(kernelAlloc.get());
+	auto new_thread = makeShared<Thread>(*kernelAlloc);
 	new_thread->setup(user_entry, argument, user_stack_ptr);
 	new_thread->setUniverse(universe->shared<Universe>());
 	new_thread->setAddressSpace(address_space->shared<AddressSpace>());
@@ -96,7 +96,7 @@ HelError helCreateEventHub(HelHandle *handle) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto event_hub = makeShared<EventHub>(kernelAlloc.get());
+	auto event_hub = makeShared<EventHub>(*kernelAlloc);
 
 	EventHubDescriptor base(util::move(event_hub));
 
@@ -180,7 +180,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto pipe = makeShared<BiDirectionPipe>(kernelAlloc.get());
+	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
 
 	BiDirectionFirstDescriptor first_base(pipe->shared<BiDirectionPipe>());
 	BiDirectionSecondDescriptor second_base(pipe->shared<BiDirectionPipe>());
@@ -265,7 +265,7 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto server = makeShared<Server>(kernelAlloc.get());
+	auto server = makeShared<Server>(*kernelAlloc);
 
 	ServerDescriptor server_descriptor(server->shared<Server>());
 	ClientDescriptor client_descriptor(server->shared<Server>());
@@ -317,7 +317,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	UnsafePtr<Thread> this_thread = (*currentThread)->unsafe<Thread>();
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto irq_line = makeShared<IrqLine>(kernelAlloc.get(), number);
+	auto irq_line = makeShared<IrqLine>(*kernelAlloc, number);
 
 	IrqDescriptor base(util::move(irq_line));
 
@@ -350,7 +350,7 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	UnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
-	auto io_space = makeShared<IoSpace>(kernelAlloc.get());
+	auto io_space = makeShared<IoSpace>(*kernelAlloc);
 	for(size_t i = 0; i < num_ports; i++)
 		io_space->addPort(user_port_array[i]);
 

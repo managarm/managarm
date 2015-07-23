@@ -184,7 +184,7 @@ void Server::submitConnect(SharedPtr<EventHub> &&event_hub,
 
 void Server::processRequests(const AcceptRequest &accept,
 		const ConnectRequest &connect) {
-	auto pipe = makeShared<BiDirectionPipe>(kernelAlloc.get());
+	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
 
 	accept.eventHub->raiseAcceptEvent(pipe->shared<BiDirectionPipe>(),
 			accept.submitInfo);

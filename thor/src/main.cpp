@@ -52,7 +52,7 @@ void *loadInitImage(UnsafePtr<AddressSpace> space, uintptr_t image_page) {
 
 		Mapping *mapping = space->allocateAt(bottom, page_size * num_pages);
 
-		auto memory = makeShared<Memory>(kernelAlloc.get());
+		auto memory = makeShared<Memory>(*kernelAlloc);
 		memory->resize(num_pages * page_size);
 
 		for(uintptr_t page = 0; page < num_pages; page++) {
@@ -105,8 +105,8 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 
-	auto universe = makeShared<Universe>(kernelAlloc.get());
-	auto address_space = makeShared<AddressSpace>(kernelAlloc.get(), user_space);
+	auto universe = makeShared<Universe>(*kernelAlloc);
+	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
 	
 	auto entry = (void (*)(uintptr_t))loadInitImage(address_space->unsafe<AddressSpace>(),
 			init_image);
@@ -114,7 +114,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	
 	// allocate and memory memory for the user stack
 	size_t stack_size = 0x200000;
-	auto stack_memory = makeShared<Memory>(kernelAlloc.get());
+	auto stack_memory = makeShared<Memory>(*kernelAlloc);
 	stack_memory->resize(stack_size);
 
 	Mapping *stack_mapping = address_space->allocate(stack_size);
@@ -122,7 +122,7 @@ extern "C" void thorMain(uint64_t init_image) {
 		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
 				+ i * 0x1000), stack_memory->getPage(i));
 
-	auto thread = makeShared<Thread>(kernelAlloc.get());
+	auto thread = makeShared<Thread>(*kernelAlloc);
 	thread->setup(entry, 0, (void *)(stack_mapping->baseAddress + stack_size));
 	thread->setUniverse(universe->shared<Universe>());
 	thread->setAddressSpace(address_space->shared<AddressSpace>());

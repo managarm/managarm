@@ -92,7 +92,3 @@ void IoSpace::enableInThread(UnsafePtr<Thread> thread) {
 
 } // namespace thor
 
-void *operator new(size_t length, thor::KernelAlloc *allocator) {
-	return allocator->allocate(length);
-}
-
