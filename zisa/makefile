@@ -8,16 +8,23 @@ OBJECTS = obj/main.o obj/keyboard.pb.o
 
 LIBS = -lprotobuf-lite
 
+STRIP = x86_64-managarm-strip
+
 SRCDIR = src
 
 .PHONY: all clean
 
+PROGRAM_ORIGINAL = $(PROGRAM:%.elf=%.original.elf)
+
 all: $(PROGRAM)
 
 clean:
-	rm -f $(PROGRAM) $(OBJECTS)
+	rm -f $(PROGRAM) $(PROGRAM_ORIGINAL) $(OBJECTS)
 
-$(PROGRAM): $(OBJECTS)
+$(PROGRAM): $(PROGRAM_ORIGINAL)
+	$(STRIP) -s -o $@ $<
+
+$(PROGRAM_ORIGINAL): $(OBJECTS)
 	$(CXX) -o $@ $(OBJECTS) $(LIBS)
 
 obj/%.o: src/%.cpp
