@@ -17,7 +17,7 @@ namespace thor {
 // --------------------------------------------------------
 
 Memory::Memory()
-		: p_physicalPages(kernelAlloc.get()) { }
+: p_physicalPages(*kernelAlloc) { }
 
 void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000) {

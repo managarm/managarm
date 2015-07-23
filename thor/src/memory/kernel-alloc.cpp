@@ -56,6 +56,9 @@ void *StupidMemoryAllocator::allocate(size_t length) {
 }
 
 void StupidMemoryAllocator::free(void *pointer) {
+	if(pointer == nullptr)
+		return;
+	
 	Header *header = (Header *)((uintptr_t)pointer - sizeof(Header));
 	
 	size_t num_pages = header->numPages;

@@ -39,7 +39,7 @@ UnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
 // --------------------------------------------------------
 
 Universe::Universe()
-		: p_descriptorMap(util::DefaultHasher<Handle>(), kernelAlloc.get()) { }
+		: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc) { }
 
 AnyDescriptor &Universe::getDescriptor(Handle handle) {
 	return p_descriptorMap.get(handle);
@@ -79,7 +79,7 @@ int IrqLine::getNumber() {
 }
 
 
-IoSpace::IoSpace() : p_ports(kernelAlloc.get()) { }
+IoSpace::IoSpace() : p_ports(*kernelAlloc) { }
 
 void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);

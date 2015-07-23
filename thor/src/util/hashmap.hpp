@@ -7,7 +7,8 @@ class Hashmap {
 public:
 	typedef int SizeType;
 
-	Hashmap(const Hasher &hasher, Allocator *allocator);
+	Hashmap(const Hasher &hasher, Allocator &allocator);
+	~Hashmap();
 
 	void insert(const Key &key, const Value &value);
 	void insert(const Key &key, Value &&value);
@@ -29,18 +30,31 @@ private:
 	};
 	
 	Hasher p_hasher;
-	Allocator *p_allocator;
+	Allocator &p_allocator;
 	Item **p_table;
 	SizeType p_capacity;
 	SizeType p_size;
 };
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-Hashmap<Key, Value, Hasher, Allocator>::Hashmap(const Hasher &hasher, Allocator *allocator)
+Hashmap<Key, Value, Hasher, Allocator>::Hashmap(const Hasher &hasher, Allocator &allocator)
 		: p_hasher(hasher), p_allocator(allocator), p_capacity(10), p_size(0) {
-	p_table = (Item **)allocator->allocate(sizeof(Item *) * p_capacity);
+	p_table = (Item **)allocator.allocate(sizeof(Item *) * p_capacity);
 	for(SizeType i = 0; i < p_capacity; i++)
 		p_table[i] = nullptr;
+}
+
+template<typename Key, typename Value, typename Hasher, typename Allocator>
+Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
+	for(size_t i = 0; i < p_capacity; i++) {
+		Item *item = p_table[i];
+		while(item != nullptr) {
+			Item *chain = item->chain;
+			destruct(p_allocator, item);
+			item = chain;
+		}
+	}
+	p_allocator.free(p_table);
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
@@ -50,7 +64,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = new (p_allocator) Item(key, value);
+	auto item = construct<Item>(p_allocator, key, value);
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -62,7 +76,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = new (p_allocator) Item(key, util::move(value));
+	auto item = construct<Item>(p_allocator, key, util::move(value));
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
