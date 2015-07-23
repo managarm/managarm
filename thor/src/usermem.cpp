@@ -57,7 +57,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 
 AddressSpace::AddressSpace(memory::PageSpace page_space)
 : p_pageSpace(page_space) {
-	Mapping *mapping = new (kernelAlloc.get()) Mapping(Mapping::kTypeHole,
+	auto mapping = construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);
 	addressTreeInsert(mapping);
 }
@@ -123,7 +123,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	VirtualAddr hole_address = mapping->baseAddress;
 	size_t hole_length = mapping->length;
 
-	Mapping *split = new (kernelAlloc.get()) Mapping(Mapping::kTypeNone,
+	auto split = construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
 			hole_address + split_offset, split_length);
 	
 	if(split_offset == 0) {
@@ -135,7 +135,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 
 		addressTreeRemove(mapping);
 
-		//FIXME: delete (kernelAlloc.get()) mapping;
+		destruct(*kernelAlloc, mapping);
 	}else{
 		// the split mapping starts in the middle of the hole
 		split->lowerPtr = mapping;
@@ -149,7 +149,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	if(hole_length > split_offset + split_length) {
 		// the split mapping does not go on until the end of the hole
 		// we have to create another mapping for the rest of the hole
-		Mapping *following = new (kernelAlloc.get()) Mapping(Mapping::kTypeHole,
+		auto following = construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 				hole_address + split_offset + split_length,
 				hole_length - split_offset - split_length);
 		split->higherPtr = following;

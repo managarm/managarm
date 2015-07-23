@@ -25,15 +25,45 @@ void *StupidVirtualAllocator::allocate(size_t length) {
 }
 
 // --------------------------------------------------------
+// StupidMemoryAllocator::Header
+// --------------------------------------------------------
+
+StupidMemoryAllocator::Header::Header(size_t num_pages)
+: numPages(num_pages) { }
+
+// --------------------------------------------------------
 // StupidMemoryAllocator
 // --------------------------------------------------------
 
 void *StupidMemoryAllocator::allocate(size_t length) {
-	void *pointer = p_virtualAllocator.allocate(length);
-	for(size_t offset = 0; offset < length; offset += kPageSize)
-		kernelSpace->mapSingle4k((char *)pointer + offset, tableAllocator->allocate(1));
+	size_t with_header = length + sizeof(Header);
+
+	size_t num_pages = with_header / kPageSize;
+	if((with_header % kPageSize) != 0)
+		num_pages++;
+
+	void *pointer = p_virtualAllocator.allocate(with_header);
+	for(size_t offset = 0; offset < with_header; offset += kPageSize)
+		kernelSpace->mapSingle4k((char *)pointer + offset,
+				tableAllocator->allocate(1));
 	thorRtInvalidateSpace();
-	return pointer;
+	asm("" : : : "memory");
+
+	Header *header = (Header *)pointer;
+	new (header) Header(num_pages);
+	
+	return (void *)((uintptr_t)pointer + sizeof(Header));
+}
+
+void StupidMemoryAllocator::free(void *pointer) {
+	Header *header = (Header *)((uintptr_t)pointer - sizeof(Header));
+	
+	size_t num_pages = header->numPages;
+
+	asm("" : : : "memory");
+	for(size_t i = 0; i < num_pages; i++)
+		kernelSpace->unmapSingle4k((VirtualAddr)header + i * kPageSize);
+	thorRtInvalidateSpace();
 }
 
 }} // namespace thor::memory

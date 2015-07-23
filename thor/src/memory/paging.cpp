@@ -92,5 +92,40 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	pt_pointer[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
+void PageSpace::unmapSingle4k(VirtualAddr pointer) {
+	ASSERT((pointer % 0x1000) == 0);
+
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
+	
+	// find the pml4_entry
+	volatile uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t pml4_entry = pml4_pointer[pml4_index];
+
+	// find the pdpt entry
+	ASSERT((pml4_entry & kPagePresent) != 0);
+	volatile uint64_t *pdpt_pointer
+			= (uint64_t *)physicalToVirtual(pml4_entry & 0xFFFFFFFFFFFFF000);
+	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	
+	// find the pd entry
+	ASSERT((pdpt_entry & kPagePresent) != 0);
+	volatile uint64_t *pd_pointer
+			= (uint64_t *)physicalToVirtual(pdpt_entry & 0xFFFFFFFFFFFFF000);
+	uint64_t pd_entry = pd_pointer[pd_index];
+	
+	// find the pt entry
+	ASSERT((pd_entry & kPagePresent) != 0);
+	volatile uint64_t *pt_pointer
+			= (uint64_t *)physicalToVirtual(pd_entry & 0xFFFFFFFFFFFFF000);
+	
+	// change the pt entry
+	ASSERT((pt_pointer[pt_index] & kPagePresent) != 0);
+	pt_pointer[pt_index] ^= kPagePresent;
+}
+
+
 }} // namespace thor::memory
 

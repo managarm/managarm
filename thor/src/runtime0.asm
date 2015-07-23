@@ -58,6 +58,10 @@ thorRtIsrDoubleFault:
 
 .global thorRtIsrPageFault
 thorRtIsrPageFault:
+	mov 16(%rsp), %rax
+	and $3, %rax
+	jz kernelPageFault
+
 	movabs $thorRtUserContext, %rax
 	mov (%rax), %rbx
 	
@@ -69,7 +73,14 @@ thorRtIsrPageFault:
 	add $8, %rsp # skip ss
 	
 	mov %cr2, %rdi
-	call thorPageFault
+	call thorUserPageFault
+	jmp thorRtHalt
+
+kernelPageFault:
+	mov %cr2, %rdi
+	popq %rdx # pop error code
+	popq %rsi # pop faulting rip
+	call thorKernelPageFault
 	jmp thorRtHalt
 
 .macro MAKE_IRQ_HANDLER irq

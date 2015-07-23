@@ -138,8 +138,17 @@ extern "C" void thorDoubleFault() {
 	debug::panicLogger->log() << "Double fault" << debug::Finish();
 }
 
-extern "C" void thorPageFault(uintptr_t address, Word error) {
-	debug::panicLogger->log() << "Page fault"
+extern "C" void thorKernelPageFault(uintptr_t address,
+		uintptr_t fault_ip, Word error) {
+	debug::panicLogger->log() << "Kernel page fault"
+			<< " at " << (void *)address
+			<< ", faulting ip: " << (void *)fault_ip
+			<< debug::Finish();
+}
+
+
+extern "C" void thorUserPageFault(uintptr_t address, Word error) {
+	debug::panicLogger->log() << "User page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)thorRtUserContext->rip
 			<< debug::Finish();
