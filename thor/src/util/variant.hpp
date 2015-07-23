@@ -152,11 +152,10 @@ struct CopyConstruct<tag_iter, T, Tail...> {
 	}
 };
 
-template<int tag_iter, typename T>
-struct CopyConstruct<tag_iter, T> {
-	static void construct(int tag, Storage<T> &dest, const Storage<T> &src) {
-		debug::criticalLogger->log("Illegal variant tag");
-		debug::panic();
+template<int tag_iter>
+struct CopyConstruct<tag_iter> {
+	static void construct(int tag, Storage<> &dest, const Storage<> &src) {
+		ASSERT(!"CopyConstruct: Illegal variant tag");
 	}
 };
 
@@ -174,11 +173,10 @@ struct CopyAssign<tag_iter, T, Tail...> {
 	}
 };
 
-template<int tag_iter, typename T>
-struct CopyAssign<tag_iter, T> {
-	static void assign(int tag, Storage<T> &dest, const Storage<T> &src) {
-		debug::criticalLogger->log("Illegal variant tag");
-		debug::panic();
+template<int tag_iter>
+struct CopyAssign<tag_iter> {
+	static void assign(int tag, Storage<> &dest, const Storage<> &src) {
+		ASSERT(!"CopyAssign: Illegal variant tag");
 	}
 };
 
@@ -200,11 +198,11 @@ struct MoveConstruct<tag_iter, T, Tail...> {
 	}
 };
 
-template<int tag_iter, typename T>
-struct MoveConstruct<tag_iter, T> {
-	static void construct(int tag, Storage<T> &dest, Storage<T> &src) {
-		debug::criticalLogger->log("Illegal variant tag");
-		debug::panic();
+template<int tag_iter>
+struct MoveConstruct<tag_iter> {
+	static void construct(int tag, Storage<> &dest, Storage<> &src) {
+		debug::criticalLogger->log(tag);
+		ASSERT(!"MoveConstruct: Illegal variant tag");
 	}
 };
 
@@ -222,11 +220,10 @@ struct MoveAssign<tag_iter, T, Tail...> {
 	}
 };
 
-template<int tag_iter, typename T>
-struct MoveAssign<tag_iter, T> {
-	static void assign(int tag, Storage<T> &dest, Storage<T> &src) {
-		debug::criticalLogger->log("Illegal variant tag");
-		debug::panic();
+template<int tag_iter>
+struct MoveAssign<tag_iter> {
+	static void assign(int tag, Storage<> &dest, Storage<> &src) {
+		ASSERT(!"MoveAssign: Illegal variant tag");
 	}
 };
 
