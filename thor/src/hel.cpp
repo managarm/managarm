@@ -15,7 +15,8 @@
 using namespace thor;
 
 HelError helLog(const char *string, size_t length) {
-	debug::criticalLogger->log(string, length);
+	for(size_t i = 0; i < length; i++)
+		debug::criticalLogger->print(string[i]);
 
 	return kHelErrNone;
 }
