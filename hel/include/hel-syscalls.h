@@ -22,6 +22,17 @@ extern inline void helPanic(const char *string, size_t length) {
 }
 
 
+extern inline HelError helCloseDescriptor(HelHandle handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallCloseDescriptor;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle)
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
+
+
 extern inline HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallAllocateMemory;
 	register HelWord in_size asm ("rsi") = (HelWord)size;

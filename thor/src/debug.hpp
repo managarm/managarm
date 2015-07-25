@@ -129,7 +129,7 @@ template<typename P, typename UIntType>
 struct Print<P, UIntType, typename util::EnableIf<util::IsIntegral<UIntType>::value
 				&& util::IsUnsigned<UIntType>::value>::type> {
 	static void print(P &printer, UIntType number) {
-		printUInt(printer, number);
+		printUInt(printer, number, 10);
 	}
 };
 

@@ -20,7 +20,7 @@ LazyInitializer<debug::Terminal> vgaTerminal;
 
 LazyInitializer<memory::StupidPhysicalAllocator> stupidTableAllocator;
 
-void *loadInitImage(UnsafePtr<AddressSpace> space, uintptr_t image_page) {
+void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
 	char *image = (char *)memory::physicalToVirtual(image_page);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
@@ -76,6 +76,9 @@ void *loadInitImage(UnsafePtr<AddressSpace> space, uintptr_t image_page) {
 			space->mapSingle4k((void *)((bottom_page + page) * page_size),
 					physical);
 		}
+
+		mapping->type = Mapping::kTypeMemory;
+		mapping->memoryRegion = util::move(memory);
 	}
 	
 	return (void *)ehdr->e_entry;
@@ -127,7 +130,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	thread->setUniverse(util::move(universe));
 	thread->setAddressSpace(util::move(address_space));
 	
-	currentThread.initialize(SharedPtr<Thread>());
+	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
 	scheduleQueue.initialize();
 
 	scheduleQueue->addBack(util::move(thread));
@@ -181,6 +184,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelError error = helLog((const char *)arg0, (size_t)arg1);
 			
 			while(true) { }
+		}
+
+		case kHelCallCloseDescriptor: {
+			HelError error = helCloseDescriptor((HelHandle)arg0);
+			
+			thorRtReturnSyscall1((Word)error);
 		}
 
 		case kHelCallAllocateMemory: {

@@ -19,18 +19,18 @@ public:
 
 	void sendString(const uint8_t *buffer, size_t length,
 			int64_t msg_request, int64_t msg_sequence);
-	void submitRecvString(SharedPtr<EventHub> &&event_hub,
+	void submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 			uint8_t *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 
 private:
 	struct Request {
-		Request(SharedPtr<EventHub> &&event_hub,
+		Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 				int64_t filter_request, int64_t filter_sequence,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub> eventHub;
+		SharedPtr<EventHub, KernelAlloc> eventHub;
 		SubmitInfo submitInfo;
 		uint8_t *userBuffer;
 		size_t maxLength;
@@ -47,7 +47,7 @@ private:
 	util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-class BiDirectionPipe : public SharedBase<BiDirectionPipe> {
+class BiDirectionPipe : public SharedBase<BiDirectionPipe, KernelAlloc> {
 public:
 	BiDirectionPipe();
 
@@ -62,48 +62,48 @@ private:
 // Reads from the first channel, writes to the second
 class BiDirectionFirstDescriptor {
 public:
-	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
+	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
 	
-	UnsafePtr<BiDirectionPipe> getPipe();
+	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
 
 private:
-	SharedPtr<BiDirectionPipe> p_pipe;
+	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
 };
 
 // Reads from the second channel, writes to the first
 class BiDirectionSecondDescriptor {
 public:
-	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe);
+	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
 	
-	UnsafePtr<BiDirectionPipe> getPipe();
+	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
 
 private:
-	SharedPtr<BiDirectionPipe> p_pipe;
+	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
 };
 
-class Server : public SharedBase<Server> {
+class Server : public SharedBase<Server, KernelAlloc> {
 public:
 	Server();
 
-	void submitAccept(SharedPtr<EventHub> &&event_hub,
+	void submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 			SubmitInfo submit_info);
 	
-	void submitConnect(SharedPtr<EventHub> &&event_hub,
+	void submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 			SubmitInfo submit_info);
 
 private:
 	struct AcceptRequest {
-		AcceptRequest(SharedPtr<EventHub> &&event_hub,
+		AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub> eventHub;
+		SharedPtr<EventHub, KernelAlloc> eventHub;
 		SubmitInfo submitInfo;
 	};
 	struct ConnectRequest {
-		ConnectRequest(SharedPtr<EventHub> &&event_hub,
+		ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub> eventHub;
+		SharedPtr<EventHub, KernelAlloc> eventHub;
 		SubmitInfo submitInfo;
 	};
 
@@ -116,22 +116,22 @@ private:
 
 class ServerDescriptor {
 public:
-	ServerDescriptor(SharedPtr<Server> &&server);
+	ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server);
 	
-	UnsafePtr<Server> getServer();
+	UnsafePtr<Server, KernelAlloc> getServer();
 
 private:
-	SharedPtr<Server> p_server;
+	SharedPtr<Server, KernelAlloc> p_server;
 };
 
 class ClientDescriptor {
 public:
-	ClientDescriptor(SharedPtr<Server> &&server);
+	ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server);
 	
-	UnsafePtr<Server> getServer();
+	UnsafePtr<Server, KernelAlloc> getServer();
 
 private:
-	SharedPtr<Server> p_server;
+	SharedPtr<Server, KernelAlloc> p_server;
 };
 
 } // namespace thor

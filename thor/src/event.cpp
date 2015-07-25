@@ -48,14 +48,14 @@ void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
 	p_queue.addBack(util::move(event));
 }
 
-void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe> &&pipe,
+void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 		SubmitInfo submit_info) {
 	Event event(Event::kTypeAccept, submit_info);
 	event.pipe = util::move(pipe);
 	p_queue.addBack(util::move(event));
 }
 
-void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe> &&pipe,
+void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 		SubmitInfo submit_info) {
 	Event event(Event::kTypeConnect, submit_info);
 	event.pipe = util::move(pipe);
@@ -81,10 +81,10 @@ EventHub::Event::Event(Type type, SubmitInfo submit_info)
 // EventHubDescriptor
 // --------------------------------------------------------
 
-EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub> &&event_hub)
+EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub)
 		: p_eventHub(util::move(event_hub)) { }
 
-UnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
+UnsafePtr<EventHub, KernelAlloc> EventHubDescriptor::getEventHub() {
 	return p_eventHub;
 }
 

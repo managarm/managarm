@@ -14,6 +14,8 @@ public:
 	void insert(const Key &key, Value &&value);
 
 	Value &get(const Key &key);
+
+	Value remove(const Key &key);
 	
 	void rehash(SizeType new_capacity);
 
@@ -92,6 +94,29 @@ Value &Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
 	}
 
 	ASSERT(!"get(): Element not found");
+}
+
+template<typename Key, typename Value, typename Hasher, typename Allocator>
+Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
+	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
+	
+	Item *previous = nullptr;
+	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
+		if(item->key == key) {
+			Value value = util::move(item->value);
+			
+			if(previous == nullptr) {
+				p_table[bucket] = item->chain;
+			}else{
+				previous->chain = item->chain;
+			}
+			destruct(p_allocator, item);
+
+			return value;
+		}
+	}
+
+	ASSERT(!"remove(): Element not found");
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>

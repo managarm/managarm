@@ -1,32 +1,53 @@
 
-template<typename T>
+template<typename T, typename Allocator>
 class SharedPtr;
 
-template<typename T>
+template<typename T, typename Allocator>
 class UnsafePtr;
 
-template<typename T>
+template<typename T, typename Allocator>
 class SharedBase {
+	friend class SharedPtr<T, Allocator>;
+	friend class UnsafePtr<T, Allocator>;
+
 public:
-	UnsafePtr<T> thisPtr();
+	SharedBase() : p_allocator(nullptr),
+			p_refCount(1) { }
+
+	UnsafePtr<T, Allocator> thisPtr();
+
+private:
+	Allocator *p_allocator;
+	int p_refCount;
 };
 
-template<typename T>
+template<typename T, typename Allocator>
 class SharedPtr {
-	friend class SharedBase<T>;
-	friend class UnsafePtr<T>;
+	friend class SharedBase<T, Allocator>;
+	friend class UnsafePtr<T, Allocator>;
 public:
-	template<typename Allocator, typename... Args>
-	static SharedPtr<T> make(Allocator &allocator, Args&&... args) {
+	template<typename... Args>
+	static SharedPtr make(Allocator &allocator, Args&&... args) {
 		auto base = construct<T>(allocator, thor::util::forward<Args>(args)...);
-		return SharedPtr<T>(base);
+		base->p_allocator = &allocator;
+		return SharedPtr<T, Allocator>(base);
 	}
 
 	SharedPtr() : p_pointer(nullptr) { }
 	
+	~SharedPtr() {
+		if(p_pointer == nullptr)
+			return;
+		SharedBase<T, Allocator> *base = p_pointer;
+		base->p_refCount--;
+		if(base->p_refCount == 0)
+			destruct(*base->p_allocator, p_pointer);
+	}
+
 	SharedPtr(const SharedPtr &other) {
 		p_pointer = other.p_pointer;
-		//FIXME: update refcount
+		if(p_pointer != nullptr)
+			p_pointer->p_refCount++;
 	}
 
 	SharedPtr(SharedPtr &&other) {
@@ -34,7 +55,7 @@ public:
 		other.p_pointer = nullptr;
 	}
 
-	operator UnsafePtr<T> ();
+	operator UnsafePtr<T, Allocator> ();
 
 	SharedPtr &operator= (SharedPtr &&other) {
 		p_pointer = other.p_pointer;
@@ -55,14 +76,14 @@ private:
 	T *p_pointer;
 };
 
-template<typename T>
+template<typename T, typename Allocator>
 class UnsafePtr {
-	friend class SharedBase<T>;
-	friend class SharedPtr<T>;
+	friend class SharedBase<T, Allocator>;
+	friend class SharedPtr<T, Allocator>;
 public:
 	UnsafePtr() : p_pointer(nullptr) { }
 	
-	operator SharedPtr<T> ();
+	operator SharedPtr<T, Allocator> ();
 
 	T *operator-> () {
 		return p_pointer;
@@ -77,25 +98,24 @@ private:
 	T *p_pointer;
 };
 
-template<typename T>
-UnsafePtr<T> SharedBase<T>::thisPtr() {
-	//FIXME
-	return UnsafePtr<T>(static_cast<T *>(this));
+template<typename T, typename Allocator>
+UnsafePtr<T, Allocator> SharedBase<T, Allocator>::thisPtr() {
+	return UnsafePtr<T, Allocator>(static_cast<T *>(this));
 }
 
-template<typename T>
-SharedPtr<T>::operator UnsafePtr<T>() {
-	return UnsafePtr<T>(p_pointer);
+template<typename T, typename Allocator>
+SharedPtr<T, Allocator>::operator UnsafePtr<T, Allocator>() {
+	return UnsafePtr<T, Allocator>(p_pointer);
 }
 
-template<typename T>
-UnsafePtr<T>::operator SharedPtr<T>() {
-	//FIXME: increment refcount
-	return SharedPtr<T>(p_pointer);
+template<typename T, typename Allocator>
+UnsafePtr<T, Allocator>::operator SharedPtr<T, Allocator>() {
+	p_pointer->p_refCount++;
+	return SharedPtr<T, Allocator>(p_pointer);
 }
 
 template<typename T, typename Allocator, typename... Args>
-SharedPtr<T> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T>::make(allocator, thor::util::forward<Args>(args)...);
+SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
+	return SharedPtr<T, Allocator>::make(allocator, thor::util::forward<Args>(args)...);
 }
 

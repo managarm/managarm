@@ -10,7 +10,7 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-class EventHub : public SharedBase<EventHub> {
+class EventHub : public SharedBase<EventHub, KernelAlloc> {
 public:
 	struct Event {
 		enum Type {
@@ -36,7 +36,7 @@ public:
 		size_t length;
 
 		// used by kTypeAccept, kTypeConnect
-		SharedPtr<BiDirectionPipe> pipe;
+		SharedPtr<BiDirectionPipe, KernelAlloc> pipe;
 	};
 
 	EventHub();
@@ -47,9 +47,9 @@ public:
 	void raiseRecvStringErrorEvent(Error error,
 			SubmitInfo submit_info);
 	
-	void raiseAcceptEvent(SharedPtr<BiDirectionPipe> &&pipe,
+	void raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 			SubmitInfo submit_info);
-	void raiseConnectEvent(SharedPtr<BiDirectionPipe> &&pipe,
+	void raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 			SubmitInfo submit_info);
 
 	void raiseIrqEvent(SubmitInfo submit_info);
@@ -63,12 +63,12 @@ private:
 
 class EventHubDescriptor {
 public:
-	EventHubDescriptor(SharedPtr<EventHub> &&event_hub);
+	EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub);
 
-	UnsafePtr<EventHub> getEventHub();
+	UnsafePtr<EventHub, KernelAlloc> getEventHub();
 
 private:
-	SharedPtr<EventHub> p_eventHub;
+	SharedPtr<EventHub, KernelAlloc> p_eventHub;
 };
 
 } // namespace thor

@@ -18,7 +18,7 @@ LazyInitializer<ThreadQueue> scheduleQueue;
 void schedule() {
 	ASSERT(!scheduleQueue->empty());
 	
-	SharedPtr<Thread> thread_ptr = scheduleQueue->removeFront();
+	SharedPtr<Thread, KernelAlloc> thread_ptr = scheduleQueue->removeFront();
 	thread_ptr->switchTo();
 
 	scheduleQueue->addBack(util::move(thread_ptr));

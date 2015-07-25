@@ -36,6 +36,7 @@ union Storage<T, Tail...> {
 	Storage<Tail...> others;
 
 	Storage() { }
+	~Storage() { }
 };
 
 template<>

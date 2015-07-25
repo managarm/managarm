@@ -9,6 +9,8 @@ enum {
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
 
+	kHelCallCloseDescriptor = 20,
+
 	kHelCallAllocateMemory = 2,
 	kHelCallMapMemory = 6,
 	
@@ -67,6 +69,8 @@ struct HelEvent {
 
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length);
+
+HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle resource,

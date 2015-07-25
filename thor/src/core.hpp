@@ -38,17 +38,17 @@ class IrqRelay {
 public:
 	IrqRelay();
 
-	void submitWaitRequest(SharedPtr<EventHub> &&event_hub,
+	void submitWaitRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 			SubmitInfo submit_info);
 	
 	void fire();
 
 private:
 	struct Request {
-		Request(SharedPtr<EventHub> &&event_hub,
+		Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub> eventHub;
+		SharedPtr<EventHub, KernelAlloc> eventHub;
 		SubmitInfo submitInfo;
 	};
 
@@ -57,7 +57,7 @@ private:
 
 extern LazyInitializer<IrqRelay[16]> irqRelays;
 
-class IrqLine : public SharedBase<IrqLine> {
+class IrqLine : public SharedBase<IrqLine, KernelAlloc> {
 public:
 	IrqLine(int number);
 
@@ -67,13 +67,13 @@ private:
 	int p_number;
 };
 
-class IoSpace : public SharedBase<IoSpace> {
+class IoSpace : public SharedBase<IoSpace, KernelAlloc> {
 public:
 	IoSpace();
 
 	void addPort(uintptr_t port);
 
-	void enableInThread(UnsafePtr<Thread> thread);
+	void enableInThread(UnsafePtr<Thread, KernelAlloc> thread);
 
 private:
 	util::Vector<uintptr_t, KernelAlloc> p_ports;
@@ -85,33 +85,33 @@ private:
 
 class ThreadObserveDescriptor {
 public:
-	ThreadObserveDescriptor(SharedPtr<Thread> &&thread);
+	ThreadObserveDescriptor(SharedPtr<Thread, KernelAlloc> &&thread);
 	
-	UnsafePtr<Thread> getThread();
+	UnsafePtr<Thread, KernelAlloc> getThread();
 
 private:
-	SharedPtr<Thread> p_thread;
+	SharedPtr<Thread, KernelAlloc> p_thread;
 };
 
 
 class IrqDescriptor {
 public:
-	IrqDescriptor(SharedPtr<IrqLine> &&irq_line);
+	IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line);
 	
-	UnsafePtr<IrqLine> getIrqLine();
+	UnsafePtr<IrqLine, KernelAlloc> getIrqLine();
 
 private:
-	SharedPtr<IrqLine> p_irqLine;
+	SharedPtr<IrqLine, KernelAlloc> p_irqLine;
 };
 
 class IoDescriptor {
 public:
-	IoDescriptor(SharedPtr<IoSpace> &&io_space);
+	IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space);
 	
-	UnsafePtr<IoSpace> getIoSpace();
+	UnsafePtr<IoSpace, KernelAlloc> getIoSpace();
 
 private:
-	SharedPtr<IoSpace> p_ioSpace;
+	SharedPtr<IoSpace, KernelAlloc> p_ioSpace;
 };
 
 // --------------------------------------------------------
@@ -128,7 +128,7 @@ typedef util::Variant<MemoryAccessDescriptor,
 		IrqDescriptor,
 		IoDescriptor> AnyDescriptor;
 
-class Universe : public SharedBase<Universe> {
+class Universe : public SharedBase<Universe, KernelAlloc> {
 public:
 	Universe();
 
@@ -140,6 +140,8 @@ public:
 	}
 
 	AnyDescriptor &getDescriptor(Handle handle);
+	
+	AnyDescriptor detachDescriptor(Handle handle);
 
 private:
 	util::Hashmap<Handle, AnyDescriptor,
@@ -148,7 +150,7 @@ private:
 };
 
 
-extern LazyInitializer<SharedPtr<Thread>> currentThread;
+extern LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
 
 } // namespace thor
 

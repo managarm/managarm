@@ -44,7 +44,7 @@ void Channel::sendString(const uint8_t *user_buffer, size_t length,
 		p_messages.addBack(util::move(message));
 }
 
-void Channel::submitRecvString(SharedPtr<EventHub> &&event_hub,
+void Channel::submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
@@ -106,7 +106,7 @@ Channel::Message::Message(uint8_t *buffer, size_t length,
 // Channel::Request
 // --------------------------------------------------------
 
-Channel::Request::Request(SharedPtr<EventHub> &&event_hub,
+Channel::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info),
@@ -133,10 +133,10 @@ Channel *BiDirectionPipe::getSecondChannel() {
 // BiDirectionFirstDescriptor
 // --------------------------------------------------------
 
-BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
+BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
-UnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
+UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionFirstDescriptor::getPipe() {
 	return p_pipe;
 }
 
@@ -144,10 +144,10 @@ UnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
 // BiDirectionSecondDescriptor
 // --------------------------------------------------------
 
-BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe> &&pipe)
+BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
 		: p_pipe(util::move(pipe)) { }
 
-UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
+UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionSecondDescriptor::getPipe() {
 	return p_pipe;
 }
 
@@ -158,7 +158,7 @@ UnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 Server::Server() : p_acceptRequests(*kernelAlloc),
 		p_connectRequests(*kernelAlloc) { }
 
-void Server::submitAccept(SharedPtr<EventHub> &&event_hub,
+void Server::submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
 	AcceptRequest request(util::move(event_hub), submit_info);
 	
@@ -170,7 +170,7 @@ void Server::submitAccept(SharedPtr<EventHub> &&event_hub,
 	}
 }
 
-void Server::submitConnect(SharedPtr<EventHub> &&event_hub,
+void Server::submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
 	ConnectRequest request(util::move(event_hub), submit_info);
 
@@ -185,7 +185,7 @@ void Server::submitConnect(SharedPtr<EventHub> &&event_hub,
 void Server::processRequests(const AcceptRequest &accept,
 		const ConnectRequest &connect) {
 	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
-	SharedPtr<BiDirectionPipe> copy(pipe);
+	SharedPtr<BiDirectionPipe, KernelAlloc> copy(pipe);
 
 	accept.eventHub->raiseAcceptEvent(util::move(pipe),
 			accept.submitInfo);
@@ -197,7 +197,7 @@ void Server::processRequests(const AcceptRequest &accept,
 // Server::AcceptRequest
 // --------------------------------------------------------
 
-Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub> &&event_hub,
+Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
 
@@ -205,7 +205,7 @@ Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub> &&event_hub,
 // Server::ConnectRequest
 // --------------------------------------------------------
 
-Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub> &&event_hub,
+Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
 
@@ -213,10 +213,10 @@ Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub> &&event_hub,
 // ServerDescriptor
 // --------------------------------------------------------
 
-ServerDescriptor::ServerDescriptor(SharedPtr<Server> &&server)
+ServerDescriptor::ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server)
 		: p_server(util::move(server)) { }
 
-UnsafePtr<Server> ServerDescriptor::getServer() {
+UnsafePtr<Server, KernelAlloc> ServerDescriptor::getServer() {
 	return p_server;
 }
 
@@ -224,10 +224,10 @@ UnsafePtr<Server> ServerDescriptor::getServer() {
 // ClientDescriptor
 // --------------------------------------------------------
 
-ClientDescriptor::ClientDescriptor(SharedPtr<Server> &&server)
+ClientDescriptor::ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server)
 		: p_server(util::move(server)) { }
 
-UnsafePtr<Server> ClientDescriptor::getServer() {
+UnsafePtr<Server, KernelAlloc> ClientDescriptor::getServer() {
 	return p_server;
 }
 

@@ -1,7 +1,7 @@
 
 namespace thor {
 
-class Memory : public SharedBase<Memory> {
+class Memory : public SharedBase<Memory, KernelAlloc> {
 public:
 	Memory();
 
@@ -15,12 +15,12 @@ private:
 
 class MemoryAccessDescriptor {
 public:
-	MemoryAccessDescriptor(SharedPtr<Memory> &&memory);
+	MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory);
 
-	UnsafePtr<Memory> getMemory();
+	UnsafePtr<Memory, KernelAlloc> getMemory();
 
 private:
-	SharedPtr<Memory> p_memory;
+	SharedPtr<Memory, KernelAlloc> p_memory;
 };
 
 struct Mapping {
@@ -53,10 +53,13 @@ struct Mapping {
 	// larget hole in the subtree of this node
 	size_t largestHole;
 
+	SharedPtr<Memory, KernelAlloc> memoryRegion;
+	size_t memoryOffset;
+
 	Mapping(Type type, VirtualAddr base_address, size_t length);
 };
 
-class AddressSpace : public SharedBase<AddressSpace> {
+class AddressSpace : public SharedBase<AddressSpace, KernelAlloc> {
 public:
 	AddressSpace(memory::PageSpace page_space);
 

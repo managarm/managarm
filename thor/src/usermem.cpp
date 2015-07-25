@@ -34,10 +34,10 @@ uintptr_t Memory::getPage(int index) {
 // MemoryAccessDescriptor
 // --------------------------------------------------------
 
-MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory> &&memory)
+MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory)
 		: p_memory(util::move(memory)) { }
 
-UnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
+UnsafePtr<Memory, KernelAlloc> MemoryAccessDescriptor::getMemory() {
 	return p_memory;
 }
 
@@ -49,7 +49,8 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 : baseAddress(base_address), length(length), type(type),
 		lowerPtr(nullptr), higherPtr(nullptr),
 		leftPtr(nullptr), rightPtr(nullptr),
-		parentPtr(nullptr), color(kColorNone) { }
+		parentPtr(nullptr), color(kColorNone),
+		memoryOffset(0) { }
 
 // --------------------------------------------------------
 // AddressSpace

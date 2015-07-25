@@ -12,7 +12,7 @@
 
 namespace thor {
 
-LazyInitializer<SharedPtr<Thread>> currentThread;
+LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
 
 LazyInitializer<KernelAlloc> kernelAlloc;
 
@@ -20,17 +20,17 @@ LazyInitializer<KernelAlloc> kernelAlloc;
 // Descriptors
 // --------------------------------------------------------
 
-IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine> &&irq_line)
+IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line)
 		: p_irqLine(util::move(irq_line)) { }
 
-UnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
+UnsafePtr<IrqLine, KernelAlloc> IrqDescriptor::getIrqLine() {
 	return p_irqLine;
 }
 
-IoDescriptor::IoDescriptor(SharedPtr<IoSpace> &&io_space)
+IoDescriptor::IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space)
 		: p_ioSpace(util::move(io_space)) { }
 
-UnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
+UnsafePtr<IoSpace, KernelAlloc> IoDescriptor::getIoSpace() {
 	return p_ioSpace;
 }
 
@@ -45,12 +45,15 @@ AnyDescriptor &Universe::getDescriptor(Handle handle) {
 	return p_descriptorMap.get(handle);
 }
 
+AnyDescriptor Universe::detachDescriptor(Handle handle) {
+	return p_descriptorMap.remove(handle);
+}
 
 // --------------------------------------------------------
 // Io
 // --------------------------------------------------------
 
-IrqRelay::Request::Request(SharedPtr<EventHub> &&event_hub,
+IrqRelay::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
 
@@ -58,7 +61,7 @@ LazyInitializer<IrqRelay[16]> irqRelays;
 
 IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 
-void IrqRelay::submitWaitRequest(SharedPtr<EventHub> &&event_hub,
+void IrqRelay::submitWaitRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
 	Request request(util::move(event_hub), submit_info);
 	p_requests.addBack(util::move(request));
@@ -85,7 +88,7 @@ void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);
 }
 
-void IoSpace::enableInThread(UnsafePtr<Thread> thread) {
+void IoSpace::enableInThread(UnsafePtr<Thread, KernelAlloc> thread) {
 	for(size_t i = 0; i < p_ports.size(); i++)
 		thread->enableIoPort(p_ports[i]);
 }
