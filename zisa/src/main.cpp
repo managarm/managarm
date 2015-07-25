@@ -8,6 +8,8 @@
 #include <helx.hpp>
 
 #include <queue>
+#include <vector>
+#include <stdexcept>
 
 #include "keyboard.pb.h"
 
@@ -214,15 +216,134 @@ helx::EventHub eventHub;
 // --------------------------------------------------------
 
 AtaDriver ataDriver(eventHub);
-uint8_t ataBuffer[512];
 
-void onAtaRead(void *object) {
-	printf("Read complete!\n");
+struct GptHeader {
+	uint64_t signature;
+	uint32_t revision;
+	uint32_t headerSize;
+	uint32_t headerCheckSum;
+	uint32_t reservedZero;
+	uint64_t currentLba;
+	uint64_t backupLba;
+	uint64_t firstLba;
+	uint64_t lastLba;
+	uint8_t diskGuid[16];
+	uint64_t startingLba;
+	uint32_t numEntries;
+	uint32_t entrySize;
+	uint32_t tableCheckSum;
+	uint8_t padding[420];
+};
+static_assert(sizeof(GptHeader) == 512, "Bad GPT header struct size");
+
+struct GptEntry {
+	uint8_t typeGuid[16];
+	uint8_t uniqueGuid[16];
+	uint64_t firstLba;
+	uint64_t lastLba;
+	uint64_t attrFlags;
+	uint8_t partitionName[72];	
+};
+static_assert(sizeof(GptEntry) == 128, "Bad GPT entry struct size");
+
+class GptParser {
+public:
+	class Partition {
+	friend class GptParser;
+	public:
+		void readSectors(int64_t sector, uint8_t *buffer,
+				size_t num_sectors, helx::Callback<> callback);
+
+	private:
+		Partition(uint64_t start_lba, uint64_t num_sectors);
+
+		uint64_t startLba;
+		uint64_t numSectors;
+	};
+
+	void parse(helx::Callback<> callback);
+
+	Partition &getPartition(int index);
+
+private:
+	void onTableRead();
+	void onHeaderRead();
+	
+	helx::Callback<> p_callback;
+
+	std::vector<Partition> partitions;
+
+	uint8_t headerBuffer[512];
+	uint8_t *tableBuffer;
+};
+
+void GptParser::parse(helx::Callback<> callback) {
+	p_callback = callback;
+
+	ataDriver.readSectors(1, headerBuffer, 1,
+			HELX_MEMBER(this, &GptParser::onHeaderRead));
+}
+
+GptParser::Partition &GptParser::getPartition(int index) {
+	return partitions[index];
+}
+
+void GptParser::onTableRead() {
+	GptHeader *header = (GptHeader *)headerBuffer;
+
+	for (int i = 0; i < header->numEntries; i++) {
+		GptEntry *entry = (GptEntry *)(tableBuffer + i * header->entrySize);
+		printf("start: %d, end: %d \n", entry->firstLba, entry->lastLba);
+		partitions.push_back(Partition(entry->firstLba, entry->lastLba - entry->firstLba + 1));
+	}
+
+	p_callback();
+}
+
+void GptParser::onHeaderRead() {
+	GptHeader *header = (GptHeader *)headerBuffer;
+	if(header->signature != 0x5452415020494645)
+		printf("Illegal GPT signature\n");
+
+	header->numEntries = 2;
+
+	size_t table_size = header->entrySize * header->numEntries;
+	size_t table_sectors = table_size / 512;
+	if(table_size % 512 != 0)
+		table_sectors++;
+
+	tableBuffer = new uint8_t[table_sectors * 512];
+
+	printf("%u entries, %u bytes per entry\n", header->numEntries, header->entrySize);
+	ataDriver.readSectors(2, tableBuffer, table_sectors,
+			HELX_MEMBER(this, &GptParser::onTableRead));
+}
+
+GptParser::Partition::Partition(uint64_t start_lba, uint64_t num_sectors)
+: startLba(start_lba), numSectors(num_sectors) { }
+
+void GptParser::Partition::readSectors(int64_t sector, uint8_t *buffer,
+		size_t sectors_to_read, helx::Callback<> callback) {
+	if(sector + sectors_to_read > numSectors)
+		throw std::runtime_error("Sector not in partition");
+	ataDriver.readSectors(startLba + sector, buffer, sectors_to_read, callback);
+}
+
+GptParser parser;
+uint8_t sectorbuffer[512]; 
+
+void onSectorRead(void *object) {
+	printf("inhalt: %x \n", sectorbuffer[56]);
+}
+
+void onTableComplete(void *object) {
+	GptParser::Partition &partition = parser.getPartition(1);
+	partition.readSectors(2, sectorbuffer, 1, helx::Callback<>(nullptr, &onSectorRead));
 }
 
 void testAta() {
-	ataDriver.readSectors(0, ataBuffer, 1,
-			helx::Callback<>(nullptr, &onAtaRead));
+	parser.parse(helx::Callback<>(nullptr, &onTableComplete));
+
 }
 
 // --------------------------------------------------------
@@ -273,6 +394,7 @@ void testIpc() {
 
 int main() {
 	testAta();
+	//testIpc();
 
 	while(true)
 		eventHub.defaultProcessEvents();
