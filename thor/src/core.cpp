@@ -41,6 +41,12 @@ UnsafePtr<IoSpace, KernelAlloc> IoDescriptor::getIoSpace() {
 Universe::Universe()
 		: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc) { }
 
+Handle Universe::attachDescriptor(AnyDescriptor &&descriptor) {
+	Handle handle = p_nextHandle++;
+	p_descriptorMap.insert(handle, util::move(descriptor));
+	return handle;
+}
+
 AnyDescriptor &Universe::getDescriptor(Handle handle) {
 	return p_descriptorMap.get(handle);
 }

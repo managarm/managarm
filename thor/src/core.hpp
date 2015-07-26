@@ -131,13 +131,8 @@ typedef util::Variant<MemoryAccessDescriptor,
 class Universe : public SharedBase<Universe, KernelAlloc> {
 public:
 	Universe();
-
-	template<typename... Args>
-	Handle attachDescriptor(Args &&... args) {
-		Handle handle = p_nextHandle++;
-		p_descriptorMap.insert(handle, AnyDescriptor(util::forward<Args>(args)...));
-		return handle;
-	}
+	
+	Handle attachDescriptor(AnyDescriptor &&descriptor);
 
 	AnyDescriptor &getDescriptor(Handle handle);
 	
