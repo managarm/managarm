@@ -132,15 +132,17 @@ void AtaDriver::performRequest() {
 }
 
 void AtaDriver::onReadIrq(int64_t submit_id) {
-	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
-	/*if((status & kStatusBsy) != 0)
-		continue;
-	if((status & kStatusDrq) == 0)
-		continue;
-	break;
-	}*/
-
 	Request &request = p_requestQueue.front();
+	if(request.sectorsRead + 1 < request.numSectors) {
+		helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
+		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+			(uintptr_t)callback.getFunction(),
+			(uintptr_t)callback.getObject());
+	}
+
+	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
+//	assert(status & kStatusBsy == 0);
+//	assert(status & kStatusDrq != 0);
 	
 	size_t offset = request.sectorsRead * 512;
 	for(int i = 0; i < 256; i++) {
@@ -150,12 +152,10 @@ void AtaDriver::onReadIrq(int64_t submit_id) {
 	}
 	
 	request.sectorsRead++;
-	if(request.sectorsRead < request.numSectors) {
-		helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
-		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
-			(uintptr_t)callback.getFunction(),
-			(uintptr_t)callback.getObject());
-	}else{
+	if(request.sectorsRead == request.numSectors) {
+		// acknowledge the interrupt
+		ioInByte(p_basePort + kPortReadStatus);
+
 		request.callback();
 
 		p_requestQueue.pop();
@@ -293,6 +293,14 @@ void GptParser::onTableRead() {
 
 	for (int i = 0; i < header->numEntries; i++) {
 		GptEntry *entry = (GptEntry *)(tableBuffer + i * header->entrySize);
+		
+		bool all_zeros = true;
+		for(int j = 0; j < 16; j++)
+			if(entry->typeGuid[j] != 0)
+				all_zeros = false;
+		if(all_zeros)
+			continue;
+
 		printf("start: %d, end: %d \n", entry->firstLba, entry->lastLba);
 		partitions.push_back(Partition(entry->firstLba, entry->lastLba - entry->firstLba + 1));
 	}
@@ -304,8 +312,6 @@ void GptParser::onHeaderRead() {
 	GptHeader *header = (GptHeader *)headerBuffer;
 	if(header->signature != 0x5452415020494645)
 		printf("Illegal GPT signature\n");
-
-	header->numEntries = 2;
 
 	size_t table_size = header->entrySize * header->numEntries;
 	size_t table_sectors = table_size / 512;
