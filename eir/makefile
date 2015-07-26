@@ -9,7 +9,7 @@ AS_FLAGS = --32
 LD = x86_64-elf-ld
 LD_FLAGS = -m elf_i386 -nostdlib -T src/link.ld
 
-KERNEL = bin/kernel.elf
+KERNEL = bin/eir.elf
 OBJECTS = obj/frigg-arch-gdt.o obj/frigg-initializer.o obj/frigg-debug.o obj/main.o obj/multiboot.o
 LIBS = libgcc.a
 
@@ -46,7 +46,4 @@ obj/frigg-arch-%.o: $(FRIGG_ARCHDIR)/%.cpp
 		$(FRIGG_ARCHDIR)/$(@F:frigg-arch-%.o=%.cpp)
 
 -include $(OBJECTS:%.o=%.d)
-
-# "special" dependencies: eir depends on thor and zisa
-obj/multiboot.o: ../thor/bin/kernel.elf ../zisa/bin/init.elf
 

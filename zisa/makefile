@@ -3,7 +3,7 @@ CXX = x86_64-managarm-g++
 CXX_INCLUDE =
 CXX_FLAGS = -std=c++11 $(CXX_INCLUDE)
 
-PROGRAM = bin/init.elf
+PROGRAM = bin/zisa.elf
 OBJECTS = obj/main.o obj/keyboard.pb.o
 
 LIBS = -lprotobuf-lite

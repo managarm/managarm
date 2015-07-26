@@ -22,6 +22,8 @@ halt_kernel:
 
 .global eirRtEnterKernel
 eirRtEnterKernel:
+	mov 16(%esp), %edi
+
 	// enable PAE paging
 	mov %cr4, %eax
 	or $0x20, %eax
@@ -41,9 +43,6 @@ eirRtEnterKernel:
 	mov %cr0, %eax
 	or $0x80000000, %eax
 	mov %eax, %cr0
-
-	// setup the kernel environment
-	mov $eirRtInitImage, %edi
 
 	// load a 64 bit code segment
 	ljmp $0x18, $pkrt_kernel_64bits
@@ -83,17 +82,4 @@ gdt_reload:
 	mov %ax, %fs
 	mov %ax, %gs
 	ret
-
-// include init images here
-.section .image
-
-.balign 0x1000
-.global eirRtImage
-eirRtImage:
-	.incbin "../thor/bin/kernel.elf"
-
-.balign 0x1000
-.global eirRtInitImage
-eirRtInitImage:
-	.incbin "../zisa/bin/init.elf"
 

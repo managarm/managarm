@@ -29,7 +29,8 @@ void BochsSink::print(const char *str) {
 		ioOutByte(0xE9, *str++);
 }
 
-extern char eirRtImage;
+util::LazyInitializer<BochsSink> logSink;
+util::LazyInitializer<debug::DefaultLogger> infoLogger;
 
 enum PageFlags {
 	kPagePresent = 1,
@@ -117,7 +118,8 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 
 extern char eirRtImageCeiling;
 extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
-extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry);
+extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
+		void *image_base);
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
@@ -129,10 +131,8 @@ void intializeGdt() {
 	eirRtLoadGdt(gdt_page, 31); 
 }
 
-void loadKernelImage(uint64_t *out_entry) {
-	uintptr_t image = (uintptr_t)(&eirRtImage);
-	
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
+void loadKernelImage(void *image, uint64_t *out_entry) {
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)image;
 	if(ehdr->e_ident[0] != '\x7F'
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
@@ -142,16 +142,17 @@ void loadKernelImage(uint64_t *out_entry) {
 	ASSERT(ehdr->e_type == ET_EXEC);
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
-		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + (uintptr_t)ehdr->e_phoff
+		Elf64_Phdr *phdr = (Elf64_Phdr *)((uintptr_t)image
+				+ (uintptr_t)ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-		ASSERT(phdr->p_offset % 0x1000 == 0);
-		ASSERT(phdr->p_vaddr % 0x1000 == 0);
+		ASSERT((phdr->p_offset % 0x1000) == 0);
+		ASSERT((phdr->p_vaddr % 0x1000) == 0);
 		ASSERT(phdr->p_filesz == phdr->p_memsz);
 		
 		uint32_t page = 0;
 		while(page < (uint32_t)phdr->p_filesz) {
 			mapSingle4kPage(phdr->p_vaddr + page,
-					image + (uint32_t)phdr->p_offset + page);
+					(uintptr_t)image + (uint32_t)phdr->p_offset + page);
 			page += 0x1000;
 		}
 	}
@@ -170,6 +171,13 @@ enum MbInfoFlags {
 	kMbInfoMemoryMap = 32
 };
 
+struct MbModule {
+	void *startAddress;
+	void *endAddress;
+	char *string;
+	uint32_t reserved;
+};
+
 struct MbInfo {
 	uint32_t flags;
 	uint32_t memLower;
@@ -177,7 +185,7 @@ struct MbInfo {
 	uint32_t bootDevice;
 	void *commandLine;
 	uint32_t numModules;
-	void *modulesPtr;
+	MbModule *modulesPtr;
 	uint32_t numSymbols;
 	uint32_t symbolSize;
 	void *symbolsPtr;
@@ -193,9 +201,6 @@ struct MbMemoryMap {
 	uint32_t type;
 };
 
-util::LazyInitializer<BochsSink> logSink;
-util::LazyInitializer<debug::DefaultLogger> infoLogger;
-
 extern "C" void eirMain(MbInfo *mb_info) {
 	logSink.initialize();
 	infoLogger.initialize(logSink.get());
@@ -210,6 +215,15 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	// compute the bootstrap memory base
 	bootstrapPointer = (uintptr_t)&eirRtImageCeiling;
+
+	// make sure we don't trash boot modules
+	if((mb_info->flags & kMbInfoModules) != 0) {
+		for(unsigned int i = 0; i < mb_info->numModules; i++) {
+			uintptr_t ceil = (uintptr_t)mb_info->modulesPtr[i].endAddress;
+			if(ceil > bootstrapPointer)
+				bootstrapPointer = ceil;
+		}
+	}
 
 	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
 	
@@ -238,11 +252,17 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	// map physical memory into kernel virtual memory
 	for(uint64_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
 		mapSingle4kPage(0xFFFF800100000000 + addr, addr);
+	
+	ASSERT((mb_info->flags & kMbInfoModules) != 0);
+	ASSERT(mb_info->numModules >= 2);
+	MbModule *kernel_module = &mb_info->modulesPtr[0];
 
 	uint64_t kernel_entry;
-	loadKernelImage(&kernel_entry);
-	
+	loadKernelImage(kernel_module->startAddress, &kernel_entry);
+
 	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
-	eirRtEnterKernel(eirPml4Pointer, kernel_entry);
+	MbModule *image_module = &mb_info->modulesPtr[1];
+	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
+			image_module->startAddress);
 }
 

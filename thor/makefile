@@ -10,7 +10,7 @@ AS_FLAGS = --64
 LD = x86_64-managarm-ld
 LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 
-KERNEL = bin/kernel.elf
+KERNEL = bin/thor.elf
 OBJECTS = obj/frigg-gdt.o obj/frigg-idt.o obj/frigg-tss.o \
 	obj/runtime0.o obj/runtime1.o \
 	obj/main.o obj/hel.o \
