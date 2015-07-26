@@ -79,6 +79,48 @@ void Chunk::markColor(int level, int entry_in_level, uint8_t color) {
 	bitmapTree[offset + byte_in_level] = byte;
 }
 
+void Chunk::checkNeighbors(int level, int entry_in_level,
+		bool &all_white, bool &all_black_or_red, bool &all_red) {
+	size_t node_in_level = entry_in_level / kGranularity;
+	size_t bytes_per_node = kGranularity / kEntriesPerByte;
+	
+	size_t node_start_byte_in_level = node_in_level * bytes_per_node;
+	size_t node_limit_byte_in_level = (node_in_level + 1) * bytes_per_node;
+
+	all_white = true;
+	all_black_or_red = true;
+	all_red = true;
+
+	size_t offset = offsetOfLevel(level);
+	for(int i = node_start_byte_in_level; i < node_limit_byte_in_level; i++) {
+		uint8_t byte = bitmapTree[offset + i];
+		
+		for(int j = 0; j < kEntriesPerByte; j++) {
+			int entry = (byte >> (j * kEntryShift)) & kEntryMask;
+			switch(entry) {
+			case kColorWhite:
+				all_black_or_red = false;
+				all_red = false;
+				break;
+			case kColorBlack:
+				all_white = false;
+				all_red = false;
+				break;
+			case kColorRed:
+				all_white = false;
+				break;
+			case kColorGray:
+				all_white = false;
+				all_black_or_red = false;
+				all_red = false;
+				break;
+			default:
+				ASSERT(!"Unexpected color");
+			}
+		}
+	}
+}
+
 void Chunk::markGrayRecursive(int level, int entry_in_level) {
 	markColor(level, entry_in_level, kColorGray);
 	
@@ -93,28 +135,32 @@ void Chunk::markBlackRecursive(int level, int entry_in_level) {
 	
 	if(level == 0)
 		return;
-
-	size_t node_in_level = entry_in_level / kGranularity;
-	size_t bytes_per_node = kGranularity / kEntriesPerByte;
 	
-	size_t node_start_byte_in_level = node_in_level * bytes_per_node;
-	size_t node_limit_byte_in_level = (node_in_level + 1) * bytes_per_node;
-
-	bool all_black_or_red = true;
-
-	size_t offset = offsetOfLevel(level);
-	for(int i = node_start_byte_in_level; i < node_limit_byte_in_level; i++) {
-		uint8_t byte = bitmapTree[offset + i];
-		
-		for(int j = 0; j < kEntriesPerByte; j++) {
-			int entry = (byte >> (j * kEntryShift)) & kEntryMask;
-			if(entry == kColorWhite || entry == kColorGray)
-				all_black_or_red = false;
-		}
-	}
+	bool all_white, all_black_or_red, all_red;
+	checkNeighbors(level, entry_in_level,
+			all_white, all_black_or_red, all_red);
+	ASSERT(!all_white && !all_red);
 
 	if(all_black_or_red) {
 		markBlackRecursive(level - 1, entry_in_level / kGranularity);
+	}else{
+		markGrayRecursive(level - 1, entry_in_level / kGranularity);
+	}
+}
+
+void Chunk::markWhiteRecursive(int level, int entry_in_level) {
+	markColor(level, entry_in_level, kColorWhite);
+	
+	if(level == 0)
+		return;
+	
+	bool all_white, all_black_or_red, all_red;
+	checkNeighbors(level, entry_in_level,
+			all_white, all_black_or_red, all_red);
+	ASSERT(!all_black_or_red && !all_red);
+
+	if(all_white) {
+		markWhiteRecursive(level - 1, entry_in_level / kGranularity);
 	}else{
 		markGrayRecursive(level - 1, entry_in_level / kGranularity);
 	}
@@ -206,6 +252,15 @@ void PhysicalChunkAllocator::bootstrap() {
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t num_pages) {
 	ASSERT(num_pages == 1);
 	return allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
+}
+
+void PhysicalChunkAllocator::free(PhysicalAddr address) {
+	ASSERT(address >= p_root->baseAddress);
+	ASSERT(address < p_root->baseAddress
+			+ p_root->pageSize * p_root->numPages);
+	
+	p_root->markWhiteRecursive(p_root->treeHeight,
+			(address - p_root->baseAddress) / 0x1000);
 }
 
 void *PhysicalChunkAllocator::bootstrapAlloc(size_t length,

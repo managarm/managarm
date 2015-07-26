@@ -46,8 +46,11 @@ struct Chunk {
 	void setupBitmapTree(uint8_t *bitmap_tree);
 	
 	void markColor(int level, int entry_in_level, uint8_t color);
+	void checkNeighbors(int level, int entry_in_level,
+			bool &all_white, bool &all_black_or_red, bool &all_red);
 	void markGrayRecursive(int level, int entry_in_level);
 	void markBlackRecursive(int level, int entry_in_level);
+	void markWhiteRecursive(int level, int entry_in_level);
 };
 
 class PhysicalChunkAllocator {
@@ -59,6 +62,7 @@ public:
 	void bootstrap();
 
 	PhysicalAddr allocate(size_t num_pages);
+	void free(PhysicalAddr address);
 
 private:
 	void *bootstrapAlloc(size_t length, size_t alignment);

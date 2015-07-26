@@ -20,7 +20,7 @@ public:
 	PageSpace clone();
 
 	void mapSingle4k(void *pointer, uintptr_t physical);
-	void unmapSingle4k(VirtualAddr pointer);
+	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
 	uintptr_t p_pml4Address;

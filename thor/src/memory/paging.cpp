@@ -92,7 +92,7 @@ void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
 	pt_pointer[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
-void PageSpace::unmapSingle4k(VirtualAddr pointer) {
+PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	ASSERT((pointer % 0x1000) == 0);
 
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
@@ -124,6 +124,8 @@ void PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	// change the pt entry
 	ASSERT((pt_pointer[pt_index] & kPagePresent) != 0);
 	pt_pointer[pt_index] ^= kPagePresent;
+
+	return pt_pointer[pt_index] & 0xFFFFFFFFFFFFF000;
 }
 
 
