@@ -18,7 +18,7 @@ using namespace thor;
 LazyInitializer<debug::VgaScreen> vgaScreen;
 LazyInitializer<debug::Terminal> vgaTerminal;
 
-LazyInitializer<memory::StupidPhysicalAllocator> stupidTableAllocator;
+LazyInitializer<memory::PhysicalChunkAllocator> physicalAllocator;
 
 void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
 	char *image = (char *)memory::physicalToVirtual(image_page);
@@ -94,9 +94,11 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	debug::infoLogger->log() << "Starting Thor" << debug::Finish();
 
-	stupidTableAllocator.initialize(0x5000000);
-	memory::tableAllocator = stupidTableAllocator.get();
-	
+	physicalAllocator.initialize(0x5000000, 0x2000000);
+	physicalAllocator->addChunk(0x5000000, 0x2000000);
+	physicalAllocator->bootstrap();
+	memory::tableAllocator = physicalAllocator.get();
+
 	thorRtInitializeProcessor();
 	
 	memory::kernelSpace.initialize(0x4001000);
