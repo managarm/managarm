@@ -141,8 +141,8 @@ void AtaDriver::onReadIrq(int64_t submit_id) {
 	}
 
 	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
-//	assert(status & kStatusBsy == 0);
-//	assert(status & kStatusDrq != 0);
+//	assert((status & kStatusBsy) == 0);
+//	assert((status & kStatusDrq) != 0);
 	
 	size_t offset = request.sectorsRead * 512;
 	for(int i = 0; i < 256; i++) {

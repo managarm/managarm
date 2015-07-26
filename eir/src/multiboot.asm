@@ -1,37 +1,33 @@
 
 .section .header
-.global pkrt_header
-pkrt_header:
 	.int 0x1BADB002
 	.int 0
 	.int -0x1BADB002
 
 .section .data
-pkrt_gdtr:
-	.short 0
-	.int 0
-pkrt_idtr:
+eirRtGdtr:
 	.short 0
 	.int 0
 
 .section .text
-.global mb_entry
-mb_entry:
+.global eirRtEntry
+eirRtEntry:
 	mov $0x3000000, %esp
-	call prekernel_main
+	push %ebx
+	call eirMain
 
 halt_kernel:
 	hlt
 	jmp halt_kernel
 
-.global pkrt_kernel
-pkrt_kernel:
+.global eirRtEnterKernel
+eirRtEnterKernel:
 	// enable PAE paging
 	mov %cr4, %eax
 	or $0x20, %eax
 	mov %eax, %cr4
 	
-	// enable long mode (not active until we enable paging) */
+	// enable long mode (not active until we enable paging)
 	mov $0xC0000080, %ecx
 	rdmsr
 	or $0x100, %eax
@@ -64,18 +60,21 @@ pkrt_kernel_64bits:
 	jmp *%rax
 .code32
 
-.global pkrt_lgdt
-pkrt_lgdt:
+.global eirRtLoadGdt
+eirRtLoadGdt:
 	mov 4(%esp), %eax
 	mov 8(%esp), %ecx
-	/* construct gdtr and load it */
-	mov %cx, (pkrt_gdtr)
-	mov %eax, (pkrt_gdtr + 2)
-	lgdt (pkrt_gdtr)
-	/* reload code segment */
-	ljmp $0x8, $pkrt_lgdt_reload
-pkrt_lgdt_reload:
-	/* reload data segments */
+	
+	// construct gdtr and load it
+	mov %cx, (eirRtGdtr)
+	mov %eax, (eirRtGdtr + 2)
+	lgdt (eirRtGdtr)
+
+	// reload code segment
+	ljmp $0x8, $gdt_reload
+
+gdt_reload:
+	// reload data segments
 	mov $0x10, %ax
 	mov %ax, %ds
 	mov %ax, %es
@@ -85,26 +84,12 @@ pkrt_lgdt_reload:
 	mov %ax, %gs
 	ret
 
-.global pkrt_igdt
-pkrt_igdt:
-	mov 4(%esp), %eax
-	mov 8(%esp), %ecx
-	/* construct idtr and load it */
-	mov %cx, (pkrt_idtr)
-	mov %eax, (pkrt_idtr + 2)
-	lidt (pkrt_idtr)
-	ret
-
-.global pkrt_trap_stub
-pkrt_trap_stub:
-	hlt
-
 // include init images here
 .section .image
 
 .balign 0x1000
-.global pkrt_image
-pkrt_image:
+.global eirRtImage
+eirRtImage:
 	.incbin "../thor/bin/kernel.elf"
 
 .balign 0x1000

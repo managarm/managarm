@@ -101,7 +101,9 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	thorRtInitializeProcessor();
 	
-	memory::kernelSpace.initialize(0x4001000);
+	PhysicalAddr pml4_ptr;
+	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
+	memory::kernelSpace.initialize(pml4_ptr);
 	kernelAlloc.initialize();
 	
 	irqRelays.initialize();

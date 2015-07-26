@@ -1,17 +1,35 @@
 
-#include "../../frigg/include/arch_x86/types32.hpp"
+#include "../../frigg/include/types.hpp"
+#include "../../frigg/include/utils.hpp"
+#include "../../frigg/include/initializer.hpp"
 #include "../../frigg/include/elf.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
+#include "../../frigg/include/debug.hpp"
 
-typedef uint32_t addr32_t;
-typedef uint64_t addr64_t;
+namespace debug = frigg::debug;
+namespace util = frigg::util;
 
-int print_x = 0;
-int print_y = 0;
-static const int print_width = 80;
-static const int print_height = 25;
+void ioOutByte(uint16_t port, uint8_t value) {
+	register uint16_t in_port asm("dx") = port;
+	register uint8_t in_value asm("al") = value;
+	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
+}
 
-extern char pkrt_image;
+class BochsSink : public debug::LogSink {
+public:
+	virtual void print(char c) override;
+	virtual void print(const char *str) override;
+};
+
+void BochsSink::print(char c) {
+	ioOutByte(0xE9, c);
+}
+void BochsSink::print(const char *str) {
+	while(*str != 0)
+		ioOutByte(0xE9, *str++);
+}
+
+extern char eirRtImage;
 
 enum PageFlags {
 	kPagePresent = 1,
@@ -19,251 +37,212 @@ enum PageFlags {
 	kPageUser = 4
 };
 
-void print_put(int x, int y, char c) {
-	char *vidmem = (char*)0xB8000;
-	vidmem[(y * print_width + x) * 2] = c;
-	vidmem[(y * print_width + x) * 2 + 1] = 0x0F;
-}
-void print_copy(int dest_x, int dest_y, int src_x, int src_y) {
-	char *vidmem = (char*)0xB8000;
-	vidmem[(dest_y * print_width + dest_x) * 2]
-			= vidmem[(src_y * print_width + src_x) * 2];
-	vidmem[(dest_y * print_width + dest_x) * 2 + 1]
-			= vidmem[(src_y * print_width + src_x) * 2 + 1];
-}
+uint64_t bootstrapPointer;
+uint64_t bootstrapLimit;
 
-void print_scroll() {
-	for(int y = 0; y < print_height - 1; y++)
-		for(int x = 0; x < print_width; x++)
-			print_copy(x, y, x, y + 1);
-	for(int x = 0; x < print_width; x++)
-		print_put(x, print_height - 1, ' ');
-}
+uintptr_t allocPage() {
+	if((bootstrapPointer % 0x1000) != 0)
+		bootstrapPointer += 0x1000 - (bootstrapPointer % 0x1000);
+	uintptr_t page = bootstrapPointer;
+	bootstrapPointer += 0x1000;
+	ASSERT(bootstrapPointer <= bootstrapLimit);
 
-void print_chr(char c) {
-	if(c == '\n') {
-		print_y++;
-		print_x = 0;
-		if(print_y == print_height) {
-			print_scroll();
-			print_y = print_height - 1;
-		}
-	}else{
-		print_put(print_x, print_y, c);
-		print_x++;
-		if(print_x == print_width) {
-			print_y++;
-			print_x = 0;
-			if(print_y == print_height) {
-				print_scroll();
-				print_y = print_height - 1;
-			}
-		}
-	}
-}
-void print_str(const char *string) {
-	while(*string != 0)
-		print_chr(*(string++));
-}
-
-void print_uint(unsigned int num, int radix) {
-	if(num == 0) {
-		print_chr('0');
-		return;
-	}
-	const char *digits = "0123456789abcdef";
-	int log = 0;
-	unsigned int rem = num;
-	while(1) {
-		rem /= radix;
-		if(rem == 0)
-			break;
-		log++;
-	}
-	unsigned int p = 1;
-	for(int i = 0; i < log; i++)
-		p *= radix;
-	while(p > 0) {
-		int d = num / p;
-		print_chr(digits[d]);
-		num %= p;
-		p /= radix;
-	}
-}
-
-void pk_panic() {
-	while(1) { }
-}
-
-addr32_t next_page = 0x4000000;
-
-addr32_t alloc_page() {
-	addr32_t page = next_page;
-	next_page += 0x1000;
 	return page;
 }
 
-addr32_t pk_pml4 = 0;
+uintptr_t eirPml4Pointer = 0;
 
-void pk_page_setup() {
-	pk_pml4 = alloc_page();
+void setupPaging() {
+	eirPml4Pointer = allocPage();
 	for(int i = 0; i < 512; i++)
-		((uint64_t*)pk_pml4)[i] = 0;
+		((uint64_t*)eirPml4Pointer)[i] = 0;
 	
 	for(int i = 256; i < 512; i++) {
-		addr32_t pdpt_page = alloc_page();
+		uintptr_t pdpt_page = allocPage();
 		uint64_t *pdpt_pointer = (uint64_t *)pdpt_page;
 		for(int j = 0; j < 512; j++)
 			pdpt_pointer[j] = 0;
 
-		((uint64_t*)pk_pml4)[i] = pdpt_page | kPagePresent | kPageWrite | kPageUser;
+		((uint64_t*)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite | kPageUser;
 	}
 }
 
-void pk_page_map4k(addr64_t address, addr64_t physical) {
-	if(address % 0x1000 != 0) {
-		print_str("pk_page_map(): Illegal virtual address alignment");
-		pk_panic();
-	}
-	if(physical % 0x1000 != 0) {
-		print_str("pk_page_map(): Illegal physical address alignment");
-		pk_panic();
-	}
+void mapSingle4kPage(uint64_t address, uint64_t physical) {
+	ASSERT(address % 0x1000 == 0);
+	ASSERT(physical % 0x1000 == 0);
 
 	int pml4_index = (int)((address >> 39) & 0x1FF);
 	int pdpt_index = (int)((address >> 30) & 0x1FF);
 	int pd_index = (int)((address >> 21) & 0x1FF);
 	int pt_index = (int)((address >> 12) & 0x1FF);
 	
-	/* find the pml4_entry. the pml4 is always present */
-	addr32_t pml4 = pk_pml4;
+	// find the pml4_entry. the pml4 is always present
+	uintptr_t pml4 = eirPml4Pointer;
 	uint64_t pml4_entry = ((uint64_t*)pml4)[pml4_index];
 	
-	/* find the pdpt entry; create pdpt if necessary */
-	addr32_t pdpt = (addr32_t)(pml4_entry & 0xFFFFF000);
+	// find the pdpt entry; create pdpt if necessary
+	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
 	if((pml4_entry & kPagePresent) == 0) {
-		pdpt = alloc_page();
+		pdpt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
 		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
 	
-	/* find the pd entry; create pd if necessary */
-	addr32_t pd = (addr32_t)(pdpt_entry & 0xFFFFF000);
+	// find the pd entry; create pd if necessary
+	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
 	if((pdpt_entry & kPagePresent) == 0) {
-		pd = alloc_page();
+		pd = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
 		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
 	
-	/* find the pt entry; create pt if necessary */
-	addr32_t pt = (addr32_t)(pd_entry & 0xFFFFF000);
+	// find the pt entry; create pt if necessary
+	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
 	if((pd_entry & kPagePresent) == 0) {
-		pt = alloc_page();
+		pt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
 		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite | kPageUser;
 	}
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
-	/* setup the new pt entry */
-	if((pt_entry & kPagePresent) != 0) {
-		print_str("pk_page_map(): Page already mapped!\n");
-		print_str("   page: 0x");
-		print_uint(address, 16);
-		print_str("\n");
-		pk_panic();
-	}
+	// setup the new pt entry
+	ASSERT((pt_entry & kPagePresent) == 0);
 	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
 }
 
-extern "C" void pkrt_lgdt(addr32_t gdt_page, uint32_t size);
-extern "C" void pkrt_lidt(addr32_t idt_page, uint32_t size);
-extern "C" void pkrt_kernel(uint32_t pml4, addr64_t entry);
+extern char eirRtImageCeiling;
+extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
+extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry);
 
-void pk_init_gdt() {
-	addr32_t gdt_page = alloc_page();
+void intializeGdt() {
+	uintptr_t gdt_page = allocPage();
 	frigg::arch_x86::makeGdtNullSegment((uint32_t *)gdt_page, 0);
 	frigg::arch_x86::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
 	frigg::arch_x86::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
 	frigg::arch_x86::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
 
-	pkrt_lgdt(gdt_page, 31); 
-}
-void pk_init_idt() {
-
+	eirRtLoadGdt(gdt_page, 31); 
 }
 
-void pk_load_image(addr64_t *out_entry) {
-	addr32_t image = (addr32_t)(&pkrt_image);
+void loadKernelImage(uint64_t *out_entry) {
+	uintptr_t image = (uintptr_t)(&eirRtImage);
 	
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
 	if(ehdr->e_ident[0] != '\x7F'
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
 			|| ehdr->e_ident[3] != 'F') {
-		print_str("Illegal magic fields");
-		pk_panic();
+		debug::panicLogger->log() << "Illegal magic fields" << debug::Finish();
 	}
-	if(ehdr->e_type != ET_EXEC) {
-		print_str("Kernel image must be ET_EXEC");
-		pk_panic();
-	}
+	ASSERT(ehdr->e_type == ET_EXEC);
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
-		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + (addr32_t)ehdr->e_phoff
+		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + (uintptr_t)ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-		if(phdr->p_offset % 0x1000 != 0) {
-			print_str("PHDR not aligned in file");
-			pk_panic();
-		}else if(phdr->p_vaddr % 0x1000 != 0) {
-			print_str("PHDR not aligned in memory");
-			pk_panic();
-		}else if(phdr->p_filesz != phdr->p_memsz) {
-			print_str("PHDR file size != memory size");
-			pk_panic();
-		}
+		ASSERT(phdr->p_offset % 0x1000 == 0);
+		ASSERT(phdr->p_vaddr % 0x1000 == 0);
+		ASSERT(phdr->p_filesz == phdr->p_memsz);
 		
 		uint32_t page = 0;
 		while(page < (uint32_t)phdr->p_filesz) {
-			pk_page_map4k(phdr->p_vaddr + page,
+			mapSingle4kPage(phdr->p_vaddr + page,
 					image + (uint32_t)phdr->p_offset + page);
 			page += 0x1000;
 		}
-		print_str("loaded phdr\n");
 	}
 	
 	*out_entry = ehdr->e_entry;
 }
 
-extern "C" void prekernel_main() {
-	print_str("pk: initializing\n");
-	print_uint(0xf0000001, 16);
-	print_str("\n");
+static_assert(sizeof(void *) == 4, "Expected 32-bit system");
 
-	if(sizeof(void*) != 4
-			|| sizeof(uint32_t) != 4
-			|| sizeof(uint64_t) != 8)
-		print_str("Invalid environment");
+enum MbInfoFlags {
+	kMbInfoPlainMemory = 1,
+	kMbInfoBootDevice = 2,
+	kMbInfoCommandLine = 4,
+	kMbInfoModules = 8,
+	kMbInfoSymbols = 16,
+	kMbInfoMemoryMap = 32
+};
 
-	pk_init_gdt();
-	pk_init_idt();
+struct MbInfo {
+	uint32_t flags;
+	uint32_t memLower;
+	uint32_t memUpper;
+	uint32_t bootDevice;
+	void *commandLine;
+	uint32_t numModules;
+	void *modulesPtr;
+	uint32_t numSymbols;
+	uint32_t symbolSize;
+	void *symbolsPtr;
+	uint32_t stringSection;
+	uint32_t memoryMapLength;
+	void *memoryMapPtr;
+};
 
-	pk_page_setup();
-	for(addr32_t addr = 0; addr < 0x8000000; addr += 0x1000)
-		pk_page_map4k(addr, addr);
+struct MbMemoryMap {
+	uint32_t size;
+	uint64_t baseAddress;
+	uint64_t length;
+	uint32_t type;
+};
 
-	for(addr32_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
-		pk_page_map4k(0xFFFF800100000000 + addr, addr);
+util::LazyInitializer<BochsSink> logSink;
+util::LazyInitializer<debug::DefaultLogger> infoLogger;
 
-	addr64_t kernel_entry;
-	pk_load_image(&kernel_entry);
+extern "C" void eirMain(MbInfo *mb_info) {
+	logSink.initialize();
+	infoLogger.initialize(logSink.get());
+	debug::panicLogger.initialize(logSink.get());
 
-	pkrt_kernel(pk_pml4, kernel_entry);
+	infoLogger->log() << "Starting Eir" << debug::Finish();
 	
-	print_str(" init paging");
+	ASSERT((mb_info->flags & kMbInfoPlainMemory) != 0);
+	infoLogger->log() << (mb_info->memUpper / 1024)
+			<< " MiB upper memory, "
+			<< mb_info->memLower << " KiB lower memory" << debug::Finish();
+	
+	// compute the bootstrap memory base
+	bootstrapPointer = (uintptr_t)&eirRtImageCeiling;
+
+	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
+	
+	ASSERT((mb_info->flags & kMbInfoMemoryMap) != 0);
+	infoLogger->log() << "Memory map:" << debug::Finish();
+	size_t offset = 0;
+	while(offset < mb_info->memoryMapLength) {
+		MbMemoryMap *map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr
+				+ offset);
+		
+		if(map->type == 1)
+			infoLogger->log() << "   Base: " << (void *)map->baseAddress
+					<< ", length: " << (map->length / 1024) << " KiB" << debug::Finish();
+
+		offset += map->size + 4;
+	}
+
+	intializeGdt();
+	setupPaging();
+
+	// identically map the first 128 mb so that
+	// we can activate paging without causing a page fault
+	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
+		mapSingle4kPage(addr, addr);
+	
+	// map physical memory into kernel virtual memory
+	for(uint64_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
+		mapSingle4kPage(0xFFFF800100000000 + addr, addr);
+
+	uint64_t kernel_entry;
+	loadKernelImage(&kernel_entry);
+	
+	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
+	eirRtEnterKernel(eirPml4Pointer, kernel_entry);
 }
 

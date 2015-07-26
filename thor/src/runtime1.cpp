@@ -94,14 +94,14 @@ void ioWait() { }
 
 uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
-	register uint16_t out_value asm("al");
+	register uint8_t out_value asm("al");
 	asm volatile ( "inb %%dx, %%al" : "=r" (out_value) : "r" (in_port) );
 	return out_value;
 }
 
 void ioOutByte(uint16_t port, uint8_t value) {
 	register uint16_t in_port asm("dx") = port;
-	register uint16_t in_value asm("al") = value;
+	register uint8_t in_value asm("al") = value;
 	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
 }
 

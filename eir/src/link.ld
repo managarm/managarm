@@ -1,7 +1,7 @@
 
 TARGET(elf32-i386)
 OUTPUT_FORMAT(elf32-i386)
-ENTRY(mb_entry)
+ENTRY(eirRtEntry)
 
 SECTIONS {
 	. = 0x100000;
@@ -17,5 +17,7 @@ SECTIONS {
 	.bss : ALIGN(0x1000) {
 		*(.bss)
 	}
+
+	eirRtImageCeiling = .;
 }
 
