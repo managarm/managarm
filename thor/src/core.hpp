@@ -9,6 +9,9 @@ typedef memory::StupidMemoryAllocator KernelAlloc;
 
 extern LazyInitializer<KernelAlloc> kernelAlloc;
 
+extern void *kernelStackBase;
+extern size_t kernelStackLength;
+
 enum Error {
 	kErrSuccess,
 	kErrBufferTooSmall

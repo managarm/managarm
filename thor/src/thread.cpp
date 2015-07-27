@@ -27,7 +27,7 @@ void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 	p_state.rsp = (Word)user_stack_ptr;
 	
 	frigg::arch_x86::initializeTss64(&p_tss);
-	p_tss.rsp0 = 0xFFFF800100200000;
+	p_tss.rsp0 = (uintptr_t)kernelStackBase + kernelStackLength;
 
 }
 

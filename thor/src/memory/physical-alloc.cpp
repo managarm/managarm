@@ -219,12 +219,15 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 PhysicalChunkAllocator::PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
 		size_t bootstrap_length)
 : p_bootstrapBase(bootstrap_base), p_bootstrapLength(bootstrap_length),
-		p_bootstrapPtr(bootstrap_base), p_root(nullptr) { }
+		p_bootstrapPtr(bootstrap_base), p_root(nullptr) {
+	ASSERT((bootstrap_base % 0x1000) == 0);
+	ASSERT((bootstrap_length % 0x1000) == 0);
+}
 
 void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base,
 		size_t chunk_length) {
-	ASSERT(chunk_base % 0x1000 == 0);
-	ASSERT(chunk_length % 0x1000 == 0);
+	ASSERT((chunk_base % 0x1000) == 0);
+	ASSERT((chunk_length % 0x1000) == 0);
 	Chunk *chunk = new (bootstrapAlloc(sizeof(Chunk), alignof(Chunk)))
 			Chunk(chunk_base, 0x1000, chunk_length / 0x1000);
 	
@@ -236,14 +239,15 @@ void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base,
 }
 
 void PhysicalChunkAllocator::bootstrap() {
-	size_t num_pages = (p_bootstrapPtr - p_bootstrapBase) / 0x1000;
-	if((p_bootstrapPtr - p_bootstrapBase) % 0x1000 != 0)
-		num_pages++;
+	// align the bootstrap pointer to page size
+	if((p_bootstrapPtr % 0x1000) != 0)
+		p_bootstrapPtr += 0x1000 - (p_bootstrapPtr % 0x1000);
 	
 	ASSERT(p_bootstrapBase >= p_root->baseAddress);
 	ASSERT(p_bootstrapPtr <= p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);
 	
+	size_t num_pages = (p_bootstrapPtr - p_bootstrapBase) / 0x1000;
 	for(size_t i = 0; i < num_pages; i++)
 		p_root->markBlackRecursive(p_root->treeHeight,
 				(p_bootstrapBase - p_root->baseAddress) / 0x1000 + i);
@@ -265,7 +269,8 @@ void PhysicalChunkAllocator::free(PhysicalAddr address) {
 
 void *PhysicalChunkAllocator::bootstrapAlloc(size_t length,
 		size_t alignment) {
-	p_bootstrapPtr += alignment - (p_bootstrapPtr % alignment);
+	if((p_bootstrapPtr % alignment) != 0)
+		p_bootstrapPtr += alignment - (p_bootstrapPtr % alignment);
 	void *pointer = physicalToVirtual(p_bootstrapPtr);
 	p_bootstrapPtr += length;
 	ASSERT(p_bootstrapPtr <= p_bootstrapBase + p_bootstrapLength);

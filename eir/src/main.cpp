@@ -5,6 +5,7 @@
 #include "../../frigg/include/elf.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
 #include "../../frigg/include/debug.hpp"
+#include <eir/interface.hpp>
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
@@ -133,7 +134,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 extern char eirRtImageCeiling;
 extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
-		uint64_t stack_ptr, void *image_base);
+		uint64_t stack_ptr, EirInfo *image_base);
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
@@ -222,12 +223,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	infoLogger->log() << "Starting Eir" << debug::Finish();
 	
-	ASSERT((mb_info->flags & kMbInfoPlainMemory) != 0);
-	infoLogger->log() << (mb_info->memUpper / 1024)
-			<< " MiB upper memory, "
-			<< mb_info->memLower << " KiB lower memory" << debug::Finish();
-	
 	// compute the bootstrap memory base
+	ASSERT((mb_info->flags & kMbInfoPlainMemory) != 0);
 	bootstrapPointer = (uintptr_t)&eirRtImageCeiling;
 	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
 
@@ -239,6 +236,11 @@ extern "C" void eirMain(MbInfo *mb_info) {
 				bootstrapPointer = ceil;
 		}
 	}
+	bootAlign(0x1000);
+	
+	infoLogger->log() << "Bootstrap memory at "
+			<< (void *)bootstrapPointer << ", length: "
+			<< mb_info->memUpper << " KiB" << debug::Finish();
 
 	// allocate a stack for the real thor kernel
 	size_t thor_stack_length = 0x100000;
@@ -266,6 +268,9 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	intializeGdt();
 	setupPaging();
 
+	// setup the eir interface struct
+	EirInfo *info = bootAlloc<EirInfo>();
+
 	// identically map the first 128 mb so that
 	// we can activate paging without causing a page fault
 	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
@@ -285,10 +290,20 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	uint64_t kernel_entry;
 	loadKernelImage(kernel_module->startAddress, &kernel_entry);
 
-	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
+	// setp the zisa image information
 	MbModule *image_module = &mb_info->modulesPtr[1];
+	info->zisaPhysical = (uint64_t)image_module->startAddress;
+	info->zisaLength = (uint64_t)image_module->endAddress;
+			- (uint64_t)image_module->startAddress;
+
+	// finalize the eir information struct
+	bootAlign(0x1000);
+	ASSERT((bootstrapLimit % 0x1000) == 0);
+	info->bootstrapPhysical = bootstrapPointer;
+	info->bootstrapLength = bootstrapLimit - bootstrapPointer;
+
+	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
-			physical_window + thor_stack_base + thor_stack_length,
-			image_module->startAddress);
+			physical_window + thor_stack_base + thor_stack_length, info);
 }
 

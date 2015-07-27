@@ -1,6 +1,6 @@
 
 CXX = x86_64-elf-g++
-CXX_INCLUDE =
+CXX_INCLUDE = -Iinclude
 CXX_FLAGS = -ffreestanding -m32 -fno-exceptions -fno-rtti -std=c++0x $(CXX_INCLUDE)
 
 AS = x86_64-elf-as

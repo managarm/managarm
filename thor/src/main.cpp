@@ -12,6 +12,7 @@
 #include "core.hpp"
 #include "schedule.hpp"
 #include "../../hel/include/hel.h"
+#include <eir/interface.hpp>
 
 using namespace thor;
 
@@ -84,7 +85,7 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 	return (void *)ehdr->e_entry;
 }
 
-extern "C" void thorMain(uint64_t init_image) {
+extern "C" void thorMain(PhysicalAddr info_paddr) {
 	vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
 	
 	vgaTerminal.initialize(vgaScreen.get());
@@ -94,8 +95,15 @@ extern "C" void thorMain(uint64_t init_image) {
 
 	debug::infoLogger->log() << "Starting Thor" << debug::Finish();
 
-	physicalAllocator.initialize(0x5000000, 0x2000000);
-	physicalAllocator->addChunk(0x5000000, 0x2000000);
+	auto *info = memory::accessPhysical<EirInfo>(info_paddr);
+	debug::infoLogger->log() << "Bootstrap memory at "
+			<< (void *)info->bootstrapPhysical
+			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
+
+	physicalAllocator.initialize(info->bootstrapPhysical,
+			info->bootstrapLength);
+	physicalAllocator->addChunk(info->bootstrapPhysical,
+			info->bootstrapLength);
 	physicalAllocator->bootstrap();
 	memory::tableAllocator = physicalAllocator.get();
 
@@ -106,6 +114,8 @@ extern "C" void thorMain(uint64_t init_image) {
 	memory::kernelSpace.initialize(pml4_ptr);
 	kernelAlloc.initialize();
 	
+	kernelStackBase = kernelAlloc->allocate(kernelStackLength);
+
 	irqRelays.initialize();
 	thorRtSetupIrqs();
 
@@ -116,7 +126,7 @@ extern "C" void thorMain(uint64_t init_image) {
 	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
 	
 	auto entry = (void (*)(uintptr_t))loadInitImage(
-			address_space, init_image);
+			address_space, info->zisaPhysical);
 	thorRtInvalidateSpace();
 	
 	// allocate and memory memory for the user stack

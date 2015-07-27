@@ -4,6 +4,11 @@ namespace memory {
 
 void *physicalToVirtual(uintptr_t address);
 
+template<typename T>
+T *accessPhysical(PhysicalAddr address) {
+	return (T *)physicalToVirtual(address);
+}
+
 enum PageFlags {
 	kPageSize = 0x1000,
 	kPagePresent = 0x1,
