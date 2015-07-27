@@ -40,15 +40,29 @@ enum PageFlags {
 
 uint64_t bootstrapPointer;
 uint64_t bootstrapLimit;
+uint64_t bootstrapBase;
+
+void bootAlign(size_t alignment) {
+	if((bootstrapPointer % alignment) != 0)
+		bootstrapPointer += alignment - (bootstrapPointer % alignment);
+	ASSERT(bootstrapPointer <= bootstrapLimit);
+}
+
+uintptr_t bootReserve(size_t length, size_t alignment) {
+	bootAlign(alignment);
+	uintptr_t pointer = bootstrapPointer;
+	bootstrapPointer += length;
+	ASSERT(bootstrapPointer <= bootstrapLimit);
+	return pointer;
+}
+
+template<typename T>
+T *bootAlloc() {
+	return new ((void *)bootReserve(sizeof(T), alignof(T))) T();
+}
 
 uintptr_t allocPage() {
-	if((bootstrapPointer % 0x1000) != 0)
-		bootstrapPointer += 0x1000 - (bootstrapPointer % 0x1000);
-	uintptr_t page = bootstrapPointer;
-	bootstrapPointer += 0x1000;
-	ASSERT(bootstrapPointer <= bootstrapLimit);
-
-	return page;
+	return (uintptr_t)bootReserve(0x1000, 0x1000);
 }
 
 uintptr_t eirPml4Pointer = 0;
@@ -119,7 +133,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 extern char eirRtImageCeiling;
 extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
-		void *image_base);
+		uint64_t stack_ptr, void *image_base);
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
@@ -215,6 +229,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	// compute the bootstrap memory base
 	bootstrapPointer = (uintptr_t)&eirRtImageCeiling;
+	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
 
 	// make sure we don't trash boot modules
 	if((mb_info->flags & kMbInfoModules) != 0) {
@@ -225,7 +240,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		}
 	}
 
-	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
+	// allocate a stack for the real thor kernel
+	size_t thor_stack_length = 0x100000;
+	uintptr_t thor_stack_base = bootReserve(thor_stack_length, 0x1000);
+	
+	// setup the bootstrap base AFTER allocating the stack
+	// so that thor doesn't free its stack when freeing the bootstrap area
+	bootAlign(0x1000);
+	bootstrapBase = bootstrapPointer;
 	
 	ASSERT((mb_info->flags & kMbInfoMemoryMap) != 0);
 	infoLogger->log() << "Memory map:" << debug::Finish();
@@ -248,10 +270,13 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	// we can activate paging without causing a page fault
 	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
 		mapSingle4kPage(addr, addr);
+
+	// TODO: move to a global configuration file
+	uint64_t physical_window = 0xFFFF800100000000;
 	
 	// map physical memory into kernel virtual memory
 	for(uint64_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
-		mapSingle4kPage(0xFFFF800100000000 + addr, addr);
+		mapSingle4kPage(physical_window + addr, addr);
 	
 	ASSERT((mb_info->flags & kMbInfoModules) != 0);
 	ASSERT(mb_info->numModules >= 2);
@@ -263,6 +288,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
 	MbModule *image_module = &mb_info->modulesPtr[1];
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
+			physical_window + thor_stack_base + thor_stack_length,
 			image_module->startAddress);
 }
 

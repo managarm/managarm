@@ -9,10 +9,16 @@ eirRtGdtr:
 	.short 0
 	.int 0
 
+.section .bss
+	.align 16
+eirRtStackBottom:
+	.skip 0x100000 // reserve 1 MiB for the stack
+eirRtStackTop:
+
 .section .text
 .global eirRtEntry
 eirRtEntry:
-	mov $0x3000000, %esp
+	mov $eirRtStackTop, %esp
 	push %ebx
 	call eirMain
 
@@ -22,7 +28,7 @@ halt_kernel:
 
 .global eirRtEnterKernel
 eirRtEnterKernel:
-	mov 16(%esp), %edi
+	mov 24(%esp), %edi
 
 	// enable PAE paging
 	mov %cr4, %eax
@@ -56,6 +62,7 @@ pkrt_kernel_64bits:
 	
 	// load the kernel entry address and jump
 	mov 8(%rsp), %rax
+	mov 16(%rsp), %rsp
 	jmp *%rax
 .code32
 

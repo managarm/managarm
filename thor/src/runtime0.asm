@@ -28,7 +28,6 @@
 
 .global thorRtEntry
 thorRtEntry:
-	movabs $0xFFFF800103000000, %rsp
 	call thorMain
 	hlt
 
