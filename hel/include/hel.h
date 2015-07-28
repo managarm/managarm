@@ -28,6 +28,12 @@ enum {
 	kHelCallSubmitAccept = 18,
 	kHelCallSubmitConnect = 19,
 
+	kHelCallCreateRd = 21,
+	kHelCallRdMount = 25,
+	kHelCallRdPublish = 22,
+	kHelCallRdUnlink = 24,
+	kHelCallRdOpen = 23,
+
 	kHelCallAccessIrq = 14,
 	kHelCallSubmitWaitForIrq = 15,
 
@@ -101,6 +107,18 @@ HEL_C_LINKAGE HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
 HEL_C_LINKAGE HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+
+HEL_C_LINKAGE HelError helCreateRd(HelHandle *handle);
+HEL_C_LINKAGE HelError helRdMount(HelHandle handle,
+		const char *name, size_t name_length,
+		HelHandle mount_handle);
+HEL_C_LINKAGE HelError helRdPublish(HelHandle handle,
+		const char *name, size_t name_length,
+		HelHandle publish_handle);
+HEL_C_LINKAGE HelError helRdUnlink(HelHandle handle,
+		const char *name, size_t name_length);
+HEL_C_LINKAGE HelError helRdOpen(const char *path,
+		size_t path_length, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle,

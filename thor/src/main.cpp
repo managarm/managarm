@@ -21,6 +21,8 @@ LazyInitializer<debug::Terminal> vgaTerminal;
 
 LazyInitializer<memory::PhysicalChunkAllocator> physicalAllocator;
 
+uint64_t ldBaseAddr = 0x40000000;
+	
 void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
 	char *image = (char *)memory::physicalToVirtual(image_page);
 
@@ -29,8 +31,8 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC);
-	
+	ASSERT(ehdr->e_type == ET_DYN);
+
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
@@ -51,7 +53,8 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		if(top % page_size != 0)
 			num_pages++;
 
-		Mapping *mapping = space->allocateAt(bottom, page_size * num_pages);
+		Mapping *mapping = space->allocateAt(ldBaseAddr
+				+ bottom_page * page_size, page_size * num_pages);
 
 		auto memory = makeShared<Memory>(*kernelAlloc);
 		memory->resize(num_pages * page_size);
@@ -74,15 +77,15 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
 			
-			space->mapSingle4k((void *)((bottom_page + page) * page_size),
-					physical);
+			space->mapSingle4k((void *)(ldBaseAddr
+					+ (bottom_page + page) * page_size), physical);
 		}
 
 		mapping->type = Mapping::kTypeMemory;
 		mapping->memoryRegion = util::move(memory);
 	}
 	
-	return (void *)ehdr->e_entry;
+	return (void *)(ldBaseAddr + ehdr->e_entry);
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
@@ -140,7 +143,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				+ i * 0x1000), stack_memory->getPage(i));
 
 	auto thread = makeShared<Thread>(*kernelAlloc);
-	thread->setup(entry, 0, (void *)(stack_mapping->baseAddress + stack_size));
+	thread->setup(entry, ldBaseAddr, (void *)(stack_mapping->baseAddress + stack_size));
 	thread->setUniverse(util::move(universe));
 	thread->setAddressSpace(util::move(address_space));
 	

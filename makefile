@@ -1,5 +1,5 @@
 
-SUBDIRS = thor zisa eir
+SUBDIRS = eir thor ld-init zisa
 
 ALL_SUBDIRS = $(SUBDIRS:%=all-%)
 CLEAN_SUBDIRS = $(SUBDIRS:%=clean-%)

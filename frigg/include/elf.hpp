@@ -24,8 +24,39 @@ typedef struct {
 	Elf64_Half e_shstrndx; /* Section name string table index */
 } Elf64_Ehdr;
 
-const Elf64_Half ET_NONE = 0;
-const Elf64_Half ET_EXEC = 2;
+enum {
+	ET_NONE = 0,
+	ET_EXEC = 2,
+	ET_DYN = 3
+};
+
+enum {
+	SHN_UNDEF = 0,
+	SHN_ABS = 0xFFF1
+};
+
+struct Elf64_Sym {
+	Elf64_Word st_name;
+	unsigned char st_info;
+	unsigned char st_other;
+	Elf64_Half st_shndx;
+	Elf64_Addr st_value;
+	Elf64_Xword st_size;
+};
+
+enum {
+	STB_GLOBAL = 1
+};
+
+enum {
+	R_X86_64_JUMP_SLOT = 7
+};
+
+struct Elf64_Rela {
+	Elf64_Addr r_offset;
+	Elf64_Xword r_info;
+	Elf64_Sxword r_addend;
+};
 
 enum {
 	PT_LOAD = 1,
@@ -42,4 +73,27 @@ typedef struct {
 	Elf64_Xword p_memsz; /* Size of segment in memory */
 	Elf64_Xword p_align; /* Alignment of segment */
 } Elf64_Phdr;
+
+enum {
+	DT_NULL = 0,
+	DT_PLTRELSZ = 2,
+	DT_PLTGOT = 3,
+	DT_HASH = 4,
+	DT_STRTAB = 5,
+	DT_SYMTAB = 6,
+	DT_RELA = 7,
+	DT_REL = 8,
+	DT_STRSZ = 10,
+	DT_SYMENT = 11,
+	DT_PLTREL = 20,
+	DT_JMPREL = 23
+};
+
+struct Elf64_Dyn {
+	Elf64_Sxword d_tag;
+	union {
+		Elf64_Xword d_val;
+		Elf64_Addr d_ptr;
+	};
+};
 
