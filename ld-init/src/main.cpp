@@ -18,34 +18,40 @@ extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 extern "C" HIDDEN void pltRelocateStub();
 
-void doLog(const char *message) {
-	size_t length = 0;
-	for(size_t i = 0; message[i] != 0; i++)
-		length++;
-	helLog(message, length);
+class InfoSink {
+public:
+	void print(char c) {
+		helLog(&c, 1);
+	}
+
+	void print(const char *str) {
+		size_t length = 0;
+		for(size_t i = 0; str[i] != 0; i++)
+			length++;
+		helLog(str, length);
+	}
+};
+
+InfoSink infoSink;
+typedef debug::DefaultLogger<InfoSink> InfoLogger;
+util::LazyInitializer<InfoLogger> infoLogger;
+
+void friggPrintCritical(char c) {
+	infoSink.print(c);
 }
 
-void doPanic(const char *message) {
-	size_t length = 0;
-	for(size_t i = 0; message[i] != 0; i++)
-		length++;
-	helPanic(message, length);
+void friggPrintCritical(const char *str) {
+	infoSink.print(str);
 }
 
-namespace frigg {
-namespace debug {
-
-void assertionFail(const char *assertion) {
-	doLog("Assertion failed!\n");
-	doPanic(assertion);
+void friggPanic() {
+	helPanic("Abort", 5);
 }
-
-} } // namespace frigg::debug
 
 // this function definition ensures that the program interpreter
 // always contains a PLT and GOT
 void EXPORT __ensurePltGot() {
-	doLog("Linked!\n");
+	infoLogger->log() << "Linked!" << debug::Finish();
 }
 
 struct SharedObject {
@@ -67,7 +73,7 @@ struct SharedObject {
 SharedObject interpreter;
 
 void unresolvedSymbol(const char *symbol_str) {
-	doPanic("Unresolved symbol");
+	debug::panicLogger.log() << "Unresolved symbol" << debug::Finish();
 }
 
 bool strEquals(const char *str1, const char *str2) {
@@ -128,7 +134,7 @@ void *loadExecutable(void *image) {
 			&& ehdr->e_ident[3] == 'F');
 	ASSERT(ehdr->e_type == ET_EXEC);
 
-	doLog("Loading executable\n");
+	infoLogger->log() << "Loading executable" << debug::Finish();
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
@@ -168,7 +174,8 @@ void *loadExecutable(void *image) {
 }
 
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
-	doLog("lazyRelocate()\n");
+	infoLogger->log() << "lazyRelocate()" << debug::Finish();
+
 	ASSERT(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
 			+ rel_index * sizeof(Elf64_Rela));
@@ -188,13 +195,13 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	if(pointer == nullptr)
 		unresolvedSymbol(symbol_str);
 
-	doLog("found symbol!\n");
+	infoLogger->log() << "Resolved lazy relocation!" << debug::Finish();
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;
 }
 
 extern "C" void *interpreterMain(HelHandle program_handle) {
-	doLog("Enter ld-init.so\n");
+	infoLogger->log() << "Entering ld-init" << debug::Finish();
 
 	interpreter.baseAddress = (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
@@ -242,7 +249,6 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 			ASSERT(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
-	doLog("Finished reading dynamic section\n");
 	
 	// adjust the addresses of JUMP_SLOT relocations
 	ASSERT(interpreter.lazyExplicitAddend);
@@ -266,7 +272,7 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 	helMapMemory(program_handle, (void *)0x41000000, size, &actual_pointer);
 	void *entry = loadExecutable(actual_pointer);
 
-	doLog("Leave ld-init.so\n");
+	infoLogger->log() << "Leaving ld-init" << debug::Finish();
 	return entry;
 }
 

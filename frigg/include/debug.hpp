@@ -4,7 +4,7 @@ namespace debug {
 
 #define ASSERT(c) do { if(!(c)) ::frigg::debug::assertionFail(#c); } while(0)
 
-class LogSink {
+class VirtualSink {
 public:
 	virtual void print(char c) = 0;
 	virtual void print(const char *str) = 0;
@@ -103,29 +103,38 @@ P &operator<< (P &printer, T object) {
 	return printer;
 }
 
+template<typename Sink>
 class DefaultLogger {
 public:
 	class Printer {
 	public:
 		struct IsPrinter { };
 
-		Printer(LogSink *sink);
+		Printer(Sink &sink) : p_sink(sink) { }
 
-		void print(char c);
-		void print(const char *str);
+		void print(char c) {
+			p_sink.print(c);
+		}
+		void print(const char *str) {
+			p_sink.print(str);
+		}
 
-		void finish();
+		void finish() {
+			p_sink.print('\n');
+		}
 
 	private:
-		LogSink *p_sink;
+		Sink &p_sink;
 	};
 
-	DefaultLogger(LogSink *sink);
+	DefaultLogger(Sink &sink) : p_sink(sink) { }
 
-	Printer log();
+	Printer log() {
+		return Printer(p_sink);
+	}
 
 private:
-	LogSink *p_sink;
+	Sink &p_sink;
 };
 
 class PanicLogger {
@@ -134,26 +143,16 @@ public:
 	public:
 		struct IsPrinter { };
 
-		Printer(LogSink *sink);
-
 		void print(char c);
 		void print(const char *str);
 
 		void finish();
-
-	private:
-		LogSink *p_sink;
 	};
 
-	PanicLogger(LogSink *sink);
-
 	Printer log();
-
-private:
-	LogSink *p_sink;
 };
 
-extern util::LazyInitializer<PanicLogger> panicLogger;
+extern PanicLogger panicLogger;
 
 // --------------------------------------------------------
 // Namespace scope functions

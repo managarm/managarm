@@ -4,6 +4,7 @@
 #include "../../frigg/include/initializer.hpp"
 #include "../../frigg/include/elf.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
+#include "../../frigg/include/support.hpp"
 #include "../../frigg/include/debug.hpp"
 #include <eir/interface.hpp>
 
@@ -16,10 +17,10 @@ void ioOutByte(uint16_t port, uint8_t value) {
 	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
 }
 
-class BochsSink : public debug::LogSink {
+class BochsSink {
 public:
-	virtual void print(char c) override;
-	virtual void print(const char *str) override;
+	void print(char c);
+	void print(const char *str);
 };
 
 void BochsSink::print(char c) {
@@ -30,8 +31,21 @@ void BochsSink::print(const char *str) {
 		ioOutByte(0xE9, *str++);
 }
 
-util::LazyInitializer<BochsSink> logSink;
-util::LazyInitializer<debug::DefaultLogger> infoLogger;
+typedef debug::DefaultLogger<BochsSink> InfoLogger;
+BochsSink infoSink;
+util::LazyInitializer<InfoLogger> infoLogger;
+
+void friggPrintCritical(char c) {
+	infoSink.print(c);
+}
+
+void friggPrintCritical(const char *str) {
+	infoSink.print(str);
+}
+
+void friggPanic() {
+	while(true) { }
+}
 
 enum PageFlags {
 	kPagePresent = 1,
@@ -160,7 +174,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
 			|| ehdr->e_ident[3] != 'F') {
-		debug::panicLogger->log() << "Illegal magic fields" << debug::Finish();
+		debug::panicLogger.log() << "Illegal magic fields" << debug::Finish();
 	}
 	ASSERT(ehdr->e_type == ET_EXEC);
 	
@@ -225,9 +239,7 @@ struct MbMemoryMap {
 };
 
 extern "C" void eirMain(MbInfo *mb_info) {
-	logSink.initialize();
-	infoLogger.initialize(logSink.get());
-	debug::panicLogger.initialize(logSink.get());
+	infoLogger.initialize(infoSink);
 
 	infoLogger->log() << "Starting Eir" << debug::Finish();
 	
