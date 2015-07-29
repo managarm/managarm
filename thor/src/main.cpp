@@ -98,7 +98,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	debug::infoLogger->log() << "Starting Thor" << debug::Finish();
 
-	auto *info = memory::accessPhysical<EirInfo>(info_paddr);
+	auto info = memory::accessPhysical<EirInfo>(info_paddr);
 	debug::infoLogger->log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
@@ -128,8 +128,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto universe = makeShared<Universe>(*kernelAlloc);
 	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
 	
+	ASSERT(info->numModules >= 2);
+	auto modules = memory::accessPhysicalN<EirModule>(info->moduleInfo,
+			info->numModules);
 	auto entry = (void (*)(uintptr_t))loadInitImage(
-			address_space, info->zisaPhysical);
+			address_space, modules[0].physicalBase);
 	thorRtInvalidateSpace();
 	
 	// allocate and memory memory for the user stack
@@ -142,8 +145,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
 				+ i * 0x1000), stack_memory->getPage(i));
 
+	auto program_memory = makeShared<Memory>(*kernelAlloc);
+	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
+		program_memory->addPage(modules[1].physicalBase + offset);
+	
+	auto program_descriptor = MemoryAccessDescriptor(util::move(program_memory));
+	Handle program_handle = universe->attachDescriptor(util::move(program_descriptor));
+
 	auto thread = makeShared<Thread>(*kernelAlloc);
-	thread->setup(entry, ldBaseAddr, (void *)(stack_mapping->baseAddress + stack_size));
+	thread->setup(entry, program_handle,
+			(void *)(stack_mapping->baseAddress + stack_size));
 	thread->setUniverse(util::move(universe));
 	thread->setAddressSpace(util::move(address_space));
 	
@@ -221,6 +232,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 					(void *)arg1, (size_t)arg2, &actual_pointer);
 
 			thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
+		}
+		case kHelCallMemoryInfo: {
+			size_t size;
+			HelError error = helMemoryInfo((HelHandle)arg0, &size);
+			
+			thorRtReturnSyscall2((Word)error, (Word)size);
 		}
 
 		case kHelCallCreateThread: {

@@ -1,4 +1,10 @@
 
+.global _start
+_start:
+	call interpreterMain
+
+	jmp *%rax
+
 .global pltRelocateStub
 pltRelocateStub:
 	push %rax

@@ -79,6 +79,19 @@ HelError helMapMemory(HelHandle memory_handle,
 	return 0;
 }
 
+HelError helMemoryInfo(HelHandle handle, size_t *size) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	auto &wrapper = universe->getDescriptor(handle);
+	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
+	UnsafePtr<Memory, KernelAlloc> memory = descriptor.getMemory();
+
+	*size = memory->getSize();
+
+	return kHelErrNone;
+}
+
 
 HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 		void *user_stack_ptr, HelHandle *handle) {

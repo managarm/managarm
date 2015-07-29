@@ -9,6 +9,11 @@ T *accessPhysical(PhysicalAddr address) {
 	return (T *)physicalToVirtual(address);
 }
 
+template<typename T>
+T *accessPhysicalN(PhysicalAddr address, int n) {
+	return (T *)physicalToVirtual(address);
+}
+
 enum PageFlags {
 	kPageSize = 0x1000,
 	kPagePresent = 0x1,

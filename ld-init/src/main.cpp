@@ -109,6 +109,64 @@ void *symbolResolve(SharedObject *object, const char *resolve_str) {
 	return resolveInObject(object, resolve_str);
 }
 
+extern "C" void *memcpy(void *dest, const void *src, size_t n) {
+	for(size_t i = 0; i < n; i++)
+		((char *)dest)[i] = ((const char *)src)[i];
+	return dest;
+}
+extern "C" void *memset(void *dest, int byte, size_t count) {
+	for(size_t i = 0; i < count; i++)
+		((char *)dest)[i] = (char)byte;
+	return dest;
+}
+
+void *loadExecutable(void *image) {
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
+	ASSERT(ehdr->e_ident[0] == 0x7F
+			&& ehdr->e_ident[1] == 'E'
+			&& ehdr->e_ident[2] == 'L'
+			&& ehdr->e_ident[3] == 'F');
+	ASSERT(ehdr->e_type == ET_EXEC);
+
+	doLog("Loading executable\n");
+	
+	for(int i = 0; i < ehdr->e_phnum; i++) {
+		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
+				+ i * ehdr->e_phentsize);
+
+		if(phdr->p_type != PT_LOAD)
+			continue;
+
+		uintptr_t bottom = phdr->p_vaddr;
+		uintptr_t top = phdr->p_vaddr + phdr->p_memsz;
+
+		if(bottom == top)
+			continue;
+		
+		size_t page_size = 0x1000;
+		uintptr_t bottom_page = bottom / page_size;
+		uintptr_t num_pages = (top / page_size) - bottom_page;
+		if(top % page_size != 0)
+			num_pages++;
+		
+		uintptr_t map_bottom = bottom_page * page_size;
+		uintptr_t map_length = num_pages * page_size;
+
+		HelHandle memory;
+		helAllocateMemory(num_pages * page_size, &memory);
+
+		void *actual_ptr;
+		helMapMemory(memory, (void *)map_bottom, map_length, &actual_ptr);
+		ASSERT(actual_ptr == (void *)map_bottom);
+		
+		uintptr_t image_offset = (uintptr_t)image + phdr->p_offset;
+		memset((void *)map_bottom, 0, map_length);
+		memcpy((void *)bottom, (void *)image_offset, phdr->p_filesz);
+	}
+
+	return (void *)ehdr->e_entry;
+}
+
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	doLog("lazyRelocate()\n");
 	ASSERT(object->lazyExplicitAddend);
@@ -135,12 +193,12 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return pointer;
 }
 
-extern "C" void _start(uintptr_t base_addr) {
-	interpreter.baseAddress = base_addr;
-
+extern "C" void *interpreterMain(HelHandle program_handle) {
 	doLog("Enter ld-init.so\n");
-	ASSERT(interpreter.baseAddress
-			+ (uintptr_t)_GLOBAL_OFFSET_TABLE_[0] == (uintptr_t)_DYNAMIC);
+
+	interpreter.baseAddress = (uintptr_t)_DYNAMIC
+			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
+
 	_GLOBAL_OFFSET_TABLE_[1] = &interpreter;
 	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
 	
@@ -201,9 +259,14 @@ extern "C" void _start(uintptr_t base_addr) {
 	}
 
 	__ensurePltGot();
+	
+	size_t size;
+	void *actual_pointer;
+	helMemoryInfo(program_handle, &size);
+	helMapMemory(program_handle, (void *)0x41000000, size, &actual_pointer);
+	void *entry = loadExecutable(actual_pointer);
 
 	doLog("Leave ld-init.so\n");
-	helExitThisThread();
-	doPanic("Could not exit the thread");
+	return entry;
 }
 

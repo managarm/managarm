@@ -62,6 +62,14 @@ T *bootAlloc() {
 	return new ((void *)bootReserve(sizeof(T), alignof(T))) T();
 }
 
+template<typename T>
+T *bootAllocN(int n) {
+	auto pointer = (T *)bootReserve(sizeof(T) * n, alignof(T));
+	for(size_t i = 0; i < n; i++)
+		new (&pointer[i]) T();
+	return pointer;
+}
+
 uintptr_t allocPage() {
 	return (uintptr_t)bootReserve(0x1000, 0x1000);
 }
@@ -269,7 +277,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	setupPaging();
 
 	// setup the eir interface struct
-	EirInfo *info = bootAlloc<EirInfo>();
+	auto info = bootAlloc<EirInfo>();
 
 	// identically map the first 128 mb so that
 	// we can activate paging without causing a page fault
@@ -290,11 +298,16 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	uint64_t kernel_entry;
 	loadKernelImage(kernel_module->startAddress, &kernel_entry);
 
-	// setp the zisa image information
-	MbModule *image_module = &mb_info->modulesPtr[1];
-	info->zisaPhysical = (uint64_t)image_module->startAddress;
-	info->zisaLength = (uint64_t)image_module->endAddress;
-			- (uint64_t)image_module->startAddress;
+	// setup the module information
+	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
+	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
+		MbModule &image_module = mb_info->modulesPtr[i + 1];
+		modules[i].physicalBase = (EirPtr)image_module.startAddress;
+		modules[i].length = (EirPtr)image_module.endAddress;
+				- (EirPtr)image_module.startAddress;
+	}
+	info->numModules = mb_info->numModules - 1;
+	info->moduleInfo = (EirPtr)modules;
 
 	// finalize the eir information struct
 	bootAlign(0x1000);

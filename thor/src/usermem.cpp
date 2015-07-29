@@ -21,13 +21,21 @@ Memory::Memory()
 
 void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000) {
-		uintptr_t page = memory::tableAllocator->allocate(1);
+		PhysicalAddr page = memory::tableAllocator->allocate(1);
 		p_physicalPages.push(page);
 	}
 }
 
-uintptr_t Memory::getPage(int index) {
+void Memory::addPage(PhysicalAddr page) {
+	p_physicalPages.push(page);
+}
+
+PhysicalAddr Memory::getPage(int index) {
 	return p_physicalPages[index];
+}
+
+size_t Memory::getSize() {
+	return p_physicalPages.size() * 0x1000;
 }
 
 // --------------------------------------------------------

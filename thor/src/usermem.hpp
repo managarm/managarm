@@ -6,11 +6,14 @@ public:
 	Memory();
 
 	void resize(size_t length);
+	void addPage(PhysicalAddr page);
 
-	uintptr_t getPage(int index);
+	PhysicalAddr getPage(int index);
+
+	size_t getSize();
 
 private:
-	util::Vector<uintptr_t, KernelAlloc> p_physicalPages;
+	util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 };
 
 class MemoryAccessDescriptor {
