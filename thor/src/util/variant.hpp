@@ -23,6 +23,20 @@ struct TryToInstantiate {
 	static constexpr bool value = true;
 };
 
+template<typename T, typename... Types>
+struct IsOneOf;
+
+template<typename T, typename U, typename... Types>
+struct IsOneOf<T, U, Types...> {
+	static constexpr bool value = TypesEq<T, U>::value
+			|| IsOneOf<T, Types...>::value;
+};
+
+template<typename T>
+struct IsOneOf<T> {
+	static constexpr bool value = false;
+};
+
 // --------------------------------------------------------
 // Storage
 // --------------------------------------------------------
@@ -237,12 +251,14 @@ class Variant {
 public:
 	Variant() : p_tag(0) { }
 
-	template<typename T>
+	template<typename T, typename Enable
+			= typename util::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(const T &element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
 		new (&p_storage) T(element);
 	}
-	template<typename T>
+	template<typename T, typename Enable
+			= typename util::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(T &&element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
 		new (&p_storage) T(util::move(element));

@@ -130,28 +130,6 @@ Channel *BiDirectionPipe::getSecondChannel() {
 }
 
 // --------------------------------------------------------
-// BiDirectionFirstDescriptor
-// --------------------------------------------------------
-
-BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
-		: p_pipe(util::move(pipe)) { }
-
-UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionFirstDescriptor::getPipe() {
-	return p_pipe;
-}
-
-// --------------------------------------------------------
-// BiDirectionSecondDescriptor
-// --------------------------------------------------------
-
-BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
-		: p_pipe(util::move(pipe)) { }
-
-UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionSecondDescriptor::getPipe() {
-	return p_pipe;
-}
-
-// --------------------------------------------------------
 // Server
 // --------------------------------------------------------
 
@@ -208,28 +186,6 @@ Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hu
 Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
-
-// --------------------------------------------------------
-// ServerDescriptor
-// --------------------------------------------------------
-
-ServerDescriptor::ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server)
-		: p_server(util::move(server)) { }
-
-UnsafePtr<Server, KernelAlloc> ServerDescriptor::getServer() {
-	return p_server;
-}
-
-// --------------------------------------------------------
-// ClientDescriptor
-// --------------------------------------------------------
-
-ClientDescriptor::ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server)
-		: p_server(util::move(server)) { }
-
-UnsafePtr<Server, KernelAlloc> ClientDescriptor::getServer() {
-	return p_server;
-}
 
 } // namespace thor
 

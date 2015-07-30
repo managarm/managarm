@@ -144,6 +144,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(size_t i = 0; i < stack_size / 0x1000; i++)
 		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
 				+ i * 0x1000), stack_memory->getPage(i));
+	
+	auto folder = makeShared<RdFolder>(*kernelAlloc);
+
+	auto module_memory = makeShared<Memory>(*kernelAlloc);
+	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
+		module_memory->addPage(modules[1].physicalBase + offset);
+	
+	MemoryAccessDescriptor module_descriptor(util::move(module_memory));
+	AnyDescriptor module_wrapper(util::move(module_descriptor));
+	folder->publish("program", 6, util::move(module_wrapper));
 
 	auto program_memory = makeShared<Memory>(*kernelAlloc);
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
@@ -157,6 +167,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			(void *)(stack_mapping->baseAddress + stack_size));
 	thread->setUniverse(util::move(universe));
 	thread->setAddressSpace(util::move(address_space));
+	thread->setDirectory(util::move(folder));
 	
 	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
 	scheduleQueue.initialize();
@@ -309,6 +320,26 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 					(int64_t)arg2, (uintptr_t)arg3, (uintptr_t)arg4);
 
 			thorRtReturnSyscall1((Word)error);
+		}
+
+		case kHelCallCreateRd: {
+			HelHandle handle;
+			HelError error = helCreateRd(&handle);
+
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallRdPublish: {
+			HelError error = helRdPublish((HelHandle)arg0,
+					(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		case kHelCallRdOpen: {
+			HelHandle handle;
+			HelError error = helRdOpen((const char *)arg0,
+					(size_t)arg1, &handle);
+
+			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 
 		case kHelCallAccessIrq: {

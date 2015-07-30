@@ -258,6 +258,44 @@ extern inline HelError helSubmitWaitForIrq(HelHandle handle,
 	return (HelError)out_error;
 }
 
+extern inline HelError helCreateRd(HelHandle *handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallCreateRd;
+	register HelWord out_error asm ("rdi");
+	register HelWord out_handle asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_handle)
+		: "r" (in_syscall)
+		: "rdx", "rcx", "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
+	*handle = out_handle;
+	return (HelError)out_error;
+}
+extern inline HelError helRdPublish(HelHandle handle,
+		const char *name, size_t name_length, HelHandle publish_handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallRdPublish;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_name asm ("rdx") = (HelWord)name;
+	register HelWord in_name_length asm ("rcx") = (HelWord)name_length;
+	register HelWord in_publish_handle asm ("r8") = (HelWord)publish_handle;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_name),
+			"r" (in_name_length), "r" (in_publish_handle)
+		: "r9", "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
+extern inline HelError helRdOpen(const char *name, size_t name_length,
+		HelHandle *handle) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallRdOpen;
+	register HelWord in_name asm ("rsi") = (HelWord)name;
+	register HelWord in_name_length asm ("rdx") = (HelWord)name_length;
+	register HelWord out_error asm ("rdi");
+	register HelWord out_handle asm ("rsi");
+	asm volatile ( "int $0x80" : "=r" (out_error), "=r" (out_handle)
+		: "r" (in_syscall), "r" (in_name), "r" (in_name_length)
+		: "r9", "r10", "r11", "rax", "rbx", "memory" );
+	*handle = out_handle;
+	return (HelError)out_error;
+}
+
 extern inline HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallAccessIo;

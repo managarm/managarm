@@ -46,9 +46,9 @@ T &Vector<T, Allocator>::push(const T &element) {
 template<typename T, typename Allocator>
 T &Vector<T, Allocator>::push(T &&element) {
 	ensureCapacity(p_size + 1);
-	p_elements[p_size] = util::move(element);
+	T *pointer = new (&p_elements[p_size]) T(util::move(element));
 	p_size++;
-	return p_elements[p_size - 1];
+	return *pointer;
 }
 
 template<typename T, typename Allocator>

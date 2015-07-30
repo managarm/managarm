@@ -77,16 +77,5 @@ EventHub::Event EventHub::dequeueEvent() {
 EventHub::Event::Event(Type type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
-// --------------------------------------------------------
-// EventHubDescriptor
-// --------------------------------------------------------
-
-EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub)
-		: p_eventHub(util::move(event_hub)) { }
-
-UnsafePtr<EventHub, KernelAlloc> EventHubDescriptor::getEventHub() {
-	return p_eventHub;
-}
-
 } // namespace thor
 

@@ -16,16 +16,6 @@ private:
 	util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 };
 
-class MemoryAccessDescriptor {
-public:
-	MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory);
-
-	UnsafePtr<Memory, KernelAlloc> getMemory();
-
-private:
-	SharedPtr<Memory, KernelAlloc> p_memory;
-};
-
 struct Mapping {
 	enum Type {
 		kTypeNone,

@@ -265,7 +265,9 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 	}
 
 	__ensurePltGot();
-	
+
+	helRdOpen("program", 6, &program_handle);
+
 	size_t size;
 	void *actual_pointer;
 	helMemoryInfo(program_handle, &size);

@@ -20,24 +20,6 @@ void *kernelStackBase;
 size_t kernelStackLength = 0x100000;
 
 // --------------------------------------------------------
-// Descriptors
-// --------------------------------------------------------
-
-IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line)
-		: p_irqLine(util::move(irq_line)) { }
-
-UnsafePtr<IrqLine, KernelAlloc> IrqDescriptor::getIrqLine() {
-	return p_irqLine;
-}
-
-IoDescriptor::IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space)
-		: p_ioSpace(util::move(io_space)) { }
-
-UnsafePtr<IoSpace, KernelAlloc> IoDescriptor::getIoSpace() {
-	return p_ioSpace;
-}
-
-// --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
 

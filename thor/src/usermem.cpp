@@ -39,17 +39,6 @@ size_t Memory::getSize() {
 }
 
 // --------------------------------------------------------
-// MemoryAccessDescriptor
-// --------------------------------------------------------
-
-MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory)
-		: p_memory(util::move(memory)) { }
-
-UnsafePtr<Memory, KernelAlloc> MemoryAccessDescriptor::getMemory() {
-	return p_memory;
-}
-
-// --------------------------------------------------------
 // Mapping
 // --------------------------------------------------------
 

@@ -37,12 +37,18 @@ UnsafePtr<Universe, KernelAlloc> Thread::getUniverse() {
 UnsafePtr<AddressSpace, KernelAlloc> Thread::getAddressSpace() {
 	return p_addressSpace;
 }
+UnsafePtr<RdFolder, KernelAlloc> Thread::getDirectory() {
+	return p_directory;
+}
 
 void Thread::setUniverse(SharedPtr<Universe, KernelAlloc> &&universe) {
 	p_universe = util::move(universe);
 }
 void Thread::setAddressSpace(SharedPtr<AddressSpace, KernelAlloc> &&address_space) {
 	p_addressSpace = util::move(address_space);
+}
+void Thread::setDirectory(SharedPtr<RdFolder, KernelAlloc> &&directory) {
+	p_directory = util::move(directory);
 }
 
 void Thread::enableIoPort(uintptr_t port) {

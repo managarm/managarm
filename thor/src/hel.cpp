@@ -341,6 +341,49 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 }
 
 
+HelError helCreateRd(HelHandle *handle) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	auto folder = makeShared<RdFolder>(*kernelAlloc);
+
+	RdDescriptor base(util::move(folder));
+	*handle = universe->attachDescriptor(util::move(base));
+	
+	return kHelErrNone;
+}
+HelError helRdPublish(HelHandle handle, const char *user_name,
+		size_t name_length, HelHandle publish_handle) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &publish_wrapper = universe->getDescriptor(publish_handle);
+
+	auto &descriptor = wrapper.get<RdDescriptor>();
+	UnsafePtr<RdFolder, KernelAlloc> folder = descriptor.getFolder();
+
+	AnyDescriptor publish_copy(publish_wrapper);
+	folder->publish(user_name, name_length, util::move(publish_copy));
+	
+	return kHelErrNone;
+}
+HelError helRdOpen(const char *user_name, size_t name_length,
+		HelHandle *handle) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	UnsafePtr<RdFolder, KernelAlloc> directory = this_thread->getDirectory();
+	RdFolder::Entry *entry = directory->getEntry(user_name, name_length);
+	ASSERT(entry != nullptr);
+	
+	AnyDescriptor copy(entry->descriptor);
+	*handle = universe->attachDescriptor(util::move(copy));
+
+	return kHelErrNone;
+}
+
+
 HelError helAccessIrq(int number, HelHandle *handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();

@@ -59,28 +59,6 @@ private:
 	Channel p_secondChannel;
 };
 
-// Reads from the first channel, writes to the second
-class BiDirectionFirstDescriptor {
-public:
-	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
-	
-	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
-
-private:
-	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
-};
-
-// Reads from the second channel, writes to the first
-class BiDirectionSecondDescriptor {
-public:
-	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
-	
-	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
-
-private:
-	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
-};
-
 class Server : public SharedBase<Server, KernelAlloc> {
 public:
 	Server();
@@ -112,26 +90,6 @@ private:
 	
 	util::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
 	util::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
-};
-
-class ServerDescriptor {
-public:
-	ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server);
-	
-	UnsafePtr<Server, KernelAlloc> getServer();
-
-private:
-	SharedPtr<Server, KernelAlloc> p_server;
-};
-
-class ClientDescriptor {
-public:
-	ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server);
-	
-	UnsafePtr<Server, KernelAlloc> getServer();
-
-private:
-	SharedPtr<Server, KernelAlloc> p_server;
 };
 
 } // namespace thor

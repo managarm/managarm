@@ -20,16 +20,25 @@ enum Error {
 typedef uint64_t Handle;
 
 class Universe;
+class Memory;
 class AddressSpace;
+class Thread;
+class EventHub;
 class Channel;
 class BiDirectionPipe;
+class Server;
+class RdFolder;
+class IrqLine;
+class IoSpace;
 
 } // namespace thor
 
+#include "descriptor.hpp"
 #include "usermem.hpp"
 #include "event.hpp"
 #include "ipc.hpp"
 #include "thread.hpp"
+#include "rd.hpp"
 
 namespace thor {
 
@@ -83,53 +92,8 @@ private:
 };
 
 // --------------------------------------------------------
-// Descriptors
-// --------------------------------------------------------
-
-class ThreadObserveDescriptor {
-public:
-	ThreadObserveDescriptor(SharedPtr<Thread, KernelAlloc> &&thread);
-	
-	UnsafePtr<Thread, KernelAlloc> getThread();
-
-private:
-	SharedPtr<Thread, KernelAlloc> p_thread;
-};
-
-
-class IrqDescriptor {
-public:
-	IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line);
-	
-	UnsafePtr<IrqLine, KernelAlloc> getIrqLine();
-
-private:
-	SharedPtr<IrqLine, KernelAlloc> p_irqLine;
-};
-
-class IoDescriptor {
-public:
-	IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space);
-	
-	UnsafePtr<IoSpace, KernelAlloc> getIoSpace();
-
-private:
-	SharedPtr<IoSpace, KernelAlloc> p_ioSpace;
-};
-
-// --------------------------------------------------------
 // Process related classes
 // --------------------------------------------------------
-
-typedef util::Variant<MemoryAccessDescriptor,
-		ThreadObserveDescriptor,
-		EventHubDescriptor,
-		BiDirectionFirstDescriptor,
-		BiDirectionSecondDescriptor,
-		ServerDescriptor,
-		ClientDescriptor,
-		IrqDescriptor,
-		IoDescriptor> AnyDescriptor;
 
 class Universe : public SharedBase<Universe, KernelAlloc> {
 public:

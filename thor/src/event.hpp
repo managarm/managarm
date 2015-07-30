@@ -61,15 +61,5 @@ private:
 	util::LinkedList<Event, KernelAlloc> p_queue;
 };
 
-class EventHubDescriptor {
-public:
-	EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub);
-
-	UnsafePtr<EventHub, KernelAlloc> getEventHub();
-
-private:
-	SharedPtr<EventHub, KernelAlloc> p_eventHub;
-};
-
 } // namespace thor
 
