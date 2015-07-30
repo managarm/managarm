@@ -69,7 +69,7 @@ void Vector<T, Allocator>::ensureCapacity(SizeType capacity) {
 	SizeType new_capacity = capacity * 2;	
 	T *new_array = (T *)p_allocator.allocate(sizeof(T) * new_capacity);
 	for(SizeType i = 0; i < p_capacity; i++)
-		new_array[i] = util::move(p_elements[i]);
+		new (&new_array[i]) T(util::move(p_elements[i]));
 	
 	for(size_t i = 0; i < p_size; i++)
 		p_elements[i].~T();

@@ -5,6 +5,8 @@ typedef uint64_t EirSize;
 struct EirModule {
 	EirPtr physicalBase;
 	EirSize length;
+	EirPtr namePtr;
+	EirSize nameLength;
 };
 
 struct EirInfo {

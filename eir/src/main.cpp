@@ -4,6 +4,7 @@
 #include "../../frigg/include/initializer.hpp"
 #include "../../frigg/include/elf.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
+#include "../../frigg/include/libc.hpp"
 #include "../../frigg/include/support.hpp"
 #include "../../frigg/include/debug.hpp"
 #include <eir/interface.hpp>
@@ -317,6 +318,12 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		modules[i].physicalBase = (EirPtr)image_module.startAddress;
 		modules[i].length = (EirPtr)image_module.endAddress;
 				- (EirPtr)image_module.startAddress;
+		
+		size_t name_length = strlen(image_module.string);
+		char *name_ptr = bootAllocN<char>(name_length);
+		memcpy(name_ptr, image_module.string, name_length);
+		modules[i].namePtr = (EirPtr)name_ptr;
+		modules[i].nameLength = name_length;
 	}
 	info->numModules = mb_info->numModules - 1;
 	info->moduleInfo = (EirPtr)modules;

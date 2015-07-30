@@ -106,6 +106,13 @@ struct Print<P, Finish> {
 };
 
 template<typename P>
+struct Print<P, char> {
+	static void print(P &printer, char c) {
+		printer.print(c);
+	}
+};
+
+template<typename P>
 struct Print<P, const char *> {
 	static void print(P &printer, const char *string) {
 		printer.print(string);

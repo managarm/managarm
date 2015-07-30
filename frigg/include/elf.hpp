@@ -60,6 +60,7 @@ struct Elf64_Rela {
 
 enum {
 	PT_LOAD = 1,
+	PT_DYNAMIC = 2,
 	PT_TLS = 7
 };
 
@@ -76,6 +77,7 @@ typedef struct {
 
 enum {
 	DT_NULL = 0,
+	DT_NEEDED = 1,
 	DT_PLTRELSZ = 2,
 	DT_PLTGOT = 3,
 	DT_HASH = 4,
@@ -85,7 +87,10 @@ enum {
 	DT_REL = 8,
 	DT_STRSZ = 10,
 	DT_SYMENT = 11,
+	DT_INIT = 12,
+	DT_FINI = 13,
 	DT_PLTREL = 20,
+	DT_DEBUG = 21,
 	DT_JMPREL = 23
 };
 

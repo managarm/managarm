@@ -2,7 +2,9 @@
 #include "../../frigg/include/types.hpp"
 #include "../../frigg/include/utils.hpp"
 #include "../../frigg/include/initializer.hpp"
+#include "../../frigg/include/support.hpp"
 #include "../../frigg/include/debug.hpp"
+#include "../../frigg/include/libc.hpp"
 #include "../../frigg/include/elf.hpp"
 
 #include "../../hel/include/hel.h"
@@ -48,21 +50,21 @@ void friggPanic() {
 	helPanic("Abort", 5);
 }
 
-// this function definition ensures that the program interpreter
-// always contains a PLT and GOT
-void EXPORT __ensurePltGot() {
-	infoLogger->log() << "Linked!" << debug::Finish();
-}
-
 struct SharedObject {
+	SharedObject();
+
 	// base address this shared object was loaded to
 	uintptr_t baseAddress;
+	
+	// pointers to the dynamic table, GOT and entry point
+	Elf64_Dyn *dynamic;
+	void **globalOffsetTable;
+	void *entry;
 	
 	// symbol and string table of this shared object
 	uintptr_t hashTableOffset;
 	uintptr_t symbolTableOffset;
 	uintptr_t stringTableOffset;
-	size_t symbolEntrySize;
 	
 	// save the lazy JUMP_SLOT relocation table
 	uintptr_t lazyRelocTableOffset;
@@ -70,7 +72,15 @@ struct SharedObject {
 	bool lazyExplicitAddend;
 };
 
-SharedObject interpreter;
+SharedObject::SharedObject() : baseAddress(0),
+		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
+		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
+		lazyRelocTableOffset(0), lazyTableSize(0),
+		lazyExplicitAddend(false) { }
+
+util::LazyInitializer<SharedObject> interpreter;
+util::LazyInitializer<SharedObject> executable;
+util::LazyInitializer<SharedObject> library;
 
 void unresolvedSymbol(const char *symbol_str) {
 	debug::panicLogger.log() << "Unresolved symbol" << debug::Finish();
@@ -94,7 +104,7 @@ void *resolveInObject(SharedObject *object, const char *resolve_str) {
 
 	for(size_t i = 0; i < num_chains; i++) {
 		auto *symbol = (Elf64_Sym *)(object->baseAddress
-				+ object->symbolTableOffset + i * object->symbolEntrySize);
+				+ object->symbolTableOffset + i * sizeof(Elf64_Sym));
 		uint8_t type = symbol->st_info & 0x0F;
 		uint8_t bind = symbol->st_info >> 4;
 		if(bind != STB_GLOBAL)
@@ -112,65 +122,162 @@ void *resolveInObject(SharedObject *object, const char *resolve_str) {
 }
 
 void *symbolResolve(SharedObject *object, const char *resolve_str) {
-	return resolveInObject(object, resolve_str);
+	void *resolved = resolveInObject(object, resolve_str);
+	if(resolved != nullptr)
+		return resolved;
+	return resolveInObject(library.get(), resolve_str);
 }
 
-extern "C" void *memcpy(void *dest, const void *src, size_t n) {
-	for(size_t i = 0; i < n; i++)
-		((char *)dest)[i] = ((const char *)src)[i];
-	return dest;
-}
-extern "C" void *memset(void *dest, int byte, size_t count) {
-	for(size_t i = 0; i < count; i++)
-		((char *)dest)[i] = (char)byte;
-	return dest;
+void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
+		size_t mem_length, size_t file_length) {
+	uintptr_t limit = address + mem_length;
+	if(address == limit)
+		return;
+	
+	size_t page_size = 0x1000;
+	uintptr_t map_page = address / page_size;
+	uintptr_t num_pages = (limit / page_size) - map_page;
+	if(limit % page_size != 0)
+		num_pages++;
+	
+	uintptr_t map_address = map_page * page_size;
+	uintptr_t map_length = num_pages * page_size;
+
+	HelHandle memory;
+	helAllocateMemory(num_pages * page_size, &memory);
+
+	void *actual_ptr;
+	helMapMemory(memory, (void *)map_address, map_length, &actual_ptr);
+	ASSERT(actual_ptr == (void *)map_address);
+	
+	uintptr_t image_offset = (uintptr_t)image + file_offset;
+	memset((void *)map_address, 0, map_length);
+	memcpy((void *)address, (void *)image_offset, file_length);
+
+	helCloseDescriptor(memory);
 }
 
-void *loadExecutable(void *image) {
+void loadObject(SharedObject *object, void *image);
+
+void processDynamic(SharedObject *object) {
+	ASSERT(object->dynamic != nullptr);
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		switch(dynamic->d_tag) {
+		// handle hash table, symbol table and string table
+		case DT_HASH:
+			object->hashTableOffset = dynamic->d_ptr;
+			break;
+		case DT_STRTAB:
+			object->stringTableOffset = dynamic->d_ptr;
+			break;
+		case DT_STRSZ:
+			break; // we don't need the size of the string table
+		case DT_SYMTAB:
+			object->symbolTableOffset = dynamic->d_ptr;
+			break;
+		case DT_SYMENT:
+			ASSERT(dynamic->d_val == sizeof(Elf64_Sym));
+			break;
+		// handle lazy relocation table
+		case DT_PLTGOT:
+			object->globalOffsetTable = (void **)(object->baseAddress
+					+ dynamic->d_ptr);
+			break;
+		case DT_JMPREL:
+			object->lazyRelocTableOffset = dynamic->d_ptr;
+			break;
+		case DT_PLTRELSZ:
+			object->lazyTableSize = dynamic->d_val;
+			break;
+		case DT_PLTREL:
+			if(dynamic->d_val == DT_RELA) {
+				object->lazyExplicitAddend = true;
+			}else{
+				ASSERT(dynamic->d_val == DT_REL);
+			}
+			break;
+		// ignore unimportant tags
+		case DT_NEEDED: // we handle this later
+		case DT_INIT:
+		case DT_FINI:
+		case DT_DEBUG:
+			break;
+		default:
+			ASSERT(!"Unexpected dynamic entry in object");
+		}
+	}
+
+	// load required dynamic libraries
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		if(dynamic->d_tag != DT_NEEDED)
+			continue;
+
+		const char *library_str = (const char *)(object->baseAddress
+				+ object->stringTableOffset + dynamic->d_val);
+
+		HelHandle library_handle;
+		helRdOpen(library_str, strlen(library_str), &library_handle);
+
+		size_t size;
+		void *actual_pointer;
+		helMemoryInfo(library_handle, &size);
+		helMapMemory(library_handle, (void *)0x42000000, size, &actual_pointer);
+		
+		library.initialize();
+		library->baseAddress = 0x43000000;
+		loadObject(library.get(), actual_pointer);
+
+		helCloseDescriptor(library_handle);
+	}
+	
+	if(object->globalOffsetTable != nullptr) {
+		object->globalOffsetTable[1] = object;
+		object->globalOffsetTable[2] = (void *)&pltRelocateStub;
+		
+		// adjust the addresses of JUMP_SLOT relocations
+		ASSERT(object->lazyExplicitAddend);
+		for(size_t offset = 0; offset < object->lazyTableSize;
+				offset += sizeof(Elf64_Rela)) {
+			auto reloc = (Elf64_Rela *)(object->baseAddress
+					+ object->lazyRelocTableOffset + offset);
+			Elf64_Xword type = reloc->r_info & 0xFF;
+			Elf64_Xword symbol_index = reloc->r_info >> 8;
+
+			ASSERT(type == R_X86_64_JUMP_SLOT);
+			*(Elf64_Addr *)(object->baseAddress + reloc->r_offset)
+					+= object->baseAddress;
+		}
+	}else{
+		ASSERT(object->lazyRelocTableOffset == 0);
+	}
+}
+
+void loadObject(SharedObject *object, void *image) {
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
 	ASSERT(ehdr->e_ident[0] == 0x7F
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC);
-
-	infoLogger->log() << "Loading executable" << debug::Finish();
+	ASSERT(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
 	
+	object->entry = (void *)(object->baseAddress + ehdr->e_entry);
+
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
 
-		if(phdr->p_type != PT_LOAD)
-			continue;
-
-		uintptr_t bottom = phdr->p_vaddr;
-		uintptr_t top = phdr->p_vaddr + phdr->p_memsz;
-
-		if(bottom == top)
-			continue;
-		
-		size_t page_size = 0x1000;
-		uintptr_t bottom_page = bottom / page_size;
-		uintptr_t num_pages = (top / page_size) - bottom_page;
-		if(top % page_size != 0)
-			num_pages++;
-		
-		uintptr_t map_bottom = bottom_page * page_size;
-		uintptr_t map_length = num_pages * page_size;
-
-		HelHandle memory;
-		helAllocateMemory(num_pages * page_size, &memory);
-
-		void *actual_ptr;
-		helMapMemory(memory, (void *)map_bottom, map_length, &actual_ptr);
-		ASSERT(actual_ptr == (void *)map_bottom);
-		
-		uintptr_t image_offset = (uintptr_t)image + phdr->p_offset;
-		memset((void *)map_bottom, 0, map_length);
-		memcpy((void *)bottom, (void *)image_offset, phdr->p_filesz);
+		if(phdr->p_type == PT_LOAD) {
+			loadSegment(image, object->baseAddress + phdr->p_vaddr,
+					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
+		}else if(phdr->p_type == PT_DYNAMIC) {
+			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
+		} //FIXME: handle other phdrs
 	}
 
-	return (void *)ehdr->e_entry;
+	processDynamic(object);
 }
 
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
@@ -185,7 +292,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	ASSERT(type == R_X86_64_JUMP_SLOT);
 
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
-			+ symbol_index * object->symbolEntrySize);
+			+ symbol_index * sizeof(Elf64_Sym));
 	ASSERT(symbol->st_name != 0);
 
 	const char *symbol_str = (const char *)(object->baseAddress
@@ -201,12 +308,14 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 }
 
 extern "C" void *interpreterMain(HelHandle program_handle) {
+	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-init" << debug::Finish();
-
-	interpreter.baseAddress = (uintptr_t)_DYNAMIC
+	
+	interpreter.initialize();
+	interpreter->baseAddress = (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
 
-	_GLOBAL_OFFSET_TABLE_[1] = &interpreter;
+	_GLOBAL_OFFSET_TABLE_[1] = interpreter.get();
 	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
 	
 	for(size_t i = 0; _DYNAMIC[i].d_tag != DT_NULL; i++) {
@@ -214,67 +323,35 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 		switch(dynamic->d_tag) {
 		// handle hash table, symbol table and string table
 		case DT_HASH:
-			interpreter.hashTableOffset = dynamic->d_ptr;
+			interpreter->hashTableOffset = dynamic->d_ptr;
 			break;
 		case DT_STRTAB:
-			interpreter.stringTableOffset = dynamic->d_ptr;
+			interpreter->stringTableOffset = dynamic->d_ptr;
 			break;
 		case DT_STRSZ:
 			break; // we don't need the size of the string table
 		case DT_SYMTAB:
-			interpreter.symbolTableOffset = dynamic->d_ptr;
+			interpreter->symbolTableOffset = dynamic->d_ptr;
 			break;
 		case DT_SYMENT:
-			interpreter.symbolEntrySize = dynamic->d_val;
-			break;
-		// handle lazy relocation table
-		case DT_PLTGOT:
-			ASSERT(interpreter.baseAddress + dynamic->d_ptr
-					== (uintptr_t)_GLOBAL_OFFSET_TABLE_);
-			break;
-		case DT_JMPREL:
-			interpreter.lazyRelocTableOffset = dynamic->d_ptr;
-			break;
-		case DT_PLTRELSZ:
-			interpreter.lazyTableSize = dynamic->d_val;
-			break;
-		case DT_PLTREL:
-			if(dynamic->d_val == DT_RELA) {
-				interpreter.lazyExplicitAddend = true;
-			}else{
-				ASSERT(dynamic->d_val == DT_REL);
-			}
+			ASSERT(dynamic->d_val == sizeof(Elf64_Sym));
 			break;
 		default:
 			ASSERT(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
-	
-	// adjust the addresses of JUMP_SLOT relocations
-	ASSERT(interpreter.lazyExplicitAddend);
-	for(size_t offset = 0; offset < interpreter.lazyTableSize;
-			offset += sizeof(Elf64_Rela)) {
-		auto reloc = (Elf64_Rela *)(interpreter.baseAddress
-				+ interpreter.lazyRelocTableOffset + offset);
-		Elf64_Xword type = reloc->r_info & 0xFF;
-		Elf64_Xword symbol_index = reloc->r_info >> 8;
-
-		ASSERT(type == R_X86_64_JUMP_SLOT);
-		*(Elf64_Addr *)(interpreter.baseAddress + reloc->r_offset)
-				+= interpreter.baseAddress;
-	}
-
-	__ensurePltGot();
-
-	helRdOpen("program", 6, &program_handle);
 
 	size_t size;
 	void *actual_pointer;
 	helMemoryInfo(program_handle, &size);
 	helMapMemory(program_handle, (void *)0x41000000, size, &actual_pointer);
-	void *entry = loadExecutable(actual_pointer);
+	
+	executable.initialize();
+	loadObject(executable.get(), actual_pointer);
+	
+	helCloseDescriptor(program_handle);
 
 	infoLogger->log() << "Leaving ld-init" << debug::Finish();
-	return entry;
+	return executable->entry;
 }
 

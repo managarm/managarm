@@ -6,7 +6,7 @@ CXX_FLAGS = -std=c++11 $(CXX_INCLUDE)
 PROGRAM = bin/zisa.elf
 OBJECTS = obj/main.o obj/keyboard.pb.o
 
-LIBS = -lprotobuf-lite
+LIBS = -lprotobuf-lite -ltest
 
 STRIP = x86_64-managarm-strip
 

@@ -121,16 +121,33 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	irqRelays.initialize();
 	thorRtSetupIrqs();
+	
+	// create a directory and load the memory regions of all modules into it
+	ASSERT(info->numModules >= 2);
+	auto modules = memory::accessPhysicalN<EirModule>(info->moduleInfo,
+			info->numModules);
+	
+	auto folder = makeShared<RdFolder>(*kernelAlloc);
+	for(size_t i = 0; i < info->numModules; i++) {
+		auto mod_memory = makeShared<Memory>(*kernelAlloc);
+		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
+			mod_memory->addPage(modules[i].physicalBase + offset);
+		
+		auto name_ptr = memory::accessPhysicalN<char>(modules[i].namePtr,
+				modules[i].nameLength);
 
+		MemoryAccessDescriptor mod_descriptor(util::move(mod_memory));
+		folder->publish(name_ptr, modules[i].nameLength,
+				AnyDescriptor(util::move(mod_descriptor)));
+	}
+	
+	// create a user space thread from the init image
 	memory::PageSpace user_space = memory::kernelSpace->clone();
 	user_space.switchTo();
 
 	auto universe = makeShared<Universe>(*kernelAlloc);
 	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
-	
-	ASSERT(info->numModules >= 2);
-	auto modules = memory::accessPhysicalN<EirModule>(info->moduleInfo,
-			info->numModules);
+
 	auto entry = (void (*)(uintptr_t))loadInitImage(
 			address_space, modules[0].physicalBase);
 	thorRtInvalidateSpace();
@@ -145,16 +162,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
 				+ i * 0x1000), stack_memory->getPage(i));
 	
-	auto folder = makeShared<RdFolder>(*kernelAlloc);
-
-	auto module_memory = makeShared<Memory>(*kernelAlloc);
-	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
-		module_memory->addPage(modules[1].physicalBase + offset);
-	
-	MemoryAccessDescriptor module_descriptor(util::move(module_memory));
-	AnyDescriptor module_wrapper(util::move(module_descriptor));
-	folder->publish("program", 6, util::move(module_wrapper));
-
 	auto program_memory = makeShared<Memory>(*kernelAlloc);
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
 		program_memory->addPage(modules[1].physicalBase + offset);

@@ -10,7 +10,8 @@ LD = x86_64-elf-ld
 LD_FLAGS = -m elf_i386 -nostdlib -T src/link.ld
 
 KERNEL = bin/eir.elf
-OBJECTS = obj/frigg-arch-gdt.o obj/frigg-initializer.o obj/frigg-debug.o obj/main.o obj/multiboot.o
+OBJECTS = obj/frigg-arch-gdt.o obj/frigg-initializer.o \
+	obj/frigg-libc.o obj/frigg-debug.o obj/main.o obj/multiboot.o
 LIBS = libgcc.a
 
 SRCDIR = src

@@ -111,6 +111,7 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 				previous->chain = item->chain;
 			}
 			destruct(p_allocator, item);
+			p_size--;
 
 			return value;
 		}
