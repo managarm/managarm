@@ -1,7 +1,9 @@
 
 #include "../../frigg/include/types.hpp"
 #include "../../frigg/include/traits.hpp"
+#include "../../frigg/include/support.hpp"
 #include "../../frigg/include/debug.hpp"
+#include "../../frigg/include/algorithm.hpp"
 #include "../../frigg/include/initializer.hpp"
 #include "../../frigg/include/memory.hpp"
 #include "../../frigg/include/vector.hpp"

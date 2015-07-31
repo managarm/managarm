@@ -6,112 +6,113 @@ template<typename T, typename Allocator>
 class UnsafePtr;
 
 template<typename T, typename Allocator>
-class SharedBase {
-	friend class SharedPtr<T, Allocator>;
-	friend class UnsafePtr<T, Allocator>;
+struct SharedBlock {
+	template<typename... Args>
+	SharedBlock(Allocator &allocator, Args &&... args)
+	: allocator(allocator), refCount(1),
+			object(frigg::traits::forward<Args>(args)...) { }
 
-public:
-	SharedBase() : p_allocator(nullptr),
-			p_refCount(1) { }
+	SharedBlock(const SharedBlock &other) = delete;
 
-	UnsafePtr<T, Allocator> thisPtr();
+	SharedBlock &operator= (const SharedBlock &other) = delete;
 
-private:
-	Allocator *p_allocator;
-	int p_refCount;
+	Allocator &allocator;
+	int refCount;
+	
+	T object;
 };
 
 template<typename T, typename Allocator>
 class SharedPtr {
-	friend class SharedBase<T, Allocator>;
 	friend class UnsafePtr<T, Allocator>;
 public:
 	template<typename... Args>
-	static SharedPtr make(Allocator &allocator, Args&&... args) {
-		auto base = frigg::memory::construct<T>(allocator, frigg::traits::forward<Args>(args)...);
-		base->p_allocator = &allocator;
-		return SharedPtr<T, Allocator>(base);
+	static SharedPtr make(Allocator &allocator, Args &&... args) {
+		auto block = frigg::memory::construct<SharedBlock<T, Allocator>>
+				(allocator, allocator, frigg::traits::forward<Args>(args)...);
+		return SharedPtr<T, Allocator>(block);
 	}
 
-	SharedPtr() : p_pointer(nullptr) { }
+	SharedPtr() : p_block(nullptr) { }
 	
 	~SharedPtr() {
-		if(p_pointer == nullptr)
+		if(p_block == nullptr)
 			return;
-		SharedBase<T, Allocator> *base = p_pointer;
-		base->p_refCount--;
-		if(base->p_refCount == 0)
-			frigg::memory::destruct(*base->p_allocator, p_pointer);
+		p_block->refCount--;
+		if(p_block->refCount == 0)
+			frigg::memory::destruct(p_block->allocator, p_block);
 	}
 
 	SharedPtr(const SharedPtr &other) {
-		p_pointer = other.p_pointer;
-		if(p_pointer != nullptr)
-			p_pointer->p_refCount++;
+		p_block = other.p_block;
+		if(p_block != nullptr)
+			p_block->refCount++;
 	}
 
 	SharedPtr(SharedPtr &&other) {
-		p_pointer = other.p_pointer;
-		other.p_pointer = nullptr;
+		p_block = other.p_block;
+		other.p_block = nullptr;
 	}
 
 	operator UnsafePtr<T, Allocator> ();
 
 	SharedPtr &operator= (SharedPtr &&other) {
-		p_pointer = other.p_pointer;
-		other.p_pointer = nullptr;
+		p_block = other.p_block;
+		other.p_block = nullptr;
 		return *this;
 	}
 
 	T *operator-> () const {
-		return p_pointer;
+		if(p_block == nullptr)
+			return nullptr;
+		return &p_block->object;
 	}
 	T *get() const {
-		return p_pointer;
+		if(p_block == nullptr)
+			return nullptr;
+		return &p_block->object;
 	}
 
 private:
-	SharedPtr(T *pointer) : p_pointer(pointer) { }
+	SharedPtr(SharedBlock<T, Allocator> *pointer) : p_block(pointer) { }
 
-	T *p_pointer;
+	SharedBlock<T, Allocator> *p_block;
 };
 
 template<typename T, typename Allocator>
 class UnsafePtr {
-	friend class SharedBase<T, Allocator>;
 	friend class SharedPtr<T, Allocator>;
 public:
-	UnsafePtr() : p_pointer(nullptr) { }
+	UnsafePtr() : p_block(nullptr) { }
 	
 	operator SharedPtr<T, Allocator> ();
 
 	T *operator-> () {
-		return p_pointer;
+		if(p_block == nullptr)
+			return nullptr;
+		return &p_block->object;
 	}
 	T *get() {
-		return p_pointer;
+		if(p_block == nullptr)
+			return nullptr;
+		return &p_block->object;
 	}
 
 private:
-	UnsafePtr(T *pointer) : p_pointer(pointer) { }
+	UnsafePtr(SharedBlock<T, Allocator> *pointer) : p_block(pointer) { }
 
-	T *p_pointer;
+	SharedBlock<T, Allocator> *p_block;
 };
 
 template<typename T, typename Allocator>
-UnsafePtr<T, Allocator> SharedBase<T, Allocator>::thisPtr() {
-	return UnsafePtr<T, Allocator>(static_cast<T *>(this));
-}
-
-template<typename T, typename Allocator>
 SharedPtr<T, Allocator>::operator UnsafePtr<T, Allocator>() {
-	return UnsafePtr<T, Allocator>(p_pointer);
+	return UnsafePtr<T, Allocator>(p_block);
 }
 
 template<typename T, typename Allocator>
 UnsafePtr<T, Allocator>::operator SharedPtr<T, Allocator>() {
-	p_pointer->p_refCount++;
-	return SharedPtr<T, Allocator>(p_pointer);
+	p_block->refCount++;
+	return SharedPtr<T, Allocator>(p_block);
 }
 
 template<typename T, typename Allocator, typename... Args>

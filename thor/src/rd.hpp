@@ -1,7 +1,7 @@
 
 namespace thor {
 
-class RdFolder : public SharedBase<RdFolder, KernelAlloc> {
+class RdFolder {
 public:
 	enum {
 		kNameLength = 32

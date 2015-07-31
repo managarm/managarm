@@ -164,10 +164,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	thread->setUniverse(traits::move(universe));
 	thread->setAddressSpace(traits::move(address_space));
 	thread->setDirectory(traits::move(folder));
-	
-	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
-	scheduleQueue.initialize();
 
+	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
+
+	scheduleQueue.initialize();
 	scheduleQueue->addBack(traits::move(thread));
 	schedule();
 }

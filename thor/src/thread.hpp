@@ -1,8 +1,9 @@
 
 namespace thor {
 
-class Thread : public SharedBase<Thread, KernelAlloc> {
+class Thread {
 friend class ThreadQueue;
+friend void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
 public:
 	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 			void *user_stack_ptr);
@@ -16,8 +17,6 @@ public:
 	void setDirectory(SharedPtr<RdFolder, KernelAlloc> &&directory);
 
 	void enableIoPort(uintptr_t port);
-	
-	void switchTo();
 
 private:
 	SharedPtr<Universe, KernelAlloc> p_universe;
@@ -31,8 +30,12 @@ private:
 	frigg::arch_x86::Tss64 p_tss;
 };
 
+void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
+
 class ThreadQueue {
 public:
+	ThreadQueue();
+
 	bool empty();
 
 	void addBack(SharedPtr<Thread, KernelAlloc> &&thread);

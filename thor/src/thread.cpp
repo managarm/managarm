@@ -2,6 +2,7 @@
 #include "kernel.hpp"
 
 namespace traits = frigg::traits;
+namespace debug = frigg::debug;
 
 namespace thor {
 
@@ -48,17 +49,18 @@ void Thread::enableIoPort(uintptr_t port) {
 	p_tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
-void Thread::switchTo() {
-	UnsafePtr<Thread, KernelAlloc> previous_thread = *currentThread;;
-	*currentThread = SharedPtr<Thread, KernelAlloc>(thisPtr());
+void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {
+	*currentThread = SharedPtr<Thread, KernelAlloc>(thread);
 	
-	thorRtUserContext = &p_state;
-	thorRtEnableTss(&p_tss);
+	thorRtUserContext = &thread->p_state;
+	thorRtEnableTss(&thread->p_tss);
 }
 
 // --------------------------------------------------------
 // ThreadQueue
 // --------------------------------------------------------
+
+ThreadQueue::ThreadQueue() { }
 
 bool ThreadQueue::empty() {
 	return p_front.get() == nullptr;
@@ -68,7 +70,7 @@ void ThreadQueue::addBack(SharedPtr<Thread, KernelAlloc> &&thread) {
 	// setup the back pointer before moving the thread pointer
 	UnsafePtr<Thread, KernelAlloc> back = p_back;
 	p_back = thread;
-	
+
 	// move the thread pointer into the queue
 	if(empty()) {
 		p_front = traits::move(thread);

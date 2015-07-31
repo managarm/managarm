@@ -1,7 +1,7 @@
 
 namespace thor {
 
-class Memory : public SharedBase<Memory, KernelAlloc> {
+class Memory {
 public:
 	Memory();
 
@@ -52,7 +52,7 @@ struct Mapping {
 	Mapping(Type type, VirtualAddr base_address, size_t length);
 };
 
-class AddressSpace : public SharedBase<AddressSpace, KernelAlloc> {
+class AddressSpace {
 public:
 	AddressSpace(memory::PageSpace page_space);
 

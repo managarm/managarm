@@ -11,7 +11,7 @@ void schedule() {
 	ASSERT(!scheduleQueue->empty());
 	
 	SharedPtr<Thread, KernelAlloc> thread_ptr = scheduleQueue->removeFront();
-	thread_ptr->switchTo();
+	switchThread(thread_ptr);
 
 	scheduleQueue->addBack(traits::move(thread_ptr));
 	

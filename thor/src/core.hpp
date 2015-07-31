@@ -74,7 +74,7 @@ private:
 
 extern LazyInitializer<IrqRelay[16]> irqRelays;
 
-class IrqLine : public SharedBase<IrqLine, KernelAlloc> {
+class IrqLine {
 public:
 	IrqLine(int number);
 
@@ -84,7 +84,7 @@ private:
 	int p_number;
 };
 
-class IoSpace : public SharedBase<IoSpace, KernelAlloc> {
+class IoSpace {
 public:
 	IoSpace();
 
@@ -100,7 +100,7 @@ private:
 // Process related classes
 // --------------------------------------------------------
 
-class Universe : public SharedBase<Universe, KernelAlloc> {
+class Universe {
 public:
 	Universe();
 	

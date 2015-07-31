@@ -47,7 +47,7 @@ private:
 	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-class BiDirectionPipe : public SharedBase<BiDirectionPipe, KernelAlloc> {
+class BiDirectionPipe {
 public:
 	BiDirectionPipe();
 
@@ -59,7 +59,7 @@ private:
 	Channel p_secondChannel;
 };
 
-class Server : public SharedBase<Server, KernelAlloc> {
+class Server {
 public:
 	Server();
 

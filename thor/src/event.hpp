@@ -10,7 +10,7 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-class EventHub : public SharedBase<EventHub, KernelAlloc> {
+class EventHub {
 public:
 	struct Event {
 		enum Type {
