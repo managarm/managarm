@@ -54,7 +54,7 @@ AddressSpace::AddressSpace(PageSpace page_space)
 	addressTreeInsert(mapping);
 }
 
-void AddressSpace::mapSingle4k(void *address, uintptr_t physical) {
+void AddressSpace::mapSingle4k(VirtualAddr address, PhysicalAddr physical) {
 	p_pageSpace.mapSingle4k(address, physical);
 }
 

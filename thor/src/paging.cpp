@@ -33,14 +33,14 @@ PageSpace PageSpace::clone() {
 	return PageSpace(new_pml4_page);
 }
 
-void PageSpace::mapSingle4k(void *pointer, uintptr_t physical) {
-	ASSERT(((uintptr_t)pointer % 0x1000) == 0);
+void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical) {
+	ASSERT((pointer % 0x1000) == 0);
 	ASSERT((physical % 0x1000) == 0);
 
-	int pml4_index = (int)(((uintptr_t)pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)(((uintptr_t)pointer >> 30) & 0x1FF);
-	int pd_index = (int)(((uintptr_t)pointer >> 21) & 0x1FF);
-	int pt_index = (int)(((uintptr_t)pointer >> 12) & 0x1FF);
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
 	
 	// find the pml4_entry. the pml4 exists already
 	volatile uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);

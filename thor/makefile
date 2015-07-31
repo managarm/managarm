@@ -14,11 +14,10 @@ KERNEL = bin/thor.elf
 OBJECTS = obj/frigg-debug.o obj/frigg-initializer.o obj/frigg-libc.o \
 	obj/frigg-arch-gdt.o obj/frigg-arch-idt.o obj/frigg-arch-tss.o \
 	obj/runtime0.o obj/runtime1.o \
+	obj/physical.o obj/paging.o \
 	obj/main.o obj/hel.o \
 	obj/core.o obj/descriptor.o obj/usermem.o obj/schedule.o obj/ipc.o \
 	obj/event.o obj/thread.o obj/rd.o \
-	obj/physical.o obj/paging.o \
-	obj/memory/kernel-alloc.o
 
 SRCDIR = src
 FRIGG_SRCDIR = ../frigg/src

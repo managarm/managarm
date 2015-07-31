@@ -1,6 +1,10 @@
 
 namespace thor {
 
+// --------------------------------------------------------
+// Debugging and logging
+// --------------------------------------------------------
+
 class BochsSink {
 public:
 	void print(char c);
@@ -10,13 +14,32 @@ public:
 extern BochsSink infoSink;
 extern LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
-typedef memory::StupidMemoryAllocator KernelAlloc;
+// --------------------------------------------------------
+// Memory management
+// --------------------------------------------------------
 
+class KernelVirtualAlloc {
+public:
+	KernelVirtualAlloc();
+
+	uintptr_t map(size_t length);
+	void unmap(uintptr_t address, size_t length);
+
+private:
+	uintptr_t p_nextPage;
+};
+
+typedef frigg::memory::DebugAllocator<KernelVirtualAlloc> KernelAlloc;
 extern LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+extern LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern LazyInitializer<KernelAlloc> kernelAlloc;
 
 extern void *kernelStackBase;
 extern size_t kernelStackLength;
+
+// --------------------------------------------------------
+// Kernel data types
+// --------------------------------------------------------
 
 enum Error {
 	kErrSuccess,

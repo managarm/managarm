@@ -56,7 +56,7 @@ HelError helMapMemory(HelHandle memory_handle,
 	}
 
 	for(size_t offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
-		address_space->mapSingle4k((void *)(mapping->baseAddress + offset),
+		address_space->mapSingle4k(mapping->baseAddress + offset,
 				memory->getPage(i));
 	}
 

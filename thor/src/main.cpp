@@ -67,8 +67,8 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
 			
-			space->mapSingle4k((void *)(ldBaseAddr
-					+ (bottom_page + page) * page_size), physical);
+			space->mapSingle4k(ldBaseAddr
+					+ (bottom_page + page) * page_size, physical);
 		}
 
 		mapping->type = Mapping::kTypeMemory;
@@ -99,7 +99,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	kernelSpace.initialize(pml4_ptr);
-	kernelAlloc.initialize();
+	
+	kernelVirtualAlloc.initialize();
+	kernelAlloc.initialize(*kernelVirtualAlloc);
 	
 	kernelStackBase = kernelAlloc->allocate(kernelStackLength);
 
@@ -143,8 +145,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	Mapping *stack_mapping = address_space->allocate(stack_size);
 	for(size_t i = 0; i < stack_size / 0x1000; i++)
-		address_space->mapSingle4k((void *)(stack_mapping->baseAddress
-				+ i * 0x1000), stack_memory->getPage(i));
+		address_space->mapSingle4k(stack_mapping->baseAddress
+				+ i * 0x1000, stack_memory->getPage(i));
 	
 	auto program_memory = makeShared<Memory>(*kernelAlloc);
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)

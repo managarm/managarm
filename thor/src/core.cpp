@@ -6,16 +6,56 @@ namespace util = frigg::util;
 
 namespace thor {
 
+// --------------------------------------------------------
+// Debugging and logging
+// --------------------------------------------------------
+
 BochsSink infoSink;
 LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
+LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
+
+// --------------------------------------------------------
+// Memory management
+// --------------------------------------------------------
+
+KernelVirtualAlloc::KernelVirtualAlloc()
+: p_nextPage(0xFFFF800200000000) { }
+
+uintptr_t KernelVirtualAlloc::map(size_t length) {
+	ASSERT((length % kPageSize) == 0);
+	uintptr_t address = p_nextPage;
+	p_nextPage += length;
+
+	for(size_t offset = 0; offset < length; offset += kPageSize) {
+		PhysicalAddr physical = physicalAllocator->allocate(1);
+		kernelSpace->mapSingle4k(address + offset, physical);
+	}
+	thorRtInvalidateSpace();
+	asm("" : : : "memory");
+
+	return address;
+}
+
+void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
+	ASSERT((address % kPageSize) == 0);
+	ASSERT((length % kPageSize) == 0);
+
+	asm("" : : : "memory");
+	for(size_t offset = 0; offset < length; offset += kPageSize) {
+		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
+		physicalAllocator->free(physical);
+	}
+	thorRtInvalidateSpace();
+}
+
 LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 LazyInitializer<KernelAlloc> kernelAlloc;
 
 void *kernelStackBase;
 size_t kernelStackLength = 0x100000;
 
-LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
 
 // --------------------------------------------------------
 // Threading related functions

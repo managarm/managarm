@@ -69,7 +69,7 @@ public:
 	Mapping *splitHole(Mapping *mapping,
 			VirtualAddr split_offset, VirtualAddr split_length);
 
-	void mapSingle4k(void *address, uintptr_t physical);
+	void mapSingle4k(VirtualAddr address, PhysicalAddr physical);
 
 private:
 	Mapping *allocateDfs(Mapping *mapping, size_t length);

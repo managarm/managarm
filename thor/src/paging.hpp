@@ -28,7 +28,7 @@ public:
 
 	PageSpace clone();
 
-	void mapSingle4k(void *pointer, uintptr_t physical);
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
