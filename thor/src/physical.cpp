@@ -1,10 +1,7 @@
 
-#include "../kernel.hpp"
+#include "kernel.hpp"
 
 namespace thor {
-namespace memory {
-
-PhysicalChunkAllocator *tableAllocator;
 
 // --------------------------------------------------------
 // Chunk
@@ -273,5 +270,5 @@ void *PhysicalChunkAllocator::bootstrapAlloc(size_t length,
 	return pointer;
 }
 
-}} // namespace thor::memory
+} // namespace thor
 

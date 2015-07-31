@@ -43,7 +43,7 @@ void *StupidMemoryAllocator::allocate(size_t length) {
 
 	void *pointer = p_virtualAllocator.allocate(with_header);
 	for(size_t offset = 0; offset < with_header; offset += kPageSize) {
-		PhysicalAddr physical = tableAllocator->allocate(1);
+		PhysicalAddr physical = physicalAllocator->allocate(1);
 		kernelSpace->mapSingle4k((char *)pointer + offset, physical);
 	}
 	thorRtInvalidateSpace();
@@ -67,7 +67,7 @@ void StupidMemoryAllocator::free(void *pointer) {
 	for(size_t i = 0; i < num_pages; i++) {
 		VirtualAddr virt = (VirtualAddr)header + i * kPageSize;
 		PhysicalAddr physical = kernelSpace->unmapSingle4k(virt);
-		tableAllocator->free(physical);
+		physicalAllocator->free(physical);
 	}
 	thorRtInvalidateSpace();
 }

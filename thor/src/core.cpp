@@ -6,15 +6,16 @@ namespace util = frigg::util;
 
 namespace thor {
 
-LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
-
-LazyInitializer<KernelAlloc> kernelAlloc;
-
 BochsSink infoSink;
 LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
+LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+LazyInitializer<KernelAlloc> kernelAlloc;
+
 void *kernelStackBase;
 size_t kernelStackLength = 0x100000;
+
+LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
 
 // --------------------------------------------------------
 // Threading related functions

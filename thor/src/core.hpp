@@ -1,10 +1,6 @@
 
 namespace thor {
 
-typedef memory::StupidMemoryAllocator KernelAlloc;
-
-extern LazyInitializer<KernelAlloc> kernelAlloc;
-
 class BochsSink {
 public:
 	void print(char c);
@@ -13,6 +9,11 @@ public:
 
 extern BochsSink infoSink;
 extern LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+
+typedef memory::StupidMemoryAllocator KernelAlloc;
+
+extern LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+extern LazyInitializer<KernelAlloc> kernelAlloc;
 
 extern void *kernelStackBase;
 extern size_t kernelStackLength;

@@ -15,7 +15,7 @@ Memory::Memory()
 
 void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000) {
-		PhysicalAddr page = memory::tableAllocator->allocate(1);
+		PhysicalAddr page = physicalAllocator->allocate(1);
 		p_physicalPages.push(page);
 	}
 }

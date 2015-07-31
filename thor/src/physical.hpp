@@ -1,6 +1,5 @@
 
 namespace thor {
-namespace memory {
 
 struct Chunk {
 	enum : uint8_t {
@@ -74,7 +73,5 @@ private:
 	Chunk *p_root;
 };
 
-extern PhysicalChunkAllocator *tableAllocator;
-
-}} // namespace thor::memory
+} // namespace thor
 

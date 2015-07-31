@@ -11,8 +11,6 @@ namespace traits = frigg::traits;
 //FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
 //LazyInitializer<debug::Terminal> vgaTerminal;
 
-LazyInitializer<memory::PhysicalChunkAllocator> physicalAllocator;
-
 uint64_t ldBaseAddr = 0x40000000;
 	
 void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
@@ -92,12 +90,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			<< (void *)info->bootstrapPhysical
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
 
-	physicalAllocator.initialize(info->bootstrapPhysical,
-			info->bootstrapLength);
-	physicalAllocator->addChunk(info->bootstrapPhysical,
-			info->bootstrapLength);
+	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
+	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->bootstrap();
-	memory::tableAllocator = physicalAllocator.get();
 
 	thorRtInitializeProcessor();
 	
