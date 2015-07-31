@@ -75,24 +75,24 @@ private:
 	Mapping *allocateDfs(Mapping *mapping, size_t length);
 
 	// Left rotation (n denotes the given mapping):
-	//   w                 w
-	//   |                 |
-	//   u                 n
-	//  / \      -->      / \
-	// x   n             u   y
-	//    / \           / \
-	//   v   y         x   v
+	//   w                 w        |
+	//   |                 |        |
+	//   u                 n        |
+	//  / \      -->      / \       |
+	// x   n             u   y      |
+	//    / \           / \         |
+	//   v   y         x   v        |
 	// Note that x and y are left unchanged
 	void rotateLeft(Mapping *mapping);
 
 	// Right rotation (n denotes the given mapping):
-	//     w             w
-	//     |             |
-	//     u             n
-	//    / \    -->    / \
-	//   n   x         y   u
-	//  / \               / \
-	// y   v             v   x
+	//     w             w          |
+	//     |             |          |
+	//     u             n          |
+	//    / \    -->    / \         |
+	//   n   x         y   u        |
+	//  / \               / \       |
+	// y   v             v   x      |
 	// Note that x and y are left unchanged
 	void rotateRight(Mapping *mapping);
 

@@ -53,7 +53,7 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
-			for(int p = 0; p < page_size; p++)
+			for(size_t p = 0; p < page_size; p++)
 				*((char *)memory::physicalToVirtual(physical) + p) = 0;
 		}
 
@@ -216,7 +216,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall1((Word)error);
 		}
 		case kHelCallPanic: {
-			HelError error = helLog((const char *)arg0, (size_t)arg1);
+			helLog((const char *)arg0, (size_t)arg1);
 			
 			while(true) { }
 		}
@@ -255,7 +255,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallExitThisThread: {
-			HelError error = helExitThisThread();
+			helExitThisThread();
 			
 			schedule();
 		}

@@ -55,7 +55,7 @@ HelError helMapMemory(HelHandle memory_handle,
 		mapping = address_space->allocateAt((VirtualAddr)pointer, length);
 	}
 
-	for(int offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
+	for(size_t offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
 		address_space->mapSingle4k((void *)(mapping->baseAddress + offset),
 				memory->getPage(i));
 	}
@@ -106,6 +106,8 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 HelError helExitThisThread() {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
 	scheduleQueue->remove(this_thread);
+
+	return kHelErrNone;
 }
 
 
@@ -404,6 +406,8 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	
 	(*irqRelays)[number].submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
 			submit_info);
+
+	return kHelErrNone;
 }
 
 HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
@@ -418,6 +422,8 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 
 	IoDescriptor base(traits::move(io_space));
 	*handle = universe->attachDescriptor(traits::move(base));
+
+	return kHelErrNone;
 }
 HelError helEnableIo(HelHandle handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
@@ -427,5 +433,7 @@ HelError helEnableIo(HelHandle handle) {
 	auto &descriptor = wrapper.get<IoDescriptor>();
 	
 	descriptor.getIoSpace()->enableInThread(this_thread);
+
+	return kHelErrNone;
 }
 

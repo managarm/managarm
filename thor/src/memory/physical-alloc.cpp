@@ -87,7 +87,7 @@ void Chunk::checkNeighbors(int level, int entry_in_level,
 	all_red = true;
 
 	size_t offset = offsetOfLevel(level);
-	for(int i = node_start_byte_in_level; i < node_limit_byte_in_level; i++) {
+	for(size_t i = node_start_byte_in_level; i < node_limit_byte_in_level; i++) {
 		uint8_t byte = bitmapTree[offset + i];
 		
 		for(int j = 0; j < kEntriesPerByte; j++) {
@@ -172,7 +172,7 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 	size_t start_byte_in_level = start_entry_in_level / Chunk::kEntriesPerByte;
 	size_t limit_byte_in_level = limit_entry_in_level / Chunk::kEntriesPerByte;
 	
-	for(int i = start_byte_in_level; i < limit_byte_in_level; i++) {
+	for(size_t i = start_byte_in_level; i < limit_byte_in_level; i++) {
 		for(int j = 0; j < Chunk::kEntriesPerByte; j++) {
 			size_t entry_in_level = i * Chunk::kEntriesPerByte + j;
 

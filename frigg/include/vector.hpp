@@ -5,23 +5,21 @@ namespace util {
 template<typename T, typename Allocator>
 class Vector {
 public:
-	typedef int SizeType;
-
 	Vector(Allocator &allocator);
 	~Vector();
 
 	T &push(const T &element);
 	T &push(T &&element);
-	SizeType size();
-	T &operator[] (SizeType index);
+	size_t size();
+	T &operator[] (size_t index);
 
 private:
-	void ensureCapacity(SizeType capacity);
+	void ensureCapacity(size_t capacity);
 
 	Allocator &p_allocator;
 	T *p_elements;
-	SizeType p_size;
-	SizeType p_capacity;
+	size_t p_size;
+	size_t p_capacity;
 };
 
 template<typename T, typename Allocator>
@@ -52,23 +50,23 @@ T &Vector<T, Allocator>::push(T &&element) {
 }
 
 template<typename T, typename Allocator>
-typename Vector<T, Allocator>::SizeType Vector<T, Allocator>::size() {
+size_t Vector<T, Allocator>::size() {
 	return p_size;
 }
 
 template<typename T, typename Allocator>
-T &Vector<T, Allocator>::operator[] (SizeType index) {
+T &Vector<T, Allocator>::operator[] (size_t index) {
 	return p_elements[index];
 }
 
 template<typename T, typename Allocator>
-void Vector<T, Allocator>::ensureCapacity(SizeType capacity) {
+void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 	if(capacity <= p_capacity)
 		return;
 	
-	SizeType new_capacity = capacity * 2;	
+	size_t new_capacity = capacity * 2;	
 	T *new_array = (T *)p_allocator.allocate(sizeof(T) * new_capacity);
-	for(SizeType i = 0; i < p_capacity; i++)
+	for(size_t i = 0; i < p_capacity; i++)
 		new (&new_array[i]) T(traits::move(p_elements[i]));
 	
 	for(size_t i = 0; i < p_size; i++)

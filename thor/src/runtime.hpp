@@ -13,7 +13,7 @@ typedef uint64_t PhysicalAddr;
 typedef uint64_t VirtualAddr;
 typedef uint64_t VirtualOffset;
 
-extern "C" void thorRtHalt();
+extern "C" void thorRtHalt() __attribute__ (( noreturn ));
 
 struct ThorRtThreadState {
 	Word rax;		// offset 0

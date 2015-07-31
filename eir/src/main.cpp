@@ -46,6 +46,7 @@ void friggPrintCritical(const char *str) {
 
 void friggPanic() {
 	while(true) { }
+	__builtin_unreachable();
 }
 
 enum PageFlags {

@@ -11,9 +11,9 @@ private:
 		Item *next;
 
 		Item(const T &new_element) : element(new_element),
-				next(nullptr), previous(nullptr) { }
+				previous(nullptr), next(nullptr) { }
 		Item(T &&new_element) : element(traits::move(new_element)),
-				next(nullptr), previous(nullptr) { }
+				previous(nullptr), next(nullptr) { }
 	};
 
 public:

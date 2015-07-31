@@ -5,8 +5,6 @@ namespace util {
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 class Hashmap {
 public:
-	typedef int SizeType;
-
 	Hashmap(const Hasher &hasher, Allocator &allocator);
 	~Hashmap();
 
@@ -17,7 +15,7 @@ public:
 
 	Value remove(const Key &key);
 	
-	void rehash(SizeType new_capacity);
+	void rehash(size_t new_capacity);
 
 private:
 	struct Item {
@@ -34,15 +32,15 @@ private:
 	Hasher p_hasher;
 	Allocator &p_allocator;
 	Item **p_table;
-	SizeType p_capacity;
-	SizeType p_size;
+	size_t p_capacity;
+	size_t p_size;
 };
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 Hashmap<Key, Value, Hasher, Allocator>::Hashmap(const Hasher &hasher, Allocator &allocator)
 		: p_hasher(hasher), p_allocator(allocator), p_capacity(10), p_size(0) {
 	p_table = (Item **)allocator.allocate(sizeof(Item *) * p_capacity);
-	for(SizeType i = 0; i < p_capacity; i++)
+	for(size_t i = 0; i < p_capacity; i++)
 		p_table[i] = nullptr;
 }
 
@@ -94,6 +92,7 @@ Value &Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
 	}
 
 	ASSERT(!"get(): Element not found");
+	__builtin_unreachable();
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
@@ -118,10 +117,11 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 	}
 
 	ASSERT(!"remove(): Element not found");
+	__builtin_unreachable();
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-void Hashmap<Key, Value, Hasher, Allocator>::rehash(SizeType new_capacity) {
+void Hashmap<Key, Value, Hasher, Allocator>::rehash(size_t new_capacity) {
 	ASSERT(!"FIXME: Implement rehash");
 }
 
