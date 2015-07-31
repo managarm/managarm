@@ -28,7 +28,7 @@ class SharedPtr {
 public:
 	template<typename... Args>
 	static SharedPtr make(Allocator &allocator, Args&&... args) {
-		auto base = construct<T>(allocator, thor::util::forward<Args>(args)...);
+		auto base = frigg::memory::construct<T>(allocator, frigg::traits::forward<Args>(args)...);
 		base->p_allocator = &allocator;
 		return SharedPtr<T, Allocator>(base);
 	}
@@ -41,7 +41,7 @@ public:
 		SharedBase<T, Allocator> *base = p_pointer;
 		base->p_refCount--;
 		if(base->p_refCount == 0)
-			destruct(*base->p_allocator, p_pointer);
+			frigg::memory::destruct(*base->p_allocator, p_pointer);
 	}
 
 	SharedPtr(const SharedPtr &other) {
@@ -116,6 +116,6 @@ UnsafePtr<T, Allocator>::operator SharedPtr<T, Allocator>() {
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T, Allocator>::make(allocator, thor::util::forward<Args>(args)...);
+	return SharedPtr<T, Allocator>::make(allocator, frigg::traits::forward<Args>(args)...);
 }
 

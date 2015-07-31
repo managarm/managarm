@@ -1,23 +1,15 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
+#include "kernel.hpp"
 #include "../../frigg/include/elf.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
-#include "schedule.hpp"
 #include "../../hel/include/hel.h"
 #include <eir/interface.hpp>
 
 using namespace thor;
+namespace debug = frigg::debug;
+namespace traits = frigg::traits;
 
-LazyInitializer<debug::VgaScreen> vgaScreen;
-LazyInitializer<debug::Terminal> vgaTerminal;
+//FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
+//LazyInitializer<debug::Terminal> vgaTerminal;
 
 LazyInitializer<memory::PhysicalChunkAllocator> physicalAllocator;
 
@@ -82,24 +74,21 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		}
 
 		mapping->type = Mapping::kTypeMemory;
-		mapping->memoryRegion = util::move(memory);
+		mapping->memoryRegion = traits::move(memory);
 	}
 	
 	return (void *)(ldBaseAddr + ehdr->e_entry);
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
-	
-	vgaTerminal.initialize(vgaScreen.get());
-	debug::infoSink = vgaTerminal.get();
-	debug::infoLogger.initialize(vgaTerminal.get());
-	debug::panicLogger.initialize(vgaTerminal.get());
+	//vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
+//FIXME	vgaTerminal.initialize(vgaScreen.get());
+	infoLogger.initialize(infoSink);
 
-	debug::infoLogger->log() << "Starting Thor" << debug::Finish();
+	infoLogger->log() << "Starting Thor" << debug::Finish();
 
 	auto info = memory::accessPhysical<EirInfo>(info_paddr);
-	debug::infoLogger->log() << "Bootstrap memory at "
+	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
 
@@ -136,9 +125,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		auto name_ptr = memory::accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
 
-		MemoryAccessDescriptor mod_descriptor(util::move(mod_memory));
+		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
 		folder->publish(name_ptr, modules[i].nameLength,
-				AnyDescriptor(util::move(mod_descriptor)));
+				AnyDescriptor(traits::move(mod_descriptor)));
 	}
 	
 	// create a user space thread from the init image
@@ -166,30 +155,30 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
 		program_memory->addPage(modules[1].physicalBase + offset);
 	
-	auto program_descriptor = MemoryAccessDescriptor(util::move(program_memory));
-	Handle program_handle = universe->attachDescriptor(util::move(program_descriptor));
+	auto program_descriptor = MemoryAccessDescriptor(traits::move(program_memory));
+	Handle program_handle = universe->attachDescriptor(traits::move(program_descriptor));
 
 	auto thread = makeShared<Thread>(*kernelAlloc);
 	thread->setup(entry, program_handle,
 			(void *)(stack_mapping->baseAddress + stack_size));
-	thread->setUniverse(util::move(universe));
-	thread->setAddressSpace(util::move(address_space));
-	thread->setDirectory(util::move(folder));
+	thread->setUniverse(traits::move(universe));
+	thread->setAddressSpace(traits::move(address_space));
+	thread->setDirectory(traits::move(folder));
 	
 	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
 	scheduleQueue.initialize();
 
-	scheduleQueue->addBack(util::move(thread));
+	scheduleQueue->addBack(traits::move(thread));
 	schedule();
 }
 
 extern "C" void thorDoubleFault() {
-	debug::panicLogger->log() << "Double fault" << debug::Finish();
+	debug::panicLogger.log() << "Double fault" << debug::Finish();
 }
 
 extern "C" void thorKernelPageFault(uintptr_t address,
 		uintptr_t fault_ip, Word error) {
-	debug::panicLogger->log() << "Kernel page fault"
+	debug::panicLogger.log() << "Kernel page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)fault_ip
 			<< debug::Finish();
@@ -197,7 +186,7 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 
 
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
-	debug::panicLogger->log() << "User page fault"
+	debug::panicLogger.log() << "User page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)thorRtUserContext->rip
 			<< debug::Finish();

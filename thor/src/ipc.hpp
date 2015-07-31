@@ -43,8 +43,8 @@ private:
 	// returns true if the message + request are consumed
 	bool processStringRequest(const Message &message, const Request &request);
 
-	util::LinkedList<Message, KernelAlloc> p_messages;
-	util::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::util::LinkedList<Message, KernelAlloc> p_messages;
+	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
 class BiDirectionPipe : public SharedBase<BiDirectionPipe, KernelAlloc> {
@@ -88,8 +88,8 @@ private:
 	void processRequests(const AcceptRequest &accept,
 			const ConnectRequest &connect);
 	
-	util::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
-	util::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
+	frigg::util::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
+	frigg::util::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
 };
 
 } // namespace thor

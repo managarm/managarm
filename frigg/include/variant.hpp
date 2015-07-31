@@ -1,5 +1,5 @@
 
-namespace thor {
+namespace frigg {
 namespace util {
 
 namespace variant_impl {
@@ -205,7 +205,7 @@ template<int tag_iter, typename T, typename... Tail>
 struct MoveConstruct<tag_iter, T, Tail...> {
 	static void construct(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
 		if(tag == tag_iter) {
-			new (&dest) T(util::move(src.element));
+			new (&dest) T(traits::move(src.element));
 		}else{
 			MoveConstruct<tag_iter + 1, Tail...>::construct(tag, dest.others, src.others);
 		}
@@ -226,7 +226,7 @@ template<int tag_iter, typename T, typename... Tail>
 struct MoveAssign<tag_iter, T, Tail...> {
 	static void assign(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
 		if(tag == tag_iter) {
-			dest.element = util::move(src.element);
+			dest.element = traits::move(src.element);
 		}else{
 			MoveAssign<tag_iter + 1, Tail...>::assign(tag, dest.others, src.others);
 		}
@@ -252,16 +252,16 @@ public:
 	Variant() : p_tag(0) { }
 
 	template<typename T, typename Enable
-			= typename util::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
+			= typename traits::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(const T &element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
 		new (&p_storage) T(element);
 	}
 	template<typename T, typename Enable
-			= typename util::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
+			= typename traits::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(T &&element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
-		new (&p_storage) T(util::move(element));
+		new (&p_storage) T(traits::move(element));
 	}
 
 	Variant(const Variant &other) {
@@ -341,6 +341,6 @@ private:
 	int p_tag;
 };
 
-} } // namespace thor::util
+} } // namespace frigg::util
 
 

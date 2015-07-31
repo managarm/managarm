@@ -1,5 +1,5 @@
 
-namespace thor {
+namespace frigg {
 namespace util {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
@@ -28,7 +28,7 @@ private:
 		Item(const Key &new_key, const Value &new_value)
 				: key(new_key), value(new_value), chain(nullptr) { }
 		Item(const Key &new_key, Value &&new_value)
-				: key(new_key), value(util::move(new_value)), chain(nullptr) { }
+				: key(new_key), value(traits::move(new_value)), chain(nullptr) { }
 	};
 	
 	Hasher p_hasher;
@@ -52,7 +52,7 @@ Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
 		Item *item = p_table[i];
 		while(item != nullptr) {
 			Item *chain = item->chain;
-			destruct(p_allocator, item);
+			memory::destruct(p_allocator, item);
 			item = chain;
 		}
 	}
@@ -66,7 +66,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = construct<Item>(p_allocator, key, value);
+	auto item = memory::construct<Item>(p_allocator, key, value);
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -78,7 +78,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = construct<Item>(p_allocator, key, util::move(value));
+	auto item = memory::construct<Item>(p_allocator, key, traits::move(value));
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -103,14 +103,14 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 	Item *previous = nullptr;
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
 		if(item->key == key) {
-			Value value = util::move(item->value);
+			Value value = traits::move(item->value);
 			
 			if(previous == nullptr) {
 				p_table[bucket] = item->chain;
 			}else{
 				previous->chain = item->chain;
 			}
-			destruct(p_allocator, item);
+			memory::destruct(p_allocator, item);
 			p_size--;
 
 			return value;
@@ -137,5 +137,5 @@ public:
 	}
 };
 
-}} // namespace thor::util
+}} // namespace frigg::util
 

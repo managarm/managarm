@@ -58,7 +58,7 @@ public:
 	Event dequeueEvent();
 
 private:
-	util::LinkedList<Event, KernelAlloc> p_queue;
+	frigg::util::LinkedList<Event, KernelAlloc> p_queue;
 };
 
 } // namespace thor

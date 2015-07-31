@@ -13,7 +13,7 @@ public:
 	size_t getSize();
 
 private:
-	util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
+	frigg::util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 };
 
 struct Mapping {

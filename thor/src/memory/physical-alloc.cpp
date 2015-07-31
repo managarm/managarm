@@ -1,10 +1,5 @@
 
-#include "../../../frigg/include/types.hpp"
-#include "../util/general.hpp"
-#include "../runtime.hpp"
-#include "../debug.hpp"
-#include "physical-alloc.hpp"
-#include "paging.hpp"
+#include "../kernel.hpp"
 
 namespace thor {
 namespace memory {

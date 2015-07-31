@@ -1,13 +1,18 @@
 
-#include "util/hashmap.hpp"
-#include "util/linked.hpp"
-#include "util/variant.hpp"
-
 namespace thor {
 
 typedef memory::StupidMemoryAllocator KernelAlloc;
 
 extern LazyInitializer<KernelAlloc> kernelAlloc;
+
+class BochsSink {
+public:
+	void print(char c);
+	void print(const char *str);
+};
+
+extern BochsSink infoSink;
+extern LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 extern void *kernelStackBase;
 extern size_t kernelStackLength;
@@ -64,7 +69,7 @@ private:
 		SubmitInfo submitInfo;
 	};
 
-	util::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
 extern LazyInitializer<IrqRelay[16]> irqRelays;
@@ -88,7 +93,7 @@ public:
 	void enableInThread(UnsafePtr<Thread, KernelAlloc> thread);
 
 private:
-	util::Vector<uintptr_t, KernelAlloc> p_ports;
+	frigg::util::Vector<uintptr_t, KernelAlloc> p_ports;
 };
 
 // --------------------------------------------------------
@@ -106,8 +111,8 @@ public:
 	AnyDescriptor detachDescriptor(Handle handle);
 
 private:
-	util::Hashmap<Handle, AnyDescriptor,
-			util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
+	frigg::util::Hashmap<Handle, AnyDescriptor,
+			frigg::util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
 	Handle p_nextHandle;
 };
 

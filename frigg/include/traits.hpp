@@ -1,6 +1,6 @@
 
 namespace frigg {
-namespace util {
+namespace traits {
 
 template<bool condition, typename T = void>
 struct EnableIf;
@@ -62,7 +62,7 @@ struct RemoveRef<T &&> {
 };
 
 template<typename T> 
-typename RemoveRef<T>::type && move(T &&arg) noexcept {
+typename RemoveRef<T>::type &&move(T &&arg) noexcept {
 	return static_cast<typename RemoveRef<T>::type &&>(arg);
 } 
 
@@ -71,4 +71,4 @@ T &&forward(typename RemoveRef<T>::type &arg) noexcept {
 	return static_cast<T &&>(arg);
 } 
 
-}} // namespace frigg::util
+}} // namespace frigg::traits

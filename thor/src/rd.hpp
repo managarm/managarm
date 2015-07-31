@@ -33,7 +33,7 @@ public:
 	Entry *getEntry(const char *name, size_t name_length);
 
 private:
-	util::Vector<Entry, KernelAlloc> p_entries;
+	frigg::util::Vector<Entry, KernelAlloc> p_entries;
 };
 
 } // namespace thor

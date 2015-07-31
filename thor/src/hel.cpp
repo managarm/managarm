@@ -1,22 +1,13 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
-#include "schedule.hpp"
+#include "kernel.hpp"
 #include "../../hel/include/hel.h"
 
 using namespace thor;
+namespace traits = frigg::traits;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
-		debug::infoSink->print(string[i]);
+		infoSink.print(string[i]);
 
 	return kHelErrNone;
 }
@@ -39,8 +30,8 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	auto memory = makeShared<Memory>(*kernelAlloc);
 	memory->resize(size);
 	
-	MemoryAccessDescriptor base(util::move(memory));
-	*handle = universe->attachDescriptor(util::move(base));
+	MemoryAccessDescriptor base(traits::move(memory));
+	*handle = universe->attachDescriptor(traits::move(base));
 
 	return 0;
 }
@@ -104,10 +95,10 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 	new_thread->setUniverse(SharedPtr<Universe, KernelAlloc>(universe));
 	new_thread->setAddressSpace(SharedPtr<AddressSpace, KernelAlloc>(address_space));
 
-	scheduleQueue->addBack(util::move(new_thread));
+	scheduleQueue->addBack(traits::move(new_thread));
 
-//	ThreadObserveDescriptor base(util::move(new_thread));
-//	*handle = universe->attachDescriptor(util::move(base));
+//	ThreadObserveDescriptor base(traits::move(new_thread));
+//	*handle = universe->attachDescriptor(traits::move(base));
 
 	return 0;
 }
@@ -124,9 +115,9 @@ HelError helCreateEventHub(HelHandle *handle) {
 	
 	auto event_hub = makeShared<EventHub>(*kernelAlloc);
 
-	EventHubDescriptor base(util::move(event_hub));
+	EventHubDescriptor base(traits::move(event_hub));
 
-	*handle = universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(traits::move(base));
 
 	return 0;
 }
@@ -175,14 +166,14 @@ HelError helWaitForEvents(HelHandle handle,
 		case EventHub::Event::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
 
-			BiDirectionFirstDescriptor descriptor(util::move(event.pipe));
-			user_evt->handle = universe->attachDescriptor(util::move(descriptor));
+			BiDirectionFirstDescriptor descriptor(traits::move(event.pipe));
+			user_evt->handle = universe->attachDescriptor(traits::move(descriptor));
 		} break;
 		case EventHub::Event::kTypeConnect: {
 			user_evt->type = kHelEventConnect;
 
-			BiDirectionSecondDescriptor descriptor(util::move(event.pipe));
-			user_evt->handle = universe->attachDescriptor(util::move(descriptor));
+			BiDirectionSecondDescriptor descriptor(traits::move(event.pipe));
+			user_evt->handle = universe->attachDescriptor(traits::move(descriptor));
 		} break;
 		case EventHub::Event::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
@@ -209,11 +200,11 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
 	SharedPtr<BiDirectionPipe, KernelAlloc> copy(pipe);
 
-	BiDirectionFirstDescriptor first_base(util::move(pipe));
-	BiDirectionSecondDescriptor second_base(util::move(copy));
+	BiDirectionFirstDescriptor first_base(traits::move(pipe));
+	BiDirectionSecondDescriptor second_base(traits::move(copy));
 	
-	*first_handle = universe->attachDescriptor(util::move(first_base));
-	*second_handle = universe->attachDescriptor(util::move(second_base));
+	*first_handle = universe->attachDescriptor(traits::move(first_base));
+	*second_handle = universe->attachDescriptor(traits::move(second_base));
 
 	return 0;
 }
@@ -295,11 +286,11 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 	auto server = makeShared<Server>(*kernelAlloc);
 	SharedPtr<Server, KernelAlloc> copy(server);
 
-	ServerDescriptor server_descriptor(util::move(server));
-	ClientDescriptor client_descriptor(util::move(copy));
+	ServerDescriptor server_descriptor(traits::move(server));
+	ClientDescriptor client_descriptor(traits::move(copy));
 
-	*server_handle = universe->attachDescriptor(util::move(server_descriptor));
-	*client_handle = universe->attachDescriptor(util::move(client_descriptor));
+	*server_handle = universe->attachDescriptor(traits::move(server_descriptor));
+	*client_handle = universe->attachDescriptor(traits::move(client_descriptor));
 
 	return 0;
 }
@@ -347,8 +338,8 @@ HelError helCreateRd(HelHandle *handle) {
 	
 	auto folder = makeShared<RdFolder>(*kernelAlloc);
 
-	RdDescriptor base(util::move(folder));
-	*handle = universe->attachDescriptor(util::move(base));
+	RdDescriptor base(traits::move(folder));
+	*handle = universe->attachDescriptor(traits::move(base));
 	
 	return kHelErrNone;
 }
@@ -364,7 +355,7 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	UnsafePtr<RdFolder, KernelAlloc> folder = descriptor.getFolder();
 
 	AnyDescriptor publish_copy(publish_wrapper);
-	folder->publish(user_name, name_length, util::move(publish_copy));
+	folder->publish(user_name, name_length, traits::move(publish_copy));
 	
 	return kHelErrNone;
 }
@@ -378,7 +369,7 @@ HelError helRdOpen(const char *user_name, size_t name_length,
 	ASSERT(entry != nullptr);
 	
 	AnyDescriptor copy(entry->descriptor);
-	*handle = universe->attachDescriptor(util::move(copy));
+	*handle = universe->attachDescriptor(traits::move(copy));
 
 	return kHelErrNone;
 }
@@ -390,9 +381,9 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	
 	auto irq_line = makeShared<IrqLine>(*kernelAlloc, number);
 
-	IrqDescriptor base(util::move(irq_line));
+	IrqDescriptor base(traits::move(irq_line));
 
-	*handle = universe->attachDescriptor(util::move(base));
+	*handle = universe->attachDescriptor(traits::move(base));
 
 	return 0;
 }
@@ -425,8 +416,8 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	for(size_t i = 0; i < num_ports; i++)
 		io_space->addPort(user_port_array[i]);
 
-	IoDescriptor base(util::move(io_space));
-	*handle = universe->attachDescriptor(util::move(base));
+	IoDescriptor base(traits::move(io_space));
+	*handle = universe->attachDescriptor(traits::move(base));
 }
 HelError helEnableIo(HelHandle handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;

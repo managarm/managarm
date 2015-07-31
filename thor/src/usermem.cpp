@@ -1,14 +1,8 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
+#include "kernel.hpp"
+
+namespace traits = frigg::traits;
+//FIXME: namespace memory = frigg::memory;
 
 namespace thor {
 
@@ -55,7 +49,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 
 AddressSpace::AddressSpace(memory::PageSpace page_space)
 : p_pageSpace(page_space) {
-	auto mapping = construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
+	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);
 	addressTreeInsert(mapping);
 }
@@ -121,7 +115,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	VirtualAddr hole_address = mapping->baseAddress;
 	size_t hole_length = mapping->length;
 
-	auto split = construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
+	auto split = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
 			hole_address + split_offset, split_length);
 	
 	if(split_offset == 0) {
@@ -133,7 +127,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 
 		addressTreeRemove(mapping);
 
-		destruct(*kernelAlloc, mapping);
+		frigg::memory::destruct(*kernelAlloc, mapping);
 	}else{
 		// the split mapping starts in the middle of the hole
 		split->lowerPtr = mapping;
@@ -147,7 +141,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	if(hole_length > split_offset + split_length) {
 		// the split mapping does not go on until the end of the hole
 		// we have to create another mapping for the rest of the hole
-		auto following = construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
+		auto following = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 				hole_address + split_offset + split_length,
 				hole_length - split_offset - split_length);
 		split->higherPtr = following;

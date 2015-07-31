@@ -1,14 +1,7 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
+#include "kernel.hpp"
+
+namespace traits = frigg::traits;
 
 namespace thor {
 
@@ -28,27 +21,27 @@ RdFolder::RdFolder()
 void RdFolder::mount(const char *name, size_t name_length,
 		SharedPtr<RdFolder, KernelAlloc> &&mounted) {
 	Entry entry(kTypeMounted);
-	entry.mounted = util::move(mounted);
+	entry.mounted = traits::move(mounted);
 
 	ASSERT(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;
 
-	p_entries.push(util::move(entry));
+	p_entries.push(traits::move(entry));
 }
 
 void RdFolder::publish(const char *name, size_t name_length,
 		AnyDescriptor &&descriptor) {
 	Entry entry(kTypeDescriptor);
-	entry.descriptor = util::move(descriptor);
+	entry.descriptor = traits::move(descriptor);
 
 	ASSERT(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;
 
-	p_entries.push(util::move(entry));
+	p_entries.push(traits::move(entry));
 }
 
 bool strNEquals(const char *str1, const char *str2, size_t length) {

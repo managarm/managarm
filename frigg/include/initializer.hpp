@@ -1,5 +1,6 @@
 
 void *operator new (size_t size, void *pointer);
+void *operator new[] (size_t size, void *pointer);
 
 namespace frigg {
 namespace util {
@@ -9,7 +10,7 @@ class LazyInitializer {
 public:
 	template<typename... Args>
 	void initialize(Args&&... args) {
-		new(p_object) T(forward<Args>(args)...);
+		new(p_object) T(traits::forward<Args>(args)...);
 	}
 
 	T *get() {

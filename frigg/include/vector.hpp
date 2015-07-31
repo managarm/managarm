@@ -1,5 +1,5 @@
 
-namespace thor {
+namespace frigg {
 namespace util {
 
 template<typename T, typename Allocator>
@@ -46,7 +46,7 @@ T &Vector<T, Allocator>::push(const T &element) {
 template<typename T, typename Allocator>
 T &Vector<T, Allocator>::push(T &&element) {
 	ensureCapacity(p_size + 1);
-	T *pointer = new (&p_elements[p_size]) T(util::move(element));
+	T *pointer = new (&p_elements[p_size]) T(traits::move(element));
 	p_size++;
 	return *pointer;
 }
@@ -69,7 +69,7 @@ void Vector<T, Allocator>::ensureCapacity(SizeType capacity) {
 	SizeType new_capacity = capacity * 2;	
 	T *new_array = (T *)p_allocator.allocate(sizeof(T) * new_capacity);
 	for(SizeType i = 0; i < p_capacity; i++)
-		new (&new_array[i]) T(util::move(p_elements[i]));
+		new (&new_array[i]) T(traits::move(p_elements[i]));
 	
 	for(size_t i = 0; i < p_size; i++)
 		p_elements[i].~T();
@@ -79,5 +79,5 @@ void Vector<T, Allocator>::ensureCapacity(SizeType capacity) {
 	p_capacity = new_capacity;
 }
 
-}} // namespace thor::util
+}} // namespace frigg::util
 

@@ -1,6 +1,6 @@
 
 #include "../../frigg/include/types.hpp"
-#include "../../frigg/include/utils.hpp"
+#include "../../frigg/include/traits.hpp"
 #include "../../frigg/include/initializer.hpp"
 #include "../../frigg/include/support.hpp"
 #include "../../frigg/include/debug.hpp"

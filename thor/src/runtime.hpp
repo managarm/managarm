@@ -13,12 +13,6 @@ typedef uint64_t PhysicalAddr;
 typedef uint64_t VirtualAddr;
 typedef uint64_t VirtualOffset;
 
-void *operator new (size_t size, void *pointer);
-void *operator new[] (size_t size, void *pointer);
-extern "C" void __cxa_pure_virtual();
-extern "C" void *memcpy(void *dest, const void *src, size_t n);
-extern "C" void *memset(void *dest, int byte, size_t n);
-
 extern "C" void thorRtHalt();
 
 struct ThorRtThreadState {
@@ -91,7 +85,7 @@ class LazyInitializer {
 public:
 	template<typename... Args>
 	void initialize(Args&&... args) {
-		new(p_object) T(thor::util::forward<Args>(args)...);
+		new(p_object) T(frigg::traits::forward<Args>(args)...);
 	}
 
 	T *get() {

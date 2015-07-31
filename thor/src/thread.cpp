@@ -1,14 +1,7 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
+#include "kernel.hpp"
+
+namespace traits = frigg::traits;
 
 namespace thor {
 
@@ -42,13 +35,13 @@ UnsafePtr<RdFolder, KernelAlloc> Thread::getDirectory() {
 }
 
 void Thread::setUniverse(SharedPtr<Universe, KernelAlloc> &&universe) {
-	p_universe = util::move(universe);
+	p_universe = traits::move(universe);
 }
 void Thread::setAddressSpace(SharedPtr<AddressSpace, KernelAlloc> &&address_space) {
-	p_addressSpace = util::move(address_space);
+	p_addressSpace = traits::move(address_space);
 }
 void Thread::setDirectory(SharedPtr<RdFolder, KernelAlloc> &&directory) {
-	p_directory = util::move(directory);
+	p_directory = traits::move(directory);
 }
 
 void Thread::enableIoPort(uintptr_t port) {
@@ -78,10 +71,10 @@ void ThreadQueue::addBack(SharedPtr<Thread, KernelAlloc> &&thread) {
 	
 	// move the thread pointer into the queue
 	if(empty()) {
-		p_front = util::move(thread);
+		p_front = traits::move(thread);
 	}else{
 		thread->p_previousInQueue = back;
-		back->p_nextInQueue = util::move(thread);
+		back->p_nextInQueue = traits::move(thread);
 	}
 }
 
@@ -89,8 +82,8 @@ SharedPtr<Thread, KernelAlloc> ThreadQueue::removeFront() {
 	ASSERT(!empty());
 	
 	// move the front and second element out of the queue
-	SharedPtr<Thread, KernelAlloc> front = util::move(p_front);
-	SharedPtr<Thread, KernelAlloc> next = util::move(front->p_nextInQueue);
+	SharedPtr<Thread, KernelAlloc> front = traits::move(p_front);
+	SharedPtr<Thread, KernelAlloc> next = traits::move(front->p_nextInQueue);
 	front->p_previousInQueue = UnsafePtr<Thread, KernelAlloc>();
 
 	// fix the pointers to previous elements
@@ -101,14 +94,14 @@ SharedPtr<Thread, KernelAlloc> ThreadQueue::removeFront() {
 	}
 
 	// move the second element back to the queue
-	p_front = util::move(next);
+	p_front = traits::move(next);
 
 	return front;
 }
 
 SharedPtr<Thread, KernelAlloc> ThreadQueue::remove(UnsafePtr<Thread, KernelAlloc> thread) {
 	// move the successor out of the queue
-	SharedPtr<Thread, KernelAlloc> next = util::move(thread->p_nextInQueue);
+	SharedPtr<Thread, KernelAlloc> next = traits::move(thread->p_nextInQueue);
 	UnsafePtr<Thread, KernelAlloc> previous = thread->p_previousInQueue;
 	thread->p_previousInQueue = UnsafePtr<Thread, KernelAlloc>();
 
@@ -123,11 +116,11 @@ SharedPtr<Thread, KernelAlloc> ThreadQueue::remove(UnsafePtr<Thread, KernelAlloc
 	// move the thread out of the queue
 	SharedPtr<Thread, KernelAlloc> reference;
 	if(p_front.get() == thread.get()) {
-		reference = util::move(p_front);
-		p_front = util::move(next);
+		reference = traits::move(p_front);
+		p_front = traits::move(next);
 	}else{
-		reference = util::move(previous->p_nextInQueue);
-		previous->p_nextInQueue = util::move(next);
+		reference = traits::move(previous->p_nextInQueue);
+		previous->p_nextInQueue = traits::move(next);
 	}
 
 	return reference;

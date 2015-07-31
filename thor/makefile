@@ -11,17 +11,18 @@ LD = x86_64-managarm-ld
 LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 
 KERNEL = bin/thor.elf
-OBJECTS = obj/frigg-gdt.o obj/frigg-idt.o obj/frigg-tss.o \
+OBJECTS = obj/frigg-debug.o obj/frigg-initializer.o obj/frigg-libc.o \
+	obj/frigg-arch-gdt.o obj/frigg-arch-idt.o obj/frigg-arch-tss.o \
 	obj/runtime0.o obj/runtime1.o \
 	obj/main.o obj/hel.o \
 	obj/core.o obj/descriptor.o obj/usermem.o obj/schedule.o obj/ipc.o \
 	obj/event.o obj/thread.o obj/rd.o \
-	obj/debug.o \
 	obj/memory/physical-alloc.o obj/memory/paging.o \
 	obj/memory/kernel-alloc.o
 
 SRCDIR = src
-FRIGG_SRCDIR = ../frigg/src/arch_x86
+FRIGG_SRCDIR = ../frigg/src
+FRIGG_ARCH_SRCDIR = ../frigg/src/arch_x86
 
 .PHONY: all clean
 
@@ -42,9 +43,14 @@ obj/%.o: src/%.asm
 	$(AS) $(AS_FLAGS) -o $@ $(SRCDIR)/$(@:obj/%.o=%.asm)
 
 obj/frigg-%.o: $(FRIGG_SRCDIR)/%.cpp
-	$(CXX) $(CXX_FLAGS) -c -o $@ $(FRIGG_SRCDIR)/$(@:obj/frigg-%.o=%.cpp)
+	$(CXX) $(CXX_FLAGS) -c -o $@ $(FRIGG_SRCDIR)/$(@F:frigg-%.o=%.cpp)
 	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
-		$(FRIGG_SRCDIR)/$(@:obj/frigg-%.o=%.cpp)
+		$(FRIGG_SRCDIR)/$(@F:frigg-%.o=%.cpp)
+
+obj/frigg-arch-%.o: $(FRIGG_ARCH_SRCDIR)/%.cpp
+	$(CXX) $(CXX_FLAGS) -c -o $@ $(FRIGG_ARCH_SRCDIR)/$(@F:frigg-arch-%.o=%.cpp)
+	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
+		$(FRIGG_ARCH_SRCDIR)/$(@F:frigg-arch-%.o=%.cpp)
 
 -include $(OBJECTS:%.o=%.d)
 

@@ -1,36 +1,9 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
+#include "kernel.hpp"
 
 ThorRtThreadState *thorRtUserContext = nullptr;
 
 uint32_t *thorRtGdtPointer;
-
-void *operator new (size_t size, void *pointer) {
-	return pointer;
-}
-void *operator new[] (size_t size, void *pointer) {
-	return pointer;
-}
-
-void __cxa_pure_virtual() {
-	ASSERT(!"Pure virtual call");
-}
-
-extern "C" void *memcpy(void *dest, const void *src, size_t n) {
-	for(size_t i = 0; i < n; i++)
-		((char *)dest)[i] = ((const char *)src)[i];
-	return dest;
-}
-extern "C" void *memset(void *dest, int byte, size_t count) {
-	for(size_t i = 0; i < count; i++)
-		((char *)dest)[i] = (char)byte;
-	return dest;
-}
 
 void thorRtInvalidateSpace() {
 	asm volatile ("movq %%cr3, %%rax\n\t"
@@ -104,6 +77,18 @@ void ioOutByte(uint16_t port, uint8_t value) {
 	register uint8_t in_value asm("al") = value;
 	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
 }
+
+namespace thor {
+
+void BochsSink::print(char c) {
+	ioOutByte(0xE9, c);
+}
+void BochsSink::print(const char *str) {
+	while(*str != 0)
+		ioOutByte(0xE9, *str++);
+}
+
+} // namespace thor
 
 enum PicRegisters : uint16_t {
 	kPic1Command = 0x20,

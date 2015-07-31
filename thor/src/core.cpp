@@ -1,20 +1,17 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
+#include "kernel.hpp"
+
+namespace traits = frigg::traits;
+namespace util = frigg::util;
 
 namespace thor {
 
 LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
 
 LazyInitializer<KernelAlloc> kernelAlloc;
+
+BochsSink infoSink;
+LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 void *kernelStackBase;
 size_t kernelStackLength = 0x100000;
@@ -28,7 +25,7 @@ Universe::Universe()
 
 Handle Universe::attachDescriptor(AnyDescriptor &&descriptor) {
 	Handle handle = p_nextHandle++;
-	p_descriptorMap.insert(handle, util::move(descriptor));
+	p_descriptorMap.insert(handle, traits::move(descriptor));
 	return handle;
 }
 
@@ -46,7 +43,7 @@ AnyDescriptor Universe::detachDescriptor(Handle handle) {
 
 IrqRelay::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
 LazyInitializer<IrqRelay[16]> irqRelays;
 
@@ -54,8 +51,8 @@ IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 
 void IrqRelay::submitWaitRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
-	Request request(util::move(event_hub), submit_info);
-	p_requests.addBack(util::move(request));
+	Request request(traits::move(event_hub), submit_info);
+	p_requests.addBack(traits::move(request));
 }
 
 void IrqRelay::fire() {
@@ -85,4 +82,15 @@ void IoSpace::enableInThread(UnsafePtr<Thread, KernelAlloc> thread) {
 }
 
 } // namespace thor
+
+void friggPrintCritical(char c) {
+	thor::infoSink.print(c);
+}
+void friggPrintCritical(char const *str) {
+	thor::infoSink.print(str);
+}
+void friggPanic() {
+	thorRtHalt();
+}
+
 

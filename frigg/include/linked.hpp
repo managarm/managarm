@@ -1,5 +1,5 @@
 
-namespace thor {
+namespace frigg {
 namespace util {
 
 template<typename T, typename Allocator>
@@ -12,7 +12,7 @@ private:
 
 		Item(const T &new_element) : element(new_element),
 				next(nullptr), previous(nullptr) { }
-		Item(T &&new_element) : element(util::move(new_element)),
+		Item(T &&new_element) : element(traits::move(new_element)),
 				next(nullptr), previous(nullptr) { }
 	};
 
@@ -45,13 +45,13 @@ public:
 		Item *item = p_front;
 		while(item != nullptr) {
 			Item *next = item->next;
-			destruct(p_allocator, next);
+			memory::destruct(p_allocator, next);
 			item = next;
 		}
 	}
 
 	void addBack(T &&element) {
-		auto item = construct<Item>(p_allocator, util::move(element));
+		auto item = memory::construct<Item>(p_allocator, traits::move(element));
 		addItemBack(item);
 	}
 
@@ -70,11 +70,11 @@ public:
 	T remove(const Iterator &iter) {
 		Item *item = iter.p_current;
 		
-		T element = util::move(item->element);
+		T element = traits::move(item->element);
 
 		Item *next = item->next;
 		Item *previous = item->previous;
-		destruct(p_allocator, item);
+		memory::destruct(p_allocator, item);
 
 		if(next == nullptr) {
 			p_back = previous;
@@ -111,5 +111,5 @@ private:
 	Item *p_back;
 };
 
-} } // namespace thor::util
+} } // namespace frigg::util
 

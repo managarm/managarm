@@ -1,14 +1,7 @@
 
-#include "../../frigg/include/types.hpp"
-#include "util/general.hpp"
-#include "runtime.hpp"
-#include "debug.hpp"
-#include "util/vector.hpp"
-#include "util/smart-ptr.hpp"
-#include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
-#include "memory/kernel-alloc.hpp"
-#include "core.hpp"
+#include "kernel.hpp"
+
+namespace traits = frigg::traits;
 
 namespace thor {
 
@@ -41,14 +34,14 @@ void Channel::sendString(const uint8_t *user_buffer, size_t length,
 	}
 
 	if(queue_message)
-		p_messages.addBack(util::move(message));
+		p_messages.addBack(traits::move(message));
 }
 
 void Channel::submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
-	Request request(util::move(event_hub),
+	Request request(traits::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
@@ -66,7 +59,7 @@ void Channel::submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 	}
 	
 	if(queue_request)
-		p_requests.addBack(util::move(request));
+		p_requests.addBack(traits::move(request));
 }
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
@@ -109,7 +102,7 @@ Channel::Message::Message(uint8_t *buffer, size_t length,
 Channel::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
-	: eventHub(util::move(event_hub)), submitInfo(submit_info),
+	: eventHub(traits::move(event_hub)), submitInfo(submit_info),
 		userBuffer(nullptr), maxLength(0),
 		filterRequest(filter_request), filterSequence(filter_sequence) { }
 
@@ -138,25 +131,25 @@ Server::Server() : p_acceptRequests(*kernelAlloc),
 
 void Server::submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
-	AcceptRequest request(util::move(event_hub), submit_info);
+	AcceptRequest request(traits::move(event_hub), submit_info);
 	
 	if(!p_connectRequests.empty()) {
 		processRequests(request, p_connectRequests.front());
 		p_connectRequests.removeFront();
 	}else{
-		p_acceptRequests.addBack(util::move(request));
+		p_acceptRequests.addBack(traits::move(request));
 	}
 }
 
 void Server::submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info) {
-	ConnectRequest request(util::move(event_hub), submit_info);
+	ConnectRequest request(traits::move(event_hub), submit_info);
 
 	if(!p_acceptRequests.empty()) {
 		processRequests(p_acceptRequests.front(), request);
 		p_acceptRequests.removeFront();
 	}else{
-		p_connectRequests.addBack(util::move(request));
+		p_connectRequests.addBack(traits::move(request));
 	}
 }
 
@@ -165,9 +158,9 @@ void Server::processRequests(const AcceptRequest &accept,
 	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
 	SharedPtr<BiDirectionPipe, KernelAlloc> copy(pipe);
 
-	accept.eventHub->raiseAcceptEvent(util::move(pipe),
+	accept.eventHub->raiseAcceptEvent(traits::move(pipe),
 			accept.submitInfo);
-	connect.eventHub->raiseConnectEvent(util::move(copy),
+	connect.eventHub->raiseConnectEvent(traits::move(copy),
 			connect.submitInfo);
 }
 
@@ -177,7 +170,7 @@ void Server::processRequests(const AcceptRequest &accept,
 
 Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
 // --------------------------------------------------------
 // Server::ConnectRequest
@@ -185,7 +178,7 @@ Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hu
 
 Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(util::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
 } // namespace thor
 

@@ -131,7 +131,7 @@ private:
 // AnyDescriptor
 // --------------------------------------------------------
 
-typedef util::Variant<MemoryAccessDescriptor,
+typedef frigg::util::Variant<MemoryAccessDescriptor,
 		ThreadObserveDescriptor,
 		EventHubDescriptor,
 		BiDirectionFirstDescriptor,
