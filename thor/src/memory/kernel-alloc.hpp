@@ -21,6 +21,12 @@ public:
 		Header(size_t num_pages);
 	};
 
+	StupidMemoryAllocator();
+
+	StupidMemoryAllocator(const StupidMemoryAllocator &) = delete;
+
+	StupidMemoryAllocator &operator= (const StupidMemoryAllocator &) = delete;
+
 	static_assert(sizeof(Header) == 32, "Header is not 32 bytes long");
 
 	void *allocate(size_t length);

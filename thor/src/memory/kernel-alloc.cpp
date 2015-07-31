@@ -30,6 +30,10 @@ StupidMemoryAllocator::Header::Header(size_t num_pages)
 // StupidMemoryAllocator
 // --------------------------------------------------------
 
+StupidMemoryAllocator::StupidMemoryAllocator() {
+
+}
+
 void *StupidMemoryAllocator::allocate(size_t length) {
 	size_t with_header = length + sizeof(Header);
 
