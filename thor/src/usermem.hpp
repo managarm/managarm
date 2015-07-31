@@ -54,7 +54,7 @@ struct Mapping {
 
 class AddressSpace {
 public:
-	AddressSpace(memory::PageSpace page_space);
+	AddressSpace(PageSpace page_space);
 
 	Mapping *getMapping(VirtualAddr address);
 	
@@ -108,7 +108,7 @@ private:
 	void updateLargestHole(Mapping *mapping);
 	
 	Mapping *p_root;
-	memory::PageSpace p_pageSpace;
+	PageSpace p_pageSpace;
 };
 
 } // namespace thor

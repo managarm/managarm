@@ -16,7 +16,7 @@ LazyInitializer<memory::PhysicalChunkAllocator> physicalAllocator;
 uint64_t ldBaseAddr = 0x40000000;
 	
 void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
-	char *image = (char *)memory::physicalToVirtual(image_page);
+	char *image = (char *)physicalToVirtual(image_page);
 
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
 	ASSERT(ehdr->e_ident[0] == '\x7F'
@@ -54,7 +54,7 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
 			for(size_t p = 0; p < page_size; p++)
-				*((char *)memory::physicalToVirtual(physical) + p) = 0;
+				*((char *)physicalToVirtual(physical) + p) = 0;
 		}
 
 		for(size_t p = 0; p < phdr->p_filesz; p++) {
@@ -62,7 +62,7 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 			uintptr_t virt_offset = (phdr->p_vaddr + p) % page_size;
 			
 			PhysicalAddr physical = memory->getPage(page);
-			char *ptr = (char *)memory::physicalToVirtual(physical);
+			char *ptr = (char *)physicalToVirtual(physical);
 			*(ptr + virt_offset) = *(image + phdr->p_offset + p);
 		}
 
@@ -81,13 +81,13 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	//vgaScreen.initialize((char *)memory::physicalToVirtual(0xB8000), 80, 25);
+	//vgaScreen.initialize((char *)physicalToVirtual(0xB8000), 80, 25);
 //FIXME	vgaTerminal.initialize(vgaScreen.get());
 	infoLogger.initialize(infoSink);
 
 	infoLogger->log() << "Starting Thor" << debug::Finish();
 
-	auto info = memory::accessPhysical<EirInfo>(info_paddr);
+	auto info = accessPhysical<EirInfo>(info_paddr);
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
@@ -103,7 +103,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
-	memory::kernelSpace.initialize(pml4_ptr);
+	kernelSpace.initialize(pml4_ptr);
 	kernelAlloc.initialize();
 	
 	kernelStackBase = kernelAlloc->allocate(kernelStackLength);
@@ -113,7 +113,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	// create a directory and load the memory regions of all modules into it
 	ASSERT(info->numModules >= 2);
-	auto modules = memory::accessPhysicalN<EirModule>(info->moduleInfo,
+	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
 	auto folder = makeShared<RdFolder>(*kernelAlloc);
@@ -122,7 +122,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
 			mod_memory->addPage(modules[i].physicalBase + offset);
 		
-		auto name_ptr = memory::accessPhysicalN<char>(modules[i].namePtr,
+		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
 
 		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
@@ -131,7 +131,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	}
 	
 	// create a user space thread from the init image
-	memory::PageSpace user_space = memory::kernelSpace->clone();
+	PageSpace user_space = kernelSpace->clone();
 	user_space.switchTo();
 
 	auto universe = makeShared<Universe>(*kernelAlloc);

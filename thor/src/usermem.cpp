@@ -47,7 +47,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 // AddressSpace
 // --------------------------------------------------------
 
-AddressSpace::AddressSpace(memory::PageSpace page_space)
+AddressSpace::AddressSpace(PageSpace page_space)
 : p_pageSpace(page_space) {
 	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);

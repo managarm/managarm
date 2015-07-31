@@ -12,7 +12,7 @@ void thorRtInvalidateSpace() {
 
 void thorRtInitializeProcessor() {
 	uintptr_t gdt_page = thor::memory::tableAllocator->allocate(1);
-	thorRtGdtPointer = (uint32_t *)thor::memory::physicalToVirtual(gdt_page);
+	thorRtGdtPointer = (uint32_t *)thor::physicalToVirtual(gdt_page);
 	frigg::arch_x86::makeGdtNullSegment(thorRtGdtPointer, 0);
 	frigg::arch_x86::makeGdtCode64SystemSegment(thorRtGdtPointer, 1);
 	frigg::arch_x86::makeGdtCode64UserSegment(thorRtGdtPointer, 2);
@@ -27,7 +27,7 @@ void thorRtInitializeProcessor() {
 	thorRtLoadCs(0x8);
 	
 	uintptr_t idt_page = thor::memory::tableAllocator->allocate(1);
-	uint32_t *idt_pointer = (uint32_t *)thor::memory::physicalToVirtual(idt_page);
+	uint32_t *idt_pointer = (uint32_t *)thor::physicalToVirtual(idt_page);
 	for(int i = 0; i < 256; i++)
 		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);

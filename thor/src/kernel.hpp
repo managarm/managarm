@@ -15,7 +15,7 @@
 #include "runtime.hpp"
 #include "util/smart-ptr.hpp"
 #include "memory/physical-alloc.hpp"
-#include "memory/paging.hpp"
+#include "paging.hpp"
 #include "memory/kernel-alloc.hpp"
 #include "core.hpp"
 #include "schedule.hpp"
