@@ -50,6 +50,10 @@ public:
 		}
 	}
 
+	void addBack(const T &element) {
+		auto item = memory::construct<Item>(p_allocator, element);
+		addItemBack(item);
+	}
 	void addBack(T &&element) {
 		auto item = memory::construct<Item>(p_allocator, traits::move(element));
 		addItemBack(item);

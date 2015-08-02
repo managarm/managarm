@@ -76,27 +76,49 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 	return nullptr;
 }
 
-Mapping *AddressSpace::allocate(size_t length) {
+Mapping *AddressSpace::allocate(size_t length, MapFlags flags) {
+	ASSERT((length % kPageSize) == 0);
+
 	if(p_root->largestHole < length)
 		return nullptr;
 	
-	return allocateDfs(p_root, length);
+	return allocateDfs(p_root, length, flags);
 }
 
-Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length) {
-	if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
-		return splitHole(mapping, 0, length);
-	
-	if(mapping->leftPtr != nullptr
-			&& mapping->leftPtr->largestHole >= length)
-		return allocateDfs(mapping->leftPtr, length);
-	
-	ASSERT(mapping->rightPtr != nullptr
-			&& mapping->rightPtr->largestHole >= length);
-	return allocateDfs(mapping->rightPtr, length);
+Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
+		MapFlags flags) {
+	if((flags & kMapPreferBottom) != 0) {
+		// try to allocate memory at the bottom of the range
+		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
+			return splitHole(mapping, 0, length);
+		
+		if(mapping->leftPtr != nullptr
+				&& mapping->leftPtr->largestHole >= length)
+			return allocateDfs(mapping->leftPtr, length, flags);
+		
+		ASSERT(mapping->rightPtr != nullptr
+				&& mapping->rightPtr->largestHole >= length);
+		return allocateDfs(mapping->rightPtr, length, flags);
+	}else{
+		// try to allocate memory at the top of the range
+		ASSERT((flags & kMapPreferTop) != 0);
+		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
+			return splitHole(mapping, mapping->length - length, length);
+
+		if(mapping->rightPtr != nullptr
+				&& mapping->rightPtr->largestHole >= length)
+			return allocateDfs(mapping->rightPtr, length, flags);
+		
+		ASSERT(mapping->leftPtr != nullptr
+				&& mapping->leftPtr->largestHole >= length);
+		return allocateDfs(mapping->leftPtr, length, flags);
+	}
 }
 
 Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
+	ASSERT((address % kPageSize) == 0);
+	ASSERT((length % kPageSize) == 0);
+
 	Mapping *hole = getMapping(address);
 	ASSERT(hole != nullptr);
 	ASSERT(hole->type == Mapping::kTypeHole);

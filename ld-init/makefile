@@ -11,7 +11,7 @@ LD = x86_64-managarm-ld
 LD_FLAGS = -shared
 
 LIBRARY = bin/ld-init.so
-OBJECTS = main.o runtime.o frigg-debug.o frigg-initializer.o frigg-libc.o
+OBJECTS = main.o linker.o runtime.o frigg-debug.o frigg-initializer.o frigg-libc.o
 OBJECT_PATHS = $(addprefix obj/,$(OBJECTS))
 
 SRCDIR = src

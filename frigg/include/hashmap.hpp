@@ -137,5 +137,17 @@ public:
 	}
 };
 
+class CStringHasher {
+public:
+	unsigned int operator() (const char *str) {
+		unsigned int value = 0;
+		while(*str != 0) {
+			value = (value << 8) | (value >> 24);
+			value += *str++;
+		}
+		return value;
+	}
+};
+
 }} // namespace frigg::util
 

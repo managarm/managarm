@@ -143,7 +143,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto stack_memory = makeShared<Memory>(*kernelAlloc);
 	stack_memory->resize(stack_size);
 
-	Mapping *stack_mapping = address_space->allocate(stack_size);
+	Mapping *stack_mapping = address_space->allocate(stack_size,
+			AddressSpace::kMapPreferTop);
 	for(size_t i = 0; i < stack_size / 0x1000; i++)
 		address_space->mapSingle4k(stack_mapping->baseAddress
 				+ i * 0x1000, stack_memory->getPage(i));

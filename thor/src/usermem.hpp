@@ -54,13 +54,19 @@ struct Mapping {
 
 class AddressSpace {
 public:
+	typedef uint32_t MapFlags;
+	enum : MapFlags {
+		kMapPreferBottom = 1,
+		kMapPreferTop = 2,
+	};
+
 	AddressSpace(PageSpace page_space);
 
 	Mapping *getMapping(VirtualAddr address);
 	
 	// allocates a new mapping of the given length somewhere in the address space
 	// the new mapping has type kTypeNone
-	Mapping *allocate(size_t length);
+	Mapping *allocate(size_t length, MapFlags flags);
 
 	Mapping *allocateAt(VirtualAddr address, size_t length);
 
@@ -72,7 +78,7 @@ public:
 	void mapSingle4k(VirtualAddr address, PhysicalAddr physical);
 
 private:
-	Mapping *allocateDfs(Mapping *mapping, size_t length);
+	Mapping *allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
 
 	// Left rotation (n denotes the given mapping):
 	//   w                 w        |

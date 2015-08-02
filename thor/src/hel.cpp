@@ -50,7 +50,7 @@ HelError helMapMemory(HelHandle memory_handle,
 
 	Mapping *mapping;
 	if(pointer == nullptr) {
-		mapping = address_space->allocate(length);
+		mapping = address_space->allocate(length, AddressSpace::kMapPreferTop);
 	}else{
 		mapping = address_space->allocateAt((VirtualAddr)pointer, length);
 	}
