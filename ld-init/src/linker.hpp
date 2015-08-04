@@ -1,4 +1,21 @@
 
+class InfoSink {
+public:
+	void print(char c) {
+		helLog(&c, 1);
+	}
+
+	void print(const char *str) {
+		size_t length = 0;
+		for(size_t i = 0; str[i] != 0; i++)
+			length++;
+		helLog(str, length);
+	}
+};
+
+typedef debug::DefaultLogger<InfoSink> InfoLogger;
+extern util::LazyInitializer<InfoLogger> infoLogger;
+
 struct VirtualAlloc {
 public:
 	uintptr_t map(size_t length);
@@ -41,6 +58,9 @@ struct SharedObject {
 
 struct Scope {
 	Scope();
+
+	void *resolveSymbol(const char *resolve_str);
+
 	util::Vector<SharedObject *, Allocator> objects;
 };
 
@@ -59,7 +79,10 @@ public:
 private:
 	void processDynamic(SharedObject *object);
 	void processDependencies(SharedObject *object);
+	void processStaticRelocations(SharedObject *object);
 	void processLazyRelocations(SharedObject *object);
+	
+	void processRela(SharedObject *object, Elf64_Rela *reloc);
 
 	Scope *p_scope;
 	util::LinkedList<SharedObject *, Allocator> p_processQueue;

@@ -398,11 +398,7 @@ void testIpc() {
 // main
 // --------------------------------------------------------
 
-void libraryFunction();
-
 int main() {
-	libraryFunction();
-
 	testAta();
 	//testIpc();
 

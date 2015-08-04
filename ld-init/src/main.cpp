@@ -27,22 +27,7 @@ namespace memory = frigg::memory;
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
-class InfoSink {
-public:
-	void print(char c) {
-		helLog(&c, 1);
-	}
-
-	void print(const char *str) {
-		size_t length = 0;
-		for(size_t i = 0; str[i] != 0; i++)
-			length++;
-		helLog(str, length);
-	}
-};
-
 InfoSink infoSink;
-typedef debug::DefaultLogger<InfoSink> InfoLogger;
 util::LazyInitializer<InfoLogger> infoLogger;
 
 void friggPrintCritical(char c) {
@@ -85,67 +70,12 @@ typedef util::Hashmap<const char *, SharedObject *,
 		util::CStringHasher, Allocator> ObjectHashmap;
 util::LazyInitializer<ObjectHashmap> allObjects;
 
-void unresolvedSymbol(const char *symbol_str) {
-	debug::panicLogger.log() << "Unresolved symbol" << debug::Finish();
-}
-
-bool strEquals(const char *str1, const char *str2) {
-	while(*str1 != 0 && *str2 != 0) {
-		if(*str1++ != *str2++)
-			return false;
-	}
-	if(*str1 != 0 || *str2 != 0)
-		return false;
-	return true;
-}
-
-void *resolveInObject(SharedObject *object, const char *resolve_str) {
-	auto hash_table = (Elf64_Word *)(object->baseAddress + object->hashTableOffset);
-	
-	Elf64_Word num_buckets = hash_table[0];
-	Elf64_Word num_chains = hash_table[1];
-
-	for(size_t i = 0; i < num_chains; i++) {
-		auto *symbol = (Elf64_Sym *)(object->baseAddress
-				+ object->symbolTableOffset + i * sizeof(Elf64_Sym));
-		uint8_t type = symbol->st_info & 0x0F;
-		uint8_t bind = symbol->st_info >> 4;
-		if(bind != STB_GLOBAL)
-			continue; // TODO: support local and weak symbols
-		if(symbol->st_shndx == SHN_UNDEF)
-			continue;
-
-		const char *symbol_str = (const char *)(object->baseAddress
-				+ object->stringTableOffset + symbol->st_name);
-		if(strEquals(symbol_str, resolve_str))
-			return (void *)(object->baseAddress + symbol->st_value);
-	}
-	
-	return nullptr;
-}
-
-void *resolveInScope(Scope *scope, const char *resolve_str) {
-	for(size_t i = 0; i < scope->objects.size(); i++) {
-		void *resolved = resolveInObject(scope->objects[i], resolve_str);
-		if(resolved != nullptr)
-			return resolved;
-	}
-
-	return nullptr;
-}
-
-void *symbolResolve(SharedObject *object, const char *resolve_str) {
-	return resolveInScope(globalScope.get(), resolve_str);
-}
-
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
-	infoLogger->log() << "lazyRelocate()" << debug::Finish();
-
 	ASSERT(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
 			+ rel_index * sizeof(Elf64_Rela));
-	Elf64_Xword type = reloc->r_info & 0xFFFFFFFF;
-	Elf64_Xword symbol_index = reloc->r_info >> 32;
+	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
+	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
 
 	ASSERT(type == R_X86_64_JUMP_SLOT);
 
@@ -155,12 +85,12 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
+	infoLogger->log() << "Lazy relocation to " << symbol_str << debug::Finish();
 
-	void *pointer = symbolResolve(object, symbol_str);
+	void *pointer = globalScope->resolveSymbol(symbol_str);
 	if(pointer == nullptr)
-		unresolvedSymbol(symbol_str);
+		debug::panicLogger.log() << "Unresolved lazy symbol" << debug::Finish();
 
-	infoLogger->log() << "Resolved lazy relocation!" << debug::Finish();
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;
 }

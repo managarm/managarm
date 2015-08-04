@@ -36,7 +36,56 @@ SharedObject::SharedObject() : baseAddress(0),
 // --------------------------------------------------------
 // Scope
 // --------------------------------------------------------
+
 Scope::Scope() : objects(*allocator) { }
+
+bool strEquals(const char *str1, const char *str2) {
+	while(*str1 != 0 && *str2 != 0) {
+		if(*str1++ != *str2++)
+			return false;
+	}
+	if(*str1 != 0 || *str2 != 0)
+		return false;
+	return true;
+}
+
+// TODO: move this to some namespace or class?
+void *resolveInObject(SharedObject *object, const char *resolve_str) {
+	auto hash_table = (Elf64_Word *)(object->baseAddress + object->hashTableOffset);
+	
+	Elf64_Word num_buckets = hash_table[0];
+	Elf64_Word num_chains = hash_table[1];
+
+	for(size_t i = 0; i < num_chains; i++) {
+		auto *symbol = (Elf64_Sym *)(object->baseAddress
+				+ object->symbolTableOffset + i * sizeof(Elf64_Sym));
+		uint8_t type = symbol->st_info & 0x0F;
+		uint8_t bind = symbol->st_info >> 4;
+		if(bind != STB_GLOBAL)
+			continue; // TODO: support local and weak symbols
+		if(symbol->st_shndx == SHN_UNDEF)
+			continue;
+
+		const char *symbol_str = (const char *)(object->baseAddress
+				+ object->stringTableOffset + symbol->st_name);
+		if(strEquals(symbol_str, resolve_str))
+			return (void *)(object->baseAddress + symbol->st_value);
+	}
+	
+	return nullptr;
+}
+
+// TODO: let this return uintptr_t
+void *Scope::resolveSymbol(const char *resolve_str) {
+	for(size_t i = 0; i < objects.size(); i++) {
+		void *resolved = resolveInObject(objects[i], resolve_str);
+		if(resolved != nullptr)
+			return resolved;
+	}
+
+	return nullptr;
+}
+
 
 // --------------------------------------------------------
 // Loader
@@ -68,16 +117,18 @@ void Loader::loadFromImage(SharedObject *object, void *image) {
 	}
 
 	p_processQueue.addBack(object);
+	p_scope->objects.push(object);
 }
 
 void Loader::process() {
 	while(!p_processQueue.empty()) {
+		infoLogger->log() << "process" << debug::Finish();
 		SharedObject *object = p_processQueue.front();
 
 		processDynamic(object);
 		processDependencies(object);
+		processStaticRelocations(object);
 		processLazyRelocations(object);
-		p_scope->objects.push(object);
 
 		p_processQueue.removeFront();
 	}
@@ -123,13 +174,17 @@ void Loader::processDynamic(SharedObject *object) {
 			}
 			break;
 		// ignore unimportant tags
-		case DT_NEEDED: // we handle this later
-		case DT_INIT:
-		case DT_FINI:
+		case DT_SONAME: case DT_NEEDED: // we handle this later
+		case DT_INIT: case DT_FINI:
 		case DT_DEBUG:
+		case DT_RELA: case DT_RELASZ: case DT_RELAENT: case DT_RELACOUNT:
+		case DT_VERSYM:
+		case DT_VERDEF: case DT_VERDEFNUM:
+		case DT_VERNEED: case DT_VERNEEDNUM:
 			break;
 		default:
-			ASSERT(!"Unexpected dynamic entry in object");
+			debug::panicLogger.log() << "Unexpected dynamic entry "
+					<< (void *)dynamic->d_tag << " in object" << debug::Finish();
 		}
 	}
 }
@@ -162,26 +217,98 @@ void Loader::processDependencies(SharedObject *object) {
 	}
 }
 
-void Loader::processLazyRelocations(SharedObject *object) {
-	if(object->globalOffsetTable != nullptr) {
-		object->globalOffsetTable[1] = object;
-		object->globalOffsetTable[2] = (void *)&pltRelocateStub;
-		
-		// adjust the addresses of JUMP_SLOT relocations
-		ASSERT(object->lazyExplicitAddend);
-		for(size_t offset = 0; offset < object->lazyTableSize;
-				offset += sizeof(Elf64_Rela)) {
-			auto reloc = (Elf64_Rela *)(object->baseAddress
-					+ object->lazyRelocTableOffset + offset);
-			Elf64_Xword type = reloc->r_info & 0xFF;
-			Elf64_Xword symbol_index = reloc->r_info >> 8;
+void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
+	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
+	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
+	
+	// resolve the symbol if there is a symbol
+	uintptr_t symbol_addr = 0;
+	if(symbol_index != 0) {
+		auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
+				+ symbol_index * sizeof(Elf64_Sym));
+		ASSERT(symbol->st_name != 0);
 
-			ASSERT(type == R_X86_64_JUMP_SLOT);
-			*(Elf64_Addr *)(object->baseAddress + reloc->r_offset)
-					+= object->baseAddress;
+		const char *symbol_str = (const char *)(object->baseAddress
+				+ object->stringTableOffset + symbol->st_name);
+		symbol_addr = (uintptr_t)p_scope->resolveSymbol(symbol_str);
+		if(symbol_addr == 0 && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
+			debug::panicLogger.log() << "Unresolved static symbol "
+					<< (const char *)symbol_str << debug::Finish();
+	}
+	
+	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+
+	switch(type) {
+	case R_X86_64_64:
+		*((uint64_t *)rel_addr) = symbol_addr + reloc->r_addend;
+		break;
+	case R_X86_64_COPY:
+		break; //FIXME
+	case R_X86_64_GLOB_DAT:
+		*((uint64_t *)rel_addr) = symbol_addr;
+		break;
+	case R_X86_64_RELATIVE:
+		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
+		break;
+	default:
+		debug::panicLogger.log() << "Unexpected relocation type "
+				<< (void *)type << debug::Finish();
+	}
+}
+
+void Loader::processStaticRelocations(SharedObject *object) {
+	bool has_rela_offset = false, has_rela_length = false;
+	uintptr_t rela_offset;
+	size_t rela_length;
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		
+		switch(dynamic->d_tag) {
+		case DT_RELA:
+			rela_offset = dynamic->d_ptr;
+			has_rela_offset = true;
+			break;
+		case DT_RELASZ:
+			rela_length = dynamic->d_val;
+			has_rela_length = true;
+			break;
+		case DT_RELAENT:
+			ASSERT(dynamic->d_val == sizeof(Elf64_Rela));
+			break;
+		}
+	}
+
+	if(has_rela_offset && has_rela_length) {
+		for(size_t offset = 0; offset < rela_length; offset += sizeof(Elf64_Rela)) {
+			auto reloc = (Elf64_Rela *)(object->baseAddress + rela_offset + offset);
+			processRela(object, reloc);
 		}
 	}else{
+		ASSERT(!has_rela_offset && !has_rela_length);
+	}
+}
+
+void Loader::processLazyRelocations(SharedObject *object) {
+	if(object->globalOffsetTable == nullptr) {
 		ASSERT(object->lazyRelocTableOffset == 0);
+		return;
+	}
+
+	object->globalOffsetTable[1] = object;
+	object->globalOffsetTable[2] = (void *)&pltRelocateStub;
+	
+	// adjust the addresses of JUMP_SLOT relocations
+	ASSERT(object->lazyExplicitAddend);
+	for(size_t offset = 0; offset < object->lazyTableSize; offset += sizeof(Elf64_Rela)) {
+		auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset + offset);
+		Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
+		Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
+
+		uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+
+		ASSERT(type == R_X86_64_JUMP_SLOT);
+		*(uint64_t *)(rel_addr) += object->baseAddress;
 	}
 }
 

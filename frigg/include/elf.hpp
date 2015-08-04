@@ -44,12 +44,24 @@ struct Elf64_Sym {
 	Elf64_Xword st_size;
 };
 
+extern inline unsigned char ELF64_ST_BIND(unsigned char info) {
+	return info >> 4;
+}
+extern inline unsigned char ELF64_ST_TYPE(unsigned char info) {
+	return info & 0x0F;
+}
+
 enum {
-	STB_GLOBAL = 1
+	STB_GLOBAL = 1,
+	STB_WEAK = 2
 };
 
 enum {
-	R_X86_64_JUMP_SLOT = 7
+	R_X86_64_64 = 1,
+	R_X86_64_COPY = 5,
+	R_X86_64_GLOB_DAT = 6,
+	R_X86_64_JUMP_SLOT = 7,
+	R_X86_64_RELATIVE = 8
 };
 
 struct Elf64_Rela {
@@ -57,6 +69,13 @@ struct Elf64_Rela {
 	Elf64_Xword r_info;
 	Elf64_Sxword r_addend;
 };
+
+extern inline Elf64_Xword ELF64_R_SYM(Elf64_Xword info) {
+	return info >> 32;
+}
+extern inline Elf64_Xword ELF64_R_TYPE(Elf64_Xword info) {
+	return info & 0xFFFFFFFF;
+}
 
 enum {
 	PT_LOAD = 1,
@@ -84,14 +103,23 @@ enum {
 	DT_STRTAB = 5,
 	DT_SYMTAB = 6,
 	DT_RELA = 7,
-	DT_REL = 8,
+	DT_RELASZ = 8,
+	DT_RELAENT = 9,
 	DT_STRSZ = 10,
 	DT_SYMENT = 11,
 	DT_INIT = 12,
 	DT_FINI = 13,
+	DT_SONAME = 14,
+	DT_REL = 17,
 	DT_PLTREL = 20,
 	DT_DEBUG = 21,
-	DT_JMPREL = 23
+	DT_JMPREL = 23,
+	DT_VERSYM = 0x6ffffff0,
+	DT_RELACOUNT = 0x6ffffff9,
+	DT_VERDEF = 0x6ffffffc,
+	DT_VERDEFNUM = 0x6ffffffd,
+	DT_VERNEED = 0x6ffffffe,
+	DT_VERNEEDNUM = 0x6fffffff
 };
 
 struct Elf64_Dyn {
