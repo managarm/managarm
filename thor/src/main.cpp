@@ -170,8 +170,23 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	schedule();
 }
 
+extern "C" void thorDivideByZeroError() {
+	debug::panicLogger.log() << "Divide by zero" << debug::Finish();
+}
+
+extern "C" void thorInvalidOpcode() {
+	uintptr_t fault_ip = thorRtUserContext->rip;
+	debug::panicLogger.log() << "Invalid opcode"
+			<< ", faulting ip: " << (void *)fault_ip
+			<< debug::Finish();
+}
+
 extern "C" void thorDoubleFault() {
 	debug::panicLogger.log() << "Double fault" << debug::Finish();
+}
+
+extern "C" void thorGeneralProtectionFault() {
+	debug::panicLogger.log() << "General protection fault" << debug::Finish();
 }
 
 extern "C" void thorKernelPageFault(uintptr_t address,

@@ -1,6 +1,29 @@
 
 #include "kernel.hpp"
 
+extern "C" void thorRtIsrDivideByZeroError();
+extern "C" void thorRtIsrInvalidOpcode();
+extern "C" void thorRtIsrDoubleFault();
+extern "C" void thorRtIsrGeneralProtectionFault();
+extern "C" void thorRtIsrPageFault();
+extern "C" void thorRtIsrIrq0();
+extern "C" void thorRtIsrIrq1();
+extern "C" void thorRtIsrIrq2();
+extern "C" void thorRtIsrIrq3();
+extern "C" void thorRtIsrIrq4();
+extern "C" void thorRtIsrIrq5();
+extern "C" void thorRtIsrIrq6();
+extern "C" void thorRtIsrIrq7();
+extern "C" void thorRtIsrIrq8();
+extern "C" void thorRtIsrIrq9();
+extern "C" void thorRtIsrIrq10();
+extern "C" void thorRtIsrIrq11();
+extern "C" void thorRtIsrIrq12();
+extern "C" void thorRtIsrIrq13();
+extern "C" void thorRtIsrIrq14();
+extern "C" void thorRtIsrIrq15();
+extern "C" void thorRtIsrSyscall();
+
 ThorRtThreadState *thorRtUserContext = nullptr;
 
 uint32_t *thorRtGdtPointer;
@@ -30,7 +53,12 @@ void thorRtInitializeProcessor() {
 	uint32_t *idt_pointer = (uint32_t *)thor::physicalToVirtual(idt_page);
 	for(int i = 0; i < 256; i++)
 		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 0, 0x8,
+			(void *)&thorRtIsrDivideByZeroError);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 6, 0x8, (void *)&thorRtIsrInvalidOpcode);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 13, 0x8,
+			(void *)&thorRtIsrGeneralProtectionFault);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0);
 	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1);

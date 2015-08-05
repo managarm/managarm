@@ -85,11 +85,13 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
-	infoLogger->log() << "Lazy relocation to " << symbol_str << debug::Finish();
 
-	void *pointer = globalScope->resolveSymbol(symbol_str);
+	void *pointer = globalScope->resolveSymbol(symbol_str, object, 0);
 	if(pointer == nullptr)
 		debug::panicLogger.log() << "Unresolved lazy symbol" << debug::Finish();
+
+	infoLogger->log() << "Lazy relocation to " << symbol_str
+			<< " resolved to " << pointer << debug::Finish();
 
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;
@@ -144,6 +146,8 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 	globalLoader->process();
 	
 	helCloseDescriptor(program_handle);
+
+	processCopyRelocations(executable.get());
 
 	infoLogger->log() << "Leaving ld-init" << debug::Finish();
 	return executable->entry;

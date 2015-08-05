@@ -26,6 +26,8 @@ public:
 typedef memory::DebugAllocator<VirtualAlloc> Allocator;
 extern util::LazyInitializer<Allocator> allocator;
 
+struct Scope;
+
 // --------------------------------------------------------
 // SharedObject
 // --------------------------------------------------------
@@ -35,6 +37,8 @@ struct SharedObject {
 
 	// base address this shared object was loaded to
 	uintptr_t baseAddress;
+
+	Scope *loadScope;
 	
 	// pointers to the dynamic table, GOT and entry point
 	Elf64_Dyn *dynamic;
@@ -52,14 +56,22 @@ struct SharedObject {
 	bool lazyExplicitAddend;
 };
 
+void processCopyRela(SharedObject *object, Elf64_Rela *reloc);
+void processCopyRelocations(SharedObject *object);
+
 // --------------------------------------------------------
 // Scope
 // --------------------------------------------------------
 
 struct Scope {
+	enum : uint32_t {
+		kResolveCopy = 1
+	};
+
 	Scope();
 
-	void *resolveSymbol(const char *resolve_str);
+	void *resolveSymbol(const char *resolve_str,
+			SharedObject *from_object, uint32_t flags);
 
 	util::Vector<SharedObject *, Allocator> objects;
 };

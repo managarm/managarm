@@ -27,11 +27,64 @@ uintptr_t libraryBase = 0x41000000;
 // SharedObject
 // --------------------------------------------------------
 
-SharedObject::SharedObject() : baseAddress(0),
+SharedObject::SharedObject() : baseAddress(0), loadScope(nullptr),
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0),
 		lazyExplicitAddend(false) { }
+
+void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
+	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
+	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
+	ASSERT(type == R_X86_64_COPY);
+	
+	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+	
+	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
+			+ symbol_index * sizeof(Elf64_Sym));
+	ASSERT(symbol->st_name != 0);
+
+	const char *symbol_str = (const char *)(object->baseAddress
+			+ object->stringTableOffset + symbol->st_name);
+	uintptr_t copy_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str,
+			object, Scope::kResolveCopy);
+	ASSERT(copy_addr != 0);
+	
+	memcpy((void *)rel_addr, (void *)copy_addr, symbol->st_size);
+}
+
+void processCopyRelocations(SharedObject *object) {
+	bool has_rela_offset = false, has_rela_length = false;
+	uintptr_t rela_offset;
+	size_t rela_length;
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		
+		switch(dynamic->d_tag) {
+		case DT_RELA:
+			rela_offset = dynamic->d_ptr;
+			has_rela_offset = true;
+			break;
+		case DT_RELASZ:
+			rela_length = dynamic->d_val;
+			has_rela_length = true;
+			break;
+		case DT_RELAENT:
+			ASSERT(dynamic->d_val == sizeof(Elf64_Rela));
+			break;
+		}
+	}
+
+	if(has_rela_offset && has_rela_length) {
+		for(size_t offset = 0; offset < rela_length; offset += sizeof(Elf64_Rela)) {
+			auto reloc = (Elf64_Rela *)(object->baseAddress + rela_offset + offset);
+			processCopyRela(object, reloc);
+		}
+	}else{
+		ASSERT(!has_rela_offset && !has_rela_length);
+	}
+}
 
 // --------------------------------------------------------
 // Scope
@@ -76,8 +129,12 @@ void *resolveInObject(SharedObject *object, const char *resolve_str) {
 }
 
 // TODO: let this return uintptr_t
-void *Scope::resolveSymbol(const char *resolve_str) {
+void *Scope::resolveSymbol(const char *resolve_str,
+		SharedObject *from_object, uint32_t flags) {
 	for(size_t i = 0; i < objects.size(); i++) {
+		if((flags & kResolveCopy) != 0 && objects[i] == from_object)
+			continue;
+
 		void *resolved = resolveInObject(objects[i], resolve_str);
 		if(resolved != nullptr)
 			return resolved;
@@ -122,8 +179,9 @@ void Loader::loadFromImage(SharedObject *object, void *image) {
 
 void Loader::process() {
 	while(!p_processQueue.empty()) {
-		infoLogger->log() << "process" << debug::Finish();
 		SharedObject *object = p_processQueue.front();
+		object->loadScope = p_scope;
+		infoLogger->log() << "process at " << (void *)object->baseAddress << debug::Finish();
 
 		processDynamic(object);
 		processDependencies(object);
@@ -221,6 +279,11 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
 	
+	if(type == R_X86_64_COPY)
+		return; // TODO: make sure this only occurs in executables
+
+	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+	
 	// resolve the symbol if there is a symbol
 	uintptr_t symbol_addr = 0;
 	if(symbol_index != 0) {
@@ -230,20 +293,16 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 
 		const char *symbol_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + symbol->st_name);
-		symbol_addr = (uintptr_t)p_scope->resolveSymbol(symbol_str);
+		symbol_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str, object, 0);
 		if(symbol_addr == 0 && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 			debug::panicLogger.log() << "Unresolved static symbol "
 					<< (const char *)symbol_str << debug::Finish();
 	}
-	
-	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 
 	switch(type) {
 	case R_X86_64_64:
 		*((uint64_t *)rel_addr) = symbol_addr + reloc->r_addend;
 		break;
-	case R_X86_64_COPY:
-		break; //FIXME
 	case R_X86_64_GLOB_DAT:
 		*((uint64_t *)rel_addr) = symbol_addr;
 		break;

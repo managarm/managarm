@@ -60,26 +60,6 @@ void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer);
 
 extern "C" void thorRtLoadCs(uint16_t selector);
 
-extern "C" void thorRtIsrDoubleFault();
-extern "C" void thorRtIsrPageFault();
-extern "C" void thorRtIsrIrq0();
-extern "C" void thorRtIsrIrq1();
-extern "C" void thorRtIsrIrq2();
-extern "C" void thorRtIsrIrq3();
-extern "C" void thorRtIsrIrq4();
-extern "C" void thorRtIsrIrq5();
-extern "C" void thorRtIsrIrq6();
-extern "C" void thorRtIsrIrq7();
-extern "C" void thorRtIsrIrq8();
-extern "C" void thorRtIsrIrq9();
-extern "C" void thorRtIsrIrq10();
-extern "C" void thorRtIsrIrq11();
-extern "C" void thorRtIsrIrq12();
-extern "C" void thorRtIsrIrq13();
-extern "C" void thorRtIsrIrq14();
-extern "C" void thorRtIsrIrq15();
-extern "C" void thorRtIsrSyscall();
-
 template<typename T>
 class LazyInitializer {
 public:

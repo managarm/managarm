@@ -23,9 +23,6 @@
 .set kContextRip, 0x80
 .set kContextRflags, 0x88
 
-.extern thorMain
-.extern thorRtUserContext
-
 .global thorRtEntry
 thorRtEntry:
 	call thorMain
@@ -50,9 +47,57 @@ thorRtLoadCs:
 reloadCsFinish:
 	ret
 
+.macro MAKE_FAULT_HANDLER name
+.global thorRtIsr\name
+thorRtIsr\name:
+	pushq %rax
+	pushq %rbx
+	
+	movabs $thorRtUserContext, %rax
+	mov (%rax), %rbx
+
+	mov %rcx, kContextRcx(%rbx)
+	mov %rdx, kContextRdx(%rbx)
+	mov %rsi, kContextRsi(%rbx)
+	mov %rdi, kContextRdi(%rbx)
+	mov %rbp, kContextRbp(%rbx)
+
+	mov %r8, kContextR8(%rbx)
+	mov %r9, kContextR9(%rbx)
+	mov %r10, kContextR10(%rbx)
+	mov %r11, kContextR11(%rbx)
+	mov %r12, kContextR12(%rbx)
+	mov %r13, kContextR13(%rbx)
+	mov %r14, kContextR14(%rbx)
+	mov %r15, kContextR15(%rbx)
+	
+	popq kContextRbx(%rbx)
+	popq kContextRax(%rbx)
+	popq kContextRip(%rbx)
+	add $8, %rsp # skip cs
+	popq kContextRflags(%rbx)
+	popq kContextRsp(%rbx)
+	add $8, %rsp # skip ss
+
+	call thor\name
+	jmp thorRtHalt
+.endm
+
+.global thorRtIsrDivideByZeroError
+thorRtIsrDivideByZeroError:
+	call thorDivideByZeroError
+	jmp thorRtHalt
+
+MAKE_FAULT_HANDLER InvalidOpcode
+
 .global thorRtIsrDoubleFault
 thorRtIsrDoubleFault:
 	call thorDoubleFault
+	jmp thorRtHalt
+
+.global thorRtIsrGeneralProtectionFault
+thorRtIsrGeneralProtectionFault:
+	call thorGeneralProtectionFault
 	jmp thorRtHalt
 
 .global thorRtIsrPageFault
