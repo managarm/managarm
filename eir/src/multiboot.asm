@@ -1,4 +1,7 @@
 
+.set kEferLme, 0x100
+.set kEferNx, 0x800
+
 .section .header
 	.int 0x1BADB002
 	.int 0
@@ -38,7 +41,7 @@ eirRtEnterKernel:
 	// enable long mode (not active until we enable paging)
 	mov $0xC0000080, %ecx
 	rdmsr
-	or $0x100, %eax
+	or $(kEferLme | kEferNx), %eax
 	wrmsr
 	
 	// setup the pml4

@@ -2,6 +2,7 @@
 #include "kernel.hpp"
 
 namespace traits = frigg::traits;
+namespace debug = frigg::debug;
 //FIXME: namespace memory = frigg::memory;
 
 namespace thor {
@@ -54,8 +55,39 @@ AddressSpace::AddressSpace(PageSpace page_space)
 	addressTreeInsert(mapping);
 }
 
-void AddressSpace::mapSingle4k(VirtualAddr address, PhysicalAddr physical) {
-	p_pageSpace.mapSingle4k(address, physical);
+void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr address,
+		size_t length, uint32_t flags, VirtualAddr *actual_address) {
+	ASSERT((length % kPageSize) == 0);
+
+	Mapping *mapping;
+	if((flags & kMapFixed) != 0) {
+		ASSERT((address % kPageSize) == 0);
+		mapping = allocateAt(address, length);
+	}else{
+		mapping = allocate(length, flags);
+	}
+
+	mapping->type = Mapping::kTypeMemory;
+	mapping->memoryRegion = traits::move(memory);
+
+	for(size_t i = 0; i < length / kPageSize; i++) {
+		PhysicalAddr physical = memory->getPage(i);
+		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+
+		uint32_t page_flags = 0;
+
+		constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
+		if((flags & mask) == kMapReadWrite) {
+			page_flags |= PageSpace::kAccessWrite;
+		}else if((flags & mask) == kMapReadExecute) {
+			page_flags |= PageSpace::kAccessExecute;
+		}else{
+			ASSERT((flags & mask) == kMapReadOnly);
+		}
+		p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+	}
+
+	*actual_address = mapping->baseAddress;
 }
 
 Mapping *AddressSpace::getMapping(VirtualAddr address) {

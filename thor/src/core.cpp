@@ -29,7 +29,8 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = physicalAllocator->allocate(1);
-		kernelSpace->mapSingle4k(address + offset, physical);
+		kernelSpace->mapSingle4k(address + offset, physical, false,
+				PageSpace::kAccessWrite);
 	}
 	thorRtInvalidateSpace();
 	asm("" : : : "memory");

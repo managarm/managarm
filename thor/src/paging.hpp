@@ -13,22 +13,25 @@ T *accessPhysicalN(PhysicalAddr address, int n) {
 	return (T *)physicalToVirtual(address);
 }
 
-enum PageFlags {
-	kPageSize = 0x1000,
-	kPagePresent = 0x1,
-	kPageWrite = 0x2,
-	kPageUser = 0x4
+enum {
+	kPageSize = 0x1000
 };
 
 class PageSpace {
 public:
+	enum : uint32_t {
+		kAccessWrite = 1,
+		kAccessExecute = 2
+	};
+
 	PageSpace(uintptr_t pml4_address);
 	
 	void switchTo();
 
 	PageSpace clone();
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical);
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+			bool user_access, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:

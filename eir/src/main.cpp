@@ -103,7 +103,7 @@ void setupPaging() {
 		for(int j = 0; j < 512; j++)
 			pdpt_pointer[j] = 0;
 
-		((uint64_t*)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite | kPageUser;
+		((uint64_t*)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite;
 	}
 }
 
@@ -126,7 +126,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 		pdpt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
-		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite | kPageUser;
+		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
 	}
 	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
 	
@@ -136,7 +136,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 		pd = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
-		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite | kPageUser;
+		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
 	}
 	uint64_t pd_entry = ((uint64_t*)pd)[pd_index];
 	
@@ -146,13 +146,13 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 		pt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
-		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite | kPageUser;
+		((uint64_t*)pd)[pd_index] = pt | kPagePresent | kPageWrite;
 	}
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
 	// setup the new pt entry
 	ASSERT((pt_entry & kPagePresent) == 0);
-	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite | kPageUser;
+	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite;
 }
 
 extern char eirRtImageCeiling;

@@ -43,11 +43,22 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 		if(top % page_size != 0)
 			num_pages++;
 
-		Mapping *mapping = space->allocateAt(ldBaseAddr
-				+ bottom_page * page_size, page_size * num_pages);
-
 		auto memory = makeShared<Memory>(*kernelAlloc);
 		memory->resize(num_pages * page_size);
+
+		uint32_t map_flags = AddressSpace::kMapFixed;
+		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+			map_flags |= AddressSpace::kMapReadWrite;
+		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+			map_flags |= AddressSpace::kMapReadExecute;
+		}else{
+			debug::panicLogger.log() << "Illegal combination of segment permissions"
+					<< debug::Finish();
+		}
+
+		VirtualAddr actual_address;
+		space->map(memory, ldBaseAddr + bottom_page * page_size,
+				num_pages * page_size, map_flags, &actual_address);
 
 		for(uintptr_t page = 0; page < num_pages; page++) {
 			PhysicalAddr physical = memory->getPage(page);
@@ -63,16 +74,6 @@ void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_
 			char *ptr = (char *)physicalToVirtual(physical);
 			*(ptr + virt_offset) = *(image + phdr->p_offset + p);
 		}
-
-		for(uintptr_t page = 0; page < num_pages; page++) {
-			PhysicalAddr physical = memory->getPage(page);
-			
-			space->mapSingle4k(ldBaseAddr
-					+ (bottom_page + page) * page_size, physical);
-		}
-
-		mapping->type = Mapping::kTypeMemory;
-		mapping->memoryRegion = traits::move(memory);
 	}
 	
 	return (void *)(ldBaseAddr + ehdr->e_entry);
@@ -142,12 +143,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	size_t stack_size = 0x200000;
 	auto stack_memory = makeShared<Memory>(*kernelAlloc);
 	stack_memory->resize(stack_size);
-
-	Mapping *stack_mapping = address_space->allocate(stack_size,
-			AddressSpace::kMapPreferTop);
-	for(size_t i = 0; i < stack_size / 0x1000; i++)
-		address_space->mapSingle4k(stack_mapping->baseAddress
-				+ i * 0x1000, stack_memory->getPage(i));
+	
+	VirtualAddr stack_base;
+	address_space->map(stack_memory, 0, stack_size, AddressSpace::kMapReadWrite
+			| AddressSpace::kMapPreferTop, &stack_base);
 	
 	auto program_memory = makeShared<Memory>(*kernelAlloc);
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
@@ -157,8 +156,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	Handle program_handle = universe->attachDescriptor(traits::move(program_descriptor));
 
 	auto thread = makeShared<Thread>(*kernelAlloc);
-	thread->setup(entry, program_handle,
-			(void *)(stack_mapping->baseAddress + stack_size));
+	thread->setup(entry, program_handle, (void *)(stack_base + stack_size));
 	thread->setUniverse(traits::move(universe));
 	thread->setAddressSpace(traits::move(address_space));
 	thread->setDirectory(traits::move(folder));
@@ -191,18 +189,49 @@ extern "C" void thorGeneralProtectionFault() {
 
 extern "C" void thorKernelPageFault(uintptr_t address,
 		uintptr_t fault_ip, Word error) {
-	debug::panicLogger.log() << "Kernel page fault"
+	ASSERT((error & 4) == 0);
+	ASSERT((error & 8) == 0);
+	auto msg = debug::panicLogger.log();
+	msg << "Kernel page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)fault_ip
-			<< debug::Finish();
+			<< ", faulting ip: " << (void *)fault_ip << "\n";
+	msg << "Errors: ";
+	if((error & 1) == 0) {
+		msg << " (Page not present)";
+	}else{
+		msg << " (Access violation)";
+	}
+	if((error & 2) != 0) {
+		msg << " (Write)";
+	}else if((error & 16) != 0) {
+		msg << " (Instruction fetch)";
+	}else{
+		msg << " (Read)";
+	}
+	msg << debug::Finish();
 }
 
-
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
-	debug::panicLogger.log() << "User page fault"
+	ASSERT((error & 4) != 0);
+	ASSERT((error & 8) == 0);
+	auto msg = debug::panicLogger.log();
+	msg << "User page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)thorRtUserContext->rip
-			<< debug::Finish();
+			<< ", faulting ip: " << (void *)thorRtUserContext->rip << "\n";
+	msg << "Errors:";
+	if((error & 1) == 0) {
+		msg << " (Page not present)";
+	}else{
+		msg << " (Access violation)";
+	}
+	if((error & 2) != 0) {
+		msg << " (Write)";
+	}else if((error & 16) != 0) {
+		msg << " (Instruction fetch)";
+	}else{
+		msg << " (Read)";
+	}
+	msg << debug::Finish();
 }
 
 extern "C" void thorIrq(int irq) {
@@ -249,7 +278,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		case kHelCallMapMemory: {
 			void *actual_pointer;
 			HelError error = helMapMemory((HelHandle)arg0,
-					(void *)arg1, (size_t)arg2, &actual_pointer);
+					(void *)arg1, (size_t)arg2, (uint32_t)arg3, &actual_pointer);
 
 			thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
 		}

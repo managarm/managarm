@@ -166,8 +166,18 @@ void Loader::loadFromImage(SharedObject *object, void *image) {
 				+ i * ehdr->e_phentsize);
 
 		if(phdr->p_type == PT_LOAD) {
+			uint32_t map_flags = 0;
+			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+				map_flags |= kHelMapReadWrite;
+			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				map_flags |= kHelMapReadExecute;
+			}else{
+				debug::panicLogger.log() << "Illegal combination of segment permissions"
+						<< debug::Finish();
+			}
+
 			loadSegment(image, object->baseAddress + phdr->p_vaddr,
-					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
+					phdr->p_offset, phdr->p_memsz, phdr->p_filesz, map_flags);
 		}else if(phdr->p_type == PT_DYNAMIC) {
 			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
 		} //FIXME: handle other phdrs
@@ -263,7 +273,7 @@ void Loader::processDependencies(SharedObject *object) {
 		size_t size;
 		void *actual_pointer;
 		helMemoryInfo(library_handle, &size);
-		helMapMemory(library_handle, nullptr, size, &actual_pointer);
+		helMapMemory(library_handle, nullptr, size, kHelMapReadOnly, &actual_pointer);
 		
 		auto library = memory::construct<SharedObject>(*allocator);
 		library->baseAddress = libraryBase;
@@ -376,13 +386,14 @@ void Loader::processLazyRelocations(SharedObject *object) {
 // --------------------------------------------------------
 
 void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
-		size_t mem_length, size_t file_length) {
-	uintptr_t limit = address + mem_length;
-	if(address == limit)
+		size_t mem_length, size_t file_length, uint32_t map_flags) {
+	if(mem_length == 0)
 		return;
 	
 	size_t page_size = 0x1000;
+	
 	uintptr_t map_page = address / page_size;
+	uintptr_t limit = address + mem_length;
 	uintptr_t num_pages = (limit / page_size) - map_page;
 	if(limit % page_size != 0)
 		num_pages++;
@@ -392,14 +403,22 @@ void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
 
 	HelHandle memory;
 	helAllocateMemory(num_pages * page_size, &memory);
-
-	void *actual_ptr;
-	helMapMemory(memory, (void *)map_address, map_length, &actual_ptr);
-	ASSERT(actual_ptr == (void *)map_address);
 	
-	uintptr_t image_offset = (uintptr_t)image + file_offset;
-	memset((void *)map_address, 0, map_length);
-	memcpy((void *)address, (void *)image_offset, file_length);
+	// map the segment memory as read/write and initialize it
+	void *write_ptr;
+	helMapMemory(memory, nullptr, map_length, kHelMapReadWrite, &write_ptr);
+
+	memset(write_ptr, 0, map_length);
+	memcpy((void *)((uintptr_t)write_ptr + (address - map_address)),
+			(void *)((uintptr_t)image + file_offset), file_length);
+	
+	// TODO: unmap the memory region
+	
+	// map the segment memory to the correct address
+	void *actual_ptr;
+	helMapMemory(memory, (void *)map_address, map_length,
+			map_flags, &actual_ptr);
+	ASSERT(actual_ptr == (void *)map_address);
 
 	helCloseDescriptor(memory);
 }

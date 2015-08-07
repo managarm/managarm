@@ -4,6 +4,7 @@
 
 using namespace thor;
 namespace traits = frigg::traits;
+namespace debug = frigg::debug;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
@@ -37,7 +38,7 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 }
 
 HelError helMapMemory(HelHandle memory_handle,
-		void *pointer, size_t length, void **actual_pointer) {
+		void *pointer, size_t length, uint32_t flags, void **actual_pointer) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace, KernelAlloc> address_space = this_thread->getAddressSpace();
@@ -48,24 +49,28 @@ HelError helMapMemory(HelHandle memory_handle,
 
 	// TODO: check proper alignment
 
-	Mapping *mapping;
-	if(pointer == nullptr) {
-		mapping = address_space->allocate(length, AddressSpace::kMapPreferTop);
+	uint32_t map_flags = 0;
+	if(pointer != nullptr) {
+		map_flags |= AddressSpace::kMapFixed;
 	}else{
-		mapping = address_space->allocateAt((VirtualAddr)pointer, length);
+		map_flags |= AddressSpace::kMapPreferTop;
 	}
 
-	for(size_t offset = 0, i = 0; offset < length; offset += 0x1000, i++) {
-		address_space->mapSingle4k(mapping->baseAddress + offset,
-				memory->getPage(i));
+	constexpr int mask = kHelMapReadOnly | kHelMapReadWrite | kHelMapReadExecute;
+	if((flags & mask) == kHelMapReadWrite) {
+		map_flags |= AddressSpace::kMapReadWrite;
+	}else if((flags & mask) == kHelMapReadExecute) {
+		map_flags |= AddressSpace::kMapReadExecute;
+	}else{
+		ASSERT((flags & mask) == kHelMapReadOnly);
+		map_flags |= AddressSpace::kMapReadOnly;
 	}
-
-	mapping->type = Mapping::kTypeMemory;
-	mapping->memoryRegion = SharedPtr<Memory, KernelAlloc>(memory);
 	
+	VirtualAddr actual_address;
+	address_space->map(memory, (uintptr_t)pointer, length, map_flags, &actual_address);
 	thorRtInvalidateSpace();
-	
-	*actual_pointer = (void *)mapping->baseAddress;
+
+	*actual_pointer = (void *)actual_address;
 
 	return 0;
 }

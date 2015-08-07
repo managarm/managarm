@@ -107,5 +107,5 @@ private:
 extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 
 void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
-		size_t mem_length, size_t file_length);
+		size_t mem_length, size_t file_length, uint32_t map_flags);
 

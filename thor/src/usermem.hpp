@@ -56,12 +56,20 @@ class AddressSpace {
 public:
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
-		kMapPreferBottom = 1,
-		kMapPreferTop = 2,
+		kMapFixed = 0x01,
+		kMapPreferBottom = 0x02,
+		kMapPreferTop = 0x04,
+		kMapReadOnly = 0x08,
+		kMapReadWrite = 0x10,
+		kMapReadExecute = 0x20
 	};
 
 	AddressSpace(PageSpace page_space);
 
+	void map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr address, size_t length,
+			uint32_t flags, VirtualAddr *actual_address);
+
+private:
 	Mapping *getMapping(VirtualAddr address);
 	
 	// allocates a new mapping of the given length somewhere in the address space
@@ -74,10 +82,7 @@ public:
 	// the new mapping has type kTypeNone
 	Mapping *splitHole(Mapping *mapping,
 			VirtualAddr split_offset, VirtualAddr split_length);
-
-	void mapSingle4k(VirtualAddr address, PhysicalAddr physical);
-
-private:
+	
 	Mapping *allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
 
 	// Left rotation (n denotes the given mapping):

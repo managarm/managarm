@@ -74,6 +74,12 @@ struct HelEvent {
 	int64_t submitId;
 };
 
+enum HelMapFlags {
+	kHelMapReadOnly = 1,
+	kHelMapReadWrite = 2,
+	kHelMapReadExecute = 4
+};
+
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length);
 
@@ -81,7 +87,7 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle,
-		void *pointer, size_t size, void **actual_pointer);
+		void *pointer, size_t size, uint32_t flags, void **actual_pointer);
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 

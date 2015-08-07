@@ -83,6 +83,12 @@ enum {
 	PT_TLS = 7
 };
 
+enum {
+	PF_X = 1,
+	PF_W = 2,
+	PF_R = 4
+};
+
 typedef struct {
 	Elf64_Word p_type; /* Type of segment */
 	Elf64_Word p_flags; /* Segment attributes */
