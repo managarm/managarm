@@ -2,7 +2,9 @@
 #include "../../frigg/include/types.hpp"
 #include "../../frigg/include/traits.hpp"
 #include "../../frigg/include/initializer.hpp"
+#include "../../frigg/include/array.hpp"
 #include "../../frigg/include/elf.hpp"
+#include "../../frigg/include/arch_x86/machine.hpp"
 #include "../../frigg/include/arch_x86/gdt.hpp"
 #include "../../frigg/include/libc.hpp"
 #include "../../frigg/include/support.hpp"
@@ -11,6 +13,7 @@
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
+namespace arch = frigg::arch_x86;
 
 void ioOutByte(uint16_t port, uint8_t value) {
 	register uint16_t in_port asm("dx") = port;
@@ -162,10 +165,10 @@ extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
-	frigg::arch_x86::makeGdtNullSegment((uint32_t *)gdt_page, 0);
-	frigg::arch_x86::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
-	frigg::arch_x86::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
+	arch::makeGdtNullSegment((uint32_t *)gdt_page, 0);
+	arch::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
+	arch::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
+	arch::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
 
 	eirRtLoadGdt(gdt_page, 31); 
 }
@@ -244,6 +247,21 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	infoLogger.initialize(infoSink);
 
 	infoLogger->log() << "Starting Eir" << debug::Finish();
+
+	util::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
+	char vendor_str[13];
+	memcpy(&vendor_str[0], &vendor_res[1], 4);
+	memcpy(&vendor_str[4], &vendor_res[3], 4);
+	memcpy(&vendor_str[8], &vendor_res[2], 4);
+	vendor_str[12] = 0;
+	infoLogger->log() << "CPU vendor: " << (const char *)vendor_str << debug::Finish();
+	
+	// make sure everything we require is supported by the CPU
+	util::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
+	if((extended[3] & arch::kCpuFlagLongMode) == 0)
+		debug::panicLogger.log() << "Long mode is not supported on this CPU" << debug::Finish();
+	if((extended[3] & arch::kCpuFlagNx) == 0)
+		debug::panicLogger.log() << "NX bit is not supported on this CPU" << debug::Finish();
 	
 	// compute the bootstrap memory base
 	ASSERT((mb_info->flags & kMbInfoPlainMemory) != 0);
