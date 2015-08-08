@@ -49,7 +49,7 @@ void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	uintptr_t copy_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str,
 			object, Scope::kResolveCopy);
 	ASSERT(copy_addr != 0);
-	
+
 	memcpy((void *)rel_addr, (void *)copy_addr, symbol->st_size);
 }
 
@@ -118,9 +118,13 @@ void *resolveInObject(SharedObject *object, const char *resolve_str) {
 			continue; // TODO: support local and weak symbols
 		if(symbol->st_shndx == SHN_UNDEF)
 			continue;
+		ASSERT(symbol->st_name != 0);
 
 		const char *symbol_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + symbol->st_name);
+		//FIXME infoLogger->log() << (void *)object->baseAddress
+		//		<< " " << (void *)object->stringTableOffset
+		//		<< " " << (void *)symbol->st_name << " " << (void *)symbol_str << debug::Finish();
 		if(strEquals(symbol_str, resolve_str))
 			return (void *)(object->baseAddress + symbol->st_value);
 	}
@@ -183,6 +187,7 @@ void Loader::loadFromImage(SharedObject *object, void *image) {
 		} //FIXME: handle other phdrs
 	}
 
+	parseDynamic(object);
 	p_processQueue.addBack(object);
 	p_scope->objects.push(object);
 }
@@ -193,7 +198,6 @@ void Loader::process() {
 		object->loadScope = p_scope;
 		infoLogger->log() << "process at " << (void *)object->baseAddress << debug::Finish();
 
-		processDynamic(object);
 		processDependencies(object);
 		processStaticRelocations(object);
 		processLazyRelocations(object);
@@ -202,7 +206,7 @@ void Loader::process() {
 	}
 }
 
-void Loader::processDynamic(SharedObject *object) {
+void Loader::parseDynamic(SharedObject *object) {
 	ASSERT(object->dynamic != nullptr);
 
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
@@ -303,6 +307,7 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 
 		const char *symbol_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + symbol->st_name);
+		//FIXME infoLogger->log() << "Looking up " << symbol_str << debug::Finish();
 		symbol_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str, object, 0);
 		if(symbol_addr == 0 && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 			debug::panicLogger.log() << "Unresolved static symbol "
@@ -312,12 +317,21 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	switch(type) {
 	case R_X86_64_64:
 		*((uint64_t *)rel_addr) = symbol_addr + reloc->r_addend;
+		//FIXME infoLogger->log() << "R_X86_64_64 at " << (void *)rel_addr
+		//		<< " resolved to " << (void *)(symbol_addr + reloc->r_addend)
+		//		<< debug::Finish();
 		break;
 	case R_X86_64_GLOB_DAT:
 		*((uint64_t *)rel_addr) = symbol_addr;
+		//FIXME infoLogger->log() << "R_X86_64_GLOB_DAT at " << (void *)rel_addr
+		//		<< " resolved to " << (void *)(symbol_addr)
+		//		<< debug::Finish();
 		break;
 	case R_X86_64_RELATIVE:
 		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
+		//FIXME infoLogger->log() << "R_X86_64_RELATIVE at " << (void *)rel_addr
+		//		<< " resolved to " << (void *)(object->baseAddress + reloc->r_addend)
+		//		<< debug::Finish();
 		break;
 	default:
 		debug::panicLogger.log() << "Unexpected relocation type "
@@ -377,7 +391,7 @@ void Loader::processLazyRelocations(SharedObject *object) {
 		uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 
 		ASSERT(type == R_X86_64_JUMP_SLOT);
-		*(uint64_t *)(rel_addr) += object->baseAddress;
+		*((uint64_t *)rel_addr) += object->baseAddress;
 	}
 }
 

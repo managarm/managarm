@@ -1,4 +1,4 @@
-/*
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,8 +10,6 @@
 #include <queue>
 #include <vector>
 #include <stdexcept>
-
-#include "keyboard.pb.h"
 
 uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
@@ -393,16 +391,16 @@ void testIpc() {
 			(uintptr_t)connect_cb.getFunction(),
 			(uintptr_t)connect_cb.getObject());
 }
-*/
+
 // --------------------------------------------------------
 // main
 // --------------------------------------------------------
 
 int main() {
-	//testAta();
+	testAta();
 	//testIpc();
 
-	//while(true)
-	//	eventHub.defaultProcessEvents();
+	while(true)
+		eventHub.defaultProcessEvents();
 }
 

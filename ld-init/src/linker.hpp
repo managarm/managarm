@@ -89,7 +89,7 @@ public:
 	void process();
 
 private:
-	void processDynamic(SharedObject *object);
+	void parseDynamic(SharedObject *object);
 	void processDependencies(SharedObject *object);
 	void processStaticRelocations(SharedObject *object);
 	void processLazyRelocations(SharedObject *object);

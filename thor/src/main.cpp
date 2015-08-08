@@ -212,6 +212,12 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 }
 
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
+	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
+	auto trace = infoLogger->log() << "Stack trace:\n";
+	for(int i = 0; i < 5; i++)
+		trace << "    -" << (i * 8) << "(%rsp) " << (void *)stack_ptr[-i] << "\n";
+	trace << debug::Finish();
+
 	ASSERT((error & 4) != 0);
 	ASSERT((error & 8) == 0);
 	auto msg = debug::panicLogger.log();
