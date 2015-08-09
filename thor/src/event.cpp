@@ -41,6 +41,13 @@ void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
 	p_queue.addBack(traits::move(event));
 }
 
+void EventHub::raiseRecvDescriptorEvent(AnyDescriptor &&descriptor,
+		SubmitInfo submit_info) {
+	Event event(Event::kTypeRecvDescriptor, submit_info);
+	event.descriptor = traits::move(descriptor);
+	p_queue.addBack(traits::move(event));
+}
+
 void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 		SubmitInfo submit_info) {
 	Event event(Event::kTypeAccept, submit_info);

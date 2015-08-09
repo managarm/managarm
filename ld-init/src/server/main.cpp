@@ -197,6 +197,7 @@ int main() {
 	helRdOpen(path, strlen(path), &channel_handle);
 
 	helx::Channel channel(channel_handle);
+	channel.sendDescriptor(client_handle, 1, 0);
 
 //	HelHandle space;
 //	helCreateSpace(&space);

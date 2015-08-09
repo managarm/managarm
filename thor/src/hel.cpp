@@ -228,6 +228,12 @@ HelError helWaitForEvents(HelHandle handle,
 				ASSERT(!"Unexpected error");
 			}
 		} break;
+		case EventHub::Event::kTypeRecvDescriptor: {
+			user_evt->type = kHelEventRecvDescriptor;
+			
+			AnyDescriptor wrapper = traits::move(event.descriptor);
+			user_evt->handle = universe->attachDescriptor(traits::move(wrapper));
+		} break;
 		case EventHub::Event::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
 
@@ -304,6 +310,37 @@ HelError helSendString(HelHandle handle,
 	return 0;
 }
 
+HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
+		int64_t msg_request, int64_t msg_sequence) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	// TODO: check userspace page access rights
+
+	AnyDescriptor &send_wrapper = universe->getDescriptor(send_handle);
+	
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	switch(wrapper.tag()) {
+		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
+			Channel *channel = descriptor.getPipe()->getSecondChannel();
+			channel->sendDescriptor(AnyDescriptor(send_wrapper),
+					msg_request, msg_sequence);
+		} break;
+		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
+			Channel *channel = descriptor.getPipe()->getFirstChannel();
+			channel->sendDescriptor(AnyDescriptor(send_wrapper),
+					msg_request, msg_sequence);
+		} break;
+		default: {
+			ASSERT(!"Descriptor is not a sink");
+		}
+	}
+
+	return 0;
+}
+
 HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
@@ -334,6 +371,41 @@ HelError helSubmitRecvString(HelHandle handle,
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
+		} break;
+		default: {
+			ASSERT(!"Descriptor is not a source");
+		}
+	}
+
+	return 0;
+}
+
+HelError helSubmitRecvDescriptor(HelHandle handle,
+		HelHandle hub_handle,
+		int64_t filter_request, int64_t filter_sequence,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
+	
+	auto event_hub = hub_descriptor.getEventHub();
+	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	switch(wrapper.tag()) {
+		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
+			Channel *channel = descriptor.getPipe()->getFirstChannel();
+			channel->submitRecvDescriptor(SharedPtr<EventHub, KernelAlloc>(event_hub),
+					filter_request, filter_sequence, submit_info);
+		} break;
+		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
+			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
+			Channel *channel = descriptor.getPipe()->getSecondChannel();
+			channel->submitRecvDescriptor(SharedPtr<EventHub, KernelAlloc>(event_hub),
+					filter_request, filter_sequence, submit_info);
 		} break;
 		default: {
 			ASSERT(!"Descriptor is not a source");

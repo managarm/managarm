@@ -190,7 +190,11 @@ extern "C" void thorIrq(int irq) {
 		enqueueInSchedule(traits::move(copy));
 		doSchedule();
 	}else{
-		thorRtFullReturn();
+		if(!(*currentThread)->isKernelThread()) {
+			thorRtFullReturn();
+		}else{
+			thorRtFullReturnToKernel();
+		}
 	}
 	
 	ASSERT(!"No return at end of thorIrq()");
@@ -282,6 +286,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelError error = helSendString((HelHandle)arg0,
 					(const uint8_t *)arg1, (size_t)arg2,
 					(int64_t)arg3, (int64_t)arg4);
+
+			thorRtReturnSyscall1((Word)error);
+		}
+		case kHelCallSendDescriptor: {
+			HelError error = helSendDescriptor((HelHandle)arg0, (HelHandle)arg1,
+					(int64_t)arg2, (int64_t)arg3);
 
 			thorRtReturnSyscall1((Word)error);
 		}

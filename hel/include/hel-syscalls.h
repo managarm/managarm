@@ -176,6 +176,20 @@ extern inline HelError helSendString(HelHandle handle,
 		: "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
+extern inline HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
+		int64_t msg_request, int64_t msg_sequence) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSendDescriptor;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_send_handle asm ("rdx") = (HelWord)send_handle;
+	register HelWord in_msg_request asm ("rcx") = (HelWord)msg_request;
+	register HelWord in_msg_sequence asm ("r8") = (HelWord)msg_sequence;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_send_handle),
+			"r" (in_msg_request), "r" (in_msg_sequence)
+		: "r9", "r10", "r11", "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
 extern inline HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,

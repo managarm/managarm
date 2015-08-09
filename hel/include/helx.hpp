@@ -70,6 +70,7 @@ struct MemberHelper<void (Object::*) (Args...), function> {
 #define HELX_MEMBER(x, f) ::helx::MemberHelper<decltype(f), f>::make(x)
 
 typedef Callback<int64_t, HelError, size_t> RecvStringCb;
+typedef Callback<int64_t, HelHandle> RecvDescriptorCb;
 typedef Callback<int64_t, HelHandle> AcceptCb;
 typedef Callback<int64_t, HelHandle> ConnectCb;
 typedef Callback<int64_t> IrqCb;
@@ -137,6 +138,11 @@ public:
 			int64_t msg_request, int64_t msg_seq) {
 		helSendString(p_handle, (const uint8_t *)buffer, length,
 				msg_request, msg_seq);
+	}
+
+	inline void sendDescriptor(HelHandle send_handle,
+			int64_t msg_request, int64_t msg_seq) {
+		helSendDescriptor(p_handle, send_handle, msg_request, msg_seq);
 	}
 
 	inline void recvString(void *buffer, size_t length,

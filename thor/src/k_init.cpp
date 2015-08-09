@@ -131,10 +131,24 @@ void main() {
 	HelHandle this_end, other_end;
 	helCreateBiDirectionPipe(&this_end, &other_end);
 	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
+
+	helSubmitRecvDescriptor(this_end, event_hub, -1, -1, 0, 0, 0);
 	
-	helLog("Hello\n", 6);
 	loadImage("ld-server", directory);
-	helLog("Exit\n", 5);
+	
+	while(true) {
+		HelEvent events[16];
+		size_t num_items;
+	
+		thorRtEnableInts();
+		helWaitForEvents(event_hub, events, 16, kHelWaitInfinite, &num_items);
+		thorRtDisableInts();
+
+		for(size_t i = 0; i < num_items; i++) {
+			helLog("!\n", 2);
+		}
+	}
+	
 	helExitThisThread();
 }
 

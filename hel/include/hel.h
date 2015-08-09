@@ -24,7 +24,9 @@ enum {
 
 	kHelCallCreateBiDirectionPipe = 4,
 	kHelCallSendString = 8,
+	kHelCallSendDescriptor = 28,
 	kHelCallSubmitRecvString = 9,
+	kHelCallSubmitRecvDescriptor = 29,
 	
 	kHelCallCreateServer = 17,
 	kHelCallSubmitAccept = 18,
@@ -66,6 +68,7 @@ struct HelThreadState {
 
 enum {
 	kHelEventRecvString = 1,
+	kHelEventRecvDescriptor = 5,
 	kHelEventAccept = 2,
 	kHelEventConnect = 3,
 	kHelEventIrq = 4
@@ -102,7 +105,7 @@ HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
-		HelHandle directory, HelThreadState *state, HelHandle *handle);
+		HelHandle directory, struct HelThreadState *state, HelHandle *handle);
 HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);
@@ -115,8 +118,13 @@ HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 HEL_C_LINKAGE HelError helSendString(HelHandle handle,
 		const uint8_t *buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence);
+HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
+		int64_t msg_request, int64_t msg_sequence);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
 		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
 

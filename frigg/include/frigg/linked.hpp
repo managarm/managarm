@@ -23,6 +23,9 @@ public:
 		T &operator* () {
 			return p_current->element;
 		}
+		T *operator-> () {
+			return &p_current->element;
+		}
 
 		Iterator &operator++ () {
 			p_current = p_current->next;

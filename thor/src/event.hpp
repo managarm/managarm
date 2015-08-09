@@ -17,6 +17,7 @@ public:
 			kTypeNone,
 			kTypeRecvStringTransfer,
 			kTypeRecvStringError,
+			kTypeRecvDescriptor,
 			kTypeAccept,
 			kTypeConnect,
 			kTypeIrq
@@ -37,6 +38,9 @@ public:
 
 		// used by kTypeAccept, kTypeConnect
 		SharedPtr<BiDirectionPipe, KernelAlloc> pipe;
+
+		// used by kTypeRecvDescriptor
+		AnyDescriptor descriptor;
 	};
 
 	EventHub();
@@ -45,6 +49,8 @@ public:
 			uint8_t *user_buffer, size_t length,
 			SubmitInfo submit_info);
 	void raiseRecvStringErrorEvent(Error error,
+			SubmitInfo submit_info);
+	void raiseRecvDescriptorEvent(AnyDescriptor &&descriptor,
 			SubmitInfo submit_info);
 	
 	void raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
