@@ -1,17 +1,17 @@
 
-#include "../../frigg/include/types.hpp"
-#include "../../frigg/include/traits.hpp"
-#include "../../frigg/include/initializer.hpp"
-#include "../../frigg/include/support.hpp"
-#include "../../frigg/include/debug.hpp"
-#include "../../frigg/include/memory.hpp"
-#include "../../frigg/include/libc.hpp"
-#include "../../frigg/include/elf.hpp"
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/support.hpp>
+#include <frigg/debug.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/libc.hpp>
+#include <frigg/elf.hpp>
 
-#include "../../frigg/include/tuple.hpp"
-#include "../../frigg/include/vector.hpp"
-#include "../../frigg/include/hashmap.hpp"
-#include "../../frigg/include/linked.hpp"
+#include <frigg/tuple.hpp>
+#include <frigg/vector.hpp>
+#include <frigg/hashmap.hpp>
+#include <frigg/linked.hpp>
 
 #include "../../hel/include/hel.h"
 #include "../../hel/include/hel-syscalls.h"

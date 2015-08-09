@@ -1,14 +1,14 @@
 
-#include "../../frigg/include/types.hpp"
-#include "../../frigg/include/traits.hpp"
-#include "../../frigg/include/initializer.hpp"
-#include "../../frigg/include/array.hpp"
-#include "../../frigg/include/elf.hpp"
-#include "../../frigg/include/arch_x86/machine.hpp"
-#include "../../frigg/include/arch_x86/gdt.hpp"
-#include "../../frigg/include/libc.hpp"
-#include "../../frigg/include/support.hpp"
-#include "../../frigg/include/debug.hpp"
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/array.hpp>
+#include <frigg/elf.hpp>
+#include <frigg/arch_x86/machine.hpp>
+#include <frigg/arch_x86/gdt.hpp>
+#include <frigg/libc.hpp>
+#include <frigg/support.hpp>
+#include <frigg/debug.hpp>
 #include <eir/interface.hpp>
 
 namespace debug = frigg::debug;

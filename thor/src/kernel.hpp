@@ -1,16 +1,16 @@
 
-#include "../../frigg/include/types.hpp"
-#include "../../frigg/include/traits.hpp"
-#include "../../frigg/include/support.hpp"
-#include "../../frigg/include/debug.hpp"
-#include "../../frigg/include/algorithm.hpp"
-#include "../../frigg/include/initializer.hpp"
-#include "../../frigg/include/memory.hpp"
-#include "../../frigg/include/vector.hpp"
-#include "../../frigg/include/hashmap.hpp"
-#include "../../frigg/include/linked.hpp"
-#include "../../frigg/include/variant.hpp"
-#include "../../frigg/include/libc.hpp"
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/support.hpp>
+#include <frigg/debug.hpp>
+#include <frigg/algorithm.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/vector.hpp>
+#include <frigg/hashmap.hpp>
+#include <frigg/linked.hpp>
+#include <frigg/variant.hpp>
+#include <frigg/libc.hpp>
 
 #include "runtime.hpp"
 #include "util/smart-ptr.hpp"

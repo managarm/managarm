@@ -1,6 +1,6 @@
 
 #include "kernel.hpp"
-#include "../../frigg/include/elf.hpp"
+#include <frigg/elf.hpp>
 #include "../../hel/include/hel.h"
 #include <eir/interface.hpp>
 

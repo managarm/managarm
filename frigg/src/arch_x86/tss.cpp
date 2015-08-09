@@ -1,6 +1,6 @@
 
-#include "../../include/types.hpp"
-#include "../../include/arch_x86/tss.hpp"
+#include <frigg/types.hpp>
+#include <frigg/arch_x86/tss.hpp>
 
 namespace frigg {
 namespace arch_x86 {

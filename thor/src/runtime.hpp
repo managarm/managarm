@@ -1,7 +1,7 @@
 
-#include "../../frigg/include/arch_x86/gdt.hpp"
-#include "../../frigg/include/arch_x86/idt.hpp"
-#include "../../frigg/include/arch_x86/tss.hpp"
+#include <frigg/arch_x86/gdt.hpp>
+#include <frigg/arch_x86/idt.hpp>
+#include <frigg/arch_x86/tss.hpp>
 
 // --------------------------------------------------------
 // Global runtime functions

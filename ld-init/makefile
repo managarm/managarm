@@ -1,6 +1,6 @@
 
 CXX = x86_64-managarm-g++
-CXX_INCLUDE =
+CXX_INCLUDE = -I../frigg/include
 CXX_FLAGS = -fpic -ffreestanding -fno-exceptions -fno-rtti \
 	-std=c++0x -fvisibility=hidden $(CXX_INCLUDE)
 

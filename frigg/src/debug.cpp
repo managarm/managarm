@@ -1,9 +1,9 @@
 
-#include "../include/types.hpp"
-#include "../include/traits.hpp"
-#include "../include/initializer.hpp"
-#include "../include/support.hpp"
-#include "../include/debug.hpp"
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/support.hpp>
+#include <frigg/debug.hpp>
 
 namespace frigg {
 namespace debug {

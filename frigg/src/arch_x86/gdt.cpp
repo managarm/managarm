@@ -1,6 +1,6 @@
 
-#include "../../include/types.hpp"
-#include "../../include/arch_x86/gdt.hpp"
+#include <frigg/types.hpp>
+#include <frigg/arch_x86/gdt.hpp>
 
 namespace frigg {
 namespace arch_x86 {
