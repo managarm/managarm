@@ -1,0 +1,84 @@
+
+namespace frigg {
+namespace util {
+
+namespace tuple_impl {
+
+template<typename... Types>
+struct Storage;
+
+template<typename T, typename... Types>
+struct Storage<T, Types...> {
+	template<typename FwT, typename... FwTypes>
+	Storage(FwT &&item, FwTypes &&... tail)
+	: item(traits::forward<FwT>(item)), tail(traits::forward<FwTypes>(tail)...) { }
+
+	T item;
+	Storage<Types...> tail;
+};
+
+template<>
+struct Storage<> {
+
+};
+
+template<int n, typename... Types>
+struct NthType;
+
+template<int n, typename T, typename... Types>
+struct NthType<n, T, Types...> {
+	typedef typename NthType<n - 1, Types...>::type  type;
+};
+
+template<typename T, typename... Types>
+struct NthType<0, T, Types...> {
+	typedef T type;
+};
+
+template<int n, typename... Types>
+struct Access;
+
+template<int n, typename T, typename... Types>
+struct Access<n, T, Types...> {
+	static typename NthType<n - 1, Types...>::type
+	access(Storage<T, Types...> &storage) {
+		return Access<n - 1, Types...>::access(storage.tail);
+	}
+};
+
+template<typename T, typename... Types>
+struct Access<0, T, Types...> {
+	static T access(Storage<T, Types...> &storage) {
+		return storage.item;
+	}
+};
+
+struct MakeTuple { };
+
+} // namespace tuple_impl
+
+template<typename... Types>
+class Tuple {
+public:
+	Tuple(const Tuple &other) = default;
+
+	template<typename... FwTypes>
+	Tuple(tuple_impl::MakeTuple, FwTypes &&... args)
+	: p_storage(traits::forward<FwTypes>(args)...) { }
+
+	template<int n>
+	typename tuple_impl::NthType<n, Types...>::type get() {
+		return tuple_impl::Access<n, Types...>::access(p_storage);
+	}
+
+private:
+	tuple_impl::Storage<Types...> p_storage;
+};
+
+template<typename... Types>
+Tuple<Types...> makeTuple(Types &&... args) {
+	return Tuple<Types...>(tuple_impl::MakeTuple(), traits::forward<Types>(args)...);
+}
+
+} } // namespace frigg::util
+
