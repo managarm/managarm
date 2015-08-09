@@ -1,7 +1,7 @@
 
 CXX = x86_64-managarm-g++
 CXXINCLUDE = -I../frigg/include
-CXXFLAGS = -std=c++11 -ffreestanding -fno-exceptions -fno-rtti $(CXXINCLUDE)
+CXXFLAGS = -std=c++11 -Wall -ffreestanding -fno-exceptions -fno-rtti $(CXXINCLUDE)
 
 AS = x86_64-managarm-as
 AS_FLAGS =
@@ -10,7 +10,7 @@ LD = x86_64-managarm-ld
 
 BINARIES = bin/ld-server bin/ld-init.so
 
-server_OBJECTS = main.o frigg-glue-hel.o frigg-debug.o frigg-initializer.o
+server_OBJECTS = main.o frigg-glue-hel.o frigg-debug.o frigg-initializer.o frigg-libc.o
 server_OBJECT_PATHS = $(addprefix obj/server/,$(server_OBJECTS))
 
 linker_OBJECTS = main.o frigg-glue-hel.o linker.o runtime.o \
