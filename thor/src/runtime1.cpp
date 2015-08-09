@@ -60,30 +60,32 @@ void thorRtInitializeProcessor() {
 	uint32_t *idt_pointer = (uint32_t *)thor::physicalToVirtual(idt_page);
 	for(int i = 0; i < 256; i++)
 		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 0, 0x8,
-			(void *)&thorRtIsrDivideByZeroError);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 6, 0x8, (void *)&thorRtIsrInvalidOpcode);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8, 0x8, (void *)&thorRtIsrDoubleFault);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 13, 0x8,
-			(void *)&thorRtIsrGeneralProtectionFault);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 66, 0x8, (void *)&thorRtIsrIrq2);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 67, 0x8, (void *)&thorRtIsrIrq3);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 68, 0x8, (void *)&thorRtIsrIrq4);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 69, 0x8, (void *)&thorRtIsrIrq5);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 70, 0x8, (void *)&thorRtIsrIrq6);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 71, 0x8, (void *)&thorRtIsrIrq7);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 72, 0x8, (void *)&thorRtIsrIrq8);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 73, 0x8, (void *)&thorRtIsrIrq9);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 74, 0x8, (void *)&thorRtIsrIrq10);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 75, 0x8, (void *)&thorRtIsrIrq11);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 76, 0x8, (void *)&thorRtIsrIrq12);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 77, 0x8, (void *)&thorRtIsrIrq13);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 78, 0x8, (void *)&thorRtIsrIrq14);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 79, 0x8, (void *)&thorRtIsrIrq15);
-	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 0,
+			0x8, (void *)&thorRtIsrDivideByZeroError, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 6,
+			0x8, (void *)&thorRtIsrInvalidOpcode, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8,
+			0x8, (void *)&thorRtIsrDoubleFault, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 13,
+			0x8, (void *)&thorRtIsrGeneralProtectionFault, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 66, 0x8, (void *)&thorRtIsrIrq2, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 67, 0x8, (void *)&thorRtIsrIrq3, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 68, 0x8, (void *)&thorRtIsrIrq4, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 69, 0x8, (void *)&thorRtIsrIrq5, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 70, 0x8, (void *)&thorRtIsrIrq6, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 71, 0x8, (void *)&thorRtIsrIrq7, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 72, 0x8, (void *)&thorRtIsrIrq8, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 73, 0x8, (void *)&thorRtIsrIrq9, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 74, 0x8, (void *)&thorRtIsrIrq10, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 75, 0x8, (void *)&thorRtIsrIrq11, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 76, 0x8, (void *)&thorRtIsrIrq12, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 77, 0x8, (void *)&thorRtIsrIrq13, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 78, 0x8, (void *)&thorRtIsrIrq14, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 79, 0x8, (void *)&thorRtIsrIrq15, 1);
+	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall, 1);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 16 * 256;

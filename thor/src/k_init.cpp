@@ -46,18 +46,19 @@ HelHandle loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
 	return memory;
 }
 
-void mapSegment(HelHandle memory, uintptr_t address,
+void mapSegment(HelHandle memory, HelHandle space, uintptr_t address,
 		size_t length, uint32_t map_flags) {
 	ASSERT(length > 0);
 	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, length);
 
 	void *actual_ptr;
-	helMapMemory(memory, kHelNullHandle, (void *)map.get<0>(), map.get<1>(),
+	helMapMemory(memory, space, (void *)map.get<0>(), map.get<1>(),
 			map_flags, &actual_ptr);
 	ASSERT(actual_ptr == (void *)map.get<0>());
 }
 
 void loadImage(const char *path) {
+	// open and map the executable image into this address space
 	HelHandle image_handle;
 	helRdOpen(path, strlen(path), &image_handle);
 
@@ -66,6 +67,10 @@ void loadImage(const char *path) {
 	helMemoryInfo(image_handle, &size);
 	helMapMemory(image_handle, kHelNullHandle, nullptr, size,
 			kHelMapReadOnly, &image_ptr);
+	
+	// create a new 
+	HelHandle space;
+	helCreateSpace(&space);
 	
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
 	ASSERT(ehdr->e_ident[0] == 0x7F
@@ -91,7 +96,7 @@ void loadImage(const char *path) {
 
 			HelHandle memory = loadSegment(image_ptr, phdr->p_vaddr,
 					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
-			mapSegment(memory, phdr->p_vaddr, phdr->p_memsz, map_flags);
+			mapSegment(memory, space, phdr->p_vaddr, phdr->p_memsz, map_flags);
 		} //FIXME: handle other phdrs
 	}
 	
@@ -101,12 +106,16 @@ void loadImage(const char *path) {
 	helAllocateMemory(stack_size, &stack_memory);
 
 	void *stack_base;
-	helMapMemory(stack_memory, kHelNullHandle, nullptr,
+	helMapMemory(stack_memory, space, nullptr,
 			stack_size, kHelMapReadWrite, &stack_base);
+	
+	HelThreadState state;
+	memset(&state, 0, sizeof(HelThreadState));
+	state.rip = ehdr->e_entry;
+	state.rsp = (uintptr_t)stack_base + stack_size;
 
 	HelHandle thread;
-	helCreateThread((void (*) (uintptr_t))ehdr->e_entry,
-			0, (void *)((uintptr_t)stack_base + stack_size), &thread);
+	helCreateThread(space, kHelNullHandle, &state, &thread);
 }
 
 void main() {

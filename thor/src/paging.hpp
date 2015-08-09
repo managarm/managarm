@@ -1,7 +1,7 @@
 
 namespace thor {
 
-void *physicalToVirtual(uintptr_t address);
+void *physicalToVirtual(PhysicalAddr address);
 
 template<typename T>
 T *accessPhysical(PhysicalAddr address) {
@@ -24,7 +24,7 @@ public:
 		kAccessExecute = 2
 	};
 
-	PageSpace(uintptr_t pml4_address);
+	PageSpace(PhysicalAddr pml4_address);
 	
 	void switchTo();
 
@@ -35,7 +35,7 @@ public:
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
-	uintptr_t p_pml4Address;
+	PhysicalAddr p_pml4Address;
 };
 
 extern LazyInitializer<PageSpace> kernelSpace;

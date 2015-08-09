@@ -57,6 +57,13 @@ enum {
 	kHelWaitInfinite = -1
 };
 
+struct HelThreadState {
+	uint64_t rax, rbx, rcx, rdx;
+	uint64_t rsi, rdi, rbp;
+	uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+	uint64_t rsp, rip, rflags;
+};
+
 enum {
 	kHelEventRecvString = 1,
 	kHelEventAccept = 2,
@@ -94,8 +101,8 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 
-HEL_C_LINKAGE HelError helCreateThread(void (*entry)(uintptr_t argument),
-		uintptr_t argument, void *stack_ptr, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
+		HelHandle directory, HelThreadState *state, HelHandle *handle);
 HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);

@@ -21,6 +21,8 @@ public:
 
 	void enableIoPort(uintptr_t port);
 
+	ThorRtThreadState &accessState();
+
 private:
 	SharedPtr<Universe, KernelAlloc> p_universe;
 	SharedPtr<AddressSpace, KernelAlloc> p_addressSpace;

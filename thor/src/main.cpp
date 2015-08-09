@@ -93,17 +93,15 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	// allocate and map memory for the k_init stack
 	size_t stack_size = 0x200000;
-	auto stack_memory = makeShared<Memory>(*kernelAlloc);
-	stack_memory->resize(stack_size);
-	
-	VirtualAddr stack_base;
-	address_space->map(stack_memory, 0, stack_size, AddressSpace::kMapReadWrite
-			| AddressSpace::kMapPreferTop, &stack_base);
+	void *stack_base = kernelAlloc->allocate(stack_size);
 	
 	// finally create the k_init thread
 	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(mod_directory), true);
-	thread->setup((void (*) (uintptr_t))&k_init::main, 0, (void *)(stack_base + stack_size));
+	
+	thread->accessState().rsp = (uintptr_t)stack_base + stack_size;
+	thread->accessState().rip = (Word)&k_init::main;
+	
 	enqueueInSchedule(traits::move(thread));
 	
 	infoLogger->log() << "Leaving Thor" << debug::Finish();
@@ -154,11 +152,11 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 }
 
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
-	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
+/*	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
 	auto trace = infoLogger->log() << "Stack trace:\n";
 	for(int i = 0; i < 5; i++)
 		trace << "    -" << (i * 8) << "(%rsp) " << (void *)stack_ptr[-i] << "\n";
-	trace << debug::Finish();
+	trace << debug::Finish();*/
 
 	ASSERT((error & 4) != 0);
 	ASSERT((error & 8) == 0);
@@ -245,13 +243,13 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)size);
 		}
 
-		case kHelCallCreateThread: {
+		/*case kHelCallCreateThread: {
 			HelHandle handle;
 			HelError error = helCreateThread((void (*) (uintptr_t))arg0,
 					(uintptr_t)arg1, (void *)arg2, &handle);
 
 			thorRtReturnSyscall2((Word)error, (Word)handle);
-		}
+		}*/
 		case kHelCallExitThisThread: {
 			HelError error = helExitThisThread();
 			

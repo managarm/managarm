@@ -12,7 +12,7 @@ namespace thor {
 
 LazyInitializer<PageSpace> kernelSpace;
 
-void *physicalToVirtual(uintptr_t address) {
+void *physicalToVirtual(PhysicalAddr address) {
 	return (void *)(0xFFFF800100000000 + address);
 }
 
@@ -20,23 +20,25 @@ void *physicalToVirtual(uintptr_t address) {
 // PageSpace
 // --------------------------------------------------------
 
-PageSpace::PageSpace(uintptr_t pml4_address)
+PageSpace::PageSpace(PhysicalAddr pml4_address)
 			: p_pml4Address(pml4_address) { }
 
 void PageSpace::switchTo() {
-	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) );
+	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) : "memory" );
 }
 
 PageSpace PageSpace::cloneFromKernelSpace() {
-	uint64_t new_pml4_page = physicalAllocator->allocate(1);
+	PhysicalAddr new_pml4_page = physicalAllocator->allocate(1);
 	volatile uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
 	volatile uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
 
 	for(int i = 0; i < 256; i++)
 		new_pml4_pointer[i] = 0;
-	for(int i = 256; i < 512; i++)
+	for(int i = 256; i < 512; i++) {
+		ASSERT((this_pml4_pointer[i] & kPagePresent) != 0);
 		new_pml4_pointer[i] = this_pml4_pointer[i];
-	
+	}
+
 	return PageSpace(new_pml4_page);
 }
 
@@ -59,7 +61,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pml4_initial_entry & kPagePresent) != 0) {
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		uintptr_t pdpt_page = physicalAllocator->allocate(1);
+		PhysicalAddr pdpt_page = physicalAllocator->allocate(1);
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
 			pdpt_pointer[i] = 0;
@@ -78,7 +80,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pdpt_initial_entry & kPagePresent) != 0) {
 		pd_pointer = (uint64_t *)physicalToVirtual(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		uintptr_t pd_page = physicalAllocator->allocate(1);
+		PhysicalAddr pd_page = physicalAllocator->allocate(1);
 		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
 			pd_pointer[i] = 0;
@@ -97,7 +99,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pd_initial_entry & kPagePresent) != 0) {
 		pt_pointer = (uint64_t *)physicalToVirtual(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		uintptr_t pt_page = physicalAllocator->allocate(1);
+		PhysicalAddr pt_page = physicalAllocator->allocate(1);
 		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)
 			pt_pointer[i] = 0;

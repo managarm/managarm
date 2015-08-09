@@ -14,8 +14,10 @@ struct Idtr {
 } __attribute__ (( packed ));
 
 void makeIdt64NullGate(uint32_t *idt, int entry);
-void makeIdt64IntSystemGate(uint32_t *idt, int entry, int segment, void *handler);
-void makeIdt64IntUserGate(uint32_t *idt, int entry, int segment, void *handler);
+void makeIdt64IntSystemGate(uint32_t *idt, int entry,
+		int segment, void *handler, int ist);
+void makeIdt64IntUserGate(uint32_t *idt, int entry,
+		int segment, void *handler, int ist);
 
 }} // namespace frigg::arch_x86
 

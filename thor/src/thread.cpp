@@ -18,17 +18,12 @@ Thread::Thread(SharedPtr<Universe, KernelAlloc> &&universe,
 		SharedPtr<RdFolder, KernelAlloc> &&directory,
 		bool kernel_thread)
 : p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory), p_kernelThread(kernel_thread) { }
+		p_directory(directory), p_kernelThread(kernel_thread) {
+	memset(&p_state, 0, sizeof(ThorRtThreadState));
 
-void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
-		void *user_stack_ptr) {
-	p_state.rflags = kRflagsBase | kRflagsIf;
-	p_state.rdi = (Word)argument;
-	p_state.rip = (Word)user_entry;
-	p_state.rsp = (Word)user_stack_ptr;
-	
+	memset(&p_tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&p_tss);
-	p_tss.rsp0 = (uintptr_t)kernelStackBase + kernelStackLength;
+	p_tss.ist1 = (uintptr_t)kernelStackBase + kernelStackLength;
 }
 
 UnsafePtr<Universe, KernelAlloc> Thread::getUniverse() {
@@ -47,6 +42,10 @@ bool Thread::isKernelThread() {
 
 void Thread::enableIoPort(uintptr_t port) {
 	p_tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+}
+
+ThorRtThreadState &Thread::accessState() {
+	return p_state;
 }
 
 void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {

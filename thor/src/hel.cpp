@@ -56,11 +56,11 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
 	UnsafePtr<AddressSpace, KernelAlloc> space;
-	if(space_handle != kHelNullHandle) {
+	if(space_handle == kHelNullHandle) {
+		space = this_thread->getAddressSpace();
+	}else{
 		auto &space_wrapper = universe->getDescriptor(space_handle);
 		space = space_wrapper.get<AddressSpaceDescriptor>().getSpace();
-	}else{
-		space = this_thread->getAddressSpace();
 	}
 	
 	auto &wrapper = universe->getDescriptor(memory_handle);
@@ -109,18 +109,53 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 }
 
 
-HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
-		void *user_stack_ptr, HelHandle *handle) {
+HelError helCreateThread(HelHandle space_handle,
+		HelHandle directory_handle, HelThreadState *user_state, HelHandle *handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
-	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
-	UnsafePtr<AddressSpace, KernelAlloc> address_space = this_thread->getAddressSpace();
-	UnsafePtr<RdFolder, KernelAlloc> directory = this_thread->getDirectory();
+	UnsafePtr<Universe, KernelAlloc> this_universe = this_thread->getUniverse();
+	
+	UnsafePtr<AddressSpace, KernelAlloc> address_space;
+	if(space_handle == kHelNullHandle) {
+		address_space = this_thread->getAddressSpace();
+	}else{
+		auto &space_wrapper = this_universe->getDescriptor(space_handle);
+		address_space = space_wrapper.get<AddressSpaceDescriptor>().getSpace();
+	}
+
+	UnsafePtr<RdFolder, KernelAlloc> directory;
+	if(directory_handle == kHelNullHandle) {
+		directory = this_thread->getDirectory();
+	}else{
+		ASSERT(!"FIXME");
+	}
 
 	auto new_thread = makeShared<Thread>(*kernelAlloc,
-			SharedPtr<Universe, KernelAlloc>(universe),
+			SharedPtr<Universe, KernelAlloc>(this_universe),
 			SharedPtr<AddressSpace, KernelAlloc>(address_space),
 			SharedPtr<RdFolder, KernelAlloc>(directory), false);
-	new_thread->setup(user_entry, argument, user_stack_ptr);
+	
+	ThorRtThreadState &state = new_thread->accessState();
+
+	state.rax = user_state->rax;
+	state.rbx = user_state->rbx;
+	state.rcx = user_state->rcx;
+	state.rdx = user_state->rdx;
+	state.rsi = user_state->rsi;
+	state.rdi = user_state->rdi;
+	state.rbp = user_state->rbp;
+
+	state.r8 = user_state->r8;
+	state.r9 = user_state->r9;
+	state.r10 = user_state->r10;
+	state.r11 = user_state->r11;
+	state.r12 = user_state->r12;
+	state.r13 = user_state->r13;
+	state.r14 = user_state->r14;
+	state.r15 = user_state->r15;
+
+	state.rip = user_state->rip;
+	state.rsp = user_state->rsp;
+	state.rflags = 0;
 
 	scheduleQueue->addBack(traits::move(new_thread));
 

@@ -89,7 +89,7 @@ extern inline HelError helMemoryInfo(HelHandle handle, size_t *size) {
 }
 
 
-extern inline HelError helCreateThread(void (*entry)(uintptr_t),
+/*extern inline HelError helCreateThread(void (*entry)(uintptr_t),
 		uintptr_t argument, void *stack_ptr, HelHandle *handle) {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallCreateThread;
 	register HelWord in_entry asm ("rsi") = (HelWord)entry;
@@ -104,7 +104,7 @@ extern inline HelError helCreateThread(void (*entry)(uintptr_t),
 		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
 	*handle = out_handle;
 	return (HelError)out_error;
-}
+}*/
 
 extern inline HelError helExitThisThread() {
 	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallExitThisThread;
