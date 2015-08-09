@@ -126,7 +126,8 @@ HelError helCreateThread(HelHandle space_handle,
 	if(directory_handle == kHelNullHandle) {
 		directory = this_thread->getDirectory();
 	}else{
-		ASSERT(!"FIXME");
+		auto &directory_wrapper = this_universe->getDescriptor(directory_handle);
+		directory = directory_wrapper.get<RdDescriptor>().getFolder();
 	}
 
 	auto new_thread = makeShared<Thread>(*kernelAlloc,

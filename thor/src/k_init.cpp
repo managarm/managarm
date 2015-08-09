@@ -57,7 +57,7 @@ void mapSegment(HelHandle memory, HelHandle space, uintptr_t address,
 	ASSERT(actual_ptr == (void *)map.get<0>());
 }
 
-void loadImage(const char *path) {
+void loadImage(const char *path, HelHandle directory) {
 	// open and map the executable image into this address space
 	HelHandle image_handle;
 	helRdOpen(path, strlen(path), &image_handle);
@@ -115,13 +115,25 @@ void loadImage(const char *path) {
 	state.rsp = (uintptr_t)stack_base + stack_size;
 
 	HelHandle thread;
-	helCreateThread(space, kHelNullHandle, &state, &thread);
+	helCreateThread(space, directory, &state, &thread);
 }
 
 void main() {
 	thorRtDisableInts();
+
+	HelHandle event_hub;
+	helCreateEventHub(&event_hub);
+	
+	HelHandle directory;
+	helCreateRd(&directory);
+
+	const char *pipe_name = "k_init";
+	HelHandle this_end, other_end;
+	helCreateBiDirectionPipe(&this_end, &other_end);
+	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
+	
 	helLog("Hello\n", 6);
-	loadImage("ld-server");
+	loadImage("ld-server", directory);
 	helLog("Exit\n", 5);
 	helExitThisThread();
 }

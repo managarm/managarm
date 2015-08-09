@@ -13,6 +13,7 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
 
@@ -169,16 +170,39 @@ void runObject(Object *object, HelHandle space, uintptr_t base_address) {
 	}
 }
 
+void onAccept(int64_t submit_id, HelHandle channel_handle) {
+	infoLogger->log() << "Accept" << debug::Finish();
+}
+
+util::LazyInitializer<helx::EventHub> eventHub;
+util::LazyInitializer<helx::Server> server;
+
 int main() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-server" << debug::Finish();
 	allocator.initialize(virtualAlloc);
-	
-	HelHandle space;
-	helCreateSpace(&space);
 
-	Object *object = readObject("ld-init.so");
-	runObject(object, space, 0x40000000);
+	eventHub.initialize();
+
+	// create a server and listen for requests
+	HelHandle serve_handle, client_handle;
+	helCreateServer(&serve_handle, &client_handle);
+
+	server.initialize(serve_handle);
+	server->accept(*eventHub, helx::AcceptCb::make<&onAccept>());
+	
+	// inform k_init that we are ready to server requests
+	const char *path = "k_init";
+	HelHandle channel_handle;
+	helRdOpen(path, strlen(path), &channel_handle);
+
+	helx::Channel channel(channel_handle);
+
+//	HelHandle space;
+//	helCreateSpace(&space);
+
+//	Object *object = readObject("ld-init.so");
+//	runObject(object, space, 0x40000000);
 
 	infoLogger->log() << "ld-server initialized succesfully!" << debug::Finish();
 	

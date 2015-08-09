@@ -27,7 +27,18 @@ public:
 			}
 		};
 
-		return Callback(object, Wrapper::run);
+		return Callback(object, &Wrapper::run);
+	}
+	
+	template<void (*function) (Args...)>
+	static Callback make() {
+		struct Wrapper {
+			static void run(void *object, Args... args) {
+				function(args...);
+			}
+		};
+
+		return Callback(nullptr, &Wrapper::run);
 	}
 
 	inline void operator() (Args... args) {
@@ -67,7 +78,7 @@ class EventHub {
 public:
 	enum { kEventsPerCall = 16 };
 
-	EventHub() {
+	inline EventHub() {
 		int error = helCreateEventHub(&p_handle);
 		if(error != kHelErrNone)
 			panic("helCreateEventHub() failed");
@@ -108,6 +119,49 @@ public:
 				panic("Unknown event type");
 			}
 		}
+	}
+
+private:
+	HelHandle p_handle;
+};
+
+class Channel {
+public:
+	inline Channel(HelHandle handle) : p_handle(handle) { }
+	
+	inline HelHandle getHandle() {
+		return p_handle;
+	}
+
+	inline void sendString(const void *buffer, size_t length,
+			int64_t msg_request, int64_t msg_seq) {
+		helSendString(p_handle, (const uint8_t *)buffer, length,
+				msg_request, msg_seq);
+	}
+
+	inline void recvString(void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			RecvStringCb callback) {
+		helSubmitRecvString(p_handle, event_hub.getHandle(),
+				(uint8_t *)buffer, length, msg_request, length, 0,
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
+	}
+
+private:
+	HelHandle p_handle;
+};
+
+class Server {
+public:
+	inline Server(HelHandle handle) : p_handle(handle) { }
+
+	inline HelHandle getHandle() {
+		return p_handle;
+	}
+
+	inline void accept(EventHub &event_hub, AcceptCb callback) {
+		helSubmitAccept(p_handle, event_hub.getHandle(), 0,
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
 	}
 
 private:

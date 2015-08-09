@@ -122,7 +122,7 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::rehash(size_t new_capacity) {
-	ASSERT(!"FIXME: Implement rehash");
+//	ASSERT(!"FIXME: Implement rehash");
 }
 
 template<typename T>
