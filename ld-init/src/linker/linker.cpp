@@ -13,8 +13,10 @@
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
 
-#include "../../hel/include/hel.h"
-#include "../../hel/include/hel-syscalls.h"
+#include <hel.h>
+#include <hel-syscalls.h>
+
+#include <frigg/glue-hel.hpp>
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;

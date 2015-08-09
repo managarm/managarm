@@ -1,44 +1,53 @@
 
 CXX = x86_64-managarm-g++
-CXX_INCLUDE = -I../frigg/include
-CXX_FLAGS = -fpic -ffreestanding -fno-exceptions -fno-rtti \
-	-std=c++0x -fvisibility=hidden $(CXX_INCLUDE)
+CXXINCLUDE = -I../frigg/include
+CXXFLAGS = -std=c++11 -ffreestanding -fno-exceptions -fno-rtti $(CXXINCLUDE)
 
 AS = x86_64-managarm-as
 AS_FLAGS =
 
 LD = x86_64-managarm-ld
-LD_FLAGS = -shared
 
-LIBRARY = bin/ld-init.so
-OBJECTS = main.o linker.o runtime.o frigg-debug.o frigg-initializer.o frigg-libc.o
-OBJECT_PATHS = $(addprefix obj/,$(OBJECTS))
+BINARIES = bin/ld-server bin/ld-init.so
+
+server_OBJECTS = main.o frigg-glue-hel.o frigg-debug.o frigg-initializer.o
+server_OBJECT_PATHS = $(addprefix obj/server/,$(server_OBJECTS))
+
+linker_OBJECTS = main.o frigg-glue-hel.o linker.o runtime.o \
+	frigg-debug.o frigg-initializer.o frigg-libc.o
+linker_OBJECT_PATHS = $(addprefix obj/linker/,$(linker_OBJECTS))
 
 SRCDIR = src
 FRIGG_SRCDIR = ../frigg/src
 
 .PHONY: all clean
 
-all: $(LIBRARY)
+all: $(BINARIES)
 
 clean:
-	rm -f $(LIBRARY) $(OBJECT_PATHS)
+	rm -f bin/* obj/linker/* obj/server/*
 
-$(LIBRARY): $(OBJECT_PATHS)
-	$(LD) $(LD_FLAGS) -o $(LIBRARY) $(OBJECT_PATHS)
+bin/ld-server: $(server_OBJECT_PATHS)
+	$(CXX) -o $@ $+
 
-obj/%.o: src/%.cpp
-	$(CXX) $(CXX_FLAGS) -c -o $@ $(SRCDIR)/$(@F:%.o=%.cpp)
-	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
-		$(SRCDIR)/$(@F:%.o=%.cpp)
+bin/ld-init.so: $(linker_OBJECT_PATHS)
+	$(LD) -shared -o $@ $+
 
-obj/%.o: src/%.s
-	$(AS) $(AS_FLAGS) -o $@ $(SRCDIR)/$(@F:%.o=%.s)
+obj/server/%.o: L_CXXFLAGS = $(CXXFLAGS)
+obj/linker/%.o: L_CXXFLAGS = $(CXXFLAGS) -fpic -fvisibility=hidden
 
-obj/frigg-%.o: $(FRIGG_SRCDIR)/%.cpp
-	$(CXX) $(CXX_FLAGS) -c -o $@ $(FRIGG_SRCDIR)/$(@F:frigg-%.o=%.cpp)
-	$(CXX) $(CXX_FLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" \
-		$(FRIGG_SRCDIR)/$(@F:frigg-%.o=%.cpp)
+$(SRCDIR)/linker/frigg-%.cpp: $(FRIGG_SRCDIR)/%.cpp
+	install -p $< $@
+
+$(SRCDIR)/server/frigg-%.cpp: $(FRIGG_SRCDIR)/%.cpp
+	install -p $< $@
+
+obj/%.o: $(SRCDIR)/%.cpp
+	$(CXX) -c -o $@ $(L_CXXFLAGS) $<
+	$(CXX) $(CXXINCLUDE) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+
+obj/%.o: $(SRCDIR)/%.s
+	$(AS) $(AS_FLAGS) -o $@ $<
 
 -include $(OBJECT_PATHS:%.o=%.d)
 

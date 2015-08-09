@@ -12,7 +12,7 @@ namespace traits = frigg::traits;
 //LazyInitializer<debug::Terminal> vgaTerminal;
 
 uint64_t ldBaseAddr = 0x40000000;
-	
+
 void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
 	char *image = (char *)physicalToVirtual(image_page);
 

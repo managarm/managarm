@@ -1,31 +1,4 @@
 
-class InfoSink {
-public:
-	void print(char c) {
-		helLog(&c, 1);
-	}
-
-	void print(const char *str) {
-		size_t length = 0;
-		for(size_t i = 0; str[i] != 0; i++)
-			length++;
-		helLog(str, length);
-	}
-};
-
-typedef debug::DefaultLogger<InfoSink> InfoLogger;
-extern util::LazyInitializer<InfoLogger> infoLogger;
-
-struct VirtualAlloc {
-public:
-	uintptr_t map(size_t length);
-
-	void unmap(uintptr_t address, size_t length);
-};
-
-typedef memory::DebugAllocator<VirtualAlloc> Allocator;
-extern util::LazyInitializer<Allocator> allocator;
-
 struct Scope;
 
 // --------------------------------------------------------

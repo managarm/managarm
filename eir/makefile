@@ -9,7 +9,7 @@ AS_FLAGS = --32
 LD = x86_64-elf-ld
 LD_FLAGS = -m elf_i386 -nostdlib -T src/link.ld
 
-KERNEL = bin/eir.elf
+KERNEL = bin/eir
 OBJECTS = obj/frigg-arch-gdt.o obj/frigg-initializer.o \
 	obj/frigg-libc.o obj/frigg-debug.o obj/main.o obj/multiboot.o
 LIBS = libgcc.a
@@ -23,7 +23,7 @@ FRIGG_ARCHDIR = ../frigg/src/arch_x86
 all: $(KERNEL)
 
 clean:
-	rm -f $(KERNEL) $(OBJECTS)
+	rm -f bin/* obj/*
 
 $(KERNEL): $(OBJECTS)
 	$(LD) $(LD_FLAGS) -o $(KERNEL) $(OBJECTS) $(LIBS)

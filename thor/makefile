@@ -10,7 +10,7 @@ AS_FLAGS = --64
 LD = x86_64-managarm-ld
 LD_FLAGS = -nostdlib -z max-page-size=0x1000 -T src/link.ld
 
-KERNEL = bin/thor.elf
+KERNEL = bin/thor
 OBJECTS = obj/frigg-debug.o obj/frigg-initializer.o obj/frigg-libc.o \
 	obj/frigg-arch-gdt.o obj/frigg-arch-idt.o obj/frigg-arch-tss.o \
 	obj/runtime0.o obj/runtime1.o \
@@ -28,7 +28,7 @@ FRIGG_ARCH_SRCDIR = ../frigg/src/arch_x86
 all: $(KERNEL)
 
 clean:
-	rm -f $(KERNEL) $(OBJECTS)
+	rm -f bin/* obj/*
 
 $(KERNEL): $(OBJECTS)
 	$(LD) $(LD_FLAGS) -o $(KERNEL) $(OBJECTS)

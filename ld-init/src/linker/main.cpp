@@ -13,8 +13,10 @@
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
 
-#include "../../hel/include/hel.h"
-#include "../../hel/include/hel-syscalls.h"
+#include <hel.h>
+#include <hel-syscalls.h>
+
+#include <frigg/glue-hel.hpp>
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
@@ -27,41 +29,6 @@ namespace memory = frigg::memory;
 
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
-
-InfoSink infoSink;
-util::LazyInitializer<InfoLogger> infoLogger;
-
-void friggPrintCritical(char c) {
-	infoSink.print(c);
-}
-
-void friggPrintCritical(const char *str) {
-	infoSink.print(str);
-}
-
-void friggPanic() {
-	helPanic("Abort", 5);
-	__builtin_unreachable();
-}
-
-uintptr_t VirtualAlloc::map(size_t length) {
-	ASSERT((length % 0x1000) == 0);
-
-	HelHandle memory;
-	void *actual_ptr;
-	helAllocateMemory(length, &memory);
-	helMapMemory(memory, kHelNullHandle, nullptr, length,
-			kHelMapReadWrite, &actual_ptr);
-	return (uintptr_t)actual_ptr;
-}
-
-void VirtualAlloc::unmap(uintptr_t address, size_t length) {
-
-}
-
-typedef memory::DebugAllocator<VirtualAlloc> Allocator;
-VirtualAlloc virtualAlloc;
-util::LazyInitializer<Allocator> allocator;
 
 util::LazyInitializer<SharedObject> interpreter;
 util::LazyInitializer<SharedObject> executable;
@@ -102,7 +69,6 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 extern "C" void *interpreterMain(HelHandle program_handle) {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-init" << debug::Finish();
-
 	allocator.initialize(virtualAlloc);
 	
 	interpreter.initialize();

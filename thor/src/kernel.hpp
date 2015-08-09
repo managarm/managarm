@@ -13,7 +13,7 @@
 #include <frigg/libc.hpp>
 
 #include "runtime.hpp"
-#include "util/smart-ptr.hpp"
+#include "smart-ptr.hpp"
 #include "physical.hpp"
 #include "paging.hpp"
 #include "core.hpp"
