@@ -42,7 +42,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 
 	auto space = makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->clone());
+			kernelSpace->cloneFromKernelSpace());
 	
 	AddressSpaceDescriptor base(traits::move(space));
 	*handle = universe->attachDescriptor(traits::move(base));
@@ -114,11 +114,12 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	UnsafePtr<AddressSpace, KernelAlloc> address_space = this_thread->getAddressSpace();
+	UnsafePtr<RdFolder, KernelAlloc> directory = this_thread->getDirectory();
 
-	auto new_thread = makeShared<Thread>(*kernelAlloc);
-	new_thread->setup(user_entry, argument, user_stack_ptr);
-	new_thread->setUniverse(SharedPtr<Universe, KernelAlloc>(universe));
-	new_thread->setAddressSpace(SharedPtr<AddressSpace, KernelAlloc>(address_space));
+	auto new_thread = makeShared<Thread>(*kernelAlloc,
+			SharedPtr<Universe, KernelAlloc>(universe),
+			SharedPtr<AddressSpace, KernelAlloc>(address_space),
+			SharedPtr<RdFolder, KernelAlloc>(directory), false);
 
 	scheduleQueue->addBack(traits::move(new_thread));
 
@@ -129,8 +130,8 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 }
 
 HelError helExitThisThread() {
-	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
-	scheduleQueue->remove(this_thread);
+	// schedule without re-enqueuing this thread first
+	doSchedule();
 
 	return kHelErrNone;
 }

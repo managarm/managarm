@@ -68,6 +68,8 @@ public:
 
 	void map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr address, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
+	
+	void switchTo();
 
 private:
 	Mapping *getMapping(VirtualAddr address);

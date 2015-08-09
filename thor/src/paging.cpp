@@ -27,7 +27,7 @@ void PageSpace::switchTo() {
 	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) );
 }
 
-PageSpace PageSpace::clone() {
+PageSpace PageSpace::cloneFromKernelSpace() {
 	uint64_t new_pml4_page = physicalAllocator->allocate(1);
 	volatile uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
 	volatile uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);

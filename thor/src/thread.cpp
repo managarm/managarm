@@ -13,6 +13,13 @@ namespace thor {
 const Word kRflagsBase = 0x1;
 const Word kRflagsIf = 0x200;
 
+Thread::Thread(SharedPtr<Universe, KernelAlloc> &&universe,
+		SharedPtr<AddressSpace, KernelAlloc> &&address_space,
+		SharedPtr<RdFolder, KernelAlloc> &&directory,
+		bool kernel_thread)
+: p_universe(universe), p_addressSpace(address_space),
+		p_directory(directory), p_kernelThread(kernel_thread) { }
+
 void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 		void *user_stack_ptr) {
 	p_state.rflags = kRflagsBase | kRflagsIf;
@@ -22,7 +29,6 @@ void Thread::setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 	
 	frigg::arch_x86::initializeTss64(&p_tss);
 	p_tss.rsp0 = (uintptr_t)kernelStackBase + kernelStackLength;
-
 }
 
 UnsafePtr<Universe, KernelAlloc> Thread::getUniverse() {
@@ -35,14 +41,8 @@ UnsafePtr<RdFolder, KernelAlloc> Thread::getDirectory() {
 	return p_directory;
 }
 
-void Thread::setUniverse(SharedPtr<Universe, KernelAlloc> &&universe) {
-	p_universe = traits::move(universe);
-}
-void Thread::setAddressSpace(SharedPtr<AddressSpace, KernelAlloc> &&address_space) {
-	p_addressSpace = traits::move(address_space);
-}
-void Thread::setDirectory(SharedPtr<RdFolder, KernelAlloc> &&directory) {
-	p_directory = traits::move(directory);
+bool Thread::isKernelThread() {
+	return p_kernelThread;
 }
 
 void Thread::enableIoPort(uintptr_t port) {
@@ -52,6 +52,7 @@ void Thread::enableIoPort(uintptr_t port) {
 void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {
 	*currentThread = SharedPtr<Thread, KernelAlloc>(thread);
 	
+	thread->p_addressSpace->switchTo();
 	thorRtUserContext = &thread->p_state;
 	thorRtEnableTss(&thread->p_tss);
 }

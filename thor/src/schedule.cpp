@@ -7,15 +7,22 @@ namespace thor {
 
 LazyInitializer<ThreadQueue> scheduleQueue;
 
-void schedule() {
+void doSchedule() {
+	currentThread->reset();
+	
 	ASSERT(!scheduleQueue->empty());
+	SharedPtr<Thread, KernelAlloc> thread = scheduleQueue->removeFront();
+	switchThread(thread);
 	
-	SharedPtr<Thread, KernelAlloc> thread_ptr = scheduleQueue->removeFront();
-	switchThread(thread_ptr);
+	if(!(*currentThread)->isKernelThread()) {
+		thorRtFullReturn();
+	}else{
+		thorRtFullReturnToKernel();
+	}
+}
 
-	scheduleQueue->addBack(traits::move(thread_ptr));
-	
-	thorRtFullReturn();
+void enqueueInSchedule(SharedPtr<Thread, KernelAlloc> &&thread) {
+	scheduleQueue->addBack(traits::move(thread));
 }
 
 } // namespace thor

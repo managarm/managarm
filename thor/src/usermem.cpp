@@ -42,7 +42,10 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 		lowerPtr(nullptr), higherPtr(nullptr),
 		leftPtr(nullptr), rightPtr(nullptr),
 		parentPtr(nullptr), color(kColorNone),
-		memoryOffset(0) { }
+		memoryOffset(0) {
+	if(type == kTypeHole)
+		largestHole = length;
+}
 
 // --------------------------------------------------------
 // AddressSpace
@@ -66,6 +69,7 @@ void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr addres
 	}else{
 		mapping = allocate(length, flags);
 	}
+	ASSERT(mapping != nullptr);
 
 	mapping->type = Mapping::kTypeMemory;
 	mapping->memoryRegion = traits::move(memory);
@@ -88,6 +92,10 @@ void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr addres
 	}
 
 	*actual_address = mapping->baseAddress;
+}
+
+void AddressSpace::switchTo() {
+	p_pageSpace.switchTo();
 }
 
 Mapping *AddressSpace::getMapping(VirtualAddr address) {

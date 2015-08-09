@@ -236,6 +236,37 @@ thorRtFullReturn:
 
 	iretq
 
+.global thorRtFullReturnToKernel
+thorRtFullReturnToKernel:
+	movabs $thorRtUserContext, %rax
+	mov (%rax), %rbx
+	
+	pushq $0 # ss
+	pushq kContextRsp(%rbx)
+	pushq kContextRflags(%rbx)
+	pushq $0x8 # cs
+	pushq kContextRip(%rbx)
+
+	mov kContextRcx(%rbx), %rcx
+	mov kContextRdx(%rbx), %rdx
+	mov kContextRsi(%rbx), %rsi
+	mov kContextRdi(%rbx), %rdi
+	mov kContextRbp(%rbx), %rbp
+
+	mov kContextR8(%rbx), %r8
+	mov kContextR9(%rbx), %r9
+	mov kContextR10(%rbx), %r10
+	mov kContextR11(%rbx), %r11
+	mov kContextR12(%rbx), %r12
+	mov kContextR13(%rbx), %r13
+	mov kContextR14(%rbx), %r14
+	mov kContextR15(%rbx), %r15
+
+	mov kContextRax(%rbx), %rax
+	mov kContextRbx(%rbx), %rbx
+
+	iretq
+
 .global thorRtReturnSyscall1
 .global thorRtReturnSyscall2
 .global thorRtReturnSyscall3

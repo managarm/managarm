@@ -31,7 +31,14 @@ uint32_t *thorRtGdtPointer;
 void thorRtInvalidateSpace() {
 	asm volatile ("movq %%cr3, %%rax\n\t"
 		"movq %%rax, %%cr3" : : : "%rax");
-};
+}
+
+void thorRtEnableInts() {
+	asm volatile ( "sti" );
+}
+void thorRtDisableInts() {
+	asm volatile ( "cli" );
+}
 
 void thorRtInitializeProcessor() {
 	uintptr_t gdt_page = thor::physicalAllocator->allocate(1);

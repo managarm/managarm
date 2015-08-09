@@ -28,7 +28,7 @@ public:
 	
 	void switchTo();
 
-	PageSpace clone();
+	PageSpace cloneFromKernelSpace();
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			bool user_access, uint32_t flags);

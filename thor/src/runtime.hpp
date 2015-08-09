@@ -44,10 +44,14 @@ void thorRtInitializeProcessor();
 void thorRtSetupIrqs();
 void thorRtAcknowledgeIrq(int irq);
 
+void thorRtEnableInts();
+void thorRtDisableInts();
+
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();
 
 extern "C" void thorRtFullReturn();
+extern "C" void thorRtFullReturnToKernel();
 extern "C" void thorRtReturnSyscall1(Word out0);
 extern "C" void thorRtReturnSyscall2(Word out0, Word out1);
 extern "C" void thorRtReturnSyscall3(Word out0, Word out1, Word out2);

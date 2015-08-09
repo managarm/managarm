@@ -5,16 +5,19 @@ class Thread {
 friend class ThreadQueue;
 friend void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
 public:
+	Thread(SharedPtr<Universe, KernelAlloc> &&universe,
+			SharedPtr<AddressSpace, KernelAlloc> &&address_space,
+			SharedPtr<RdFolder, KernelAlloc> &&directory,
+			bool kernel_thread);
+
 	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 			void *user_stack_ptr);
 	
 	UnsafePtr<Universe, KernelAlloc> getUniverse();
 	UnsafePtr<AddressSpace, KernelAlloc> getAddressSpace();
 	UnsafePtr<RdFolder, KernelAlloc> getDirectory();
-	
-	void setUniverse(SharedPtr<Universe, KernelAlloc> &&universe);
-	void setAddressSpace(SharedPtr<AddressSpace, KernelAlloc> &&address_space);
-	void setDirectory(SharedPtr<RdFolder, KernelAlloc> &&directory);
+
+	bool isKernelThread();
 
 	void enableIoPort(uintptr_t port);
 
@@ -28,6 +31,7 @@ private:
 
 	ThorRtThreadState p_state;
 	frigg::arch_x86::Tss64 p_tss;
+	bool p_kernelThread;
 };
 
 void switchThread(UnsafePtr<Thread, KernelAlloc> thread);

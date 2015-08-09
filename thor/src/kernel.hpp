@@ -19,3 +19,10 @@
 #include "core.hpp"
 #include "schedule.hpp"
 
+namespace thor {
+namespace k_init {
+
+void main();
+
+} } // namespace thor::k_init
+

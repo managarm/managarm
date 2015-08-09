@@ -36,11 +36,7 @@ public:
 	SharedPtr() : p_block(nullptr) { }
 	
 	~SharedPtr() {
-		if(p_block == nullptr)
-			return;
-		p_block->refCount--;
-		if(p_block->refCount == 0)
-			frigg::memory::destruct(p_block->allocator, p_block);
+		reset();
 	}
 
 	SharedPtr(const SharedPtr &other) {
@@ -60,6 +56,15 @@ public:
 		p_block = other.p_block;
 		other.p_block = nullptr;
 		return *this;
+	}
+
+	void reset() {
+		if(p_block == nullptr)
+			return;
+		p_block->refCount--;
+		if(p_block->refCount == 0)
+			frigg::memory::destruct(p_block->allocator, p_block);
+		p_block = nullptr;
 	}
 
 	T *operator-> () const {

@@ -114,7 +114,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
-	auto folder = makeShared<RdFolder>(*kernelAlloc);
+	auto mod_directory = makeShared<RdFolder>(*kernelAlloc);
 	for(size_t i = 0; i < info->numModules; i++) {
 		auto mod_memory = makeShared<Memory>(*kernelAlloc);
 		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
@@ -124,12 +124,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				modules[i].nameLength);
 
 		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
-		folder->publish(name_ptr, modules[i].nameLength,
+		mod_directory->publish(name_ptr, modules[i].nameLength,
 				AnyDescriptor(traits::move(mod_descriptor)));
 	}
 	
 	// create a user space thread from the init image
-	PageSpace user_space = kernelSpace->clone();
+/*	PageSpace user_space = kernelSpace->clone();
 	user_space.switchTo();
 
 	auto universe = makeShared<Universe>(*kernelAlloc);
@@ -138,15 +138,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto entry = (void (*)(uintptr_t))loadInitImage(
 			address_space, modules[0].physicalBase);
 	thorRtInvalidateSpace();
-	
-	// allocate and memory memory for the user stack
-	size_t stack_size = 0x200000;
-	auto stack_memory = makeShared<Memory>(*kernelAlloc);
-	stack_memory->resize(stack_size);
-	
-	VirtualAddr stack_base;
-	address_space->map(stack_memory, 0, stack_size, AddressSpace::kMapReadWrite
-			| AddressSpace::kMapPreferTop, &stack_base);
 	
 	auto program_memory = makeShared<Memory>(*kernelAlloc);
 	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
@@ -159,13 +150,33 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	thread->setup(entry, program_handle, (void *)(stack_base + stack_size));
 	thread->setUniverse(traits::move(universe));
 	thread->setAddressSpace(traits::move(address_space));
-	thread->setDirectory(traits::move(folder));
-
-	currentThread.initialize(SharedPtr<Thread, KernelAlloc>());
-
+	thread->setDirectory(traits::move(folder)); */
+	
+	currentThread.initialize();
 	scheduleQueue.initialize();
-	scheduleQueue->addBack(traits::move(thread));
-	schedule();
+
+	// we need to launch k_init now
+	auto universe = makeShared<Universe>(*kernelAlloc);
+	auto address_space = makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	
+	// allocate and map memory for the k_init stack
+	size_t stack_size = 0x200000;
+	auto stack_memory = makeShared<Memory>(*kernelAlloc);
+	stack_memory->resize(stack_size);
+	
+	VirtualAddr stack_base;
+	address_space->map(stack_memory, 0, stack_size, AddressSpace::kMapReadWrite
+			| AddressSpace::kMapPreferTop, &stack_base);
+	
+	// finally create the k_init thread
+	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
+			traits::move(address_space), traits::move(mod_directory), true);
+	thread->setup((void (*) (uintptr_t))&k_init::main, 0, (void *)(stack_base + stack_size));
+	enqueueInSchedule(traits::move(thread));
+	
+	infoLogger->log() << "Leaving Thor" << debug::Finish();
+	doSchedule();
 }
 
 extern "C" void thorDivideByZeroError() {
@@ -246,7 +257,9 @@ extern "C" void thorIrq(int irq) {
 	(*irqRelays)[irq].fire();
 
 	if(irq == 0) {
-		schedule();
+		SharedPtr<Thread, KernelAlloc> copy(*currentThread);
+		enqueueInSchedule(traits::move(copy));
+		doSchedule();
 	}else{
 		thorRtFullReturn();
 	}
@@ -309,9 +322,9 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallExitThisThread: {
-			helExitThisThread();
+			HelError error = helExitThisThread();
 			
-			schedule();
+			thorRtReturnSyscall1((Word)error);
 		}
 
 		case kHelCallCreateEventHub: {
