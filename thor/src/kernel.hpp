@@ -9,6 +9,7 @@
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
+#include <frigg/tuple.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/libc.hpp>
 

@@ -81,6 +81,9 @@ extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 
 util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length);
 
-void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
-		size_t mem_length, size_t file_length, uint32_t map_flags);
+HelHandle loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
+		size_t mem_length, size_t file_length);
+
+void mapSegment(HelHandle memory, uintptr_t address,
+		size_t length, uint32_t map_flags);
 

@@ -1,6 +1,5 @@
 
 #include "kernel.hpp"
-#include <frigg/elf.hpp>
 #include "../../hel/include/hel.h"
 #include <eir/interface.hpp>
 
@@ -10,74 +9,6 @@ namespace traits = frigg::traits;
 
 //FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
 //LazyInitializer<debug::Terminal> vgaTerminal;
-
-uint64_t ldBaseAddr = 0x40000000;
-
-void *loadInitImage(UnsafePtr<AddressSpace, KernelAlloc> space, uintptr_t image_page) {
-	char *image = (char *)physicalToVirtual(image_page);
-
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
-	ASSERT(ehdr->e_ident[0] == '\x7F'
-			&& ehdr->e_ident[1] == 'E'
-			&& ehdr->e_ident[2] == 'L'
-			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_DYN);
-
-	for(int i = 0; i < ehdr->e_phnum; i++) {
-		Elf64_Phdr *phdr = (Elf64_Phdr*)(image + ehdr->e_phoff
-				+ i * ehdr->e_phentsize);
-
-		if(phdr->p_type != PT_LOAD)
-			continue;
-
-		uintptr_t bottom = phdr->p_vaddr;
-		uintptr_t top = phdr->p_vaddr + phdr->p_memsz;
-
-		if(bottom == top)
-			continue;
-		
-		size_t page_size = 0x1000;
-		uintptr_t bottom_page = bottom / page_size;
-		uintptr_t top_page = top / page_size;
-		uintptr_t num_pages = top_page - bottom_page;
-		if(top % page_size != 0)
-			num_pages++;
-
-		auto memory = makeShared<Memory>(*kernelAlloc);
-		memory->resize(num_pages * page_size);
-
-		uint32_t map_flags = AddressSpace::kMapFixed;
-		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-			map_flags |= AddressSpace::kMapReadWrite;
-		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-			map_flags |= AddressSpace::kMapReadExecute;
-		}else{
-			debug::panicLogger.log() << "Illegal combination of segment permissions"
-					<< debug::Finish();
-		}
-
-		VirtualAddr actual_address;
-		space->map(memory, ldBaseAddr + bottom_page * page_size,
-				num_pages * page_size, map_flags, &actual_address);
-
-		for(uintptr_t page = 0; page < num_pages; page++) {
-			PhysicalAddr physical = memory->getPage(page);
-			for(size_t p = 0; p < page_size; p++)
-				*((char *)physicalToVirtual(physical) + p) = 0;
-		}
-
-		for(size_t p = 0; p < phdr->p_filesz; p++) {
-			uintptr_t page = (phdr->p_vaddr + p) / page_size - bottom_page;
-			uintptr_t virt_offset = (phdr->p_vaddr + p) % page_size;
-			
-			PhysicalAddr physical = memory->getPage(page);
-			char *ptr = (char *)physicalToVirtual(physical);
-			*(ptr + virt_offset) = *(image + phdr->p_offset + p);
-		}
-	}
-	
-	return (void *)(ldBaseAddr + ehdr->e_entry);
-}
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	//vgaScreen.initialize((char *)physicalToVirtual(0xB8000), 80, 25);

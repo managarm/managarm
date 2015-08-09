@@ -120,6 +120,7 @@ HelError helCreateThread(void (*user_entry) (uintptr_t), uintptr_t argument,
 			SharedPtr<Universe, KernelAlloc>(universe),
 			SharedPtr<AddressSpace, KernelAlloc>(address_space),
 			SharedPtr<RdFolder, KernelAlloc>(directory), false);
+	new_thread->setup(user_entry, argument, user_stack_ptr);
 
 	scheduleQueue->addBack(traits::move(new_thread));
 

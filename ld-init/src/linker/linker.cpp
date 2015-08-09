@@ -183,8 +183,10 @@ void Loader::loadFromImage(SharedObject *object, void *image) {
 						<< debug::Finish();
 			}
 
-			loadSegment(image, object->baseAddress + phdr->p_vaddr,
-					phdr->p_offset, phdr->p_memsz, phdr->p_filesz, map_flags);
+			HelHandle memory = loadSegment(image, object->baseAddress + phdr->p_vaddr,
+					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
+			mapSegment(memory, object->baseAddress + phdr->p_vaddr,
+					phdr->p_memsz, map_flags);
 		}else if(phdr->p_type == PT_DYNAMIC) {
 			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
 		} //FIXME: handle other phdrs
@@ -418,11 +420,9 @@ util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) 
 	return util::makeTuple(map_page * page_size, num_pages * page_size);
 }
 
-void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
-		size_t mem_length, size_t file_length, uint32_t map_flags) {
-	if(mem_length == 0)
-		return;
-	
+HelHandle loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
+		size_t mem_length, size_t file_length) {
+	ASSERT(mem_length > 0);
 	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, mem_length);
 
 	HelHandle memory;
@@ -438,13 +438,18 @@ void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
 			(void *)((uintptr_t)image + file_offset), file_length);
 	
 	// TODO: unmap the memory region
-	
-	// map the segment memory to the correct address
+
+	return memory;
+}
+
+void mapSegment(HelHandle memory, uintptr_t address,
+		size_t length, uint32_t map_flags) {
+	ASSERT(length > 0);
+	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, length);
+
 	void *actual_ptr;
 	helMapMemory(memory, kHelNullHandle, (void *)map.get<0>(), map.get<1>(),
 			map_flags, &actual_ptr);
 	ASSERT(actual_ptr == (void *)map.get<0>());
-
-	helCloseDescriptor(memory);
 }
 

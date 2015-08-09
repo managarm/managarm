@@ -28,7 +28,7 @@ clean:
 	rm -f bin/* obj/linker/* obj/server/*
 
 bin/ld-server: $(server_OBJECT_PATHS)
-	$(CXX) -o $@ $+
+	$(CXX) -o $@ -nodefaultlibs $+
 
 bin/ld-init.so: $(linker_OBJECT_PATHS)
 	$(LD) -shared -o $@ $+
