@@ -37,11 +37,31 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	return 0;
 }
 
-HelError helMapMemory(HelHandle memory_handle,
+HelError helCreateSpace(HelHandle *handle) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+
+	auto space = makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->clone());
+	
+	AddressSpaceDescriptor base(traits::move(space));
+	*handle = universe->attachDescriptor(traits::move(base));
+
+	return 0;
+}
+
+HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		void *pointer, size_t length, uint32_t flags, void **actual_pointer) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = *currentThread;
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
-	UnsafePtr<AddressSpace, KernelAlloc> address_space = this_thread->getAddressSpace();
+	
+	UnsafePtr<AddressSpace, KernelAlloc> space;
+	if(space_handle != kHelNullHandle) {
+		auto &space_wrapper = universe->getDescriptor(space_handle);
+		space = space_wrapper.get<AddressSpaceDescriptor>().getSpace();
+	}else{
+		space = this_thread->getAddressSpace();
+	}
 	
 	auto &wrapper = universe->getDescriptor(memory_handle);
 	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
@@ -67,7 +87,7 @@ HelError helMapMemory(HelHandle memory_handle,
 	}
 	
 	VirtualAddr actual_address;
-	address_space->map(memory, (uintptr_t)pointer, length, map_flags, &actual_address);
+	space->map(memory, (uintptr_t)pointer, length, map_flags, &actual_address);
 	thorRtInvalidateSpace();
 
 	*actual_pointer = (void *)actual_address;

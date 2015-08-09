@@ -15,6 +15,16 @@ private:
 	SharedPtr<Memory, KernelAlloc> p_memory;
 };
 
+class AddressSpaceDescriptor {
+public:
+	AddressSpaceDescriptor(SharedPtr<AddressSpace, KernelAlloc> &&space);
+
+	UnsafePtr<AddressSpace, KernelAlloc> getSpace();
+
+private:
+	SharedPtr<AddressSpace, KernelAlloc> p_space;
+};
+
 // --------------------------------------------------------
 // Threading related descriptors
 // --------------------------------------------------------
@@ -132,6 +142,7 @@ private:
 // --------------------------------------------------------
 
 typedef frigg::util::Variant<MemoryAccessDescriptor,
+		AddressSpaceDescriptor,
 		ThreadObserveDescriptor,
 		EventHubDescriptor,
 		BiDirectionFirstDescriptor,

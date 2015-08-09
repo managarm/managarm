@@ -8,6 +8,7 @@
 #include "../../frigg/include/libc.hpp"
 #include "../../frigg/include/elf.hpp"
 
+#include "../../frigg/include/tuple.hpp"
 #include "../../frigg/include/vector.hpp"
 #include "../../frigg/include/hashmap.hpp"
 #include "../../frigg/include/linked.hpp"
@@ -49,7 +50,8 @@ uintptr_t VirtualAlloc::map(size_t length) {
 	HelHandle memory;
 	void *actual_ptr;
 	helAllocateMemory(length, &memory);
-	helMapMemory(memory, nullptr, length, kHelMapReadWrite, &actual_ptr);
+	helMapMemory(memory, kHelNullHandle, nullptr, length,
+			kHelMapReadWrite, &actual_ptr);
 	return (uintptr_t)actual_ptr;
 }
 
@@ -136,7 +138,8 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 	size_t size;
 	void *actual_pointer;
 	helMemoryInfo(program_handle, &size);
-	helMapMemory(program_handle, nullptr, size, kHelMapReadOnly, &actual_pointer);
+	helMapMemory(program_handle, kHelNullHandle, nullptr, size,
+			kHelMapReadOnly, &actual_pointer);
 
 	executable.initialize();
 

@@ -17,6 +17,17 @@ UnsafePtr<Memory, KernelAlloc> MemoryAccessDescriptor::getMemory() {
 }
 
 // --------------------------------------------------------
+// AddressSpaceDescriptor
+// --------------------------------------------------------
+
+AddressSpaceDescriptor::AddressSpaceDescriptor(SharedPtr<AddressSpace, KernelAlloc> &&space)
+		: p_space(traits::move(space)) { }
+
+UnsafePtr<AddressSpace, KernelAlloc> AddressSpaceDescriptor::getSpace() {
+	return p_space;
+}
+
+// --------------------------------------------------------
 // EventHubDescriptor
 // --------------------------------------------------------
 

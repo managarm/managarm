@@ -8,6 +8,7 @@
 #include "../../frigg/include/libc.hpp"
 #include "../../frigg/include/elf.hpp"
 
+#include "../../frigg/include/tuple.hpp"
 #include "../../frigg/include/vector.hpp"
 #include "../../frigg/include/hashmap.hpp"
 #include "../../frigg/include/linked.hpp"
@@ -277,7 +278,8 @@ void Loader::processDependencies(SharedObject *object) {
 		size_t size;
 		void *actual_pointer;
 		helMemoryInfo(library_handle, &size);
-		helMapMemory(library_handle, nullptr, size, kHelMapReadOnly, &actual_pointer);
+		helMapMemory(library_handle, kHelNullHandle, nullptr, size,
+				kHelMapReadOnly, &actual_pointer);
 		
 		auto library = memory::construct<SharedObject>(*allocator);
 		library->baseAddress = libraryBase;
@@ -399,40 +401,47 @@ void Loader::processLazyRelocations(SharedObject *object) {
 // Namespace scope functions
 // --------------------------------------------------------
 
+util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
+	size_t page_size = 0x1000;
+
+	uintptr_t map_page = address / page_size;
+	if(length == 0)
+		return util::makeTuple(map_page * page_size, size_t(0));
+	
+	uintptr_t limit = address + length;
+	uintptr_t num_pages = (limit / page_size) - map_page;
+	if(limit % page_size != 0)
+		num_pages++;
+	
+	return util::makeTuple(map_page * page_size, num_pages * page_size);
+}
+
 void loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
 		size_t mem_length, size_t file_length, uint32_t map_flags) {
 	if(mem_length == 0)
 		return;
 	
-	size_t page_size = 0x1000;
-	
-	uintptr_t map_page = address / page_size;
-	uintptr_t limit = address + mem_length;
-	uintptr_t num_pages = (limit / page_size) - map_page;
-	if(limit % page_size != 0)
-		num_pages++;
-	
-	uintptr_t map_address = map_page * page_size;
-	uintptr_t map_length = num_pages * page_size;
+	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, mem_length);
 
 	HelHandle memory;
-	helAllocateMemory(num_pages * page_size, &memory);
+	helAllocateMemory(map.get<1>(), &memory);
 	
 	// map the segment memory as read/write and initialize it
 	void *write_ptr;
-	helMapMemory(memory, nullptr, map_length, kHelMapReadWrite, &write_ptr);
+	helMapMemory(memory, kHelNullHandle, nullptr, map.get<1>(),
+			kHelMapReadWrite, &write_ptr);
 
-	memset(write_ptr, 0, map_length);
-	memcpy((void *)((uintptr_t)write_ptr + (address - map_address)),
+	memset(write_ptr, 0, map.get<1>());
+	memcpy((void *)((uintptr_t)write_ptr + (address - map.get<0>())),
 			(void *)((uintptr_t)image + file_offset), file_length);
 	
 	// TODO: unmap the memory region
 	
 	// map the segment memory to the correct address
 	void *actual_ptr;
-	helMapMemory(memory, (void *)map_address, map_length,
+	helMapMemory(memory, kHelNullHandle, (void *)map.get<0>(), map.get<1>(),
 			map_flags, &actual_ptr);
-	ASSERT(actual_ptr == (void *)map_address);
+	ASSERT(actual_ptr == (void *)map.get<0>());
 
 	helCloseDescriptor(memory);
 }

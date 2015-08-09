@@ -281,10 +281,16 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
+		case kHelCallCreateSpace: {
+			HelHandle handle;
+			HelError error = helCreateSpace(&handle);
+			
+			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
 		case kHelCallMapMemory: {
 			void *actual_pointer;
-			HelError error = helMapMemory((HelHandle)arg0,
-					(void *)arg1, (size_t)arg2, (uint32_t)arg3, &actual_pointer);
+			HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
+					(void *)arg2, (size_t)arg3, (uint32_t)arg4, &actual_pointer);
 
 			thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
 		}

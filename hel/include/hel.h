@@ -12,6 +12,7 @@ enum {
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
+	kHelCallCreateSpace = 27,
 	kHelCallMapMemory = 6,
 	kHelCallMemoryInfo = 26,
 	
@@ -52,6 +53,7 @@ typedef uint64_t HelHandle;
 typedef int64_t HelNanotime;
 
 enum {
+	kHelNullHandle = 0,
 	kHelWaitInfinite = -1
 };
 
@@ -86,7 +88,8 @@ HEL_C_LINKAGE void helPanic(const char *string, size_t length);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
-HEL_C_LINKAGE HelError helMapMemory(HelHandle handle,
+HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
+HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, size_t size, uint32_t flags, void **actual_pointer);
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
