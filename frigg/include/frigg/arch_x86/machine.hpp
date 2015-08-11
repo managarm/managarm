@@ -40,5 +40,18 @@ extern inline uint64_t rdmsr(uint32_t index) {
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }
 
+extern inline uint8_t ioInByte(uint16_t port) {
+	register uint16_t in_port asm("dx") = port;
+	register uint8_t out_value asm("al");
+	asm volatile ( "inb %%dx, %%al" : "=r" (out_value) : "r" (in_port) );
+	return out_value;
+}
+
+extern inline void ioOutByte(uint16_t port, uint8_t value) {
+	register uint16_t in_port asm("dx") = port;
+	register uint8_t in_value asm("al") = value;
+	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
+}
+
 } } // namespace frigg::arch_x86
 
