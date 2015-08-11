@@ -156,7 +156,7 @@ HelError helCreateThread(HelHandle space_handle,
 
 	state.rip = user_state->rip;
 	state.rsp = user_state->rsp;
-	state.rflags = 0;
+	state.rflags = 0x200; // set the interrupt flag
 
 	scheduleQueue->addBack(traits::move(new_thread));
 

@@ -10,9 +10,6 @@ namespace thor {
 // Thread
 // --------------------------------------------------------
 
-const Word kRflagsBase = 0x1;
-const Word kRflagsIf = 0x200;
-
 Thread::Thread(SharedPtr<Universe, KernelAlloc> &&universe,
 		SharedPtr<AddressSpace, KernelAlloc> &&address_space,
 		SharedPtr<RdFolder, KernelAlloc> &&directory,
