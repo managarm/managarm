@@ -135,7 +135,7 @@ HelError helCreateThread(HelHandle space_handle,
 			SharedPtr<AddressSpace, KernelAlloc>(address_space),
 			SharedPtr<RdFolder, KernelAlloc>(directory), false);
 	
-	ThorRtThreadState &state = new_thread->accessState();
+	ThorRtGeneralState &state = new_thread->accessState().generalState;
 
 	state.rax = user_state->rax;
 	state.rbx = user_state->rbx;

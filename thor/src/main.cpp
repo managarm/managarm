@@ -100,8 +100,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(mod_directory), true);
 	
-	thread->accessState().rsp = (uintptr_t)stack_base + stack_size;
-	thread->accessState().rip = (Word)&k_init::main;
+	thread->accessState().generalState.rsp = (uintptr_t)stack_base + stack_size;
+	thread->accessState().generalState.rip = (Word)&k_init::main;
 	
 	enqueueInSchedule(traits::move(thread));
 	
@@ -114,7 +114,7 @@ extern "C" void thorDivideByZeroError() {
 }
 
 extern "C" void thorInvalidOpcode() {
-	uintptr_t fault_ip = getCurrentThread()->accessState().rip;
+	uintptr_t fault_ip = getCurrentThread()->accessState().generalState.rip;
 	debug::panicLogger.log() << "Invalid opcode"
 			<< ", faulting ip: " << (void *)fault_ip
 			<< debug::Finish();
@@ -153,7 +153,7 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 }
 
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
-	uintptr_t fault_ip = getCurrentThread()->accessState().rip;
+	uintptr_t fault_ip = getCurrentThread()->accessState().generalState.rip;
 
 /*	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
 	auto trace = infoLogger->log() << "Stack trace:\n";

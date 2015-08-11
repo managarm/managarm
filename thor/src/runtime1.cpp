@@ -40,8 +40,23 @@ void thorRtDisableInts() {
 	asm volatile ( "cli" );
 }
 
+ThorRtThreadState::ThorRtThreadState() {
+	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::initializeTss64(&threadTss);
+}
+
 void ThorRtThreadState::activate() {
-	asm volatile ( "mov %0, %%gs:0x08" : : "r" (this) : "memory" );
+	// set the current general state pointer
+	asm volatile ( "mov %0, %%gs:0x08" : : "r" (&generalState) : "memory" );
+	
+	// setup the thread's tss segment
+	ThorRtCpuSpecific *cpu_specific;
+	asm volatile ( "mov %%gs:0x18, %0" : "=r" (cpu_specific) );
+	threadTss.ist1 = cpu_specific->tssTemplate.ist1;
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
+			&threadTss, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
 }
 
 void thorRtInitializeProcessor() {
@@ -137,19 +152,8 @@ void thorRtInitializeProcessor() {
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 }
 
-void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer) {
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:0x18, %0" : "=r" (cpu_specific) );
-
-	tss_pointer->ist1 = cpu_specific->tssTemplate.ist1;
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
-			tss_pointer, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
-}
-
 ThorRtKernelGs::ThorRtKernelGs()
-: cpuContext(nullptr), threadState(nullptr), syscallStackPtr(nullptr),
+: cpuContext(nullptr), generalState(nullptr), syscallStackPtr(nullptr),
 		cpuSpecific(nullptr) { }
 
 void thorRtSetCpuContext(void *context) {

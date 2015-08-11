@@ -17,9 +17,7 @@ extern "C" void thorRtHalt() __attribute__ (( noreturn ));
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct ThorRtThreadState {
-	void activate();
-
+struct ThorRtGeneralState {
 	Word rax;		// offset 0x00
 	Word rbx;		// offset 0x08
 	Word rcx;		// offset 0x10
@@ -42,6 +40,15 @@ struct ThorRtThreadState {
 	Word rflags;	// offset 0x88
 };
 
+struct ThorRtThreadState {
+	ThorRtThreadState();
+
+	void activate();
+
+	ThorRtGeneralState generalState;
+	frigg::arch_x86::Tss64 threadTss;
+};
+
 struct ThorRtCpuSpecific {
 	uint32_t gdt[6 * 8];
 	uint32_t idt[256 * 16];
@@ -54,7 +61,7 @@ struct ThorRtKernelGs {
 	ThorRtKernelGs();
 
 	void *cpuContext;					// offset 0x00
-	ThorRtThreadState *threadState;		// offset 0x08
+	ThorRtGeneralState *generalState;	// offset 0x08
 	void *syscallStackPtr;				// offset 0x10
 	ThorRtCpuSpecific *cpuSpecific;		// offset 0x18
 };
@@ -77,8 +84,6 @@ extern "C" void thorRtFullReturnToKernel();
 extern "C" void thorRtReturnSyscall1(Word out0);
 extern "C" void thorRtReturnSyscall2(Word out0, Word out1);
 extern "C" void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
-
-void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer);
 
 // --------------------------------------------------------
 // Internal runtime functions

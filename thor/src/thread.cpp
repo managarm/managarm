@@ -18,12 +18,7 @@ Thread::Thread(SharedPtr<Universe, KernelAlloc> &&universe,
 		SharedPtr<RdFolder, KernelAlloc> &&directory,
 		bool kernel_thread)
 : p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory), p_kernelThread(kernel_thread) {
-	memset(&p_state, 0, sizeof(ThorRtThreadState));
-
-	memset(&p_tss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&p_tss);
-}
+		p_directory(directory), p_kernelThread(kernel_thread) { }
 
 UnsafePtr<Universe, KernelAlloc> Thread::getUniverse() {
 	return p_universe;
@@ -40,13 +35,12 @@ bool Thread::isKernelThread() {
 }
 
 void Thread::enableIoPort(uintptr_t port) {
-	p_tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+	p_state.threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
 void Thread::activate() {
 	p_addressSpace->activate();
 	p_state.activate();
-	thorRtEnableTss(&p_tss);
 }
 
 ThorRtThreadState &Thread::accessState() {
