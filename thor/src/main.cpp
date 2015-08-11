@@ -26,8 +26,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->bootstrap();
-
-	thorRtInitializeProcessor();
 	
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
@@ -35,8 +33,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
-	
-	kernelStackBase = kernelAlloc->allocate(kernelStackLength);
+
+	thorRtInitializeProcessor();
 
 	irqRelays.initialize();
 	thorRtSetupIrqs();
@@ -116,7 +114,7 @@ extern "C" void thorDivideByZeroError() {
 }
 
 extern "C" void thorInvalidOpcode() {
-	uintptr_t fault_ip = thorRtUserContext->rip;
+	uintptr_t fault_ip = getCurrentThread()->accessState().rip;
 	debug::panicLogger.log() << "Invalid opcode"
 			<< ", faulting ip: " << (void *)fault_ip
 			<< debug::Finish();
@@ -155,6 +153,8 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 }
 
 extern "C" void thorUserPageFault(uintptr_t address, Word error) {
+	uintptr_t fault_ip = getCurrentThread()->accessState().rip;
+
 /*	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
 	auto trace = infoLogger->log() << "Stack trace:\n";
 	for(int i = 0; i < 5; i++)
@@ -166,7 +166,7 @@ extern "C" void thorUserPageFault(uintptr_t address, Word error) {
 	auto msg = debug::panicLogger.log();
 	msg << "User page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)thorRtUserContext->rip << "\n";
+			<< ", faulting ip: " << (void *)fault_ip << "\n";
 	msg << "Errors:";
 	if((error & 1) == 0) {
 		msg << " (Page not present)";

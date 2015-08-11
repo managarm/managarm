@@ -23,7 +23,6 @@ Thread::Thread(SharedPtr<Universe, KernelAlloc> &&universe,
 
 	memset(&p_tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&p_tss);
-	p_tss.ist1 = (uintptr_t)kernelStackBase + kernelStackLength;
 }
 
 UnsafePtr<Universe, KernelAlloc> Thread::getUniverse() {
@@ -46,8 +45,7 @@ void Thread::enableIoPort(uintptr_t port) {
 
 void Thread::activate() {
 	p_addressSpace->activate();
-
-	thorRtUserContext = &p_state;
+	p_state.activate();
 	thorRtEnableTss(&p_tss);
 }
 

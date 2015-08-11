@@ -57,10 +57,6 @@ LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 LazyInitializer<KernelAlloc> kernelAlloc;
 
-void *kernelStackBase;
-size_t kernelStackLength = 0x100000;
-
-
 // --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------

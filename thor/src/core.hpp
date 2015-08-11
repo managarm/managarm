@@ -34,9 +34,6 @@ extern LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 extern LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern LazyInitializer<KernelAlloc> kernelAlloc;
 
-extern void *kernelStackBase;
-extern size_t kernelStackLength;
-
 // --------------------------------------------------------
 // Kernel data types
 // --------------------------------------------------------

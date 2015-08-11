@@ -53,8 +53,7 @@ thorRtIsr\name:
 	pushq %rax
 	pushq %rbx
 	
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 
 	mov %rcx, kContextRcx(%rbx)
 	mov %rdx, kContextRdx(%rbx)
@@ -106,8 +105,7 @@ thorRtIsrPageFault:
 	and $3, %rax
 	jz kernelPageFault
 
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 	
 	popq %rsi # pop error code
 	popq kContextRip(%rbx)
@@ -133,8 +131,7 @@ thorRtIsrIrq\irq:
 	pushq %rax
 	pushq %rbx
 	
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 
 	mov %rcx, kContextRcx(%rbx)
 	mov %rdx, kContextRdx(%rbx)
@@ -182,8 +179,7 @@ MAKE_IRQ_HANDLER 15
 
 .global thorRtIsrSyscall
 thorRtIsrSyscall:
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 
 	mov %rbp, kContextRbp(%rbx)
 	mov %r12, kContextR12(%rbx)
@@ -207,8 +203,7 @@ thorRtIsrSyscall:
 
 .global thorRtFullReturn
 thorRtFullReturn:
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 	
 	pushq $0x1B # ss
 	pushq kContextRsp(%rbx)
@@ -238,8 +233,7 @@ thorRtFullReturn:
 
 .global thorRtFullReturnToKernel
 thorRtFullReturnToKernel:
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 	
 	pushq $0 # ss
 	pushq kContextRsp(%rbx)
@@ -273,8 +267,7 @@ thorRtFullReturnToKernel:
 thorRtReturnSyscall1:
 thorRtReturnSyscall2:
 thorRtReturnSyscall3:
-	movabs $thorRtUserContext, %rax
-	mov (%rax), %rbx
+	mov %gs:0x08, %rbx
 
 	mov kContextRbp(%rbx), %rbp
 	mov kContextR10(%rbx), %r10

@@ -3,6 +3,8 @@
 
 #include <frigg/arch_x86/machine.hpp>
 
+namespace memory = frigg::memory;
+
 extern "C" void thorRtIsrDivideByZeroError();
 extern "C" void thorRtIsrInvalidOpcode();
 extern "C" void thorRtIsrDoubleFault();
@@ -26,10 +28,6 @@ extern "C" void thorRtIsrIrq14();
 extern "C" void thorRtIsrIrq15();
 extern "C" void thorRtIsrSyscall();
 
-ThorRtThreadState *thorRtUserContext = nullptr;
-
-uint32_t *thorRtGdtPointer;
-
 void thorRtInvalidateSpace() {
 	asm volatile ("movq %%cr3, %%rax\n\t"
 		"movq %%rax, %%cr3" : : : "%rax");
@@ -42,74 +40,117 @@ void thorRtDisableInts() {
 	asm volatile ( "cli" );
 }
 
+void ThorRtThreadState::activate() {
+	asm volatile ( "mov %0, %%gs:0x08" : : "r" (this) : "memory" );
+}
+
 void thorRtInitializeProcessor() {
-	uintptr_t gdt_page = thor::physicalAllocator->allocate(1);
-	thorRtGdtPointer = (uint32_t *)thor::physicalToVirtual(gdt_page);
-	frigg::arch_x86::makeGdtNullSegment(thorRtGdtPointer, 0);
-	frigg::arch_x86::makeGdtCode64SystemSegment(thorRtGdtPointer, 1);
-	frigg::arch_x86::makeGdtCode64UserSegment(thorRtGdtPointer, 2);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(thorRtGdtPointer, 3);
-	frigg::arch_x86::makeGdtTss64Descriptor(thorRtGdtPointer, 4, nullptr, 0);
+	auto cpu_specific = memory::construct<ThorRtCpuSpecific>(*thor::kernelAlloc);
+	
+	// set up the kernel gs segment
+	auto kernel_gs = memory::construct<ThorRtKernelGs>(*thor::kernelAlloc);
+	kernel_gs->cpuSpecific = cpu_specific;
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
+
+	// setup a stack for syscalls
+	size_t syscall_stack_size = 0x100000;
+	void *syscall_stack_base = thor::kernelAlloc->allocate(syscall_stack_size);
+	kernel_gs->syscallStackPtr = (void *)((uintptr_t)syscall_stack_base
+			+ syscall_stack_size);
+
+	// setup the gdt
+	// note: the tss requires two slots in the gdt
+	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
+	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
+	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 2);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 3);
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4, nullptr, 0);
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 6 * 8;
-	gdtr.pointer = thorRtGdtPointer;
+	gdtr.pointer = cpu_specific->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	thorRtLoadCs(0x8);
 	
-	uintptr_t idt_page = thor::physicalAllocator->allocate(1);
-	uint32_t *idt_pointer = (uint32_t *)thor::physicalToVirtual(idt_page);
+	// setup the kernel tss
+	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
+	cpu_specific->tssTemplate.ist1 = (uintptr_t)kernel_gs->syscallStackPtr;
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
+			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
+	
+	// setup the idt
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(idt_pointer, i);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 0,
+		frigg::arch_x86::makeIdt64NullGate(cpu_specific->idt, i);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 0,
 			0x8, (void *)&thorRtIsrDivideByZeroError, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 6,
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 6,
 			0x8, (void *)&thorRtIsrInvalidOpcode, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 8,
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 8,
 			0x8, (void *)&thorRtIsrDoubleFault, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 13,
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 13,
 			0x8, (void *)&thorRtIsrGeneralProtectionFault, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 14, 0x8, (void *)&thorRtIsrPageFault, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 64, 0x8, (void *)&thorRtIsrIrq0, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 65, 0x8, (void *)&thorRtIsrIrq1, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 66, 0x8, (void *)&thorRtIsrIrq2, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 67, 0x8, (void *)&thorRtIsrIrq3, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 68, 0x8, (void *)&thorRtIsrIrq4, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 69, 0x8, (void *)&thorRtIsrIrq5, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 70, 0x8, (void *)&thorRtIsrIrq6, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 71, 0x8, (void *)&thorRtIsrIrq7, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 72, 0x8, (void *)&thorRtIsrIrq8, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 73, 0x8, (void *)&thorRtIsrIrq9, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 74, 0x8, (void *)&thorRtIsrIrq10, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 75, 0x8, (void *)&thorRtIsrIrq11, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 76, 0x8, (void *)&thorRtIsrIrq12, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 77, 0x8, (void *)&thorRtIsrIrq13, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 78, 0x8, (void *)&thorRtIsrIrq14, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(idt_pointer, 79, 0x8, (void *)&thorRtIsrIrq15, 1);
-	frigg::arch_x86::makeIdt64IntUserGate(idt_pointer, 0x80, 0x8, (void *)&thorRtIsrSyscall, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 14,
+			0x8, (void *)&thorRtIsrPageFault, 1);
+
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 64,
+			0x8, (void *)&thorRtIsrIrq0, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 65,
+			0x8, (void *)&thorRtIsrIrq1, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 66,
+			0x8, (void *)&thorRtIsrIrq2, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 67,
+			0x8, (void *)&thorRtIsrIrq3, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 68,
+			0x8, (void *)&thorRtIsrIrq4, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 69,
+			0x8, (void *)&thorRtIsrIrq5, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 70,
+			0x8, (void *)&thorRtIsrIrq6, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 71,
+			0x8, (void *)&thorRtIsrIrq7, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 72,
+			0x8, (void *)&thorRtIsrIrq8, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 73,
+			0x8, (void *)&thorRtIsrIrq9, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 74,
+			0x8, (void *)&thorRtIsrIrq10, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 75,
+			0x8, (void *)&thorRtIsrIrq11, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 76,
+			0x8, (void *)&thorRtIsrIrq12, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 77,
+			0x8, (void *)&thorRtIsrIrq13, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 78,
+			0x8, (void *)&thorRtIsrIrq14, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(cpu_specific->idt, 79,
+			0x8, (void *)&thorRtIsrIrq15, 1);
+	
+	frigg::arch_x86::makeIdt64IntUserGate(cpu_specific->idt, 0x80,
+			0x8, (void *)&thorRtIsrSyscall, 1);
 
 	frigg::arch_x86::Idtr idtr;
-	idtr.limit = 16 * 256;
-	idtr.pointer = idt_pointer;
+	idtr.limit = 256 * 16;
+	idtr.pointer = cpu_specific->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
-	
-	// set up the kernel gs segment
-	PhysicalAddr gs_page = thor::physicalAllocator->allocate(1);
-	void *gs_pointer = thor::physicalToVirtual(gs_page);
-	auto kernel_gs = new (gs_pointer) ThorRtKernelGs();
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
 }
 
 void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer) {
-	frigg::arch_x86::makeGdtTss64Descriptor(thorRtGdtPointer, 4,
-			tss_pointer, sizeof(frigg::arch_x86::Tss64));
+	ThorRtCpuSpecific *cpu_specific;
+	asm volatile ( "mov %%gs:0x18, %0" : "=r" (cpu_specific) );
 
+	tss_pointer->ist1 = cpu_specific->tssTemplate.ist1;
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
+			tss_pointer, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
 }
 
 ThorRtKernelGs::ThorRtKernelGs()
-: cpuContext(nullptr), threadState(nullptr), syscallStackPtr(nullptr) { }
+: cpuContext(nullptr), threadState(nullptr), syscallStackPtr(nullptr),
+		cpuSpecific(nullptr) { }
 
 void thorRtSetCpuContext(void *context) {
 	asm volatile ( "mov %0, %%gs:0" : : "r" (context) : "memory" );
