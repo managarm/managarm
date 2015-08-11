@@ -15,9 +15,11 @@ typedef uint64_t VirtualOffset;
 
 extern "C" void thorRtHalt() __attribute__ (( noreturn ));
 
+// note: this struct is accessed from assembly.
+// do not change the field offsets!
 struct ThorRtThreadState {
-	Word rax;		// offset 0
-	Word rbx;		// offset 0x8
+	Word rax;		// offset 0x00
+	Word rbx;		// offset 0x08
 	Word rcx;		// offset 0x10
 	Word rdx;		// offset 0x18
 	Word rsi;		// offset 0x20
@@ -35,7 +37,17 @@ struct ThorRtThreadState {
 	
 	Word rsp;		// offset 0x78
 	Word rip;		// offset 0x80
-	Word rflags;		// offset 0x88
+	Word rflags;	// offset 0x88
+};
+
+// note: this struct is accessed from assembly.
+// do not change the field offsets!
+struct ThorRtKernelGs {
+	ThorRtKernelGs();
+
+	void *cpuContext;					// offset 0x00
+	ThorRtThreadState *threadState;		// offset 0x08
+	void *syscallStackPtr;				// offset 0x16
 };
 
 extern ThorRtThreadState *thorRtUserContext;
@@ -46,6 +58,9 @@ void thorRtAcknowledgeIrq(int irq);
 
 void thorRtEnableInts();
 void thorRtDisableInts();
+
+void thorRtSetCpuContext(void *context);
+void *thorRtGetCpuContext();
 
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();

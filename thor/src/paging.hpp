@@ -26,7 +26,7 @@ public:
 
 	PageSpace(PhysicalAddr pml4_address);
 	
-	void switchTo();
+	void activate();
 
 	PageSpace cloneFromKernelSpace();
 

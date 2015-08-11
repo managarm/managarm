@@ -94,8 +94,8 @@ void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr addres
 	*actual_address = mapping->baseAddress;
 }
 
-void AddressSpace::switchTo() {
-	p_pageSpace.switchTo();
+void AddressSpace::activate() {
+	p_pageSpace.activate();
 }
 
 Mapping *AddressSpace::getMapping(VirtualAddr address) {

@@ -13,7 +13,10 @@ namespace thor {
 BochsSink infoSink;
 LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
-LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
+UnsafePtr<Thread, KernelAlloc> getCurrentThread() {
+	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
+	return cpu_context->currentThread;
+}
 
 // --------------------------------------------------------
 // Memory management

@@ -20,6 +20,8 @@ public:
 	bool isKernelThread();
 
 	void enableIoPort(uintptr_t port);
+	
+	void activate();
 
 	ThorRtThreadState &accessState();
 
@@ -35,8 +37,6 @@ private:
 	frigg::arch_x86::Tss64 p_tss;
 	bool p_kernelThread;
 };
-
-void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
 
 class ThreadQueue {
 public:

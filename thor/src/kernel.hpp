@@ -6,6 +6,7 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/array.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>

@@ -6,6 +6,7 @@
 using namespace thor;
 namespace debug = frigg::debug;
 namespace traits = frigg::traits;
+namespace memory = frigg::memory;
 
 //FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
 //LazyInitializer<debug::Terminal> vgaTerminal;
@@ -82,8 +83,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	thread->setUniverse(traits::move(universe));
 	thread->setAddressSpace(traits::move(address_space));
 	thread->setDirectory(traits::move(folder)); */
-	
-	currentThread.initialize();
+
+	auto cpu_context = memory::construct<CpuContext>(*kernelAlloc);
+	thorRtSetCpuContext(cpu_context);
+
 	scheduleQueue.initialize();
 
 	// we need to launch k_init now
@@ -186,11 +189,11 @@ extern "C" void thorIrq(int irq) {
 	(*irqRelays)[irq].fire();
 
 	if(irq == 0) {
-		SharedPtr<Thread, KernelAlloc> copy(*currentThread);
+		SharedPtr<Thread, KernelAlloc> copy(getCurrentThread());
 		enqueueInSchedule(traits::move(copy));
 		doSchedule();
 	}else{
-		if(!(*currentThread)->isKernelThread()) {
+		if(!getCurrentThread()->isKernelThread()) {
 			thorRtFullReturn();
 		}else{
 			thorRtFullReturnToKernel();

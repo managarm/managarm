@@ -1,6 +1,8 @@
 
 #include "kernel.hpp"
 
+#include <frigg/arch_x86/machine.hpp>
+
 extern "C" void thorRtIsrDivideByZeroError();
 extern "C" void thorRtIsrInvalidOpcode();
 extern "C" void thorRtIsrDoubleFault();
@@ -91,6 +93,12 @@ void thorRtInitializeProcessor() {
 	idtr.limit = 16 * 256;
 	idtr.pointer = idt_pointer;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
+	
+	// set up the kernel gs segment
+	PhysicalAddr gs_page = thor::physicalAllocator->allocate(1);
+	void *gs_pointer = thor::physicalToVirtual(gs_page);
+	auto kernel_gs = new (gs_pointer) ThorRtKernelGs();
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
 }
 
 void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer) {
@@ -98,6 +106,19 @@ void thorRtEnableTss(frigg::arch_x86::Tss64 *tss_pointer) {
 			tss_pointer, sizeof(frigg::arch_x86::Tss64));
 
 	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
+}
+
+ThorRtKernelGs::ThorRtKernelGs()
+: cpuContext(nullptr), threadState(nullptr), syscallStackPtr(nullptr) { }
+
+void thorRtSetCpuContext(void *context) {
+	asm volatile ( "mov %0, %%gs:0" : : "r" (context) : "memory" );
+}
+
+void *thorRtGetCpuContext() {
+	void *context;
+	asm volatile ( "mov %%gs:0, %0" : "=r" (context) );
+	return context;
 }
 
 void ioWait() { }

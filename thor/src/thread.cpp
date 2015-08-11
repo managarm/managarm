@@ -44,16 +44,15 @@ void Thread::enableIoPort(uintptr_t port) {
 	p_tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
-ThorRtThreadState &Thread::accessState() {
-	return p_state;
+void Thread::activate() {
+	p_addressSpace->activate();
+
+	thorRtUserContext = &p_state;
+	thorRtEnableTss(&p_tss);
 }
 
-void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {
-	*currentThread = SharedPtr<Thread, KernelAlloc>(thread);
-	
-	thread->p_addressSpace->switchTo();
-	thorRtUserContext = &thread->p_state;
-	thorRtEnableTss(&thread->p_tss);
+ThorRtThreadState &Thread::accessState() {
+	return p_state;
 }
 
 // --------------------------------------------------------

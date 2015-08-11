@@ -60,6 +60,10 @@ class RdFolder;
 class IrqLine;
 class IoSpace;
 
+struct CpuContext {
+	SharedPtr<Thread, KernelAlloc> currentThread;
+};
+
 } // namespace thor
 
 #include "descriptor.hpp"
@@ -141,7 +145,7 @@ private:
 };
 
 
-extern LazyInitializer<SharedPtr<Thread, KernelAlloc>> currentThread;
+UnsafePtr<Thread, KernelAlloc> getCurrentThread();
 
 } // namespace thor
 

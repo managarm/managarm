@@ -23,7 +23,7 @@ void *physicalToVirtual(PhysicalAddr address) {
 PageSpace::PageSpace(PhysicalAddr pml4_address)
 			: p_pml4Address(pml4_address) { }
 
-void PageSpace::switchTo() {
+void PageSpace::activate() {
 	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) : "memory" );
 }
 
