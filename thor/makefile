@@ -1,7 +1,7 @@
 
 CXX = x86_64-managarm-g++
 CXX_INCLUDE = -I../frigg/include -I../eir/include
-CXX_FLAGS = -ffreestanding -m64 -mno-red-zone -mcmodel=large \
+CXX_FLAGS = -ffreestanding -m64 -mno-red-zone -mcmodel=kernel \
 	-fno-exceptions -fno-rtti -std=c++0x -Wall $(CXX_INCLUDE)
 
 AS = x86_64-managarm-as
