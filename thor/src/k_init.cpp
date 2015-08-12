@@ -1,10 +1,15 @@
 
 #include "kernel.hpp"
+
+#include <frigg/funcptr.hpp>
+#include <frigg/async.hpp>
 #include <frigg/elf.hpp>
+
 #include "../../hel/include/hel.h"
 
 namespace util = frigg::util;
 namespace debug = frigg::debug;
+namespace async = frigg::async;
 
 namespace thor {
 namespace k_init {
@@ -62,7 +67,7 @@ void loadImage(const char *path, HelHandle directory) {
 	HelHandle image_handle;
 	helRdOpen(path, strlen(path), &image_handle);
 
-	size_t size;
+size_t size;
 	void *image_ptr;
 	helMemoryInfo(image_handle, &size);
 	helMapMemory(image_handle, kHelNullHandle, nullptr, size,
@@ -118,11 +123,12 @@ void loadImage(const char *path, HelHandle directory) {
 	helCreateThread(space, directory, &state, &thread);
 }
 
+HelHandle eventHub;
+
 void main() {
 	thorRtDisableInts();
 
-	HelHandle event_hub;
-	helCreateEventHub(&event_hub);
+	helCreateEventHub(&eventHub);
 	
 	HelHandle directory;
 	helCreateRd(&directory);
@@ -132,20 +138,76 @@ void main() {
 	helCreateBiDirectionPipe(&this_end, &other_end);
 	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
 
-	helSubmitRecvDescriptor(this_end, event_hub, -1, -1, 0, 0, 0);
-	
 	loadImage("ld-server", directory);
+	
+	struct LoadContext {
+		LoadContext() : segmentsReceived(0) { }
+
+		size_t numSegments;
+		size_t segmentsReceived;
+	};
+
+	auto load_action =	async::seq(
+		async::lambda([this_end](LoadContext &context,
+				util::FuncPtr<void(HelHandle)> callback) {
+			// receive a server handle from ld-server
+			helSubmitRecvDescriptor(this_end, eventHub, -1, -1, 0,
+					(uintptr_t)callback.getFunction(),
+					(uintptr_t)callback.getObject());
+		}),
+		async::lambda([](LoadContext &context,
+				util::FuncPtr<void(HelHandle)> callback, HelHandle connect_handle) {
+			// connect to the server
+			helSubmitConnect(connect_handle, eventHub, 0,
+					(uintptr_t)callback.getFunction(),
+					(uintptr_t)callback.getObject());
+		}),
+		async::lambda([](LoadContext &context,
+				util::FuncPtr<void()> callback, HelHandle pipe_handle) {
+			
+		}),
+		async::repeatWhile(
+			async::lambda([](LoadContext &context,
+					util::FuncPtr<void(bool)> callback) {
+				callback(context.segmentsReceived < context.numSegments);
+			}),
+			async::lambda([](LoadContext &context,
+					util::FuncPtr<void()> callback) {
+				context.segmentsReceived++;
+				callback();
+			})
+		)
+	);
+	async::run(*kernelAlloc, load_action, LoadContext(), []() {
+		infoLogger->log() << "x" << debug::Finish();
+	});
 	
 	while(true) {
 		HelEvent events[16];
 		size_t num_items;
 	
 		thorRtEnableInts();
-		helWaitForEvents(event_hub, events, 16, kHelWaitInfinite, &num_items);
 		thorRtDisableInts();
 
+		helWaitForEvents(eventHub, events, 16, kHelWaitInfinite, &num_items);
+
 		for(size_t i = 0; i < num_items; i++) {
-			helLog("!\n", 2);
+			void *function = (void *)events[i].submitFunction;
+			void *object = (void *)events[i].submitObject;
+			
+			switch(events[i].type) {
+			case kHelEventRecvDescriptor: {
+				typedef void (*FunctionPtr) (void *, HelHandle);
+				((FunctionPtr)(function))(object, events[i].handle);
+			} break;
+			case kHelEventConnect: {
+				typedef void (*FunctionPtr) (void *, HelHandle);
+				((FunctionPtr)(function))(object, events[i].handle);
+			} break;
+			default:
+				debug::panicLogger.log() << "Unexpected event type"
+						<< debug::Finish();
+			}
 		}
 	}
 	

@@ -270,8 +270,9 @@ public:
 		p_tag = other.p_tag;
 	}
 	Variant(Variant &&other) {
-		variant_impl::MoveConstruct<1, Types...>::construct(other.p_tag,
-				p_storage, other.p_storage);
+		if(other.p_tag != 0)
+			variant_impl::MoveConstruct<1, Types...>::construct(other.p_tag,
+					p_storage, other.p_storage);
 		p_tag = other.p_tag;
 	}
 

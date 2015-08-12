@@ -2,6 +2,9 @@
 namespace frigg {
 namespace traits {
 
+template<typename... Types>
+struct TypePack;
+
 template<bool condition, typename T = void>
 struct EnableIf;
 
