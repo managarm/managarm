@@ -539,7 +539,7 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(submit_id, submit_function, submit_object);
 	
-	(*irqRelays)[number].submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
+	irqRelays[number]->submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
 			submit_info);
 
 	return kHelErrNone;

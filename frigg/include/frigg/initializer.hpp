@@ -1,6 +1,5 @@
 
 void *operator new (size_t size, void *pointer);
-void *operator new[] (size_t size, void *pointer);
 
 namespace frigg {
 namespace util {

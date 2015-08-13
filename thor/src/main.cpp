@@ -36,7 +36,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	thorRtInitializeProcessor();
 
-	irqRelays.initialize();
+	for(int i = 0; i < 16; i++)
+		irqRelays[i].initialize();
 	thorRtSetupIrqs();
 	
 	// create a directory and load the memory regions of all modules into it
@@ -186,7 +187,7 @@ extern "C" void thorUserPageFault(uintptr_t address, Word error) {
 extern "C" void thorIrq(int irq) {
 	thorRtAcknowledgeIrq(irq);
 
-	(*irqRelays)[irq].fire();
+	irqRelays[irq]->fire();
 
 	if(irq == 0) {
 		SharedPtr<Thread, KernelAlloc> copy(getCurrentThread());

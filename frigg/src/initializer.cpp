@@ -7,7 +7,3 @@ void *operator new (size_t size, void *pointer) {
 	return pointer;
 }
 
-void *operator new[] (size_t size, void *pointer) {
-	return pointer;
-}
-
