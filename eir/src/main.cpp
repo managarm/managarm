@@ -15,12 +15,6 @@ namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace arch = frigg::arch_x86;
 
-void ioOutByte(uint16_t port, uint8_t value) {
-	register uint16_t in_port asm("dx") = port;
-	register uint8_t in_value asm("al") = value;
-	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
-}
-
 class BochsSink {
 public:
 	void print(char c);
@@ -28,11 +22,11 @@ public:
 };
 
 void BochsSink::print(char c) {
-	ioOutByte(0xE9, c);
+	arch::ioOutByte(0xE9, c);
 }
 void BochsSink::print(const char *str) {
 	while(*str != 0)
-		ioOutByte(0xE9, *str++);
+		arch::ioOutByte(0xE9, *str++);
 }
 
 typedef debug::DefaultLogger<BochsSink> InfoLogger;
