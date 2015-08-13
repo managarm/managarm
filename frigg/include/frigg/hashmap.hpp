@@ -14,10 +14,10 @@ public:
 	Value &get(const Key &key);
 
 	Value remove(const Key &key);
-	
-	void rehash(size_t new_capacity);
 
 private:
+	void rehash();
+
 	struct Item {
 		Key key;
 		Value value;
@@ -60,7 +60,7 @@ Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value &value) {
 	if(p_size > p_capacity)
-		rehash(2 * p_size);
+		rehash();
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
@@ -72,7 +72,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&value) {
 	if(p_size > p_capacity)
-		rehash(2 * p_size);
+		rehash();
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
@@ -121,8 +121,27 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-void Hashmap<Key, Value, Hasher, Allocator>::rehash(size_t new_capacity) {
-//	ASSERT(!"FIXME: Implement rehash");
+void Hashmap<Key, Value, Hasher, Allocator>::rehash() {
+	size_t new_capacity = 2 * p_size;
+	Item **new_table = (Item **)p_allocator.allocate(sizeof(Item *) * new_capacity);
+	for(size_t i = 0; i < p_capacity; i++)
+		new_table[i] = nullptr;
+	
+	for(size_t i = 0; i < p_capacity; i++) {
+		Item *item = p_table[i];
+		while(item != nullptr) {
+			auto bucket = ((unsigned int)p_hasher(item->key)) % new_capacity;
+
+			Item *chain = item->chain;
+			item->chain = new_table[bucket];
+			new_table[bucket] = item;
+			item = chain;
+		}
+	}
+
+	p_allocator.free(p_table);
+	p_table = new_table;
+	p_capacity = new_capacity;
 }
 
 template<typename T>
