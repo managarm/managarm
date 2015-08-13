@@ -17,7 +17,7 @@ OBJECTS = obj/frigg-debug.o obj/frigg-initializer.o obj/frigg-libc.o \
 	obj/physical.o obj/paging.o \
 	obj/main.o obj/hel.o \
 	obj/core.o obj/descriptor.o obj/usermem.o obj/schedule.o obj/ipc.o \
-	obj/event.o obj/thread.o obj/rd.o obj/k_init.o
+	obj/event.o obj/thread.o obj/rd.o obj/io.o obj/k_init.o
 
 SRCDIR = src
 FRIGG_SRCDIR = ../frigg/src
