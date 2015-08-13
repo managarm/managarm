@@ -6,10 +6,18 @@ ENTRY(eirRtEntry)
 SECTIONS {
 	. = 0x100000;
 
-	.text : ALIGN(4) {
+	.text : ALIGN(0x1000) {
 		*(.header)
 		*(.text)
 	}
+	
+	.trampoline : ALIGN(0x100) {
+		trampolineStart = .;
+		*(.trampoline)
+		. = ALIGN(0x1000);
+		trampolineEnd = .;
+	}
+
 	.data : ALIGN(0x1000) {
 		*(.data)
 	}

@@ -29,46 +29,6 @@ halt_kernel:
 	hlt
 	jmp halt_kernel
 
-.global eirRtEnterKernel
-eirRtEnterKernel:
-	mov 24(%esp), %edi
-
-	# enable PAE paging
-	mov %cr4, %eax
-	or $0x20, %eax
-	mov %eax, %cr4
-	
-	# enable long mode (not active until we enable paging)
-	mov $0xC0000080, %ecx
-	rdmsr
-	or $(kEferLme | kEferNx), %eax
-	wrmsr
-	
-	# setup the pml4
-	mov 4(%esp), %eax
-	mov %eax, %cr3
-	
-	# enable paging
-	mov %cr0, %eax
-	or $0x80000000, %eax
-	mov %eax, %cr0
-
-	# load a 64 bit code segment
-	ljmp $0x18, $pkrt_kernel_64bits
-
-pkrt_kernel_64bits:
-.code64
-	mov $0, %ax
-	mov %ax, %ds
-	mov %ax, %es
-	mov %ax, %ss
-	
-	# load the kernel entry address and jump
-	mov 8(%rsp), %rax
-	mov 16(%rsp), %rsp
-	jmp *%rax
-.code32
-
 .global eirRtLoadGdt
 eirRtLoadGdt:
 	mov 4(%esp), %eax
@@ -92,4 +52,60 @@ gdt_reload:
 	mov %ax, %fs
 	mov %ax, %gs
 	ret
+
+.section .trampoline
+.global eirRtEnterKernel
+eirRtEnterKernel:
+	# enable PAE paging
+	mov %cr4, %eax
+	or $0x20, %eax
+	mov %eax, %cr4
+	
+	# enable long mode (not active until we enable paging)
+	mov $0xC0000080, %ecx
+	rdmsr
+	or $(kEferLme | kEferNx), %eax
+	wrmsr
+	
+	# setup the pml4
+	mov 4(%esp), %eax
+	mov %eax, %cr3
+
+	# edx:eax <- thor entry
+	mov 8(%esp), %eax
+	mov 12(%esp), %edx
+
+	# ecx:ebx <- thor stack pointer
+	mov 16(%esp), %ebx
+	mov 20(%esp), %ecx
+	
+	# edi <- eir information struct pointer
+	mov 24(%esp), %edi
+	
+	# enable paging
+	# note: we cannot access the stack after this jump
+	mov %cr0, %esi
+	or $0x80000000, %esi
+	mov %esi, %cr0
+
+	# load a 64 bit code segment
+	ljmp $0x18, $pkrt_kernel_64bits
+
+pkrt_kernel_64bits:
+.code64
+	mov $0, %si
+	mov %si, %ds
+	mov %si, %es
+	mov %si, %ss
+	
+	# rax <- thor entry
+	shl $32, %rdx
+	or %rax, %rdx
+
+	# rsp <- thor stack
+	shl $32, %rcx
+	or %rbx, %rcx
+	mov %rcx, %rsp
+	
+	jmp *%rdx
 

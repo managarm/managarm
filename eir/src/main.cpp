@@ -49,7 +49,8 @@ void friggPanic() {
 enum PageFlags {
 	kPagePresent = 1,
 	kPageWrite = 2,
-	kPageUser = 4
+	kPageUser = 4,
+	kPageXd = 0x8000000000000000
 };
 
 uint64_t bootstrapPointer;
@@ -104,7 +105,12 @@ void setupPaging() {
 	}
 }
 
-void mapSingle4kPage(uint64_t address, uint64_t physical) {
+enum {
+	kAccessWrite = 1,
+	kAccessExecute = 2,
+};
+
+void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	ASSERT(address % 0x1000 == 0);
 	ASSERT(physical % 0x1000 == 0);
 
@@ -149,13 +155,18 @@ void mapSingle4kPage(uint64_t address, uint64_t physical) {
 	
 	// setup the new pt entry
 	ASSERT((pt_entry & kPagePresent) == 0);
-	((uint64_t*)pt)[pt_index] = physical | kPagePresent | kPageWrite;
+	uint64_t new_entry = physical | kPagePresent;
+	if((flags & kAccessWrite) != 0)
+		new_entry |= kPageWrite;
+	if((flags & kAccessExecute) == 0)
+		new_entry |= kPageXd;
+	((uint64_t*)pt)[pt_index] = new_entry;
 }
 
 extern char eirRtImageCeiling;
 extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
-		uint64_t stack_ptr, EirInfo *image_base);
+		uint64_t stack_ptr, EirInfo *info);
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
@@ -185,10 +196,23 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 		ASSERT((phdr->p_vaddr % 0x1000) == 0);
 		ASSERT(phdr->p_filesz == phdr->p_memsz);
 		
+		if(phdr->p_type != PT_LOAD)
+			continue;
+
+		uint32_t map_flags = 0;
+		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+			map_flags |= kAccessWrite;
+		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+			map_flags |= kAccessExecute;
+		}else{
+			debug::panicLogger.log() << "Illegal combination of segment permissions"
+					<< debug::Finish();
+		}
+
 		uint32_t page = 0;
 		while(page < (uint32_t)phdr->p_filesz) {
 			mapSingle4kPage(phdr->p_vaddr + page,
-					(uintptr_t)image + (uint32_t)phdr->p_offset + page);
+					(uintptr_t)image + (uint32_t)phdr->p_offset + page, map_flags);
 			page += 0x1000;
 		}
 	}
@@ -308,14 +332,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	// identically map the first 128 mb so that
 	// we can activate paging without causing a page fault
 	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
-		mapSingle4kPage(addr, addr);
+		mapSingle4kPage(addr, addr, kAccessWrite | kAccessExecute);
 
 	// TODO: move to a global configuration file
 	uint64_t physical_window = 0xFFFF800100000000;
 	
 	// map physical memory into kernel virtual memory
 	for(uint64_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
-		mapSingle4kPage(physical_window + addr, addr);
+		mapSingle4kPage(physical_window + addr, addr, kAccessWrite);
 	
 	ASSERT((mb_info->flags & kMbInfoModules) != 0);
 	ASSERT(mb_info->numModules >= 2);
