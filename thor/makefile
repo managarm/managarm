@@ -1,6 +1,6 @@
 
 CXX = x86_64-managarm-g++
-CXX_INCLUDE = -I../frigg/include -I../eir/include
+CXX_INCLUDE = -I../frigg/include -I../eir/include -I../bragi/include
 CXX_FLAGS = -ffreestanding -m64 -mno-red-zone -mcmodel=kernel \
 	-fno-exceptions -fno-rtti -std=c++1y -Wall $(CXX_INCLUDE)
 

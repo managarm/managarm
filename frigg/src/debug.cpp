@@ -39,10 +39,12 @@ void PanicLogger::Printer::finish() {
 // Namespace scope functions
 // --------------------------------------------------------
 
-void assertionFail(const char *message, const char *function) {
+void assertionFail(const char *message, const char *function,
+		const char *file, int line) {
 	PanicLogger logger;
 	logger.log() << "Assertion failed: " << message << "\n"
-			<< "In function " << function << Finish();
+			<< "In function " << function
+			<< " at " << file << ":" << line << Finish();
 }
 
 }} // namespace frigg::debug

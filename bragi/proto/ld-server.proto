@@ -1,0 +1,20 @@
+
+package managarm.ld_server;
+
+enum Access {
+	READ_ONLY = 1;
+	READ_WRITE = 2;
+	READ_EXECUTE = 3;
+}
+
+message Segment {
+	optional uint64 virt_address = 1;
+	optional uint64 virt_length = 2;
+	optional Access access = 3;
+}
+
+message Object {
+	optional uint64 entry = 1;
+	repeated Segment segments = 2;
+}
+

@@ -2,7 +2,7 @@
 namespace frigg {
 namespace debug {
 
-#define ASSERT(c) do { if(!(c)) ::frigg::debug::assertionFail(#c, __func__); } while(0)
+#define ASSERT(c) do { if(!(c)) ::frigg::debug::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
 
 class VirtualSink {
 public:
@@ -158,7 +158,8 @@ extern PanicLogger panicLogger;
 // Namespace scope functions
 // --------------------------------------------------------
 
-void assertionFail(const char *message, const char *function);
+void assertionFail(const char *message, const char *function,
+		const char *file, int line);
 
 } } // namespace frigg::debug
 

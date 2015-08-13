@@ -5,11 +5,15 @@
 #include <frigg/async.hpp>
 #include <frigg/elf.hpp>
 
+#include <frigg/protobuf.hpp>
+#include <bragi-naked/ld-server.nakedpb.hpp>
+
 #include "../../hel/include/hel.h"
 
 namespace util = frigg::util;
 namespace debug = frigg::debug;
 namespace async = frigg::async;
+namespace protobuf = frigg::protobuf;
 
 namespace thor {
 namespace k_init {
@@ -124,6 +128,150 @@ size_t size;
 }
 
 HelHandle eventHub;
+HelHandle childHandle;
+
+struct LoadContext {
+	struct Segment {
+		uintptr_t virtAddress;
+		size_t virtLength;
+		int32_t access;
+	};
+
+	LoadContext() : segments(*kernelAlloc), currentSegment(0) {
+		helCreateSpace(&space);
+	}
+	
+	template<typename Reader>
+	void parseObjectMsg(Reader reader) {
+		while(!reader.atEnd()) {
+			auto header = protobuf::fetchHeader(reader);
+			switch(header.field) {
+			case managarm::ld_server::Object::kField_entry:
+				entry = protobuf::fetchUInt64(reader);
+				break;
+			case managarm::ld_server::Object::kField_segments:
+				parseSegmentMsg(protobuf::fetchMessage(reader));
+				break;
+			default:
+				ASSERT(!"Unexpected field in managarm.ld_server.Object message");
+			}
+		}
+	}
+	
+	template<typename Reader>
+	void parseSegmentMsg(Reader reader) {
+		Segment segment;
+
+		while(!reader.atEnd()) {
+			auto header = protobuf::fetchHeader(reader);
+			switch(header.field) {
+			case managarm::ld_server::Segment::kField_virt_address:
+				segment.virtAddress = protobuf::fetchUInt64(reader);
+				break;
+			case managarm::ld_server::Segment::kField_virt_length:
+				segment.virtLength = protobuf::fetchUInt64(reader);
+				break;
+			case managarm::ld_server::Segment::kField_access:
+				segment.access = protobuf::fetchInt32(reader);
+				break;
+			default:
+				ASSERT(!"Unexpected field in managarm.ld_server.Segment message");
+			}
+		}
+
+		segments.push(segment);
+	}
+	
+	HelHandle space;
+	HelHandle pipeHandle;
+	uintptr_t entry;
+	util::Vector<Segment, KernelAlloc> segments;
+	size_t currentSegment;
+	uint8_t buffer[128];
+};
+
+auto loadAction = async::seq(
+	async::lambda([](LoadContext &context,
+			util::FuncPtr<void(HelHandle)> callback) {
+		// receive a server handle from ld-server
+		helSubmitRecvDescriptor(childHandle, eventHub, -1, -1, 0,
+				(uintptr_t)callback.getFunction(),
+				(uintptr_t)callback.getObject());
+	}),
+	async::lambda([](LoadContext &context,
+			util::FuncPtr<void(HelHandle)> callback, HelHandle connect_handle) {
+		// connect to the server
+		helSubmitConnect(connect_handle, eventHub, 0,
+				(uintptr_t)callback.getFunction(),
+				(uintptr_t)callback.getObject());
+	}),
+	async::lambda([](LoadContext &context,
+			util::FuncPtr<void(size_t)> callback, HelHandle pipe_handle) {
+		context.pipeHandle = pipe_handle;
+		helSubmitRecvString(context.pipeHandle, eventHub,
+				context.buffer, 128, -1, -1, 0,
+				(uintptr_t)callback.getFunction(),
+				(uintptr_t)callback.getObject());
+	}),
+	async::lambda([](LoadContext &context,
+			util::FuncPtr<void()> callback, size_t length) {
+		context.parseObjectMsg(protobuf::BufferReader(context.buffer, length));
+		callback();
+	}),
+	async::repeatWhile(
+		async::lambda([](LoadContext &context,
+				util::FuncPtr<void(bool)> callback) {
+			callback(context.currentSegment < context.segments.size());
+		}),
+		async::seq(
+			async::lambda([](LoadContext &context,
+					util::FuncPtr<void(HelHandle)> callback) {
+				helSubmitRecvDescriptor(context.pipeHandle, eventHub,
+						1, 1 + context.currentSegment, 0,
+						(uintptr_t)callback.getFunction(),
+						(uintptr_t)callback.getObject());
+			}),
+			async::lambda([](LoadContext &context,
+					util::FuncPtr<void()> callback, HelHandle handle) {
+				auto &segment = context.segments[context.currentSegment];
+
+				uint32_t map_flags = 0;
+				if(segment.access == managarm::ld_server::Access::READ_WRITE) {
+					map_flags |= kHelMapReadWrite;
+				}else{
+					ASSERT(segment.access == managarm::ld_server::Access::READ_EXECUTE);
+					map_flags |= kHelMapReadExecute;
+				}
+				
+				void *actual_ptr;
+				helMapMemory(handle, context.space, (void *)segment.virtAddress,
+						segment.virtLength, map_flags, &actual_ptr);
+
+				infoLogger->log() << "Mapped segment" << debug::Finish();
+				context.currentSegment++;
+				callback();
+			})
+		)
+	),
+	async::lambda([](LoadContext &context, util::FuncPtr<void()> callback) {
+		constexpr size_t stack_size = 0x200000;
+		
+		HelHandle stack_memory;
+		helAllocateMemory(stack_size, &stack_memory);
+
+		void *stack_base;
+		helMapMemory(stack_memory, context.space, nullptr,
+				stack_size, kHelMapReadWrite, &stack_base);
+
+		HelThreadState state;
+		memset(&state, 0, sizeof(HelThreadState));
+		state.rip = context.entry;
+		state.rsp = (uintptr_t)stack_base + stack_size;
+
+		HelHandle thread;
+		helCreateThread(context.space, kHelNullHandle, &state, &thread);
+	})
+);
 
 void main() {
 	thorRtDisableInts();
@@ -134,51 +282,18 @@ void main() {
 	helCreateRd(&directory);
 
 	const char *pipe_name = "k_init";
-	HelHandle this_end, other_end;
-	helCreateBiDirectionPipe(&this_end, &other_end);
+	HelHandle other_end;
+	helCreateBiDirectionPipe(&childHandle, &other_end);
 	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
+	
+	const char *object_name = "ld-init.so";
+	HelHandle object_handle;
+	helRdOpen(object_name, strlen(object_name), &object_handle);
+	helRdPublish(directory, object_name, strlen(object_name), object_handle);
 
 	loadImage("ld-server", directory);
 	
-	struct LoadContext {
-		LoadContext() : segmentsReceived(0) { }
-
-		size_t numSegments;
-		size_t segmentsReceived;
-	};
-
-	auto load_action =	async::seq(
-		async::lambda([this_end](LoadContext &context,
-				util::FuncPtr<void(HelHandle)> callback) {
-			// receive a server handle from ld-server
-			helSubmitRecvDescriptor(this_end, eventHub, -1, -1, 0,
-					(uintptr_t)callback.getFunction(),
-					(uintptr_t)callback.getObject());
-		}),
-		async::lambda([](LoadContext &context,
-				util::FuncPtr<void(HelHandle)> callback, HelHandle connect_handle) {
-			// connect to the server
-			helSubmitConnect(connect_handle, eventHub, 0,
-					(uintptr_t)callback.getFunction(),
-					(uintptr_t)callback.getObject());
-		}),
-		async::lambda([](LoadContext &context,
-				util::FuncPtr<void()> callback, HelHandle pipe_handle) {
-			
-		}),
-		async::repeatWhile(
-			async::lambda([](LoadContext &context,
-					util::FuncPtr<void(bool)> callback) {
-				callback(context.segmentsReceived < context.numSegments);
-			}),
-			async::lambda([](LoadContext &context,
-					util::FuncPtr<void()> callback) {
-				context.segmentsReceived++;
-				callback();
-			})
-		)
-	);
-	async::run(*kernelAlloc, load_action, LoadContext(), []() {
+	async::run(*kernelAlloc, loadAction, LoadContext(), []() {
 		infoLogger->log() << "x" << debug::Finish();
 	});
 	
@@ -196,6 +311,10 @@ void main() {
 			void *object = (void *)events[i].submitObject;
 			
 			switch(events[i].type) {
+			case kHelEventRecvString: {
+				typedef void (*FunctionPtr) (void *, size_t);
+				((FunctionPtr)(function))(object, events[i].length);
+			} break;
 			case kHelEventRecvDescriptor: {
 				typedef void (*FunctionPtr) (void *, HelHandle);
 				((FunctionPtr)(function))(object, events[i].handle);

@@ -17,26 +17,30 @@
 
 #include <frigg/glue-hel.hpp>
 
+#include <frigg/protobuf.hpp>
+#include <bragi-naked/ld-server.nakedpb.hpp>
+
 namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace memory = frigg::memory;
+namespace protobuf = frigg::protobuf;
 
 struct BaseSegment {
 	BaseSegment(Elf64_Word elf_type, Elf64_Word elf_flags,
-			uintptr_t virt_offset, size_t virt_length)
+			uintptr_t virt_address, size_t virt_length)
 	: elfType(elf_type), elfFlags(elf_flags),
-			virtOffset(virt_offset), virtLength(virt_length) { }
+			virtAddress(virt_address), virtLength(virt_length) { }
 
 	Elf64_Word elfType;
 	Elf64_Word elfFlags;
-	uintptr_t virtOffset;
+	uintptr_t virtAddress;
 	size_t virtLength;
 };
 
 struct SharedSegment : BaseSegment {
 	SharedSegment(Elf64_Word elf_type, Elf64_Word elf_flags,
-			uintptr_t virt_offset, size_t virt_length, HelHandle memory)
-	: BaseSegment(elf_type, elf_flags, virt_offset, virt_length),
+			uintptr_t virt_address, size_t virt_length, HelHandle memory)
+	: BaseSegment(elf_type, elf_flags, virt_address, virt_length),
 			memory(memory) { }
 	
 	HelHandle memory;
@@ -44,9 +48,9 @@ struct SharedSegment : BaseSegment {
 
 struct UniqueSegment : BaseSegment {
 	UniqueSegment(Elf64_Word elf_type, Elf64_Word elf_flags,
-			uintptr_t virt_offset, size_t virt_length,
+			uintptr_t virt_address, size_t virt_length,
 			uintptr_t file_disp, uintptr_t file_offset, size_t file_length)
-	: BaseSegment(elf_type, elf_flags, virt_offset, virt_length),
+	: BaseSegment(elf_type, elf_flags, virt_address, virt_length),
 			fileDisplacement(file_disp), fileOffset(file_offset),
 			fileLength(file_length) { }
 	
@@ -59,9 +63,10 @@ typedef util::Variant<SharedSegment,
 		UniqueSegment> Segment;
 
 struct Object {
-	Object() : segments(*allocator) { }
+	Object() : entry(0), segments(*allocator) { }
 
 	void *imagePtr;
+	uintptr_t entry;
 	util::Vector<Segment, Allocator> segments;
 };
 
@@ -91,6 +96,7 @@ Object *readObject(const char *path) {
 
 	Object *object = memory::construct<Object>(*allocator);
 	object->imagePtr = image_ptr;
+	object->entry = ehdr->e_entry;
 
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
@@ -110,23 +116,28 @@ Object *readObject(const char *path) {
 			ASSERT(phdr->p_memsz > 0);
 			
 			// align virtual address and length to page size
-			uintptr_t virt_offset = phdr->p_vaddr;
-			virt_offset -= virt_offset % kPageSize;
+			uintptr_t virt_address = phdr->p_vaddr;
+			virt_address -= virt_address % kPageSize;
 
-			size_t virt_length = (phdr->p_vaddr + phdr->p_memsz) - virt_offset;
+			size_t virt_length = (phdr->p_vaddr + phdr->p_memsz) - virt_address;
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 
 			object->segments.push(UniqueSegment(phdr->p_type,
-					phdr->p_flags, virt_offset, virt_length,
-					phdr->p_vaddr - virt_offset, phdr->p_offset, phdr->p_filesz));
+					phdr->p_flags, virt_address, virt_length,
+					phdr->p_vaddr - virt_address, phdr->p_offset, phdr->p_filesz));
 		} //FIXME: handle other phdrs
 	}
 	
 	return object;
 }
 
-void runObject(Object *object, HelHandle space, uintptr_t base_address) {
+void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
+	protobuf::FixedWriter<128> object_writer;
+	protobuf::emitUInt64(object_writer,
+			managarm::ld_server::Object::kField_entry,
+			base_address + object->entry);
+
 	for(size_t i = 0; i < object->segments.size(); i++) {
 		Segment &wrapper = object->segments[i];
 		
@@ -152,26 +163,44 @@ void runObject(Object *object, HelHandle space, uintptr_t base_address) {
 					(void *)((uintptr_t)object->imagePtr + segment.fileOffset),
 					segment.fileLength);
 		}
+		
+		protobuf::FixedWriter<16> segment_writer;
+		protobuf::emitUInt64(segment_writer,
+				managarm::ld_server::Segment::kField_virt_address,
+				base_address + base_segment->virtAddress);
+		protobuf::emitUInt64(segment_writer,
+				managarm::ld_server::Segment::kField_virt_length,
+				base_segment->virtLength);
 
-		uint32_t map_flags = 0;
 		if((base_segment->elfFlags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-			map_flags |= kHelMapReadWrite;
+			protobuf::emitInt32(segment_writer,
+					managarm::ld_server::Segment::kField_access,
+					managarm::ld_server::Access::READ_WRITE);
 		}else if((base_segment->elfFlags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-			map_flags |= kHelMapReadExecute;
+			protobuf::emitInt32(segment_writer,
+					managarm::ld_server::Segment::kField_access,
+					managarm::ld_server::Access::READ_EXECUTE);
 		}else{
 			debug::panicLogger.log() << "Illegal combination of segment permissions"
 					<< debug::Finish();
 		}
 		
-		void *actual_ptr;
-		helMapMemory(memory, space,
-				(void *)(base_address + base_segment->virtOffset),
-				base_segment->virtLength, map_flags, &actual_ptr);
+		protobuf::emitMessage(object_writer,
+				managarm::ld_server::Object::kField_segments,
+				segment_writer);
+		
+		helSendDescriptor(pipe, memory, 1, 1 + i);
 	}
+
+	helSendString(pipe,
+			object_writer.data(), object_writer.size(), 1, 0);
 }
 
+Object *initObject;
+
 void onAccept(int64_t submit_id, HelHandle channel_handle) {
-	infoLogger->log() << "Accept" << debug::Finish();
+	sendObject(channel_handle, initObject, 0x40000000);
+	infoLogger->log() << "Object send" << debug::Finish();
 }
 
 util::LazyInitializer<helx::EventHub> eventHub;
@@ -199,13 +228,13 @@ int main() {
 	helx::Channel channel(channel_handle);
 	channel.sendDescriptor(client_handle, 1, 0);
 
-//	HelHandle space;
-//	helCreateSpace(&space);
-
-//	Object *object = readObject("ld-init.so");
-//	runObject(object, space, 0x40000000);
+	// load ld-init. TODO: do not hardcode this
+	initObject = readObject("ld-init.so");
 
 	infoLogger->log() << "ld-server initialized succesfully!" << debug::Finish();
+
+	while(true)
+		eventHub->defaultProcessEvents();
 	
 	return 0;
 }

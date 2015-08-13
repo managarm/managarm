@@ -15,7 +15,7 @@ eirRtGdtr:
 .section .bss
 	.align 16
 eirRtStackBottom:
-	.skip 0x100000 // reserve 1 MiB for the stack
+	.skip 0x100000 # reserve 1 MiB for the stack
 eirRtStackTop:
 
 .section .text
@@ -33,27 +33,27 @@ halt_kernel:
 eirRtEnterKernel:
 	mov 24(%esp), %edi
 
-	// enable PAE paging
+	# enable PAE paging
 	mov %cr4, %eax
 	or $0x20, %eax
 	mov %eax, %cr4
 	
-	// enable long mode (not active until we enable paging)
+	# enable long mode (not active until we enable paging)
 	mov $0xC0000080, %ecx
 	rdmsr
 	or $(kEferLme | kEferNx), %eax
 	wrmsr
 	
-	// setup the pml4
+	# setup the pml4
 	mov 4(%esp), %eax
 	mov %eax, %cr3
 	
-	// enable paging
+	# enable paging
 	mov %cr0, %eax
 	or $0x80000000, %eax
 	mov %eax, %cr0
 
-	// load a 64 bit code segment
+	# load a 64 bit code segment
 	ljmp $0x18, $pkrt_kernel_64bits
 
 pkrt_kernel_64bits:
@@ -63,7 +63,7 @@ pkrt_kernel_64bits:
 	mov %ax, %es
 	mov %ax, %ss
 	
-	// load the kernel entry address and jump
+	# load the kernel entry address and jump
 	mov 8(%rsp), %rax
 	mov 16(%rsp), %rsp
 	jmp *%rax
@@ -74,16 +74,16 @@ eirRtLoadGdt:
 	mov 4(%esp), %eax
 	mov 8(%esp), %ecx
 	
-	// construct gdtr and load it
+	# construct gdtr and load it
 	mov %cx, (eirRtGdtr)
 	mov %eax, (eirRtGdtr + 2)
 	lgdt (eirRtGdtr)
 
-	// reload code segment
+	# reload code segment
 	ljmp $0x8, $gdt_reload
 
 gdt_reload:
-	// reload data segments
+	# reload data segments
 	mov $0x10, %ax
 	mov %ax, %ds
 	mov %ax, %es

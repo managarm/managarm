@@ -66,7 +66,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return pointer;
 }
 
-extern "C" void *interpreterMain(HelHandle program_handle) {
+extern "C" void *interpreterMain() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-init" << debug::Finish();
 	allocator.initialize(virtualAlloc);
@@ -100,6 +100,10 @@ extern "C" void *interpreterMain(HelHandle program_handle) {
 			ASSERT(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
+	
+	const char *path = "zisa";
+	HelHandle program_handle;
+	helRdOpen(path, strlen(path), &program_handle);
 
 	size_t size;
 	void *actual_pointer;
