@@ -466,133 +466,161 @@ struct Inode {
 };
 static_assert(sizeof(Inode) == 128, "Bad Inode struct size");
 
-
 class Ext2Driver {
 friend class GptParser;
 public:
-	void work(helx::Callback<> callback);
-	void onSuperblockRead();
-	void onBlockGroupDescriptorRead();
-	
-	class ReadInodeClosure {
-	public:
-		ReadInodeClosure(Ext2Driver &driver, uint32_t inode_number);
+	void init(util::Callback<void()> callback);	
 
-		void read();
+	void readInode(uint32_t inode_number, util::Callback<void(Inode)> callback);
 
-	private:
-		void onReadComplete();
-
-		Ext2Driver &driver;
-		uint32_t inodeNumber;
-		uint8_t inodeBuffer[512];
-	};
-
-	class ReadDataClosure { 
-	public:
-		ReadDataClosure(Ext2Driver &driver, Inode inode, void *buffer,
-				uintptr_t first_block, size_t num_blocks);
-		void read();
-	private:
-		void onReadComplete();
-
-		Ext2Driver &driver;
-		Inode inode;
-		void *buffer;
-		uintptr_t firstBlock;
-		size_t numBlocks;
-		size_t blocksRead;
-	};
-private:
-	uint8_t superblockBuffer[1024];
-	uint8_t *blockGroupDescriptorBuffer;
-
+	void readData(Inode inode, void *buffer, uintptr_t first_block, size_t num_blocks,
+			util::Callback<void()> callback);
+public:
+	uint16_t inodeSize;
 	uint32_t blockSize;
 	uint32_t sectorsPerBlock;
 	uint32_t numBlockGroups;
-
-	helx::Callback<> p_callback;
+	uint32_t inodesPerGroup;
+	uint8_t *blockGroupDescriptorBuffer;
 };
 
-void Ext2Driver::work(helx::Callback<> callback) {
-	p_callback = callback;
+struct InitContext {
+	InitContext(Ext2Driver &driver, util::Callback<void()> callback)
+	: driver(driver), callback(callback) { }	
 
-	parser.getPartition(1).readSectors(2, superblockBuffer, 2,
-			CALLBACK_MEMBER(this, &Ext2Driver::onSuperblockRead));
-}
-void Ext2Driver::onSuperblockRead() {
-	Superblock *sb = (Superblock *)superblockBuffer;
-	blockSize = 1024 << sb->logBlockSize;
-	sectorsPerBlock = blockSize / 512;
-	numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
+	Ext2Driver &driver;
+	uint8_t superblockBuffer[1024];
 
-	printf("magic: %x \n", sb->magic);
-	printf("numBlockGroups: %d \n", numBlockGroups);
-	printf("blockSize: %d \n", blockSize);
+	util::Callback<void()> callback;
+};
 
-	size_t bgdt_size = numBlockGroups * sizeof(BlockGroupDescriptor);
-	if((bgdt_size % 512) != 0)
-		bgdt_size += 512 - (bgdt_size % 512);
-	blockGroupDescriptorBuffer = new uint8_t[bgdt_size];
+auto doInit = async::seq(
+	async::lambda([](InitContext &context, util::Callback<void()> callback) {
+		parser.getPartition(1).readSectors(2, context.superblockBuffer, 2, callback);
+	}),
+	async::lambda([](InitContext &context, util::Callback<void()> callback) {
 
-	parser.getPartition(1).readSectors(2 * sectorsPerBlock,
-			blockGroupDescriptorBuffer, bgdt_size / 512,
-			CALLBACK_MEMBER(this, &Ext2Driver::onBlockGroupDescriptorRead));
-}
-void Ext2Driver::onBlockGroupDescriptorRead() {
-	BlockGroupDescriptor *bgdt = (BlockGroupDescriptor *)blockGroupDescriptorBuffer;
-	printf("bgBlockBitmap: %x \n", bgdt->blockBitmap);
+		Superblock *sb = (Superblock *)context.superblockBuffer;
+		context.driver.inodeSize = sb->inodeSize;
+		context.driver.blockSize = 1024 << sb->logBlockSize;
+		context.driver.sectorsPerBlock = context.driver.blockSize / 512;
+		context.driver.numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
+		context.driver.inodesPerGroup = sb->inodesPerGroup;
 
-	ReadInodeClosure *readInode = new ReadInodeClosure(*this, 2);
-	readInode->read();
-}
+		printf("magic: %x \n", sb->magic);
+		printf("numBlockGroups: %d \n", context.driver.numBlockGroups);
+		printf("blockSize: %d \n", context.driver.blockSize);
 
-Ext2Driver::ReadInodeClosure::ReadInodeClosure(Ext2Driver &driver, uint32_t inode_number)
-: driver(driver), inodeNumber(inode_number) { }
+		size_t bgdt_size = context.driver.numBlockGroups * sizeof(BlockGroupDescriptor);
+		if((bgdt_size % 512) != 0)
+			bgdt_size += 512 - (bgdt_size % 512);
+		context.driver.blockGroupDescriptorBuffer = new uint8_t[bgdt_size];
 
-void Ext2Driver::ReadInodeClosure::read() {
-	Superblock *sb = (Superblock *)driver.superblockBuffer;
-	uint32_t block_group = (inodeNumber - 1) / sb->inodesPerGroup;
-	uint32_t index = (inodeNumber - 1) % sb->inodesPerGroup;
+		parser.getPartition(1).readSectors(2 * context.driver.sectorsPerBlock,
+				context.driver.blockGroupDescriptorBuffer, bgdt_size / 512, callback);
+	}),
+	async::lambda([] (InitContext &context, util::Callback<void()> callback){
+		BlockGroupDescriptor *bgdt = (BlockGroupDescriptor *)context.driver.blockGroupDescriptorBuffer;
+		printf("bgBlockBitmap: %x \n", bgdt->blockBitmap);
 
-	BlockGroupDescriptor *bgdt = (BlockGroupDescriptor *)driver.blockGroupDescriptorBuffer;
-	uint32_t inode_table_block = bgdt[block_group].inodeTable;
-	uint32_t offset = index * sb->inodeSize;
-	
-	uint32_t sector = inode_table_block * driver.sectorsPerBlock + (offset / 512);
-	parser.getPartition(1).readSectors(sector, inodeBuffer, 1,
-			CALLBACK_MEMBER(this, &Ext2Driver::ReadInodeClosure::onReadComplete));
-}
-void Ext2Driver::ReadInodeClosure::onReadComplete() {
-	Superblock *sb = (Superblock *)driver.superblockBuffer;
-	uint32_t index = (inodeNumber - 1) % sb->inodesPerGroup;
-	uint32_t offset = index * sb->inodeSize;
+		callback();
+	})
+);
 
-	Inode *inode = (Inode *)(inodeBuffer + (offset % 512));
-	printf("mode: %x , offset: %d , inodesize: %d \n", inode->mode, offset, sb->inodeSize);
+void Ext2Driver::init(util::Callback<void()> callback) {
+	auto on_complete = [] (InitContext &context) {
+		context.callback();
+	};
 
-	size_t num_blocks = inode->size / driver.blockSize;
-	if((inode->size % driver.blockSize) != 0)
-		num_blocks++;
-
-	void *buffer = malloc(num_blocks * driver.blockSize);
-	ReadDataClosure *readDataClosure = new ReadDataClosure(driver, *inode, buffer, 0, num_blocks);
-	readDataClosure->read();
+	async::run(allocator, doInit, InitContext(*this, callback), on_complete);
 }
 
-Ext2Driver::ReadDataClosure::ReadDataClosure(Ext2Driver &driver, Inode inode, void *buffer,
-		uintptr_t first_block, size_t num_blocks)
-: driver(driver), inode(inode), buffer(buffer), firstBlock(first_block), numBlocks(num_blocks),
-		blocksRead(0) { }
 
-void Ext2Driver::ReadDataClosure::read() {
-	uint32_t direct_index = firstBlock + blocksRead;
-	uint32_t block = inode.directBlocks[direct_index];
+struct ReadInodeContext {
+	ReadInodeContext(Ext2Driver &driver, uint32_t inode_number, util::Callback<void(Inode)> callback)
+	: driver(driver), inodeNumber(inode_number), callback(callback) { }	
 
-	printf("reading block %d, %d of %d complete!\n", block, blocksRead, numBlocks);
-	parser.getPartition(1).readSectors(block * driver.sectorsPerBlock,
-			(uint8_t *)buffer + blocksRead * driver.blockSize, driver.sectorsPerBlock,
-			CALLBACK_MEMBER(this, &Ext2Driver::ReadDataClosure::onReadComplete));	
+	Ext2Driver &driver;
+	uint32_t inodeNumber;
+	uint8_t inodeBuffer[512];
+
+	util::Callback<void(Inode)> callback;
+};
+
+auto doReadInode = async::seq(
+	async::lambda([] (ReadInodeContext &context, util::Callback<void()> callback){
+		uint32_t block_group = (context.inodeNumber - 1) / context.driver.inodesPerGroup;
+		uint32_t index = (context.inodeNumber - 1) % context.driver.inodesPerGroup;
+
+		BlockGroupDescriptor *bgdt = (BlockGroupDescriptor *)context.driver.blockGroupDescriptorBuffer;
+		uint32_t inode_table_block = bgdt[block_group].inodeTable;
+		uint32_t offset = index * context.driver.inodeSize;
+
+		uint32_t sector = inode_table_block * context.driver.sectorsPerBlock + (offset / 512);
+		parser.getPartition(1).readSectors(sector, context.inodeBuffer, 1, callback);
+	}),
+	async::lambda([] (ReadInodeContext &context, util::Callback<void(Inode)> callback){
+		uint32_t index = (context.inodeNumber - 1) % context.driver.inodesPerGroup;
+		uint32_t offset = index * context.driver.inodeSize;
+
+		Inode *inode = (Inode *)(context.inodeBuffer + (offset % 512));
+		printf("mode: %x , offset: %d , inodesize: %d \n", inode->mode, offset, context.driver.inodeSize);
+		callback(*inode);
+	})
+);
+
+void Ext2Driver::readInode(uint32_t inode_number, util::Callback<void(Inode)> callback) {
+	auto on_complete = [] (ReadInodeContext &context, Inode inode) {
+		context.callback(inode);
+	};
+
+	async::run(allocator, doReadInode, ReadInodeContext(*this, inode_number,callback), on_complete);
+}
+
+
+struct ReadDataContext {
+	ReadDataContext(Ext2Driver &driver, Inode inode, void *buffer,
+			uintptr_t first_block, size_t num_blocks,
+			util::Callback<void()> callback)
+			: driver(driver), inode(inode), buffer(buffer),
+			firstBlock(first_block), numBlocks(num_blocks),
+			blocksRead(0), callback(callback) { }	
+
+
+	Ext2Driver &driver;
+	Inode inode;
+	void *buffer;
+	uintptr_t firstBlock;
+	size_t numBlocks;
+	size_t blocksRead;
+
+	util::Callback<void()> callback;
+};
+
+auto doReadData = async::repeatWhile(
+	async::lambda([](ReadDataContext &context, util::Callback<void(bool)> callback) {
+		callback(context.blocksRead < context.numBlocks);
+	}),
+	async::lambda([](ReadDataContext &context, util::Callback<void()> callback) {
+		uint32_t direct_index = context.firstBlock + context.blocksRead;
+		uint32_t block = context.inode.directBlocks[direct_index];
+
+		printf("reading block %d, %d of %d complete!\n", block, context.blocksRead, context.numBlocks);
+		parser.getPartition(1).readSectors(block * context.driver.sectorsPerBlock,
+				(uint8_t *)context.buffer + context.blocksRead * context.driver.blockSize,
+				context.driver.sectorsPerBlock, callback);
+
+		context.blocksRead++;
+	})
+);
+
+void Ext2Driver::readData(Inode inode, void *buffer, uintptr_t first_block, size_t num_blocks,
+			util::Callback<void()> callback) {
+	auto on_complete = [] (ReadDataContext &context) {
+		context.callback();
+	};
+	async::run(allocator, doReadData, ReadDataContext(*this, inode,
+			buffer, first_block, num_blocks, callback), on_complete);
 }
 
 struct DirEntry {
@@ -603,33 +631,38 @@ struct DirEntry {
 	char name[];
 };
 
-void Ext2Driver::ReadDataClosure::onReadComplete() {
-	blocksRead++;
+Ext2Driver ext2driver;
 
-	if(blocksRead < numBlocks) {
-		read();
-	}else{
-		uintptr_t offset = 0;
-		while(offset < numBlocks * driver.blockSize) {
-			DirEntry *entry = (DirEntry *)((uintptr_t)buffer + offset);
+size_t dirBlocks;
+void *dirBuffer;
 
-			printf("File: %.*s\n", entry->nameLength, entry->name);
+void test3(void *object) {
+	uintptr_t offset = 0;
+	while(offset < dirBlocks * ext2driver.blockSize) {
+		DirEntry *entry = (DirEntry *)((uintptr_t)dirBuffer + offset);
 
-			offset += entry->recordLength;
-		}
+		printf("File: %.*s\n", entry->nameLength, entry->name);
 
-		printf("buffer: %x \n", buffer);		
+		offset += entry->recordLength;
 	}
 }
 
-Ext2Driver ext2driver;
+void test2(void *object, Inode inode) {
+	dirBlocks = inode.size / ext2driver.blockSize;
+	if((inode.size % ext2driver.blockSize) != 0)
+		dirBlocks++;
+	dirBuffer = malloc(dirBlocks * ext2driver.blockSize);
+	
+	ext2driver.readData(inode, dirBuffer, 0, dirBlocks,
+			util::Callback<void()>(nullptr, &test3));
+}
 
 void test(void *object){
-
+	ext2driver.readInode(2, util::Callback<void(Inode)>(nullptr, &test2));
 }
 
 void testExt2Driver(){
-	ext2driver.work(helx::Callback<>(nullptr, &test));
+	ext2driver.init(util::Callback<void()>(nullptr, &test));
 }
 
 void onTableComplete(void *object) {
