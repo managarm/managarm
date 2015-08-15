@@ -299,6 +299,13 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 			thorRtReturnSyscall1((Word)error);
 		}
+		case kHelCallSubmitRecvDescriptor: {
+			HelError error = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
+					(int64_t)arg2, (int64_t)arg3,
+					(int64_t)arg4, (uintptr_t)arg5, (uintptr_t)arg6);
+
+			thorRtReturnSyscall1((Word)error);
+		}
 		case kHelCallSubmitRecvString: {
 			HelError error = helSubmitRecvString((HelHandle)arg0,
 					(HelHandle)arg1, (uint8_t *)arg2, (size_t)arg3,

@@ -1,7 +1,7 @@
 
 namespace helx {
 
-void panic(const char *string) {
+inline void panic(const char *string) {
 	int length = 0;
 	for(int i = 0; string[i] != 0; i++)
 		length++;
@@ -122,13 +122,42 @@ public:
 		}
 	}
 
+	inline HelEvent waitForEvent(int64_t submit_id) {
+		while(true) {
+			HelEvent event;
+			size_t num_items;
+			int error = helWaitForEvents(p_handle, &event, 1,
+					kHelWaitInfinite, &num_items);
+			if(error != kHelErrNone)
+				panic("helWaitForEvents() failed");
+
+			if(num_items == 0)
+				continue;
+			ASSERT(event.submitId == submit_id);
+			return event;
+		}
+	}
+
+	inline size_t waitForRecvString(int64_t submit_id) {
+		HelEvent event = waitForEvent(submit_id);
+		return event.length;
+	}
+	inline HelHandle waitForRecvDescriptor(int64_t submit_id) {
+		HelEvent event = waitForEvent(submit_id);
+		return event.handle;
+	}
+	inline HelHandle waitForConnect(int64_t submit_id) {
+		HelEvent event = waitForEvent(submit_id);
+		return event.handle;
+	}
+
 private:
 	HelHandle p_handle;
 };
 
-class Channel {
+class Pipe {
 public:
-	inline Channel(HelHandle handle) : p_handle(handle) { }
+	inline Pipe(HelHandle handle) : p_handle(handle) { }
 	
 	inline HelHandle getHandle() {
 		return p_handle;

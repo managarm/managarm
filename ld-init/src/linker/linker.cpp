@@ -15,12 +15,17 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
+
+#include <frigg/protobuf.hpp>
+#include <bragi-naked/ld-server.nakedpb.hpp>
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace memory = frigg::memory;
+namespace protobuf = frigg::protobuf;
 
 #include "linker.hpp"
 
@@ -158,40 +163,86 @@ void *Scope::resolveSymbol(const char *resolve_str,
 Loader::Loader(Scope *scope)
 : p_scope(scope), p_processQueue(*allocator) { }
 
-void Loader::loadFromImage(SharedObject *object, void *image) {
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
-	ASSERT(ehdr->e_ident[0] == 0x7F
-			&& ehdr->e_ident[1] == 'E'
-			&& ehdr->e_ident[2] == 'L'
-			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
-	
-	object->entry = (void *)(object->baseAddress + ehdr->e_entry);
+template<typename Reader>
+void processSegment(SharedObject *object, Reader reader, int segment_index) {
+	uintptr_t virt_address;
+	size_t virt_length;
+	uint32_t access;
 
-	for(int i = 0; i < ehdr->e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
-				+ i * ehdr->e_phentsize);
-
-		if(phdr->p_type == PT_LOAD) {
-			uint32_t map_flags = 0;
-			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				map_flags |= kHelMapReadWrite;
-			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				map_flags |= kHelMapReadExecute;
-			}else{
-				debug::panicLogger.log() << "Illegal combination of segment permissions"
-						<< debug::Finish();
-			}
-
-			HelHandle memory = loadSegment(image, object->baseAddress + phdr->p_vaddr,
-					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
-			mapSegment(memory, object->baseAddress + phdr->p_vaddr,
-					phdr->p_memsz, map_flags);
-		}else if(phdr->p_type == PT_DYNAMIC) {
-			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
-		} //FIXME: handle other phdrs
+	while(!reader.atEnd()) {
+		auto header = protobuf::fetchHeader(reader);
+		switch(header.field) {
+		case managarm::ld_server::Segment::kField_virt_address:
+			virt_address = protobuf::fetchUInt64(reader);
+			break;
+		case managarm::ld_server::Segment::kField_virt_length:
+			virt_length = protobuf::fetchUInt64(reader);
+			break;
+		case managarm::ld_server::Segment::kField_access:
+			access = protobuf::fetchInt32(reader);
+			break;
+		default:
+			ASSERT(!"Unexpected field in managarm.ld_server.Segment message");
+		}
 	}
 
+	uint32_t map_flags = 0;
+	if(access == managarm::ld_server::Access::READ_WRITE) {
+		map_flags |= kHelMapReadWrite;
+	}else{
+		ASSERT(access == managarm::ld_server::Access::READ_EXECUTE);
+		map_flags |= kHelMapReadExecute;
+	}
+
+	helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
+			1, 1 + segment_index, 0, 0, 0);
+	HelHandle memory = eventHub->waitForRecvDescriptor(0);
+
+	void *actual_pointer;
+	helMapMemory(memory, kHelNullHandle, (void *)virt_address, virt_length,
+			map_flags, &actual_pointer);
+}
+
+template<typename Reader>
+void processServerResponse(SharedObject *object, Reader reader) {
+	int segment_index = 0;
+
+	while(!reader.atEnd()) {
+		auto header = protobuf::fetchHeader(reader);
+		switch(header.field) {
+		case managarm::ld_server::ServerResponse::kField_entry:
+			object->entry = (void *)protobuf::fetchUInt64(reader);
+			break;
+		case managarm::ld_server::ServerResponse::kField_dynamic:
+			object->dynamic = (Elf64_Dyn *)protobuf::fetchUInt64(reader);
+			break;
+		case managarm::ld_server::ServerResponse::kField_segments:
+			processSegment(object, protobuf::fetchMessage(reader),
+					segment_index++);
+			break;
+		default:
+			ASSERT(!"Unexpected field in ServerResponse");
+		}
+	}
+}
+
+void Loader::load(SharedObject *object, const char *file) {
+	infoLogger->log() << "Loading " << file << debug::Finish();
+
+	protobuf::FixedWriter<64> writer;
+	protobuf::emitCString(writer,
+			managarm::ld_server::ClientRequest::kField_identifier, file);
+	protobuf::emitUInt64(writer,
+			managarm::ld_server::ClientRequest::kField_base_address,
+			object->baseAddress);
+	serverPipe->sendString(writer.data(), writer.size(), 1, 0);
+	
+	uint8_t buffer[128];
+	helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
+			buffer, 128, 1, 0, 1, 0, 0);
+	size_t length = eventHub->waitForRecvString(1);
+	processServerResponse(object, protobuf::BufferReader(buffer, length));
+	
 	parseDynamic(object);
 	p_processQueue.addBack(object);
 	p_scope->objects.push(object);
@@ -276,22 +327,11 @@ void Loader::processDependencies(SharedObject *object) {
 		const char *library_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + dynamic->d_val);
 
-		HelHandle library_handle;
-		helRdOpen(library_str, strlen(library_str), &library_handle);
-
-		size_t size;
-		void *actual_pointer;
-		helMemoryInfo(library_handle, &size);
-		helMapMemory(library_handle, kHelNullHandle, nullptr, size,
-				kHelMapReadOnly, &actual_pointer);
-		
 		auto library = memory::construct<SharedObject>(*allocator);
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library
-		loadFromImage(library, actual_pointer);
-
-		helCloseDescriptor(library_handle);
+		load(library, library_str);
 	}
 }
 
@@ -399,57 +439,5 @@ void Loader::processLazyRelocations(SharedObject *object) {
 		ASSERT(type == R_X86_64_JUMP_SLOT);
 		*((uint64_t *)rel_addr) += object->baseAddress;
 	}
-}
-
-// --------------------------------------------------------
-// Namespace scope functions
-// --------------------------------------------------------
-
-util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
-	size_t page_size = 0x1000;
-
-	uintptr_t map_page = address / page_size;
-	if(length == 0)
-		return util::makeTuple(map_page * page_size, size_t(0));
-	
-	uintptr_t limit = address + length;
-	uintptr_t num_pages = (limit / page_size) - map_page;
-	if(limit % page_size != 0)
-		num_pages++;
-	
-	return util::makeTuple(map_page * page_size, num_pages * page_size);
-}
-
-HelHandle loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
-		size_t mem_length, size_t file_length) {
-	ASSERT(mem_length > 0);
-	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, mem_length);
-
-	HelHandle memory;
-	helAllocateMemory(map.get<1>(), &memory);
-	
-	// map the segment memory as read/write and initialize it
-	void *write_ptr;
-	helMapMemory(memory, kHelNullHandle, nullptr, map.get<1>(),
-			kHelMapReadWrite, &write_ptr);
-
-	memset(write_ptr, 0, map.get<1>());
-	memcpy((void *)((uintptr_t)write_ptr + (address - map.get<0>())),
-			(void *)((uintptr_t)image + file_offset), file_length);
-	
-	// TODO: unmap the memory region
-
-	return memory;
-}
-
-void mapSegment(HelHandle memory, uintptr_t address,
-		size_t length, uint32_t map_flags) {
-	ASSERT(length > 0);
-	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, length);
-
-	void *actual_ptr;
-	helMapMemory(memory, kHelNullHandle, (void *)map.get<0>(), map.get<1>(),
-			map_flags, &actual_ptr);
-	ASSERT(actual_ptr == (void *)map.get<0>());
 }
 

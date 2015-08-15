@@ -190,6 +190,25 @@ extern inline HelError helSendDescriptor(HelHandle handle, HelHandle send_handle
 		: "r9", "r10", "r11", "rax", "rbx", "memory" );
 	return (HelError)out_error;
 }
+extern inline HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_handle,
+		int64_t filter_request, int64_t filter_sequence,
+		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallSubmitRecvDescriptor;
+	register HelWord in_handle asm ("rsi") = (HelWord)handle;
+	register HelWord in_hub_handle asm ("rdx") = (HelWord)hub_handle;
+	register HelWord in_filter_request asm ("rcx") = (HelWord)filter_request;
+	register HelWord in_filter_sequence asm ("r8") = (HelWord)filter_sequence;
+	register HelWord in_submit_id asm ("r9") = (HelWord)submit_id;
+	register HelWord in_submit_function asm ("r10") = (HelWord)submit_function;
+	register HelWord in_submit_object asm ("r11") = (HelWord)submit_object;
+	register HelWord out_error asm ("rdi");
+	asm volatile ( "int $0x80" : "=r" (out_error)
+		: "r" (in_syscall), "r" (in_handle), "r" (in_hub_handle),
+			"r" (in_filter_request), "r" (in_filter_sequence),
+			"r" (in_submit_id), "r" (in_submit_function), "r" (in_submit_object)
+		: "rax", "rbx", "memory" );
+	return (HelError)out_error;
+}
 extern inline HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,

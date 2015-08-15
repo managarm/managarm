@@ -66,10 +66,11 @@ typedef util::Variant<SharedSegment,
 		UniqueSegment> Segment;
 
 struct Object {
-	Object() : entry(0), segments(*allocator) { }
+	Object() : entry(0), dynamic(0), segments(*allocator) { }
 
 	void *imagePtr;
 	uintptr_t entry;
+	uintptr_t dynamic;
 	util::Vector<Segment, Allocator> segments;
 };
 
@@ -129,6 +130,8 @@ Object *readObject(const char *path, size_t path_length) {
 			object->segments.push(UniqueSegment(phdr->p_type,
 					phdr->p_flags, virt_address, virt_length,
 					phdr->p_vaddr - virt_address, phdr->p_offset, phdr->p_filesz));
+		}else if(phdr->p_type == PT_DYNAMIC) {
+			object->dynamic = phdr->p_vaddr;
 		} //FIXME: handle other phdrs
 	}
 	
@@ -140,6 +143,9 @@ void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
 	protobuf::emitUInt64(object_writer,
 			managarm::ld_server::ServerResponse::kField_entry,
 			base_address + object->entry);
+	protobuf::emitUInt64(object_writer,
+			managarm::ld_server::ServerResponse::kField_dynamic,
+			base_address + object->dynamic);
 
 	for(size_t i = 0; i < object->segments.size(); i++) {
 		Segment &wrapper = object->segments[i];
@@ -246,14 +252,16 @@ async::repeatWhile(
 
 			Object *object = readObject(ident_buffer, ident_length);
 			sendObject(context.pipeHandle, object, base_address);
+			callback();
 		})
 	)
 );
 
 void onAccept(int64_t submit_id, HelHandle pipe_handle) {
-//	infoLogger->log() << "Object send" << debug::Finish();
 	async::run(*allocator, processRequests, ProcessContext(pipe_handle),
 		[]() { });
+	
+	server->accept(*eventHub, helx::AcceptCb::make<&onAccept>());
 }
 
 int main() {
@@ -272,11 +280,11 @@ int main() {
 	
 	// inform k_init that we are ready to server requests
 	const char *path = "k_init";
-	HelHandle channel_handle;
-	helRdOpen(path, strlen(path), &channel_handle);
+	HelHandle parent_handle;
+	helRdOpen(path, strlen(path), &parent_handle);
 
-	helx::Channel channel(channel_handle);
-	channel.sendDescriptor(client_handle, 1, 0);
+	helx::Pipe parent_pipe(parent_handle);
+	parent_pipe.sendDescriptor(client_handle, 1, 0);
 
 	infoLogger->log() << "ld-server initialized succesfully!" << debug::Finish();
 

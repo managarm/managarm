@@ -30,7 +30,8 @@ struct ClientRequest {
 struct ServerResponse {
   enum {
     kField_entry = 1,
-    kField_segments = 2
+    kField_dynamic = 2,
+    kField_segments = 3
   };
 };
 

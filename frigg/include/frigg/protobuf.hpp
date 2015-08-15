@@ -215,7 +215,7 @@ int32_t fetchInt32(Reader &reader) {
 }
 
 template<typename Reader>
-uint32_t fetchUInt64(Reader &reader) {
+uint64_t fetchUInt64(Reader &reader) {
 	return peekVarint(reader);
 }
 

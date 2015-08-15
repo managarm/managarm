@@ -2,6 +2,7 @@
 #include "kernel.hpp"
 
 namespace traits = frigg::traits;
+namespace debug = frigg::debug;
 
 namespace thor {
 

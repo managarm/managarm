@@ -15,6 +15,7 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
 
@@ -66,6 +67,9 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return pointer;
 }
 
+util::LazyInitializer<helx::EventHub> eventHub;
+util::LazyInitializer<helx::Pipe> serverPipe;
+
 extern "C" void *interpreterMain() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-init" << debug::Finish();
@@ -100,26 +104,24 @@ extern "C" void *interpreterMain() {
 			ASSERT(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
-	
-	const char *path = "zisa";
-	HelHandle program_handle;
-	helRdOpen(path, strlen(path), &program_handle);
 
-	size_t size;
-	void *actual_pointer;
-	helMemoryInfo(program_handle, &size);
-	helMapMemory(program_handle, kHelNullHandle, nullptr, size,
-			kHelMapReadOnly, &actual_pointer);
+	eventHub.initialize();
+	
+	const char *path = "rtdl-server";
+	HelHandle server_handle;
+	helRdOpen(path, strlen(path), &server_handle);
+	
+	helSubmitConnect(server_handle, eventHub->getHandle(), 0, 0, 0);
+	HelHandle pipe_handle = eventHub->waitForConnect(0);
+	serverPipe.initialize(pipe_handle);
 
 	executable.initialize();
 
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
-	globalLoader->loadFromImage(executable.get(), actual_pointer);
+	globalLoader->load(executable.get(), "zisa");
 	globalLoader->process();
 	
-	helCloseDescriptor(program_handle);
-
 	processCopyRelocations(executable.get());
 
 	infoLogger->log() << "Leaving ld-init" << debug::Finish();

@@ -137,7 +137,8 @@ struct LoadContext {
 		int32_t access;
 	};
 
-	LoadContext() : segments(*kernelAlloc), currentSegment(0) {
+	LoadContext(HelHandle directory)
+	: directory(directory), segments(*kernelAlloc), currentSegment(0) {
 		helCreateSpace(&space);
 	}
 	
@@ -148,6 +149,10 @@ struct LoadContext {
 			switch(header.field) {
 			case managarm::ld_server::ServerResponse::kField_entry:
 				entry = protobuf::fetchUInt64(reader);
+				break;
+			case managarm::ld_server::ServerResponse::kField_dynamic:
+				// we don't care about the dynamic section
+				protobuf::fetchUInt64(reader);
 				break;
 			case managarm::ld_server::ServerResponse::kField_segments:
 				parseSegmentMsg(protobuf::fetchMessage(reader));
@@ -183,6 +188,7 @@ struct LoadContext {
 	}
 	
 	HelHandle space;
+	HelHandle directory;
 	HelHandle pipeHandle;
 	uintptr_t entry;
 	util::Vector<Segment, KernelAlloc> segments;
@@ -200,6 +206,9 @@ auto loadAction = async::seq(
 	}),
 	async::lambda([](LoadContext &context,
 			util::FuncPtr<void(HelHandle)> callback, HelHandle connect_handle) {
+		const char *name = "rtdl-server";
+		helRdPublish(context.directory, name, strlen(name), connect_handle);
+
 		// connect to the server
 		helSubmitConnect(connect_handle, eventHub, 0,
 				(uintptr_t)callback.getFunction(),
@@ -280,9 +289,15 @@ auto loadAction = async::seq(
 		state.rsp = (uintptr_t)stack_base + stack_size;
 
 		HelHandle thread;
-		helCreateThread(context.space, kHelNullHandle, &state, &thread);
+		helCreateThread(context.space, context.directory, &state, &thread);
 	})
 );
+
+void mount(HelHandle directory, const char *object_name) {
+	HelHandle object_handle;
+	helRdOpen(object_name, strlen(object_name), &object_handle);
+	helRdPublish(directory, object_name, strlen(object_name), object_handle);
+}
 
 void main() {
 	thorRtDisableInts();
@@ -292,19 +307,19 @@ void main() {
 	HelHandle directory;
 	helCreateRd(&directory);
 
+	mount(directory, "ld-init.so");
+	mount(directory, "zisa");
+	mount(directory, "libm-newlib.so.0");
+	mount(directory, "libc-newlib.so.0");
+
 	const char *pipe_name = "k_init";
 	HelHandle other_end;
 	helCreateBiDirectionPipe(&childHandle, &other_end);
 	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
-	
-	const char *object_name = "ld-init.so";
-	HelHandle object_handle;
-	helRdOpen(object_name, strlen(object_name), &object_handle);
-	helRdPublish(directory, object_name, strlen(object_name), object_handle);
 
 	loadImage("ld-server", directory);
 	
-	async::run(*kernelAlloc, loadAction, LoadContext(), []() {
+	async::run(*kernelAlloc, loadAction, LoadContext(directory), []() {
 		infoLogger->log() << "x" << debug::Finish();
 	});
 	

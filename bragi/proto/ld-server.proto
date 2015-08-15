@@ -20,6 +20,7 @@ message ClientRequest {
 
 message ServerResponse {
 	optional uint64 entry = 1;
-	repeated Segment segments = 2;
+	optional uint64 dynamic = 2;
+	repeated Segment segments = 3;
 }
 
