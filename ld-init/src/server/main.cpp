@@ -259,7 +259,7 @@ async::repeatWhile(
 
 void onAccept(int64_t submit_id, HelHandle pipe_handle) {
 	async::run(*allocator, processRequests, ProcessContext(pipe_handle),
-		[]() { });
+		[](ProcessContext &context) { });
 	
 	server->accept(*eventHub, helx::AcceptCb::make<&onAccept>());
 }

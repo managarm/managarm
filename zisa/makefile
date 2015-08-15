@@ -1,7 +1,7 @@
 
 CXX = x86_64-managarm-g++
-CXX_INCLUDE =
-CXX_FLAGS = -std=c++11 $(CXX_INCLUDE)
+CXX_INCLUDE = -I../frigg/include
+CXX_FLAGS = -std=c++1y $(CXX_INCLUDE)
 
 BINARY = bin/zisa
 OBJECTS = obj/main.o obj/keyboard.pb.o

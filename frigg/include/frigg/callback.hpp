@@ -31,6 +31,9 @@ public:
 	}
 
 	typedef R (*FunctionPtr) (void *, Args...);
+	
+	Callback()
+	: object(nullptr), function(nullptr) { }
 
 	Callback(void *object, FunctionPtr function)
 	: object(object), function(function) { }

@@ -16,7 +16,7 @@ struct Block<AsyncElement, CompleteFunctor, traits::TypePack<Outputs...>> {
 		completeFunctor(complete_functor) { }
 		
 	void onComplete(Outputs... outputs) {
-		completeFunctor(outputs...);
+		completeFunctor(context, outputs...);
 	}
 		
 	typename AsyncElement::Context context;

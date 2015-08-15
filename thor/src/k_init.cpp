@@ -319,7 +319,7 @@ void main() {
 
 	loadImage("ld-server", directory);
 	
-	async::run(*kernelAlloc, loadAction, LoadContext(directory), []() {
+	async::run(*kernelAlloc, loadAction, LoadContext(directory), [](LoadContext &context) {
 		infoLogger->log() << "x" << debug::Finish();
 	});
 	
