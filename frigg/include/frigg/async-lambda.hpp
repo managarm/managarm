@@ -9,9 +9,9 @@ struct LambdaPtrTraits;
 
 template<typename T, typename R, typename TheContext,
 		typename CallbackR, typename... CallbackArgs, typename... OtherArgs>
-struct LambdaPtrTraits<R (T::*) (TheContext &, util::FuncPtr<CallbackR(CallbackArgs...)>, OtherArgs...) const> {
+struct LambdaPtrTraits<R (T::*) (TheContext &, util::Callback<CallbackR(CallbackArgs...)>, OtherArgs...) const> {
 	typedef TheContext Context;
-	typedef util::FuncPtr<CallbackR(CallbackArgs...)> Callback;
+	typedef util::Callback<CallbackR(CallbackArgs...)> Callback;
 	typedef traits::TypePack<CallbackArgs...> OutputPack;
 	typedef traits::TypePack<OtherArgs...> InputPack;
 };
@@ -26,7 +26,7 @@ struct Lambda<Functor, TheContext, traits::TypePack<Inputs...>, traits::TypePack
 	typedef TheContext Context;
 	typedef traits::TypePack<Inputs...> InputPack;
 	typedef traits::TypePack<Outputs...> OutputPack;
-	typedef typename util::FuncPtrFromPack<void, OutputPack>::Type Callback;
+	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 	
 	struct Closure {
 		Closure(const Lambda &element, Context &context, Callback callback)

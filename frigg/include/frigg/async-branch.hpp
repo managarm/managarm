@@ -15,11 +15,11 @@ struct Branch<Condition, IfCase, ElseCase,
 	typedef typename Condition::Context Context;
 	typedef typename Condition::InputPack InputPack;
 	typedef typename IfCase::OutputPack OutputPack;
-	typedef typename util::FuncPtrFromPack<void, OutputPack>::Type Callback;
+	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {
 		Closure(const Branch &element, Context &context, Callback callback)
-		: conditionClosure(element.condition, context, FUNCPTR_MEMBER(this, &Closure::onBranch)),
+		: conditionClosure(element.condition, context, CALLBACK_MEMBER(this, &Closure::onBranch)),
 				ifClosure(element.ifCase, context, callback),
 				elseClosure(element.elseCase, context, callback) { }
 

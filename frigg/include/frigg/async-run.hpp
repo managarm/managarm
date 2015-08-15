@@ -12,7 +12,7 @@ struct Block<AsyncElement, CompleteFunctor, traits::TypePack<Outputs...>> {
 	Block(AsyncElement element, typename AsyncElement::Context &&context_constructor,
 			CompleteFunctor complete_functor)
 	: context(traits::move(context_constructor)), closure(element, context,
-			FUNCPTR_MEMBER(this, &Block::onComplete)),
+			CALLBACK_MEMBER(this, &Block::onComplete)),
 		completeFunctor(complete_functor) { }
 		
 	void onComplete(Outputs... outputs) {

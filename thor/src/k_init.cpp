@@ -1,7 +1,7 @@
 
 #include "kernel.hpp"
 
-#include <frigg/funcptr.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/async.hpp>
 #include <frigg/elf.hpp>
 
@@ -198,14 +198,14 @@ struct LoadContext {
 
 auto loadAction = async::seq(
 	async::lambda([](LoadContext &context,
-			util::FuncPtr<void(HelHandle)> callback) {
+			util::Callback<void(HelHandle)> callback) {
 		// receive a server handle from ld-server
 		helSubmitRecvDescriptor(childHandle, eventHub, -1, -1, 0,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject());
 	}),
 	async::lambda([](LoadContext &context,
-			util::FuncPtr<void(HelHandle)> callback, HelHandle connect_handle) {
+			util::Callback<void(HelHandle)> callback, HelHandle connect_handle) {
 		const char *name = "rtdl-server";
 		helRdPublish(context.directory, name, strlen(name), connect_handle);
 
@@ -215,7 +215,7 @@ auto loadAction = async::seq(
 				(uintptr_t)callback.getObject());
 	}),
 	async::lambda([](LoadContext &context,
-			util::FuncPtr<void(size_t)> callback, HelHandle pipe_handle) {
+			util::Callback<void(size_t)> callback, HelHandle pipe_handle) {
 		context.pipeHandle = pipe_handle;
 		
 		protobuf::FixedWriter<64> writer;
@@ -234,25 +234,25 @@ auto loadAction = async::seq(
 				(uintptr_t)callback.getObject());
 	}),
 	async::lambda([](LoadContext &context,
-			util::FuncPtr<void()> callback, size_t length) {
+			util::Callback<void()> callback, size_t length) {
 		context.parseObjectMsg(protobuf::BufferReader(context.buffer, length));
 		callback();
 	}),
 	async::repeatWhile(
 		async::lambda([](LoadContext &context,
-				util::FuncPtr<void(bool)> callback) {
+				util::Callback<void(bool)> callback) {
 			callback(context.currentSegment < context.segments.size());
 		}),
 		async::seq(
 			async::lambda([](LoadContext &context,
-					util::FuncPtr<void(HelHandle)> callback) {
+					util::Callback<void(HelHandle)> callback) {
 				helSubmitRecvDescriptor(context.pipeHandle, eventHub,
 						1, 1 + context.currentSegment, 0,
 						(uintptr_t)callback.getFunction(),
 						(uintptr_t)callback.getObject());
 			}),
 			async::lambda([](LoadContext &context,
-					util::FuncPtr<void()> callback, HelHandle handle) {
+					util::Callback<void()> callback, HelHandle handle) {
 				auto &segment = context.segments[context.currentSegment];
 
 				uint32_t map_flags = 0;
@@ -273,7 +273,7 @@ auto loadAction = async::seq(
 			})
 		)
 	),
-	async::lambda([](LoadContext &context, util::FuncPtr<void()> callback) {
+	async::lambda([](LoadContext &context, util::Callback<void()> callback) {
 		constexpr size_t stack_size = 0x200000;
 		
 		HelHandle stack_memory;

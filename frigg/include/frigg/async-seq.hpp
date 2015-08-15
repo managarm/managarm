@@ -29,11 +29,11 @@ struct RecursiveClosure<traits::TypePack<Element, Next, Tail...>,
 		traits::TypePack<CurrentInputs...>, traits::TypePack<CurrentOutputs...>,
 		traits::TypePack<LastOutputs...>> {
 	typedef typename Element::Context Context;
-	typedef util::FuncPtr<void(LastOutputs...)> Callback;
+	typedef util::Callback<void(LastOutputs...)> Callback;
 
 	RecursiveClosure(const RecursiveElements<Element, Next, Tail...> &elements,
 			Context &context, Callback callback)
-	: elementClosure(elements.element, context, FUNCPTR_MEMBER(this, &RecursiveClosure::onElement)),
+	: elementClosure(elements.element, context, CALLBACK_MEMBER(this, &RecursiveClosure::onElement)),
 			recursiveTail(elements.tail, context, callback) { }
 
 	void invoke(CurrentInputs... inputs) {
@@ -56,7 +56,7 @@ struct RecursiveClosure<traits::TypePack<Element>,
 		traits::TypePack<CurrentInputs...>, traits::TypePack<CurrentOutputs...>,
 		traits::TypePack<LastOutputs...>> {
 	typedef typename Element::Context Context;
-	typedef util::FuncPtr<void(LastOutputs...)> Callback;
+	typedef util::Callback<void(LastOutputs...)> Callback;
 
 	RecursiveClosure(const RecursiveElements<Element> &elements,
 			Context &context, Callback callback)
@@ -81,7 +81,7 @@ struct Seq<traits::TypePack<Elements...>, TheContext,
 	typedef TheContext Context;
 	typedef traits::TypePack<FirstInputs...> InputPack;
 	typedef traits::TypePack<LastOutputs...> OutputPack;
-	typedef typename util::FuncPtrFromPack<void, OutputPack>::Type Callback;
+	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {
 		Closure(Seq element, Context &context, Callback callback)

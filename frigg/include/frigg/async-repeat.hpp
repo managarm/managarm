@@ -12,12 +12,12 @@ struct RepeatWhile<Condition, Body, traits::TypePack<Inputs...>, traits::TypePac
 	typedef typename Condition::Context Context;
 	typedef traits::TypePack<Inputs...> InputPack;
 	typedef traits::TypePack<Outputs...> OutputPack;
-	typedef typename util::FuncPtrFromPack<void, OutputPack>::Type Callback;
+	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {
 		Closure(const RepeatWhile &element, Context &context, Callback callback)
-		: conditionClosure(element.condition, context, FUNCPTR_MEMBER(this, &Closure::onCheck)),
-			bodyClosure(element.body, context, FUNCPTR_MEMBER(this, &Closure::operator())),
+		: conditionClosure(element.condition, context, CALLBACK_MEMBER(this, &Closure::onCheck)),
+			bodyClosure(element.body, context, CALLBACK_MEMBER(this, &Closure::operator())),
 			callback(callback) { }
 
 		void operator() (Inputs... inputs) {

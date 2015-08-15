@@ -9,7 +9,7 @@
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
-#include <frigg/funcptr.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/async.hpp>
 #include <frigg/elf.hpp>
 
@@ -218,18 +218,18 @@ struct ProcessContext {
 
 auto processRequests =
 async::repeatWhile(
-	async::lambda([](ProcessContext &context, util::FuncPtr<void(bool)> callback) {
+	async::lambda([](ProcessContext &context, util::Callback<void(bool)> callback) {
 		callback(true);
 	}),
 	async::seq(
 		async::lambda([](ProcessContext &context,
-				util::FuncPtr<void(uint64_t, HelError, size_t)> callback) {
+				util::Callback<void(uint64_t, HelError, size_t)> callback) {
 			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
 					context.buffer, 128, -1, 0, 0,
 					(uintptr_t)callback.getFunction(),
 					(uintptr_t)callback.getObject());
 		}),
-		async::lambda([](ProcessContext &context, util::FuncPtr<void()> callback,
+		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
 				uint64_t submit_id, HelError error, size_t length) {
 			char ident_buffer[64];
 			size_t ident_length = 0;
