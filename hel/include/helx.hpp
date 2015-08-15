@@ -133,7 +133,7 @@ public:
 
 			if(num_items == 0)
 				continue;
-			ASSERT(event.submitId == submit_id);
+			//FIXME: ASSERT(event.submitId == submit_id);
 			return event;
 		}
 	}

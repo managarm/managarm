@@ -350,8 +350,8 @@ void main() {
 				((FunctionPtr)(function))(object, events[i].handle);
 			} break;
 			default:
-				debug::panicLogger.log() << "Unexpected event type"
-						<< debug::Finish();
+				debug::panicLogger.log() << "Unexpected event type "
+						<< events[i].type << debug::Finish();
 			}
 		}
 	}

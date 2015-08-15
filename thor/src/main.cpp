@@ -207,6 +207,8 @@ extern "C" void thorIrq(int irq) {
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		Word arg2, Word arg3, Word arg4, Word arg5,
 		Word arg6, Word arg7, Word arg8) {
+//	infoLogger->log() << "syscall #" << index << debug::Finish();
+
 	switch(index) {
 		case kHelCallLog: {
 			HelError error = helLog((const char *)arg0, (size_t)arg1);
@@ -214,6 +216,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall1((Word)error);
 		}
 		case kHelCallPanic: {
+			infoLogger->log() << "User space panic:" << debug::Finish();
 			helLog((const char *)arg0, (size_t)arg1);
 			
 			while(true) { }
