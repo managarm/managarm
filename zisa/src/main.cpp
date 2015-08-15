@@ -396,9 +396,25 @@ void testIpc() {
 // main
 // --------------------------------------------------------
 
+void testScreen() {
+	// note: the vga test mode memory is actually 4000 bytes long
+	HelHandle screen_memory;
+	helAccessPhysical(0xB8000, 0x1000, &screen_memory);
+
+	void *actual_pointer;
+	helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
+			kHelMapReadWrite, &actual_pointer);
+	
+	uint8_t *screen_ptr = (uint8_t *)actual_pointer;
+	screen_ptr[0] = 'H';
+	screen_ptr[1] = 0x0F;
+	asm volatile ( "" : : : "memory" );
+}
+
 int main() {
 	testAta();
 	//testIpc();
+	testScreen();
 
 	while(true)
 		eventHub.defaultProcessEvents();

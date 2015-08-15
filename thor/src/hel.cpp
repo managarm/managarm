@@ -37,6 +37,23 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	return 0;
 }
 
+HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
+	ASSERT((physical % kPageSize) == 0);
+	ASSERT((size % kPageSize) == 0);
+
+	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+	
+	auto memory = makeShared<Memory>(*kernelAlloc);
+	for(size_t offset = 0; offset < size; offset += kPageSize)
+		memory->addPage(physical + offset);
+	
+	MemoryAccessDescriptor base(traits::move(memory));
+	*handle = universe->attachDescriptor(traits::move(base));
+
+	return 0;
+}
+
 HelError helCreateSpace(HelHandle *handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();

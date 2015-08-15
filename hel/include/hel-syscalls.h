@@ -61,6 +61,12 @@ DEFINE_SYSCALL(AllocateMemory, size_t size, HelHandle *handle)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
+DEFINE_SYSCALL(AccessPhysical, uintptr_t physical, size_t size, HelHandle *handle)
+	IN(0, physical) IN(1, size)
+	DO_SYSCALL(AccessPhysical)
+	OUT(0, HelHandle, handle)
+END_SYSCALL()
+
 DEFINE_SYSCALL(CreateSpace, HelHandle *handle)
 	DO_SYSCALL(CreateSpace)
 	OUT(0, HelHandle, handle)

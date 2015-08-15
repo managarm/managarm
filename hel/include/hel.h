@@ -12,6 +12,7 @@ enum {
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
+	kHelCallAccessPhysical = 30,
 	kHelCallCreateSpace = 27,
 	kHelCallMapMemory = 6,
 	kHelCallMemoryInfo = 26,
@@ -99,6 +100,8 @@ HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
+		size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, size_t size, uint32_t flags, void **actual_pointer);
