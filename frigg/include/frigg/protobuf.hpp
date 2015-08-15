@@ -38,6 +38,11 @@ public:
 		ASSERT(p_index < p_length);
 		return p_buffer[p_index++];
 	}
+	void peek(void *dest, size_t peek_length) {
+		ASSERT(p_index + peek_length <= p_length);
+		memcpy(dest, &p_buffer[p_index], peek_length);
+		p_index += peek_length;
+	}
 	
 	void skip(size_t skip_length) {
 		ASSERT(p_index + skip_length <= p_length);
@@ -179,6 +184,14 @@ void emitUInt64(Writer &writer, Field field, uint64_t value) {
 	pokeVarint(writer, value);
 }
 
+template<typename Writer>
+void emitCString(Writer &writer, Field field, const char *string) {
+	size_t length = strlen(string);
+	pokeHeader(writer, Header(field, kWireDelimited));
+	pokeVarint(writer, length);
+	writer.poke(string, length);
+}
+
 template<typename Writer, typename Message>
 void emitMessage(Writer &writer, Field field, const Message &message) {
 	pokeHeader(writer, Header(field, kWireDelimited));
@@ -210,6 +223,14 @@ template<typename Reader>
 LimitedReader<Reader> fetchMessage(Reader &reader) {
 	size_t length = peekVarint(reader);
 	return LimitedReader<Reader>(reader, length);
+}
+
+template<typename Reader>
+size_t fetchString(Reader &reader, char *buffer, size_t max_length) {
+	size_t length = peekVarint(reader);
+	ASSERT(length <= max_length);
+	reader.peek(buffer, length);
+	return length;
 }
 
 template<typename Reader>

@@ -1,7 +1,7 @@
 
 CXX = x86_64-managarm-g++
 CXXINCLUDE = -I../frigg/include -I../bragi/include
-CXXFLAGS = -std=c++11 -Wall -ffreestanding -fno-exceptions -fno-rtti $(CXXINCLUDE)
+CXXFLAGS = -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti $(CXXINCLUDE)
 
 AS = x86_64-managarm-as
 AS_FLAGS =

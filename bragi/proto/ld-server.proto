@@ -13,7 +13,12 @@ message Segment {
 	optional Access access = 3;
 }
 
-message Object {
+message ClientRequest {
+	optional string identifier = 1;
+	optional uint64 base_address = 2;
+}
+
+message ServerResponse {
 	optional uint64 entry = 1;
 	repeated Segment segments = 2;
 }

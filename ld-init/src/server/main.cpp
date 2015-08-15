@@ -9,6 +9,8 @@
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
+#include <frigg/funcptr.hpp>
+#include <frigg/async.hpp>
 #include <frigg/elf.hpp>
 
 #include <hel.h>
@@ -23,6 +25,7 @@
 namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace memory = frigg::memory;
+namespace async = frigg::async;
 namespace protobuf = frigg::protobuf;
 
 struct BaseSegment {
@@ -73,10 +76,10 @@ struct Object {
 typedef util::Hashmap<const char *, Object *,
 		util::CStringHasher, Allocator> objectMap;
 
-Object *readObject(const char *path) {
+Object *readObject(const char *path, size_t path_length) {
 	// open and map the executable image into this address space
 	HelHandle image_handle;
-	helRdOpen(path, strlen(path), &image_handle);
+	helRdOpen(path, path_length, &image_handle);
 
 	size_t image_size;
 	void *image_ptr;
@@ -135,7 +138,7 @@ Object *readObject(const char *path) {
 void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
 	protobuf::FixedWriter<128> object_writer;
 	protobuf::emitUInt64(object_writer,
-			managarm::ld_server::Object::kField_entry,
+			managarm::ld_server::ServerResponse::kField_entry,
 			base_address + object->entry);
 
 	for(size_t i = 0; i < object->segments.size(); i++) {
@@ -186,7 +189,7 @@ void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
 		}
 		
 		protobuf::emitMessage(object_writer,
-				managarm::ld_server::Object::kField_segments,
+				managarm::ld_server::ServerResponse::kField_segments,
 				segment_writer);
 		
 		helSendDescriptor(pipe, memory, 1, 1 + i);
@@ -196,15 +199,62 @@ void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
 			object_writer.data(), object_writer.size(), 1, 0);
 }
 
-Object *initObject;
-
-void onAccept(int64_t submit_id, HelHandle channel_handle) {
-	sendObject(channel_handle, initObject, 0x40000000);
-	infoLogger->log() << "Object send" << debug::Finish();
-}
-
 util::LazyInitializer<helx::EventHub> eventHub;
 util::LazyInitializer<helx::Server> server;
+
+struct ProcessContext {
+	ProcessContext(HelHandle pipe_handle)
+	: pipeHandle(pipe_handle) { }
+
+	HelHandle pipeHandle;
+	uint8_t buffer[128];
+};
+
+auto processRequests =
+async::repeatWhile(
+	async::lambda([](ProcessContext &context, util::FuncPtr<void(bool)> callback) {
+		callback(true);
+	}),
+	async::seq(
+		async::lambda([](ProcessContext &context,
+				util::FuncPtr<void(uint64_t, HelError, size_t)> callback) {
+			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
+					context.buffer, 128, -1, 0, 0,
+					(uintptr_t)callback.getFunction(),
+					(uintptr_t)callback.getObject());
+		}),
+		async::lambda([](ProcessContext &context, util::FuncPtr<void()> callback,
+				uint64_t submit_id, HelError error, size_t length) {
+			char ident_buffer[64];
+			size_t ident_length = 0;
+			uint64_t base_address = 0;
+
+			protobuf::BufferReader reader(context.buffer, length);
+			while(!reader.atEnd()) {
+				auto header = protobuf::fetchHeader(reader);
+				switch(header.field) {
+				case managarm::ld_server::ClientRequest::kField_identifier:
+					ident_length = protobuf::fetchString(reader, ident_buffer, 64);
+					break;
+				case managarm::ld_server::ClientRequest::kField_base_address:
+					base_address = protobuf::fetchUInt64(reader);
+					break;
+				default:
+					ASSERT(!"Unexpected field in ClientRequest");
+				}
+			}
+
+			Object *object = readObject(ident_buffer, ident_length);
+			sendObject(context.pipeHandle, object, base_address);
+		})
+	)
+);
+
+void onAccept(int64_t submit_id, HelHandle pipe_handle) {
+//	infoLogger->log() << "Object send" << debug::Finish();
+	async::run(*allocator, processRequests, ProcessContext(pipe_handle),
+		[]() { });
+}
 
 int main() {
 	infoLogger.initialize(infoSink);
@@ -227,9 +277,6 @@ int main() {
 
 	helx::Channel channel(channel_handle);
 	channel.sendDescriptor(client_handle, 1, 0);
-
-	// load ld-init. TODO: do not hardcode this
-	initObject = readObject("ld-init.so");
 
 	infoLogger->log() << "ld-server initialized succesfully!" << debug::Finish();
 

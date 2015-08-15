@@ -20,7 +20,14 @@ struct Segment {
   };
 };
 
-struct Object {
+struct ClientRequest {
+  enum {
+    kField_identifier = 1,
+    kField_base_address = 2
+  };
+};
+
+struct ServerResponse {
   enum {
     kField_entry = 1,
     kField_segments = 2

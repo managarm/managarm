@@ -146,10 +146,10 @@ struct LoadContext {
 		while(!reader.atEnd()) {
 			auto header = protobuf::fetchHeader(reader);
 			switch(header.field) {
-			case managarm::ld_server::Object::kField_entry:
+			case managarm::ld_server::ServerResponse::kField_entry:
 				entry = protobuf::fetchUInt64(reader);
 				break;
-			case managarm::ld_server::Object::kField_segments:
+			case managarm::ld_server::ServerResponse::kField_segments:
 				parseSegmentMsg(protobuf::fetchMessage(reader));
 				break;
 			default:
@@ -208,6 +208,17 @@ auto loadAction = async::seq(
 	async::lambda([](LoadContext &context,
 			util::FuncPtr<void(size_t)> callback, HelHandle pipe_handle) {
 		context.pipeHandle = pipe_handle;
+		
+		protobuf::FixedWriter<64> writer;
+		protobuf::emitCString(writer,
+				managarm::ld_server::ClientRequest::kField_identifier,
+				"ld-init.so");
+		protobuf::emitUInt64(writer,
+				managarm::ld_server::ClientRequest::kField_base_address,
+				0x40000000);
+		helSendString(context.pipeHandle,
+				writer.data(), writer.size(), 1, 0);
+
 		helSubmitRecvString(context.pipeHandle, eventHub,
 				context.buffer, 128, -1, -1, 0,
 				(uintptr_t)callback.getFunction(),
