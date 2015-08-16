@@ -293,10 +293,10 @@ auto loadAction = async::seq(
 	})
 );
 
-void republish(HelHandle directory, const char *path, const char *target) {
-	HelHandle object_handle;
-	helRdOpen(path, strlen(path), &object_handle);
-	helRdPublish(directory, target, strlen(target), object_handle);
+void remount(HelHandle directory, const char *path, const char *target) {
+	HelHandle handle;
+	helRdOpen(path, strlen(path), &handle);
+	helRdMount(directory, target, strlen(target), handle);
 	infoLogger->log() << "Mounted " << path << " to " << target << debug::Finish();
 }
 
@@ -308,10 +308,7 @@ void main() {
 	HelHandle directory;
 	helCreateRd(&directory);
 
-	republish(directory, "initrd/ld-init.so", "ld-init.so");
-	republish(directory, "initrd/zisa", "zisa");
-	republish(directory, "initrd/libm-newlib.so.0", "libm-newlib.so.0");
-	republish(directory, "initrd/libc-newlib.so.0", "libc-newlib.so.0");
+	remount(directory, "initrd/#this", "initrd");
 
 	const char *pipe_name = "k_init";
 	HelHandle other_end;

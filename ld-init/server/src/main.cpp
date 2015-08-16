@@ -6,6 +6,7 @@
 #include <frigg/debug.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/libc.hpp>
+#include <frigg/string.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
@@ -77,10 +78,13 @@ struct Object {
 typedef util::Hashmap<const char *, Object *,
 		util::CStringHasher, Allocator> objectMap;
 
-Object *readObject(const char *path, size_t path_length) {
+Object *readObject(util::StringView path) {
+	util::String<Allocator> full_path(*allocator, "initrd/");
+	full_path += path;
+
 	// open and map the executable image into this address space
 	HelHandle image_handle;
-	helRdOpen(path, path_length, &image_handle);
+	helRdOpen(full_path.data(), full_path.size(), &image_handle);
 
 	size_t image_size;
 	void *image_ptr;
@@ -250,7 +254,7 @@ async::repeatWhile(
 				}
 			}
 
-			Object *object = readObject(ident_buffer, ident_length);
+			Object *object = readObject(util::StringView(ident_buffer, ident_length));
 			sendObject(context.pipeHandle, object, base_address);
 			callback();
 		})

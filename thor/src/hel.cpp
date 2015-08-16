@@ -5,6 +5,7 @@
 using namespace thor;
 namespace traits = frigg::traits;
 namespace debug = frigg::debug;
+namespace util = frigg::util;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
@@ -498,6 +499,24 @@ HelError helCreateRd(HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helRdMount(HelHandle handle, const char *user_name,
+		size_t name_length, HelHandle mount_handle) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
+	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+
+	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	AnyDescriptor &mount_wrapper = universe->getDescriptor(mount_handle);
+
+	UnsafePtr<RdFolder, KernelAlloc> directory
+			= wrapper.get<RdDescriptor>().getFolder();
+	UnsafePtr<RdFolder, KernelAlloc> mount_directory
+			= mount_wrapper.get<RdDescriptor>().getFolder();
+	directory->mount(user_name, name_length,
+			SharedPtr<RdFolder, KernelAlloc>(mount_directory));
+	
+	return kHelErrNone;
+}
+
 HelError helRdPublish(HelHandle handle, const char *user_name,
 		size_t name_length, HelHandle publish_handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
@@ -522,8 +541,8 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 	// TODO: verifiy access rights for user_name
 	
 	auto find_char = [] (const char *string, char c,
-			int start_at, int max_length) -> int {
-		for(int i = start_at; i < max_length; i++)
+			size_t start_at, size_t max_length) -> size_t {
+		for(size_t i = start_at; i < max_length; i++)
 			if(string[i] == c)
 				return i;
 		return max_length;
@@ -531,28 +550,36 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 	
 	UnsafePtr<RdFolder, KernelAlloc> directory = this_thread->getDirectory();
 	
-	int last_slash = -1;
+	size_t search_from = 0;
 	while(true) {
-		int next_slash = find_char(user_name, '/', last_slash + 1, name_length);		
-		const char *part_ptr = user_name + last_slash + 1;
-		int part_len = next_slash - (last_slash + 1);
+		size_t next_slash = find_char(user_name, '/', search_from, name_length);
+		util::StringView part(user_name + search_from, next_slash - search_from);
 		if(next_slash == name_length) {
-			// read a file from this directory
-			RdFolder::Entry *entry = directory->getEntry(part_ptr, part_len);
-			ASSERT(entry != nullptr);
+			if(part == util::StringView("#this")) {
+				// open a handle to this directory
+				SharedPtr<RdFolder, KernelAlloc> copy(directory);
+				RdDescriptor descriptor(traits::move(copy));
+				*handle = universe->attachDescriptor(traits::move(descriptor));
 
-			AnyDescriptor copy(entry->descriptor);
-			*handle = universe->attachDescriptor(traits::move(copy));
+				return kHelErrNone;
+			}else{
+				// read a file from this directory
+				RdFolder::Entry *entry = directory->getEntry(part.data(), part.size());
+				ASSERT(entry != nullptr);
 
-			return kHelErrNone;
+				AnyDescriptor copy(entry->descriptor);
+				*handle = universe->attachDescriptor(traits::move(copy));
+
+				return kHelErrNone;
+			}
 		}else{
 			// read a subdirectory of this directory
-			RdFolder::Entry *entry = directory->getEntry(part_ptr, part_len);
+			RdFolder::Entry *entry = directory->getEntry(part.data(), part.size());
 			ASSERT(entry != nullptr);
 
 			directory = entry->mounted;
 		}
-		last_slash = next_slash;
+		search_from = next_slash + 1;
 	}
 }
 
