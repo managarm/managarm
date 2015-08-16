@@ -193,10 +193,11 @@ void processSegment(SharedObject *object, Reader reader, int segment_index) {
 		ASSERT(access == managarm::ld_server::Access::READ_EXECUTE);
 		map_flags |= kHelMapReadExecute;
 	}
-
+	
+	int64_t async_id;
 	helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
-			1, 1 + segment_index, 0, 0, 0);
-	HelHandle memory = eventHub->waitForRecvDescriptor(0);
+			1, 1 + segment_index, kHelNoFunction, kHelNoObject, &async_id);
+	HelHandle memory = eventHub->waitForRecvDescriptor(async_id);
 
 	void *actual_pointer;
 	helMapMemory(memory, kHelNullHandle, (void *)virt_address, virt_length,
@@ -238,9 +239,10 @@ void Loader::load(SharedObject *object, const char *file) {
 	serverPipe->sendString(writer.data(), writer.size(), 1, 0);
 	
 	uint8_t buffer[128];
+	int64_t async_id;
 	helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
-			buffer, 128, 1, 0, 1, 0, 0);
-	size_t length = eventHub->waitForRecvString(1);
+			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id);
+	size_t length = eventHub->waitForRecvString(async_id);
 	processServerResponse(object, protobuf::BufferReader(buffer, length));
 	
 	parseDynamic(object);

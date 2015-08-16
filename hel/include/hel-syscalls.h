@@ -140,19 +140,21 @@ END_SYSCALL()
 DEFINE_SYSCALL(SubmitRecvString, HelHandle handle, HelHandle hub_handle,
 		uint8_t *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object)
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
 	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, max_length)
 			IN(4, filter_request) IN(5, filter_sequence)
-			IN(6, submit_id) IN(7, submit_function) IN(8, submit_object)
+			IN(6, submit_function) IN(7, submit_object)
 	DO_SYSCALL(SubmitRecvString)
+	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitRecvDescriptor, HelHandle handle, HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object)
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
 	IN(0, handle) IN(1, hub_handle) IN(2, filter_request) IN(3, filter_sequence)
-			IN(4, submit_id) IN(5, submit_function) IN(6, submit_object)
+			IN(4, submit_function) IN(5, submit_object)
 	DO_SYSCALL(SubmitRecvDescriptor)
+	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(CreateServer, HelHandle *server_handle, HelHandle *client_handle)
@@ -162,17 +164,17 @@ DEFINE_SYSCALL(CreateServer, HelHandle *server_handle, HelHandle *client_handle)
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitAccept, HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_id) IN(3, submit_function)
-		IN(4, submit_object)
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
 	DO_SYSCALL(SubmitAccept)
+	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitConnect, HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_id) IN(3, submit_function)
-		IN(4, submit_object)
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
 	DO_SYSCALL(SubmitConnect)
+	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(CreateRd, HelHandle *handle)
@@ -199,10 +201,10 @@ DEFINE_SYSCALL(AccessIrq, int number, HelHandle *handle)
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitWaitForIrq, HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_id) IN(3, submit_function)
-		IN(4, submit_object)
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
 	DO_SYSCALL(SubmitWaitForIrq)
+	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(AccessIo, uintptr_t *port_array, size_t num_ports, HelHandle *handle)

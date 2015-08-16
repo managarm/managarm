@@ -229,11 +229,12 @@ async::repeatWhile(
 	async::seq(
 		async::lambda([](ProcessContext &context,
 				util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
+			int64_t async_id;
 			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
 					context.buffer, 128, kHelAnyRequest, 0,
-					kHelNoSubmitId,
 					(uintptr_t)callback.getFunction(),
-					(uintptr_t)callback.getObject());
+					(uintptr_t)callback.getObject(),
+					&async_id);
 		}),
 		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
 				HelError error, int64_t msg_request, int64_t msg_sequence, size_t length) {

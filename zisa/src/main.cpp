@@ -130,8 +130,10 @@ void AtaDriver::performRequest() {
 	Request &request = p_requestQueue.front();
 
 	auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
-	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
-			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
+	int64_t async_id;
+	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
+			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+			&async_id);
 
 	ioOutByte(p_basePort + kPortWriteDevice, kDeviceLba);
 	
@@ -152,8 +154,10 @@ void AtaDriver::onReadIrq(HelError error) {
 	Request &request = p_requestQueue.front();
 	if(request.sectorsRead + 1 < request.numSectors) {
 		auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
-		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
+		int64_t async_id;
+		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				&async_id);
 	}
 
 	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
@@ -207,9 +211,11 @@ Keyboard::Keyboard(helx::EventHub &event_hub)
 
 void Keyboard::run() {
 	auto callback = CALLBACK_MEMBER(this, &Keyboard::onScancode);
-	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
+	int64_t async_id;
+	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
 		(uintptr_t)callback.getFunction(),
-		(uintptr_t)callback.getObject());
+		(uintptr_t)callback.getObject(),
+		&async_id);
 }
 
 void Keyboard::onScancode(int64_t submit_id) {
@@ -690,11 +696,11 @@ void onAccept(void *object, HelError error, HelHandle handle) {
 }
 void onConnect(void *object, HelError error, HelHandle handle) {
 	printf("connect\n");
-
+	
+	int64_t async_id;
 	helSubmitRecvString(handle, eventHub.getHandle(),
-			recvBuffer, 10, -1, -1, 0,
-			(uintptr_t)nullptr,
-			(uintptr_t)&onReceive);
+			recvBuffer, 10, kHelAnyRequest, kHelAnySequence,
+			(uintptr_t)nullptr, (uintptr_t)&onReceive, &async_id);
 }
 
 void testIpc() {
@@ -702,12 +708,11 @@ void testIpc() {
 
 	HelHandle server, client;
 	helCreateServer(&server, &client);
-	helSubmitAccept(server, eventHub.getHandle(), 0,
-			(uintptr_t)nullptr,
-			(uintptr_t)&onAccept);
-	helSubmitConnect(client, eventHub.getHandle(), 0,
-			(uintptr_t)nullptr,
-			(uintptr_t)&onConnect);
+	int64_t submit_id, accept_id;
+	helSubmitAccept(server, eventHub.getHandle(),
+			(uintptr_t)nullptr, (uintptr_t)&onAccept, &submit_id);
+	helSubmitConnect(client, eventHub.getHandle(),
+			(uintptr_t)nullptr, (uintptr_t)&onConnect, &accept_id);
 }
 
 // --------------------------------------------------------

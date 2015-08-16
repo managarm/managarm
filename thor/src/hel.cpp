@@ -275,7 +275,7 @@ HelError helWaitForEvents(HelHandle handle,
 			ASSERT(!"Illegal event type");
 		}
 
-		user_evt->submitId = event.submitInfo.submitId;
+		user_evt->asyncId = event.submitInfo.asyncId;
 		user_evt->submitFunction = event.submitInfo.submitFunction;
 		user_evt->submitObject = event.submitInfo.submitObject;
 	}
@@ -366,7 +366,7 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
@@ -374,7 +374,7 @@ HelError helSubmitRecvString(HelHandle handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);
 	switch(wrapper.tag()) {
@@ -398,6 +398,8 @@ HelError helSubmitRecvString(HelHandle handle,
 			ASSERT(!"Descriptor is not a source");
 		}
 	}
+
+	*async_id = submit_info.asyncId;
 
 	return 0;
 }
@@ -405,7 +407,7 @@ HelError helSubmitRecvString(HelHandle handle,
 HelError helSubmitRecvDescriptor(HelHandle handle,
 		HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
@@ -413,7 +415,7 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
 	AnyDescriptor &wrapper = universe->getDescriptor(handle);
 	switch(wrapper.tag()) {
@@ -433,6 +435,8 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 			ASSERT(!"Descriptor is not a source");
 		}
 	}
+
+	*async_id = submit_info.asyncId;
 
 	return 0;
 }
@@ -455,7 +459,7 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 }
 
 HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
@@ -465,15 +469,17 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
 	descriptor.getServer()->submitAccept(SharedPtr<EventHub, KernelAlloc>(event_hub), submit_info);
+
+	*async_id = submit_info.asyncId;
 	
 	return 0;
 }
 
 HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
@@ -483,9 +489,11 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
 	descriptor.getServer()->submitConnect(SharedPtr<EventHub, KernelAlloc>(event_hub), submit_info);
+
+	*async_id = submit_info.asyncId;
 	
 	return 0;
 }
@@ -601,7 +609,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	return 0;
 }
 HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object) {
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
 	
@@ -613,10 +621,12 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	int number = irq_descriptor.getIrqLine()->getNumber();
 
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(submit_id, submit_function, submit_object);
+	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
 	irqRelays[number]->submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
 			submit_info);
+
+	*async_id = submit_info.asyncId;
 
 	return kHelErrNone;
 }

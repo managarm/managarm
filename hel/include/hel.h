@@ -57,9 +57,10 @@ typedef int64_t HelNanotime;
 
 enum {
 	kHelNullHandle = 0,
-	kHelNoSubmitId = 0,
 	kHelAnyRequest = -1,
 	kHelAnySequence = -1,
+	kHelNoFunction = 0,
+	kHelNoObject = 0,
 	kHelWaitInfinite = -1
 };
 
@@ -87,9 +88,9 @@ struct HelEvent {
 	size_t length;
 	HelHandle handle;
 
+	int64_t asyncId;
 	uintptr_t submitFunction;
 	uintptr_t submitObject;
-	int64_t submitId;
 };
 
 enum HelMapFlags {
@@ -132,17 +133,17 @@ HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 
 HEL_C_LINKAGE HelError helCreateServer(HelHandle *server_handle,
 		HelHandle *client_handle);
 HEL_C_LINKAGE HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
-		int64_t submit_id, uintptr_t submit_function, uintptr_t submit_object);
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 
 HEL_C_LINKAGE HelError helCreateRd(HelHandle *handle);
 HEL_C_LINKAGE HelError helRdMount(HelHandle handle,
@@ -157,9 +158,8 @@ HEL_C_LINKAGE HelError helRdOpen(const char *path,
 		size_t path_length, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
-HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle,
-		HelHandle hub_handle, int64_t submit_id,
-		uintptr_t submit_function, uintptr_t submit_object);
+HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);

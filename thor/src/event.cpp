@@ -9,9 +9,9 @@ namespace thor {
 // SubmitInfo
 // --------------------------------------------------------
 
-SubmitInfo::SubmitInfo(int64_t submit_id,
+SubmitInfo::SubmitInfo(int64_t async_id,
 		uintptr_t submit_function, uintptr_t submit_object)
-	: submitId(submit_id), submitFunction(submit_function),
+	: asyncId(async_id), submitFunction(submit_function),
 		submitObject(submit_object) { }
 
 // --------------------------------------------------------

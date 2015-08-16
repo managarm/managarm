@@ -300,17 +300,19 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall1((Word)error);
 		}
 		case kHelCallSubmitRecvDescriptor: {
+			int64_t async_id;
 			HelError error = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
 					(int64_t)arg2, (int64_t)arg3,
-					(int64_t)arg4, (uintptr_t)arg5, (uintptr_t)arg6);
-			thorRtReturnSyscall1((Word)error);
+					(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
+			thorRtReturnSyscall2((Word)error, (Word)async_id);
 		}
 		case kHelCallSubmitRecvString: {
+			int64_t async_id;
 			HelError error = helSubmitRecvString((HelHandle)arg0,
 					(HelHandle)arg1, (uint8_t *)arg2, (size_t)arg3,
 					(int64_t)arg4, (int64_t)arg5,
-					(int64_t)arg6, (uintptr_t)arg7, (uintptr_t)arg8);
-			thorRtReturnSyscall1((Word)error);
+					(uintptr_t)arg6, (uintptr_t)arg7, &async_id);
+			thorRtReturnSyscall2((Word)error, (Word)async_id);
 		}
 		
 		case kHelCallCreateServer: {
@@ -320,14 +322,16 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall3((Word)error, (Word)server_handle, (Word)client_handle);
 		}
 		case kHelCallSubmitAccept: {
+			int64_t async_id;
 			HelError error = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
-					(int64_t)arg2, (uintptr_t)arg3, (uintptr_t)arg4);
-			thorRtReturnSyscall1((Word)error);
+					(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+			thorRtReturnSyscall2((Word)error, (Word)async_id);
 		}
 		case kHelCallSubmitConnect: {
+			int64_t async_id;
 			HelError error = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
-					(int64_t)arg2, (uintptr_t)arg3, (uintptr_t)arg4);
-			thorRtReturnSyscall1((Word)error);
+					(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+			thorRtReturnSyscall2((Word)error, (Word)async_id);
 		}
 
 		case kHelCallCreateRd: {
@@ -353,10 +357,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallSubmitWaitForIrq: {
+			int64_t async_id;
 			HelError error = helSubmitWaitForIrq((HelHandle)arg0,
-					(HelHandle)arg1, (int64_t)arg2,
-					(uintptr_t)arg3, (uintptr_t)arg4);
-			thorRtReturnSyscall1((Word)error);
+					(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+			thorRtReturnSyscall2((Word)error, (Word)async_id);
 		}
 
 		case kHelCallAccessIo: {

@@ -6,6 +6,8 @@ namespace util = frigg::util;
 
 namespace thor {
 
+int64_t nextAsyncId = 1;
+
 // --------------------------------------------------------
 // Debugging and logging
 // --------------------------------------------------------

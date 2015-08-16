@@ -111,8 +111,10 @@ extern "C" void *interpreterMain() {
 	HelHandle server_handle;
 	helRdOpen(path, strlen(path), &server_handle);
 	
-	helSubmitConnect(server_handle, eventHub->getHandle(), 0, 0, 0);
-	HelHandle pipe_handle = eventHub->waitForConnect(0);
+	int64_t async_id;
+	helSubmitConnect(server_handle, eventHub->getHandle(),
+			kHelNoFunction, kHelNoObject, &async_id);
+	HelHandle pipe_handle = eventHub->waitForConnect(async_id);
 	serverPipe.initialize(pipe_handle);
 
 	executable.initialize();

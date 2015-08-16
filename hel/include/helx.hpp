@@ -62,7 +62,7 @@ public:
 		}
 	}
 
-	inline HelEvent waitForEvent(int64_t submit_id) {
+	inline HelEvent waitForEvent(int64_t async_id) {
 		while(true) {
 			HelEvent event;
 			size_t num_items;
@@ -73,21 +73,21 @@ public:
 
 			if(num_items == 0)
 				continue;
-			//FIXME: ASSERT(event.submitId == submit_id);
+			//FIXME: ASSERT(event.submitId == async_id);
 			return event;
 		}
 	}
 
-	inline size_t waitForRecvString(int64_t submit_id) {
-		HelEvent event = waitForEvent(submit_id);
+	inline size_t waitForRecvString(int64_t async_id) {
+		HelEvent event = waitForEvent(async_id);
 		return event.length;
 	}
-	inline HelHandle waitForRecvDescriptor(int64_t submit_id) {
-		HelEvent event = waitForEvent(submit_id);
+	inline HelHandle waitForRecvDescriptor(int64_t async_id) {
+		HelEvent event = waitForEvent(async_id);
 		return event.handle;
 	}
-	inline HelHandle waitForConnect(int64_t submit_id) {
-		HelEvent event = waitForEvent(submit_id);
+	inline HelHandle waitForConnect(int64_t async_id) {
+		HelEvent event = waitForEvent(async_id);
 		return event.handle;
 	}
 
@@ -117,9 +117,10 @@ public:
 	inline void recvString(void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			void *object, RecvStringFunction function) {
+		int64_t async_id;
 		helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, length, msg_request, length,
-				kHelNoSubmitId, (uintptr_t)function, (uintptr_t)object);
+				(uintptr_t)function, (uintptr_t)object, &async_id);
 	}
 
 private:
@@ -136,8 +137,9 @@ public:
 
 	inline void accept(EventHub &event_hub,
 			void *object, AcceptFunction function) {
+		int64_t async_id;
 		helSubmitAccept(p_handle, event_hub.getHandle(),
-				kHelNoSubmitId, (uintptr_t)function, (uintptr_t)object);
+				(uintptr_t)function, (uintptr_t)object, &async_id);
 	}
 
 private:

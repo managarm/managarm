@@ -200,11 +200,12 @@ auto loadAction = async::seq(
 	async::lambda([](LoadContext &context,
 			util::Callback<void(HelHandle)> callback) {
 		// receive a server handle from ld-server
+		int64_t async_id;
 		helSubmitRecvDescriptor(childHandle, eventHub,
 				kHelAnyRequest, kHelAnySequence,
-				kHelNoSubmitId,
 				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject());
+				(uintptr_t)callback.getObject(),
+				&async_id);
 	}),
 	async::lambda([](LoadContext &context,
 			util::Callback<void(HelHandle)> callback, HelHandle connect_handle) {
@@ -212,10 +213,11 @@ auto loadAction = async::seq(
 		helRdPublish(context.directory, name, strlen(name), connect_handle);
 
 		// connect to the server
+		int64_t async_id;
 		helSubmitConnect(connect_handle, eventHub,
-				kHelNoSubmitId,
 				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject());
+				(uintptr_t)callback.getObject(),
+				&async_id);
 	}),
 	async::lambda([](LoadContext &context,
 			util::Callback<void(size_t)> callback, HelHandle pipe_handle) {
@@ -231,10 +233,12 @@ auto loadAction = async::seq(
 		helSendString(context.pipeHandle,
 				writer.data(), writer.size(), 1, 0);
 
+		int64_t async_id;
 		helSubmitRecvString(context.pipeHandle, eventHub,
-				context.buffer, 128, 1, 0, kHelNoSubmitId,
+				context.buffer, 128, 1, 0,
 				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject());
+				(uintptr_t)callback.getObject(),
+				&async_id);
 	}),
 	async::lambda([](LoadContext &context,
 			util::Callback<void()> callback, size_t length) {
@@ -249,10 +253,12 @@ auto loadAction = async::seq(
 		async::seq(
 			async::lambda([](LoadContext &context,
 					util::Callback<void(HelHandle)> callback) {
+				int64_t async_id;
 				helSubmitRecvDescriptor(context.pipeHandle, eventHub,
-						1, 1 + context.currentSegment, 0,
+						1, 1 + context.currentSegment,
 						(uintptr_t)callback.getFunction(),
-						(uintptr_t)callback.getObject());
+						(uintptr_t)callback.getObject(),
+						&async_id);
 			}),
 			async::lambda([](LoadContext &context,
 					util::Callback<void()> callback, HelHandle handle) {
