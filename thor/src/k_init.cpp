@@ -293,10 +293,11 @@ auto loadAction = async::seq(
 	})
 );
 
-void mount(HelHandle directory, const char *object_name) {
+void republish(HelHandle directory, const char *path, const char *target) {
 	HelHandle object_handle;
-	helRdOpen(object_name, strlen(object_name), &object_handle);
-	helRdPublish(directory, object_name, strlen(object_name), object_handle);
+	helRdOpen(path, strlen(path), &object_handle);
+	helRdPublish(directory, target, strlen(target), object_handle);
+	infoLogger->log() << "Mounted " << path << " to " << target << debug::Finish();
 }
 
 void main() {
@@ -307,17 +308,17 @@ void main() {
 	HelHandle directory;
 	helCreateRd(&directory);
 
-	mount(directory, "ld-init.so");
-	mount(directory, "zisa");
-	mount(directory, "libm-newlib.so.0");
-	mount(directory, "libc-newlib.so.0");
+	republish(directory, "initrd/ld-init.so", "ld-init.so");
+	republish(directory, "initrd/zisa", "zisa");
+	republish(directory, "initrd/libm-newlib.so.0", "libm-newlib.so.0");
+	republish(directory, "initrd/libc-newlib.so.0", "libc-newlib.so.0");
 
 	const char *pipe_name = "k_init";
 	HelHandle other_end;
 	helCreateBiDirectionPipe(&childHandle, &other_end);
 	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
 
-	loadImage("ld-server", directory);
+	loadImage("initrd/ld-server", directory);
 	
 	async::run(*kernelAlloc, loadAction, LoadContext(directory), [](LoadContext &context) {
 		infoLogger->log() << "x" << debug::Finish();

@@ -10,8 +10,6 @@ $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_TARGETS := all-$c clean-$c $($c_BINDIR)/ld-init.so $($c_BINDIR)
 
-$(info all-$c)
-
 .PHONY: all-$c clean-$c
 
 all-$c: $($c_BINDIR)/ld-init.so

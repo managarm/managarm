@@ -497,6 +497,7 @@ HelError helCreateRd(HelHandle *handle) {
 	
 	return kHelErrNone;
 }
+
 HelError helRdPublish(HelHandle handle, const char *user_name,
 		size_t name_length, HelHandle publish_handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
@@ -513,19 +514,46 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	
 	return kHelErrNone;
 }
-HelError helRdOpen(const char *user_name, size_t name_length,
-		HelHandle *handle) {
+
+HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle) {
 	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
 	UnsafePtr<Universe, KernelAlloc> universe = this_thread->getUniverse();
+
+	// TODO: verifiy access rights for user_name
+	
+	auto find_char = [] (const char *string, char c,
+			int start_at, int max_length) -> int {
+		for(int i = start_at; i < max_length; i++)
+			if(string[i] == c)
+				return i;
+		return max_length;
+	};
 	
 	UnsafePtr<RdFolder, KernelAlloc> directory = this_thread->getDirectory();
-	RdFolder::Entry *entry = directory->getEntry(user_name, name_length);
-	ASSERT(entry != nullptr);
 	
-	AnyDescriptor copy(entry->descriptor);
-	*handle = universe->attachDescriptor(traits::move(copy));
+	int last_slash = -1;
+	while(true) {
+		int next_slash = find_char(user_name, '/', last_slash + 1, name_length);		
+		const char *part_ptr = user_name + last_slash + 1;
+		int part_len = next_slash - (last_slash + 1);
+		if(next_slash == name_length) {
+			// read a file from this directory
+			RdFolder::Entry *entry = directory->getEntry(part_ptr, part_len);
+			ASSERT(entry != nullptr);
 
-	return kHelErrNone;
+			AnyDescriptor copy(entry->descriptor);
+			*handle = universe->attachDescriptor(traits::move(copy));
+
+			return kHelErrNone;
+		}else{
+			// read a subdirectory of this directory
+			RdFolder::Entry *entry = directory->getEntry(part_ptr, part_len);
+			ASSERT(entry != nullptr);
+
+			directory = entry->mounted;
+		}
+		last_slash = next_slash;
+	}
 }
 
 

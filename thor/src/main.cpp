@@ -59,6 +59,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				AnyDescriptor(traits::move(mod_descriptor)));
 	}
 	
+	const char *mod_path = "initrd";
+	auto root_directory = makeShared<RdFolder>(*kernelAlloc);
+	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
+	
 	// create a user space thread from the init image
 /*	PageSpace user_space = kernelSpace->clone();
 	user_space.switchTo();
@@ -99,7 +103,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	// finally create the k_init thread
 	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
-			traits::move(address_space), traits::move(mod_directory), true);
+			traits::move(address_space), traits::move(root_directory), true);
 	
 	thread->accessState().generalState.rsp = (uintptr_t)stack_base + stack_size;
 	thread->accessState().generalState.rip = (Word)&k_init::main;
