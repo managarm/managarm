@@ -228,7 +228,7 @@ async::repeatWhile(
 	}),
 	async::seq(
 		async::lambda([](ProcessContext &context,
-				util::Callback<void(uint64_t, HelError, size_t)> callback) {
+				util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
 			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
 					context.buffer, 128, kHelAnyRequest, 0,
 					kHelNoSubmitId,
@@ -236,7 +236,7 @@ async::repeatWhile(
 					(uintptr_t)callback.getObject());
 		}),
 		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
-				uint64_t submit_id, HelError error, size_t length) {
+				HelError error, int64_t msg_request, int64_t msg_sequence, size_t length) {
 			char ident_buffer[64];
 			size_t ident_length = 0;
 			uint64_t base_address = 0;
@@ -256,19 +256,18 @@ async::repeatWhile(
 				}
 			}
 			
-			//FIXME: hard coded request id
 			Object *object = readObject(util::StringView(ident_buffer, ident_length));
-			sendObject(context.pipeHandle, 1, object, base_address);
+			sendObject(context.pipeHandle, msg_request, object, base_address);
 			callback();
 		})
 	)
 );
 
-void onAccept(int64_t submit_id, HelHandle pipe_handle) {
+void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 	async::run(*allocator, processRequests, ProcessContext(pipe_handle),
 		[](ProcessContext &context) { });
 	
-	server->accept(*eventHub, helx::AcceptCb::make<&onAccept>());
+	server->accept(*eventHub, nullptr, &onAccept);
 }
 
 int main() {
@@ -283,7 +282,7 @@ int main() {
 	helCreateServer(&serve_handle, &client_handle);
 
 	server.initialize(serve_handle);
-	server->accept(*eventHub, helx::AcceptCb::make<&onAccept>());
+	server->accept(*eventHub, nullptr, &onAccept);
 	
 	// inform k_init that we are ready to server requests
 	const char *path = "k_init";

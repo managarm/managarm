@@ -228,6 +228,8 @@ HelError helWaitForEvents(HelHandle handle,
 		case EventHub::Event::kTypeRecvStringTransfer: {
 			user_evt->type = kHelEventRecvString;
 			user_evt->error = kHelErrNone;
+			user_evt->msgRequest = event.msgRequest;
+			user_evt->msgSequence = event.msgSequence;
 
 			// TODO: check userspace page access rights
 	
@@ -248,6 +250,8 @@ HelError helWaitForEvents(HelHandle handle,
 		} break;
 		case EventHub::Event::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;
+			user_evt->msgRequest = event.msgRequest;
+			user_evt->msgSequence = event.msgSequence;
 			
 			AnyDescriptor wrapper = traits::move(event.descriptor);
 			user_evt->handle = universe->attachDescriptor(traits::move(wrapper));

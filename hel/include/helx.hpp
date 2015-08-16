@@ -8,72 +8,11 @@ inline void panic(const char *string) {
 	helPanic(string, length);
 }
 
-template<typename... Args>
-class Callback {
-public:
-	typedef void (*FunctionPtr) (void *, Args...);
-
-	Callback() : p_object(nullptr), p_function(nullptr) { }
-
-	Callback(void *object, FunctionPtr function)
-			: p_object(object), p_function(function) { }
-	
-	template<typename T, void (T::*function) (Args...)>
-	static Callback make(T *object) {
-		struct Wrapper {
-			static void run(void *object, Args... args) {
-				auto ptr = static_cast<T *>(object);
-				(ptr->*function)(args...);
-			}
-		};
-
-		return Callback(object, &Wrapper::run);
-	}
-	
-	template<void (*function) (Args...)>
-	static Callback make() {
-		struct Wrapper {
-			static void run(void *object, Args... args) {
-				function(args...);
-			}
-		};
-
-		return Callback(nullptr, &Wrapper::run);
-	}
-
-	inline void operator() (Args... args) {
-		p_function(p_object, args...);
-	}
-	
-	inline void *getObject() {
-		return p_object;
-	}
-	inline FunctionPtr getFunction() {
-		return p_function;
-	}
-
-private:
-	void *p_object;
-	FunctionPtr p_function;
-};
-
-template<typename Prototype, Prototype f>
-struct MemberHelper;
-
-template<typename Object, typename... Args, void (Object::*function) (Args...)>
-struct MemberHelper<void (Object::*) (Args...), function> {
-	static Callback<Args...> make(Object *object) {
-			return Callback<Args...>::template make<Object, function>(object);
-	}
-};
-
-#define HELX_MEMBER(x, f) ::helx::MemberHelper<decltype(f), f>::make(x)
-
-typedef Callback<int64_t, HelError, size_t> RecvStringCb;
-typedef Callback<int64_t, HelHandle> RecvDescriptorCb;
-typedef Callback<int64_t, HelHandle> AcceptCb;
-typedef Callback<int64_t, HelHandle> ConnectCb;
-typedef Callback<int64_t> IrqCb;
+typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
+typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t HelHandle);
+typedef void (*AcceptFunction) (void *, HelError, HelHandle);
+typedef void (*ConnectFunction) (void *, HelError, HelHandle);
+typedef void (*IrqFunction) (void *, HelError);
 
 class EventHub {
 public:
@@ -101,20 +40,21 @@ public:
 			HelEvent &evt = list[i];
 			switch(evt.type) {
 			case kHelEventRecvString: {
-				auto cb = (RecvStringCb::FunctionPtr)evt.submitFunction;
-				cb((void *)evt.submitObject, evt.submitId, evt.error, evt.length);
+				auto function = (RecvStringFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error,
+						evt.msgRequest, evt.msgSequence, evt.length);
 			} break;
 			case kHelEventAccept: {
-				auto cb = (AcceptCb::FunctionPtr)evt.submitFunction;
-				cb((void *)evt.submitObject, evt.submitId, evt.handle);
+				auto function = (AcceptFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error, evt.handle);
 			} break;
 			case kHelEventConnect: {
-				auto cb = (ConnectCb::FunctionPtr)evt.submitFunction;
-				cb((void *)evt.submitObject, evt.submitId, evt.handle);
+				auto function = (ConnectFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error, evt.handle);
 			} break;
 			case kHelEventIrq: {
-				auto cb = (IrqCb::FunctionPtr)evt.submitFunction;
-				cb((void *)evt.submitObject, evt.submitId);
+				auto function = (IrqFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error);
 			} break;
 			default:
 				panic("Unknown event type");
@@ -176,10 +116,10 @@ public:
 
 	inline void recvString(void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			RecvStringCb callback) {
+			void *object, RecvStringFunction function) {
 		helSubmitRecvString(p_handle, event_hub.getHandle(),
-				(uint8_t *)buffer, length, msg_request, length, 0,
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
+				(uint8_t *)buffer, length, msg_request, length,
+				kHelNoSubmitId, (uintptr_t)function, (uintptr_t)object);
 	}
 
 private:
@@ -194,9 +134,10 @@ public:
 		return p_handle;
 	}
 
-	inline void accept(EventHub &event_hub, AcceptCb callback) {
-		helSubmitAccept(p_handle, event_hub.getHandle(), 0,
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
+	inline void accept(EventHub &event_hub,
+			void *object, AcceptFunction function) {
+		helSubmitAccept(p_handle, event_hub.getHandle(),
+				kHelNoSubmitId, (uintptr_t)function, (uintptr_t)object);
 	}
 
 private:

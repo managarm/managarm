@@ -80,8 +80,10 @@ enum {
 
 struct HelEvent {
 	int type;
-	int error;
+	HelError error;
 
+	int64_t msgRequest;
+	int64_t msgSequence;
 	size_t length;
 	HelHandle handle;
 

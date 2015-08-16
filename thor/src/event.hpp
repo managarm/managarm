@@ -30,6 +30,10 @@ public:
 
 		// used by kTypeRecvStringError
 		Error error;
+		
+		// used by kTypeRecvStringTransfer and kTypeRecvDescriptor
+		int64_t msgRequest;
+		int64_t msgSequence;
 
 		// used by kTypeRecvStringTransfer
 		uint8_t *kernelBuffer;
@@ -45,13 +49,13 @@ public:
 
 	EventHub();
 
-	void raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
-			uint8_t *user_buffer, size_t length,
+	void raiseRecvStringTransferEvent(int64_t msg_request, int64_t msg_sequence,
+			uint8_t *kernel_buffer, uint8_t *user_buffer, size_t length,
 			SubmitInfo submit_info);
 	void raiseRecvStringErrorEvent(Error error,
 			SubmitInfo submit_info);
-	void raiseRecvDescriptorEvent(AnyDescriptor &&descriptor,
-			SubmitInfo submit_info);
+	void raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequence,
+			AnyDescriptor &&descriptor, SubmitInfo submit_info);
 	
 	void raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 			SubmitInfo submit_info);

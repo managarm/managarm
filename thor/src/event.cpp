@@ -32,18 +32,23 @@ void EventHub::raiseRecvStringErrorEvent(Error error,
 	p_queue.addBack(traits::move(event));
 }
 
-void EventHub::raiseRecvStringTransferEvent(uint8_t *kernel_buffer,
-		uint8_t *user_buffer, size_t length, SubmitInfo submit_info) {
+void EventHub::raiseRecvStringTransferEvent(int64_t msg_request, int64_t msg_sequence,
+		uint8_t *kernel_buffer, uint8_t *user_buffer, size_t length,
+		SubmitInfo submit_info) {
 	Event event(Event::kTypeRecvStringTransfer, submit_info);
+	event.msgRequest = msg_request;
+	event.msgSequence = msg_sequence;
 	event.kernelBuffer = kernel_buffer;
 	event.userBuffer = user_buffer;
 	event.length = length;
 	p_queue.addBack(traits::move(event));
 }
 
-void EventHub::raiseRecvDescriptorEvent(AnyDescriptor &&descriptor,
-		SubmitInfo submit_info) {
+void EventHub::raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequence,
+		AnyDescriptor &&descriptor, SubmitInfo submit_info) {
 	Event event(Event::kTypeRecvDescriptor, submit_info);
+	event.msgRequest = msg_request;
+	event.msgSequence = msg_sequence;
 	event.descriptor = traits::move(descriptor);
 	p_queue.addBack(traits::move(event));
 }

@@ -120,15 +120,16 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 				request.submitInfo);
 		return false;
 	}else{
-		request.eventHub->raiseRecvStringTransferEvent(message.kernelBuffer,
+		request.eventHub->raiseRecvStringTransferEvent(message.msgRequest,
+				message.msgSequence, message.kernelBuffer,
 				request.userBuffer, message.length, request.submitInfo);
 		return true;
 	}
 }
 
 void Channel::processDescriptorRequest(Message &message, Request &request) {
-	request.eventHub->raiseRecvDescriptorEvent(traits::move(message.descriptor),
-			request.submitInfo);
+	request.eventHub->raiseRecvDescriptorEvent(message.msgRequest,
+			message.msgSequence, traits::move(message.descriptor), request.submitInfo);
 }
 
 // --------------------------------------------------------

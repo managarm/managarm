@@ -59,7 +59,7 @@ public:
 
 private:
 	void performRequest();
-	void onReadIrq(int64_t submit_id);
+	void onReadIrq(HelError error);
 
 	enum Ports {
 		kPortReadData = 0,
@@ -129,10 +129,9 @@ void AtaDriver::performRequest() {
 
 	Request &request = p_requestQueue.front();
 
-	helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
+	auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
 	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
-		(uintptr_t)callback.getFunction(),
-		(uintptr_t)callback.getObject());
+			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
 
 	ioOutByte(p_basePort + kPortWriteDevice, kDeviceLba);
 	
@@ -149,13 +148,12 @@ void AtaDriver::performRequest() {
 	ioOutByte(p_basePort + kPortWriteCommand, kCommandReadSectorsExt);
 }
 
-void AtaDriver::onReadIrq(int64_t submit_id) {
+void AtaDriver::onReadIrq(HelError error) {
 	Request &request = p_requestQueue.front();
 	if(request.sectorsRead + 1 < request.numSectors) {
-		helx::IrqCb callback = HELX_MEMBER(this, &AtaDriver::onReadIrq);
+		auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
 		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
-			(uintptr_t)callback.getFunction(),
-			(uintptr_t)callback.getObject());
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject());
 	}
 
 	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
@@ -208,7 +206,7 @@ Keyboard::Keyboard(helx::EventHub &event_hub)
 }
 
 void Keyboard::run() {
-	helx::IrqCb callback = HELX_MEMBER(this, &Keyboard::onScancode);
+	auto callback = CALLBACK_MEMBER(this, &Keyboard::onScancode);
 	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(), 0,
 		(uintptr_t)callback.getFunction(),
 		(uintptr_t)callback.getObject());
@@ -680,40 +678,36 @@ void testAta() {
 
 uint8_t recvBuffer[10];
 
-void onReceive(void *object, int64_t submit_id,
-		HelError error, size_t length) {
+void onReceive(void *object, HelError error,
+		int64_t msg_request, int64_t msg_sequence, size_t length) {
 	printf("ok %d %u %s\n", error, length, recvBuffer);
 }
 
-void onAccept(void *object, int64_t submit_id, HelHandle handle) {
+void onAccept(void *object, HelError error, HelHandle handle) {
 	printf("accept\n");
 	
 	helSendString(handle, (const uint8_t *)"hello", 6, 1, 1);
 }
-void onConnect(void *object, int64_t submit_id, HelHandle handle) {
+void onConnect(void *object, HelError error, HelHandle handle) {
 	printf("connect\n");
 
-	helx::RecvStringCb callback(nullptr, &onReceive);
 	helSubmitRecvString(handle, eventHub.getHandle(),
 			recvBuffer, 10, -1, -1, 0,
-			(uintptr_t)callback.getFunction(),
-			(uintptr_t)callback.getObject());
+			(uintptr_t)nullptr,
+			(uintptr_t)&onReceive);
 }
 
 void testIpc() {
-	helx::AcceptCb accept_cb(nullptr, &onAccept);
-	helx::ConnectCb connect_cb(nullptr, &onConnect);
-
 	HelHandle socket;
 
 	HelHandle server, client;
 	helCreateServer(&server, &client);
 	helSubmitAccept(server, eventHub.getHandle(), 0,
-			(uintptr_t)accept_cb.getFunction(),
-			(uintptr_t)accept_cb.getObject());
+			(uintptr_t)nullptr,
+			(uintptr_t)&onAccept);
 	helSubmitConnect(client, eventHub.getHandle(), 0,
-			(uintptr_t)connect_cb.getFunction(),
-			(uintptr_t)connect_cb.getObject());
+			(uintptr_t)nullptr,
+			(uintptr_t)&onConnect);
 }
 
 // --------------------------------------------------------
