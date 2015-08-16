@@ -65,6 +65,8 @@ public:
 			p_allocator.free(p_buffer);
 		p_length = new_length;
 		p_buffer = new_buffer;
+
+		return *this;
 	}
 
 	const Char *data() const {
