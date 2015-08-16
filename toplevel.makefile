@@ -8,6 +8,8 @@ $(call include_dir,ld-init/server)
 $(call include_dir,ld-init/linker)
 $(call include_dir,zisa)
 
+$(call include_dir,hel)
+
 .PHONY: all
 
 all: $(addprefix all-,$(DIRECTORIES))

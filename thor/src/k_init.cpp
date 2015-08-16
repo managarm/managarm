@@ -200,7 +200,9 @@ auto loadAction = async::seq(
 	async::lambda([](LoadContext &context,
 			util::Callback<void(HelHandle)> callback) {
 		// receive a server handle from ld-server
-		helSubmitRecvDescriptor(childHandle, eventHub, -1, -1, 0,
+		helSubmitRecvDescriptor(childHandle, eventHub,
+				kHelAnyRequest, kHelAnySequence,
+				kHelNoSubmitId,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject());
 	}),
@@ -210,7 +212,8 @@ auto loadAction = async::seq(
 		helRdPublish(context.directory, name, strlen(name), connect_handle);
 
 		// connect to the server
-		helSubmitConnect(connect_handle, eventHub, 0,
+		helSubmitConnect(connect_handle, eventHub,
+				kHelNoSubmitId,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject());
 	}),
@@ -229,7 +232,7 @@ auto loadAction = async::seq(
 				writer.data(), writer.size(), 1, 0);
 
 		helSubmitRecvString(context.pipeHandle, eventHub,
-				context.buffer, 128, -1, -1, 0,
+				context.buffer, 128, 1, 0, kHelNoSubmitId,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject());
 	}),

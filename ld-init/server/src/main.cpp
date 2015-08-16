@@ -142,7 +142,8 @@ Object *readObject(util::StringView path) {
 	return object;
 }
 
-void sendObject(HelHandle pipe, Object *object, uintptr_t base_address) {
+void sendObject(HelHandle pipe, int64_t request_id,
+		Object *object, uintptr_t base_address) {
 	protobuf::FixedWriter<128> object_writer;
 	protobuf::emitUInt64(object_writer,
 			managarm::ld_server::ServerResponse::kField_entry,
@@ -229,7 +230,8 @@ async::repeatWhile(
 		async::lambda([](ProcessContext &context,
 				util::Callback<void(uint64_t, HelError, size_t)> callback) {
 			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
-					context.buffer, 128, -1, 0, 0,
+					context.buffer, 128, kHelAnyRequest, 0,
+					kHelNoSubmitId,
 					(uintptr_t)callback.getFunction(),
 					(uintptr_t)callback.getObject());
 		}),
@@ -253,9 +255,10 @@ async::repeatWhile(
 					ASSERT(!"Unexpected field in ClientRequest");
 				}
 			}
-
+			
+			//FIXME: hard coded request id
 			Object *object = readObject(util::StringView(ident_buffer, ident_length));
-			sendObject(context.pipeHandle, object, base_address);
+			sendObject(context.pipeHandle, 1, object, base_address);
 			callback();
 		})
 	)

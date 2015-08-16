@@ -57,6 +57,9 @@ typedef int64_t HelNanotime;
 
 enum {
 	kHelNullHandle = 0,
+	kHelNoSubmitId = 0,
+	kHelAnyRequest = -1,
+	kHelAnySequence = -1,
 	kHelWaitInfinite = -1
 };
 
