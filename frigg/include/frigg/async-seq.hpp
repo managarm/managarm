@@ -84,7 +84,7 @@ struct Seq<traits::TypePack<Elements...>, TheContext,
 	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {
-		Closure(Seq element, Context &context, Callback callback)
+		Closure(const Seq &element, Context &context, Callback callback)
 		: recursiveClosure(element.recursiveElements, context, callback) { }
 
 		void operator() (FirstInputs... first_inputs) {

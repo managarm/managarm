@@ -163,6 +163,28 @@ void *Scope::resolveSymbol(const char *resolve_str,
 Loader::Loader(Scope *scope)
 : p_scope(scope), p_processQueue(*allocator) { }
 
+void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
+		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
+	object->entry = entry_pointer;
+
+	// segments are already mapped, so we just have to find the dynamic section
+	for(size_t i = 0; i < phdr_count; i++) {
+		auto phdr = (Elf64_Phdr *)((uintptr_t)phdr_pointer + i * phdr_entry_size);
+		switch(phdr->p_type) {
+		case PT_DYNAMIC:
+			object->dynamic = (Elf64_Dyn *)phdr->p_vaddr;
+			break;
+		default:
+			//FIXME warn about unknown phdrs
+			break;
+		}
+	}
+	
+	parseDynamic(object);
+	p_processQueue.addBack(object);
+	p_scope->objects.push(object);
+}
+
 template<typename Reader>
 void processSegment(SharedObject *object, Reader reader, int segment_index) {
 	uintptr_t virt_address;
@@ -211,6 +233,13 @@ void processServerResponse(SharedObject *object, Reader reader) {
 	while(!reader.atEnd()) {
 		auto header = protobuf::fetchHeader(reader);
 		switch(header.field) {
+		case managarm::ld_server::ServerResponse::kField_phdr_pointer:
+		case managarm::ld_server::ServerResponse::kField_phdr_entry_size:
+		case managarm::ld_server::ServerResponse::kField_phdr_count:
+			// we do not care about program headers as ld-server;
+			// ld-server sends us all segments
+			protobuf::fetchUInt64(reader);
+			break;
 		case managarm::ld_server::ServerResponse::kField_entry:
 			object->entry = (void *)protobuf::fetchUInt64(reader);
 			break;
@@ -227,7 +256,7 @@ void processServerResponse(SharedObject *object, Reader reader) {
 	}
 }
 
-void Loader::load(SharedObject *object, const char *file) {
+void Loader::loadFromFile(SharedObject *object, const char *file) {
 	infoLogger->log() << "Loading " << file << debug::Finish();
 
 	protobuf::FixedWriter<64> writer;
@@ -333,7 +362,7 @@ void Loader::processDependencies(SharedObject *object) {
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library
-		load(library, library_str);
+		loadFromFile(library, library_str);
 	}
 }
 

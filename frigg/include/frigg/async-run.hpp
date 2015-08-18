@@ -9,7 +9,7 @@ struct Block;
 
 template<typename AsyncElement, typename CompleteFunctor, typename... Outputs>
 struct Block<AsyncElement, CompleteFunctor, traits::TypePack<Outputs...>> {
-	Block(AsyncElement element, typename AsyncElement::Context &&context_constructor,
+	Block(const AsyncElement &element, typename AsyncElement::Context &&context_constructor,
 			CompleteFunctor complete_functor)
 	: context(traits::move(context_constructor)), closure(element, context,
 			CALLBACK_MEMBER(this, &Block::onComplete)),
@@ -27,7 +27,7 @@ struct Block<AsyncElement, CompleteFunctor, traits::TypePack<Outputs...>> {
 } // namespace run_impl
 
 template<typename Allocator, typename AsyncElement, typename CompleteFunctor, typename... Inputs>
-void run(Allocator &allocator, AsyncElement element, typename AsyncElement::Context &&context,
+void run(Allocator &allocator, const AsyncElement &element, typename AsyncElement::Context &&context,
 		CompleteFunctor complete_functor, Inputs... inputs) {
 	typedef run_impl::Block<AsyncElement, CompleteFunctor,
 			typename AsyncElement::OutputPack> Block;

@@ -57,7 +57,9 @@ class Loader {
 public:
 	Loader(Scope *scope);
 	
-	void load(SharedObject *object, const char *file);
+	void loadFromPhdr(SharedObject *object, void *phdr_pointer,
+			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
+	void loadFromFile(SharedObject *object, const char *file);
 	
 	void process();
 

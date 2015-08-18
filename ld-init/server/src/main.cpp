@@ -67,12 +67,17 @@ typedef util::Variant<SharedSegment,
 		UniqueSegment> Segment;
 
 struct Object {
-	Object() : entry(0), dynamic(0), segments(*allocator) { }
+	Object()
+	: phdrPointer(0), phdrEntrySize(0), phdrCount(0),
+		entry(0), dynamic(0), segments(*allocator),
+		hasPhdrImage(false) { }
 
 	void *imagePtr;
+	uintptr_t phdrPointer, phdrEntrySize, phdrCount;
 	uintptr_t entry;
 	uintptr_t dynamic;
 	util::Vector<Segment, Allocator> segments;
+	bool hasPhdrImage;
 };
 
 typedef util::Hashmap<const char *, Object *,
@@ -109,8 +114,15 @@ Object *readObject(util::StringView path) {
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-
-		if(phdr->p_type == PT_LOAD) {
+		
+		if(phdr->p_type == PT_PHDR) {
+			object->phdrPointer = phdr->p_vaddr;
+			object->hasPhdrImage = true;
+			
+			ASSERT(phdr->p_memsz == ehdr->e_phnum * ehdr->e_phentsize);
+			object->phdrEntrySize = ehdr->e_phentsize;
+			object->phdrCount = ehdr->e_phnum;
+		}else if(phdr->p_type == PT_LOAD) {
 			bool shared = false;
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				// we cannot share this segment
@@ -145,6 +157,17 @@ Object *readObject(util::StringView path) {
 void sendObject(HelHandle pipe, int64_t request_id,
 		Object *object, uintptr_t base_address) {
 	protobuf::FixedWriter<128> object_writer;
+	if(object->hasPhdrImage) {
+		protobuf::emitUInt64(object_writer,
+				managarm::ld_server::ServerResponse::kField_phdr_pointer,
+				base_address + object->phdrPointer);
+		protobuf::emitUInt64(object_writer,
+				managarm::ld_server::ServerResponse::kField_phdr_entry_size,
+				object->phdrEntrySize);
+		protobuf::emitUInt64(object_writer,
+				managarm::ld_server::ServerResponse::kField_phdr_count,
+				object->phdrCount);
+	}
 	protobuf::emitUInt64(object_writer,
 			managarm::ld_server::ServerResponse::kField_entry,
 			base_address + object->entry);

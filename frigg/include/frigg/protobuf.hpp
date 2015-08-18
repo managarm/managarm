@@ -192,6 +192,13 @@ void emitCString(Writer &writer, Field field, const char *string) {
 	writer.poke(string, length);
 }
 
+template<typename Writer>
+void emitString(Writer &writer, Field field, const char *string, size_t length) {
+	pokeHeader(writer, Header(field, kWireDelimited));
+	pokeVarint(writer, length);
+	writer.poke(string, length);
+}
+
 template<typename Writer, typename Message>
 void emitMessage(Writer &writer, Field field, const Message &message) {
 	pokeHeader(writer, Header(field, kWireDelimited));

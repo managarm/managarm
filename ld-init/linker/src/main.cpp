@@ -70,7 +70,8 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 util::LazyInitializer<helx::EventHub> eventHub;
 util::LazyInitializer<helx::Pipe> serverPipe;
 
-extern "C" void *interpreterMain() {
+extern "C" void *interpreterMain(void *phdr_pointer,
+		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-init" << debug::Finish();
 	allocator.initialize(virtualAlloc);
@@ -121,7 +122,9 @@ extern "C" void *interpreterMain() {
 
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
-	globalLoader->load(executable.get(), "zisa");
+	// TODO: support non-zero base addresses?
+	globalLoader->loadFromPhdr(executable.get(), phdr_pointer,
+			phdr_entry_size, phdr_count, entry_pointer);
 	globalLoader->process();
 	
 	processCopyRelocations(executable.get());

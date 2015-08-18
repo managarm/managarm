@@ -29,9 +29,12 @@ struct ClientRequest {
 
 struct ServerResponse {
   enum {
-    kField_entry = 1,
-    kField_dynamic = 2,
-    kField_segments = 3
+    kField_phdr_pointer = 1,
+    kField_phdr_entry_size = 2,
+    kField_phdr_count = 3,
+    kField_entry = 4,
+    kField_dynamic = 5,
+    kField_segments = 6
   };
 };
 
