@@ -31,7 +31,7 @@ $c_TARGETS += $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS)
 all-$c: $($c_BINDIR)/acpi
 
 clean-$c:
-	rm -f $($d_ACPICA_OBJECT_PATHS)
+	rm -f $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
 
 $($c_OBJDIR) $($c_BINDIR) $($c_ACPICA_SUBDIR_PATHS):
 	mkdir -p $@

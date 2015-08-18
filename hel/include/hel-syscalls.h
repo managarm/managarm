@@ -3,7 +3,7 @@ typedef uint64_t HelWord;
 typedef HelWord HelSyscallInput[9];
 typedef HelWord HelSyscallOutput[2];
 
-extern inline HelError helSyscall(int number,
+extern inline __attribute__ (( always_inline )) HelError helSyscall(int number,
 		HelSyscallInput input, HelSyscallOutput output) {
 	register HelWord in1 asm("rdi") = number;
 	register HelWord in2 asm("rsi") = input[0];
@@ -30,7 +30,7 @@ extern inline HelError helSyscall(int number,
 	return out1;
 }
 
-#define DEFINE_SYSCALL(name, ...) extern inline HelError hel ## name(__VA_ARGS__) { \
+#define DEFINE_SYSCALL(name, ...) extern inline __attribute__ (( always_inline )) HelError hel ## name(__VA_ARGS__) { \
 	HelSyscallInput in; HelSyscallOutput out;
 #define IN(index, what) in[index] = (HelWord)what;
 #define DO_SYSCALL(number) HelError error = helSyscall(kHelCall ## number, in, out);

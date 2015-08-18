@@ -1,12 +1,16 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+
+#include <hel.h>
+#include <hel-syscalls.h>
 
 #include <acpi.h>
 
 void notImplemented(const char *function) {
 	printf("ACPI interface function %s is not implemented!\n", function);
-	exit(1);
+	abort();
 }
 
 #define NOT_IMPLEMENTED() \
@@ -19,15 +23,20 @@ void notImplemented(const char *function) {
 // --------------------------------------------------------
 
 ACPI_STATUS AcpiOsInitialize() {
-	NOT_IMPLEMENTED();
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsTerminate() {
-	NOT_IMPLEMENTED();
+	return AE_OK;
 }
 
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
-	NOT_IMPLEMENTED();
+	ACPI_SIZE pointer;
+	if(AcpiFindRootPointer(&pointer) != AE_OK) {
+		printf("Could not find ACPI RSDP table");
+		abort();
+	}
+	return pointer;
 }
 
 // --------------------------------------------------------
@@ -35,11 +44,14 @@ ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 // --------------------------------------------------------
 
 void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf (const char *format, ...) {
-	NOT_IMPLEMENTED();
+	va_list args;
+	va_start(args, format);
+	AcpiOsVprintf(format, args);
+	va_end(args);
 }
 
 void AcpiOsVprintf (const char *format, va_list args) {
-	NOT_IMPLEMENTED();
+	vprintf(format, args);
 }
 
 // --------------------------------------------------------
@@ -47,19 +59,23 @@ void AcpiOsVprintf (const char *format, va_list args) {
 // --------------------------------------------------------
 
 ACPI_STATUS AcpiOsCreateLock(ACPI_SPINLOCK *out_handle) {
-	NOT_IMPLEMENTED();
+	// TODO: implement this
+	return AE_OK;
 }
 
 void AcpiOsDeleteLock(ACPI_HANDLE handle) {
-	NOT_IMPLEMENTED();
+	// TODO: implement this
 }
 
+// this function should disable interrupts
 ACPI_CPU_FLAGS AcpiOsAcquireLock(ACPI_SPINLOCK spinlock) {
-	NOT_IMPLEMENTED();
+	// TODO: implement this
+	return 0;
 }
 
+// this function should re-enable interrupts
 void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
-	NOT_IMPLEMENTED();
+	// TODO: implement this
 }
 
 // --------------------------------------------------------
@@ -68,20 +84,24 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
 
 ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
 		ACPI_SEMAPHORE *out_handle) {
-	NOT_IMPLEMENTED();
+	// TODO: implement at least a counter
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsDeleteSemaphore(ACPI_SEMAPHORE handle) {
-	NOT_IMPLEMENTED();
+	// TODO: implement at least a counter
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsSignalSemaphore(ACPI_SEMAPHORE handle, UINT32 units) {
-	NOT_IMPLEMENTED();
+	// TODO: implement at least a counter
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units,
 		UINT16 timeout) {
-	NOT_IMPLEMENTED();
+	// TODO: implement at least a counter
+	return AE_OK;
 }
 
 // --------------------------------------------------------
@@ -89,11 +109,24 @@ ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units,
 // --------------------------------------------------------
 
 void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
-	NOT_IMPLEMENTED();
+	ACPI_SIZE alignment = physical % 0x1000;
+	physical -= alignment;
+	length += alignment;
+
+	if((length % 0x1000) != 0)
+		length += 0x1000 - (length % 0x1000);
+
+	HelHandle memory;
+	helAccessPhysical(physical, length, &memory);
+
+	void *actual_pointer;
+	helMapMemory(memory, kHelNullHandle, NULL, length,
+			kHelMapReadWrite, &actual_pointer);
+	return (void *)((uintptr_t)actual_pointer + alignment);
 }
 
 void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
-	NOT_IMPLEMENTED();
+	// TODO: implement this
 }
 
 // --------------------------------------------------------
@@ -101,11 +134,11 @@ void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
 // --------------------------------------------------------
 
 void *AcpiOsAllocate(ACPI_SIZE size) {
-	NOT_IMPLEMENTED();
+	return malloc(size);
 }
 
-void AcpiOsFree(void *memory) {
-	NOT_IMPLEMENTED();
+void AcpiOsFree(void *pointer) {
+	free(pointer);
 }
 
 // --------------------------------------------------------
@@ -113,7 +146,7 @@ void AcpiOsFree(void *memory) {
 // --------------------------------------------------------
 
 ACPI_THREAD_ID AcpiOsGetThreadId() {
-	NOT_IMPLEMENTED();
+	return 1;
 }
 
 void AcpiOsSleep(UINT64 milliseconds) {
@@ -183,16 +216,19 @@ ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *pci_id, UINT32 register_num
 
 ACPI_STATUS AcpiOsPredefinedOverride(const ACPI_PREDEFINED_NAMES *predefined,
 		ACPI_STRING *new_value) {
-	NOT_IMPLEMENTED();
+	*new_value = NULL;
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsTableOverride(ACPI_TABLE_HEADER *existing,
 		ACPI_TABLE_HEADER **new_table) {
-	NOT_IMPLEMENTED();
+	*new_table = NULL;
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsPhysicalTableOverride(ACPI_TABLE_HEADER *existing,
 		ACPI_PHYSICAL_ADDRESS *new_address, UINT32 *new_length) {
-	NOT_IMPLEMENTED();
+	*new_address = NULL;
+	return AE_OK;
 }
 
