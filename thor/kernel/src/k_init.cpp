@@ -330,7 +330,7 @@ auto constructExecuteProgram() {
 	return async::seq(
 		async::lambda([](ExecuteContext &context,
 				util::Callback<void(util::StringView, uintptr_t)> callback) {
-			callback(util::StringView("zisa"), 0);
+			callback(util::StringView("acpi"), 0);
 		}),
 		async::subContext(&ExecuteContext::executableContext,
 			async::lambda([](LoadContext &context,

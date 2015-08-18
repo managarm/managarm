@@ -1,0 +1,18 @@
+
+Thor uses the following memory regions:
+
+FFFF'8001'0000'0000 to FFFF'8001'1000'0000
+	Length: 1 GiB
+	Physical memory window
+	Referenced in eir/src/main.cpp, thor/src/paging.cpp
+
+FFFF'8002'0000'0000
+	Length: (unlimited)
+	Kernel heap
+	Referenced in thor/src/core.cpp
+
+FFFF'FFFF'8000'0000
+	Length: (unlimited)
+	Kernel code and data
+	Referenced in thor/src/link.ld
+
