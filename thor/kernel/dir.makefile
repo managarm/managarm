@@ -1,5 +1,6 @@
 
 $c_SRCDIR := $(TREE_PATH)/$c/src
+$c_HEADERDIR := $(TREE_PATH)/$c/include
 $c_GENDIR := $(BUILD_PATH)/$c/gen
 $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
@@ -13,14 +14,20 @@ $c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
 	event.o thread.o rd.o io.o k_init.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c $($c_BINDIR)/thor $($c_BINDIR)
+$c_HEADERS := thor.h
+$c_HEADER_PATHS := $(addprefix $($c_HEADERDIR)/,$($c_HEADERS))
 
-.PHONY: all-$c clean-$c
+$c_TARGETS := all-$c clean-$c install-$c-headers $($c_BINDIR)/thor $($c_BINDIR)
+
+.PHONY: all-$c clean-$c install-$c-headers
 
 all-$c: $($c_BINDIR)/thor
 
 clean-$c:
 	rm -f $($d_BINDIR)/thor $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
+
+install-$c-headers:
+	install $($d_HEADER_PATHS) $(SYSROOT_PATH)/usr/include
 
 $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
 	mkdir -p $@
@@ -28,7 +35,7 @@ $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
 $c_CXX = x86_64-managarm-g++
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
-	-I$(TREE_PATH)/bragi/include
+	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel \

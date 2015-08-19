@@ -22,6 +22,8 @@
 #include "core.hpp"
 #include "schedule.hpp"
 
+#include <thor.h>
+
 namespace thor {
 namespace k_init {
 

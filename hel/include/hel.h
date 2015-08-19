@@ -43,7 +43,9 @@ enum {
 	kHelCallSubmitWaitForIrq = 15,
 
 	kHelCallAccessIo = 11,
-	kHelCallEnableIo = 12
+	kHelCallEnableIo = 12,
+	
+	kHelCallControlKernel = 31
 };
 
 enum {
@@ -164,4 +166,7 @@ HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handl
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
+
+HEL_C_LINKAGE HelError helControlKernel(int subsystem, int interface,
+		const void *input, void *output);
 

@@ -67,9 +67,10 @@ struct ThorRtKernelGs {
 };
 
 void thorRtInitializeProcessor();
-void thorRtBootSecondary();
+void thorRtBootSecondary(uint32_t secondary_apic_id);
 void thorRtSetupIrqs();
 void thorRtAcknowledgeIrq(int irq);
+void controlArch(int interface, const void *input, void *output);
 
 void thorRtEnableInts();
 void thorRtDisableInts();

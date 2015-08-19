@@ -175,7 +175,7 @@ enum {
 	kIcrTriggerLevel = 0x8000,
 };
 
-void thorRtBootSecondary() {
+void thorRtBootSecondary(uint32_t secondary_apic_id) {
 	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
 	ASSERT((apic_info & (1 << 8)) != 0); // this processor is the BSP
 	ASSERT((apic_info & (1 << 11)) != 0); // local APIC is enabled
@@ -201,8 +201,6 @@ void thorRtBootSecondary() {
 
 	asm volatile ( "" : : : "memory" );
 
-	uint32_t secondary_apic_id = 1;
-	
 	// send the init ipi
 	writeVolatile<uint32_t>(apic_icr_high, secondary_apic_id << 24);
 	writeVolatile<uint32_t>(apic_icr_low, kIcrDeliverInit
@@ -225,6 +223,17 @@ void thorRtBootSecondary() {
 		// do nothing
 	}
 	thor::infoLogger->log() << "AP is running" << debug::Finish();
+}
+
+void controlArch(int interface, const void *input, void *output) {
+	switch(interface) {
+	case kThorIfBootSecondary: {
+		const uint32_t *apic_id = (const uint32_t *)input;
+		thorRtBootSecondary(*apic_id);
+	} break;	
+	default:
+		ASSERT(!"Illegal interface");
+	}
 }
 
 ThorRtKernelGs::ThorRtKernelGs()

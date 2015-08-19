@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include <hel.h>
+#include <hel-syscalls.h>
+#include <thor.h>
+
 #include <acpi.h>
 
 struct ApicHeader {
@@ -63,6 +67,8 @@ int main() {
 	}
 	printf("MADT length: %u\n", table->Length);
 
+	int seen_bsp = 0;
+
 	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(struct ApicHeader);
 	while(offset < table->Length) {
 		struct ApicEntry *generic = (struct ApicEntry *)((uintptr_t)table + offset);
@@ -71,6 +77,11 @@ int main() {
 		if(generic->type == 0) { // local APIC
 			struct ApicLocalEntry *entry = (struct ApicLocalEntry *)generic;
 			printf("Local APIC id: %d\n", entry->localApicId);
+
+			if(seen_bsp)
+				helControlKernel(kThorSubArch, kThorIfBootSecondary,
+						&entry->localApicId, NULL);
+			seen_bsp = 1;
 		}
 		offset += generic->length;
 	}

@@ -36,8 +36,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	thorRtInitializeProcessor();
 
-	thorRtBootSecondary();
-
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 	thorRtSetupIrqs();
@@ -373,6 +371,20 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		case kHelCallEnableIo: {
 			HelError error = helEnableIo((HelHandle)arg0);
 			thorRtReturnSyscall1((Word)error);
+		}
+		
+		case kHelCallControlKernel: {
+			int subsystem = (int)arg0;
+			int interface = (int)arg1;
+			const void *user_input = (const void *)arg2;
+			void *user_output = (void *)arg3;
+
+			if(subsystem == kThorSubArch) {
+				controlArch(interface, user_input, user_output);
+				thorRtReturnSyscall1((Word)kHelErrNone);
+			}else{
+				ASSERT(!"Illegal subsystem");
+			}
 		}
 		default:
 			ASSERT(!"Illegal syscall");
