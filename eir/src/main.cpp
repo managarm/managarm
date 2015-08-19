@@ -338,7 +338,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	uint64_t physical_window = 0xFFFF800100000000;
 	
 	// map physical memory into kernel virtual memory
-	for(uint64_t addr = 0; addr < 1024 * 1024 * 1024; addr += 0x1000)
+	for(uint64_t addr = 0; addr < 0x100000000; addr += 0x1000)
 		mapSingle4kPage(physical_window + addr, addr, kAccessWrite);
 	
 	ASSERT((mb_info->flags & kMbInfoModules) != 0);

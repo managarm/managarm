@@ -4,6 +4,7 @@
 #include <frigg/arch_x86/machine.hpp>
 
 namespace memory = frigg::memory;
+namespace debug = frigg::debug;
 
 extern "C" void thorRtIsrDivideByZeroError();
 extern "C" void thorRtIsrInvalidOpcode();
@@ -150,6 +151,80 @@ void thorRtInitializeProcessor() {
 	idtr.limit = 256 * 16;
 	idtr.pointer = cpu_specific->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
+}
+
+struct ThorRtTrampolineData {
+	uint32_t status;
+};
+
+template<typename T>
+void writeVolatile(T *pointer, T value) {
+	*const_cast<volatile T *>(pointer) = value;
+}
+template<typename T>
+T readVolatile(T *pointer) {
+	return *const_cast<volatile T *>(pointer);
+}
+
+extern uint8_t trampolineStart[];
+
+enum {
+	kIcrDeliverInit = 0x500,
+	kIcrDeliverStartup = 0x600,
+	kIcrLevelAssert = 0x4000,
+	kIcrTriggerLevel = 0x8000,
+};
+
+void thorRtBootSecondary() {
+	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+	ASSERT((apic_info & (1 << 8)) != 0); // this processor is the BSP
+	ASSERT((apic_info & (1 << 11)) != 0); // local APIC is enabled
+	uint64_t apic_base = apic_info & 0xFFFFF000;
+	thor::infoLogger->log() << "Local APIC at " << (void *)apic_base << debug::Finish();
+
+	auto apic_spurious = thor::accessPhysical<uint32_t>(apic_base + 0x00F0);
+	auto apic_icr_low = thor::accessPhysical<uint32_t>(apic_base + 0x0300);
+	auto apic_icr_high = thor::accessPhysical<uint32_t>(apic_base + 0x0310);
+	auto apic_lvt_timer = thor::accessPhysical<uint32_t>(apic_base + 0x0320);
+	auto apic_initial_count = thor::accessPhysical<uint32_t>(apic_base + 0x0380);
+	
+	// enable the local apic
+	uint32_t spurious_vector = 0x81;
+	writeVolatile<uint32_t>(apic_spurious, spurious_vector | 0x100);
+	
+	// copy the trampoline code into low physical memory
+	memcpy(thor::physicalToVirtual(0x10000), trampolineStart, 0x1000);
+
+	// setup the trampoline data area
+	auto data = thor::accessPhysical<ThorRtTrampolineData>(0x11000);
+	writeVolatile<uint32_t>(&data->status, 0);
+
+	asm volatile ( "" : : : "memory" );
+
+	uint32_t secondary_apic_id = 1;
+	
+	// send the init ipi
+	writeVolatile<uint32_t>(apic_icr_high, secondary_apic_id << 24);
+	writeVolatile<uint32_t>(apic_icr_low, kIcrDeliverInit
+			| kIcrTriggerLevel | kIcrLevelAssert);
+	
+	// send the init ipi de-assert
+	writeVolatile<uint32_t>(apic_icr_high, secondary_apic_id << 24);
+	writeVolatile<uint32_t>(apic_icr_low, kIcrDeliverInit
+			| kIcrTriggerLevel);
+
+	// send the startup ipi
+	uint32_t vector = 0x10; // determines the startup code page
+	writeVolatile<uint32_t>(apic_icr_high, secondary_apic_id << 24);
+	writeVolatile<uint32_t>(apic_icr_low, vector | kIcrDeliverStartup);
+
+	asm volatile ( "" : : : "memory" );
+
+	thor::infoLogger->log() << "Waiting for AP to start" << debug::Finish();
+	while(readVolatile<uint32_t>(&data->status) == 0) {
+		// do nothing
+	}
+	thor::infoLogger->log() << "AP is running" << debug::Finish();
 }
 
 ThorRtKernelGs::ThorRtKernelGs()

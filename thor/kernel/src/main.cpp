@@ -36,6 +36,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	thorRtInitializeProcessor();
 
+	thorRtBootSecondary();
+
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 	thorRtSetupIrqs();

@@ -6,7 +6,7 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 
 $c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
-	runtime0.o runtime1.o \
+	runtime0.o runtime1.o trampoline.o \
 	physical.o paging.o \
 	main.o hel.o \
 	core.o descriptor.o usermem.o schedule.o ipc.o \

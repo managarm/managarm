@@ -1,7 +1,17 @@
 
-Thor uses the following memory regions:
+Thor uses the following PHYSICAL memory regions:
 
-FFFF'8001'0000'0000 to FFFF'8001'1000'0000
+0000'0000'0001'0000
+	Length: 4 KiB (= 1 Page)
+	AP initialization trampoline
+
+0000'0000'0001'1000
+	Length: 4 KiB (= 1 Page)
+	AP trampoline data area
+
+Thor uses the following VIRTUAL memory regions:
+
+FFFF'8001'0000'0000 to FFFF'8001'FFFF'FFFF
 	Length: 1 GiB
 	Physical memory window
 	Referenced in eir/src/main.cpp, thor/src/paging.cpp

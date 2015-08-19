@@ -21,6 +21,7 @@ extern inline util::Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
 }
 
 enum {
+	kMsrLocalApicBase = 0x0000001B,
 	kMsrIndexFsBase = 0xC0000100,
 	kMsrIndexGsBase = 0xC0000101,
 	kMsrIndexKernelGsBase = 0xC0000102
@@ -35,7 +36,7 @@ extern inline void wrmsr(uint32_t index, uint64_t value) {
 
 extern inline uint64_t rdmsr(uint32_t index) {
 	uint32_t low, high;
-	asm volatile ( "wrmsr" : "=a" (low), "=d" (high)
+	asm volatile ( "rdmsr" : "=a" (low), "=d" (high)
 			: "c" (index) : "memory" );
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }

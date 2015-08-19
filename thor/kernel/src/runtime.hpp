@@ -67,6 +67,7 @@ struct ThorRtKernelGs {
 };
 
 void thorRtInitializeProcessor();
+void thorRtBootSecondary();
 void thorRtSetupIrqs();
 void thorRtAcknowledgeIrq(int irq);
 
