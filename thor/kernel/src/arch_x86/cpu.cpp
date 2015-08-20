@@ -130,6 +130,11 @@ extern "C" void thorRtSecondaryEntry() {
 	frigg::atomic::volatileWrite<bool>(&secondaryBootComplete, true);
 
 	thor::infoLogger->log() << "Hello world from second CPU" << debug::Finish();
+	
+	initializeThisProcessor();
+	
+	thor::infoLogger->log() << "AP initialized" << debug::Finish();
+
 	while(true) { }
 }
 

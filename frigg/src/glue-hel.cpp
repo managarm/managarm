@@ -4,6 +4,7 @@
 #include <frigg/initializer.hpp>
 #include <frigg/support.hpp>
 #include <frigg/debug.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/glue-hel.hpp>
 
@@ -52,7 +53,6 @@ void VirtualAlloc::unmap(uintptr_t address, size_t length) {
 
 }
 
-typedef frigg::memory::DebugAllocator<VirtualAlloc> Allocator;
 VirtualAlloc virtualAlloc;
 frigg::util::LazyInitializer<Allocator> allocator;
 

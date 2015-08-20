@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include <frigg/traits.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/async.hpp>

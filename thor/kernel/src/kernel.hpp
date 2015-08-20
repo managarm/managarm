@@ -6,6 +6,7 @@
 #include <frigg/libc.hpp>
 #include <frigg/algorithm.hpp>
 #include <frigg/initializer.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/string.hpp>
 #include <frigg/array.hpp>
@@ -15,7 +16,6 @@
 #include <frigg/tuple.hpp>
 #include <frigg/variant.hpp>
 
-#include <frigg/arch_x86/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 
 #include "arch_x86/cpu.hpp"

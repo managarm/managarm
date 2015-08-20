@@ -4,6 +4,7 @@
 #include <frigg/initializer.hpp>
 #include <frigg/support.hpp>
 #include <frigg/debug.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/libc.hpp>
 #include <frigg/string.hpp>

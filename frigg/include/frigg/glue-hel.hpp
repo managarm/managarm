@@ -16,7 +16,8 @@ public:
 	void unmap(uintptr_t address, size_t length);
 };
 
-typedef frigg::memory::DebugAllocator<VirtualAlloc> Allocator;
+typedef frigg::memory::DebugAllocator<VirtualAlloc,
+		frigg::atomic::TicketLock> Allocator;
 extern VirtualAlloc virtualAlloc;
 extern frigg::util::LazyInitializer<Allocator> allocator;
 

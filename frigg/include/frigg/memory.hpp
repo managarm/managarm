@@ -10,7 +10,7 @@ enum {
 	kPageSize = 0x1000
 }; // TODO: allow different page sizes
 
-template<typename VirtualAlloc>
+template<typename VirtualAlloc, typename Mutex>
 class DebugAllocator {
 public:
 	struct Header {
@@ -33,26 +33,29 @@ public:
 
 private:
 	VirtualAlloc &p_virtualAllocator;
+	Mutex p_mutex;
 };
 
 // --------------------------------------------------------
 // DebugAllocator::Header definitions
 // --------------------------------------------------------
 
-template<typename VirtualAlloc>
-DebugAllocator<VirtualAlloc>::Header::Header(size_t num_pages)
+template<typename VirtualAlloc, typename Mutex>
+DebugAllocator<VirtualAlloc, Mutex>::Header::Header(size_t num_pages)
 : numPages(num_pages) { }
 
 // --------------------------------------------------------
 // DebugAllocator definitions
 // --------------------------------------------------------
 
-template<typename VirtualAlloc>
-DebugAllocator<VirtualAlloc>::DebugAllocator(VirtualAlloc &virt_alloc)
+template<typename VirtualAlloc, typename Mutex>
+DebugAllocator<VirtualAlloc, Mutex>::DebugAllocator(VirtualAlloc &virt_alloc)
 : p_virtualAllocator(virt_alloc) { }
 
-template<typename VirtualAlloc>
-void *DebugAllocator<VirtualAlloc>::allocate(size_t length) {
+template<typename VirtualAlloc, typename Mutex>
+void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
+	atomic::LockGuard<Mutex> guard(&p_mutex);
+
 	size_t with_header = length + sizeof(Header);
 
 	size_t num_pages = with_header / kPageSize;
@@ -66,8 +69,10 @@ void *DebugAllocator<VirtualAlloc>::allocate(size_t length) {
 	return (void *)(pointer + sizeof(Header));
 }
 
-template<typename VirtualAlloc>
-void DebugAllocator<VirtualAlloc>::free(void *pointer) {
+template<typename VirtualAlloc, typename Mutex>
+void DebugAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
+	atomic::LockGuard<Mutex> guard(&p_mutex);
+
 	if(pointer == nullptr)
 		return;
 	
