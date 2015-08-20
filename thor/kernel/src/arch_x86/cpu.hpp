@@ -3,6 +3,8 @@
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
 
+namespace thor {
+
 // --------------------------------------------------------
 // Global runtime functions
 // --------------------------------------------------------
@@ -12,8 +14,6 @@ typedef uint64_t Word;
 typedef uint64_t PhysicalAddr;
 typedef uint64_t VirtualAddr;
 typedef uint64_t VirtualOffset;
-
-extern "C" void thorRtHalt() __attribute__ (( noreturn ));
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
@@ -66,52 +66,12 @@ struct ThorRtKernelGs {
 	ThorRtCpuSpecific *cpuSpecific;		// offset 0x18
 };
 
-void thorRtInitializeProcessor();
-void thorRtBootSecondary(uint32_t secondary_apic_id);
-void thorRtSetupIrqs();
-void thorRtAcknowledgeIrq(int irq);
-void controlArch(int interface, const void *input, void *output);
-
-void thorRtEnableInts();
-void thorRtDisableInts();
-
 void thorRtSetCpuContext(void *context);
 void *thorRtGetCpuContext();
 
-extern "C" void thorRtInvalidatePage(void *pointer);
-extern "C" void thorRtInvalidateSpace();
+void initializeThisProcessor();
 
-extern "C" void thorRtFullReturn();
-extern "C" void thorRtFullReturnToKernel();
-extern "C" void thorRtReturnSyscall1(Word out0);
-extern "C" void thorRtReturnSyscall2(Word out0, Word out1);
-extern "C" void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
+void bootSecondary(uint32_t secondary_apic_id);
 
-// --------------------------------------------------------
-// Internal runtime functions
-// --------------------------------------------------------
-
-extern "C" void thorRtLoadCs(uint16_t selector);
-
-template<typename T>
-class LazyInitializer {
-public:
-	template<typename... Args>
-	void initialize(Args&&... args) {
-		new(p_object) T(frigg::traits::forward<Args>(args)...);
-	}
-
-	T *get() {
-		return (T *)p_object;
-	}
-	T *operator-> () {
-		return get();
-	}
-	T &operator* () {
-		return *get();
-	}
-
-private:
-	char p_object[sizeof(T)];
-};
+} // namespace thor
 

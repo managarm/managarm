@@ -34,11 +34,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
 
-	thorRtInitializeProcessor();
-
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
-	thorRtSetupIrqs();
+
+	initializeThisProcessor();
+	initializeTheSystem();
 	
 	// create a directory and load the memory regions of all modules into it
 	ASSERT(info->numModules >= 2);
@@ -189,7 +189,7 @@ extern "C" void thorUserPageFault(uintptr_t address, Word error) {
 }
 
 extern "C" void thorIrq(int irq) {
-	thorRtAcknowledgeIrq(irq);
+	acknowledgeIrq(irq);
 
 	irqRelays[irq]->fire();
 

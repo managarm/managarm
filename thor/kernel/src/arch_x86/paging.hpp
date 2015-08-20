@@ -34,11 +34,16 @@ public:
 			bool user_access, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
+	PhysicalAddr getPml4();
+
 private:
 	PhysicalAddr p_pml4Address;
 };
 
-extern LazyInitializer<PageSpace> kernelSpace;
+extern frigg::util::LazyInitializer<PageSpace> kernelSpace;
+
+extern "C" void thorRtInvalidatePage(void *pointer);
+extern "C" void thorRtInvalidateSpace();
 
 } // namespace thor
 

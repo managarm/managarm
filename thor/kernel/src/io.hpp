@@ -26,7 +26,7 @@ private:
 	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-extern LazyInitializer<IrqRelay> irqRelays[16];
+extern frigg::util::LazyInitializer<IrqRelay> irqRelays[16];
 
 class IrqLine {
 public:

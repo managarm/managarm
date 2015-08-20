@@ -13,7 +13,7 @@ IrqRelay::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
-LazyInitializer<IrqRelay> irqRelays[16];
+frigg::util::LazyInitializer<IrqRelay> irqRelays[16];
 
 IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 

@@ -1,5 +1,5 @@
 
-#include "kernel.hpp"
+#include "../kernel.hpp"
 
 enum {
 	kPagePresent = 0x1,
@@ -10,7 +10,7 @@ enum {
 
 namespace thor {
 
-LazyInitializer<PageSpace> kernelSpace;
+frigg::util::LazyInitializer<PageSpace> kernelSpace;
 
 void *physicalToVirtual(PhysicalAddr address) {
 	return (void *)(0xFFFF800100000000 + address);
@@ -160,6 +160,14 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
 
+PhysicalAddr PageSpace::getPml4() {
+	return p_pml4Address;
+}
+
+void thorRtInvalidateSpace() {
+	asm volatile ("movq %%cr3, %%rax\n\t"
+		"movq %%rax, %%cr3" : : : "%rax");
+}
 
 } // namespace thor
 

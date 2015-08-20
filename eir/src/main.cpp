@@ -174,10 +174,12 @@ void intializeGdt() {
 	arch::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
 	arch::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
 	arch::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
-
+	
 	eirRtLoadGdt(gdt_page, 31); 
 }
 
+// note: we are loading the segments to their p_paddr addresses
+// instead of the usual p_vaddr addresses!
 void loadKernelImage(void *image, uint64_t *out_entry) {
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr *)image;
 	if(ehdr->e_ident[0] != '\x7F'
@@ -193,14 +195,16 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 				+ (uintptr_t)ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
 		ASSERT((phdr->p_offset % 0x1000) == 0);
-		ASSERT((phdr->p_vaddr % 0x1000) == 0);
+		ASSERT((phdr->p_paddr % 0x1000) == 0);
 		ASSERT(phdr->p_filesz == phdr->p_memsz);
 		
 		if(phdr->p_type != PT_LOAD)
 			continue;
 
 		uint32_t map_flags = 0;
-		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
+			// no additional flags
+		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 			map_flags |= kAccessWrite;
 		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			map_flags |= kAccessExecute;
@@ -211,7 +215,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 
 		uint32_t page = 0;
 		while(page < (uint32_t)phdr->p_filesz) {
-			mapSingle4kPage(phdr->p_vaddr + page,
+			mapSingle4kPage(phdr->p_paddr + page,
 					(uintptr_t)image + (uint32_t)phdr->p_offset + page, map_flags);
 			page += 0x1000;
 		}

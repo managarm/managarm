@@ -5,7 +5,7 @@ namespace traits = frigg::traits;
 
 namespace thor {
 
-LazyInitializer<ThreadQueue> scheduleQueue;
+frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
 void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {
 	auto cpu_context = (CpuContext *)thorRtGetCpuContext();

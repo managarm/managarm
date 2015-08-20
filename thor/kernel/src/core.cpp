@@ -13,7 +13,7 @@ int64_t nextAsyncId = 1;
 // --------------------------------------------------------
 
 BochsSink infoSink;
-LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+frigg::util::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 UnsafePtr<Thread, KernelAlloc> getCurrentThread() {
 	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
@@ -55,9 +55,9 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	thorRtInvalidateSpace();
 }
 
-LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
-LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
-LazyInitializer<KernelAlloc> kernelAlloc;
+frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
 // Threading related functions
@@ -93,7 +93,7 @@ void friggPrintCritical(char const *str) {
 	thor::infoSink.print(str);
 }
 void friggPanic() {
-	thorRtHalt();
+	thor::thorRtHalt();
 }
 
 

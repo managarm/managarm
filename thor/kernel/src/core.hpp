@@ -14,7 +14,7 @@ public:
 };
 
 extern BochsSink infoSink;
-extern LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+extern frigg::util::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 // --------------------------------------------------------
 // Memory management
@@ -32,9 +32,9 @@ private:
 };
 
 typedef frigg::memory::DebugAllocator<KernelVirtualAlloc> KernelAlloc;
-extern LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
-extern LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
-extern LazyInitializer<KernelAlloc> kernelAlloc;
+extern frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+extern frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+extern frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
 // Kernel data types

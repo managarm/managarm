@@ -1,7 +1,7 @@
 
 namespace thor {
 
-extern LazyInitializer<ThreadQueue> scheduleQueue;
+extern frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
 void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
 
