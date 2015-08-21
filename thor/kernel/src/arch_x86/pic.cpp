@@ -8,20 +8,22 @@ namespace thor {
 // --------------------------------------------------------
 
 uint32_t *localApicRegs;
+uint32_t apicTicksPerMilli;
 
 enum {
 	kLApicSpurious = 60,
 	kLApicIcwLow = 192,
 	kLApicIcwHigh = 196,
 	kLApicLvtTimer = 200,
-	kLApicInitialCount = 224
+	kLApicInitialCount = 224,
+	kLApicCurrentCount = 228
 };
 
 enum {
 	kIcrDeliverInit = 0x500,
 	kIcrDeliverStartup = 0x600,
 	kIcrLevelAssert = 0x4000,
-	kIcrTriggerLevel = 0x8000,
+	kIcrTriggerLevel = 0x8000
 };
 
 void initializeLocalApic() {
@@ -33,6 +35,24 @@ void initializeLocalApic() {
 	uint32_t spurious_vector = 0x81;
 	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious],
 			spurious_vector | 0x100);
+	
+	// setup a timer interrupt for scheduling
+	uint32_t schedule_vector = 0x82;
+	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer],
+			schedule_vector);
+}
+
+void calibrateApicTimer() {
+	const uint64_t millis = 100;
+	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount],
+			0xFFFFFFFF);
+	pollSleepNano(millis * 1000000);
+	uint32_t elapsed = 0xFFFFFFFF
+			- frigg::atomic::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
+	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
+	apicTicksPerMilli = elapsed / millis;
+	
+	infoLogger->log() << "Local elapsed ticks: " << elapsed << frigg::debug::Finish();
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {

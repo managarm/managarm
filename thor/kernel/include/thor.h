@@ -6,6 +6,7 @@ enum {
 
 enum {
 	// x86_64 architecture interfaces
-	kThorIfBootSecondary = 1
+	kThorIfSetupHpet = 1,
+	kThorIfBootSecondary = 2
 };
 

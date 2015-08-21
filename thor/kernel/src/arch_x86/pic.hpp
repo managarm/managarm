@@ -7,6 +7,8 @@ namespace thor {
 
 void initializeLocalApic();
 
+void calibrateApicTimer();
+
 void raiseInitAssertIpi(uint32_t dest_apic_id);
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id);
