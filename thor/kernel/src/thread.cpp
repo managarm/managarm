@@ -32,16 +32,16 @@ bool Thread::isKernelThread() {
 }
 
 void Thread::enableIoPort(uintptr_t port) {
-	p_state.threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+	p_saveState.threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
 void Thread::activate() {
 	p_addressSpace->activate();
-	p_state.activate();
+	p_saveState.activate();
 }
 
-ThorRtThreadState &Thread::accessState() {
-	return p_state;
+ThorRtThreadState &Thread::accessSaveState() {
+	return p_saveState;
 }
 
 // --------------------------------------------------------

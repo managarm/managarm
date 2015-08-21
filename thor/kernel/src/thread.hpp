@@ -23,7 +23,7 @@ public:
 	
 	void activate();
 
-	ThorRtThreadState &accessState();
+	ThorRtThreadState &accessSaveState();
 
 private:
 	SharedPtr<Universe, KernelAlloc> p_universe;
@@ -33,7 +33,7 @@ private:
 	SharedPtr<Thread, KernelAlloc> p_nextInQueue;
 	UnsafePtr<Thread, KernelAlloc> p_previousInQueue;
 
-	ThorRtThreadState p_state;
+	ThorRtThreadState p_saveState;
 	frigg::arch_x86::Tss64 p_tss;
 	bool p_kernelThread;
 };
