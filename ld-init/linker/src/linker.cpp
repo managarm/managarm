@@ -111,33 +111,51 @@ bool strEquals(const char *str1, const char *str2) {
 	return true;
 }
 
+uint32_t elf64Hash(const char *name) {
+	uint32_t h = 0, g;
+
+	while(*name) {
+		h = (h << 4) + (uint32_t)(*name++);
+		g = h & 0xF0000000;
+		if(g)
+			h ^= g >> 24;
+		h &= 0x0FFFFFFF;
+	}
+
+	return h;
+}
+
+bool symbolMatches(SharedObject *object, Elf64_Sym *symbol, const char *resolve_str) {
+	uint8_t bind = ELF64_ST_BIND(symbol->st_info);
+	if(bind != STB_GLOBAL)
+		return false; // TODO: support local and weak symbols
+	if(symbol->st_shndx == SHN_UNDEF)
+		return false;
+	ASSERT(symbol->st_name != 0);
+
+	const char *symbol_str = (const char *)(object->baseAddress
+			+ object->stringTableOffset + symbol->st_name);
+	return strEquals(symbol_str, resolve_str);
+}
+
 // TODO: move this to some namespace or class?
 void *resolveInObject(SharedObject *object, const char *resolve_str) {
 	auto hash_table = (Elf64_Word *)(object->baseAddress + object->hashTableOffset);
 	
 	Elf64_Word num_buckets = hash_table[0];
-	Elf64_Word num_chains = hash_table[1];
+	auto bucket = elf64Hash(resolve_str) % num_buckets;
 
-	for(size_t i = 0; i < num_chains; i++) {
+	auto index = hash_table[2 + bucket];
+	while(index != 0) {
 		auto *symbol = (Elf64_Sym *)(object->baseAddress
-				+ object->symbolTableOffset + i * sizeof(Elf64_Sym));
-		uint8_t type = symbol->st_info & 0x0F;
-		uint8_t bind = symbol->st_info >> 4;
-		if(bind != STB_GLOBAL)
-			continue; // TODO: support local and weak symbols
-		if(symbol->st_shndx == SHN_UNDEF)
-			continue;
-		ASSERT(symbol->st_name != 0);
-
-		const char *symbol_str = (const char *)(object->baseAddress
-				+ object->stringTableOffset + symbol->st_name);
-		//FIXME infoLogger->log() << (void *)object->baseAddress
-		//		<< " " << (void *)object->stringTableOffset
-		//		<< " " << (void *)symbol->st_name << " " << (void *)symbol_str << debug::Finish();
-		if(strEquals(symbol_str, resolve_str))
+				+ object->symbolTableOffset + index * sizeof(Elf64_Sym));
+		
+		if(symbolMatches(object, symbol, resolve_str))
 			return (void *)(object->baseAddress + symbol->st_value);
+
+		index = hash_table[2 + num_buckets + index];
 	}
-	
+
 	return nullptr;
 }
 
@@ -463,7 +481,6 @@ void Loader::processLazyRelocations(SharedObject *object) {
 	for(size_t offset = 0; offset < object->lazyTableSize; offset += sizeof(Elf64_Rela)) {
 		auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset + offset);
 		Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
-		Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
 
 		uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 
