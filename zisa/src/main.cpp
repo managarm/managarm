@@ -1,6 +1,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <stdio.h>
 
 #include <frigg/traits.hpp>
@@ -104,11 +105,11 @@ private:
 
 AtaDriver::AtaDriver(helx::EventHub &event_hub)
 		: p_eventHub(event_hub), p_basePort(0x1F0), p_inRequest(false) {
-	helAccessIrq(14, &p_irqHandle);
+	HEL_CHECK(helAccessIrq(14, &p_irqHandle));
 
 	uintptr_t ports[] = { 0x1F0, 0x1F1, 0x1F2, 0x1F3, 0x1F4, 0x1F5, 0x1F6, 0x1F7, 0x3F6 };
-	helAccessIo(ports, 9, &p_ioHandle);
-	helEnableIo(p_ioHandle);
+	HEL_CHECK(helAccessIo(ports, 9, &p_ioHandle));
+	HEL_CHECK(helEnableIo(p_ioHandle));
 }
 
 void AtaDriver::readSectors(int64_t sector, uint8_t *buffer,
@@ -132,9 +133,9 @@ void AtaDriver::performRequest() {
 
 	auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
 	int64_t async_id;
-	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
+	HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
 			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-			&async_id);
+			&async_id));
 
 	ioOutByte(p_basePort + kPortWriteDevice, kDeviceLba);
 	
@@ -156,9 +157,9 @@ void AtaDriver::onReadIrq(HelError error) {
 	if(request.sectorsRead + 1 < request.numSectors) {
 		auto callback = CALLBACK_MEMBER(this, &AtaDriver::onReadIrq);
 		int64_t async_id;
-		helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
+		HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-				&async_id);
+				&async_id));
 	}
 
 	uint8_t status = ioInByte(p_basePort + kPortReadStatus);
@@ -203,20 +204,20 @@ private:
 
 Keyboard::Keyboard(helx::EventHub &event_hub)
 		: p_eventHub(event_hub) {
-	helAccessIrq(1, &p_irqHandle);
+	HEL_CHECK(helAccessIrq(1, &p_irqHandle));
 	
 	uintptr_t ports[] = { 0x60, 0x64 };
-	helAccessIo(ports, 2, &p_ioHandle);
-	helEnableIo(p_ioHandle);
+	HEL_CHECK(helAccessIo(ports, 2, &p_ioHandle));
+	HEL_CHECK(helEnableIo(p_ioHandle));
 }
 
 void Keyboard::run() {
 	auto callback = CALLBACK_MEMBER(this, &Keyboard::onScancode);
 	int64_t async_id;
-	helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
+	HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, p_eventHub.getHandle(),
 		(uintptr_t)callback.getFunction(),
 		(uintptr_t)callback.getObject(),
-		&async_id);
+		&async_id));
 }
 
 void Keyboard::onScancode(int64_t submit_id) {
@@ -693,27 +694,27 @@ void onReceive(void *object, HelError error,
 void onAccept(void *object, HelError error, HelHandle handle) {
 	printf("accept\n");
 	
-	helSendString(handle, (const uint8_t *)"hello", 6, 1, 1);
+	HEL_CHECK(helSendString(handle, (const uint8_t *)"hello", 6, 1, 1));
 }
 void onConnect(void *object, HelError error, HelHandle handle) {
 	printf("connect\n");
 	
 	int64_t async_id;
-	helSubmitRecvString(handle, eventHub.getHandle(),
+	HEL_CHECK(helSubmitRecvString(handle, eventHub.getHandle(),
 			recvBuffer, 10, kHelAnyRequest, kHelAnySequence,
-			(uintptr_t)nullptr, (uintptr_t)&onReceive, &async_id);
+			(uintptr_t)nullptr, (uintptr_t)&onReceive, &async_id));
 }
 
 void testIpc() {
 	HelHandle socket;
 
 	HelHandle server, client;
-	helCreateServer(&server, &client);
+	HEL_CHECK(helCreateServer(&server, &client));
 	int64_t submit_id, accept_id;
-	helSubmitAccept(server, eventHub.getHandle(),
-			(uintptr_t)nullptr, (uintptr_t)&onAccept, &submit_id);
-	helSubmitConnect(client, eventHub.getHandle(),
-			(uintptr_t)nullptr, (uintptr_t)&onConnect, &accept_id);
+	HEL_CHECK(helSubmitAccept(server, eventHub.getHandle(),
+			(uintptr_t)nullptr, (uintptr_t)&onAccept, &submit_id));
+	HEL_CHECK(helSubmitConnect(client, eventHub.getHandle(),
+			(uintptr_t)nullptr, (uintptr_t)&onConnect, &accept_id));
 }
 
 // --------------------------------------------------------
@@ -723,11 +724,11 @@ void testIpc() {
 void testScreen() {
 	// note: the vga test mode memory is actually 4000 bytes long
 	HelHandle screen_memory;
-	helAccessPhysical(0xB8000, 0x1000, &screen_memory);
+	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
 
 	void *actual_pointer;
-	helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
-			kHelMapReadWrite, &actual_pointer);
+	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
+			kHelMapReadWrite, &actual_pointer));
 	
 	uint8_t *screen_ptr = (uint8_t *)actual_pointer;
 	screen_ptr[0] = 'H';

@@ -218,13 +218,13 @@ void processSegment(SharedObject *object, Reader reader, int segment_index) {
 	}
 	
 	int64_t async_id;
-	helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
-			1, 1 + segment_index, kHelNoFunction, kHelNoObject, &async_id);
+	HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
+			1, 1 + segment_index, kHelNoFunction, kHelNoObject, &async_id));
 	HelHandle memory = eventHub->waitForRecvDescriptor(async_id);
 
 	void *actual_pointer;
-	helMapMemory(memory, kHelNullHandle, (void *)virt_address, virt_length,
-			map_flags, &actual_pointer);
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)virt_address, virt_length,
+			map_flags, &actual_pointer));
 }
 
 template<typename Reader>
@@ -270,8 +270,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	
 	uint8_t buffer[128];
 	int64_t async_id;
-	helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
-			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id);
+	HEL_CHECK(helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
+			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id));
 	size_t length = eventHub->waitForRecvString(async_id);
 	processServerResponse(object, protobuf::BufferReader(buffer, length));
 	

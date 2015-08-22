@@ -111,11 +111,11 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	
 	const char *path = "rtdl-server";
 	HelHandle server_handle;
-	helRdOpen(path, strlen(path), &server_handle);
+	HEL_CHECK(helRdOpen(path, strlen(path), &server_handle));
 	
 	int64_t async_id;
-	helSubmitConnect(server_handle, eventHub->getHandle(),
-			kHelNoFunction, kHelNoObject, &async_id);
+	HEL_CHECK(helSubmitConnect(server_handle, eventHub->getHandle(),
+			kHelNoFunction, kHelNoObject, &async_id));
 	HelHandle pipe_handle = eventHub->waitForConnect(async_id);
 	serverPipe.initialize(pipe_handle);
 

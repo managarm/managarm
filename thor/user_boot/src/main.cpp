@@ -27,7 +27,7 @@ namespace async = frigg::async;
 namespace protobuf = frigg::protobuf;
 
 extern "C" void _exit() {
-	helExitThisThread();
+	HEL_CHECK(helExitThisThread());
 }
 
 util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
@@ -51,12 +51,12 @@ HelHandle loadSegment(void *image, uintptr_t address, uintptr_t file_offset,
 	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, mem_length);
 
 	HelHandle memory;
-	helAllocateMemory(map.get<1>(), &memory);
+	HEL_CHECK(helAllocateMemory(map.get<1>(), &memory));
 	
 	// map the segment memory as read/write and initialize it
 	void *write_ptr;
-	helMapMemory(memory, kHelNullHandle, nullptr, map.get<1>(),
-			kHelMapReadWrite, &write_ptr);
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, map.get<1>(),
+			kHelMapReadWrite, &write_ptr));
 
 	memset(write_ptr, 0, map.get<1>());
 	memcpy((void *)((uintptr_t)write_ptr + (address - map.get<0>())),
@@ -73,25 +73,25 @@ void mapSegment(HelHandle memory, HelHandle space, uintptr_t address,
 	util::Tuple<uintptr_t, size_t> map = calcSegmentMap(address, length);
 
 	void *actual_ptr;
-	helMapMemory(memory, space, (void *)map.get<0>(), map.get<1>(),
-			map_flags, &actual_ptr);
+	HEL_CHECK(helMapMemory(memory, space, (void *)map.get<0>(), map.get<1>(),
+			map_flags, &actual_ptr));
 	ASSERT(actual_ptr == (void *)map.get<0>());
 }
 
 void loadImage(const char *path, HelHandle directory) {
 	// open and map the executable image into this address space
 	HelHandle image_handle;
-	helRdOpen(path, strlen(path), &image_handle);
+	HEL_CHECK(helRdOpen(path, strlen(path), &image_handle));
 
 	size_t size;
 	void *image_ptr;
-	helMemoryInfo(image_handle, &size);
-	helMapMemory(image_handle, kHelNullHandle, nullptr, size,
-			kHelMapReadOnly, &image_ptr);
+	HEL_CHECK(helMemoryInfo(image_handle, &size));
+	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, size,
+			kHelMapReadOnly, &image_ptr));
 	
 	// create a new 
 	HelHandle space;
-	helCreateSpace(&space);
+	HEL_CHECK(helCreateSpace(&space));
 	
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
 	ASSERT(ehdr->e_ident[0] == 0x7F
@@ -124,11 +124,11 @@ void loadImage(const char *path, HelHandle directory) {
 	constexpr size_t stack_size = 0x200000;
 	
 	HelHandle stack_memory;
-	helAllocateMemory(stack_size, &stack_memory);
+	HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
 
 	void *stack_base;
-	helMapMemory(stack_memory, space, nullptr,
-			stack_size, kHelMapReadWrite, &stack_base);
+	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
+			stack_size, kHelMapReadWrite, &stack_base));
 	
 	HelThreadState state;
 	memset(&state, 0, sizeof(HelThreadState));
@@ -136,7 +136,7 @@ void loadImage(const char *path, HelHandle directory) {
 	state.rsp = (uintptr_t)stack_base + stack_size;
 
 	HelHandle thread;
-	helCreateThread(space, directory, &state, &thread);
+	HEL_CHECK(helCreateThread(space, directory, &state, &thread));
 }
 
 HelHandle eventHub;
@@ -155,23 +155,23 @@ async::seq(
 			util::Callback<void(HelHandle)> callback) {
 		// receive a server handle from ld-server
 		int64_t async_id;
-		helSubmitRecvDescriptor(childHandle, eventHub,
+		HEL_CHECK(helSubmitRecvDescriptor(childHandle, eventHub,
 				kHelAnyRequest, kHelAnySequence,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject(),
-				&async_id);
+				&async_id));
 	}),
 	async::lambda([](InitContext &context,
 			util::Callback<void(HelHandle)> callback, HelHandle connect_handle) {
 		const char *name = "rtdl-server";
-		helRdPublish(context.directory, name, strlen(name), connect_handle);
+		HEL_CHECK(helRdPublish(context.directory, name, strlen(name), connect_handle));
 
 		// connect to the server
 		int64_t async_id;
-		helSubmitConnect(connect_handle, eventHub,
+		HEL_CHECK(helSubmitConnect(connect_handle, eventHub,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject(),
-				&async_id);
+				&async_id));
 	})
 );
 
@@ -266,15 +266,15 @@ auto loadObject = async::seq(
 		protobuf::emitUInt64(writer,
 				managarm::ld_server::ClientRequest::kField_base_address,
 				base_address);
-		helSendString(context.pipe,
-				writer.data(), writer.size(), 1, 0);
+		HEL_CHECK(helSendString(context.pipe,
+				writer.data(), writer.size(), 1, 0));
 
 		int64_t async_id;
-		helSubmitRecvString(context.pipe, eventHub,
+		HEL_CHECK(helSubmitRecvString(context.pipe, eventHub,
 				context.buffer, 128, 1, 0,
 				(uintptr_t)callback.getFunction(),
 				(uintptr_t)callback.getObject(),
-				&async_id);
+				&async_id));
 	}),
 	async::lambda([](LoadContext &context,
 			util::Callback<void()> callback, size_t length) {
@@ -290,11 +290,11 @@ auto loadObject = async::seq(
 			async::lambda([](LoadContext &context,
 					util::Callback<void(HelHandle)> callback) {
 				int64_t async_id;
-				helSubmitRecvDescriptor(context.pipe, eventHub,
+				HEL_CHECK(helSubmitRecvDescriptor(context.pipe, eventHub,
 						1, 1 + context.currentSegment,
 						(uintptr_t)callback.getFunction(),
 						(uintptr_t)callback.getObject(),
-						&async_id);
+						&async_id));
 			}),
 			async::lambda([](LoadContext &context,
 					util::Callback<void()> callback, HelHandle handle) {
@@ -309,8 +309,8 @@ auto loadObject = async::seq(
 				}
 				
 				void *actual_ptr;
-				helMapMemory(handle, context.space, (void *)segment.virtAddress,
-						segment.virtLength, map_flags, &actual_ptr);
+				HEL_CHECK(helMapMemory(handle, context.space, (void *)segment.virtAddress,
+						segment.virtLength, map_flags, &actual_ptr));
 
 				infoLogger->log() << "Mapped segment" << debug::Finish();
 				context.currentSegment++;
@@ -321,9 +321,11 @@ auto loadObject = async::seq(
 );
 
 struct ExecuteContext {
-	ExecuteContext(HelHandle pipe, HelHandle directory)
-	: directory(directory), executableContext(pipe), interpreterContext(pipe) {
-		helCreateSpace(&space);
+	ExecuteContext(const char *program,
+			HelHandle pipe, HelHandle directory)
+	: program(program), directory(directory),
+			executableContext(pipe), interpreterContext(pipe) {
+		HEL_CHECK(helCreateSpace(&space));
 		executableContext.space = space;
 		interpreterContext.space = space;
 	}
@@ -331,7 +333,8 @@ struct ExecuteContext {
 	ExecuteContext(const ExecuteContext &other) = delete;
 	
 	ExecuteContext(ExecuteContext &&other) = default;
-
+	
+	const char *program;
 	HelHandle space;
 	HelHandle directory;
 	LoadContext executableContext;
@@ -342,7 +345,7 @@ auto constructExecuteProgram() {
 	return async::seq(
 		async::lambda([](ExecuteContext &context,
 				util::Callback<void(util::StringView, uintptr_t)> callback) {
-			callback(util::StringView("acpi"), 0);
+			callback(util::StringView(context.program), 0);
 		}),
 		async::subContext(&ExecuteContext::executableContext,
 			async::lambda([](LoadContext &context,
@@ -361,11 +364,11 @@ auto constructExecuteProgram() {
 			constexpr size_t stack_size = 0x200000;
 			
 			HelHandle stack_memory;
-			helAllocateMemory(stack_size, &stack_memory);
+			HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
 
 			void *stack_base;
-			helMapMemory(stack_memory, context.space, nullptr,
-					stack_size, kHelMapReadWrite, &stack_base);
+			HEL_CHECK(helMapMemory(stack_memory, context.space, nullptr,
+					stack_size, kHelMapReadWrite, &stack_base));
 
 			HelThreadState state;
 			memset(&state, 0, sizeof(HelThreadState));
@@ -377,7 +380,7 @@ auto constructExecuteProgram() {
 			state.rcx = context.executableContext.entry;
 
 			HelHandle thread;
-			helCreateThread(context.space, context.directory, &state, &thread);
+			HEL_CHECK(helCreateThread(context.space, context.directory, &state, &thread));
 			callback();
 		})
 	);
@@ -385,41 +388,46 @@ auto constructExecuteProgram() {
 
 void remount(HelHandle directory, const char *path, const char *target) {
 	HelHandle handle;
-	helRdOpen(path, strlen(path), &handle);
-	helRdMount(directory, target, strlen(target), handle);
+	HEL_CHECK(helRdOpen(path, strlen(path), &handle));
+	HEL_CHECK(helRdMount(directory, target, strlen(target), handle));
 	infoLogger->log() << "Mounted " << path << " to " << target << debug::Finish();
 }
 
 void main() {
 	infoLogger->log() << "Entering k_init" << debug::Finish();
 
-	helCreateEventHub(&eventHub);
+	HEL_CHECK(helCreateEventHub(&eventHub));
 	
 	HelHandle directory;
-	helCreateRd(&directory);
+	HEL_CHECK(helCreateRd(&directory));
 
 	remount(directory, "initrd/#this", "initrd");
 
 	const char *pipe_name = "k_init";
 	HelHandle other_end;
-	helCreateBiDirectionPipe(&childHandle, &other_end);
-	helRdPublish(directory, pipe_name, strlen(pipe_name), other_end);
+	HEL_CHECK(helCreateBiDirectionPipe(&childHandle, &other_end));
+	HEL_CHECK(helRdPublish(directory, pipe_name, strlen(pipe_name), other_end));
 
 	loadImage("initrd/ld-server", directory);
-	
+
 	async::run(*allocator, initialize, InitContext(directory),
 	[](InitContext &context, HelHandle pipe) {
-		async::run(*allocator, constructExecuteProgram(), ExecuteContext(pipe, context.directory),
-		[](ExecuteContext &context) {
-			infoLogger->log() << "Execute successful" << debug::Finish();
-		});
+		auto on_complete = [](ExecuteContext &context) {
+			infoLogger->log() << context.program
+					<< " executed succesfully" << debug::Finish();
+		};
+	
+		async::run(*allocator, constructExecuteProgram(),
+				ExecuteContext("acpi", pipe, context.directory), on_complete);
+		async::run(*allocator, constructExecuteProgram(),
+				ExecuteContext("zisa", pipe, context.directory), on_complete);
 	});
 	
 	while(true) {
 		HelEvent events[16];
 		size_t num_items;
 	
-		helWaitForEvents(eventHub, events, 16, kHelWaitInfinite, &num_items);
+		HEL_CHECK(helWaitForEvents(eventHub, events, 16, kHelWaitInfinite, &num_items));
 
 		for(size_t i = 0; i < num_items; i++) {
 			void *function = (void *)events[i].submitFunction;
@@ -445,6 +453,6 @@ void main() {
 		}
 	}
 	
-	helExitThisThread();
+	HEL_CHECK(helExitThisThread());
 }
 

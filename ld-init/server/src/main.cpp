@@ -90,13 +90,13 @@ Object *readObject(util::StringView path) {
 
 	// open and map the executable image into this address space
 	HelHandle image_handle;
-	helRdOpen(full_path.data(), full_path.size(), &image_handle);
+	HEL_CHECK(helRdOpen(full_path.data(), full_path.size(), &image_handle));
 
 	size_t image_size;
 	void *image_ptr;
-	helMemoryInfo(image_handle, &image_size);
-	helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
-			kHelMapReadOnly, &image_ptr);
+	HEL_CHECK(helMemoryInfo(image_handle, &image_size));
+	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
+			kHelMapReadOnly, &image_ptr));
 	
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -191,11 +191,11 @@ void sendObject(HelHandle pipe, int64_t request_id,
 			auto &segment = wrapper.get<UniqueSegment>();
 			base_segment = &segment;
 
-			helAllocateMemory(segment.virtLength, &memory);
+			HEL_CHECK(helAllocateMemory(segment.virtLength, &memory));
 
 			void *map_pointer;
-			helMapMemory(memory, kHelNullHandle, nullptr,
-					segment.virtLength, kHelMapReadWrite, &map_pointer);
+			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+					segment.virtLength, kHelMapReadWrite, &map_pointer));
 			memset(map_pointer, 0, segment.virtLength);
 			memcpy((void *)((uintptr_t)map_pointer + segment.fileDisplacement),
 					(void *)((uintptr_t)object->imagePtr + segment.fileOffset),
@@ -227,11 +227,11 @@ void sendObject(HelHandle pipe, int64_t request_id,
 				managarm::ld_server::ServerResponse::kField_segments,
 				segment_writer);
 		
-		helSendDescriptor(pipe, memory, 1, 1 + i);
+		HEL_CHECK(helSendDescriptor(pipe, memory, 1, 1 + i));
 	}
 
-	helSendString(pipe,
-			object_writer.data(), object_writer.size(), 1, 0);
+	HEL_CHECK(helSendString(pipe,
+			object_writer.data(), object_writer.size(), 1, 0));
 }
 
 util::LazyInitializer<helx::EventHub> eventHub;
@@ -254,11 +254,11 @@ async::repeatWhile(
 		async::lambda([](ProcessContext &context,
 				util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
 			int64_t async_id;
-			helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
+			HEL_CHECK(helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
 					context.buffer, 128, kHelAnyRequest, 0,
 					(uintptr_t)callback.getFunction(),
 					(uintptr_t)callback.getObject(),
-					&async_id);
+					&async_id));
 		}),
 		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
 				HelError error, int64_t msg_request, int64_t msg_sequence, size_t length) {
@@ -296,7 +296,7 @@ void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 }
 
 extern "C" void _exit(int status) {
-	helExitThisThread();
+	HEL_CHECK(helExitThisThread());
 }
 
 int main() {
@@ -308,7 +308,7 @@ int main() {
 
 	// create a server and listen for requests
 	HelHandle serve_handle, client_handle;
-	helCreateServer(&serve_handle, &client_handle);
+	HEL_CHECK(helCreateServer(&serve_handle, &client_handle));
 
 	server.initialize(serve_handle);
 	server->accept(*eventHub, nullptr, &onAccept);
@@ -316,7 +316,7 @@ int main() {
 	// inform k_init that we are ready to server requests
 	const char *path = "k_init";
 	HelHandle parent_handle;
-	helRdOpen(path, strlen(path), &parent_handle);
+	HEL_CHECK(helRdOpen(path, strlen(path), &parent_handle));
 
 	helx::Pipe parent_pipe(parent_handle);
 	parent_pipe.sendDescriptor(client_handle, 1, 0);

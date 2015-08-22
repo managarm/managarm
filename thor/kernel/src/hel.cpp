@@ -35,7 +35,7 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	MemoryAccessDescriptor base(traits::move(memory));
 	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
@@ -52,7 +52,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	MemoryAccessDescriptor base(traits::move(memory));
 	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helCreateSpace(HelHandle *handle) {
@@ -65,7 +65,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	AddressSpaceDescriptor base(traits::move(space));
 	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
@@ -110,7 +110,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	*actual_pointer = (void *)actual_address;
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helMemoryInfo(HelHandle handle, size_t *size) {
@@ -182,7 +182,7 @@ HelError helCreateThread(HelHandle space_handle,
 //	ThreadObserveDescriptor base(traits::move(new_thread));
 //	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helExitThisThread() {
@@ -200,7 +200,7 @@ HelError helCreateEventHub(HelHandle *handle) {
 
 	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helWaitForEvents(HelHandle handle,
@@ -287,7 +287,7 @@ HelError helWaitForEvents(HelHandle handle,
 	}
 	*num_items = count;
 
-	return 0;
+	return kHelErrNone;
 }
 
 
@@ -305,7 +305,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	*first_handle = universe->attachDescriptor(traits::move(first_base));
 	*second_handle = universe->attachDescriptor(traits::move(second_base));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSendString(HelHandle handle,
@@ -335,7 +335,7 @@ HelError helSendString(HelHandle handle,
 		}
 	}
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
@@ -366,7 +366,7 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 		}
 	}
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSubmitRecvString(HelHandle handle,
@@ -407,7 +407,7 @@ HelError helSubmitRecvString(HelHandle handle,
 
 	*async_id = submit_info.asyncId;
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSubmitRecvDescriptor(HelHandle handle,
@@ -444,7 +444,7 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 
 	*async_id = submit_info.asyncId;
 
-	return 0;
+	return kHelErrNone;
 }
 
 
@@ -461,7 +461,7 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 	*server_handle = universe->attachDescriptor(traits::move(server_descriptor));
 	*client_handle = universe->attachDescriptor(traits::move(client_descriptor));
 
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
@@ -481,7 +481,7 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 
 	*async_id = submit_info.asyncId;
 	
-	return 0;
+	return kHelErrNone;
 }
 
 HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
@@ -501,7 +501,7 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 
 	*async_id = submit_info.asyncId;
 	
-	return 0;
+	return kHelErrNone;
 }
 
 
@@ -612,7 +612,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	*handle = universe->attachDescriptor(traits::move(base));
 
-	return 0;
+	return kHelErrNone;
 }
 HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
@@ -629,15 +629,9 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 
-	frigg::atomic::barrier();
-	ASSERT(intsAreEnabled());
-	disableInts();
-	
+	ASSERT(!intsAreEnabled());
 	irqRelays[number]->submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
 			submit_info);
-	
-	frigg::atomic::barrier();
-	enableInts();
 
 	*async_id = submit_info.asyncId;
 

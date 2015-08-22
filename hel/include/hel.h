@@ -170,3 +170,14 @@ HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
 HEL_C_LINKAGE HelError helControlKernel(int subsystem, int interface,
 		const void *input, void *output);
 
+extern inline __attribute__ (( always_inline )) void _helCheckFailed(const char *string) {
+	helPanic(string, strlen(string));
+}
+
+#define HEL_STRINGIFY_AUX(x) #x
+#define HEL_STRINGIFY(x) HEL_STRINGIFY_AUX(x)
+
+#define HEL_CHECK(expr) do { if((expr) != kHelErrNone) \
+		_helCheckFailed("HEL_CHECK failed: " #expr "\n" \
+		"In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__)); } while(0)
+
