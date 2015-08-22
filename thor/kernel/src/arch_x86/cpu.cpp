@@ -31,6 +31,8 @@ void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:0x08" : : "r" (&generalState) : "memory" );
 	asm volatile ( "mov %0, %%gs:0x10" : : "r" (&syscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:0x18"
+			: : "r" (syscallStack + kSyscallStackSize) : "memory" );
 	
 	// setup the thread's tss segment
 	ThorRtCpuSpecific *cpu_specific;
@@ -75,12 +77,6 @@ void initializeThisProcessor() {
 	kernel_gs->cpuSpecific = cpu_specific;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
 
-	// setup a stack for syscalls
-	size_t syscall_stack_size = 0x100000;
-	void *syscall_stack_base = thor::kernelAlloc->allocate(syscall_stack_size);
-	kernel_gs->syscallStackPtr = (void *)((uintptr_t)syscall_stack_base
-			+ syscall_stack_size);
-
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
 	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
@@ -97,10 +93,14 @@ void initializeThisProcessor() {
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	thorRtLoadCs(0x8);
+
+	// setup a stack for irqs
+	size_t irq_stack_size = 0x10000;
+	void *irq_stack_base = thor::kernelAlloc->allocate(irq_stack_size);
 	
 	// setup the kernel tss
 	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
-	cpu_specific->tssTemplate.ist1 = (uintptr_t)kernel_gs->syscallStackPtr;
+	cpu_specific->tssTemplate.ist1 = (uintptr_t)irq_stack_base + irq_stack_size;
 	
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));

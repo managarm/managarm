@@ -54,6 +54,11 @@ struct ThorRtSyscallState {
 };
 
 struct ThorRtThreadState {
+	enum {
+		kSyscallStackAlign = 16,
+		kSyscallStackSize = 0x10000
+	};
+
 	ThorRtThreadState();
 
 	void activate();
@@ -61,6 +66,8 @@ struct ThorRtThreadState {
 	ThorRtGeneralState generalState;
 	ThorRtSyscallState syscallState;
 	frigg::arch_x86::Tss64 threadTss;
+
+	alignas(kSyscallStackAlign) uint8_t syscallStack[0x10000];
 };
 
 struct ThorRtCpuSpecific {
