@@ -38,15 +38,14 @@ void doSchedule() {
 	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
 	ASSERT(!cpu_context->currentThread);
 	
-	if(!scheduleQueue->empty()) {
-		enterThread(scheduleQueue->removeFront());
-		restoreThisThread();
-	}else{
+	while(scheduleQueue->empty()) {
 		enableInts();
-		while(true) {
-			halt();
-		}
+		halt();
+		disableInts();
 	}
+
+	enterThread(scheduleQueue->removeFront());
+	restoreThisThread();
 }
 
 void enqueueInSchedule(SharedPtr<Thread, KernelAlloc> &&thread) {

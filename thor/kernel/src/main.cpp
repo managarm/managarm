@@ -195,15 +195,6 @@ extern "C" void thorIrq(int irq) {
 	acknowledgeIrq(irq);
 
 	irqRelays[irq]->fire();
-
-	if(irq == 0) {
-		enqueueInSchedule(resetCurrentThread());
-		doSchedule();
-	}else{
-		restoreThisThread();
-	}
-	
-	ASSERT(!"No return at end of thorIrq()");
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

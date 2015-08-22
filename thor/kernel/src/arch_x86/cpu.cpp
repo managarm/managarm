@@ -82,6 +82,8 @@ void *thorRtGetCpuContext() {
 }
 
 void callOnCpuStack(void (*function) ()) {
+	ASSERT(!intsAreEnabled());
+
 	ThorRtCpuSpecific *cpu_specific;
 	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
 	
@@ -109,7 +111,7 @@ void initializeThisProcessor() {
 	// note: the tss requires two slots in the gdt
 	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
 	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 2);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_specific->gdt, 2);
 	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 3);
 	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 4);
 	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 5);
