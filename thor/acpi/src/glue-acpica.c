@@ -228,7 +228,7 @@ ACPI_STATUS AcpiOsTableOverride(ACPI_TABLE_HEADER *existing,
 
 ACPI_STATUS AcpiOsPhysicalTableOverride(ACPI_TABLE_HEADER *existing,
 		ACPI_PHYSICAL_ADDRESS *new_address, UINT32 *new_length) {
-	*new_address = NULL;
+	*new_address = 0;
 	return AE_OK;
 }
 
