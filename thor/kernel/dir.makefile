@@ -7,7 +7,7 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 
 $c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
-	arch_x86/int_stubs.o arch_x86/cpu.o arch_x86/trampoline.o \
+	arch_x86/int_stubs.o arch_x86/syscall_stubs.o arch_x86/cpu.o arch_x86/trampoline.o \
 	arch_x86/ints.o arch_x86/pic.o arch_x86/system.o arch_x86/paging.o \
 	arch_x86/hpet.o \
 	physical.o main.o hel.o \

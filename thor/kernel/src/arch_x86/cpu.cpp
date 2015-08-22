@@ -28,17 +28,18 @@ ThorRtThreadState::ThorRtThreadState() {
 }
 
 void ThorRtThreadState::activate() {
-	// set the current general state pointer
+	// set the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:0x08" : : "r" (&generalState) : "memory" );
+	asm volatile ( "mov %0, %%gs:0x10" : : "r" (&syscallState) : "memory" );
 	
 	// setup the thread's tss segment
 	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:0x18, %0" : "=r" (cpu_specific) );
+	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
 	threadTss.ist1 = cpu_specific->tssTemplate.ist1;
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&threadTss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
+	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 }
 
 // --------------------------------------------------------
@@ -64,6 +65,7 @@ void *thorRtGetCpuContext() {
 }
 
 extern "C" void thorRtLoadCs(uint16_t selector);
+extern "C" void syscallStub();
 
 void initializeThisProcessor() {
 	auto cpu_specific = memory::construct<ThorRtCpuSpecific>(*thor::kernelAlloc);
@@ -83,12 +85,14 @@ void initializeThisProcessor() {
 	// note: the tss requires two slots in the gdt
 	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
 	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
-	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 2);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 3);
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4, nullptr, 0);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 2);
+	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 3);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 4);
+	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 5);
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6, nullptr, 0);
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 6 * 8;
+	gdtr.limit = 8 * 8;
 	gdtr.pointer = cpu_specific->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
@@ -98,9 +102,9 @@ void initializeThisProcessor() {
 	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
 	cpu_specific->tssTemplate.ist1 = (uintptr_t)kernel_gs->syscallStackPtr;
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 4,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x20 ) );
+	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
@@ -111,6 +115,22 @@ void initializeThisProcessor() {
 	idtr.limit = 256 * 16;
 	idtr.pointer = cpu_specific->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
+
+	// setup the syscall interface
+	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
+			& frigg::arch_x86::kCpuFlagSyscall) == 0)
+		frigg::debug::panicLogger.log() << "CPU does not support the syscall instruction"
+				<< frigg::debug::Finish();
+	
+	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
+			efer | frigg::arch_x86::kMsrSyscallEnable);
+
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLstar, (uintptr_t)&syscallStub);
+	// user mode cs = 0x18, kernel mode cs = 0x08
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
+			(uint64_t(0x18) << 48) | (uint64_t(0x08) << 32));
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x200); // mask interrupts
 }
 
 // note: these symbols have PHYSICAL addresses!

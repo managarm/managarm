@@ -22,7 +22,6 @@ extern "C" void thorRtIsrIrq12();
 extern "C" void thorRtIsrIrq13();
 extern "C" void thorRtIsrIrq14();
 extern "C" void thorRtIsrIrq15();
-extern "C" void thorRtIsrSyscall();
 
 namespace thor {
 
@@ -70,9 +69,6 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq14, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 79,
 			0x8, (void *)&thorRtIsrIrq15, 1);
-	
-	frigg::arch_x86::makeIdt64IntUserGate(table, 0x80,
-			0x8, (void *)&thorRtIsrSyscall, 1);
 }
 
 void thorRtEnableInts() {

@@ -177,38 +177,14 @@ MAKE_IRQ_HANDLER 13
 MAKE_IRQ_HANDLER 14
 MAKE_IRQ_HANDLER 15
 
-.global thorRtIsrSyscall
-thorRtIsrSyscall:
-	mov %gs:0x08, %rbx
-
-	mov %rbp, kContextRbp(%rbx)
-	mov %r12, kContextR12(%rbx)
-	mov %r13, kContextR13(%rbx)
-	mov %r14, kContextR14(%rbx)
-	mov %r15, kContextR15(%rbx)
-
-	popq kContextRip(%rbx)
-	add $8, %rsp # skip cs
-	popq kContextRflags(%rbx)
-	popq kContextRsp(%rbx)
-	add $8, %rsp # skip ss
-
-	push %r13
-	push %r12
-	push %r11
-	push %r10
-
-	call thorSyscall
-	jmp thorRtHalt
-
 .global thorRtFullReturn
 thorRtFullReturn:
 	mov %gs:0x08, %rbx
 	
-	pushq $0x1B # ss
+	pushq $0x23 # ss
 	pushq kContextRsp(%rbx)
 	pushq kContextRflags(%rbx)
-	pushq $0x13 # cs
+	pushq $0x1B # cs
 	pushq kContextRip(%rbx)
 
 	mov kContextRcx(%rbx), %rcx
@@ -259,28 +235,5 @@ thorRtFullReturnToKernel:
 	mov kContextRax(%rbx), %rax
 	mov kContextRbx(%rbx), %rbx
 
-	iretq
-
-.global thorRtReturnSyscall1
-.global thorRtReturnSyscall2
-.global thorRtReturnSyscall3
-thorRtReturnSyscall1:
-thorRtReturnSyscall2:
-thorRtReturnSyscall3:
-	mov %gs:0x08, %rbx
-
-	mov kContextRbp(%rbx), %rbp
-	mov kContextR10(%rbx), %r10
-	mov kContextR11(%rbx), %r11
-	mov kContextR12(%rbx), %r12
-	mov kContextR13(%rbx), %r13
-	mov kContextR14(%rbx), %r14
-	mov kContextR15(%rbx), %r15
-	
-	pushq $0x1B # ss
-	pushq kContextRsp(%rbx)
-	pushq kContextRflags(%rbx)
-	pushq $0x13 # cs
-	pushq kContextRip(%rbx)
 	iretq
 

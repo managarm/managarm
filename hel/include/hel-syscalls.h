@@ -5,25 +5,28 @@ typedef HelWord HelSyscallOutput[2];
 
 extern inline __attribute__ (( always_inline )) HelError helSyscall(int number,
 		HelSyscallInput input, HelSyscallOutput output) {
+	// note: the rcx and r11 registers are clobbered by syscall
+	// so we do not use them to pass parameters
+	// we also clobber rbx in kernel code
 	register HelWord in1 asm("rdi") = number;
 	register HelWord in2 asm("rsi") = input[0];
 	register HelWord in3 asm("rdx") = input[1];
-	register HelWord in4 asm("rcx") = input[2];
+	register HelWord in4 asm("rax") = input[2];
 	register HelWord in5 asm("r8") = input[3];
 	register HelWord in6 asm("r9") = input[4];
 	register HelWord in7 asm("r10") = input[5];
-	register HelWord in8 asm("r11") = input[6];
-	register HelWord in9 asm("r12") = input[7];
-	register HelWord in10 asm("r13") = input[8];
+	register HelWord in8 asm("r12") = input[6];
+	register HelWord in9 asm("r13") = input[7];
+	register HelWord in10 asm("r14") = input[8];
 
 	register HelWord out1 asm("rdi");
 	register HelWord out2 asm("rsi");
 	register HelWord out3 asm("rdx");
 	
-	asm volatile ( "int $0x80" : "=r" (out1), "=r" (out2), "=r" (out3)
+	asm volatile ( "syscall" : "=r" (out1), "=r" (out2), "=r" (out3)
 			: "r" (in1), "r" (in2), "r" (in3), "r" (in4), "r" (in5),
 				"r" (in6), "r" (in7), "r" (in8), "r" (in9), "r" (in10)
-			: "rax", "rbx", "memory" );
+			: "rcx", "r11", "rbx", "memory" );
 
 	output[0] = out2;
 	output[1] = out3;

@@ -40,17 +40,31 @@ struct ThorRtGeneralState {
 	Word rflags;	// offset 0x88
 };
 
+// note: this struct is accessed from assembly.
+// do not change the field offsets!
+struct ThorRtSyscallState {
+	Word rbp;		// offset 0x00
+	Word r12;		// offset 0x08
+	Word r13;		// offset 0x10
+	Word r14;		// offset 0x18
+	Word r15;		// offset 0x20
+	Word rsp;		// offset 0x28
+	Word rip;		// offset 0x30
+	Word rflags;	// offset 0x38
+};
+
 struct ThorRtThreadState {
 	ThorRtThreadState();
 
 	void activate();
 
 	ThorRtGeneralState generalState;
+	ThorRtSyscallState syscallState;
 	frigg::arch_x86::Tss64 threadTss;
 };
 
 struct ThorRtCpuSpecific {
-	uint32_t gdt[6 * 8];
+	uint32_t gdt[8 * 8];
 	uint32_t idt[256 * 16];
 	frigg::arch_x86::Tss64 tssTemplate;
 };
@@ -62,8 +76,9 @@ struct ThorRtKernelGs {
 
 	void *cpuContext;					// offset 0x00
 	ThorRtGeneralState *generalState;	// offset 0x08
-	void *syscallStackPtr;				// offset 0x10
-	ThorRtCpuSpecific *cpuSpecific;		// offset 0x18
+	ThorRtSyscallState *syscallState;	// offset 0x10
+	void *syscallStackPtr;				// offset 0x18
+	ThorRtCpuSpecific *cpuSpecific;		// offset 0x20
 };
 
 void thorRtSetCpuContext(void *context);

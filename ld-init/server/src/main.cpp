@@ -295,6 +295,10 @@ void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 	server->accept(*eventHub, nullptr, &onAccept);
 }
 
+extern "C" void _exit(int status) {
+	helExitThisThread();
+}
+
 int main() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-server" << debug::Finish();

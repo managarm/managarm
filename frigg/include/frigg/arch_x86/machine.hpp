@@ -8,6 +8,7 @@ enum {
 
 enum {
 	// Extendend features, EDX register
+	kCpuFlagSyscall = 0x800,
 	kCpuFlagNx = 0x100000,
 	kCpuFlagLongMode = 0x20000000
 };
@@ -22,9 +23,17 @@ extern inline util::Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
 
 enum {
 	kMsrLocalApicBase = 0x0000001B,
+	kMsrEfer = 0xC0000080,
+	kMsrStar = 0xC0000081,
+	kMsrLstar = 0xC0000082,
+	kMsrFmask = 0xC0000084,
 	kMsrIndexFsBase = 0xC0000100,
 	kMsrIndexGsBase = 0xC0000101,
 	kMsrIndexKernelGsBase = 0xC0000102
+};
+
+enum {
+	kMsrSyscallEnable = 1
 };
 
 extern inline void wrmsr(uint32_t index, uint64_t value) {
