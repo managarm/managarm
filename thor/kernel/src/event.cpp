@@ -23,6 +23,8 @@ EventHub::EventHub() : p_queue(*kernelAlloc) { }
 void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
 	Event event(Event::kTypeIrq, submit_info);
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 void EventHub::raiseRecvStringErrorEvent(Error error,
@@ -30,6 +32,8 @@ void EventHub::raiseRecvStringErrorEvent(Error error,
 	Event event(Event::kTypeRecvStringError, submit_info);
 	event.error = error;
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 void EventHub::raiseRecvStringTransferEvent(int64_t msg_request, int64_t msg_sequence,
@@ -42,6 +46,8 @@ void EventHub::raiseRecvStringTransferEvent(int64_t msg_request, int64_t msg_seq
 	event.userBuffer = user_buffer;
 	event.length = length;
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 void EventHub::raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequence,
@@ -51,6 +57,8 @@ void EventHub::raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequenc
 	event.msgSequence = msg_sequence;
 	event.descriptor = traits::move(descriptor);
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
@@ -58,6 +66,8 @@ void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 	Event event(Event::kTypeAccept, submit_info);
 	event.pipe = traits::move(pipe);
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
@@ -65,6 +75,8 @@ void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 	Event event(Event::kTypeConnect, submit_info);
 	event.pipe = traits::move(pipe);
 	p_queue.addBack(traits::move(event));
+
+	wakeup();
 }
 
 bool EventHub::hasEvent() {
@@ -73,6 +85,15 @@ bool EventHub::hasEvent() {
 
 EventHub::Event EventHub::dequeueEvent() {
 	return p_queue.removeFront();
+}
+
+void EventHub::blockThread(SharedPtr<Thread, KernelAlloc> &&thread) {
+	p_blocking.addBack(traits::move(thread));
+}
+
+void EventHub::wakeup() {
+	while(!p_blocking.empty())
+		enqueueInSchedule(p_blocking.removeFront());
 }
 
 // --------------------------------------------------------

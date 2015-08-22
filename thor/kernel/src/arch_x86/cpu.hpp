@@ -65,6 +65,7 @@ struct ThorRtThreadState {
 	ThorRtThreadState();
 
 	void activate();
+	void deactivate();
 
 	ThorRtGeneralState generalState;
 	ThorRtSyscallState syscallState;

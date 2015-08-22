@@ -40,6 +40,10 @@ void Thread::activate() {
 	p_saveState.activate();
 }
 
+void Thread::deactivate() {
+	p_saveState.deactivate();
+}
+
 ThorRtThreadState &Thread::accessSaveState() {
 	return p_saveState;
 }

@@ -22,6 +22,7 @@ public:
 	void enableIoPort(uintptr_t port);
 	
 	void activate();
+	void deactivate();
 
 	ThorRtThreadState &accessSaveState();
 

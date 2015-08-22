@@ -58,6 +58,10 @@ public:
 		return *this;
 	}
 
+	operator bool () {
+		return p_block != nullptr;
+	}
+
 	void reset() {
 		if(p_block == nullptr)
 			return;
@@ -91,6 +95,10 @@ public:
 	UnsafePtr() : p_block(nullptr) { }
 	
 	operator SharedPtr<T, Allocator> ();
+
+	operator bool () {
+		return p_block != nullptr;
+	}
 
 	T *operator-> () {
 		if(p_block == nullptr)

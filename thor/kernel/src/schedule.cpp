@@ -7,19 +7,40 @@ namespace thor {
 
 frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
-void switchThread(UnsafePtr<Thread, KernelAlloc> thread) {
+SharedPtr<Thread, KernelAlloc> resetCurrentThread() {
+	ASSERT(!intsAreEnabled());
 	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
-	cpu_context->currentThread.reset();
+	ASSERT(cpu_context->currentThread);
+
+	UnsafePtr<Thread, KernelAlloc> thread = cpu_context->currentThread;
+	thread->deactivate();
+	return traits::move(cpu_context->currentThread);
+}
+
+void enterThread(SharedPtr<Thread, KernelAlloc> &&thread) {
+	ASSERT(!intsAreEnabled());
+	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
+	ASSERT(!cpu_context->currentThread);
+
 	thread->activate();
-	cpu_context->currentThread = SharedPtr<Thread, KernelAlloc>(thread);
+	cpu_context->currentThread = traits::move(thread);
 }
 
 void doSchedule() {
-	ASSERT(!scheduleQueue->empty());
-	SharedPtr<Thread, KernelAlloc> thread = scheduleQueue->removeFront();
-	switchThread(thread);
+	ASSERT(!intsAreEnabled());
 	
-	restoreThisThread();
+	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
+	ASSERT(!cpu_context->currentThread);
+	
+	if(!scheduleQueue->empty()) {
+		enterThread(scheduleQueue->removeFront());
+		restoreThisThread();
+	}else{
+		enableInts();
+		while(true) {
+			halt();
+		}
+	}
 }
 
 void enqueueInSchedule(SharedPtr<Thread, KernelAlloc> &&thread) {

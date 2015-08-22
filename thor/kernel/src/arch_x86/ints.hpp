@@ -9,6 +9,10 @@ void enableInts();
 
 void disableInts();
 
+inline void halt() {
+	asm volatile ( "hlt" );
+}
+
 extern "C" bool saveThisThread() __attribute__ (( returns_twice ));
 extern "C" void restoreThisThread() __attribute__ (( noreturn ));
 

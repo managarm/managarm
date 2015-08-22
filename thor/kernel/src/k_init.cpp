@@ -379,6 +379,8 @@ void remount(HelHandle directory, const char *path, const char *target) {
 }
 
 void main() {
+	disableInts();
+
 	infoLogger->log() << "Entering k_init" << debug::Finish();
 
 	helCreateEventHub(&eventHub);

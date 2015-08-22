@@ -68,9 +68,9 @@ struct CpuContext {
 
 #include "descriptor.hpp"
 #include "usermem.hpp"
+#include "thread.hpp"
 #include "event.hpp"
 #include "ipc.hpp"
-#include "thread.hpp"
 #include "rd.hpp"
 #include "io.hpp"
 

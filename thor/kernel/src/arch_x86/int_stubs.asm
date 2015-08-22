@@ -132,6 +132,11 @@ thorRtIsrIrq\irq:
 	pushq %rbx
 	mov %gs:0x08, %rbx
 
+	# check if we interrupted a thread
+	cmp $0, %rbx
+	je .L_nothread_irq\irq
+
+	# save the registers in the thread structure
 	mov %rax, .L_generalRax(%rbx)
 	mov %rcx, .L_generalRcx(%rbx)
 	mov %rdx, .L_generalRdx(%rbx)
@@ -147,7 +152,7 @@ thorRtIsrIrq\irq:
 	mov %r13, .L_generalR13(%rbx)
 	mov %r14, .L_generalR14(%rbx)
 	mov %r15, .L_generalR15(%rbx)
-	
+
 	popq .L_generalRbx(%rbx)
 	popq .L_generalRip(%rbx)
 	popq %rax # cs
@@ -161,7 +166,14 @@ thorRtIsrIrq\irq:
 
 	mov $\irq, %rdi
 	call thorIrq
-	jmp thorRtHalt
+	ud2
+
+.L_nothread_irq\irq:
+	# no thread was currently running
+	# save the registers on the stack and process the irq
+	call thorImplementNoThreadIrqs
+	ud2
+
 .endm
 MAKE_IRQ_HANDLER 0
 MAKE_IRQ_HANDLER 1
@@ -197,9 +209,13 @@ saveThisThread:
 	mov %r15, .L_generalR15(%rax)
 	
 	# setup the state for the second return
+	pushfq
+	popq .L_generalRflags(%rax)
 	mov (%rsp), %rdx
 	mov %rdx, .L_generalRip(%rax)
-	mov %rsp, .L_generalRip(%rax)
+	leaq 8(%rsp), %rcx
+	mov %rcx, .L_generalRsp(%rax)
+	movb $1, .L_generalKernel(%rax)
 	movq $0, .L_generalRax(%rax)
 
 	mov $1, %rax

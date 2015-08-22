@@ -67,8 +67,13 @@ public:
 	bool hasEvent();
 	Event dequeueEvent();
 
+	void blockThread(SharedPtr<Thread, KernelAlloc> &&thread);
+
 private:
+	void wakeup();
+
 	frigg::util::LinkedList<Event, KernelAlloc> p_queue;
+	ThreadQueue p_blocking;
 };
 
 } // namespace thor

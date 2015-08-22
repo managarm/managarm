@@ -198,14 +198,17 @@ extern "C" void thorIrq(int irq) {
 	irqRelays[irq]->fire();
 
 	if(irq == 0) {
-		SharedPtr<Thread, KernelAlloc> copy(getCurrentThread());
-		enqueueInSchedule(traits::move(copy));
+		enqueueInSchedule(resetCurrentThread());
 		doSchedule();
 	}else{
 		restoreThisThread();
 	}
 	
 	ASSERT(!"No return at end of thorIrq()");
+}
+
+extern "C" void thorImplementNoThreadIrqs() {
+	ASSERT(!"Implement no-thread IRQ stubs");
 }
 
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,

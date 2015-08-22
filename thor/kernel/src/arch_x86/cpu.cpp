@@ -44,6 +44,13 @@ void ThorRtThreadState::activate() {
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 }
 
+void ThorRtThreadState::deactivate() {
+	// reset the current general / syscall state pointer
+	asm volatile ( "mov %0, %%gs:0x08" : : "r" (nullptr) : "memory" );
+	asm volatile ( "mov %0, %%gs:0x10" : : "r" (nullptr) : "memory" );
+	asm volatile ( "mov %0, %%gs:0x18" : : "r" (nullptr) : "memory" );
+}
+
 // --------------------------------------------------------
 // ThorRtKernelGs
 // --------------------------------------------------------

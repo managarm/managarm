@@ -187,9 +187,9 @@ HelError helCreateThread(HelHandle space_handle,
 
 HelError helExitThisThread() {
 	// schedule without re-enqueuing this thread first
+	// FIXME: this leaks a reference to the thread!
+	SharedPtr<Thread, KernelAlloc> thread = resetCurrentThread();
 	doSchedule();
-
-	return kHelErrNone;
 }
 
 
@@ -217,6 +217,14 @@ HelError helWaitForEvents(HelHandle handle,
 	UnsafePtr<EventHub, KernelAlloc> event_hub = hub_descriptor.getEventHub();
 
 	// TODO: check userspace page access rights
+
+	while(!event_hub->hasEvent()) {
+		ASSERT(!intsAreEnabled());
+		if(saveThisThread()) {
+			event_hub->blockThread(resetCurrentThread());
+			doSchedule();
+		}
+	}
 
 	size_t count; 
 	for(count = 0; count < max_items; count++) {
