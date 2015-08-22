@@ -15,11 +15,6 @@ int64_t nextAsyncId = 1;
 BochsSink infoSink;
 frigg::util::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
-UnsafePtr<Thread, KernelAlloc> getCurrentThread() {
-	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
-	return cpu_context->currentThread;
-}
-
 // --------------------------------------------------------
 // Memory management
 // --------------------------------------------------------

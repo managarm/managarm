@@ -7,9 +7,13 @@ namespace thor {
 
 frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
+UnsafePtr<Thread, KernelAlloc> getCurrentThread() {
+	return getCpuContext()->currentThread;
+}
+
 SharedPtr<Thread, KernelAlloc> resetCurrentThread() {
 	ASSERT(!intsAreEnabled());
-	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
+	auto cpu_context = getCpuContext();
 	ASSERT(cpu_context->currentThread);
 
 	UnsafePtr<Thread, KernelAlloc> thread = cpu_context->currentThread;
@@ -25,7 +29,7 @@ void dropCurrentThread() {
 
 void enterThread(SharedPtr<Thread, KernelAlloc> &&thread) {
 	ASSERT(!intsAreEnabled());
-	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
+	auto cpu_context = getCpuContext();
 	ASSERT(!cpu_context->currentThread);
 
 	thread->activate();
@@ -35,9 +39,7 @@ void enterThread(SharedPtr<Thread, KernelAlloc> &&thread) {
 
 void doSchedule() {
 	ASSERT(!intsAreEnabled());
-	
-	auto cpu_context = (CpuContext *)thorRtGetCpuContext();
-	ASSERT(!cpu_context->currentThread);
+	ASSERT(!getCpuContext()->currentThread);
 	
 	while(scheduleQueue->empty()) {
 		enableInts();

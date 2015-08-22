@@ -111,6 +111,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	initializeThisProcessor();
 	initializeTheSystem();
+
+	scheduleQueue.initialize();
 	
 	// create a directory and load the memory regions of all modules into it
 	ASSERT(info->numModules >= 1);
@@ -134,11 +136,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	const char *mod_path = "initrd";
 	auto root_directory = makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
-	
-	auto cpu_context = memory::construct<CpuContext>(*kernelAlloc);
-	thorRtSetCpuContext(cpu_context);
-
-	scheduleQueue.initialize();
 
 	// finally we lauch the user_boot program
 	auto universe = makeShared<Universe>(*kernelAlloc);

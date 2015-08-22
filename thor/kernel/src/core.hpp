@@ -96,8 +96,5 @@ private:
 	Handle p_nextHandle;
 };
 
-
-UnsafePtr<Thread, KernelAlloc> getCurrentThread();
-
 } // namespace thor
 

@@ -3,6 +3,8 @@ namespace thor {
 
 extern frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
+UnsafePtr<Thread, KernelAlloc> getCurrentThread();
+
 // resets the current thread on this processor to null
 // do not use this function to exit the current thread!
 SharedPtr<Thread, KernelAlloc> resetCurrentThread();

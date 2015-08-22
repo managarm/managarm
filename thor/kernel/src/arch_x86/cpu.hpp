@@ -87,20 +87,21 @@ struct ThorRtCpuSpecific {
 	alignas(kCpuStackAlign) uint8_t cpuStack[kCpuStackSize];
 };
 
+struct CpuContext;
+
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct ThorRtKernelGs {
 	ThorRtKernelGs();
 
-	void *cpuContext;					// offset 0x00
+	CpuContext *cpuContext;				// offset 0x00
 	ThorRtGeneralState *generalState;	// offset 0x08
 	ThorRtSyscallState *syscallState;	// offset 0x10
 	void *syscallStackPtr;				// offset 0x18
 	ThorRtCpuSpecific *cpuSpecific;		// offset 0x20
 };
 
-void thorRtSetCpuContext(void *context);
-void *thorRtGetCpuContext();
+CpuContext *getCpuContext();
 
 // calls the given function on the per-cpu stack
 // this allows us to implement a save exit-this-thread function
