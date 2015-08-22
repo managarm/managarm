@@ -74,7 +74,7 @@ util::LazyInitializer<helx::Pipe> serverPipe;
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering ld-init" << debug::Finish();
+	//infoLogger->log() << "Entering ld-init" << debug::Finish();
 	allocator.initialize(virtualAlloc);
 	
 	interpreter.initialize();
@@ -130,7 +130,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	
 	processCopyRelocations(executable.get());
 
-	infoLogger->log() << "Leaving ld-init" << debug::Finish();
+	//infoLogger->log() << "Leaving ld-init" << debug::Finish();
 	return executable->entry;
 }
 

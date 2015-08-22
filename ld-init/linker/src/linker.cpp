@@ -258,7 +258,7 @@ void processServerResponse(SharedObject *object, Reader reader) {
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
-	infoLogger->log() << "Loading " << file << debug::Finish();
+	//infoLogger->log() << "Loading " << file << debug::Finish();
 
 	protobuf::FixedWriter<64> writer;
 	protobuf::emitCString(writer,
@@ -284,7 +284,6 @@ void Loader::process() {
 	while(!p_processQueue.empty()) {
 		SharedObject *object = p_processQueue.front();
 		object->loadScope = p_scope;
-		infoLogger->log() << "process at " << (void *)object->baseAddress << debug::Finish();
 
 		processDependencies(object);
 		processStaticRelocations(object);

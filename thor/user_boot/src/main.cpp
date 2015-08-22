@@ -311,8 +311,6 @@ auto loadObject = async::seq(
 				void *actual_ptr;
 				HEL_CHECK(helMapMemory(handle, context.space, (void *)segment.virtAddress,
 						segment.virtLength, map_flags, &actual_ptr));
-
-				infoLogger->log() << "Mapped segment" << debug::Finish();
 				context.currentSegment++;
 				callback();
 			})
