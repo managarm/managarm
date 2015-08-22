@@ -19,11 +19,7 @@ void doSchedule() {
 	SharedPtr<Thread, KernelAlloc> thread = scheduleQueue->removeFront();
 	switchThread(thread);
 	
-	if(!getCurrentThread()->isKernelThread()) {
-		thorRtFullReturn();
-	}else{
-		thorRtFullReturnToKernel();
-	}
+	restoreThisThread();
 }
 
 void enqueueInSchedule(SharedPtr<Thread, KernelAlloc> &&thread) {

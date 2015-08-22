@@ -30,10 +30,10 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrDivideByZeroError, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
 			0x8, (void *)&thorRtIsrInvalidOpcode, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
-			0x8, (void *)&thorRtIsrDoubleFault, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
-			0x8, (void *)&thorRtIsrGeneralProtectionFault, 1);
+//	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
+//			0x8, (void *)&thorRtIsrDoubleFault, 1);
+//	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
+//			0x8, (void *)&thorRtIsrGeneralProtectionFault, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 14,
 			0x8, (void *)&thorRtIsrPageFault, 1);
 
@@ -71,11 +71,18 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq15, 1);
 }
 
-void thorRtEnableInts() {
+bool intsAreEnabled() {
+	uint64_t rflags;
+	asm volatile ( "pushfq\n"
+			"\rpop %0" : "=r" (rflags) );
+	return (rflags & 0x200) != 0;
+}
+
+void enableInts() {
 	asm volatile ( "sti" );
 }
 
-void thorRtDisableInts() {
+void disableInts() {
 	asm volatile ( "cli" );
 }
 

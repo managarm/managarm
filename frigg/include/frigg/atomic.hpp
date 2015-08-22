@@ -2,6 +2,10 @@
 namespace frigg {
 namespace atomic {
 
+inline void barrier() {
+	asm volatile ( "" : : : "memory" );
+}
+
 } } // namespace frigg::atomic
 
 #if defined(__i386__)

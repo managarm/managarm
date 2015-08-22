@@ -175,6 +175,7 @@ HelError helCreateThread(HelHandle space_handle,
 	state.rip = user_state->rip;
 	state.rsp = user_state->rsp;
 	state.rflags = 0x200; // set the interrupt flag
+	state.kernel = 0;
 
 	scheduleQueue->addBack(traits::move(new_thread));
 
@@ -622,9 +623,16 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+
+	frigg::atomic::barrier();
+	ASSERT(intsAreEnabled());
+	disableInts();
 	
 	irqRelays[number]->submitWaitRequest(SharedPtr<EventHub, KernelAlloc>(event_hub),
 			submit_info);
+	
+	frigg::atomic::barrier();
+	enableInts();
 
 	*async_id = submit_info.asyncId;
 

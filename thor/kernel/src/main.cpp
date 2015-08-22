@@ -107,6 +107,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	thread->accessSaveState().generalState.rsp = (uintptr_t)stack_base + stack_size;
 	thread->accessSaveState().generalState.rip = (Word)&k_init::main;
+	thread->accessSaveState().generalState.rflags = 0x200; // enable interrupts
+	thread->accessSaveState().generalState.kernel = 1;
 	
 	enqueueInSchedule(traits::move(thread));
 	
@@ -189,6 +191,8 @@ extern "C" void thorUserPageFault(uintptr_t address, Word error) {
 }
 
 extern "C" void thorIrq(int irq) {
+	ASSERT(!intsAreEnabled());
+
 	acknowledgeIrq(irq);
 
 	irqRelays[irq]->fire();
@@ -198,11 +202,7 @@ extern "C" void thorIrq(int irq) {
 		enqueueInSchedule(traits::move(copy));
 		doSchedule();
 	}else{
-		if(!getCurrentThread()->isKernelThread()) {
-			thorRtFullReturn();
-		}else{
-			thorRtFullReturnToKernel();
-		}
+		restoreThisThread();
 	}
 	
 	ASSERT(!"No return at end of thorIrq()");

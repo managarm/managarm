@@ -379,7 +379,7 @@ void remount(HelHandle directory, const char *path, const char *target) {
 }
 
 void main() {
-	thorRtDisableInts();
+	infoLogger->log() << "Entering k_init" << debug::Finish();
 
 	helCreateEventHub(&eventHub);
 	
@@ -407,9 +407,6 @@ void main() {
 		HelEvent events[16];
 		size_t num_items;
 	
-		thorRtEnableInts();
-		thorRtDisableInts();
-
 		helWaitForEvents(eventHub, events, 16, kHelWaitInfinite, &num_items);
 
 		for(size_t i = 0; i < num_items; i++) {
