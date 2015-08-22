@@ -19,7 +19,7 @@ RdFolder::RdFolder()
 : p_entries(*kernelAlloc) { }
 
 void RdFolder::mount(const char *name, size_t name_length,
-		SharedPtr<RdFolder, KernelAlloc> &&mounted) {
+		KernelSharedPtr<RdFolder> &&mounted) {
 	Entry entry(kTypeMounted);
 	entry.mounted = traits::move(mounted);
 

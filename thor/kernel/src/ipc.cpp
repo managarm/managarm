@@ -56,7 +56,7 @@ void Channel::sendDescriptor(AnyDescriptor &&descriptor,
 	p_messages.addBack(traits::move(message));
 }
 
-void Channel::submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+void Channel::submitRecvString(KernelSharedPtr<EventHub> &&event_hub,
 		uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
@@ -81,7 +81,7 @@ void Channel::submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 		p_requests.addBack(traits::move(request));
 }
 
-void Channel::submitRecvDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+void Channel::submitRecvDescriptor(KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
 	Request request(kMsgDescriptor, traits::move(event_hub),
@@ -145,7 +145,7 @@ Channel::Message::Message(MsgType type, int64_t msg_request, int64_t msg_sequenc
 // --------------------------------------------------------
 
 Channel::Request::Request(MsgType type,
-		SharedPtr<EventHub, KernelAlloc> &&event_hub,
+		KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
 	: type(type), eventHub(traits::move(event_hub)), submitInfo(submit_info),
@@ -175,7 +175,7 @@ Channel *BiDirectionPipe::getSecondChannel() {
 Server::Server() : p_acceptRequests(*kernelAlloc),
 		p_connectRequests(*kernelAlloc) { }
 
-void Server::submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+void Server::submitAccept(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
 	AcceptRequest request(traits::move(event_hub), submit_info);
 	
@@ -187,7 +187,7 @@ void Server::submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 	}
 }
 
-void Server::submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+void Server::submitConnect(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
 	ConnectRequest request(traits::move(event_hub), submit_info);
 
@@ -201,8 +201,8 @@ void Server::submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
 
 void Server::processRequests(const AcceptRequest &accept,
 		const ConnectRequest &connect) {
-	auto pipe = makeShared<BiDirectionPipe>(*kernelAlloc);
-	SharedPtr<BiDirectionPipe, KernelAlloc> copy(pipe);
+	auto pipe = frigg::makeShared<BiDirectionPipe>(*kernelAlloc);
+	KernelSharedPtr<BiDirectionPipe> copy(pipe);
 
 	accept.eventHub->raiseAcceptEvent(traits::move(pipe),
 			accept.submitInfo);
@@ -214,7 +214,7 @@ void Server::processRequests(const AcceptRequest &accept,
 // Server::AcceptRequest
 // --------------------------------------------------------
 
-Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+Server::AcceptRequest::AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
@@ -222,7 +222,7 @@ Server::AcceptRequest::AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hu
 // Server::ConnectRequest
 // --------------------------------------------------------
 
-Server::ConnectRequest::ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+Server::ConnectRequest::ConnectRequest(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 

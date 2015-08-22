@@ -37,6 +37,12 @@ extern frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 extern frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
 
+template<typename T>
+using KernelSharedPtr = frigg::SharedPtr<T, KernelAlloc>;
+
+template<typename T>
+using KernelUnsafePtr = frigg::UnsafePtr<T, KernelAlloc>;
+
 // --------------------------------------------------------
 // Kernel data types
 // --------------------------------------------------------
@@ -61,7 +67,7 @@ class IrqLine;
 class IoSpace;
 
 struct CpuContext {
-	SharedPtr<Thread, KernelAlloc> currentThread;
+	KernelSharedPtr<Thread> currentThread;
 };
 
 } // namespace thor

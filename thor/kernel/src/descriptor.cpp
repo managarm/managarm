@@ -9,10 +9,10 @@ namespace thor {
 // MemoryAccessDescriptor
 // --------------------------------------------------------
 
-MemoryAccessDescriptor::MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory)
+MemoryAccessDescriptor::MemoryAccessDescriptor(KernelSharedPtr<Memory> &&memory)
 		: p_memory(traits::move(memory)) { }
 
-UnsafePtr<Memory, KernelAlloc> MemoryAccessDescriptor::getMemory() {
+KernelUnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
 	return p_memory;
 }
 
@@ -20,10 +20,10 @@ UnsafePtr<Memory, KernelAlloc> MemoryAccessDescriptor::getMemory() {
 // AddressSpaceDescriptor
 // --------------------------------------------------------
 
-AddressSpaceDescriptor::AddressSpaceDescriptor(SharedPtr<AddressSpace, KernelAlloc> &&space)
+AddressSpaceDescriptor::AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> &&space)
 		: p_space(traits::move(space)) { }
 
-UnsafePtr<AddressSpace, KernelAlloc> AddressSpaceDescriptor::getSpace() {
+KernelUnsafePtr<AddressSpace> AddressSpaceDescriptor::getSpace() {
 	return p_space;
 }
 
@@ -31,10 +31,10 @@ UnsafePtr<AddressSpace, KernelAlloc> AddressSpaceDescriptor::getSpace() {
 // EventHubDescriptor
 // --------------------------------------------------------
 
-EventHubDescriptor::EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub)
+EventHubDescriptor::EventHubDescriptor(KernelSharedPtr<EventHub> &&event_hub)
 		: p_eventHub(traits::move(event_hub)) { }
 
-UnsafePtr<EventHub, KernelAlloc> EventHubDescriptor::getEventHub() {
+KernelUnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 	return p_eventHub;
 }
 
@@ -42,10 +42,10 @@ UnsafePtr<EventHub, KernelAlloc> EventHubDescriptor::getEventHub() {
 // BiDirectionFirstDescriptor
 // --------------------------------------------------------
 
-BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
+BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(traits::move(pipe)) { }
 
-UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionFirstDescriptor::getPipe() {
+KernelUnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
 	return p_pipe;
 }
 
@@ -53,10 +53,10 @@ UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionFirstDescriptor::getPipe() {
 // BiDirectionSecondDescriptor
 // --------------------------------------------------------
 
-BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe)
+BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
 		: p_pipe(traits::move(pipe)) { }
 
-UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionSecondDescriptor::getPipe() {
+KernelUnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 	return p_pipe;
 }
 
@@ -64,10 +64,10 @@ UnsafePtr<BiDirectionPipe, KernelAlloc> BiDirectionSecondDescriptor::getPipe() {
 // ServerDescriptor
 // --------------------------------------------------------
 
-ServerDescriptor::ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server)
+ServerDescriptor::ServerDescriptor(KernelSharedPtr<Server> &&server)
 		: p_server(traits::move(server)) { }
 
-UnsafePtr<Server, KernelAlloc> ServerDescriptor::getServer() {
+KernelUnsafePtr<Server> ServerDescriptor::getServer() {
 	return p_server;
 }
 
@@ -75,10 +75,10 @@ UnsafePtr<Server, KernelAlloc> ServerDescriptor::getServer() {
 // ClientDescriptor
 // --------------------------------------------------------
 
-ClientDescriptor::ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server)
+ClientDescriptor::ClientDescriptor(KernelSharedPtr<Server> &&server)
 		: p_server(traits::move(server)) { }
 
-UnsafePtr<Server, KernelAlloc> ClientDescriptor::getServer() {
+KernelUnsafePtr<Server> ClientDescriptor::getServer() {
 	return p_server;
 }
 
@@ -86,10 +86,10 @@ UnsafePtr<Server, KernelAlloc> ClientDescriptor::getServer() {
 // RdDescriptor
 // --------------------------------------------------------
 
-RdDescriptor::RdDescriptor(SharedPtr<RdFolder, KernelAlloc> &&folder)
+RdDescriptor::RdDescriptor(KernelSharedPtr<RdFolder> &&folder)
 		: p_folder(traits::move(folder)) { }
 
-UnsafePtr<RdFolder, KernelAlloc> RdDescriptor::getFolder() {
+KernelUnsafePtr<RdFolder> RdDescriptor::getFolder() {
 	return p_folder;
 }
 
@@ -97,10 +97,10 @@ UnsafePtr<RdFolder, KernelAlloc> RdDescriptor::getFolder() {
 // IrqDescriptor
 // --------------------------------------------------------
 
-IrqDescriptor::IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line)
+IrqDescriptor::IrqDescriptor(KernelSharedPtr<IrqLine> &&irq_line)
 		: p_irqLine(traits::move(irq_line)) { }
 
-UnsafePtr<IrqLine, KernelAlloc> IrqDescriptor::getIrqLine() {
+KernelUnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
 	return p_irqLine;
 }
 
@@ -108,10 +108,10 @@ UnsafePtr<IrqLine, KernelAlloc> IrqDescriptor::getIrqLine() {
 // IoDescriptor
 // --------------------------------------------------------
 
-IoDescriptor::IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space)
+IoDescriptor::IoDescriptor(KernelSharedPtr<IoSpace> &&io_space)
 		: p_ioSpace(traits::move(io_space)) { }
 
-UnsafePtr<IoSpace, KernelAlloc> IoDescriptor::getIoSpace() {
+KernelUnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
 	return p_ioSpace;
 }
 

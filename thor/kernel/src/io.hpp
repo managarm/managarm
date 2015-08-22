@@ -9,17 +9,17 @@ class IrqRelay {
 public:
 	IrqRelay();
 
-	void submitWaitRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+	void submitWaitRequest(KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
 	
 	void fire();
 
 private:
 	struct Request {
-		Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+		Request(KernelSharedPtr<EventHub> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub, KernelAlloc> eventHub;
+		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
 	};
 
@@ -44,7 +44,7 @@ public:
 
 	void addPort(uintptr_t port);
 
-	void enableInThread(UnsafePtr<Thread, KernelAlloc> thread);
+	void enableInThread(KernelUnsafePtr<Thread> thread);
 
 private:
 	frigg::util::Vector<uintptr_t, KernelAlloc> p_ports;

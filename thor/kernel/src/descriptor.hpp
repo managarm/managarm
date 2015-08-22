@@ -7,22 +7,22 @@ namespace thor {
 
 class MemoryAccessDescriptor {
 public:
-	MemoryAccessDescriptor(SharedPtr<Memory, KernelAlloc> &&memory);
+	MemoryAccessDescriptor(KernelSharedPtr<Memory> &&memory);
 
-	UnsafePtr<Memory, KernelAlloc> getMemory();
+	KernelUnsafePtr<Memory> getMemory();
 
 private:
-	SharedPtr<Memory, KernelAlloc> p_memory;
+	KernelSharedPtr<Memory> p_memory;
 };
 
 class AddressSpaceDescriptor {
 public:
-	AddressSpaceDescriptor(SharedPtr<AddressSpace, KernelAlloc> &&space);
+	AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> &&space);
 
-	UnsafePtr<AddressSpace, KernelAlloc> getSpace();
+	KernelUnsafePtr<AddressSpace> getSpace();
 
 private:
-	SharedPtr<AddressSpace, KernelAlloc> p_space;
+	KernelSharedPtr<AddressSpace> p_space;
 };
 
 // --------------------------------------------------------
@@ -31,12 +31,12 @@ private:
 
 class ThreadObserveDescriptor {
 public:
-	ThreadObserveDescriptor(SharedPtr<Thread, KernelAlloc> &&thread);
+	ThreadObserveDescriptor(KernelSharedPtr<Thread> &&thread);
 	
-	UnsafePtr<Thread, KernelAlloc> getThread();
+	KernelUnsafePtr<Thread> getThread();
 
 private:
-	SharedPtr<Thread, KernelAlloc> p_thread;
+	KernelSharedPtr<Thread> p_thread;
 };
 
 // --------------------------------------------------------
@@ -45,12 +45,12 @@ private:
 
 class EventHubDescriptor {
 public:
-	EventHubDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub);
+	EventHubDescriptor(KernelSharedPtr<EventHub> &&event_hub);
 
-	UnsafePtr<EventHub, KernelAlloc> getEventHub();
+	KernelUnsafePtr<EventHub> getEventHub();
 
 private:
-	SharedPtr<EventHub, KernelAlloc> p_eventHub;
+	KernelSharedPtr<EventHub> p_eventHub;
 };
 
 // --------------------------------------------------------
@@ -60,43 +60,43 @@ private:
 // Reads from the first channel, writes to the second
 class BiDirectionFirstDescriptor {
 public:
-	BiDirectionFirstDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
+	BiDirectionFirstDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe);
 	
-	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
+	KernelUnsafePtr<BiDirectionPipe> getPipe();
 
 private:
-	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
+	KernelSharedPtr<BiDirectionPipe> p_pipe;
 };
 
 // Reads from the second channel, writes to the first
 class BiDirectionSecondDescriptor {
 public:
-	BiDirectionSecondDescriptor(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe);
+	BiDirectionSecondDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe);
 	
-	UnsafePtr<BiDirectionPipe, KernelAlloc> getPipe();
+	KernelUnsafePtr<BiDirectionPipe> getPipe();
 
 private:
-	SharedPtr<BiDirectionPipe, KernelAlloc> p_pipe;
+	KernelSharedPtr<BiDirectionPipe> p_pipe;
 };
 
 class ServerDescriptor {
 public:
-	ServerDescriptor(SharedPtr<Server, KernelAlloc> &&server);
+	ServerDescriptor(KernelSharedPtr<Server> &&server);
 	
-	UnsafePtr<Server, KernelAlloc> getServer();
+	KernelUnsafePtr<Server> getServer();
 
 private:
-	SharedPtr<Server, KernelAlloc> p_server;
+	KernelSharedPtr<Server> p_server;
 };
 
 class ClientDescriptor {
 public:
-	ClientDescriptor(SharedPtr<Server, KernelAlloc> &&server);
+	ClientDescriptor(KernelSharedPtr<Server> &&server);
 	
-	UnsafePtr<Server, KernelAlloc> getServer();
+	KernelUnsafePtr<Server> getServer();
 
 private:
-	SharedPtr<Server, KernelAlloc> p_server;
+	KernelSharedPtr<Server> p_server;
 };
 
 // --------------------------------------------------------
@@ -105,12 +105,12 @@ private:
 
 class RdDescriptor {
 public:
-	RdDescriptor(SharedPtr<RdFolder, KernelAlloc> &&folder);
+	RdDescriptor(KernelSharedPtr<RdFolder> &&folder);
 	
-	UnsafePtr<RdFolder, KernelAlloc> getFolder();
+	KernelUnsafePtr<RdFolder> getFolder();
 
 private:
-	SharedPtr<RdFolder, KernelAlloc> p_folder;
+	KernelSharedPtr<RdFolder> p_folder;
 };
 
 // --------------------------------------------------------
@@ -119,22 +119,22 @@ private:
 
 class IrqDescriptor {
 public:
-	IrqDescriptor(SharedPtr<IrqLine, KernelAlloc> &&irq_line);
+	IrqDescriptor(KernelSharedPtr<IrqLine> &&irq_line);
 	
-	UnsafePtr<IrqLine, KernelAlloc> getIrqLine();
+	KernelUnsafePtr<IrqLine> getIrqLine();
 
 private:
-	SharedPtr<IrqLine, KernelAlloc> p_irqLine;
+	KernelSharedPtr<IrqLine> p_irqLine;
 };
 
 class IoDescriptor {
 public:
-	IoDescriptor(SharedPtr<IoSpace, KernelAlloc> &&io_space);
+	IoDescriptor(KernelSharedPtr<IoSpace> &&io_space);
 	
-	UnsafePtr<IoSpace, KernelAlloc> getIoSpace();
+	KernelUnsafePtr<IoSpace> getIoSpace();
 
 private:
-	SharedPtr<IoSpace, KernelAlloc> p_ioSpace;
+	KernelSharedPtr<IoSpace> p_ioSpace;
 };
 
 // --------------------------------------------------------

@@ -12,12 +12,12 @@ public:
 	void sendDescriptor(AnyDescriptor &&descriptor,
 			int64_t msg_request, int64_t msg_sequence);
 	
-	void submitRecvString(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+	void submitRecvString(KernelSharedPtr<EventHub> &&event_hub,
 			uint8_t *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 	
-	void submitRecvDescriptor(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+	void submitRecvDescriptor(KernelSharedPtr<EventHub> &&event_hub,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 
@@ -40,12 +40,12 @@ private:
 	};
 
 	struct Request {
-		Request(MsgType type, SharedPtr<EventHub, KernelAlloc> &&event_hub,
+		Request(MsgType type, KernelSharedPtr<EventHub> &&event_hub,
 				int64_t filter_request, int64_t filter_sequence,
 				SubmitInfo submit_info);
 		
 		MsgType type;
-		SharedPtr<EventHub, KernelAlloc> eventHub;
+		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
 		uint8_t *userBuffer;
 		size_t maxLength;
@@ -80,25 +80,25 @@ class Server {
 public:
 	Server();
 
-	void submitAccept(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+	void submitAccept(KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
 	
-	void submitConnect(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+	void submitConnect(KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
 
 private:
 	struct AcceptRequest {
-		AcceptRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+		AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub, KernelAlloc> eventHub;
+		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
 	};
 	struct ConnectRequest {
-		ConnectRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+		ConnectRequest(KernelSharedPtr<EventHub> &&event_hub,
 				SubmitInfo submit_info);
 
-		SharedPtr<EventHub, KernelAlloc> eventHub;
+		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
 	};
 

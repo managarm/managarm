@@ -9,7 +9,7 @@ namespace traits = frigg::traits;
 // IrqRelay
 // --------------------------------------------------------
 
-IrqRelay::Request::Request(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+IrqRelay::Request::Request(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
 	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
 
@@ -17,7 +17,7 @@ frigg::util::LazyInitializer<IrqRelay> irqRelays[16];
 
 IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 
-void IrqRelay::submitWaitRequest(SharedPtr<EventHub, KernelAlloc> &&event_hub,
+void IrqRelay::submitWaitRequest(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
 	Request request(traits::move(event_hub), submit_info);
 	p_requests.addBack(traits::move(request));
@@ -50,7 +50,7 @@ void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);
 }
 
-void IoSpace::enableInThread(UnsafePtr<Thread, KernelAlloc> thread) {
+void IoSpace::enableInThread(KernelUnsafePtr<Thread> thread) {
 	for(size_t i = 0; i < p_ports.size(); i++)
 		thread->enableIoPort(p_ports[i]);
 }

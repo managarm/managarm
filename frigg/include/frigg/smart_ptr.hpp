@@ -1,4 +1,6 @@
 
+namespace frigg {
+
 template<typename T, typename Allocator>
 class SharedPtr;
 
@@ -10,7 +12,7 @@ struct SharedBlock {
 	template<typename... Args>
 	SharedBlock(Allocator &allocator, Args &&... args)
 	: allocator(allocator), refCount(1),
-			object(frigg::traits::forward<Args>(args)...) { }
+			object(traits::forward<Args>(args)...) { }
 
 	SharedBlock(const SharedBlock &other) = delete;
 
@@ -28,8 +30,8 @@ class SharedPtr {
 public:
 	template<typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
-		auto block = frigg::memory::construct<SharedBlock<T, Allocator>>
-				(allocator, allocator, frigg::traits::forward<Args>(args)...);
+		auto block = memory::construct<SharedBlock<T, Allocator>>
+				(allocator, allocator, traits::forward<Args>(args)...);
 		return SharedPtr<T, Allocator>(block);
 	}
 
@@ -67,7 +69,7 @@ public:
 			return;
 		p_block->refCount--;
 		if(p_block->refCount == 0)
-			frigg::memory::destruct(p_block->allocator, p_block);
+			memory::destruct(p_block->allocator, p_block);
 		p_block = nullptr;
 	}
 
@@ -130,6 +132,8 @@ UnsafePtr<T, Allocator>::operator SharedPtr<T, Allocator>() {
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T, Allocator>::make(allocator, frigg::traits::forward<Args>(args)...);
+	return SharedPtr<T, Allocator>::make(allocator, traits::forward<Args>(args)...);
 }
+
+} // namespace frigg
 

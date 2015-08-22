@@ -41,7 +41,7 @@ public:
 		size_t length;
 
 		// used by kTypeAccept, kTypeConnect
-		SharedPtr<BiDirectionPipe, KernelAlloc> pipe;
+		KernelSharedPtr<BiDirectionPipe> pipe;
 
 		// used by kTypeRecvDescriptor
 		AnyDescriptor descriptor;
@@ -57,9 +57,9 @@ public:
 	void raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequence,
 			AnyDescriptor &&descriptor, SubmitInfo submit_info);
 	
-	void raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
+	void raiseAcceptEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
 			SubmitInfo submit_info);
-	void raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
+	void raiseConnectEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
 			SubmitInfo submit_info);
 
 	void raiseIrqEvent(SubmitInfo submit_info);
@@ -67,7 +67,7 @@ public:
 	bool hasEvent();
 	Event dequeueEvent();
 
-	void blockThread(SharedPtr<Thread, KernelAlloc> &&thread);
+	void blockThread(KernelSharedPtr<Thread> &&thread);
 
 private:
 	void wakeup();

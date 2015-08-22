@@ -61,7 +61,7 @@ void EventHub::raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequenc
 	wakeup();
 }
 
-void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
+void EventHub::raiseAcceptEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
 		SubmitInfo submit_info) {
 	Event event(Event::kTypeAccept, submit_info);
 	event.pipe = traits::move(pipe);
@@ -70,7 +70,7 @@ void EventHub::raiseAcceptEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
 	wakeup();
 }
 
-void EventHub::raiseConnectEvent(SharedPtr<BiDirectionPipe, KernelAlloc> &&pipe,
+void EventHub::raiseConnectEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
 		SubmitInfo submit_info) {
 	Event event(Event::kTypeConnect, submit_info);
 	event.pipe = traits::move(pipe);
@@ -87,7 +87,7 @@ EventHub::Event EventHub::dequeueEvent() {
 	return p_queue.removeFront();
 }
 
-void EventHub::blockThread(SharedPtr<Thread, KernelAlloc> &&thread) {
+void EventHub::blockThread(KernelSharedPtr<Thread> &&thread) {
 	p_blocking.addBack(traits::move(thread));
 }
 

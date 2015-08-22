@@ -15,6 +15,7 @@
 #include <frigg/linked.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/variant.hpp>
+#include <frigg/smart_ptr.hpp>
 
 #include <frigg/arch_x86/machine.hpp>
 
@@ -25,7 +26,6 @@
 #include "arch_x86/hpet.hpp"
 #include "arch_x86/system.hpp"
 
-#include "smart-ptr.hpp"
 #include "physical.hpp"
 #include "core.hpp"
 #include "schedule.hpp"

@@ -46,7 +46,7 @@ struct Mapping {
 	// larget hole in the subtree of this node
 	size_t largestHole;
 
-	SharedPtr<Memory, KernelAlloc> memoryRegion;
+	KernelSharedPtr<Memory> memoryRegion;
 	size_t memoryOffset;
 
 	Mapping(Type type, VirtualAddr base_address, size_t length);
@@ -66,7 +66,7 @@ public:
 
 	AddressSpace(PageSpace page_space);
 
-	void map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr address, size_t length,
+	void map(KernelUnsafePtr<Memory> memory, VirtualAddr address, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	
 	void activate();

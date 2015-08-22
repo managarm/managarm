@@ -3,19 +3,19 @@ namespace thor {
 
 class Thread {
 friend class ThreadQueue;
-friend void switchThread(UnsafePtr<Thread, KernelAlloc> thread);
+friend void switchThread(KernelUnsafePtr<Thread> thread);
 public:
-	Thread(SharedPtr<Universe, KernelAlloc> &&universe,
-			SharedPtr<AddressSpace, KernelAlloc> &&address_space,
-			SharedPtr<RdFolder, KernelAlloc> &&directory,
+	Thread(KernelSharedPtr<Universe> &&universe,
+			KernelSharedPtr<AddressSpace> &&address_space,
+			KernelSharedPtr<RdFolder> &&directory,
 			bool kernel_thread);
 
 	void setup(void (*user_entry)(uintptr_t), uintptr_t argument,
 			void *user_stack_ptr);
 	
-	UnsafePtr<Universe, KernelAlloc> getUniverse();
-	UnsafePtr<AddressSpace, KernelAlloc> getAddressSpace();
-	UnsafePtr<RdFolder, KernelAlloc> getDirectory();
+	KernelUnsafePtr<Universe> getUniverse();
+	KernelUnsafePtr<AddressSpace> getAddressSpace();
+	KernelUnsafePtr<RdFolder> getDirectory();
 
 	bool isKernelThread();
 
@@ -27,12 +27,12 @@ public:
 	ThorRtThreadState &accessSaveState();
 
 private:
-	SharedPtr<Universe, KernelAlloc> p_universe;
-	SharedPtr<AddressSpace, KernelAlloc> p_addressSpace;
-	SharedPtr<RdFolder, KernelAlloc> p_directory;
+	KernelSharedPtr<Universe> p_universe;
+	KernelSharedPtr<AddressSpace> p_addressSpace;
+	KernelSharedPtr<RdFolder> p_directory;
 
-	SharedPtr<Thread, KernelAlloc> p_nextInQueue;
-	UnsafePtr<Thread, KernelAlloc> p_previousInQueue;
+	KernelSharedPtr<Thread> p_nextInQueue;
+	KernelUnsafePtr<Thread> p_previousInQueue;
 
 	ThorRtThreadState p_saveState;
 	frigg::arch_x86::Tss64 p_tss;
@@ -45,14 +45,14 @@ public:
 
 	bool empty();
 
-	void addBack(SharedPtr<Thread, KernelAlloc> &&thread);
+	void addBack(KernelSharedPtr<Thread> &&thread);
 	
-	SharedPtr<Thread, KernelAlloc> removeFront();
-	SharedPtr<Thread, KernelAlloc> remove(UnsafePtr<Thread, KernelAlloc> thread);
+	KernelSharedPtr<Thread> removeFront();
+	KernelSharedPtr<Thread> remove(KernelUnsafePtr<Thread> thread);
 
 private:
-	SharedPtr<Thread, KernelAlloc> p_front;
-	UnsafePtr<Thread, KernelAlloc> p_back;
+	KernelSharedPtr<Thread> p_front;
+	KernelUnsafePtr<Thread> p_back;
 };
 
 } // namespace thor

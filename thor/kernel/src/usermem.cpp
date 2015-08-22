@@ -58,7 +58,7 @@ AddressSpace::AddressSpace(PageSpace page_space)
 	addressTreeInsert(mapping);
 }
 
-void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr address,
+void AddressSpace::map(KernelUnsafePtr<Memory> memory, VirtualAddr address,
 		size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	ASSERT((length % kPageSize) == 0);
 
@@ -72,7 +72,7 @@ void AddressSpace::map(UnsafePtr<Memory, KernelAlloc> memory, VirtualAddr addres
 	ASSERT(mapping != nullptr);
 
 	mapping->type = Mapping::kTypeMemory;
-	mapping->memoryRegion = traits::move(memory);
+	mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
 
 	for(size_t i = 0; i < length / kPageSize; i++) {
 		PhysicalAddr physical = memory->getPage(i);

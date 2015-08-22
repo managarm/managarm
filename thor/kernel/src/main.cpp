@@ -15,8 +15,8 @@ namespace memory = frigg::memory;
 // loads an elf image into the current address space
 // this is called in kernel mode from the initial user thread
 void enterImage(PhysicalAddr image_paddr) {
-	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
-	UnsafePtr<AddressSpace, KernelAlloc> space = this_thread->getAddressSpace();
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<AddressSpace> space = this_thread->getAddressSpace();
 
 	void *image_ptr = physicalToVirtual(image_paddr);
 	
@@ -43,7 +43,7 @@ void enterImage(PhysicalAddr image_paddr) {
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = makeShared<Memory>(*kernelAlloc);
+			auto memory = frigg::makeShared<Memory>(*kernelAlloc);
 			memory->resize(virt_length);
 
 			VirtualAddr actual_address;
@@ -71,7 +71,7 @@ void enterImage(PhysicalAddr image_paddr) {
 	
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x200000;
-	auto stack_memory = makeShared<Memory>(*kernelAlloc);
+	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc);
 	stack_memory->resize(stack_size);
 	
 	VirtualAddr stack_base;
@@ -119,9 +119,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
-	auto mod_directory = makeShared<RdFolder>(*kernelAlloc);
+	auto mod_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	for(size_t i = 1; i < info->numModules; i++) {
-		auto mod_memory = makeShared<Memory>(*kernelAlloc);
+		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc);
 		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
 			mod_memory->addPage(modules[i].physicalBase + offset);
 		
@@ -134,15 +134,15 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	}
 	
 	const char *mod_path = "initrd";
-	auto root_directory = makeShared<RdFolder>(*kernelAlloc);
+	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
 
 	// finally we lauch the user_boot program
-	auto universe = makeShared<Universe>(*kernelAlloc);
-	auto address_space = makeShared<AddressSpace>(*kernelAlloc,
+	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
+	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	
-	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
+	auto thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(root_directory), true);
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
