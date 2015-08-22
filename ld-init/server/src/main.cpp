@@ -120,15 +120,15 @@ Object *readObject(util::StringView path) {
 			object->phdrPointer = phdr->p_vaddr;
 			object->hasPhdrImage = true;
 			
-			ASSERT(phdr->p_memsz == ehdr->e_phnum * ehdr->e_phentsize);
+			ASSERT(phdr->p_memsz == ehdr->e_phnum * (size_t)ehdr->e_phentsize);
 			object->phdrEntrySize = ehdr->e_phentsize;
 			object->phdrCount = ehdr->e_phnum;
 		}else if(phdr->p_type == PT_LOAD) {
-			bool shared = false;
+			bool can_share = false;
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				// we cannot share this segment
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				// TODO: share this segment
+				can_share = true;
 			}else{
 				debug::panicLogger.log() << "Illegal combination of segment permissions"
 						<< debug::Finish();
@@ -143,10 +143,28 @@ Object *readObject(util::StringView path) {
 			size_t virt_length = (phdr->p_vaddr + phdr->p_memsz) - virt_address;
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
+			
+			uintptr_t displacement = phdr->p_vaddr - virt_address;
+			if(can_share) {
+				HelHandle memory;
+				HEL_CHECK(helAllocateMemory(virt_length, &memory));
 
-			object->segments.push(UniqueSegment(phdr->p_type,
-					phdr->p_flags, virt_address, virt_length,
-					phdr->p_vaddr - virt_address, phdr->p_offset, phdr->p_filesz));
+				void *map_pointer;
+				HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+						virt_length, kHelMapReadWrite, &map_pointer));
+
+				memset(map_pointer, 0, virt_length);
+				memcpy((void *)((uintptr_t)map_pointer + displacement),
+						(void *)((uintptr_t)image_ptr + phdr->p_offset),
+						phdr->p_filesz);
+				
+				object->segments.push(SharedSegment(phdr->p_type,
+						phdr->p_flags, virt_address, virt_length, memory));
+			}else{
+				object->segments.push(UniqueSegment(phdr->p_type,
+						phdr->p_flags, virt_address, virt_length,
+						displacement, phdr->p_offset, phdr->p_filesz));
+			}
 		}else if(phdr->p_type == PT_DYNAMIC) {
 			object->dynamic = phdr->p_vaddr;
 		} //FIXME: handle other phdrs
