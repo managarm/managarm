@@ -71,13 +71,20 @@ struct ThorRtThreadState {
 	ThorRtSyscallState syscallState;
 	frigg::arch_x86::Tss64 threadTss;
 
-	alignas(kSyscallStackAlign) uint8_t syscallStack[0x10000];
+	alignas(kSyscallStackAlign) uint8_t syscallStack[kSyscallStackSize];
 };
 
 struct ThorRtCpuSpecific {
+	enum {
+		kCpuStackAlign = 16,
+		kCpuStackSize = 0x10000
+	};
+
 	uint32_t gdt[8 * 8];
 	uint32_t idt[256 * 16];
 	frigg::arch_x86::Tss64 tssTemplate;
+
+	alignas(kCpuStackAlign) uint8_t cpuStack[kCpuStackSize];
 };
 
 // note: this struct is accessed from assembly.
@@ -94,6 +101,11 @@ struct ThorRtKernelGs {
 
 void thorRtSetCpuContext(void *context);
 void *thorRtGetCpuContext();
+
+// calls the given function on the per-cpu stack
+// this allows us to implement a save exit-this-thread function
+// that destroys the thread together with its kernel stack
+void callOnCpuStack(void (*function) ()) __attribute__ (( noreturn ));
 
 void initializeThisProcessor();
 

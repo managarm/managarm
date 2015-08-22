@@ -1,11 +1,12 @@
 
 #include "../kernel.hpp"
 
-extern "C" void thorRtIsrDivideByZeroError();
-extern "C" void thorRtIsrInvalidOpcode();
-extern "C" void thorRtIsrDoubleFault();
-extern "C" void thorRtIsrGeneralProtectionFault();
-extern "C" void thorRtIsrPageFault();
+extern "C" void faultStubDivideByZero();
+extern "C" void faultStubOpcode();
+extern "C" void faultStubDouble();
+extern "C" void faultStubProtection();
+extern "C" void faultStubPage();
+
 extern "C" void thorRtIsrIrq0();
 extern "C" void thorRtIsrIrq1();
 extern "C" void thorRtIsrIrq2();
@@ -27,15 +28,15 @@ namespace thor {
 
 void setupIdt(uint32_t *table) {
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
-			0x8, (void *)&thorRtIsrDivideByZeroError, 1);
+			0x8, (void *)&faultStubDivideByZero, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
-			0x8, (void *)&thorRtIsrInvalidOpcode, 1);
+			0x8, (void *)&faultStubOpcode, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
-			0x8, (void *)&thorRtIsrDoubleFault, 1);
+			0x8, (void *)&faultStubDouble, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
-			0x8, (void *)&thorRtIsrGeneralProtectionFault, 1);
+			0x8, (void *)&faultStubProtection, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 14,
-			0x8, (void *)&thorRtIsrPageFault, 1);
+			0x8, (void *)&faultStubPage, 1);
 
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 64,
 			0x8, (void *)&thorRtIsrIrq0, 1);

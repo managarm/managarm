@@ -186,10 +186,7 @@ HelError helCreateThread(HelHandle space_handle,
 }
 
 HelError helExitThisThread() {
-	// schedule without re-enqueuing this thread first
-	// FIXME: this leaks a reference to the thread!
-	SharedPtr<Thread, KernelAlloc> thread = resetCurrentThread();
-	doSchedule();
+	callOnCpuStack(&dropCurrentThread);
 }
 
 

@@ -49,6 +49,14 @@ void ThorRtThreadState::deactivate() {
 	asm volatile ( "mov %0, %%gs:0x08" : : "r" (nullptr) : "memory" );
 	asm volatile ( "mov %0, %%gs:0x10" : : "r" (nullptr) : "memory" );
 	asm volatile ( "mov %0, %%gs:0x18" : : "r" (nullptr) : "memory" );
+	
+	// setup the tss segment
+	ThorRtCpuSpecific *cpu_specific;
+	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
+			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 }
 
 // --------------------------------------------------------
@@ -71,6 +79,19 @@ void *thorRtGetCpuContext() {
 	void *context;
 	asm volatile ( "mov %%gs:0, %0" : "=r" (context) );
 	return context;
+}
+
+void callOnCpuStack(void (*function) ()) {
+	ThorRtCpuSpecific *cpu_specific;
+	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
+	
+	uintptr_t stack_ptr = (uintptr_t)cpu_specific->cpuStack
+			+ ThorRtCpuSpecific::kCpuStackSize;
+	
+	asm volatile ( "mov %0, %%rsp\n"
+			"\tcall *%1\n"
+			"\tud2\n" : : "r" (stack_ptr), "r" (function) );
+	__builtin_unreachable();
 }
 
 extern "C" void thorRtLoadCs(uint16_t selector);

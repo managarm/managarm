@@ -49,82 +49,25 @@ reloadCsFinish:
 	ret
 
 .macro MAKE_FAULT_HANDLER name
-.global thorRtIsr\name
-thorRtIsr\name:
-	pushq %rax
-	pushq %rbx
-	
-	mov %gs:0x08, %rbx
-
-	mov %rcx, .L_generalRcx(%rbx)
-	mov %rdx, .L_generalRdx(%rbx)
-	mov %rsi, .L_generalRsi(%rbx)
-	mov %rdi, .L_generalRdi(%rbx)
-	mov %rbp, .L_generalRbp(%rbx)
-
-	mov %r8, .L_generalR8(%rbx)
-	mov %r9, .L_generalR9(%rbx)
-	mov %r10, .L_generalR10(%rbx)
-	mov %r11, .L_generalR11(%rbx)
-	mov %r12, .L_generalR12(%rbx)
-	mov %r13, .L_generalR13(%rbx)
-	mov %r14, .L_generalR14(%rbx)
-	mov %r15, .L_generalR15(%rbx)
-	
-	popq .L_generalRbx(%rbx)
-	popq .L_generalRax(%rbx)
-	popq .L_generalRip(%rbx)
-	add $8, %rsp # skip cs
-	popq .L_generalRflags(%rbx)
-	popq .L_generalRsp(%rbx)
-	add $8, %rsp # skip ss
-
-	call thor\name
-	jmp thorRtHalt
+.global faultStub\name
+faultStub\name:
+	call handle\name\()Fault
 .endm
 
-.global thorRtIsrDivideByZeroError
-thorRtIsrDivideByZeroError:
-	call thorDivideByZeroError
-	jmp thorRtHalt
+.macro MAKE_FAULT_HANDLER_WITHCODE name
+.global faultStub\name
+faultStub\name:
+	popq %rdi # error code
+	popq %rsi # rip
 
-MAKE_FAULT_HANDLER InvalidOpcode
+	call handle\name\()Fault
+.endm
 
-.global thorRtIsrDoubleFault
-thorRtIsrDoubleFault:
-	call thorDoubleFault
-	jmp thorRtHalt
-
-.global thorRtIsrGeneralProtectionFault
-thorRtIsrGeneralProtectionFault:
-	call thorGeneralProtectionFault
-	jmp thorRtHalt
-
-.global thorRtIsrPageFault
-thorRtIsrPageFault:
-	mov 16(%rsp), %rax
-	and $3, %rax
-	jz kernelPageFault
-
-	mov %gs:0x08, %rbx
-	
-	popq %rsi # pop error code
-	popq .L_generalRip(%rbx)
-	add $8, %rsp # skip cs
-	popq .L_generalRflags(%rbx)
-	popq .L_generalRsp(%rbx)
-	add $8, %rsp # skip ss
-	
-	mov %cr2, %rdi
-	call thorUserPageFault
-	jmp thorRtHalt
-
-kernelPageFault:
-	mov %cr2, %rdi
-	popq %rdx # pop error code
-	popq %rsi # pop faulting rip
-	call thorKernelPageFault
-	jmp thorRtHalt
+MAKE_FAULT_HANDLER DivideByZero
+MAKE_FAULT_HANDLER Opcode
+MAKE_FAULT_HANDLER_WITHCODE Double
+MAKE_FAULT_HANDLER_WITHCODE Protection
+MAKE_FAULT_HANDLER_WITHCODE Page
 
 .macro MAKE_IRQ_HANDLER irq
 .global thorRtIsrIrq\irq

@@ -17,6 +17,12 @@ SharedPtr<Thread, KernelAlloc> resetCurrentThread() {
 	return traits::move(cpu_context->currentThread);
 }
 
+void dropCurrentThread() {
+	ASSERT(!intsAreEnabled());
+	resetCurrentThread();
+	doSchedule();
+}
+
 void enterThread(SharedPtr<Thread, KernelAlloc> &&thread) {
 	ASSERT(!intsAreEnabled());
 	auto cpu_context = (CpuContext *)thorRtGetCpuContext();

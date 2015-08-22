@@ -116,22 +116,22 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	doSchedule();
 }
 
-extern "C" void thorDivideByZeroError() {
+extern "C" void handleDivideByZeroFault() {
 	debug::panicLogger.log() << "Divide by zero" << debug::Finish();
 }
 
-extern "C" void thorInvalidOpcode() {
+extern "C" void handleOpcodeFault() {
 	uintptr_t fault_ip = getCurrentThread()->accessSaveState().generalState.rip;
 	debug::panicLogger.log() << "Invalid opcode"
 			<< ", faulting ip: " << (void *)fault_ip
 			<< debug::Finish();
 }
 
-extern "C" void thorDoubleFault() {
+extern "C" void handleDoubleFault() {
 	debug::panicLogger.log() << "Double fault" << debug::Finish();
 }
 
-extern "C" void thorGeneralProtectionFault() {
+extern "C" void handleProtectionFault() {
 	debug::panicLogger.log() << "General protection fault" << debug::Finish();
 }
 
@@ -159,22 +159,21 @@ extern "C" void thorKernelPageFault(uintptr_t address,
 	msg << debug::Finish();
 }
 
-extern "C" void thorUserPageFault(uintptr_t address, Word error) {
-	uintptr_t fault_ip = getCurrentThread()->accessSaveState().generalState.rip;
+extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
+	uintptr_t address;
+	asm volatile ( "mov %%cr2, %0" : "=r" (address) );
 
-/*	auto stack_ptr = (uint64_t *)thorRtUserContext->rsp;
-	auto trace = infoLogger->log() << "Stack trace:\n";
-	for(int i = 0; i < 5; i++)
-		trace << "    -" << (i * 8) << "(%rsp) " << (void *)stack_ptr[-i] << "\n";
-	trace << debug::Finish();*/
-
-	ASSERT((error & 4) != 0);
 	ASSERT((error & 8) == 0);
 	auto msg = debug::panicLogger.log();
-	msg << "User page fault"
+	msg << "Page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)fault_ip << "\n";
 	msg << "Errors:";
+	if((error & 4) != 0) {
+		msg << " (User)";
+	}else{
+		msg << " (Supervisor)";
+	}
 	if((error & 1) == 0) {
 		msg << " (Page not present)";
 	}else{
