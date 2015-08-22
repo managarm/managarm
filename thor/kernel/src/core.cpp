@@ -93,7 +93,10 @@ void friggPrintCritical(char const *str) {
 	thor::infoSink.print(str);
 }
 void friggPanic() {
-	thor::thorRtHalt();
+	thor::disableInts();
+	while(true) {
+		thor::halt();
+	}
 }
 
 

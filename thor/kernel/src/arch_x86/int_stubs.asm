@@ -27,31 +27,13 @@
 .global thorRtEntry
 thorRtEntry:
 	call thorMain
-	hlt
-
-.global thorRtHalt
-thorRtHalt:
-	hlt
-	jmp thorRtHalt
-
-.global thorRtLoadCs
-thorRtLoadCs:
-	movq %rsp, %rax
-	movabs $reloadCsFinish, %rcx
-	pushq $0
-	pushq %rax
-	pushfq
-	pushq %rdi
-	pushq %rcx
-	iretq
-
-reloadCsFinish:
-	ret
+	ud2
 
 .macro MAKE_FAULT_HANDLER name
 .global faultStub\name
 faultStub\name:
 	call handle\name\()Fault
+	ud2
 .endm
 
 .macro MAKE_FAULT_HANDLER_WITHCODE name
@@ -61,6 +43,7 @@ faultStub\name:
 	popq %rsi # rip
 
 	call handle\name\()Fault
+	ud2
 .endm
 
 MAKE_FAULT_HANDLER DivideByZero

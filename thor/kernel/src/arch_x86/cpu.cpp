@@ -96,7 +96,6 @@ void callOnCpuStack(void (*function) ()) {
 	__builtin_unreachable();
 }
 
-extern "C" void thorRtLoadCs(uint16_t selector);
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
@@ -122,7 +121,10 @@ void initializeThisProcessor() {
 	gdtr.pointer = cpu_specific->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
-	thorRtLoadCs(0x8);
+	asm volatile ( "pushq $0x8\n"
+			"\rpushq $.L_reloadCs\n"
+			"\rlretq\n"
+			".L_reloadCs:" );
 
 	// setup a stack for irqs
 	size_t irq_stack_size = 0x10000;

@@ -33,7 +33,7 @@ syscallStub:
 	mov %rax, %rcx
 
 	call thorSyscall
-	jmp thorRtHalt
+	ud2
 
 .global thorRtReturnSyscall1
 .global thorRtReturnSyscall2

@@ -21,6 +21,7 @@ eirRtStackTop:
 .section .text
 .global eirRtEntry
 eirRtEntry:
+	cld
 	mov $eirRtStackTop, %esp
 	push %ebx
 	call eirMain
