@@ -18,6 +18,7 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
 
@@ -139,8 +140,8 @@ void loadImage(const char *path, HelHandle directory) {
 	HEL_CHECK(helCreateThread(space, directory, &state, &thread));
 }
 
-HelHandle eventHub;
-HelHandle childHandle;
+helx::EventHub eventHub;
+helx::Pipe childPipe;
 
 struct InitContext {
 	InitContext(HelHandle directory)
@@ -152,26 +153,21 @@ struct InitContext {
 auto initialize =
 async::seq(
 	async::lambda([](InitContext &context,
-			util::Callback<void(HelHandle)> callback) {
+			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
 		// receive a server handle from ld-server
-		int64_t async_id;
-		HEL_CHECK(helSubmitRecvDescriptor(childHandle, eventHub,
-				kHelAnyRequest, kHelAnySequence,
-				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject(),
-				&async_id));
+		childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
+				callback.getObject(), callback.getFunction());
 	}),
 	async::lambda([](InitContext &context,
-			util::Callback<void(HelHandle)> callback, HelHandle connect_handle) {
+			util::Callback<void(HelError, HelHandle)> callback, HelError error,
+			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
+		HEL_CHECK(error);
+
 		const char *name = "rtdl-server";
 		HEL_CHECK(helRdPublish(context.directory, name, strlen(name), connect_handle));
-
-		// connect to the server
-		int64_t async_id;
-		HEL_CHECK(helSubmitConnect(connect_handle, eventHub,
-				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject(),
-				&async_id));
+		
+		helx::Server server(connect_handle);
+		server.connect(eventHub, callback.getObject(), callback.getFunction());
 	})
 );
 
@@ -182,7 +178,7 @@ struct LoadContext {
 		int32_t access;
 	};
 
-	LoadContext(HelHandle pipe)
+	LoadContext(helx::Pipe pipe)
 	: pipe(pipe), space(kHelNullHandle),
 			segments(*allocator), currentSegment(0) { }
 	
@@ -244,7 +240,7 @@ struct LoadContext {
 		segments.push(segment);
 	}
 	
-	HelHandle pipe;
+	helx::Pipe pipe;
 	HelHandle space;
 	uintptr_t phdrPointer;
 	size_t phdrEntrySize;
@@ -257,7 +253,7 @@ struct LoadContext {
 
 auto loadObject = async::seq(
 	async::lambda([](LoadContext &context,
-			util::Callback<void(size_t)> callback,
+			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
 			util::StringView object_name, uintptr_t base_address) {
 		protobuf::FixedWriter<64> writer;
 		protobuf::emitString(writer,
@@ -266,18 +262,16 @@ auto loadObject = async::seq(
 		protobuf::emitUInt64(writer,
 				managarm::ld_server::ClientRequest::kField_base_address,
 				base_address);
-		HEL_CHECK(helSendString(context.pipe,
-				writer.data(), writer.size(), 1, 0));
-
-		int64_t async_id;
-		HEL_CHECK(helSubmitRecvString(context.pipe, eventHub,
-				context.buffer, 128, 1, 0,
-				(uintptr_t)callback.getFunction(),
-				(uintptr_t)callback.getObject(),
-				&async_id));
+		context.pipe.sendString(writer.data(), writer.size(), 1, 0);
+		
+		context.pipe.recvString(context.buffer, 128, eventHub,
+				1, 0, callback.getObject(), callback.getFunction());
 	}),
 	async::lambda([](LoadContext &context,
-			util::Callback<void()> callback, size_t length) {
+			util::Callback<void()> callback, HelError error,
+			int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+
 		context.parseObjectMsg(protobuf::BufferReader(context.buffer, length));
 		callback();
 	}),
@@ -288,16 +282,15 @@ auto loadObject = async::seq(
 		}),
 		async::seq(
 			async::lambda([](LoadContext &context,
-					util::Callback<void(HelHandle)> callback) {
-				int64_t async_id;
-				HEL_CHECK(helSubmitRecvDescriptor(context.pipe, eventHub,
-						1, 1 + context.currentSegment,
-						(uintptr_t)callback.getFunction(),
-						(uintptr_t)callback.getObject(),
-						&async_id));
+					util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
+				context.pipe.recvDescriptor(eventHub, 1, 1 + context.currentSegment,
+						callback.getObject(), callback.getFunction());
 			}),
 			async::lambda([](LoadContext &context,
-					util::Callback<void()> callback, HelHandle handle) {
+					util::Callback<void()> callback, HelError error,
+					int64_t msg_request, int64_t msg_seq, HelHandle handle) {
+				HEL_CHECK(error);
+
 				auto &segment = context.segments[context.currentSegment];
 
 				uint32_t map_flags = 0;
@@ -320,7 +313,7 @@ auto loadObject = async::seq(
 
 struct ExecuteContext {
 	ExecuteContext(const char *program,
-			HelHandle pipe, HelHandle directory)
+			helx::Pipe pipe, HelHandle directory)
 	: program(program), directory(directory),
 			executableContext(pipe), interpreterContext(pipe) {
 		HEL_CHECK(helCreateSpace(&space));
@@ -339,50 +332,48 @@ struct ExecuteContext {
 	LoadContext interpreterContext;
 };
 
-auto constructExecuteProgram() {
-	return async::seq(
-		async::lambda([](ExecuteContext &context,
-				util::Callback<void(util::StringView, uintptr_t)> callback) {
-			callback(util::StringView(context.program), 0);
-		}),
-		async::subContext(&ExecuteContext::executableContext,
-			async::lambda([](LoadContext &context,
-					util::Callback<void(util::StringView, uintptr_t)> callback,
-					util::StringView object_name, uintptr_t base_address) {
-				callback(object_name, base_address);
-			})
-		),
-		async::subContext(&ExecuteContext::executableContext, loadObject),
-		async::lambda([](ExecuteContext &context,
-				util::Callback<void(util::StringView, uintptr_t)> callback) {
-			callback(util::StringView("ld-init.so"), 0x40000000);
-		}),
-		async::subContext(&ExecuteContext::interpreterContext, loadObject),
-		async::lambda([](ExecuteContext &context, util::Callback<void()> callback) {
-			constexpr size_t stack_size = 0x200000;
-			
-			HelHandle stack_memory;
-			HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
-
-			void *stack_base;
-			HEL_CHECK(helMapMemory(stack_memory, context.space, nullptr,
-					stack_size, kHelMapReadWrite, &stack_base));
-
-			HelThreadState state;
-			memset(&state, 0, sizeof(HelThreadState));
-			state.rip = context.interpreterContext.entry;
-			state.rsp = (uintptr_t)stack_base + stack_size;
-			state.rdi = context.executableContext.phdrPointer;
-			state.rsi = context.executableContext.phdrEntrySize;
-			state.rdx = context.executableContext.phdrCount;
-			state.rcx = context.executableContext.entry;
-
-			HelHandle thread;
-			HEL_CHECK(helCreateThread(context.space, context.directory, &state, &thread));
-			callback();
+auto executeProgram = async::seq(
+	async::lambda([](ExecuteContext &context,
+			util::Callback<void(util::StringView, uintptr_t)> callback) {
+		callback(util::StringView(context.program), 0);
+	}),
+	async::subContext(&ExecuteContext::executableContext,
+		async::lambda([](LoadContext &context,
+				util::Callback<void(util::StringView, uintptr_t)> callback,
+				util::StringView object_name, uintptr_t base_address) {
+			callback(object_name, base_address);
 		})
-	);
-}
+	),
+	async::subContext(&ExecuteContext::executableContext, loadObject),
+	async::lambda([](ExecuteContext &context,
+			util::Callback<void(util::StringView, uintptr_t)> callback) {
+		callback(util::StringView("ld-init.so"), 0x40000000);
+	}),
+	async::subContext(&ExecuteContext::interpreterContext, loadObject),
+	async::lambda([](ExecuteContext &context, util::Callback<void()> callback) {
+		constexpr size_t stack_size = 0x200000;
+		
+		HelHandle stack_memory;
+		HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
+
+		void *stack_base;
+		HEL_CHECK(helMapMemory(stack_memory, context.space, nullptr,
+				stack_size, kHelMapReadWrite, &stack_base));
+
+		HelThreadState state;
+		memset(&state, 0, sizeof(HelThreadState));
+		state.rip = context.interpreterContext.entry;
+		state.rsp = (uintptr_t)stack_base + stack_size;
+		state.rdi = context.executableContext.phdrPointer;
+		state.rsi = context.executableContext.phdrEntrySize;
+		state.rdx = context.executableContext.phdrCount;
+		state.rcx = context.executableContext.entry;
+
+		HelHandle thread;
+		HEL_CHECK(helCreateThread(context.space, context.directory, &state, &thread));
+		callback();
+	})
+);
 
 void remount(HelHandle directory, const char *path, const char *target) {
 	HelHandle handle;
@@ -393,8 +384,6 @@ void remount(HelHandle directory, const char *path, const char *target) {
 
 void main() {
 	infoLogger->log() << "Entering k_init" << debug::Finish();
-
-	HEL_CHECK(helCreateEventHub(&eventHub));
 	
 	HelHandle directory;
 	HEL_CHECK(helCreateRd(&directory));
@@ -402,55 +391,32 @@ void main() {
 	remount(directory, "initrd/#this", "initrd");
 
 	const char *pipe_name = "k_init";
-	HelHandle other_end;
-	HEL_CHECK(helCreateBiDirectionPipe(&childHandle, &other_end));
-	HEL_CHECK(helRdPublish(directory, pipe_name, strlen(pipe_name), other_end));
+	helx::Pipe remote_pipe;
+	helx::Pipe::createBiDirection(childPipe, remote_pipe);
+	HEL_CHECK(helRdPublish(directory, pipe_name, strlen(pipe_name),
+			remote_pipe.getHandle()));
 
 	loadImage("initrd/ld-server", directory);
 
 	async::run(*allocator, initialize, InitContext(directory),
-	[](InitContext &context, HelHandle pipe) {
+	[](InitContext &context, HelError error, HelHandle pipe_handle) {
+		HEL_CHECK(error);
+
 		auto on_complete = [](ExecuteContext &context) {
 			infoLogger->log() << context.program
 					<< " executed succesfully" << debug::Finish();
 		};
 	
-		async::run(*allocator, constructExecuteProgram(),
+		helx::Pipe pipe(pipe_handle);
+		async::run(*allocator, executeProgram,
 				ExecuteContext("acpi", pipe, context.directory), on_complete);
-		async::run(*allocator, constructExecuteProgram(),
+		async::run(*allocator, executeProgram,
 				ExecuteContext("zisa", pipe, context.directory), on_complete);
 	});
 	
-	while(true) {
-		HelEvent events[16];
-		size_t num_items;
-	
-		HEL_CHECK(helWaitForEvents(eventHub, events, 16, kHelWaitInfinite, &num_items));
+	while(true)
+		eventHub.defaultProcessEvents();
 
-		for(size_t i = 0; i < num_items; i++) {
-			void *function = (void *)events[i].submitFunction;
-			void *object = (void *)events[i].submitObject;
-			
-			switch(events[i].type) {
-			case kHelEventRecvString: {
-				typedef void (*FunctionPtr) (void *, size_t);
-				((FunctionPtr)(function))(object, events[i].length);
-			} break;
-			case kHelEventRecvDescriptor: {
-				typedef void (*FunctionPtr) (void *, HelHandle);
-				((FunctionPtr)(function))(object, events[i].handle);
-			} break;
-			case kHelEventConnect: {
-				typedef void (*FunctionPtr) (void *, HelHandle);
-				((FunctionPtr)(function))(object, events[i].handle);
-			} break;
-			default:
-				debug::panicLogger.log() << "Unexpected event type "
-						<< events[i].type << debug::Finish();
-			}
-		}
-	}
-	
 	HEL_CHECK(helExitThisThread());
 }
 

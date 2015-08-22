@@ -9,7 +9,7 @@ inline void panic(const char *string) {
 }
 
 typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
-typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t HelHandle);
+typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t, HelHandle);
 typedef void (*AcceptFunction) (void *, HelError, HelHandle);
 typedef void (*ConnectFunction) (void *, HelError, HelHandle);
 typedef void (*IrqFunction) (void *, HelError);
@@ -19,9 +19,7 @@ public:
 	enum { kEventsPerCall = 16 };
 
 	inline EventHub() {
-		int error = helCreateEventHub(&p_handle);
-		if(error != kHelErrNone)
-			panic("helCreateEventHub() failed");
+		HEL_CHECK(helCreateEventHub(&p_handle));
 	}
 
 	inline HelHandle getHandle() {
@@ -31,10 +29,8 @@ public:
 	inline void defaultProcessEvents() {
 		HelEvent list[kEventsPerCall];
 		size_t num_items;
-		int error = helWaitForEvents(p_handle, list, kEventsPerCall,
-				kHelWaitInfinite, &num_items);
-		if(error != kHelErrNone)
-			panic("helWaitForEvents() failed");
+		HEL_CHECK(helWaitForEvents(p_handle, list, kEventsPerCall,
+				kHelWaitInfinite, &num_items));
 
 		for(int i = 0; i < num_items; i++) {
 			HelEvent &evt = list[i];
@@ -43,6 +39,11 @@ public:
 				auto function = (RecvStringFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error,
 						evt.msgRequest, evt.msgSequence, evt.length);
+			} break;
+			case kHelEventRecvDescriptor: {
+				auto function = (RecvDescriptorFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error,
+						evt.msgRequest, evt.msgSequence, evt.handle);
 			} break;
 			case kHelEventAccept: {
 				auto function = (AcceptFunction)evt.submitFunction;
@@ -66,14 +67,12 @@ public:
 		while(true) {
 			HelEvent event;
 			size_t num_items;
-			int error = helWaitForEvents(p_handle, &event, 1,
-					kHelWaitInfinite, &num_items);
-			if(error != kHelErrNone)
-				panic("helWaitForEvents() failed");
+			HEL_CHECK(helWaitForEvents(p_handle, &event, 1,
+					kHelWaitInfinite, &num_items));
 
 			if(num_items == 0)
 				continue;
-			//FIXME: ASSERT(event.submitId == async_id);
+			//ASSERT(event.asyncId == async_id);
 			return event;
 		}
 	}
@@ -97,6 +96,15 @@ private:
 
 class Pipe {
 public:
+	static void createBiDirection(Pipe &first, Pipe &second) {
+		HelHandle first_handle, second_handle;
+		HEL_CHECK(helCreateBiDirectionPipe(&first_handle, &second_handle));
+		first = Pipe(first_handle);
+		second = Pipe(second_handle);
+	}
+
+	inline Pipe() : p_handle(kHelNullHandle) { }
+
 	inline Pipe(HelHandle handle) : p_handle(handle) { }
 	
 	inline HelHandle getHandle() {
@@ -105,22 +113,30 @@ public:
 
 	inline void sendString(const void *buffer, size_t length,
 			int64_t msg_request, int64_t msg_seq) {
-		helSendString(p_handle, (const uint8_t *)buffer, length,
-				msg_request, msg_seq);
+		HEL_CHECK(helSendString(p_handle, (const uint8_t *)buffer, length,
+				msg_request, msg_seq));
 	}
 
 	inline void sendDescriptor(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq) {
-		helSendDescriptor(p_handle, send_handle, msg_request, msg_seq);
+		HEL_CHECK(helSendDescriptor(p_handle, send_handle, msg_request, msg_seq));
 	}
 
 	inline void recvString(void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			void *object, RecvStringFunction function) {
 		int64_t async_id;
-		helSubmitRecvString(p_handle, event_hub.getHandle(),
-				(uint8_t *)buffer, length, msg_request, length,
-				(uintptr_t)function, (uintptr_t)object, &async_id);
+		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
+				(uint8_t *)buffer, length, msg_request, msg_seq,
+				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+	
+	inline void recvDescriptor(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq,
+			void *object, RecvDescriptorFunction function) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
+				msg_request, msg_seq, (uintptr_t)function, (uintptr_t)object, &async_id));
 	}
 
 private:
@@ -138,8 +154,15 @@ public:
 	inline void accept(EventHub &event_hub,
 			void *object, AcceptFunction function) {
 		int64_t async_id;
-		helSubmitAccept(p_handle, event_hub.getHandle(),
-				(uintptr_t)function, (uintptr_t)object, &async_id);
+		HEL_CHECK(helSubmitAccept(p_handle, event_hub.getHandle(),
+				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+	
+	inline void connect(EventHub &event_hub,
+			void *object, ConnectFunction function) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
+				(uintptr_t)function, (uintptr_t)object, &async_id));
 	}
 
 private:
