@@ -1,22 +1,34 @@
 
-#include "kernel.hpp"
-
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/debug.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/libc.hpp>
+#include <frigg/atomic.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/string.hpp>
+#include <frigg/tuple.hpp>
+#include <frigg/vector.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/async.hpp>
-#include <frigg/elf.hpp>
 
+#include <frigg/elf.hpp>
 #include <frigg/protobuf.hpp>
 #include <bragi-naked/ld-server.nakedpb.hpp>
 
-#include "../../hel/include/hel.h"
+#include <hel.h>
+#include <hel-syscalls.h>
+
+#include <frigg/glue-hel.hpp>
 
 namespace util = frigg::util;
 namespace debug = frigg::debug;
 namespace async = frigg::async;
 namespace protobuf = frigg::protobuf;
 
-namespace thor {
-namespace k_init {
+extern "C" void _exit() {
+	helExitThisThread();
+}
 
 util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
 	size_t page_size = 0x1000;
@@ -172,7 +184,7 @@ struct LoadContext {
 
 	LoadContext(HelHandle pipe)
 	: pipe(pipe), space(kHelNullHandle),
-			segments(*kernelAlloc), currentSegment(0) { }
+			segments(*allocator), currentSegment(0) { }
 	
 	LoadContext(const LoadContext &other) = delete;
 	
@@ -238,7 +250,7 @@ struct LoadContext {
 	size_t phdrEntrySize;
 	size_t phdrCount;
 	uintptr_t entry;
-	util::Vector<Segment, KernelAlloc> segments;
+	util::Vector<Segment, Allocator> segments;
 	size_t currentSegment;
 	uint8_t buffer[128];
 };
@@ -379,8 +391,6 @@ void remount(HelHandle directory, const char *path, const char *target) {
 }
 
 void main() {
-	disableInts();
-
 	infoLogger->log() << "Entering k_init" << debug::Finish();
 
 	helCreateEventHub(&eventHub);
@@ -397,9 +407,9 @@ void main() {
 
 	loadImage("initrd/ld-server", directory);
 	
-	async::run(*kernelAlloc, initialize, InitContext(directory),
+	async::run(*allocator, initialize, InitContext(directory),
 	[](InitContext &context, HelHandle pipe) {
-		async::run(*kernelAlloc, constructExecuteProgram(), ExecuteContext(pipe, context.directory),
+		async::run(*allocator, constructExecuteProgram(), ExecuteContext(pipe, context.directory),
 		[](ExecuteContext &context) {
 			infoLogger->log() << "Execute successful" << debug::Finish();
 		});
@@ -437,6 +447,4 @@ void main() {
 	
 	helExitThisThread();
 }
-
-} } // namespace thor::k_init
 

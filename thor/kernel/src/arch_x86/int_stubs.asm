@@ -226,3 +226,13 @@ restoreThisThread:
 	mov .L_generalRbx(%rbx), %rbx
 	iretq
 
+# enter user mode for the first time
+.global enterUserMode
+enterUserMode:
+	pushq $0x23 # ss
+	pushq %rdi # rsp
+	pushq $0x200 # rflags, enable interrupts
+	pushq $0x1B # cs
+	pushq %rsi # rip
+	iretq
+

@@ -30,6 +30,7 @@ void enterThread(SharedPtr<Thread, KernelAlloc> &&thread) {
 
 	thread->activate();
 	cpu_context->currentThread = traits::move(thread);
+	restoreThisThread();
 }
 
 void doSchedule() {
@@ -45,7 +46,6 @@ void doSchedule() {
 	}
 
 	enterThread(scheduleQueue->removeFront());
-	restoreThisThread();
 }
 
 void enqueueInSchedule(SharedPtr<Thread, KernelAlloc> &&thread) {

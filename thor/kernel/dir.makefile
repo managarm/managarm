@@ -12,7 +12,7 @@ $c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
 	arch_x86/hpet.o \
 	physical.o main.o hel.o \
 	core.o descriptor.o usermem.o schedule.o ipc.o \
-	event.o thread.o rd.o io.o k_init.o
+	event.o thread.o rd.o io.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_HEADERS := thor.h

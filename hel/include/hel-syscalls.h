@@ -88,22 +88,12 @@ DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
 	OUT(0, size_t, size)
 END_SYSCALL()
 
-/*extern inline HelError helCreateThread(void (*entry)(uintptr_t),
-		uintptr_t argument, void *stack_ptr, HelHandle *handle) {
-	register HelWord in_syscall asm ("rdi") = (HelWord)kHelCallCreateThread;
-	register HelWord in_entry asm ("rsi") = (HelWord)entry;
-	register HelWord in_argument asm ("rdx") = (HelWord)argument;
-	register HelWord in_stack_ptr asm ("rcx") = (HelWord)stack_ptr;
-	register HelWord out_error asm ("rdi");
-	register HelWord out_handle asm ("rsi");
-	asm volatile ( "int $0x80" : "=r" (out_error),
-			"=r" (out_handle)
-		: "r" (in_syscall), "r" (in_entry), "r" (in_argument),
-			"r" (in_stack_ptr)
-		: "r8", "r9", "r10", "r11", "rax", "rbx", "memory" );
-	*handle = out_handle;
-	return (HelError)out_error;
-}*/
+DEFINE_SYSCALL(CreateThread, HelHandle address_space,
+		HelHandle directory, struct HelThreadState *state, HelHandle *handle)
+	IN(0, address_space) IN(1, directory) IN(2, state)
+	DO_SYSCALL(CreateThread)
+	OUT(0, HelHandle, handle)
+END_SYSCALL()
 
 DEFINE_SYSCALL(ExitThisThread)
 	DO_SYSCALL(ExitThisThread)
@@ -183,6 +173,12 @@ END_SYSCALL()
 DEFINE_SYSCALL(CreateRd, HelHandle *handle)
 	DO_SYSCALL(CreateRd)
 	OUT(0, HelHandle, handle)
+END_SYSCALL()
+
+DEFINE_SYSCALL(RdMount, HelHandle handle,
+		const char *name, size_t name_length, HelHandle mount_handle)
+	IN(0, handle) IN(1, name) IN(2, name_length) IN(3, mount_handle)
+	DO_SYSCALL(RdMount)
 END_SYSCALL()
 
 DEFINE_SYSCALL(RdPublish, HelHandle handle,

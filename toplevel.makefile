@@ -4,6 +4,7 @@
 include $(TREE_PATH)/rules.makefile
 $(call include_dir,eir)
 $(call include_dir,thor/kernel)
+$(call include_dir,thor/user_boot)
 $(call include_dir,thor/acpi)
 $(call include_dir,ld-init/server)
 $(call include_dir,ld-init/linker)

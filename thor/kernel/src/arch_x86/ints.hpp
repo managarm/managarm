@@ -16,6 +16,10 @@ inline void halt() {
 extern "C" bool saveThisThread() __attribute__ (( returns_twice ));
 extern "C" void restoreThisThread() __attribute__ (( noreturn ));
 
+// this is used to enter user mode in the user_boot thread
+// we do not need it inside other threads
+extern "C" void enterUserMode(void *stack_ptr, void *ip) __attribute__ (( noreturn ));
+
 } // namespace thor
 
 

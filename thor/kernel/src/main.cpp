@@ -1,5 +1,6 @@
 
 #include "kernel.hpp"
+#include <frigg/elf.hpp>
 #include "../../hel/include/hel.h"
 #include <eir/interface.hpp>
 
@@ -10,6 +11,77 @@ namespace memory = frigg::memory;
 
 //FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
 //LazyInitializer<debug::Terminal> vgaTerminal;
+
+// loads an elf image into the current address space
+// this is called in kernel mode from the initial user thread
+void enterImage(PhysicalAddr image_paddr) {
+	UnsafePtr<Thread, KernelAlloc> this_thread = getCurrentThread();
+	UnsafePtr<AddressSpace, KernelAlloc> space = this_thread->getAddressSpace();
+
+	void *image_ptr = physicalToVirtual(image_paddr);
+	
+	// parse the ELf file format
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
+	ASSERT(ehdr->e_ident[0] == 0x7F
+			&& ehdr->e_ident[1] == 'E'
+			&& ehdr->e_ident[2] == 'L'
+			&& ehdr->e_ident[3] == 'F');
+	ASSERT(ehdr->e_type == ET_EXEC);
+
+	for(int i = 0; i < ehdr->e_phnum; i++) {
+		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
+				+ i * ehdr->e_phentsize);
+		
+		if(phdr->p_type == PT_LOAD) {
+			ASSERT(phdr->p_memsz > 0);
+			
+			// align virtual address and length to page size
+			uintptr_t virt_address = phdr->p_vaddr;
+			virt_address -= virt_address % kPageSize;
+
+			size_t virt_length = (phdr->p_vaddr + phdr->p_memsz) - virt_address;
+			if((virt_length % kPageSize) != 0)
+				virt_length += kPageSize - virt_length % kPageSize;
+			
+			auto memory = makeShared<Memory>(*kernelAlloc);
+			memory->resize(virt_length);
+
+			VirtualAddr actual_address;
+			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+				space->map(memory, virt_address, virt_length,
+						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
+						&actual_address);
+			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				space->map(memory, virt_address, virt_length,
+						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
+						&actual_address);
+			}else{
+				debug::panicLogger.log() << "Illegal combination of segment permissions"
+						<< debug::Finish();
+			}
+			thorRtInvalidateSpace();
+			
+			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
+			memset((void *)virt_address, 0, virt_length);
+			memcpy((void *)(virt_address + virt_disp),
+					(void *)((uintptr_t)image_ptr + phdr->p_offset),
+					phdr->p_filesz);
+		} //FIXME: handle other phdrs
+	}
+	
+	// allocate and map memory for the user mode stack
+	size_t stack_size = 0x200000;
+	auto stack_memory = makeShared<Memory>(*kernelAlloc);
+	stack_memory->resize(stack_size);
+	
+	VirtualAddr stack_base;
+	space->map(stack_memory, 0, stack_size,
+			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite,
+			&stack_base);
+	thorRtInvalidateSpace();
+	
+	enterUserMode((void *)(stack_base + stack_size), (void *)ehdr->e_entry);
+}
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	//vgaScreen.initialize((char *)physicalToVirtual(0xB8000), 80, 25);
@@ -41,12 +113,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeTheSystem();
 	
 	// create a directory and load the memory regions of all modules into it
-	ASSERT(info->numModules >= 2);
+	ASSERT(info->numModules >= 1);
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
 	auto mod_directory = makeShared<RdFolder>(*kernelAlloc);
-	for(size_t i = 0; i < info->numModules; i++) {
+	for(size_t i = 1; i < info->numModules; i++) {
 		auto mod_memory = makeShared<Memory>(*kernelAlloc);
 		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
 			mod_memory->addPage(modules[i].physicalBase + offset);
@@ -63,57 +135,28 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto root_directory = makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
 	
-	// create a user space thread from the init image
-/*	PageSpace user_space = kernelSpace->clone();
-	user_space.switchTo();
-
-	auto universe = makeShared<Universe>(*kernelAlloc);
-	auto address_space = makeShared<AddressSpace>(*kernelAlloc, user_space);
-
-	auto entry = (void (*)(uintptr_t))loadInitImage(
-			address_space, modules[0].physicalBase);
-	thorRtInvalidateSpace();
-	
-	auto program_memory = makeShared<Memory>(*kernelAlloc);
-	for(size_t offset = 0; offset < modules[1].length; offset += 0x1000)
-		program_memory->addPage(modules[1].physicalBase + offset);
-	
-	auto program_descriptor = MemoryAccessDescriptor(traits::move(program_memory));
-	Handle program_handle = universe->attachDescriptor(traits::move(program_descriptor));
-
-	auto thread = makeShared<Thread>(*kernelAlloc);
-	thread->setup(entry, program_handle, (void *)(stack_base + stack_size));
-	thread->setUniverse(traits::move(universe));
-	thread->setAddressSpace(traits::move(address_space));
-	thread->setDirectory(traits::move(folder)); */
-
 	auto cpu_context = memory::construct<CpuContext>(*kernelAlloc);
 	thorRtSetCpuContext(cpu_context);
 
 	scheduleQueue.initialize();
 
-	// we need to launch k_init now
+	// finally we lauch the user_boot program
 	auto universe = makeShared<Universe>(*kernelAlloc);
 	auto address_space = makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	
-	// allocate and map memory for the k_init stack
-	size_t stack_size = 0x200000;
-	void *stack_base = kernelAlloc->allocate(stack_size);
-	
-	// finally create the k_init thread
 	auto thread = makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(root_directory), true);
 	
-	thread->accessSaveState().generalState.rsp = (uintptr_t)stack_base + stack_size;
-	thread->accessSaveState().generalState.rip = (Word)&k_init::main;
-	thread->accessSaveState().generalState.rflags = 0x200; // enable interrupts
+	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
+			+ ThorRtThreadState::kSyscallStackSize;
+	thread->accessSaveState().generalState.rdi = modules[0].physicalBase;
+	thread->accessSaveState().generalState.rsp = stack_ptr;
+	thread->accessSaveState().generalState.rip = (Word)enterImage;
 	thread->accessSaveState().generalState.kernel = 1;
 	
-	enqueueInSchedule(traits::move(thread));
-	
 	infoLogger->log() << "Leaving Thor" << debug::Finish();
-	doSchedule();
+	enterThread(traits::move(thread));
 }
 
 extern "C" void handleDivideByZeroFault() {
@@ -250,13 +293,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			thorRtReturnSyscall2((Word)error, (Word)size);
 		}
 
-		/*case kHelCallCreateThread: {
+		case kHelCallCreateThread: {
 			HelHandle handle;
-			HelError error = helCreateThread((void (*) (uintptr_t))arg0,
-					(uintptr_t)arg1, (void *)arg2, &handle);
-
+			HelError error = helCreateThread((HelHandle)arg0,
+					(HelHandle)arg1, (HelThreadState *)arg2, &handle);
 			thorRtReturnSyscall2((Word)error, (Word)handle);
-		}*/
+		}
 		case kHelCallExitThisThread: {
 			HelError error = helExitThisThread();
 			thorRtReturnSyscall1((Word)error);
@@ -331,6 +373,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelHandle handle;
 			HelError error = helCreateRd(&handle);
 			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallRdMount: {
+			HelError error = helRdMount((HelHandle)arg0,
+					(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
+			thorRtReturnSyscall1((Word)error);
 		}
 		case kHelCallRdPublish: {
 			HelError error = helRdPublish((HelHandle)arg0,
