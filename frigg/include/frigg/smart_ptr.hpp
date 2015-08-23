@@ -46,13 +46,13 @@ public:
 		if(p_block != nullptr)
 			p_block->refCount++;
 	}
+	
+	explicit SharedPtr(const UnsafePtr<T, Allocator> &unsafe);
 
 	SharedPtr(SharedPtr &&other) {
 		p_block = other.p_block;
 		other.p_block = nullptr;
 	}
-
-	operator UnsafePtr<T, Allocator> ();
 
 	SharedPtr &operator= (SharedPtr &&other) {
 		p_block = other.p_block;
@@ -96,7 +96,7 @@ class UnsafePtr {
 public:
 	UnsafePtr() : p_block(nullptr) { }
 	
-	operator SharedPtr<T, Allocator> ();
+	UnsafePtr(const SharedPtr<T, Allocator> &shared);
 
 	operator bool () {
 		return p_block != nullptr;
@@ -114,21 +114,18 @@ public:
 	}
 
 private:
-	UnsafePtr(SharedBlock<T, Allocator> *pointer) : p_block(pointer) { }
-
 	SharedBlock<T, Allocator> *p_block;
 };
 
 template<typename T, typename Allocator>
-SharedPtr<T, Allocator>::operator UnsafePtr<T, Allocator>() {
-	return UnsafePtr<T, Allocator>(p_block);
+SharedPtr<T, Allocator>::SharedPtr(const UnsafePtr<T, Allocator> &unsafe)
+: p_block(unsafe.p_block) {
+	p_block->refCount++;
 }
 
 template<typename T, typename Allocator>
-UnsafePtr<T, Allocator>::operator SharedPtr<T, Allocator>() {
-	p_block->refCount++;
-	return SharedPtr<T, Allocator>(p_block);
-}
+UnsafePtr<T, Allocator>::UnsafePtr(const SharedPtr<T, Allocator> &shared)
+: p_block(shared.p_block) { }
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
