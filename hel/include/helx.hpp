@@ -143,8 +143,38 @@ private:
 	HelHandle p_handle;
 };
 
+class Client {
+public:
+	inline Client() : p_handle(kHelNullHandle) { }
+
+	inline Client(HelHandle handle) : p_handle(handle) { }
+
+	inline HelHandle getHandle() {
+		return p_handle;
+	}
+
+	inline void connect(EventHub &event_hub,
+			void *object, ConnectFunction function) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
+				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+
+private:
+	HelHandle p_handle;
+};
+
 class Server {
 public:
+	static void createServer(Server &server, Client &client) {
+		HelHandle server_handle, client_handle;
+		HEL_CHECK(helCreateServer(&server_handle, &client_handle));
+		server = Server(server_handle);
+		client = Client(client_handle);
+	}
+
+	inline Server() : p_handle(kHelNullHandle) { }
+
 	inline Server(HelHandle handle) : p_handle(handle) { }
 
 	inline HelHandle getHandle() {
