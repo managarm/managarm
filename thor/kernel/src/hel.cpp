@@ -19,7 +19,9 @@ HelError helCloseDescriptor(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	universe->detachDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	universe->detachDescriptor(universe_guard, handle);
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -32,8 +34,10 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	auto memory = frigg::makeShared<Memory>(*kernelAlloc);
 	memory->resize(size);
 	
-	MemoryAccessDescriptor base(traits::move(memory));
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			MemoryAccessDescriptor(traits::move(memory)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -49,8 +53,10 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	for(size_t offset = 0; offset < size; offset += kPageSize)
 		memory->addPage(physical + offset);
 	
-	MemoryAccessDescriptor base(traits::move(memory));
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			MemoryAccessDescriptor(traits::move(memory)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -62,8 +68,10 @@ HelError helCreateSpace(HelHandle *handle) {
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	
-	AddressSpaceDescriptor base(traits::move(space));
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			AddressSpaceDescriptor(traits::move(space)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -73,15 +81,20 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
+	AnyDescriptor space_wrapper;
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto &wrapper = universe->getDescriptor(universe_guard, memory_handle);
+	
 	KernelUnsafePtr<AddressSpace> space;
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace();
 	}else{
-		auto &space_wrapper = universe->getDescriptor(space_handle);
+		auto &space_wrapper = universe->getDescriptor(universe_guard, space_handle);
 		space = space_wrapper.get<AddressSpaceDescriptor>().getSpace();
 	}
-	
-	auto &wrapper = universe->getDescriptor(memory_handle);
+	universe_guard.unlock();
+
 	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
 	KernelUnsafePtr<Memory> memory = descriptor.getMemory();
 
@@ -117,7 +130,10 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto &wrapper = universe->getDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	auto &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
 	auto &descriptor = wrapper.get<MemoryAccessDescriptor>();
 	KernelUnsafePtr<Memory> memory = descriptor.getMemory();
 
@@ -132,11 +148,12 @@ HelError helCreateThread(HelHandle space_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
+	Universe::Guard universe_guard(&this_universe->lock);
 	KernelUnsafePtr<AddressSpace> address_space;
 	if(space_handle == kHelNullHandle) {
 		address_space = this_thread->getAddressSpace();
 	}else{
-		auto &space_wrapper = this_universe->getDescriptor(space_handle);
+		auto &space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 		address_space = space_wrapper.get<AddressSpaceDescriptor>().getSpace();
 	}
 
@@ -144,9 +161,10 @@ HelError helCreateThread(HelHandle space_handle,
 	if(directory_handle == kHelNullHandle) {
 		directory = this_thread->getDirectory();
 	}else{
-		auto &directory_wrapper = this_universe->getDescriptor(directory_handle);
+		auto &directory_wrapper = this_universe->getDescriptor(universe_guard, directory_handle);
 		directory = directory_wrapper.get<RdDescriptor>().getFolder();
 	}
+	universe_guard.unlock();
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc,
 			KernelSharedPtr<Universe>(this_universe),
@@ -196,9 +214,10 @@ HelError helCreateEventHub(HelHandle *handle) {
 	
 	auto event_hub = frigg::makeShared<EventHub>(*kernelAlloc);
 
-	EventHubDescriptor base(traits::move(event_hub));
-
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			EventHubDescriptor(traits::move(event_hub)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -209,7 +228,10 @@ HelError helWaitForEvents(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	KernelUnsafePtr<EventHub> event_hub = hub_descriptor.getEventHub();
 
@@ -259,20 +281,26 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
 			
-			AnyDescriptor wrapper = traits::move(event.descriptor);
-			user_evt->handle = universe->attachDescriptor(traits::move(wrapper));
+			universe_guard.lock();
+			user_evt->handle = universe->attachDescriptor(universe_guard,
+					AnyDescriptor(traits::move(event.descriptor)));
+			universe_guard.unlock();
 		} break;
 		case EventHub::Event::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
 
-			BiDirectionFirstDescriptor descriptor(traits::move(event.pipe));
-			user_evt->handle = universe->attachDescriptor(traits::move(descriptor));
+			universe_guard.lock();
+			user_evt->handle = universe->attachDescriptor(universe_guard,
+					BiDirectionFirstDescriptor(traits::move(event.pipe)));
+			universe_guard.unlock();
 		} break;
 		case EventHub::Event::kTypeConnect: {
 			user_evt->type = kHelEventConnect;
 
-			BiDirectionSecondDescriptor descriptor(traits::move(event.pipe));
-			user_evt->handle = universe->attachDescriptor(traits::move(descriptor));
+			universe_guard.lock();
+			user_evt->handle = universe->attachDescriptor(universe_guard,
+					BiDirectionSecondDescriptor(traits::move(event.pipe)));
+			universe_guard.unlock();
 		} break;
 		case EventHub::Event::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
@@ -299,11 +327,12 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 	auto pipe = frigg::makeShared<BiDirectionPipe>(*kernelAlloc);
 	KernelSharedPtr<BiDirectionPipe> copy(pipe);
 
-	BiDirectionFirstDescriptor first_base(traits::move(pipe));
-	BiDirectionSecondDescriptor second_base(traits::move(copy));
-	
-	*first_handle = universe->attachDescriptor(traits::move(first_base));
-	*second_handle = universe->attachDescriptor(traits::move(second_base));
+	Universe::Guard universe_guard(&universe->lock);
+	*first_handle = universe->attachDescriptor(universe_guard,
+			BiDirectionFirstDescriptor(traits::move(pipe)));
+	*second_handle = universe->attachDescriptor(universe_guard,
+			BiDirectionSecondDescriptor(traits::move(copy)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -316,7 +345,10 @@ HelError helSendString(HelHandle handle,
 	
 	// TODO: check userspace page access rights
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
@@ -345,9 +377,11 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	
 	// TODO: check userspace page access rights
 
-	AnyDescriptor &send_wrapper = universe->getDescriptor(send_handle);
-	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &send_wrapper = universe->getDescriptor(universe_guard, send_handle);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
@@ -376,13 +410,14 @@ HelError helSubmitRecvString(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
-	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
-	
-	auto event_hub = hub_descriptor.getEventHub();
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
+	auto event_hub = hub_wrapper.get<EventHubDescriptor>().getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
@@ -417,13 +452,14 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
-	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
-	
-	auto event_hub = hub_descriptor.getEventHub();
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
+	auto event_hub = hub_wrapper.get<EventHubDescriptor>().getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
@@ -455,11 +491,12 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 	auto server = frigg::makeShared<Server>(*kernelAlloc);
 	KernelSharedPtr<Server> copy(server);
 
-	ServerDescriptor server_descriptor(traits::move(server));
-	ClientDescriptor client_descriptor(traits::move(copy));
-
-	*server_handle = universe->attachDescriptor(traits::move(server_descriptor));
-	*client_handle = universe->attachDescriptor(traits::move(client_descriptor));
+	Universe::Guard universe_guard(&universe->lock);
+	*server_handle = universe->attachDescriptor(universe_guard,
+			ServerDescriptor(traits::move(server)));
+	*client_handle = universe->attachDescriptor(universe_guard,
+			ClientDescriptor(traits::move(copy)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -469,8 +506,11 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	universe_guard.unlock();
+
 	auto &descriptor = wrapper.get<ServerDescriptor>();
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
@@ -489,8 +529,11 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	universe_guard.unlock();
+
 	auto &descriptor = wrapper.get<ClientDescriptor>();
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
@@ -511,8 +554,10 @@ HelError helCreateRd(HelHandle *handle) {
 	
 	auto folder = frigg::makeShared<RdFolder>(*kernelAlloc);
 
-	RdDescriptor base(traits::move(folder));
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			RdDescriptor(traits::move(folder)));
+	universe_guard.unlock();
 	
 	return kHelErrNone;
 }
@@ -522,8 +567,10 @@ HelError helRdMount(HelHandle handle, const char *user_name,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
-	AnyDescriptor &mount_wrapper = universe->getDescriptor(mount_handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	AnyDescriptor &mount_wrapper = universe->getDescriptor(universe_guard, mount_handle);
+	universe_guard.unlock();
 
 	KernelUnsafePtr<RdFolder> directory
 			= wrapper.get<RdDescriptor>().getFolder();
@@ -540,8 +587,10 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
-	AnyDescriptor &publish_wrapper = universe->getDescriptor(publish_handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	AnyDescriptor &publish_wrapper = universe->getDescriptor(universe_guard, publish_handle);
+	universe_guard.unlock();
 
 	auto &descriptor = wrapper.get<RdDescriptor>();
 	KernelUnsafePtr<RdFolder> folder = descriptor.getFolder();
@@ -576,8 +625,11 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 			if(part == util::StringView("#this")) {
 				// open a handle to this directory
 				KernelSharedPtr<RdFolder> copy(directory);
-				RdDescriptor descriptor(traits::move(copy));
-				*handle = universe->attachDescriptor(traits::move(descriptor));
+			
+				Universe::Guard universe_guard(&universe->lock);
+				*handle = universe->attachDescriptor(universe_guard,
+						RdDescriptor(traits::move(copy)));
+				universe_guard.unlock();
 
 				return kHelErrNone;
 			}else{
@@ -586,7 +638,11 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 				ASSERT(entry != nullptr);
 
 				AnyDescriptor copy(entry->descriptor);
-				*handle = universe->attachDescriptor(traits::move(copy));
+				
+				Universe::Guard universe_guard(&universe->lock);
+				*handle = universe->attachDescriptor(universe_guard,
+						traits::move(copy));
+				universe_guard.unlock();
 
 				return kHelErrNone;
 			}
@@ -608,9 +664,10 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	
 	auto irq_line = frigg::makeShared<IrqLine>(*kernelAlloc, number);
 
-	IrqDescriptor base(traits::move(irq_line));
-
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			IrqDescriptor(traits::move(irq_line)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -619,8 +676,11 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &irq_wrapper = universe->getDescriptor(handle);
-	AnyDescriptor &hub_wrapper = universe->getDescriptor(hub_handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &irq_wrapper = universe->getDescriptor(universe_guard, handle);
+	AnyDescriptor &hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	universe_guard.unlock();
+
 	auto &irq_descriptor = irq_wrapper.get<IrqDescriptor>();
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
@@ -648,8 +708,10 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	for(size_t i = 0; i < num_ports; i++)
 		io_space->addPort(user_port_array[i]);
 
-	IoDescriptor base(traits::move(io_space));
-	*handle = universe->attachDescriptor(traits::move(base));
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			IoDescriptor(traits::move(io_space)));
+	universe_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -657,7 +719,10 @@ HelError helEnableIo(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	AnyDescriptor &wrapper = universe->getDescriptor(handle);
+	Universe::Guard universe_guard(&universe->lock);
+	AnyDescriptor &wrapper = universe->getDescriptor(universe_guard, handle);
+	universe_guard.unlock();
+
 	auto &descriptor = wrapper.get<IoDescriptor>();
 	
 	descriptor.getIoSpace()->enableInThread(this_thread);

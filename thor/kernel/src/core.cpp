@@ -61,17 +61,23 @@ frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
 Universe::Universe()
 		: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc) { }
 
-Handle Universe::attachDescriptor(AnyDescriptor &&descriptor) {
+Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
+	ASSERT(guard.protects(&lock));
+
 	Handle handle = p_nextHandle++;
 	p_descriptorMap.insert(handle, traits::move(descriptor));
 	return handle;
 }
 
-AnyDescriptor &Universe::getDescriptor(Handle handle) {
+AnyDescriptor &Universe::getDescriptor(Guard &guard, Handle handle) {
+	ASSERT(guard.protects(&lock));
+
 	return p_descriptorMap.get(handle);
 }
 
-AnyDescriptor Universe::detachDescriptor(Handle handle) {
+AnyDescriptor Universe::detachDescriptor(Guard &guard, Handle handle) {
+	ASSERT(guard.protects(&lock));
+
 	return p_descriptorMap.remove(handle);
 }
 

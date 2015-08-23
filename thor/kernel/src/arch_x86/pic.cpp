@@ -33,48 +33,48 @@ void initializeLocalApic() {
 	
 	// enable the local apic
 	uint32_t spurious_vector = 0x81;
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious],
 			spurious_vector | 0x100);
 	
 	// setup a timer interrupt for scheduling
 	uint32_t schedule_vector = 0x82;
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer],
 			schedule_vector);
 }
 
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount],
 			0xFFFFFFFF);
 	pollSleepNano(millis * 1000000);
 	uint32_t elapsed = 0xFFFFFFFF
-			- frigg::atomic::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
+			- frigg::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
 	apicTicksPerMilli = elapsed / millis;
 	
 	infoLogger->log() << "Local elapsed ticks: " << elapsed << frigg::debug::Finish();
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
 			dest_apic_id << 24);
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
 			kIcrDeliverInit | kIcrTriggerLevel | kIcrLevelAssert);
 }
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id) {
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
 			dest_apic_id << 24);
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
 			kIcrDeliverInit | kIcrTriggerLevel);
 }
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 	ASSERT((page % 0x1000) == 0);
 	uint32_t vector = page / 0x1000; // determines the startup code page
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
 			dest_apic_id << 24);
-	frigg::atomic::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
 			vector | kIcrDeliverStartup);
 }
 

@@ -176,7 +176,7 @@ bool secondaryBootComplete;
 
 extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
-	frigg::atomic::volatileWrite<bool>(&secondaryBootComplete, true);
+	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
 	thor::infoLogger->log() << "Hello world from second CPU" << debug::Finish();
 	
@@ -213,18 +213,18 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	
 	// wait until the ap wakes up
 	thor::infoLogger->log() << "Waiting for AP to wake up" << debug::Finish();
-	while(frigg::atomic::volatileRead<uint32_t>(status_ptr) == 0) {
-		frigg::atomic::pause();
+	while(frigg::volatileRead<uint32_t>(status_ptr) == 0) {
+		frigg::pause();
 	}
 	
 	// allow ap code to initialize the processor
 	thor::infoLogger->log() << "AP is booting" << debug::Finish();
-	frigg::atomic::volatileWrite<uint32_t>(status_ptr, 2);
+	frigg::volatileWrite<uint32_t>(status_ptr, 2);
 	
 	// wait until the secondary processor completed its boot process
 	// we can re-use the trampoline area after this completes
-	while(!frigg::atomic::volatileRead<bool>(&secondaryBootComplete)) {
-		frigg::atomic::pause();
+	while(!frigg::volatileRead<bool>(&secondaryBootComplete)) {
+		frigg::pause();
 	}
 	thor::infoLogger->log() << "AP finished booting" << debug::Finish();
 }

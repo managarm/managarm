@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace atomic {
 
 template<typename T, typename = void>
 struct Implementation;
@@ -54,5 +53,5 @@ private:
 	uint32_t p_servingTicket;
 };
 
-} } // namespace frigg::atomic
+} // namespace frigg
 

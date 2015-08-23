@@ -15,7 +15,6 @@ inline void barrier() {
 #endif
 
 namespace frigg {
-namespace atomic {
 
 struct NullLock {
 	void lock() { }
@@ -23,25 +22,58 @@ struct NullLock {
 	void unlock() { }
 };
 
+// FIXME: UGLY HACK
+#ifndef ASSERT
+#define ASSERT assert
+#endif
+
+struct DontLock { };
+
 template<typename Mutex>
 class LockGuard {
 public:
+	LockGuard(Mutex *mutex, DontLock dummy)
+	: p_mutex(mutex), p_isLocked(false) { }
+
 	LockGuard(Mutex *mutex)
-	: p_mutex(mutex) {
-		p_mutex->lock();
+	: p_mutex(mutex), p_isLocked(false) {
+		lock();
 	}
 
 	LockGuard(const LockGuard &other) = delete;
 	
 	~LockGuard() {
-		p_mutex->unlock();
+		if(p_isLocked)
+			unlock();
 	}
 
 	LockGuard &operator= (const LockGuard &other) = delete;
 
+	void lock() {
+		ASSERT(!p_isLocked);
+		p_mutex->lock();
+		p_isLocked = true;
+	}
+
+	void unlock() {
+		ASSERT(p_isLocked);
+		p_mutex->unlock();
+		p_isLocked = false;
+	}
+
+	bool protects(Mutex *mutex) {
+		return p_isLocked && mutex == p_mutex;
+	}
+
 private:
 	Mutex *p_mutex;
+	bool p_isLocked;
 };
 
-} } // namespace frigg::atomic
+template<typename Mutex>
+LockGuard<Mutex> guard(Mutex *mutex) {
+	return LockGuard<Mutex>();
+}
+
+} // namespace frigg
 

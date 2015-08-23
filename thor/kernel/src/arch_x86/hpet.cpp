@@ -32,15 +32,15 @@ void setupHpet(PhysicalAddr address) {
 	infoLogger->log() << "HPET at " << (void *)address << frigg::debug::Finish();
 	hpetRegs = accessPhysical<uint64_t>(address);
 
-	uint64_t caps = frigg::atomic::volatileRead<uint64_t>(&hpetRegs[kHpetGenCapsAndId]);
+	uint64_t caps = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenCapsAndId]);
 	if((caps & kHpet64BitCounter) == 0)
 		infoLogger->log() << "HPET only has a 32-bit counter" << frigg::debug::Finish();
 
 	hpetPeriod = caps >> 32;
 	infoLogger->log() << "HPET period: " << hpetPeriod << frigg::debug::Finish();
 	
-	uint64_t config = frigg::atomic::volatileRead<uint64_t>(&hpetRegs[kHpetGenConfig]);
-	frigg::atomic::volatileWrite<uint64_t>(&hpetRegs[kHpetGenConfig],
+	uint64_t config = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenConfig]);
+	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetGenConfig],
 			config | kHpetEnable);
 	
 	infoLogger->log() << "Enabled HPET" << frigg::debug::Finish();
@@ -49,10 +49,10 @@ void setupHpet(PhysicalAddr address) {
 }
 
 void pollSleepNano(uint64_t nanotime) {
-	uint64_t counter = frigg::atomic::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
+	uint64_t counter = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
 	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
-	while(frigg::atomic::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]) < goal) {
-		frigg::atomic::pause();
+	while(frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]) < goal) {
+		frigg::pause();
 	}
 }
 

@@ -32,7 +32,7 @@ private:
 };
 
 typedef frigg::memory::DebugAllocator<KernelVirtualAlloc,
-		frigg::atomic::TicketLock> KernelAlloc;
+		frigg::TicketLock> KernelAlloc;
 extern frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 extern frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
@@ -88,13 +88,18 @@ namespace thor {
 
 class Universe {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<frigg::TicketLock> Guard;
+
 	Universe();
 	
-	Handle attachDescriptor(AnyDescriptor &&descriptor);
+	Handle attachDescriptor(Guard &guard, AnyDescriptor &&descriptor);
 
-	AnyDescriptor &getDescriptor(Handle handle);
+	AnyDescriptor &getDescriptor(Guard &guard, Handle handle);
 	
-	AnyDescriptor detachDescriptor(Handle handle);
+	AnyDescriptor detachDescriptor(Guard &guard, Handle handle);
+
+	Lock lock;
 
 private:
 	frigg::util::Hashmap<Handle, AnyDescriptor,

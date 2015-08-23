@@ -54,7 +54,7 @@ DebugAllocator<VirtualAlloc, Mutex>::DebugAllocator(VirtualAlloc &virt_alloc)
 
 template<typename VirtualAlloc, typename Mutex>
 void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
-	atomic::LockGuard<Mutex> guard(&p_mutex);
+	LockGuard<Mutex> guard(&p_mutex);
 
 	size_t with_header = length + sizeof(Header);
 
@@ -71,7 +71,7 @@ void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 
 template<typename VirtualAlloc, typename Mutex>
 void DebugAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
-	atomic::LockGuard<Mutex> guard(&p_mutex);
+	LockGuard<Mutex> guard(&p_mutex);
 
 	if(pointer == nullptr)
 		return;

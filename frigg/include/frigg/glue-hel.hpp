@@ -17,7 +17,7 @@ public:
 };
 
 typedef frigg::memory::DebugAllocator<VirtualAlloc,
-		frigg::atomic::TicketLock> Allocator;
+		frigg::TicketLock> Allocator;
 extern VirtualAlloc virtualAlloc;
 extern frigg::util::LazyInitializer<Allocator> allocator;
 

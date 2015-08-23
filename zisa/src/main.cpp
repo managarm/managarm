@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include <frigg/traits.hpp>
 #include <frigg/atomic.hpp>
