@@ -1,7 +1,12 @@
 
 namespace thor {
 
+typedef frigg::TicketLock ScheduleLock;
+typedef frigg::LockGuard<ScheduleLock> ScheduleGuard;
+
 extern frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
+
+extern frigg::util::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 
@@ -20,9 +25,10 @@ void enterThread(KernelSharedPtr<Thread> &&thread)
 
 // selects an active thread and enters it on this processor
 // must only be called if enterThread() would also be allowed
-void doSchedule() __attribute__ (( noreturn ));
+void doSchedule(ScheduleGuard &guard) __attribute__ (( noreturn ));
 
-void enqueueInSchedule(KernelSharedPtr<Thread> &&thread);
+void enqueueInSchedule(ScheduleGuard &guard,
+		KernelSharedPtr<Thread> &&thread);
 
 } // namespace thor
 

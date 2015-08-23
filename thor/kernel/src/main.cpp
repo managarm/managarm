@@ -119,6 +119,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeTheSystem();
 
 	scheduleQueue.initialize();
+	scheduleLock.initialize();
 	
 	// create a directory and load the memory regions of all modules into it
 	ASSERT(info->numModules >= 1);

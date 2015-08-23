@@ -245,7 +245,10 @@ HelError helWaitForEvents(HelHandle handle,
 		ASSERT(!intsAreEnabled());
 		if(saveThisThread()) {
 			event_hub->blockThread(resetCurrentThread());
-			doSchedule();
+			
+			ScheduleGuard schedule_guard(scheduleLock.get());
+			doSchedule(schedule_guard);
+			// note: doSchedule() takes care of the lock
 		}
 	}
 

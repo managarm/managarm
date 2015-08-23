@@ -7,6 +7,8 @@ namespace thor {
 
 frigg::util::LazyInitializer<ThreadQueue> scheduleQueue;
 
+frigg::util::LazyInitializer<ScheduleLock> scheduleLock;
+
 KernelUnsafePtr<Thread> getCurrentThread() {
 	return getCpuContext()->currentThread;
 }
@@ -24,7 +26,10 @@ KernelSharedPtr<Thread> resetCurrentThread() {
 void dropCurrentThread() {
 	ASSERT(!intsAreEnabled());
 	resetCurrentThread();
-	doSchedule();
+	
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	doSchedule(schedule_guard);
+	// note: doSchedule takes care of the lock
 }
 
 void enterThread(KernelSharedPtr<Thread> &&thread) {
@@ -37,20 +42,28 @@ void enterThread(KernelSharedPtr<Thread> &&thread) {
 	restoreThisThread();
 }
 
-void doSchedule() {
+void doSchedule(ScheduleGuard &guard) {
 	ASSERT(!intsAreEnabled());
+	ASSERT(guard.protects(scheduleLock.get()));
 	ASSERT(!getCpuContext()->currentThread);
 	
 	while(scheduleQueue->empty()) {
+		guard.unlock();
 		enableInts();
 		halt();
 		disableInts();
+		guard.lock();
 	}
+
+	guard.unlock();
 
 	enterThread(scheduleQueue->removeFront());
 }
 
-void enqueueInSchedule(KernelSharedPtr<Thread> &&thread) {
+void enqueueInSchedule(ScheduleGuard &guard,
+		KernelSharedPtr<Thread> &&thread) {
+	ASSERT(guard.protects(scheduleLock.get()));
+
 	scheduleQueue->addBack(traits::move(thread));
 }
 

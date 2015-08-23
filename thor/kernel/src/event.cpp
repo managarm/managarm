@@ -92,8 +92,11 @@ void EventHub::blockThread(KernelSharedPtr<Thread> &&thread) {
 }
 
 void EventHub::wakeup() {
-	while(!p_blocking.empty())
-		enqueueInSchedule(p_blocking.removeFront());
+	while(!p_blocking.empty()) {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, p_blocking.removeFront());
+		schedule_guard.unlock();
+	}
 }
 
 // --------------------------------------------------------
