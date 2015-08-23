@@ -118,7 +118,11 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}
 	
 	VirtualAddr actual_address;
-	space->map(memory, (uintptr_t)pointer, length, map_flags, &actual_address);
+	AddressSpace::Guard space_guard(&space->lock);
+	space->map(space_guard, memory, (uintptr_t)pointer, length,
+			map_flags, &actual_address);
+	space_guard.unlock();
+	
 	thorRtInvalidateSpace();
 
 	*actual_pointer = (void *)actual_address;

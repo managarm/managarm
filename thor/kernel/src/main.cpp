@@ -28,6 +28,8 @@ void enterImage(PhysicalAddr image_paddr) {
 			&& ehdr->e_ident[3] == 'F');
 	ASSERT(ehdr->e_type == ET_EXEC);
 
+	AddressSpace::Guard space_guard(&space->lock, frigg::DontLock());
+
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
@@ -47,18 +49,20 @@ void enterImage(PhysicalAddr image_paddr) {
 			memory->resize(virt_length);
 
 			VirtualAddr actual_address;
+			space_guard.lock();
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				space->map(memory, virt_address, virt_length,
+				space->map(space_guard, memory, virt_address, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				space->map(memory, virt_address, virt_length,
+				space->map(space_guard, memory, virt_address, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
 				debug::panicLogger.log() << "Illegal combination of segment permissions"
 						<< debug::Finish();
 			}
+			space_guard.unlock();
 			thorRtInvalidateSpace();
 			
 			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
@@ -75,9 +79,11 @@ void enterImage(PhysicalAddr image_paddr) {
 	stack_memory->resize(stack_size);
 	
 	VirtualAddr stack_base;
-	space->map(stack_memory, 0, stack_size,
+	space_guard.lock();
+	space->map(space_guard, stack_memory, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite,
 			&stack_base);
+	space_guard.unlock();
 	thorRtInvalidateSpace();
 	
 	enterUserMode((void *)(stack_base + stack_size), (void *)ehdr->e_entry);

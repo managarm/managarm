@@ -58,8 +58,10 @@ AddressSpace::AddressSpace(PageSpace page_space)
 	addressTreeInsert(mapping);
 }
 
-void AddressSpace::map(KernelUnsafePtr<Memory> memory, VirtualAddr address,
+void AddressSpace::map(Guard &guard,
+		KernelUnsafePtr<Memory> memory, VirtualAddr address,
 		size_t length, uint32_t flags, VirtualAddr *actual_address) {
+	ASSERT(guard.protects(&lock));
 	ASSERT((length % kPageSize) == 0);
 
 	Mapping *mapping;

@@ -54,6 +54,9 @@ struct Mapping {
 
 class AddressSpace {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<Lock> Guard;
+
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
 		kMapFixed = 0x01,
@@ -66,10 +69,13 @@ public:
 
 	AddressSpace(PageSpace page_space);
 
-	void map(KernelUnsafePtr<Memory> memory, VirtualAddr address, size_t length,
+	void map(Guard &guard, KernelUnsafePtr<Memory> memory,
+			VirtualAddr address, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	
 	void activate();
+
+	Lock lock;
 
 private:
 	Mapping *getMapping(VirtualAddr address);
