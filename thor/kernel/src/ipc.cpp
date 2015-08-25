@@ -13,8 +13,10 @@ namespace thor {
 Channel::Channel() : p_messages(*kernelAlloc),
 		p_requests(*kernelAlloc) { }
 
-void Channel::sendString(const uint8_t *user_buffer, size_t length,
+void Channel::sendString(Guard &guard, const uint8_t *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
+	ASSERT(guard.protects(&lock));
+
 	uint8_t *kernel_buffer = (uint8_t *)kernelAlloc->allocate(length);
 	memcpy(kernel_buffer, user_buffer, length);
 	
@@ -39,8 +41,10 @@ void Channel::sendString(const uint8_t *user_buffer, size_t length,
 		p_messages.addBack(traits::move(message));
 }
 
-void Channel::sendDescriptor(AnyDescriptor &&descriptor,
+void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 		int64_t msg_request, int64_t msg_sequence) {
+	ASSERT(guard.protects(&lock));
+
 	Message message(kMsgDescriptor, msg_request, msg_sequence);
 	message.descriptor = traits::move(descriptor);
 
@@ -56,10 +60,12 @@ void Channel::sendDescriptor(AnyDescriptor &&descriptor,
 	p_messages.addBack(traits::move(message));
 }
 
-void Channel::submitRecvString(KernelSharedPtr<EventHub> &&event_hub,
+void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		uint8_t *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
+	ASSERT(guard.protects(&lock));
+
 	Request request(kMsgString, traits::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 	request.userBuffer = user_buffer;
@@ -81,9 +87,11 @@ void Channel::submitRecvString(KernelSharedPtr<EventHub> &&event_hub,
 		p_requests.addBack(traits::move(request));
 }
 
-void Channel::submitRecvDescriptor(KernelSharedPtr<EventHub> &&event_hub,
+void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
+	ASSERT(guard.protects(&lock));
+
 	Request request(kMsgDescriptor, traits::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 
@@ -192,8 +200,10 @@ Channel *BiDirectionPipe::getSecondChannel() {
 Server::Server() : p_acceptRequests(*kernelAlloc),
 		p_connectRequests(*kernelAlloc) { }
 
-void Server::submitAccept(KernelSharedPtr<EventHub> &&event_hub,
+void Server::submitAccept(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
+	ASSERT(guard.protects(&lock));
+
 	AcceptRequest request(traits::move(event_hub), submit_info);
 	
 	if(!p_connectRequests.empty()) {
@@ -204,8 +214,10 @@ void Server::submitAccept(KernelSharedPtr<EventHub> &&event_hub,
 	}
 }
 
-void Server::submitConnect(KernelSharedPtr<EventHub> &&event_hub,
+void Server::submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
+	ASSERT(guard.protects(&lock));
+
 	ConnectRequest request(traits::move(event_hub), submit_info);
 
 	if(!p_acceptRequests.empty()) {

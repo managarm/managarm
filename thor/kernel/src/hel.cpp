@@ -357,14 +357,20 @@ HelError helSendString(HelHandle handle,
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
-			channel->sendString(user_buffer, length,
+			
+			Channel::Guard channel_guard(&channel->lock);
+			channel->sendString(channel_guard, user_buffer, length,
 					msg_request, msg_sequence);
+			channel_guard.unlock();
 		} break;
 		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
-			channel->sendString(user_buffer, length,
+			
+			Channel::Guard channel_guard(&channel->lock);
+			channel->sendString(channel_guard, user_buffer, length,
 					msg_request, msg_sequence);
+			channel_guard.unlock();
 		} break;
 		default: {
 			ASSERT(!"Descriptor is not a sink");
@@ -390,14 +396,20 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
-			channel->sendDescriptor(AnyDescriptor(send_wrapper),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->sendDescriptor(channel_guard, AnyDescriptor(send_wrapper),
 					msg_request, msg_sequence);
+			channel_guard.unlock();
 		} break;
 		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
-			channel->sendDescriptor(AnyDescriptor(send_wrapper),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->sendDescriptor(channel_guard, AnyDescriptor(send_wrapper),
 					msg_request, msg_sequence);
+			channel_guard.unlock();
 		} break;
 		default: {
 			ASSERT(!"Descriptor is not a sink");
@@ -426,18 +438,24 @@ HelError helSubmitRecvString(HelHandle handle,
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
-			channel->submitRecvString(KernelSharedPtr<EventHub>(event_hub),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
+			channel_guard.unlock();
 		} break;
 		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
-			channel->submitRecvString(KernelSharedPtr<EventHub>(event_hub),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 					user_buffer, max_length,
 					filter_request, filter_sequence,
 					submit_info);
+			channel_guard.unlock();
 		} break;
 		default: {
 			ASSERT(!"Descriptor is not a source");
@@ -468,14 +486,20 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionFirstDescriptor>();
 			Channel *channel = descriptor.getPipe()->getFirstChannel();
-			channel->submitRecvDescriptor(KernelSharedPtr<EventHub>(event_hub),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 					filter_request, filter_sequence, submit_info);
+			channel_guard.unlock();
 		} break;
 		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
 			auto &descriptor = wrapper.get<BiDirectionSecondDescriptor>();
 			Channel *channel = descriptor.getPipe()->getSecondChannel();
-			channel->submitRecvDescriptor(KernelSharedPtr<EventHub>(event_hub),
+
+			Channel::Guard channel_guard(&channel->lock);
+			channel->submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 					filter_request, filter_sequence, submit_info);
+			channel_guard.unlock();
 		} break;
 		default: {
 			ASSERT(!"Descriptor is not a source");
@@ -521,7 +545,10 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
-	descriptor.getServer()->submitAccept(KernelSharedPtr<EventHub>(event_hub), submit_info);
+	Server::Guard server_guard(&descriptor.getServer()->lock);
+	descriptor.getServer()->submitAccept(server_guard,
+			KernelSharedPtr<EventHub>(event_hub), submit_info);
+	server_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 	
@@ -544,7 +571,10 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
 	
-	descriptor.getServer()->submitConnect(KernelSharedPtr<EventHub>(event_hub), submit_info);
+	Server::Guard server_guard(&descriptor.getServer()->lock);
+	descriptor.getServer()->submitConnect(server_guard,
+			KernelSharedPtr<EventHub>(event_hub), submit_info);
+	server_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 	

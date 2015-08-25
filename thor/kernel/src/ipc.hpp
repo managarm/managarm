@@ -4,22 +4,27 @@ namespace thor {
 // Single producer, single consumer connection
 class Channel {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<Lock> Guard;
+
 	Channel();
 
-	void sendString(const uint8_t *buffer, size_t length,
+	void sendString(Guard &guard, const uint8_t *user_buffer, size_t length,
 			int64_t msg_request, int64_t msg_sequence);
 	
-	void sendDescriptor(AnyDescriptor &&descriptor,
+	void sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 			int64_t msg_request, int64_t msg_sequence);
 	
-	void submitRecvString(KernelSharedPtr<EventHub> &&event_hub,
+	void submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			uint8_t *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 	
-	void submitRecvDescriptor(KernelSharedPtr<EventHub> &&event_hub,
+	void submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
+
+	Lock lock;
 
 private:
 	enum MsgType {
@@ -78,14 +83,19 @@ private:
 
 class Server {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<Lock> Guard;
+
 	Server();
 
-	void submitAccept(KernelSharedPtr<EventHub> &&event_hub,
+	void submitAccept(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
 	
-	void submitConnect(KernelSharedPtr<EventHub> &&event_hub,
+	void submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
-
+	
+	Lock lock;
+	
 private:
 	struct AcceptRequest {
 		AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
