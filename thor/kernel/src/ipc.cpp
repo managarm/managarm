@@ -116,20 +116,37 @@ bool Channel::matchRequest(const Message &message, const Request &request) {
 
 bool Channel::processStringRequest(Message &message, Request &request) {
 	if(message.length > request.maxLength) {
-		request.eventHub->raiseRecvStringErrorEvent(kErrBufferTooSmall,
-				request.submitInfo);
+		UserEvent event(UserEvent::kTypeRecvStringError, request.submitInfo);
+		event.error = kErrBufferTooSmall;
+
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		hub_guard.unlock();
 		return false;
 	}else{
-		request.eventHub->raiseRecvStringTransferEvent(message.msgRequest,
-				message.msgSequence, message.kernelBuffer,
-				request.userBuffer, message.length, request.submitInfo);
+		UserEvent event(UserEvent::kTypeRecvStringTransfer, request.submitInfo);
+		event.msgRequest = message.msgRequest;
+		event.msgSequence = message.msgSequence;
+		event.kernelBuffer = message.kernelBuffer;
+		event.userBuffer = request.userBuffer;
+		event.length = message.length;
+		
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		hub_guard.unlock();
 		return true;
 	}
 }
 
 void Channel::processDescriptorRequest(Message &message, Request &request) {
-	request.eventHub->raiseRecvDescriptorEvent(message.msgRequest,
-			message.msgSequence, traits::move(message.descriptor), request.submitInfo);
+	UserEvent event(UserEvent::kTypeRecvDescriptor, request.submitInfo);
+	event.msgRequest = message.msgRequest;
+	event.msgSequence = message.msgSequence;
+	event.descriptor = traits::move(message.descriptor);
+		
+	EventHub::Guard hub_guard(&request.eventHub->lock);
+	request.eventHub->raiseEvent(hub_guard, traits::move(event));
+	hub_guard.unlock();
 }
 
 // --------------------------------------------------------
@@ -204,10 +221,19 @@ void Server::processRequests(const AcceptRequest &accept,
 	auto pipe = frigg::makeShared<BiDirectionPipe>(*kernelAlloc);
 	KernelSharedPtr<BiDirectionPipe> copy(pipe);
 
-	accept.eventHub->raiseAcceptEvent(traits::move(pipe),
-			accept.submitInfo);
-	connect.eventHub->raiseConnectEvent(traits::move(copy),
-			connect.submitInfo);
+	UserEvent accept_event(UserEvent::kTypeAccept, accept.submitInfo);
+	accept_event.pipe = traits::move(pipe);
+	
+	EventHub::Guard accept_hub_guard(&accept.eventHub->lock);
+	accept.eventHub->raiseEvent(accept_hub_guard, traits::move(accept_event));
+	accept_hub_guard.unlock();
+
+	UserEvent connect_event(UserEvent::kTypeConnect, connect.submitInfo);
+	connect_event.pipe = traits::move(copy);
+	
+	EventHub::Guard connect_hub_guard(&connect.eventHub->lock);
+	connect.eventHub->raiseEvent(connect_hub_guard, traits::move(connect_event));
+	connect_hub_guard.unlock();
 }
 
 // --------------------------------------------------------

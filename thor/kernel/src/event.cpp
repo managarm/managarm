@@ -15,83 +15,23 @@ SubmitInfo::SubmitInfo(int64_t async_id,
 		submitObject(submit_object) { }
 
 // --------------------------------------------------------
+// UserEvent
+// --------------------------------------------------------
+
+UserEvent::UserEvent(Type type, SubmitInfo submit_info)
+		: type(type), submitInfo(submit_info) { }
+
+// --------------------------------------------------------
 // EventHub
 // --------------------------------------------------------
 
 EventHub::EventHub() : p_queue(*kernelAlloc) { }
 
-void EventHub::raiseIrqEvent(SubmitInfo submit_info) {
-	Event event(Event::kTypeIrq, submit_info);
+void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
+	ASSERT(guard.protects(&lock));
+
 	p_queue.addBack(traits::move(event));
 
-	wakeup();
-}
-
-void EventHub::raiseRecvStringErrorEvent(Error error,
-		SubmitInfo submit_info) {
-	Event event(Event::kTypeRecvStringError, submit_info);
-	event.error = error;
-	p_queue.addBack(traits::move(event));
-
-	wakeup();
-}
-
-void EventHub::raiseRecvStringTransferEvent(int64_t msg_request, int64_t msg_sequence,
-		uint8_t *kernel_buffer, uint8_t *user_buffer, size_t length,
-		SubmitInfo submit_info) {
-	Event event(Event::kTypeRecvStringTransfer, submit_info);
-	event.msgRequest = msg_request;
-	event.msgSequence = msg_sequence;
-	event.kernelBuffer = kernel_buffer;
-	event.userBuffer = user_buffer;
-	event.length = length;
-	p_queue.addBack(traits::move(event));
-
-	wakeup();
-}
-
-void EventHub::raiseRecvDescriptorEvent(int64_t msg_request, int64_t msg_sequence,
-		AnyDescriptor &&descriptor, SubmitInfo submit_info) {
-	Event event(Event::kTypeRecvDescriptor, submit_info);
-	event.msgRequest = msg_request;
-	event.msgSequence = msg_sequence;
-	event.descriptor = traits::move(descriptor);
-	p_queue.addBack(traits::move(event));
-
-	wakeup();
-}
-
-void EventHub::raiseAcceptEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
-		SubmitInfo submit_info) {
-	Event event(Event::kTypeAccept, submit_info);
-	event.pipe = traits::move(pipe);
-	p_queue.addBack(traits::move(event));
-
-	wakeup();
-}
-
-void EventHub::raiseConnectEvent(KernelSharedPtr<BiDirectionPipe> &&pipe,
-		SubmitInfo submit_info) {
-	Event event(Event::kTypeConnect, submit_info);
-	event.pipe = traits::move(pipe);
-	p_queue.addBack(traits::move(event));
-
-	wakeup();
-}
-
-bool EventHub::hasEvent() {
-	return !p_queue.empty();
-}
-
-EventHub::Event EventHub::dequeueEvent() {
-	return p_queue.removeFront();
-}
-
-void EventHub::blockThread(KernelSharedPtr<Thread> &&thread) {
-	p_blocking.addBack(traits::move(thread));
-}
-
-void EventHub::wakeup() {
 	while(!p_blocking.empty()) {
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		enqueueInSchedule(schedule_guard, p_blocking.removeFront());
@@ -99,12 +39,34 @@ void EventHub::wakeup() {
 	}
 }
 
-// --------------------------------------------------------
-// EventHub::Event
-// --------------------------------------------------------
+bool EventHub::hasEvent(Guard &guard) {
+	ASSERT(guard.protects(&lock));
 
-EventHub::Event::Event(Type type, SubmitInfo submit_info)
-		: type(type), submitInfo(submit_info) { }
+	return !p_queue.empty();
+}
+
+UserEvent EventHub::dequeueEvent(Guard &guard) {
+	ASSERT(guard.protects(&lock));
+
+	return p_queue.removeFront();
+}
+
+void EventHub::blockCurrentThread(Guard &guard) {
+	ASSERT(guard.protects(&lock));
+
+	ASSERT(!intsAreEnabled());
+	if(saveThisThread()) {
+		p_blocking.addBack(resetCurrentThread());
+		guard.unlock();
+		
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(schedule_guard);
+		// note: doSchedule() takes care of the schedule_guard lock
+	}
+	
+	// the guard lock was released during the first return of saveThisThread()
+	guard.lock();
+}
 
 } // namespace thor
 

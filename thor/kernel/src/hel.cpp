@@ -241,26 +241,19 @@ HelError helWaitForEvents(HelHandle handle,
 
 	// TODO: check userspace page access rights
 
-	while(!event_hub->hasEvent()) {
-		ASSERT(!intsAreEnabled());
-		if(saveThisThread()) {
-			event_hub->blockThread(resetCurrentThread());
-			
-			ScheduleGuard schedule_guard(scheduleLock.get());
-			doSchedule(schedule_guard);
-			// note: doSchedule() takes care of the lock
-		}
-	}
+	EventHub::Guard hub_guard(&event_hub->lock);
+	while(!event_hub->hasEvent(hub_guard))
+		event_hub->blockCurrentThread(hub_guard);
 
 	size_t count; 
 	for(count = 0; count < max_items; count++) {
-		if(!event_hub->hasEvent())
+		if(!event_hub->hasEvent(hub_guard))
 			break;
-		EventHub::Event event = event_hub->dequeueEvent();
+		UserEvent event = event_hub->dequeueEvent(hub_guard);
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
-		case EventHub::Event::kTypeRecvStringTransfer: {
+		case UserEvent::kTypeRecvStringTransfer: {
 			user_evt->type = kHelEventRecvString;
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
@@ -269,10 +262,12 @@ HelError helWaitForEvents(HelHandle handle,
 			// TODO: check userspace page access rights
 	
 			// do the actual memory transfer
+			hub_guard.unlock();
 			memcpy(event.userBuffer, event.kernelBuffer, event.length);
+			hub_guard.lock();
 			user_evt->length = event.length;
 		} break;
-		case EventHub::Event::kTypeRecvStringError: {
+		case UserEvent::kTypeRecvStringError: {
 			user_evt->type = kHelEventRecvString;
 
 			switch(event.error) {
@@ -283,7 +278,7 @@ HelError helWaitForEvents(HelHandle handle,
 				ASSERT(!"Unexpected error");
 			}
 		} break;
-		case EventHub::Event::kTypeRecvDescriptor: {
+		case UserEvent::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
@@ -293,7 +288,7 @@ HelError helWaitForEvents(HelHandle handle,
 					AnyDescriptor(traits::move(event.descriptor)));
 			universe_guard.unlock();
 		} break;
-		case EventHub::Event::kTypeAccept: {
+		case UserEvent::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
 
 			universe_guard.lock();
@@ -301,7 +296,7 @@ HelError helWaitForEvents(HelHandle handle,
 					BiDirectionFirstDescriptor(traits::move(event.pipe)));
 			universe_guard.unlock();
 		} break;
-		case EventHub::Event::kTypeConnect: {
+		case UserEvent::kTypeConnect: {
 			user_evt->type = kHelEventConnect;
 
 			universe_guard.lock();
@@ -309,7 +304,7 @@ HelError helWaitForEvents(HelHandle handle,
 					BiDirectionSecondDescriptor(traits::move(event.pipe)));
 			universe_guard.unlock();
 		} break;
-		case EventHub::Event::kTypeIrq: {
+		case UserEvent::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
 		} break;
 		default:
@@ -320,6 +315,8 @@ HelError helWaitForEvents(HelHandle handle,
 		user_evt->submitFunction = event.submitInfo.submitFunction;
 		user_evt->submitObject = event.submitInfo.submitObject;
 	}
+	hub_guard.unlock();
+
 	*num_items = count;
 
 	return kHelErrNone;

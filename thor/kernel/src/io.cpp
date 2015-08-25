@@ -26,7 +26,12 @@ void IrqRelay::submitWaitRequest(KernelSharedPtr<EventHub> &&event_hub,
 void IrqRelay::fire() {
 	while(!p_requests.empty()) {
 		Request request = p_requests.removeFront();
-		request.eventHub->raiseIrqEvent(request.submitInfo);
+		
+		UserEvent event(UserEvent::kTypeIrq, request.submitInfo);
+
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		hub_guard.unlock();
 	}
 }
 
