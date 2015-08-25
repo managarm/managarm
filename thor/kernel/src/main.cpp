@@ -241,8 +241,10 @@ extern "C" void thorIrq(int irq) {
 	ASSERT(!intsAreEnabled());
 
 	acknowledgeIrq(irq);
-
-	irqRelays[irq]->fire();
+	
+	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);
+	irqRelays[irq]->fire(irq_guard);
+	irq_guard.unlock();
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

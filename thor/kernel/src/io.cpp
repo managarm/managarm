@@ -17,13 +17,19 @@ frigg::util::LazyInitializer<IrqRelay> irqRelays[16];
 
 IrqRelay::IrqRelay() : p_requests(*kernelAlloc) { }
 
-void IrqRelay::submitWaitRequest(KernelSharedPtr<EventHub> &&event_hub,
+void IrqRelay::submitWaitRequest(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
+	ASSERT(!intsAreEnabled());
+	ASSERT(guard.protects(&lock));
+
 	Request request(traits::move(event_hub), submit_info);
 	p_requests.addBack(traits::move(request));
 }
 
-void IrqRelay::fire() {
+void IrqRelay::fire(Guard &guard) {
+	ASSERT(!intsAreEnabled());
+	ASSERT(guard.protects(&lock));
+
 	while(!p_requests.empty()) {
 		Request request = p_requests.removeFront();
 		

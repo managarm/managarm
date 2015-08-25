@@ -723,9 +723,10 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	auto event_hub = hub_descriptor.getEventHub();
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 
-	ASSERT(!intsAreEnabled());
-	irqRelays[number]->submitWaitRequest(KernelSharedPtr<EventHub>(event_hub),
-			submit_info);
+	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
+	irqRelays[number]->submitWaitRequest(irq_guard,
+			KernelSharedPtr<EventHub>(event_hub), submit_info);
+	irq_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 

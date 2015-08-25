@@ -7,12 +7,17 @@ namespace thor {
 
 class IrqRelay {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<Lock> Guard;
+
 	IrqRelay();
 
-	void submitWaitRequest(KernelSharedPtr<EventHub> &&event_hub,
+	void submitWaitRequest(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			SubmitInfo submit_info);
 	
-	void fire();
+	void fire(Guard &guard);
+
+	Lock lock;
 
 private:
 	struct Request {
