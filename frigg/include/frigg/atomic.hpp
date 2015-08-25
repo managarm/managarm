@@ -40,6 +40,11 @@ public:
 		lock();
 	}
 
+	LockGuard(LockGuard &&other)
+	: p_mutex(other.p_mutex), p_isLocked(other.p_isLocked) {
+		other.p_isLocked = false;
+	}
+
 	LockGuard(const LockGuard &other) = delete;
 	
 	~LockGuard() {

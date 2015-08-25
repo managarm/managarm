@@ -28,7 +28,7 @@ void dropCurrentThread() {
 	resetCurrentThread();
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(schedule_guard);
+	doSchedule(traits::move(schedule_guard));
 	// note: doSchedule takes care of the lock
 }
 
@@ -42,7 +42,7 @@ void enterThread(KernelSharedPtr<Thread> &&thread) {
 	restoreThisThread();
 }
 
-void doSchedule(ScheduleGuard &guard) {
+void doSchedule(ScheduleGuard &&guard) {
 	ASSERT(!intsAreEnabled());
 	ASSERT(guard.protects(scheduleLock.get()));
 	ASSERT(!getCpuContext()->currentThread);

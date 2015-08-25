@@ -25,7 +25,7 @@ void enterThread(KernelSharedPtr<Thread> &&thread)
 
 // selects an active thread and enters it on this processor
 // must only be called if enterThread() would also be allowed
-void doSchedule(ScheduleGuard &guard) __attribute__ (( noreturn ));
+void doSchedule(ScheduleGuard &&guard) __attribute__ (( noreturn ));
 
 void enqueueInSchedule(ScheduleGuard &guard,
 		KernelSharedPtr<Thread> &&thread);

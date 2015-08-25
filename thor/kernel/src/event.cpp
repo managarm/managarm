@@ -60,7 +60,7 @@ void EventHub::blockCurrentThread(Guard &guard) {
 		guard.unlock();
 		
 		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(schedule_guard);
+		doSchedule(traits::move(schedule_guard));
 		// note: doSchedule() takes care of the schedule_guard lock
 	}
 	
