@@ -86,6 +86,7 @@ void enterImage(PhysicalAddr image_paddr) {
 	space_guard.unlock();
 	thorRtInvalidateSpace();
 	
+	infoLogger->log() << "Entering user mode" << debug::Finish();
 	enterUserMode((void *)(stack_base + stack_size), (void *)ehdr->e_entry);
 }
 

@@ -16,7 +16,13 @@ Memory::Memory()
 
 void Memory::resize(size_t length) {
 	for(size_t l = 0; l < length; l += 0x1000) {
-		PhysicalAddr page = physicalAllocator->allocate(1);
+		// note: push might need to allocate memory and thus lock
+		// the physical allocator so we cannot keep the lock for the whole loop
+		// TODO: optimize this. preallocate the vector
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		PhysicalAddr page = physicalAllocator->allocate(physical_guard, 1);
+		physical_guard.unlock();
+
 		p_physicalPages.push(page);
 	}
 }

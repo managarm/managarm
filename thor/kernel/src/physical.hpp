@@ -54,14 +54,19 @@ struct Chunk {
 
 class PhysicalChunkAllocator {
 public:
+	typedef frigg::TicketLock Lock;
+	typedef frigg::LockGuard<Lock> Guard;
+
 	PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
 			size_t bootstrap_length);
 	
 	void addChunk(PhysicalAddr chunk_base, size_t chunk_length);
 	void bootstrap();
 
-	PhysicalAddr allocate(size_t num_pages);
-	void free(PhysicalAddr address);
+	PhysicalAddr allocate(Guard &guard, size_t num_pages);
+	void free(Guard &guard, PhysicalAddr address);
+
+	Lock lock;
 
 private:
 	void *bootstrapAlloc(size_t length, size_t alignment);

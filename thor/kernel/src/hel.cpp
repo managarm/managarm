@@ -432,7 +432,7 @@ HelError helSubmitRecvString(HelHandle handle,
 	universe_guard.unlock();
 
 	auto event_hub = hub_wrapper.get<EventHubDescriptor>().getEventHub();
-	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
@@ -480,7 +480,7 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	universe_guard.unlock();
 
 	auto event_hub = hub_wrapper.get<EventHubDescriptor>().getEventHub();
-	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	switch(wrapper.tag()) {
 		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
@@ -543,7 +543,7 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Server::Guard server_guard(&descriptor.getServer()->lock);
 	descriptor.getServer()->submitAccept(server_guard,
@@ -569,7 +569,7 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	auto &hub_descriptor = hub_wrapper.get<EventHubDescriptor>();
 	
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Server::Guard server_guard(&descriptor.getServer()->lock);
 	descriptor.getServer()->submitConnect(server_guard,
@@ -721,7 +721,7 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	int number = irq_descriptor.getIrqLine()->getNumber();
 
 	auto event_hub = hub_descriptor.getEventHub();
-	SubmitInfo submit_info(nextAsyncId++, submit_function, submit_object);
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 
 	ASSERT(!intsAreEnabled());
 	irqRelays[number]->submitWaitRequest(KernelSharedPtr<EventHub>(event_hub),

@@ -245,12 +245,15 @@ void PhysicalChunkAllocator::bootstrap() {
 				(p_bootstrapBase - p_root->baseAddress) / 0x1000 + i);
 }
 
-PhysicalAddr PhysicalChunkAllocator::allocate(size_t num_pages) {
+PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t num_pages) {
+	ASSERT(guard.protects(&lock));
 	ASSERT(num_pages == 1);
+
 	return allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
 }
 
-void PhysicalChunkAllocator::free(PhysicalAddr address) {
+void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
+	ASSERT(guard.protects(&lock));
 	ASSERT(address >= p_root->baseAddress);
 	ASSERT(address < p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);

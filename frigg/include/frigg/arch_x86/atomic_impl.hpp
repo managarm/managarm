@@ -2,12 +2,20 @@
 namespace frigg {
 
 template<typename T, typename = void>
-struct Implementation;
+struct Atomic;
 
 template<>
-struct Implementation<uint32_t> {
+struct Atomic<uint32_t> {
 	static void fetchInc(uint32_t *pointer, uint32_t &old_value) {
 		asm volatile ( "lock xaddl %0, %1" : "=r" (old_value)
+				: "m" (*pointer), "0" (1) : "memory" );
+	}
+};
+
+template<>
+struct Atomic<int64_t> {
+	static void fetchInc(int64_t *pointer, int64_t &old_value) {
+		asm volatile ( "lock xaddq %0, %1" : "=r" (old_value)
 				: "m" (*pointer), "0" (1) : "memory" );
 	}
 };
@@ -27,7 +35,7 @@ inline void pause() {
 
 template<typename T>
 void fetchInc(T *pointer, T &old_value) {
-	Implementation<T>::fetchInc(pointer, old_value);
+	Atomic<T>::fetchInc(pointer, old_value);
 }
 
 class TicketLock {

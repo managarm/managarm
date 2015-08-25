@@ -1,7 +1,7 @@
 
 namespace thor {
 
-extern int64_t nextAsyncId;
+int64_t allocAsyncId();
 
 // --------------------------------------------------------
 // Debugging and logging

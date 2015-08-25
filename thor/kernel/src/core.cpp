@@ -6,7 +6,13 @@ namespace util = frigg::util;
 
 namespace thor {
 
-int64_t nextAsyncId = 1;
+static int64_t nextAsyncId = 1;
+
+int64_t allocAsyncId() {
+	int64_t async_id;
+	frigg::fetchInc<int64_t>(&nextAsyncId, async_id);
+	return async_id;
+}
 
 // --------------------------------------------------------
 // Debugging and logging
@@ -28,12 +34,19 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 	p_nextPage += length;
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(1);
+		// note: mapSingle4k might need to allocate page tables so
+		// cannot keep the lock for the whole loop.
+		// TODO: optimize this. pass the guard into the paging code
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+		physical_guard.unlock();
+
 		kernelSpace->mapSingle4k(address + offset, physical, false,
 				PageSpace::kAccessWrite);
 	}
-	thorRtInvalidateSpace();
+
 	asm("" : : : "memory");
+	thorRtInvalidateSpace();
 
 	return address;
 }
@@ -43,10 +56,13 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	ASSERT((length % kPageSize) == 0);
 
 	asm("" : : : "memory");
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
-		physicalAllocator->free(physical);
+		physicalAllocator->free(physical_guard, physical);
 	}
+	physical_guard.unlock();
+
 	thorRtInvalidateSpace();
 }
 
