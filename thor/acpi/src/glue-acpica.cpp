@@ -2,21 +2,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 
+extern "C" {
 #include <acpi.h>
-
-void notImplemented(const char *function) {
-	printf("ACPI interface function %s is not implemented!\n", function);
-	abort();
 }
 
-#define NOT_IMPLEMENTED() \
-	do { \
-		notImplemented(__func__); \
-	} while(0)
+#define NOT_IMPLEMENTED() do { printf("ACPI interface function %s is not implemented!\n", \
+		__func__); abort(); } while(0)
 
 // --------------------------------------------------------
 // Initialization and shutdown
