@@ -240,6 +240,8 @@ extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
 extern "C" void thorIrq(int irq) {
 	ASSERT(!intsAreEnabled());
 
+	infoLogger->log() << "IRQ #" << irq << debug::Finish();
+
 	acknowledgeIrq(irq);
 	
 	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);

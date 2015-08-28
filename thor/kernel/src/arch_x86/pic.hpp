@@ -19,10 +19,22 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id);
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page);
 
 // --------------------------------------------------------
+// I/O APIC management
+// --------------------------------------------------------
+
+void setupIoApic(PhysicalAddr address);
+
+// --------------------------------------------------------
 // Legacy PIC management
 // --------------------------------------------------------
 
 void setupLegacyPic();
+
+void maskLegacyPic();
+
+// --------------------------------------------------------
+// General functions
+// --------------------------------------------------------
 
 void acknowledgeIrq(int irq);
 

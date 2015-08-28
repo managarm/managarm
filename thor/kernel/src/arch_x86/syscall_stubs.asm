@@ -1,4 +1,6 @@
 
+.set .L_kRflagsIf, 0x200
+
 .set .L_kSyscallRbp, 0x00
 .set .L_kSyscallR12, 0x08
 .set .L_kSyscallR13, 0x10
@@ -8,9 +10,15 @@
 .set .L_kSyscallRip, 0x30
 .set .L_kSyscallRflags, 0x38
 
+.set .L_kGsSyscallState, 0x10
+.set .L_kGsSyscallStackPtr, 0x18
+.set .L_kGsFlags, 0x20
+
+.set .L_kGsFlagEnableInts, 1
+
 .global syscallStub
 syscallStub:
-	mov %gs:0x10, %rbx
+	mov %gs:.L_kGsSyscallState, %rbx
 	
 	mov %rbp, .L_kSyscallRbp(%rbx)
 	mov %r12, .L_kSyscallR12(%rbx)
@@ -23,7 +31,7 @@ syscallStub:
 	mov %rcx, .L_kSyscallRip(%rbx)
 	mov %r11, .L_kSyscallRflags(%rbx)
 
-	mov %gs:0x18, %rsp
+	mov %gs:.L_kGsSyscallStackPtr, %rsp
 	
 	# satisfy the system v calling convention
 	push %r14
@@ -41,7 +49,7 @@ syscallStub:
 thorRtReturnSyscall1:
 thorRtReturnSyscall2:
 thorRtReturnSyscall3:
-	mov %gs:0x10, %rbx
+	mov %gs:.L_kGsSyscallState, %rbx
 
 	mov .L_kSyscallRbp(%rbx), %rbp
 	mov .L_kSyscallR12(%rbx), %r12
@@ -53,7 +61,13 @@ thorRtReturnSyscall3:
 	# setup rcx and r11 for sysret
 	mov .L_kSyscallRip(%rbx), %rcx
 	mov .L_kSyscallRflags(%rbx), %r11
-	or $0x200, %r11 # re-enable interrupts
+	
+	# enable/disable interrupts in rflags
+	or $.L_kRflagsIf, %r11
+	testq $.L_kGsFlagEnableInts, %gs:.L_kGsFlags
+	jnz .L_with_ints
+	xor $.L_kRflagsIf, %r11
 
+.L_with_ints:
 	sysretq
 

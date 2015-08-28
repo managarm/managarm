@@ -38,8 +38,8 @@ struct ThorRtGeneralState {
 	Word rsp;			// offset 0x78
 	Word rip;			// offset 0x80
 	Word rflags;		// offset 0x88
-	// 0 = thread interrupted in user mode
-	// 1 = thread interrupted in kernel mode
+	// 0 = thread saved in user mode
+	// 1 = thread saved in kernel mode
 	uint8_t kernel;		// offset 0x90
 };
 
@@ -92,16 +92,34 @@ struct CpuContext;
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct ThorRtKernelGs {
+	enum {
+		kOffCpuContext = 0x00,
+		kOffGeneralState = 0x08,
+		kOffSyscallState = 0x10,
+		kOffSyscallStackPtr = 0x18,
+		kOffFlags = 0x20,
+		kOffCpuSpecific = 0x28
+	};
+
+	enum {
+		kFlagAllowInts = 1
+	};
+
 	ThorRtKernelGs();
 
 	CpuContext *cpuContext;				// offset 0x00
 	ThorRtGeneralState *generalState;	// offset 0x08
 	ThorRtSyscallState *syscallState;	// offset 0x10
 	void *syscallStackPtr;				// offset 0x18
-	ThorRtCpuSpecific *cpuSpecific;		// offset 0x20
+	uint32_t flags;						// offset 0x20
+	uint32_t padding;
+	ThorRtCpuSpecific *cpuSpecific;		// offset 0x28
 };
 
 CpuContext *getCpuContext();
+
+bool intsAreAllowed();
+void allowInts();
 
 // calls the given function on the per-cpu stack
 // this allows us to implement a save exit-this-thread function

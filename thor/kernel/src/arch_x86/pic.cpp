@@ -1,7 +1,16 @@
 
 #include "../kernel.hpp"
 
+namespace debug = frigg::debug;
+
 namespace thor {
+
+enum {
+	kModelLegacy = 1,
+	kModelApic = 2
+};
+
+static int picModel =  kModelLegacy;
 
 // --------------------------------------------------------
 // Local PIC management
@@ -12,6 +21,7 @@ uint32_t apicTicksPerMilli;
 
 enum {
 	kLApicId = 8,
+	kLApicEoi = 44,
 	kLApicSpurious = 60,
 	kLApicIcwLow = 192,
 	kLApicIcwHigh = 196,
@@ -59,7 +69,7 @@ void calibrateApicTimer() {
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
 	apicTicksPerMilli = elapsed / millis;
 	
-	infoLogger->log() << "Local elapsed ticks: " << elapsed << frigg::debug::Finish();
+	infoLogger->log() << "Local elapsed ticks: " << elapsed << debug::Finish();
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {
@@ -83,6 +93,43 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 			dest_apic_id << 24);
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
 			vector | kIcrDeliverStartup);
+}
+
+// --------------------------------------------------------
+// I/O APIC management
+// --------------------------------------------------------
+
+enum {
+	kIoApicId = 0,
+	kIoApicVersion = 1,
+	kIoApicInts = 16,
+};
+
+uint32_t *ioApicRegs;
+
+uint32_t readIoApic(uint32_t index) {
+	frigg::volatileWrite<uint32_t>(&ioApicRegs[0], index);
+	return frigg::volatileRead<uint32_t>(&ioApicRegs[4]);
+}
+void writeIoApic(uint32_t index, uint32_t value) {
+	frigg::volatileWrite<uint32_t>(&ioApicRegs[0], index);
+	frigg::volatileWrite<uint32_t>(&ioApicRegs[4], value);
+}
+
+void setupIoApic(PhysicalAddr address) {
+	ioApicRegs = accessPhysical<uint32_t>(address);
+	
+	picModel = kModelApic;
+	maskLegacyPic();
+
+	int num_ints = ((readIoApic(kIoApicVersion) >> 16) & 0xFF) + 1;
+	infoLogger->log() << "I/O APIC supports " << num_ints << " interrupts" << debug::Finish();
+
+	for(int i = 0; i < num_ints; i++) {
+		uint32_t vector = 64 + i;
+		writeIoApic(kIoApicInts + i * 2, vector);
+		writeIoApic(kIoApicInts + i * 2 + 1, 0);
+	}
 }
 
 // --------------------------------------------------------
@@ -149,10 +196,25 @@ void setupLegacyPic() {
 	remapLegacyPic(64);
 }
 
+void maskLegacyPic() {
+	frigg::arch_x86::ioOutByte(kPic1Data, 0xFF);
+	frigg::arch_x86::ioOutByte(kPic2Data, 0xFF);
+}
+
+// --------------------------------------------------------
+// General functions
+// --------------------------------------------------------
+
 void acknowledgeIrq(int irq) {
-	if(irq >= 8)
-		frigg::arch_x86::ioOutByte(kPic2Command, kPicEoi);
-	frigg::arch_x86::ioOutByte(kPic1Command, kPicEoi);
+	if(picModel == kModelApic) {
+		frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicEoi], 0);
+	}else if(picModel == kModelLegacy) {
+		if(irq >= 8)
+			frigg::arch_x86::ioOutByte(kPic2Command, kPicEoi);
+		frigg::arch_x86::ioOutByte(kPic1Command, kPicEoi);
+	}else{
+		ASSERT(!"Illegal PIC model");
+	}
 }
 
 } // namespace thor

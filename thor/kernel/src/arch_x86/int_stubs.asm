@@ -1,6 +1,6 @@
 
 .set kRflagsBase, 0x1
-.set kRflagsIf, 0x200
+.set .L_kRflagsIf, 0x200
 
 .set .L_generalRax, 0x0
 .set .L_generalRbx, 0x8
@@ -23,6 +23,11 @@
 .set .L_generalRip, 0x80
 .set .L_generalRflags, 0x88
 .set .L_generalKernel, 0x90
+
+.set .L_kGsGeneralState, 0x08
+.set .L_kGsFlags, 0x20
+
+.set .L_kGsFlagAllowInts, 1
 
 .global thorRtEntry
 thorRtEntry:
@@ -56,7 +61,7 @@ MAKE_FAULT_HANDLER_WITHCODE Page
 .global thorRtIsrIrq\irq
 thorRtIsrIrq\irq:
 	pushq %rbx
-	mov %gs:0x08, %rbx
+	mov %gs:.L_kGsGeneralState, %rbx
 
 	# check if we interrupted a thread
 	cmp $0, %rbx
@@ -158,7 +163,7 @@ MAKE_IRQ_HANDLER 15
 .global saveThisThread
 saveThisThread:
 	# system v abi says we can clobber rax
-	mov %gs:0x08, %rax
+	mov %gs:.L_kGsGeneralState, %rax
 	
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_generalRbx(%rax)
@@ -185,9 +190,8 @@ saveThisThread:
 # or after it has been blocked
 .global restoreThisThread
 restoreThisThread:
-	mov %gs:0x08, %rbx
+	mov %gs:.L_kGsGeneralState, %rbx
 
-	mov .L_generalRax(%rbx), %rax
 	mov .L_generalRcx(%rbx), %rcx
 	mov .L_generalRdx(%rbx), %rdx
 	mov .L_generalRsi(%rbx), %rsi
@@ -203,26 +207,36 @@ restoreThisThread:
 	mov .L_generalR14(%rbx), %r14
 	mov .L_generalR15(%rbx), %r15
 	
+	# enable/disable interrupts in rflags
+	mov .L_generalRflags(%rbx), %rax
+	or $.L_kRflagsIf, %rax
+	testq $.L_kGsFlagAllowInts, %gs:.L_kGsFlags
+	jnz .L_with_ints
+	xor $.L_kRflagsIf, %rax
+
+.L_with_ints:
 	# check if we return to kernel mode
 	testb $1, .L_generalKernel(%rbx)
 	jnz .L_restore_kernel
 
 	pushq $0x23 # ss
 	pushq .L_generalRsp(%rbx)
-	pushq .L_generalRflags(%rbx)
+	pushq %rax # rflags
 	pushq $0x1B # cs
 	pushq .L_generalRip(%rbx)
 	
+	mov .L_generalRax(%rbx), %rax
 	mov .L_generalRbx(%rbx), %rbx
 	iretq
 
 .L_restore_kernel:
 	pushq $0x10 # ss
 	pushq .L_generalRsp(%rbx)
-	pushq .L_generalRflags(%rbx)
+	pushq %rax # rflags
 	pushq $0x08 # cs
 	pushq .L_generalRip(%rbx)
 	
+	mov .L_generalRax(%rbx), %rax
 	mov .L_generalRbx(%rbx), %rbx
 	iretq
 
@@ -231,7 +245,7 @@ restoreThisThread:
 enterUserMode:
 	pushq $0x23 # ss
 	pushq %rdi # rsp
-	pushq $0x200 # rflags, enable interrupts
+	pushq $0 # rflags
 	pushq $0x1B # cs
 	pushq %rsi # rip
 	iretq

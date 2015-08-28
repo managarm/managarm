@@ -30,14 +30,18 @@ ThorRtThreadState::ThorRtThreadState() {
 
 void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:0x08" : : "r" (&generalState) : "memory" );
-	asm volatile ( "mov %0, %%gs:0x10" : : "r" (&syscallState) : "memory" );
-	asm volatile ( "mov %0, %%gs:0x18"
-			: : "r" (syscallStack + kSyscallStackSize) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (&generalState),
+			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (&syscallState),
+			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1"
+			: : "r" (syscallStack + kSyscallStackSize),
+			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
 	// setup the thread's tss segment
 	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
+			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
 	threadTss.ist1 = cpu_specific->tssTemplate.ist1;
 	
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
@@ -47,13 +51,17 @@ void ThorRtThreadState::activate() {
 
 void ThorRtThreadState::deactivate() {
 	// reset the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:0x08" : : "r" (nullptr) : "memory" );
-	asm volatile ( "mov %0, %%gs:0x10" : : "r" (nullptr) : "memory" );
-	asm volatile ( "mov %0, %%gs:0x18" : : "r" (nullptr) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
+			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
+			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
+			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
 	// setup the tss segment
 	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
+			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
 	
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
@@ -74,15 +82,33 @@ ThorRtKernelGs::ThorRtKernelGs()
 
 CpuContext *getCpuContext() {
 	CpuContext *context;
-	asm volatile ( "mov %%gs:0, %0" : "=r" (context) );
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (context)
+			: "i" (ThorRtKernelGs::kOffCpuContext) );
 	return context;
+}
+
+bool intsAreAllowed() {
+	uint32_t flags;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (flags)
+			: "i" (ThorRtKernelGs::kOffFlags) );
+	return (flags & ThorRtKernelGs::kFlagAllowInts) != 0;
+}
+
+void allowInts() {
+	uint32_t flags;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (flags)
+			: "i" (ThorRtKernelGs::kOffFlags) );
+	flags |= ThorRtKernelGs::kFlagAllowInts;
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (flags),
+			"i" (ThorRtKernelGs::kOffFlags) );
 }
 
 void callOnCpuStack(void (*function) ()) {
 	ASSERT(!intsAreEnabled());
 
 	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:0x20, %0" : "=r" (cpu_specific) );
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
+			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
 	
 	uintptr_t stack_ptr = (uintptr_t)cpu_specific->cpuStack
 			+ ThorRtCpuSpecific::kCpuStackSize;
@@ -100,6 +126,7 @@ void initializeThisProcessor() {
 	
 	// set up the kernel gs segment
 	auto kernel_gs = memory::construct<ThorRtKernelGs>(*thor::kernelAlloc);
+	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
 	kernel_gs->cpuContext = memory::construct<CpuContext>(*kernelAlloc);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
@@ -176,6 +203,7 @@ extern "C" uint8_t _trampoline_startLma[];
 extern "C" uint8_t _trampoline_endLma[];
 
 bool secondaryBootComplete;
+bool finishedBoot;
 
 extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
@@ -184,7 +212,8 @@ extern "C" void thorRtSecondaryEntry() {
 	thor::infoLogger->log() << "Hello world from CPU #"
 			<< (getLocalApicId() >> 24) << debug::Finish();	
 	initializeThisProcessor();
-	
+	allowInts();
+
 	thor::infoLogger->log() << "Start scheduling on AP" << debug::Finish();
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(traits::move(schedule_guard));

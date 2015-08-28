@@ -7,6 +7,8 @@ enum {
 enum {
 	// x86_64 architecture interfaces
 	kThorIfSetupHpet = 1,
-	kThorIfBootSecondary = 2
+	kThorIfSetupIoApic = 2,
+	kThorIfBootSecondary = 3,
+	kThorIfFinishBoot = 4
 };
 
