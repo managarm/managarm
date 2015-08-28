@@ -11,6 +11,7 @@ uint32_t *localApicRegs;
 uint32_t apicTicksPerMilli;
 
 enum {
+	kLApicId = 8,
 	kLApicSpurious = 60,
 	kLApicIcwLow = 192,
 	kLApicIcwHigh = 196,
@@ -26,11 +27,13 @@ enum {
 	kIcrTriggerLevel = 0x8000
 };
 
-void initializeLocalApic() {
+void initLocalApicOnTheSystem() {
 	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
 	ASSERT((apic_info & (1 << 11)) != 0); // local APIC is enabled
 	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
-	
+}
+
+void initLocalApicPerCpu() {
 	// enable the local apic
 	uint32_t spurious_vector = 0x81;
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious],
@@ -40,6 +43,10 @@ void initializeLocalApic() {
 	uint32_t schedule_vector = 0x82;
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer],
 			schedule_vector);
+}
+
+uint32_t getLocalApicId() {
+	return frigg::volatileRead<uint32_t>(&localApicRegs[kLApicId]);
 }
 
 void calibrateApicTimer() {

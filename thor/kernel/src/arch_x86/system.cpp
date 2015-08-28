@@ -4,7 +4,7 @@
 namespace thor {
 
 void initializeTheSystem() {
-	initializeLocalApic();
+	initLocalApicOnTheSystem();
 	setupLegacyPic();
 }
 

@@ -5,7 +5,10 @@ namespace thor {
 // Local APIC management
 // --------------------------------------------------------
 
-void initializeLocalApic();
+void initLocalApicOnTheSystem();
+void initLocalApicPerCpu();
+
+uint32_t getLocalApicId();
 
 void calibrateApicTimer();
 

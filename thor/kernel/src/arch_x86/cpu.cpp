@@ -1,6 +1,7 @@
 
 #include "../kernel.hpp"
 
+namespace traits = frigg::traits;
 namespace memory = frigg::memory;
 namespace debug = frigg::debug;
 
@@ -160,6 +161,8 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
 			(uint64_t(0x18) << 48) | (uint64_t(0x08) << 32));
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x200); // mask interrupts
+
+	initLocalApicPerCpu();
 }
 
 // note: these symbols have PHYSICAL addresses!
@@ -178,13 +181,13 @@ extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
 	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
-	thor::infoLogger->log() << "Hello world from second CPU" << debug::Finish();
-	
+	thor::infoLogger->log() << "Hello world from CPU #"
+			<< (getLocalApicId() >> 24) << debug::Finish();	
 	initializeThisProcessor();
 	
-	thor::infoLogger->log() << "AP initialized" << debug::Finish();
-
-	while(true) { }
+	thor::infoLogger->log() << "Start scheduling on AP" << debug::Finish();
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	doSchedule(traits::move(schedule_guard));
 }
 
 void bootSecondary(uint32_t secondary_apic_id) {
