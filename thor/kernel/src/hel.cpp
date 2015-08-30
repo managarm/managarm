@@ -310,6 +310,7 @@ HelError helWaitForEvents(HelHandle handle,
 		} break;
 		case UserEvent::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;
+			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
 			
@@ -320,6 +321,7 @@ HelError helWaitForEvents(HelHandle handle,
 		} break;
 		case UserEvent::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
+			user_evt->error = kHelErrNone;
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
@@ -328,6 +330,7 @@ HelError helWaitForEvents(HelHandle handle,
 		} break;
 		case UserEvent::kTypeConnect: {
 			user_evt->type = kHelEventConnect;
+			user_evt->error = kHelErrNone;
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
@@ -336,6 +339,7 @@ HelError helWaitForEvents(HelHandle handle,
 		} break;
 		case UserEvent::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
+			user_evt->error = kHelErrNone;
 		} break;
 		default:
 			ASSERT(!"Illegal event type");
