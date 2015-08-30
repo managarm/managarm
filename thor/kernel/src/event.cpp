@@ -25,16 +25,18 @@ UserEvent::UserEvent(Type type, SubmitInfo submit_info)
 // EventHub
 // --------------------------------------------------------
 
-EventHub::EventHub() : p_queue(*kernelAlloc) { }
+EventHub::EventHub() : p_queue(*kernelAlloc), p_waitingThreads(*kernelAlloc) { }
 
 void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
 	ASSERT(guard.protects(&lock));
 
 	p_queue.addBack(traits::move(event));
 
-	while(!p_blocking.empty()) {
+	while(!p_waitingThreads.empty()) {
+		KernelSharedPtr<Thread> waiting(p_waitingThreads.removeFront());
+
 		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, p_blocking.removeFront());
+		enqueueInSchedule(schedule_guard, waiting);
 		schedule_guard.unlock();
 	}
 }
@@ -56,8 +58,13 @@ void EventHub::blockCurrentThread(Guard &guard) {
 
 	ASSERT(!intsAreEnabled());
 	if(saveThisThread()) {
-		p_blocking.addBack(resetCurrentThread());
+		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+		p_waitingThreads.addBack(KernelWeakPtr<Thread>(this_thread));
+		
+		// keep the lock on this hub unlocked while we sleep
 		guard.unlock();
+		
+		resetCurrentThread();
 		
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		doSchedule(traits::move(schedule_guard));

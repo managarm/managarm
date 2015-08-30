@@ -41,6 +41,9 @@ template<typename T>
 using KernelSharedPtr = frigg::SharedPtr<T, KernelAlloc>;
 
 template<typename T>
+using KernelWeakPtr = frigg::WeakPtr<T, KernelAlloc>;
+
+template<typename T>
 using KernelUnsafePtr = frigg::UnsafePtr<T, KernelAlloc>;
 
 // --------------------------------------------------------
@@ -67,7 +70,20 @@ class IrqLine;
 class IoSpace;
 
 struct CpuContext {
-	KernelSharedPtr<Thread> currentThread;
+	KernelUnsafePtr<Thread> currentThread;
+};
+
+struct Timer {
+	Timer(uint64_t deadline)
+	: deadline(deadline) { }
+
+	bool operator< (const Timer &other) {
+		return deadline < other.deadline;
+	}
+
+	uint64_t deadline;
+
+	KernelWeakPtr<Thread> thread;
 };
 
 } // namespace thor

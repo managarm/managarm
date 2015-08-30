@@ -83,9 +83,6 @@ void setupHpet(PhysicalAddr address) {
 	calibrateApicTimer();
 
 	timerQueue.initialize(*kernelAlloc);
-	installTimer(Timer(currentTicks() + durationToTicks(1)));
-	installTimer(Timer(currentTicks() + durationToTicks(2)));
-	installTimer(Timer(currentTicks() + durationToTicks(3)));
 }
 
 void pollSleepNano(uint64_t nanotime) {
@@ -100,9 +97,12 @@ uint64_t currentTicks() {
 	return frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
 }
 
-uint64_t durationToTicks(uint64_t seconds, uint64_t nanos) {
-	return seconds * (kFemtosPerSecond / hpetPeriod)
-			+ nanos * (kFemtosPerNano / hpetPeriod);
+uint64_t durationToTicks(uint64_t seconds,
+		uint64_t millis, uint64_t micros, uint64_t nanos) {
+	return (seconds * kFemtosPerSecond) / hpetPeriod
+			+ (millis * kFemtosPerMilli) / hpetPeriod
+			+ (micros * kFemtosPerMicro) / hpetPeriod
+			+ (nanos * kFemtosPerNano) / hpetPeriod;
 }
 
 void installTimer(Timer &&timer) {
@@ -116,7 +116,14 @@ void installTimer(Timer &&timer) {
 void timerInterrupt() {
 	auto current = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
 	while(!timerQueue->empty() && timerQueue->front().deadline < current) {
-		timerQueue->dequeue();
+		Timer timer = timerQueue->dequeue();
+
+		KernelSharedPtr<Thread> thread(timer.thread);
+		if(thread) {
+			ScheduleGuard schedule_guard(scheduleLock.get());
+			enqueueInSchedule(schedule_guard, thread);
+			schedule_guard.unlock();
+		}
 	}
 
 	if(!timerQueue->empty()) {

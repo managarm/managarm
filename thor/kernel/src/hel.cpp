@@ -198,8 +198,13 @@ HelError helCreateThread(HelHandle space_handle,
 	state.rsp = user_state->rsp;
 	state.rflags = 0x200; // set the interrupt flag
 	state.kernel = 0;
+	
+	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
+	activeList->addBack(traits::move(new_thread));
 
-	scheduleQueue->addBack(traits::move(new_thread));
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	enqueueInSchedule(schedule_guard, new_thread_ptr);
+	schedule_guard.unlock();
 
 //	ThreadObserveDescriptor base(traits::move(new_thread));
 //	*handle = universe->attachDescriptor(traits::move(base));
@@ -228,7 +233,7 @@ HelError helCreateEventHub(HelHandle *handle) {
 
 HelError helWaitForEvents(HelHandle handle,
 		HelEvent *user_list, size_t max_items,
-		HelNanotime max_time, size_t *num_items) {
+		HelNanotime max_nanotime, size_t *num_items) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -242,8 +247,21 @@ HelError helWaitForEvents(HelHandle handle,
 	// TODO: check userspace page access rights
 
 	EventHub::Guard hub_guard(&event_hub->lock);
-	while(!event_hub->hasEvent(hub_guard))
-		event_hub->blockCurrentThread(hub_guard);
+	if(max_nanotime == kHelWaitInfinite) {
+		while(!event_hub->hasEvent(hub_guard))
+			event_hub->blockCurrentThread(hub_guard);
+	}else if(max_nanotime > 0) {
+		uint64_t deadline = currentTicks() + durationToTicks(0, 0, 0, max_nanotime);
+
+		Timer timer(deadline);
+		timer.thread = KernelWeakPtr<Thread>(this_thread);
+		installTimer(traits::move(timer));
+
+		while(!event_hub->hasEvent(hub_guard) && currentTicks() < deadline)
+			event_hub->blockCurrentThread(hub_guard);
+	}else if(max_nanotime < 0) {
+		ASSERT(!"Illegal time parameter");
+	}
 
 	size_t count; 
 	for(count = 0; count < max_items; count++) {

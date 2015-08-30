@@ -26,11 +26,11 @@ public:
 		return p_handle;
 	}
 
-	inline void defaultProcessEvents() {
+	inline void defaultProcessEvents(int64_t max_nanotime = kHelWaitInfinite) {
 		HelEvent list[kEventsPerCall];
 		size_t num_items;
 		HEL_CHECK(helWaitForEvents(p_handle, list, kEventsPerCall,
-				kHelWaitInfinite, &num_items));
+				max_nanotime, &num_items));
 
 		for(int i = 0; i < num_items; i++) {
 			HelEvent &evt = list[i];

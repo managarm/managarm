@@ -77,7 +77,7 @@ void enterImage(PhysicalAddr image_paddr) {
 	size_t stack_size = 0x200000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc);
 	stack_memory->resize(stack_size);
-	
+
 	VirtualAddr stack_base;
 	space_guard.lock();
 	space->map(space_guard, stack_memory, 0, stack_size,
@@ -119,7 +119,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeThisProcessor();
 	initializeTheSystem();
 
-	scheduleQueue.initialize();
+	activeList.initialize();
+	scheduleQueue.initialize(*kernelAlloc);
 	scheduleLock.initialize();
 	
 	// create a directory and load the memory regions of all modules into it
@@ -160,8 +161,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	thread->accessSaveState().generalState.rip = (Word)enterImage;
 	thread->accessSaveState().generalState.kernel = 1;
 	
+	KernelUnsafePtr<Thread> thread_ptr(thread);
+	activeList->addBack(traits::move(thread));
 	infoLogger->log() << "Leaving Thor" << debug::Finish();
-	enterThread(traits::move(thread));
+	enterThread(thread_ptr);
 }
 
 extern "C" void handleDivideByZeroFault() {

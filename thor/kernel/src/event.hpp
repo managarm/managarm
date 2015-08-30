@@ -64,7 +64,7 @@ public:
 
 private:
 	frigg::util::LinkedList<UserEvent, KernelAlloc> p_queue;
-	ThreadQueue p_blocking;
+	frigg::util::LinkedList<KernelWeakPtr<Thread>, KernelAlloc> p_waitingThreads;
 };
 
 } // namespace thor
