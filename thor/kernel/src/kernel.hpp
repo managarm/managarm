@@ -13,6 +13,7 @@
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
+#include <frigg/priority_queue.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/smart_ptr.hpp>

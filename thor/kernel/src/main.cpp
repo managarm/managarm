@@ -241,7 +241,9 @@ extern "C" void thorIrq(int irq) {
 	ASSERT(!intsAreEnabled());
 
 	infoLogger->log() << "IRQ #" << irq << debug::Finish();
-
+	
+	if(irq == 2)
+		timerInterrupt();
 	acknowledgeIrq(irq);
 	
 	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);

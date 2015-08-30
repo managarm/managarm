@@ -383,7 +383,9 @@ void remount(HelHandle directory, const char *path, const char *target) {
 }
 
 void main() {
-	infoLogger->log() << "Entering k_init" << debug::Finish();
+	infoLogger.initialize(infoSink);
+	infoLogger->log() << "Entering user_boot" << debug::Finish();
+	allocator.initialize(virtualAlloc);
 	
 	HelHandle directory;
 	HEL_CHECK(helCreateRd(&directory));

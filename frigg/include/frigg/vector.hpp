@@ -9,8 +9,17 @@ public:
 	~Vector();
 
 	T &push(const T &element);
+	
 	T &push(T &&element);
+	
+	T pop();
+
 	size_t size();
+	
+	bool empty() {
+		return size() == 0;
+	}
+	
 	T &operator[] (size_t index);
 
 private:
@@ -75,6 +84,14 @@ void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 
 	p_elements = new_array;
 	p_capacity = new_capacity;
+}
+
+template<typename T, typename Allocator>
+T Vector<T, Allocator>::pop() {
+	p_size--;
+	T element = traits::move(p_elements[p_size]);
+	p_elements[p_size].~T();
+	return element;
 }
 
 }} // namespace frigg::util

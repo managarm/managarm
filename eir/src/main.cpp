@@ -1,6 +1,7 @@
 
 #include <frigg/types.hpp>
 #include <frigg/traits.hpp>
+#include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/array.hpp>
 #include <frigg/elf.hpp>
@@ -8,7 +9,6 @@
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/libc.hpp>
 #include <frigg/support.hpp>
-#include <frigg/debug.hpp>
 #include <eir/interface.hpp>
 
 namespace debug = frigg::debug;
