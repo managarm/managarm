@@ -80,8 +80,11 @@ extern inline Elf64_Xword ELF64_R_TYPE(Elf64_Xword info) {
 enum {
 	PT_LOAD = 1,
 	PT_DYNAMIC = 2,
+	PT_INTERP = 3,
 	PT_PHDR = 6,
-	PT_TLS = 7
+	PT_TLS = 7,
+	PT_GNU_EH_FRAME = 0x6474E550,
+	PT_GNU_STACK = 0x6474E551
 };
 
 enum {

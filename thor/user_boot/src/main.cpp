@@ -119,7 +119,12 @@ void loadImage(const char *path, HelHandle directory) {
 			HelHandle memory = loadSegment(image_ptr, phdr->p_vaddr,
 					phdr->p_offset, phdr->p_memsz, phdr->p_filesz);
 			mapSegment(memory, space, phdr->p_vaddr, phdr->p_memsz, map_flags);
-		} //FIXME: handle other phdrs
+		}else if(phdr->p_type == PT_GNU_EH_FRAME
+				|| phdr->p_type == PT_GNU_STACK) {
+			// ignore the phdr
+		}else{
+			ASSERT(!"Unexpected PHDR");
+		}
 	}
 	
 	constexpr size_t stack_size = 0x200000;

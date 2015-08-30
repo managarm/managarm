@@ -165,9 +165,18 @@ Object *readObject(util::StringView path) {
 						phdr->p_flags, virt_address, virt_length,
 						displacement, phdr->p_offset, phdr->p_filesz));
 			}
+		}else if(phdr->p_type == PT_TLS) {
+			// TODO: handle thread-local data
 		}else if(phdr->p_type == PT_DYNAMIC) {
 			object->dynamic = phdr->p_vaddr;
-		} //FIXME: handle other phdrs
+		}else if(phdr->p_type == PT_INTERP) {
+			// TODO: handle different interpreters
+		}else if(phdr->p_type == PT_GNU_EH_FRAME
+				|| phdr->p_type == PT_GNU_STACK) {
+			// ignore the phdr
+		}else{
+			ASSERT(!"Unexpected PHDR");
+		}
 	}
 	
 	return object;

@@ -70,7 +70,12 @@ void enterImage(PhysicalAddr image_paddr) {
 			memcpy((void *)(virt_address + virt_disp),
 					(void *)((uintptr_t)image_ptr + phdr->p_offset),
 					phdr->p_filesz);
-		} //FIXME: handle other phdrs
+		}else if(phdr->p_type == PT_GNU_EH_FRAME
+				|| phdr->p_type == PT_GNU_STACK) {
+			// ignore the phdr
+		}else{
+			ASSERT(!"Unexpected PHDR");
+		}
 	}
 	
 	// allocate and map memory for the user mode stack

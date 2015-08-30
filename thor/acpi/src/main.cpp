@@ -222,7 +222,6 @@ int main() {
 	}
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	
-
 //	dumpNamespace(ACPI_ROOT_OBJECT, 0);
 }
 
