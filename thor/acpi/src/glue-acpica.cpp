@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -80,23 +81,24 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
 
 ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
 		ACPI_SEMAPHORE *out_handle) {
-	// TODO: implement at least a counter
+	auto semaphore = new AcpiSemaphore;
+	semaphore->counter = initial_units;
+	*out_handle = semaphore;
 	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsDeleteSemaphore(ACPI_SEMAPHORE handle) {
-	// TODO: implement at least a counter
 	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsSignalSemaphore(ACPI_SEMAPHORE handle, UINT32 units) {
-	// TODO: implement at least a counter
+	handle->counter++;
 	return AE_OK;
 }
 
-ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units,
-		UINT16 timeout) {
-	// TODO: implement at least a counter
+ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units, UINT16 timeout) {
+	assert(handle->counter > 0);
+	handle->counter--;
 	return AE_OK;
 }
 
@@ -135,6 +137,22 @@ void *AcpiOsAllocate(ACPI_SIZE size) {
 
 void AcpiOsFree(void *pointer) {
 	free(pointer);
+}
+
+// --------------------------------------------------------
+// Interrupts
+// --------------------------------------------------------
+
+ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
+		ACPI_OSD_HANDLER handler, void *context) {
+	printf("Handle int %d\n", interrupt);
+	//NOT_IMPLEMENTED();
+	return AE_OK;
+}
+
+ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt,
+		ACPI_OSD_HANDLER handler) {
+	NOT_IMPLEMENTED();
 }
 
 // --------------------------------------------------------
@@ -189,11 +207,90 @@ ACPI_STATUS AcpiOsWriteMemory(ACPI_PHYSICAL_ADDRESS address,
 }
 
 ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width) {
-	NOT_IMPLEMENTED();
+	if(width == 8) {
+		// enable the I/O port
+		uintptr_t base = address;
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(&base, 1, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint8_t result;
+		asm volatile ( "inb %1, %0" : "=a"(result) : "d"(port) );
+		*value = result;
+	}else if(width == 16) {
+		// enable the I/O port
+		uintptr_t array[2] = { address, address + 1 };
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(array, 2, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint16_t result;
+		asm volatile ( "inw %1, %0" : "=a"(result) : "d"(port) );
+		*value = result;
+	}else if(width == 32) {
+		// enable the I/O port
+		uintptr_t array[4] = { address, address + 1, address + 2, address + 3 };
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(array, 4, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint32_t result;
+		asm volatile ( "inl %1, %0" : "=a"(result) : "d"(port) );
+		*value = result;
+	}else{
+		printf("Unexpected bit width for AcpiOsReadPort()");
+		abort();
+	}
+	
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width) {
-	NOT_IMPLEMENTED();
+	if(width == 8) {
+		// enable the I/O port
+		uintptr_t base = address;
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(&base, 1, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint8_t to_write = value;
+		asm volatile ( "outb %0, %1" : : "a"(to_write), "d"(port) );
+	}else if(width == 16) {
+		// enable the I/O port
+		uintptr_t array[2] = { address, address + 1 };
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(array, 2, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint16_t to_write = value;
+		asm volatile ( "outw %0, %1" : : "a"(to_write), "d"(port) );
+	}else if(width == 32) {
+		// enable the I/O port
+		uintptr_t array[4] = { address, address + 1, address + 2, address + 3 };
+		HelHandle handle;
+		HEL_CHECK(helAccessIo(array, 4, &handle));
+		HEL_CHECK(helEnableIo(handle));
+
+		// read the I/O port
+		uint16_t port = address;
+		uint32_t to_write = value;
+		asm volatile ( "outl %0, %1" : : "a"(to_write), "d"(port) );
+	}else{
+		printf("Unexpected bit width for AcpiOsWritePort()");
+		abort();
+	}
+	
+	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID *pci_id, UINT32 register_num,
