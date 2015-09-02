@@ -82,22 +82,25 @@ void AddressSpace::map(Guard &guard,
 	mapping->type = Mapping::kTypeMemory;
 	mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
 
+	uint32_t page_flags = 0;
+
+	constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
+	if((flags & mask) == kMapReadWrite) {
+		page_flags |= PageSpace::kAccessWrite;
+	}else if((flags & mask) == kMapReadExecute) {
+		page_flags |= PageSpace::kAccessExecute;
+	}else{
+		ASSERT((flags & mask) == kMapReadOnly);
+	}
+
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 	for(size_t i = 0; i < length / kPageSize; i++) {
 		PhysicalAddr physical = memory->getPage(i);
 		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
-
-		uint32_t page_flags = 0;
-
-		constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
-		if((flags & mask) == kMapReadWrite) {
-			page_flags |= PageSpace::kAccessWrite;
-		}else if((flags & mask) == kMapReadExecute) {
-			page_flags |= PageSpace::kAccessExecute;
-		}else{
-			ASSERT((flags & mask) == kMapReadOnly);
-		}
-		p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+		p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 	}
+	if(physical_guard.isLocked())
+		physical_guard.unlock();
 
 	*actual_address = mapping->baseAddress;
 }

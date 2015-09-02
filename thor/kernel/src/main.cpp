@@ -28,7 +28,7 @@ void enterImage(PhysicalAddr image_paddr) {
 			&& ehdr->e_ident[3] == 'F');
 	ASSERT(ehdr->e_type == ET_EXEC);
 
-	AddressSpace::Guard space_guard(&space->lock, frigg::DontLock());
+	AddressSpace::Guard space_guard(&space->lock, frigg::dontLock);
 
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff

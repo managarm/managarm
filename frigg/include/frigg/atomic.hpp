@@ -29,6 +29,8 @@ struct NullLock {
 
 struct DontLock { };
 
+constexpr DontLock dontLock = DontLock();
+
 template<typename Mutex>
 class LockGuard {
 public:
@@ -64,6 +66,10 @@ public:
 		ASSERT(p_isLocked);
 		p_mutex->unlock();
 		p_isLocked = false;
+	}
+
+	bool isLocked() {
+		return p_isLocked;
 	}
 
 	bool protects(Mutex *mutex) {

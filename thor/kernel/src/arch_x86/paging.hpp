@@ -30,8 +30,8 @@ public:
 
 	PageSpace cloneFromKernelSpace();
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			bool user_access, uint32_t flags);
+	void mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
+			VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 	PhysicalAddr getPml4();

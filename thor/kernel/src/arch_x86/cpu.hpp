@@ -9,12 +9,6 @@ namespace thor {
 // Global runtime functions
 // --------------------------------------------------------
 
-typedef uint64_t Word;
-
-typedef uint64_t PhysicalAddr;
-typedef uint64_t VirtualAddr;
-typedef uint64_t VirtualOffset;
-
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct ThorRtGeneralState {

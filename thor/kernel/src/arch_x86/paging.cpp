@@ -45,8 +45,8 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	return PageSpace(new_pml4_page);
 }
 
-void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		bool user_page, uint32_t flags) {
+void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
+		VirtualAddr pointer, PhysicalAddr physical, bool user_page, uint32_t flags) {
 	ASSERT((pointer % 0x1000) == 0);
 	ASSERT((physical % 0x1000) == 0);
 
@@ -64,9 +64,9 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pml4_initial_entry & kPagePresent) != 0) {
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		if(!physical_guard.isLocked())
+			physical_guard.lock();
 		PhysicalAddr pdpt_page = physicalAllocator->allocate(physical_guard, 1);
-		physical_guard.unlock();
 
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
@@ -86,9 +86,9 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pdpt_initial_entry & kPagePresent) != 0) {
 		pd_pointer = (uint64_t *)physicalToVirtual(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		if(!physical_guard.isLocked())
+			physical_guard.lock();
 		PhysicalAddr pd_page = physicalAllocator->allocate(physical_guard, 1);
-		physical_guard.unlock();
 
 		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
@@ -108,9 +108,9 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pd_initial_entry & kPagePresent) != 0) {
 		pt_pointer = (uint64_t *)physicalToVirtual(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		if(!physical_guard.isLocked())
+			physical_guard.lock();
 		PhysicalAddr pt_page = physicalAllocator->allocate(physical_guard, 1);
-		physical_guard.unlock();
 
 		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)
@@ -123,7 +123,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	}
 	ASSERT(user_page ? ((pd_pointer[pd_index] & kPageUser) != 0)
 			: ((pd_pointer[pd_index] & kPageUser) == 0));
-	
+
 	// setup the new pt entry
 	ASSERT((pt_pointer[pt_index] & kPagePresent) == 0);
 	uint64_t new_entry = physical | kPagePresent;

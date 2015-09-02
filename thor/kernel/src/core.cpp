@@ -33,17 +33,13 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 	uintptr_t address = p_nextPage;
 	p_nextPage += length;
 
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		// note: mapSingle4k might need to allocate page tables so
-		// cannot keep the lock for the whole loop.
-		// TODO: optimize this. pass the guard into the paging code
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
-		physical_guard.unlock();
-
-		kernelSpace->mapSingle4k(address + offset, physical, false,
+		kernelSpace->mapSingle4k(physical_guard, address + offset, physical, false,
 				PageSpace::kAccessWrite);
 	}
+	physical_guard.unlock();
 
 	asm("" : : : "memory");
 	thorRtInvalidateSpace();

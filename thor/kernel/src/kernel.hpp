@@ -20,6 +20,13 @@
 
 #include <frigg/arch_x86/machine.hpp>
 
+typedef uint64_t Word;
+
+typedef uint64_t PhysicalAddr;
+typedef uint64_t VirtualAddr;
+typedef uint64_t VirtualOffset;
+
+#include "physical.hpp"
 #include "arch_x86/cpu.hpp"
 #include "arch_x86/ints.hpp"
 #include "arch_x86/paging.hpp"
@@ -27,7 +34,6 @@
 #include "arch_x86/hpet.hpp"
 #include "arch_x86/system.hpp"
 
-#include "physical.hpp"
 #include "core.hpp"
 #include "schedule.hpp"
 
