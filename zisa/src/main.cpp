@@ -1,5 +1,5 @@
 
-#include <stdlib.h>
+/*#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
@@ -680,69 +680,31 @@ void testAta() {
 	parser.parse(util::Callback<void()>(nullptr, &onTableComplete));
 }
 
-
-// --------------------------------------------------------
-// IPC testing code
-// --------------------------------------------------------
-
-uint8_t recvBuffer[10];
-
-void onReceive(void *object, HelError error,
-		int64_t msg_request, int64_t msg_sequence, size_t length) {
-	printf("ok %d %u %s\n", error, length, recvBuffer);
-}
-
-void onAccept(void *object, HelError error, HelHandle handle) {
-	printf("accept\n");
-	
-	HEL_CHECK(helSendString(handle, (const uint8_t *)"hello", 6, 1, 1));
-}
-void onConnect(void *object, HelError error, HelHandle handle) {
-	printf("connect\n");
-	
-	int64_t async_id;
-	HEL_CHECK(helSubmitRecvString(handle, eventHub.getHandle(),
-			recvBuffer, 10, kHelAnyRequest, kHelAnySequence,
-			(uintptr_t)nullptr, (uintptr_t)&onReceive, &async_id));
-}
-
-void testIpc() {
-	HelHandle socket;
-
-	HelHandle server, client;
-	HEL_CHECK(helCreateServer(&server, &client));
-	int64_t submit_id, accept_id;
-	HEL_CHECK(helSubmitAccept(server, eventHub.getHandle(),
-			(uintptr_t)nullptr, (uintptr_t)&onAccept, &submit_id));
-	HEL_CHECK(helSubmitConnect(client, eventHub.getHandle(),
-			(uintptr_t)nullptr, (uintptr_t)&onConnect, &accept_id));
-}
-
 // --------------------------------------------------------
 // main
 // --------------------------------------------------------
 
-void testScreen() {
-	// note: the vga test mode memory is actually 4000 bytes long
-	HelHandle screen_memory;
-	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
-
-	void *actual_pointer;
-	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
-			kHelMapReadWrite, &actual_pointer));
-	
-	uint8_t *screen_ptr = (uint8_t *)actual_pointer;
-	screen_ptr[0] = 'H';
-	screen_ptr[1] = 0x0F;
-	asm volatile ( "" : : : "memory" );
-}
+thread_local int x;
 
 int main() {
-	testAta();
-	//testIpc();
-	testScreen();
+	//testAta();
+	x = 5;
+	printf("Thread local store\n");
 
-	while(true)
-		eventHub.defaultProcessEvents();
+//	while(true)
+//		eventHub.defaultProcessEvents();
+}*/
+
+#include <stdio.h>
+#include <string.h>
+
+#include <unordered_map>
+
+#include <hel.h>
+#include <hel-syscalls.h>
+#include <thor.h>
+
+int main() {
+	std::unordered_map<int, int> globalMap;
 }
 

@@ -2,6 +2,7 @@
 #include "../kernel.hpp"
 
 extern "C" void faultStubDivideByZero();
+extern "C" void faultStubDebug();
 extern "C" void faultStubOpcode();
 extern "C" void faultStubDouble();
 extern "C" void faultStubProtection();
@@ -29,6 +30,7 @@ namespace thor {
 void setupIdt(uint32_t *table) {
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
 			0x8, (void *)&faultStubDivideByZero, 1);
+	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
 			0x8, (void *)&faultStubOpcode, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,

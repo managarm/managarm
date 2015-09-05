@@ -61,8 +61,8 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	if(pointer == nullptr)
 		debug::panicLogger.log() << "Unresolved lazy symbol" << debug::Finish();
 
-	//FIXME infoLogger->log() << "Lazy relocation to " << symbol_str
-	//		<< " resolved to " << pointer << debug::Finish();
+	infoLogger->log() << "Lazy relocation to " << symbol_str
+			<< " resolved to " << pointer << debug::Finish();
 
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;

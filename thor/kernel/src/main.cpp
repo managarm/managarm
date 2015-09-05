@@ -176,8 +176,11 @@ extern "C" void handleDivideByZeroFault() {
 	debug::panicLogger.log() << "Divide by zero" << debug::Finish();
 }
 
-extern "C" void handleOpcodeFault() {
-	uintptr_t fault_ip = getCurrentThread()->accessSaveState().generalState.rip;
+extern "C" void handleDebugFault(uint64_t fault_ip) {
+	infoLogger->log() << "[" << (void *)fault_ip << "] Debug" << debug::Finish();
+}
+
+extern "C" void handleOpcodeFault(uint64_t fault_ip) {
 	debug::panicLogger.log() << "Invalid opcode"
 			<< ", faulting ip: " << (void *)fault_ip
 			<< debug::Finish();
@@ -187,8 +190,9 @@ extern "C" void handleDoubleFault() {
 	debug::panicLogger.log() << "Double fault" << debug::Finish();
 }
 
-extern "C" void handleProtectionFault() {
-	debug::panicLogger.log() << "General protection fault" << debug::Finish();
+extern "C" void handleProtectionFault(Word error) {
+	debug::panicLogger.log() << "General protection fault\n"
+			<< "   Faulting segment: " << (void *)error << debug::Finish();
 }
 
 extern "C" void thorKernelPageFault(uintptr_t address,
@@ -441,6 +445,13 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			if(subsystem == kThorSubArch) {
 				controlArch(interface, user_input, user_output);
 				thorRtReturnSyscall1((Word)kHelErrNone);
+			}else if(subsystem == kThorSubDebug) {
+				if(interface == kThorIfSingleStepMe) {
+					getCurrentThread()->accessSaveState().syscallState.rflags |= 0x100;
+					thorRtReturnSyscall1((Word)kHelErrNone);
+				}else{
+					ASSERT(!"Illegal debug interface");
+				}
 			}else{
 				ASSERT(!"Illegal subsystem");
 			}

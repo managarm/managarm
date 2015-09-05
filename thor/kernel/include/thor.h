@@ -1,7 +1,8 @@
 
 enum {
 	kThorSubGeneric = 1,
-	kThorSubArch = 2
+	kThorSubArch = 2,
+	kThorSubDebug = 3
 };
 
 enum {
@@ -9,6 +10,9 @@ enum {
 	kThorIfSetupHpet = 1,
 	kThorIfSetupIoApic = 2,
 	kThorIfBootSecondary = 3,
-	kThorIfFinishBoot = 4
+	kThorIfFinishBoot = 4,
+
+	// x86_64 debug interfaces
+	kThorIfSingleStepMe = 1
 };
 

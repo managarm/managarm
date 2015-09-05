@@ -37,8 +37,44 @@ thorRtEntry:
 .macro MAKE_FAULT_HANDLER name
 .global faultStub\name
 faultStub\name:
+	pushq %rbx
+	mov 8(%rsp), %rbx # rip
+	pushq %rax
+	pushq %rcx
+	pushq %rdx
+	pushq %rdi
+	pushq %rsi
+	pushq %rbp
+	
+	pushq %r8
+	pushq %r9
+	pushq %r10
+	pushq %r11
+	pushq %r12
+	pushq %r13
+	pushq %r14
+	pushq %r15
+	
+	mov %rbx, %rdi
 	call handle\name\()Fault
-	ud2
+	
+	popq %r15
+	popq %r14
+	popq %r13
+	popq %r12
+	popq %r11
+	popq %r10
+	popq %r9
+	popq %r8
+
+	popq %rbp
+	popq %rsi
+	popq %rdi
+	popq %rdx
+	popq %rcx
+	popq %rax
+	popq %rbx
+	iretq
 .endm
 
 .macro MAKE_FAULT_HANDLER_WITHCODE name
@@ -52,6 +88,7 @@ faultStub\name:
 .endm
 
 MAKE_FAULT_HANDLER DivideByZero
+MAKE_FAULT_HANDLER Debug
 MAKE_FAULT_HANDLER Opcode
 MAKE_FAULT_HANDLER_WITHCODE Double
 MAKE_FAULT_HANDLER_WITHCODE Protection
@@ -130,8 +167,8 @@ thorRtIsrIrq\irq:
 	popq %r8
 
 	popq %rbp
-	popq %rdi
 	popq %rsi
+	popq %rdi
 	popq %rdx
 	popq %rcx
 	popq %rax

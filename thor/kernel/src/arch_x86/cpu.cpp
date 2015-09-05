@@ -136,9 +136,10 @@ void initializeThisProcessor() {
 	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
 	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
 	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_specific->gdt, 2);
+	// the layout of the next three user-space descriptors is forced by the use of sysret
 	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 3);
 	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 4);
-	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 5);
+	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 5);
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6, nullptr, 0);
 
 	frigg::arch_x86::Gdtr gdtr;
@@ -188,6 +189,16 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
 			(uint64_t(0x18) << 48) | (uint64_t(0x08) << 32));
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x200); // mask interrupts
+
+	// enable sse support
+	uint64_t cr0, cr4;
+	asm volatile ( "mov %%cr0, %0" : "=r" (cr0) );
+	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
+	ASSERT((cr0 & 4) == 0); // make sure EM is disabled
+	ASSERT((cr0 & 2) == 0); // make sure MP is enabled
+	cr4 |= 0x200; // enable OSFXSR
+	cr4 |= 0x400; // enable OSXMMEXCPT
+	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
 
 	initLocalApicPerCpu();
 }
