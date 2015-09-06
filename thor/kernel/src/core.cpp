@@ -84,7 +84,9 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 AnyDescriptor &Universe::getDescriptor(Guard &guard, Handle handle) {
 	ASSERT(guard.protects(&lock));
 
-	return p_descriptorMap.get(handle);
+	frigg::Optional<AnyDescriptor *> wrapper = p_descriptorMap.get(handle);
+	ASSERT(wrapper);
+	return **wrapper;
 }
 
 AnyDescriptor Universe::detachDescriptor(Guard &guard, Handle handle) {

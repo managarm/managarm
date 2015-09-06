@@ -4,9 +4,11 @@
 #include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/support.hpp>
+#include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/libc.hpp>
+#include <frigg/optional.hpp>
 #include <frigg/string.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>

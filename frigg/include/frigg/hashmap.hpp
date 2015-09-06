@@ -11,7 +11,7 @@ public:
 	void insert(const Key &key, const Value &value);
 	void insert(const Key &key, Value &&value);
 
-	Value &get(const Key &key);
+	Optional<Value *> get(const Key &key);
 
 	Value remove(const Key &key);
 
@@ -83,16 +83,15 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-Value &Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
+Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
 		if(item->key == key)
-			return item->value;
+			return &item->value;
 	}
 
-	ASSERT(!"get(): Element not found");
-	__builtin_unreachable();
+	return Optional<Value *>();
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>

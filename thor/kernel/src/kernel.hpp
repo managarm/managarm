@@ -8,6 +8,7 @@
 #include <frigg/initializer.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/optional.hpp>
 #include <frigg/string.hpp>
 #include <frigg/array.hpp>
 #include <frigg/vector.hpp>
