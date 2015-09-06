@@ -111,7 +111,7 @@ public:
 	
 	Handle attachDescriptor(Guard &guard, AnyDescriptor &&descriptor);
 
-	AnyDescriptor &getDescriptor(Guard &guard, Handle handle);
+	frigg::Optional<AnyDescriptor *> getDescriptor(Guard &guard, Handle handle);
 	
 	AnyDescriptor detachDescriptor(Guard &guard, Handle handle);
 

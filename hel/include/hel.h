@@ -51,6 +51,7 @@ enum {
 enum {
 	kHelErrNone = 0,
 	kHelErrBufferTooSmall = 1,
+	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
 	kHelErrNoSuchPath = 3
 };
