@@ -30,6 +30,11 @@
 
 .set .L_kGsFlagAllowInts, 1
 
+.set .L_kernelCodeSelector, 0x8
+.set .L_kernelDataSelector, 0x10
+.set .L_userCode64Selector, 0x2B
+.set .L_userDataSelector, 0x23
+
 .global thorRtEntry
 thorRtEntry:
 	call thorMain
@@ -265,10 +270,10 @@ restoreThisThread:
 	testb $1, .L_generalKernel(%rbx)
 	jnz .L_restore_kernel
 
-	pushq $0x23 # ss
+	pushq $.L_userDataSelector
 	pushq .L_generalRsp(%rbx)
 	pushq %rax # rflags
-	pushq $0x1B # cs
+	pushq $.L_userCode64Selector
 	pushq .L_generalRip(%rbx)
 	
 	mov .L_generalRax(%rbx), %rax
@@ -276,10 +281,10 @@ restoreThisThread:
 	iretq
 
 .L_restore_kernel:
-	pushq $0x10 # ss
+	pushq $.L_kernelDataSelector
 	pushq .L_generalRsp(%rbx)
 	pushq %rax # rflags
-	pushq $0x08 # cs
+	pushq $.L_kernelCodeSelector
 	pushq .L_generalRip(%rbx)
 	
 	mov .L_generalRax(%rbx), %rax
@@ -289,10 +294,10 @@ restoreThisThread:
 # enter user mode for the first time
 .global enterUserMode
 enterUserMode:
-	pushq $0x23 # ss
+	pushq $.L_userDataSelector
 	pushq %rdi # rsp
 	pushq $0 # rflags
-	pushq $0x1B # cs
+	pushq $.L_userCode64Selector
 	pushq %rsi # rip
 	iretq
 
