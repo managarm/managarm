@@ -415,12 +415,12 @@ void main() {
 		};
 	
 		helx::Pipe pipe(pipe_handle);
-//		async::run(*allocator, executeProgram,
-//				ExecuteContext("acpi", pipe, context.directory), on_complete);
+		async::run(*allocator, executeProgram,
+				ExecuteContext("acpi", pipe, context.directory), on_complete);
 //		async::run(*allocator, executeProgram,
 //				ExecuteContext("vga_terminal", pipe, context.directory), on_complete);
-		async::run(*allocator, executeProgram,
-				ExecuteContext("zisa", pipe, context.directory), on_complete);
+//		async::run(*allocator, executeProgram,
+//				ExecuteContext("zisa", pipe, context.directory), on_complete);
 	});
 	
 	while(true)

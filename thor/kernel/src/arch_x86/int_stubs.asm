@@ -25,7 +25,8 @@
 .set .L_generalKernel, 0x90
 
 .set .L_kGsGeneralState, 0x08
-.set .L_kGsFlags, 0x20
+.set .L_kGsExtendedState, 0x18
+.set .L_kGsFlags, 0x28
 
 .set .L_kGsFlagAllowInts, 1
 
@@ -199,8 +200,9 @@ MAKE_IRQ_HANDLER 15
 # and 0 when the thread is continues execution
 .global saveThisThread
 saveThisThread:
-	# system v abi says we can clobber rax
+	# system v abi says we can clobber rax and rcx
 	mov %gs:.L_kGsGeneralState, %rax
+	mov %gs:.L_kGsExtendedState, %rcx
 	
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_generalRbx(%rax)
@@ -209,6 +211,9 @@ saveThisThread:
 	mov %r13, .L_generalR13(%rax)
 	mov %r14, .L_generalR14(%rax)
 	mov %r15, .L_generalR15(%rax)
+
+	# save the cpu's extended state
+	fxsaveq (%rcx)
 	
 	# setup the state for the second return
 	pushfq
@@ -228,6 +233,10 @@ saveThisThread:
 .global restoreThisThread
 restoreThisThread:
 	mov %gs:.L_kGsGeneralState, %rbx
+	
+	# restore the cpu's extended state
+	mov %gs:.L_kGsExtendedState, %rcx
+	fxrstor (%rcx)
 
 	mov .L_generalRcx(%rbx), %rcx
 	mov .L_generalRdx(%rbx), %rdx

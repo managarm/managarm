@@ -26,6 +26,13 @@ void BochsSink::print(const char *str) {
 ThorRtThreadState::ThorRtThreadState() {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
+
+	extendedState = memory::construct<FxSaveState>(*kernelAlloc);
+	memset(extendedState, 0, sizeof(FxSaveState));
+}
+
+ThorRtThreadState::~ThorRtThreadState() {
+	memory::destruct<FxSaveState>(*kernelAlloc, extendedState);
 }
 
 void ThorRtThreadState::activate() {
@@ -34,6 +41,8 @@ void ThorRtThreadState::activate() {
 			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (&syscallState),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (extendedState),
+			"i" (ThorRtKernelGs::kOffExtendedState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
 			: : "r" (syscallStack + kSyscallStackSize),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
@@ -55,6 +64,8 @@ void ThorRtThreadState::deactivate() {
 			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
+			"i" (ThorRtKernelGs::kOffExtendedState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
