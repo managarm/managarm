@@ -92,11 +92,13 @@ ACPI_STATUS AcpiOsDeleteSemaphore(ACPI_SEMAPHORE handle) {
 }
 
 ACPI_STATUS AcpiOsSignalSemaphore(ACPI_SEMAPHORE handle, UINT32 units) {
+	assert(units == 1);
 	handle->counter++;
 	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsWaitSemaphore(ACPI_SEMAPHORE handle, UINT32 units, UINT16 timeout) {
+	assert(units == 1);
 	assert(handle->counter > 0);
 	handle->counter--;
 	return AE_OK;
