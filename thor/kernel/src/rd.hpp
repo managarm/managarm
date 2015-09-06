@@ -30,7 +30,7 @@ public:
 	void publish(const char *name, size_t name_length,
 			AnyDescriptor &&descriptor);
 	
-	Entry *getEntry(const char *name, size_t name_length);
+	frigg::Optional<Entry *> getEntry(const char *name, size_t name_length);
 
 private:
 	frigg::util::Vector<Entry, KernelAlloc> p_entries;

@@ -723,24 +723,25 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 				return kHelErrNone;
 			}else{
 				// read a file from this directory
-				RdFolder::Entry *entry = directory->getEntry(part.data(), part.size());
-				ASSERT(entry != nullptr);
+				frigg::Optional<RdFolder::Entry *> entry = directory->getEntry(part.data(), part.size());
+				if(!entry)
+					return kHelErrNoSuchPath;
 
-				AnyDescriptor copy(entry->descriptor);
+				AnyDescriptor copy((*entry)->descriptor);
 				
 				Universe::Guard universe_guard(&universe->lock);
-				*handle = universe->attachDescriptor(universe_guard,
-						traits::move(copy));
+				*handle = universe->attachDescriptor(universe_guard, traits::move(copy));
 				universe_guard.unlock();
 
 				return kHelErrNone;
 			}
 		}else{
 			// read a subdirectory of this directory
-			RdFolder::Entry *entry = directory->getEntry(part.data(), part.size());
-			ASSERT(entry != nullptr);
+			frigg::Optional<RdFolder::Entry *> entry = directory->getEntry(part.data(), part.size());
+			if(!entry)
+				return kHelErrNoSuchPath;
 
-			directory = entry->mounted;
+			directory = (*entry)->mounted;
 		}
 		search_from = next_slash + 1;
 	}

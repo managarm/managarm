@@ -54,7 +54,7 @@ bool strNEquals(const char *str1, const char *str2, size_t length) {
 	return true;
 }
 
-RdFolder::Entry *RdFolder::getEntry(const char *name,
+frigg::Optional<RdFolder::Entry *> RdFolder::getEntry(const char *name,
 		size_t name_length) {
 	for(size_t i = 0; i < p_entries.size(); i++) {
 		if(p_entries[i].nameLength != name_length)
@@ -62,7 +62,8 @@ RdFolder::Entry *RdFolder::getEntry(const char *name,
 		if(strNEquals(p_entries[i].name, name, name_length))
 			return &p_entries[i];
 	}
-	return nullptr;
+
+	return frigg::Optional<Entry *>();
 }
 
 } // namespace thor
