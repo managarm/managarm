@@ -443,16 +443,21 @@ async::seq(
 
 struct InitContext {
 	InitContext()
-	: startAcpiContext("acpi", "hw") { }
+	: startAcpiContext("acpi", "hw"), startInitrdFsContext("initrd_fs", "initrd"),
+			startZisaContext("zisa") { }
 
 	StartLdServerContext startLdServerContext;
 	InstallServerContext startAcpiContext;
+	InstallServerContext startInitrdFsContext;
+	ExecuteContext startZisaContext;
 };
 
 auto initialize =
 async::seq(
 	async::subContext(&InitContext::startLdServerContext, startLdServer),
-	async::subContext(&InitContext::startAcpiContext, installServer)
+	async::subContext(&InitContext::startAcpiContext, installServer),
+	async::subContext(&InitContext::startInitrdFsContext, installServer),
+	async::subContext(&InitContext::startZisaContext, executeProgram)
 );
 
 void main() {

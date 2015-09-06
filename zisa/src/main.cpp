@@ -697,14 +697,134 @@ int main() {
 
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #include <unordered_map>
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 #include <thor.h>
 
+#include <frigg/traits.hpp>
+#include <frigg/atomic.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/callback.hpp>
+#include <frigg/async.hpp>
+
+#include "fs.pb.h"
+
+namespace util = frigg::util;
+namespace async = frigg::async;
+
+helx::EventHub eventHub;
+
+struct LibcAllocator {
+	void *allocate(size_t length) {
+		return malloc(length);
+	}
+
+	void free(void *pointer) {
+		free(pointer);
+	}
+};
+
+LibcAllocator allocator;
+
+struct TestContext {
+	TestContext(helx::Client client) : client(client) { }
+
+	int64_t fd;
+	helx::Client client;
+	int8_t buffer[128];
+	helx::Pipe pipe;
+};
+
+auto test =
+async::seq(
+	async::lambda([] (TestContext &context, util::Callback<void(HelError, HelHandle)> callback) {
+		context.client.connect(eventHub, callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)>
+			callback, HelError error, HelHandle handle) {
+		printf("connected to initrd_fs_server\n");
+
+		managarm::fs::ClientRequest request;
+		request.set_request_type(managarm::fs::ClientRequest::OPEN);
+		request.set_filename("zisa");
+		std::string serialized;
+		request.SerializeToString(&serialized);
+
+		context.pipe = helx::Pipe(handle);
+		context.pipe.sendString(serialized.data(), serialized.length(),
+				0, 0);
+		context.pipe.recvString(context.buffer, 128, eventHub, kHelAnyRequest, kHelAnySequence,
+				callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)> 
+			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+
+		managarm::fs::ServerResponse response;
+		response.ParseFromArray(context.buffer, length);
+		context.fd = response.fd();
+
+		if(response.error() == -1) {
+			printf("error while opening\n");
+		}
+
+		managarm::fs::ClientRequest request;
+		request.set_request_type(managarm::fs::ClientRequest::READ);
+		request.set_fd(context.fd);
+		request.set_size(32);
+
+		std::string serialized;
+		request.SerializeToString(&serialized);
+
+		context.pipe.sendString(serialized.data(), serialized.length(), 0, 0);
+		context.pipe.recvString(context.buffer, 128, eventHub, kHelAnyRequest, kHelAnySequence,
+				callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)> 
+			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+
+		managarm::fs::ServerResponse response;
+		response.ParseFromArray(context.buffer, length);
+
+		if(response.error() == -1) {
+			printf("error while reading\n");
+		}
+
+		managarm::fs::ClientRequest request;
+		request.set_request_type(managarm::fs::ClientRequest::CLOSE);
+		request.set_fd(context.fd);
+		
+		std::string serialized;
+		request.SerializeToString(&serialized);
+
+		context.pipe.sendString(serialized.data(), serialized.length(), 0, 0);
+	}),
+	async::lambda([] (TestContext &context, util::Callback<void()> 
+			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+		managarm::fs::ServerResponse response;
+		response.ParseFromArray(context.buffer, length);
+
+		if(response.error() == -1) {
+			printf("error while closing\n");
+		}
+	})
+);
+
 int main() {
-	std::unordered_map<int, int> globalMap;
+	const char *initrd_fs_path = "init/initrd";
+	HelHandle initrd_fs_handle;
+	HEL_CHECK(helRdOpen(initrd_fs_path, strlen(initrd_fs_path), &initrd_fs_handle));
+
+	helx::Client initrd_fs_client(initrd_fs_handle);
+
+	auto on_test_complete = [] (TestContext &context) { };
+	async::run(allocator, test, TestContext(initrd_fs_client), on_test_complete);
 }
 

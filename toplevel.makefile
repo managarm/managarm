@@ -9,6 +9,7 @@ $(call include_dir,thor/acpi)
 $(call include_dir,ld-init/server)
 $(call include_dir,ld-init/linker)
 $(call include_dir,drivers/vga_terminal)
+$(call include_dir,drivers/initrd_fs)
 $(call include_dir,zisa)
 
 $(call include_dir,hel)

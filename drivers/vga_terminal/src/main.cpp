@@ -120,8 +120,8 @@ auto processAccept = async::repeatWhile(
 		async::lambda([] (AcceptContext &context, util::Callback<void(HelError, HelHandle)> callback) {
 			context.server.accept(eventHub, callback.getObject(), callback.getFunction());
 		}),
- 		async::lambda([] (AcceptContext &context, util::Callback<void()> callback,
- 				HelError error, HelHandle handle) {
+		async::lambda([] (AcceptContext &context, util::Callback<void()> callback,
+				HelError error, HelHandle handle) {
 // 			HEL_CHECK(error);
 
 			auto on_complete = [] (ProcessContext &context) { };
@@ -129,7 +129,7 @@ auto processAccept = async::repeatWhile(
 			async::run(allocator, processRequest, ProcessContext(pipe), on_complete);
 
 			callback();
- 		})
+		})
 	)
 );
 

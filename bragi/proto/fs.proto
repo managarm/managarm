@@ -1,0 +1,40 @@
+
+package managarm.fs;
+
+option optimize_for = LITE_RUNTIME;
+
+message ClientRequest {
+	enum RequestType {
+		OPEN = 1;
+		READ = 2;
+		WRITE = 3;
+		CLOSE = 4;
+	}
+
+	optional RequestType request_type = 1;
+
+	// used by ALL
+	optional int32 error = 7;
+
+	// used by OPEN
+	optional string filename = 2;
+	optional int32 flags = 3;
+
+	// used by READ and CLOSE
+	optional int32 fd = 4;
+
+	// used by READ and WRITE
+	optional int32 size = 5;
+	optional bytes buffer = 6;
+}
+
+message ServerResponse {
+	// return of ALL
+	optional int32 error = 3;
+
+	// return of OPEN
+	optional int32 fd = 1;
+
+	// return of READ
+	optional bytes buffer = 2;
+}
