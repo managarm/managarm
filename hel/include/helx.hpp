@@ -199,5 +199,39 @@ private:
 	HelHandle p_handle;
 };
 
+class Directory {
+public:
+	static inline Directory create() {
+		HelHandle handle;
+		HEL_CHECK(helCreateRd(&handle));
+		return Directory(handle);
+	}
+
+	inline Directory() : p_handle(kHelNullHandle) { }
+
+	inline Directory(HelHandle handle) : p_handle(handle) { }
+
+	inline HelHandle getHandle() {
+		return p_handle;
+	}
+
+	inline void mount(HelHandle mount_handle, const char *target) {
+		HEL_CHECK(helRdMount(p_handle, target, strlen(target), mount_handle));
+	}
+
+	inline void publish(HelHandle publish_handle, const char *target) {
+		HEL_CHECK(helRdPublish(p_handle, target, strlen(target), publish_handle));
+	}
+
+	void remount(const char *path, const char *target) {
+		HelHandle mount_handle;
+		HEL_CHECK(helRdOpen(path, strlen(path), &mount_handle));
+		mount(mount_handle, target);
+	}
+
+private:
+	HelHandle p_handle;
+};
+
 } // namespace helx
 

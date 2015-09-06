@@ -61,8 +61,8 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	if(pointer == nullptr)
 		debug::panicLogger.log() << "Unresolved lazy symbol" << debug::Finish();
 
-	infoLogger->log() << "Lazy relocation to " << symbol_str
-			<< " resolved to " << pointer << debug::Finish();
+	//infoLogger->log() << "Lazy relocation to " << symbol_str
+	//		<< " resolved to " << pointer << debug::Finish();
 
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;
@@ -109,7 +109,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	eventHub.initialize();
 	
-	const char *path = "rtdl-server";
+	const char *path = "config/rtdl-server";
 	HelHandle server_handle;
 	HEL_CHECK(helRdOpen(path, strlen(path), &server_handle));
 	

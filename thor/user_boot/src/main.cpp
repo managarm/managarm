@@ -90,7 +90,6 @@ void loadImage(const char *path, HelHandle directory) {
 	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, size,
 			kHelMapReadOnly, &image_ptr));
 	
-	// create a new 
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 	
@@ -146,33 +145,50 @@ void loadImage(const char *path, HelHandle directory) {
 }
 
 helx::EventHub eventHub;
-helx::Pipe childPipe;
+helx::Client ldServerConnect;
+helx::Pipe ldServerPipe;
+helx::Directory initDirectory;
 
-struct InitContext {
-	InitContext(HelHandle directory)
-	: directory(directory) { }
+struct StartLdServerContext {
+	StartLdServerContext()
+	: directory(helx::Directory::create()), localDirectory(helx::Directory::create()) {
+		helx::Pipe parent_pipe;
+		helx::Pipe::createBiDirection(childPipe, parent_pipe);
+		localDirectory.publish(parent_pipe.getHandle(), "parent");
 
-	HelHandle directory;
+		directory.mount(localDirectory.getHandle(), "local");
+		directory.remount("initrd/#this", "initrd");
+	}
+
+	helx::Directory directory;
+	helx::Directory localDirectory;
+	helx::Pipe childPipe;
 };
 
-auto initialize =
+auto startLdServer =
 async::seq(
-	async::lambda([](InitContext &context,
+	async::lambda([](StartLdServerContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
+		loadImage("initrd/ld-server", context.directory.getHandle());
+
 		// receive a server handle from ld-server
-		childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
+		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
 				callback.getObject(), callback.getFunction());
 	}),
-	async::lambda([](InitContext &context,
+	async::lambda([](StartLdServerContext &context,
 			util::Callback<void(HelError, HelHandle)> callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
 		HEL_CHECK(error);
 
-		const char *name = "rtdl-server";
-		HEL_CHECK(helRdPublish(context.directory, name, strlen(name), connect_handle));
-		
-		helx::Server server(connect_handle);
-		server.connect(eventHub, callback.getObject(), callback.getFunction());
+		ldServerConnect = helx::Client(connect_handle);
+		ldServerConnect.connect(eventHub, callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([](StartLdServerContext &context, util::Callback<void()> callback,
+			HelError error, HelHandle pipe_handle) {
+		HEL_CHECK(error);
+
+		ldServerPipe = helx::Pipe(pipe_handle);
+		callback();
 	})
 );
 
@@ -183,9 +199,8 @@ struct LoadContext {
 		int32_t access;
 	};
 
-	LoadContext(helx::Pipe pipe)
-	: pipe(pipe), space(kHelNullHandle),
-			segments(*allocator), currentSegment(0) { }
+	LoadContext()
+	: space(kHelNullHandle), segments(*allocator), currentSegment(0) { }
 	
 	LoadContext(const LoadContext &other) = delete;
 	
@@ -245,7 +260,6 @@ struct LoadContext {
 		segments.push(segment);
 	}
 	
-	helx::Pipe pipe;
 	HelHandle space;
 	uintptr_t phdrPointer;
 	size_t phdrEntrySize;
@@ -267,9 +281,9 @@ auto loadObject = async::seq(
 		protobuf::emitUInt64(writer,
 				managarm::ld_server::ClientRequest::kField_base_address,
 				base_address);
-		context.pipe.sendString(writer.data(), writer.size(), 1, 0);
+		ldServerPipe.sendString(writer.data(), writer.size(), 1, 0);
 		
-		context.pipe.recvString(context.buffer, 128, eventHub,
+		ldServerPipe.recvString(context.buffer, 128, eventHub,
 				1, 0, callback.getObject(), callback.getFunction());
 	}),
 	async::lambda([](LoadContext &context,
@@ -288,7 +302,7 @@ auto loadObject = async::seq(
 		async::seq(
 			async::lambda([](LoadContext &context,
 					util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-				context.pipe.recvDescriptor(eventHub, 1, 1 + context.currentSegment,
+				ldServerPipe.recvDescriptor(eventHub, 1, 1 + context.currentSegment,
 						callback.getObject(), callback.getFunction());
 			}),
 			async::lambda([](LoadContext &context,
@@ -317,13 +331,18 @@ auto loadObject = async::seq(
 );
 
 struct ExecuteContext {
-	ExecuteContext(const char *program,
-			helx::Pipe pipe, HelHandle directory)
-	: program(program), directory(directory),
-			executableContext(pipe), interpreterContext(pipe) {
+	ExecuteContext(const char *program)
+	: program(program), directory(helx::Directory::create()),
+			localDirectory(helx::Directory::create()),
+			configDirectory(helx::Directory::create()) {
 		HEL_CHECK(helCreateSpace(&space));
 		executableContext.space = space;
 		interpreterContext.space = space;
+
+		directory.mount(localDirectory.getHandle(), "local");
+		directory.mount(configDirectory.getHandle(), "config");
+		directory.mount(initDirectory.getHandle(), "init");
+		directory.remount("initrd/#this", "initrd");
 	}
 
 	ExecuteContext(const ExecuteContext &other) = delete;
@@ -332,20 +351,27 @@ struct ExecuteContext {
 	
 	const char *program;
 	HelHandle space;
-	HelHandle directory;
+
+	helx::Directory directory;
+	helx::Directory localDirectory;
+	helx::Directory configDirectory;
 	LoadContext executableContext;
 	LoadContext interpreterContext;
 };
 
-auto executeProgram = async::seq(
+auto executeProgram =
+async::seq(
 	async::lambda([](ExecuteContext &context,
 			util::Callback<void(util::StringView, uintptr_t)> callback) {
+		context.configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
+
 		callback(util::StringView(context.program), 0);
 	}),
 	async::subContext(&ExecuteContext::executableContext,
 		async::lambda([](LoadContext &context,
 				util::Callback<void(util::StringView, uintptr_t)> callback,
 				util::StringView object_name, uintptr_t base_address) {
+			infoLogger->log() << "Loading " << object_name.data() << debug::Finish();
 			callback(object_name, base_address);
 		})
 	),
@@ -374,53 +400,71 @@ auto executeProgram = async::seq(
 		state.rdx = context.executableContext.phdrCount;
 		state.rcx = context.executableContext.entry;
 
+		infoLogger->log() << "Starting " << context.program << debug::Finish();
 		HelHandle thread;
-		HEL_CHECK(helCreateThread(context.space, context.directory, &state, &thread));
+		HEL_CHECK(helCreateThread(context.space, context.directory.getHandle(),
+				&state, &thread));
 		callback();
 	})
 );
 
-void remount(HelHandle directory, const char *path, const char *target) {
-	HelHandle handle;
-	HEL_CHECK(helRdOpen(path, strlen(path), &handle));
-	HEL_CHECK(helRdMount(directory, target, strlen(target), handle));
-	infoLogger->log() << "Mounted " << path << " to " << target << debug::Finish();
-}
+struct InstallServerContext {
+	InstallServerContext(const char *program, const char *server_path)
+	: executeContext(program), serverPath(server_path) {
+		helx::Pipe parent_pipe;
+		helx::Pipe::createBiDirection(childPipe, parent_pipe);
+		executeContext.localDirectory.publish(parent_pipe.getHandle(), "parent");
+	};
+
+	ExecuteContext executeContext;
+	const char *serverPath;
+	helx::Pipe childPipe;
+};
+
+auto installServer =
+async::seq(
+	async::subContext(&InstallServerContext::executeContext,
+			executeProgram),
+	async::lambda([] (InstallServerContext &context,
+			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
+		// receive a server handle from ld-server
+		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
+				callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([](InstallServerContext &context,
+			util::Callback<void()> callback, HelError error,
+			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
+		HEL_CHECK(error);
+
+		initDirectory.publish(connect_handle, context.serverPath);
+		callback();
+	})
+);
+
+struct InitContext {
+	InitContext()
+	: startAcpiContext("acpi", "hw") { }
+
+	StartLdServerContext startLdServerContext;
+	InstallServerContext startAcpiContext;
+};
+
+auto initialize =
+async::seq(
+	async::subContext(&InitContext::startLdServerContext, startLdServer),
+	async::subContext(&InitContext::startAcpiContext, installServer)
+);
 
 void main() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering user_boot" << debug::Finish();
 	allocator.initialize(virtualAlloc);
-	
-	HelHandle directory;
-	HEL_CHECK(helCreateRd(&directory));
 
-	remount(directory, "initrd/#this", "initrd");
+	initDirectory = helx::Directory::create();
 
-	const char *pipe_name = "k_init";
-	helx::Pipe remote_pipe;
-	helx::Pipe::createBiDirection(childPipe, remote_pipe);
-	HEL_CHECK(helRdPublish(directory, pipe_name, strlen(pipe_name),
-			remote_pipe.getHandle()));
-
-	loadImage("initrd/ld-server", directory);
-
-	async::run(*allocator, initialize, InitContext(directory),
-	[](InitContext &context, HelError error, HelHandle pipe_handle) {
-		HEL_CHECK(error);
-
-		auto on_complete = [](ExecuteContext &context) {
-			infoLogger->log() << context.program
-					<< " executed succesfully" << debug::Finish();
-		};
-	
-		helx::Pipe pipe(pipe_handle);
-		async::run(*allocator, executeProgram,
-				ExecuteContext("acpi", pipe, context.directory), on_complete);
-//		async::run(*allocator, executeProgram,
-//				ExecuteContext("vga_terminal", pipe, context.directory), on_complete);
-//		async::run(*allocator, executeProgram,
-//				ExecuteContext("zisa", pipe, context.directory), on_complete);
+	async::run(*allocator, initialize, InitContext(),
+	[](InitContext &context) {
+		infoLogger->log() << "user_boot finished successfully" << debug::Finish();
 	});
 	
 	while(true)

@@ -340,8 +340,8 @@ int main() {
 	server.initialize(serve_handle);
 	server->accept(*eventHub, nullptr, &onAccept);
 	
-	// inform k_init that we are ready to server requests
-	const char *path = "k_init";
+	// inform user_boot that we are ready to server requests
+	const char *path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(path, strlen(path), &parent_handle));
 

@@ -223,6 +223,14 @@ int main() {
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	
 //	dumpNamespace(ACPI_ROOT_OBJECT, 0);
+
+	HelHandle directory;
+	HEL_CHECK(helCreateRd(&directory));
+
+	const char *parent_path = "local/parent";
+	HelHandle parent_handle;
+	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
+	HEL_CHECK(helSendDescriptor(parent_handle, 0, 0, directory));
 }
 
 

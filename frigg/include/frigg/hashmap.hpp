@@ -124,7 +124,7 @@ template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::rehash() {
 	size_t new_capacity = 2 * p_size;
 	Item **new_table = (Item **)p_allocator.allocate(sizeof(Item *) * new_capacity);
-	for(size_t i = 0; i < p_capacity; i++)
+	for(size_t i = 0; i < new_capacity; i++)
 		new_table[i] = nullptr;
 	
 	for(size_t i = 0; i < p_capacity; i++) {
