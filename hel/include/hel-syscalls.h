@@ -53,6 +53,11 @@ extern inline void helPanic(const char *string, size_t length) {
 	__builtin_unreachable();
 }
 
+DEFINE_SYSCALL(DescriptorInfo, HelHandle handle, struct HelDescriptorInfo *info)
+	IN(0, handle) IN(1, info)
+	DO_SYSCALL(DescriptorInfo)
+END_SYSCALL()
+
 DEFINE_SYSCALL(CloseDescriptor, HelHandle handle)
 	IN(0, handle)
 	DO_SYSCALL(CloseDescriptor)

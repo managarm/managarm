@@ -9,6 +9,7 @@ enum {
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
 
+	kHelCallDescriptorInfo = 32,
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
@@ -98,6 +99,23 @@ struct HelEvent {
 	uintptr_t submitObject;
 };
 
+enum {
+	kHelDescMemory = 1,
+	kHelDescAddressSpace = 2,
+	kHelDescThread = 3,
+	kHelDescEventHub = 4,
+	kHelDescChannel = 5,
+	kHelDescServer = 6,
+	kHelDescClient = 7,
+	kHelDescDirectory = 8,
+	kHelDescIrq = 9,
+	kHelDescIo = 10,
+};
+
+struct HelDescriptorInfo {
+	int type;
+};
+
 enum HelMapFlags {
 	kHelMapReadOnly = 1,
 	kHelMapReadWrite = 2,
@@ -108,6 +126,7 @@ HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
 
+HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
@@ -173,14 +192,36 @@ HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
 HEL_C_LINKAGE HelError helControlKernel(int subsystem, int interface,
 		const void *input, void *output);
 
-extern inline __attribute__ (( always_inline )) void _helCheckFailed(const char *string) {
-	helPanic(string, strlen(string));
+extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelError code) {
+	switch(code) {
+	case kHelErrNone:
+		return "Success";
+	case kHelErrNoDescriptor:
+		return "No such descriptor";
+	case kHelErrBadDescriptor:
+		return "Illegal descriptor for this operation";
+	case kHelErrBufferTooSmall:
+		return "Buffer too small";
+	case kHelErrNoSuchPath:
+		return "No such path";
+	default:
+		return 0;
+	}
+}
+
+extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError err_code, const char *string) {
+	helLog(string, strlen(string));
+
+	const char *err_string = _helErrorString(err_code);
+	if(err_string == 0)
+		err_string = "(Unexpected error code)";
+	helPanic(err_string, strlen(err_string));
 }
 
 #define HEL_STRINGIFY_AUX(x) #x
 #define HEL_STRINGIFY(x) HEL_STRINGIFY_AUX(x)
 
-#define HEL_CHECK(expr) do { if((expr) != kHelErrNone) \
-		_helCheckFailed("HEL_CHECK failed: " #expr "\n" \
-		"In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__)); } while(0)
+#define HEL_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
+		_helCheckFailed(_error, "HEL_CHECK failed: " #expr "\n" \
+		"In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n"); } while(0)
 

@@ -187,13 +187,6 @@ public:
 		HEL_CHECK(helSubmitAccept(p_handle, event_hub.getHandle(),
 				(uintptr_t)function, (uintptr_t)object, &async_id));
 	}
-	
-	inline void connect(EventHub &event_hub,
-			void *object, ConnectFunction function) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
-				(uintptr_t)function, (uintptr_t)object, &async_id));
-	}
 
 private:
 	HelHandle p_handle;

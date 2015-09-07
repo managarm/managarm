@@ -818,6 +818,8 @@ async::seq(
 );
 
 int main() {
+	printf("Entering zisa\n");
+
 	const char *initrd_fs_path = "init/initrd";
 	HelHandle initrd_fs_handle;
 	HEL_CHECK(helRdOpen(initrd_fs_path, strlen(initrd_fs_path), &initrd_fs_handle));
@@ -826,5 +828,8 @@ int main() {
 
 	auto on_test_complete = [] (TestContext &context) { };
 	async::run(allocator, test, TestContext(initrd_fs_client), on_test_complete);
+
+	while(true)
+		eventHub.defaultProcessEvents();
 }
 

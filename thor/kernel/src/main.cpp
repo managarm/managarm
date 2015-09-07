@@ -284,6 +284,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			while(true) { }
 		}
 
+		case kHelCallDescriptorInfo: {
+			HelError error = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
+			thorRtReturnSyscall1((Word)error);
+		}
 		case kHelCallCloseDescriptor: {
 			HelError error = helCloseDescriptor((HelHandle)arg0);
 			thorRtReturnSyscall1((Word)error);

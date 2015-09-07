@@ -427,7 +427,6 @@ async::seq(
 			executeProgram),
 	async::lambda([] (InstallServerContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		// receive a server handle from ld-server
 		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
 				callback.getObject(), callback.getFunction());
 	}),

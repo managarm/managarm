@@ -173,7 +173,7 @@ auto processAccept = async::repeatWhile(
 		}),
 		async::lambda([] (AcceptContext &context, util::Callback<void()> callback,
 				HelError error, HelHandle handle) {
-// 			HEL_CHECK(error);
+ 			HEL_CHECK(error);
 
 			auto on_complete = [] (ProcessContext &context) { };
 			helx::Pipe pipe(handle);
@@ -195,7 +195,7 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, 0, 0, client.getHandle()));
+	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
 
 	while(true) {
 		eventHub.defaultProcessEvents();

@@ -15,6 +15,39 @@ HelError helLog(const char *string, size_t length) {
 }
 
 
+HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	switch((*wrapper)->tag()) {
+	case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>():
+	case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>():
+		user_info->type = kHelDescChannel;
+		break;
+	case AnyDescriptor::tagOf<EventHubDescriptor>():
+		user_info->type = kHelDescEventHub;
+		break;
+	case AnyDescriptor::tagOf<ServerDescriptor>():
+		user_info->type = kHelDescServer;
+		break;
+	case AnyDescriptor::tagOf<ClientDescriptor>():
+		user_info->type = kHelDescClient;
+		break;
+	case AnyDescriptor::tagOf<RdDescriptor>():
+		user_info->type = kHelDescDirectory;
+		break;
+	default:
+		ASSERT(!"Illegal descriptor");
+	}
+	universe_guard.unlock();
+
+	return kHelErrNone;
+}
+
 HelError helCloseDescriptor(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -437,12 +470,12 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	// TODO: check userspace page access rights
 
 	Universe::Guard universe_guard(&universe->lock);
-	auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
-	if(!send_wrapper)
-		return kHelErrNoDescriptor;
-	
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
+		return kHelErrNoDescriptor;
+	
+	auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
+	if(!send_wrapper)
 		return kHelErrNoDescriptor;
 	universe_guard.unlock();
 
