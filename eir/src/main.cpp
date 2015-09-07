@@ -302,7 +302,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)bootstrapPointer << ", length: "
-			<< mb_info->memUpper << " KiB" << debug::Finish();
+			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << debug::Finish();
 
 	// allocate a stack for the real thor kernel
 	size_t thor_stack_length = 0x100000;
@@ -357,7 +357,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
 		MbModule &image_module = mb_info->modulesPtr[i + 1];
 		modules[i].physicalBase = (EirPtr)image_module.startAddress;
-		modules[i].length = (EirPtr)image_module.endAddress;
+		modules[i].length = (EirPtr)image_module.endAddress
 				- (EirPtr)image_module.startAddress;
 		
 		size_t name_length = strlen(image_module.string);

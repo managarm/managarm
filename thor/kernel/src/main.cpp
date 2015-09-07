@@ -8,6 +8,7 @@ using namespace thor;
 namespace debug = frigg::debug;
 namespace traits = frigg::traits;
 namespace memory = frigg::memory;
+namespace util = frigg::util;
 
 //FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
 //LazyInitializer<debug::Terminal> vgaTerminal;
@@ -141,6 +142,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
+		infoLogger->log() << "Module " << util::StringView(name_ptr, modules[i].nameLength)
+				<< ", length: " << modules[i].length << debug::Finish();
 
 		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
 		mod_directory->publish(name_ptr, modules[i].nameLength,

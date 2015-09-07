@@ -88,3 +88,16 @@ using String = BasicString<char, Allocator>;
 
 } } // namespace frigg::util
 
+namespace frigg {
+namespace debug {
+
+template<typename P>
+struct Print<P, util::StringView> {
+	static void print(P &printer, util::StringView string) {
+		for(size_t i = 0; i < string.size(); i++)
+			printer.print(string.data()[i]);
+	}
+};
+
+} } // namespace frigg::debug
+
