@@ -11,7 +11,7 @@ $c_CCFLAGS := $($c_INCLUDE)
 $c_CXX := x86_64-managarm-g++
 $c_CXXFLAGS := -std=c++11 $($c_INCLUDE)
 
-$c_OBJECTS := main.o glue-acpica.o
+$c_OBJECTS := main.o glue-acpica.o pci_discover.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths

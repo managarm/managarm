@@ -168,6 +168,8 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	}
 }
 
+void pciDiscover(); // TODO: put this in a header file
+
 int main() {
 	ACPICA_CHECK(AcpiInitializeSubsystem());
 	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
@@ -223,6 +225,8 @@ int main() {
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	
 //	dumpNamespace(ACPI_ROOT_OBJECT, 0);
+
+	pciDiscover();
 
 	HelHandle directory;
 	HEL_CHECK(helCreateRd(&directory));
