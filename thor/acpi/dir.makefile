@@ -5,13 +5,13 @@ $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
 $c_CC := x86_64-managarm-gcc
-$c_INCLUDE := -I$(TREE_PATH)/$c/acpica/source/include
+$c_INCLUDE := -I$(TREE_PATH)/$c/acpica/source/include -I$(TREE_PATH)/frigg/include
 $c_CCFLAGS := $($c_INCLUDE)
 
 $c_CXX := x86_64-managarm-g++
 $c_CXXFLAGS := -std=c++11 $($c_INCLUDE)
 
-$c_OBJECTS := main.o glue-acpica.o pci_discover.o
+$c_OBJECTS := main.o glue-acpica.o pci_io.o pci_discover.o i8254x.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths

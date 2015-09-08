@@ -4,79 +4,49 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <vector>
+
 #include <hel.h>
 #include <hel-syscalls.h>
 
-enum {
-	// general PCI header fields
-	kPciVendor = 0,
-	kPciDevice = 2,
-	kPciSubClass = 0x0A,
-	kPciClassCode = 0x0B,
-	kPciHeaderType = 0x0E,
+#include "pci.hpp"
 
-	// usual device header fields
-	kPciBar0 = 0x10,
+// TODO: move i8254 driver to own file
+void initializeDevice(PciDevice *device);
 
-	// PCI-to-PCI bridge header fields
-	kPciSecondaryBus = 0x19
-};
-
-uint32_t pciReadWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
-	assert(bus < 256 && slot < 32 && function < 8);
-	assert((offset % 4) == 0 && offset < 256);
-	uint32_t address = (bus << 16) | (slot << 11) | (function << 8) | offset | 0x80000000;
-	asm volatile ( "outl %0, %1" : : "a" (address), "d" (uint16_t(0xCF8)) );
-
-	uint32_t result;
-	asm volatile ( "inl %1, %0" : "=a" (result) : "d" (uint16_t(0xCFC)) );
-	return result;
-}
-
-void pciWriteWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value) {
-	assert(bus < 256 && slot < 32 && function < 8);
-	assert((offset % 4) == 0 && offset < 256);
-	uint32_t address = (bus << 16) | (slot << 11) | (function << 8) | offset | 0x80000000;
-	asm volatile ( "outl %0, %1" : : "a" (address), "d" (uint16_t(0xCF8)) );
-	asm volatile ( "outl %0, %1" : : "a" (value), "d" (uint16_t(0xCFC)) );
-}
-
-uint16_t pciReadHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
-	assert((offset % 2) == 0);
-	uint32_t word = pciReadWord(bus, slot, function, offset & ~uint32_t(3));
-	return (word >> ((offset & 3)) * 8) & 0xFFFF;
-}
-
-uint8_t pciReadByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
-	uint32_t word = pciReadWord(bus, slot, function, offset & ~uint32_t(3));
-	return (word >> ((offset & 3)) * 8) & 0xFF;
-}
-
-void pciCheckFunction(uint32_t bus, uint32_t slot, uint32_t function) {
-	uint16_t vendor = pciReadHalf(bus, slot, function, kPciVendor);
+void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
+	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
 	
-	uint8_t header_type = pciReadByte(bus, slot, function, kPciHeaderType);
+	uint8_t header_type = readPciByte(bus, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
 		printf("    Function %d: Device\n", function);
 	}else if((header_type & 0x7F) == 1) {
-		uint8_t secondary = pciReadByte(bus, slot, function, kPciSecondaryBus);
+		uint8_t secondary = readPciByte(bus, slot, function, kPciSecondaryBus);
 		printf("    Function %d: PCI-to-PCI bridge to bus %d\n", function, secondary);
 	}else{
 		printf("    Function %d: Unexpected PCI header type %d\n", function, header_type & 0x7F);
 	}
 
-	uint16_t device_id = pciReadHalf(bus, slot, function, kPciDevice);
-	uint8_t class_code = pciReadByte(bus, slot, function, kPciClassCode);
-	uint8_t sub_class = pciReadByte(bus, slot, function, kPciSubClass);
-	printf("        Vendor: 0x%X, device ID: 0x%X"
-			", class: 0x%X, subclass: 0x%X\n", vendor, device_id, class_code, sub_class);
+	uint16_t device_id = readPciHalf(bus, slot, function, kPciDevice);
+	uint8_t revision = readPciByte(bus, slot, function, kPciRevision);
+	printf("        Vendor: 0x%X, device ID: 0x%X, revision: 0x%X\n", vendor, device_id, revision);
+	
+	uint8_t class_code = readPciByte(bus, slot, function, kPciClassCode);
+	uint8_t sub_class = readPciByte(bus, slot, function, kPciSubClass);
+	uint8_t interface = readPciByte(bus, slot, function, kPciInterface);
+	printf("        Class: 0x%X, subclass: 0x%X, interface: 0x%X\n",
+			class_code, sub_class, interface);
 	
 	if((header_type & 0x7F) == 0) {
+		PciDevice device(bus, slot, function, vendor, device_id, revision,
+				class_code, sub_class, interface);
+		
+		// determine the BARs
 		for(int i = 0; i < 6; i++) {
 			uint32_t offset = kPciBar0 + i * 4;
-			uint32_t bar = pciReadWord(bus, slot, function, offset);
+			uint32_t bar = readPciWord(bus, slot, function, offset);
 			if(bar == 0)
 				continue;
 			
@@ -84,50 +54,67 @@ void pciCheckFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint32_t address = bar & 0xFFFFFFFC;
 				
 				// write all 1s to the BAR and read it back to determine this its length
-				pciWriteWord(bus, slot, function, offset, 0xFFFFFFFC);
-				uint32_t mask = pciReadWord(bus, slot, function, offset);
-				pciWriteWord(bus, slot, function, offset, bar);
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFC);
+				uint32_t mask = readPciWord(bus, slot, function, offset);
+				writePciWord(bus, slot, function, offset, bar);
 				uint32_t length = ~(mask & 0xFFFFFFFC) + 1;
 
-				printf("        I/O space BAR 0x%X, length: %u ports\n", address, length);
+				std::vector<uintptr_t> ports;
+				for(uintptr_t offset = 0; offset < length; offset++)
+					ports.push_back(address + offset);
+
+				device.bars[i].type = PciDevice::kBarIo;
+				device.bars[i].length = length;
+				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device.bars[i].handle));
+
+				printf("        I/O space BAR #%d at 0x%X, length: %u ports\n",
+						i, address, length);
 			}else if(((bar >> 1) & 3) == 0) {
 				uint32_t address = bar & 0xFFFFFFF0;
 				
 				// write all 1s to the BAR and read it back to determine this its length
-				pciWriteWord(bus, slot, function, offset, 0xFFFFFFF0);
-				uint32_t mask = pciReadWord(bus, slot, function, offset);
-				pciWriteWord(bus, slot, function, offset, bar);
+				writePciWord(bus, slot, function, offset, 0xFFFFFFF0);
+				uint32_t mask = readPciWord(bus, slot, function, offset);
+				writePciWord(bus, slot, function, offset, bar);
 				uint32_t length = ~(mask & 0xFFFFFFF0) + 1;
+				
+				device.bars[i].type = PciDevice::kBarMemory;
+				device.bars[i].length = length;
+				HEL_CHECK(helAccessPhysical(address, length, &device.bars[i].handle));
 
-				printf("        32-bit memory BAR 0x%X, length: %u bytes\n", address, length);
+				printf("        32-bit memory BAR #%d at 0x%X, length: %u bytes\n",
+						i, address, length);
 			}else if(((bar >> 1) & 3) == 2) {
 				assert(!"Handle 64-bit memory BARs");
 			}else{
 				assert(!"Unexpected BAR type");
 			}
 		}
+
+		if(vendor == 0x8086 && device_id == 0x100E)
+			initializeDevice(&device);
 	}
 }
 
-void pciCheckDevice(uint32_t bus, uint32_t slot) {
-	uint16_t vendor = pciReadHalf(bus, slot, 0, kPciVendor);
+void checkPciDevice(uint32_t bus, uint32_t slot) {
+	uint16_t vendor = readPciHalf(bus, slot, 0, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
 	
 	printf("Bus: %d, slot %d\n", bus, slot);
 	
-	uint8_t header_type = pciReadByte(bus, slot, 0, kPciHeaderType);
+	uint8_t header_type = readPciByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
 		for(uint32_t function = 0; function < 8; function++)
-			pciCheckFunction(bus, slot, function);
+			checkPciFunction(bus, slot, function);
 	}else{
-		pciCheckFunction(bus, slot, 0);
+		checkPciFunction(bus, slot, 0);
 	}
 }
 
-void pciCheckBus(uint32_t bus) {
+void checkPciBus(uint32_t bus) {
 	for(uint32_t slot = 0; slot < 32; slot++)
-		pciCheckDevice(bus, slot);
+		checkPciDevice(bus, slot);
 }
 
 void pciDiscover() {
@@ -136,6 +123,6 @@ void pciDiscover() {
 	HEL_CHECK(helAccessIo(ports, 8, &io_handle));
 	HEL_CHECK(helEnableIo(io_handle));
 
-	pciCheckBus(0);
+	checkPciBus(0);
 }
 
