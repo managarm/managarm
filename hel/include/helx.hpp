@@ -122,13 +122,23 @@ public:
 		HEL_CHECK(helSendDescriptor(p_handle, send_handle, msg_request, msg_seq));
 	}
 
-	inline void recvString(void *buffer, size_t length,
+	inline void recvString(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			void *object, RecvStringFunction function) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
-				(uint8_t *)buffer, length, msg_request, msg_seq,
+				(uint8_t *)buffer, max_length, msg_request, msg_seq,
 				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+
+	inline void recvStringSync(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			size_t &length) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
+				(uint8_t *)buffer, max_length, msg_request, msg_seq,
+				0, 0, &async_id));
+		length = event_hub.waitForRecvString(async_id);
 	}
 	
 	inline void recvDescriptor(EventHub &event_hub,

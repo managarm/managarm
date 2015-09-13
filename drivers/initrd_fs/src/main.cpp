@@ -52,24 +52,32 @@ void openFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_
 	HelHandle image_handle;
 	std::string path = "initrd/" + request.filename();
 
-	HEL_CHECK(helRdOpen(path.data(), path.size(), &image_handle));
-	HEL_CHECK(helMemoryInfo(image_handle, &open_file.fileSize));
-	printf("openfile_size: %u\n", open_file.fileSize);
-	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, open_file.fileSize,
-			kHelMapReadOnly, &open_file.imagePtr));
-
-	int64_t fd = nextFd;
-	nextFd++;
-	allOpenFiles[fd] = open_file;
-
 	managarm::fs::ServerResponse response;
-	response.set_fd(fd);
+
+	HelError open_error = helRdOpen(path.data(), path.size(), &image_handle);	
+	if(open_error == kHelErrNone) {
+		HEL_CHECK(helMemoryInfo(image_handle, &open_file.fileSize));
+		printf("openfile_size: %u\n", open_file.fileSize);
+		HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, open_file.fileSize,
+				kHelMapReadOnly, &open_file.imagePtr));
+
+		int64_t fd = nextFd;
+		nextFd++;
+		allOpenFiles[fd] = open_file;
+		
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_fd(fd);
+
+		printf("opened file\n");	
+	}else if(open_error == kHelErrNoSuchPath) {
+		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+	}else{
+		HEL_CHECK(open_error);
+	}
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-
-	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);
-	printf("opened file\n");
+	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);	
 }
 
 void readFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_request) {

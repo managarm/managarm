@@ -50,6 +50,17 @@ const ClientRequest_RequestType ClientRequest_RequestType_RequestType_MIN = Clie
 const ClientRequest_RequestType ClientRequest_RequestType_RequestType_MAX = ClientRequest_RequestType_CLOSE;
 const int ClientRequest_RequestType_RequestType_ARRAYSIZE = ClientRequest_RequestType_RequestType_MAX + 1;
 
+enum Errors {
+  SUCCESS = 0,
+  FILE_NOT_FOUND = 1,
+  ACCESS_DENIED = 2,
+  ALREADY_EXISTS = 3
+};
+bool Errors_IsValid(int value);
+const Errors Errors_MIN = SUCCESS;
+const Errors Errors_MAX = ALREADY_EXISTS;
+const int Errors_ARRAYSIZE = Errors_MAX + 1;
+
 // ===================================================================
 
 class ClientRequest : public ::google::protobuf::MessageLite {
@@ -720,6 +731,7 @@ namespace google {
 namespace protobuf {
 
 template <> struct is_proto_enum< ::managarm::fs::ClientRequest_RequestType> : ::google::protobuf::internal::true_type {};
+template <> struct is_proto_enum< ::managarm::fs::Errors> : ::google::protobuf::internal::true_type {};
 
 }  // namespace protobuf
 }  // namespace google

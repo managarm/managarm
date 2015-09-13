@@ -54,6 +54,18 @@ struct StaticDescriptorInitializer_fs_2eproto {
   }
 } static_descriptor_initializer_fs_2eproto_;
 #endif
+bool Errors_IsValid(int value) {
+  switch(value) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+      return true;
+    default:
+      return false;
+  }
+}
+
 
 namespace {
 

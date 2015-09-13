@@ -401,6 +401,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarInitialize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringInitialize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:
@@ -428,6 +429,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarAccessors(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringAccessors(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:
@@ -456,6 +458,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarSize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringSize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:
@@ -491,6 +494,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarSerialize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringSerialize(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:
@@ -533,6 +537,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarParse(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringParse(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:
@@ -573,6 +578,7 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			printScalarMember(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_STRING:
+		case pb::FieldDescriptor::TYPE_BYTES:
 			printStringMember(printer, field);
 			break;
 		case pb::FieldDescriptor::TYPE_MESSAGE:

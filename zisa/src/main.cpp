@@ -714,6 +714,10 @@ int main() {
 
 #include "fs.pb.h"
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 namespace util = frigg::util;
 namespace async = frigg::async;
 
@@ -818,17 +822,8 @@ async::seq(
 );
 
 int main() {
-	printf("Entering zisa\n");
-
-	const char *initrd_fs_path = "init/initrd";
-	HelHandle initrd_fs_handle;
-	HEL_CHECK(helRdOpen(initrd_fs_path, strlen(initrd_fs_path), &initrd_fs_handle));
-
-	helx::Client initrd_fs_client(initrd_fs_handle);
-
-	auto on_test_complete = [] (TestContext &context) { };
-	async::run(allocator, test, TestContext(initrd_fs_client), on_test_complete);
-
+	open("zisa", O_RDONLY);
+	printf("opened!\n");
 	while(true)
 		eventHub.defaultProcessEvents();
 }
