@@ -14,13 +14,20 @@ public:
 	
 	T pop();
 
-	size_t size();
+	size_t size() const {
+		return p_size;
+	}
 	
-	bool empty() {
+	bool empty() const {
 		return size() == 0;
 	}
 	
-	T &operator[] (size_t index);
+	const T &operator[] (size_t index) const {
+		return p_elements[index];
+	}
+	T &operator[] (size_t index) {
+		return p_elements[index];
+	}
 
 private:
 	void ensureCapacity(size_t capacity);
@@ -56,16 +63,6 @@ T &Vector<T, Allocator>::push(T &&element) {
 	T *pointer = new (&p_elements[p_size]) T(traits::move(element));
 	p_size++;
 	return *pointer;
-}
-
-template<typename T, typename Allocator>
-size_t Vector<T, Allocator>::size() {
-	return p_size;
-}
-
-template<typename T, typename Allocator>
-T &Vector<T, Allocator>::operator[] (size_t index) {
-	return p_elements[index];
 }
 
 template<typename T, typename Allocator>

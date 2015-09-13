@@ -22,15 +22,15 @@
 #include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
-
 #include <frigg/protobuf.hpp>
-#include <bragi-naked/ld-server.nakedpb.hpp>
+
+#define assert ASSERT
+#include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace memory = frigg::memory;
 namespace async = frigg::async;
-namespace protobuf = frigg::protobuf;
 
 struct BaseSegment {
 	BaseSegment(Elf64_Word elf_type, Elf64_Word elf_flags,
@@ -186,24 +186,15 @@ Object *readObject(util::StringView path) {
 
 void sendObject(HelHandle pipe, int64_t request_id,
 		Object *object, uintptr_t base_address) {
-	protobuf::FixedWriter<128> object_writer;
+	managarm::ld_server::ServerResponse<Allocator> response(*allocator);
+
 	if(object->hasPhdrImage) {
-		protobuf::emitUInt64(object_writer,
-				managarm::ld_server::ServerResponse::kField_phdr_pointer,
-				base_address + object->phdrPointer);
-		protobuf::emitUInt64(object_writer,
-				managarm::ld_server::ServerResponse::kField_phdr_entry_size,
-				object->phdrEntrySize);
-		protobuf::emitUInt64(object_writer,
-				managarm::ld_server::ServerResponse::kField_phdr_count,
-				object->phdrCount);
+		response.set_phdr_pointer(base_address + object->phdrPointer);
+		response.set_phdr_entry_size(object->phdrEntrySize);
+		response.set_phdr_count(object->phdrCount);
 	}
-	protobuf::emitUInt64(object_writer,
-			managarm::ld_server::ServerResponse::kField_entry,
-			base_address + object->entry);
-	protobuf::emitUInt64(object_writer,
-			managarm::ld_server::ServerResponse::kField_dynamic,
-			base_address + object->dynamic);
+	response.set_entry(base_address + object->entry);
+	response.set_dynamic(base_address + object->dynamic);
 
 	for(size_t i = 0; i < object->segments.size(); i++) {
 		Segment &wrapper = object->segments[i];
@@ -231,36 +222,28 @@ void sendObject(HelHandle pipe, int64_t request_id,
 					segment.fileLength);
 		}
 		
-		protobuf::FixedWriter<16> segment_writer;
-		protobuf::emitUInt64(segment_writer,
-				managarm::ld_server::Segment::kField_virt_address,
-				base_address + base_segment->virtAddress);
-		protobuf::emitUInt64(segment_writer,
-				managarm::ld_server::Segment::kField_virt_length,
-				base_segment->virtLength);
+		managarm::ld_server::Segment<Allocator> out_segment(*allocator);
+		out_segment.set_virt_address(base_address + base_segment->virtAddress);
+		out_segment.set_virt_length(base_segment->virtLength);
 
 		if((base_segment->elfFlags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-			protobuf::emitInt32(segment_writer,
-					managarm::ld_server::Segment::kField_access,
-					managarm::ld_server::Access::READ_WRITE);
+			out_segment.set_access(managarm::ld_server::Access::READ_WRITE);
 		}else if((base_segment->elfFlags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-			protobuf::emitInt32(segment_writer,
-					managarm::ld_server::Segment::kField_access,
-					managarm::ld_server::Access::READ_EXECUTE);
+			out_segment.set_access(managarm::ld_server::Access::READ_EXECUTE);
 		}else{
 			debug::panicLogger.log() << "Illegal combination of segment permissions"
 					<< debug::Finish();
 		}
 		
-		protobuf::emitMessage(object_writer,
-				managarm::ld_server::ServerResponse::kField_segments,
-				segment_writer);
+		response.add_segments(out_segment);
 		
 		HEL_CHECK(helSendDescriptor(pipe, memory, 1, 1 + i));
 	}
 
-	HEL_CHECK(helSendString(pipe,
-			object_writer.data(), object_writer.size(), 1, 0));
+	util::String<Allocator> serialized(*allocator);
+	response.SerializeToString(&serialized);
+
+	HEL_CHECK(helSendString(pipe, (uint8_t *)serialized.data(), serialized.size(), 1, 0));
 }
 
 util::LazyInitializer<helx::EventHub> eventHub;
@@ -291,27 +274,14 @@ async::repeatWhile(
 		}),
 		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
 				HelError error, int64_t msg_request, int64_t msg_sequence, size_t length) {
-			char ident_buffer[64];
-			size_t ident_length = 0;
-			uint64_t base_address = 0;
+			HEL_CHECK(error);
 
-			protobuf::BufferReader reader(context.buffer, length);
-			while(!reader.atEnd()) {
-				auto header = protobuf::fetchHeader(reader);
-				switch(header.field) {
-				case managarm::ld_server::ClientRequest::kField_identifier:
-					ident_length = protobuf::fetchString(reader, ident_buffer, 64);
-					break;
-				case managarm::ld_server::ClientRequest::kField_base_address:
-					base_address = protobuf::fetchUInt64(reader);
-					break;
-				default:
-					ASSERT(!"Unexpected field in ClientRequest");
-				}
-			}
+			managarm::ld_server::ClientRequest<Allocator> request(*allocator);
+			request.ParseFromArray(context.buffer, length);
 			
-			Object *object = readObject(util::StringView(ident_buffer, ident_length));
-			sendObject(context.pipeHandle, msg_request, object, base_address);
+			Object *object = readObject(util::StringView(request.identifier().data(),
+					request.identifier().size()));
+			sendObject(context.pipeHandle, msg_request, object, request.base_address());
 			callback();
 		})
 	)

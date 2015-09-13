@@ -22,7 +22,7 @@ $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
 
 $c_CXX = x86_64-managarm-g++
 
-$c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/bragi/include
+$c_INCLUDES := -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti

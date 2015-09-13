@@ -12,6 +12,7 @@
 
 #include <frigg/optional.hpp>
 #include <frigg/tuple.hpp>
+#include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
@@ -21,14 +22,14 @@
 #include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
-
 #include <frigg/protobuf.hpp>
-#include <bragi-naked/ld-server.nakedpb.hpp>
+
+#define assert ASSERT
+#include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace memory = frigg::memory;
-namespace protobuf = frigg::protobuf;
 
 #include "linker.hpp"
 
@@ -206,95 +207,50 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	p_scope->objects.push(object);
 }
 
-template<typename Reader>
-void processSegment(SharedObject *object, Reader reader, int segment_index) {
-	uintptr_t virt_address;
-	size_t virt_length;
-	uint32_t access;
-
-	while(!reader.atEnd()) {
-		auto header = protobuf::fetchHeader(reader);
-		switch(header.field) {
-		case managarm::ld_server::Segment::kField_virt_address:
-			virt_address = protobuf::fetchUInt64(reader);
-			break;
-		case managarm::ld_server::Segment::kField_virt_length:
-			virt_length = protobuf::fetchUInt64(reader);
-			break;
-		case managarm::ld_server::Segment::kField_access:
-			access = protobuf::fetchInt32(reader);
-			break;
-		default:
-			ASSERT(!"Unexpected field in managarm.ld_server.Segment message");
-		}
-	}
-
-	uint32_t map_flags = 0;
-	if(access == managarm::ld_server::Access::READ_WRITE) {
-		map_flags |= kHelMapReadWrite;
-	}else{
-		ASSERT(access == managarm::ld_server::Access::READ_EXECUTE);
-		map_flags |= kHelMapReadExecute;
-	}
-	
-	int64_t async_id;
-	HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
-			1, 1 + segment_index, kHelNoFunction, kHelNoObject, &async_id));
-	HelHandle memory = eventHub->waitForRecvDescriptor(async_id);
-
-	void *actual_pointer;
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)virt_address, virt_length,
-			map_flags, &actual_pointer));
-}
-
-template<typename Reader>
-void processServerResponse(SharedObject *object, Reader reader) {
-	int segment_index = 0;
-
-	while(!reader.atEnd()) {
-		auto header = protobuf::fetchHeader(reader);
-		switch(header.field) {
-		case managarm::ld_server::ServerResponse::kField_phdr_pointer:
-		case managarm::ld_server::ServerResponse::kField_phdr_entry_size:
-		case managarm::ld_server::ServerResponse::kField_phdr_count:
-			// we do not care about program headers as ld-server;
-			// ld-server sends us all segments
-			protobuf::fetchUInt64(reader);
-			break;
-		case managarm::ld_server::ServerResponse::kField_entry:
-			object->entry = (void *)protobuf::fetchUInt64(reader);
-			break;
-		case managarm::ld_server::ServerResponse::kField_dynamic:
-			object->dynamic = (Elf64_Dyn *)protobuf::fetchUInt64(reader);
-			break;
-		case managarm::ld_server::ServerResponse::kField_segments:
-			processSegment(object, protobuf::fetchMessage(reader),
-					segment_index++);
-			break;
-		default:
-			ASSERT(!"Unexpected field in ServerResponse");
-		}
-	}
-}
-
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	//infoLogger->log() << "Loading " << file << debug::Finish();
 
-	protobuf::FixedWriter<64> writer;
-	protobuf::emitCString(writer,
-			managarm::ld_server::ClientRequest::kField_identifier, file);
-	protobuf::emitUInt64(writer,
-			managarm::ld_server::ClientRequest::kField_base_address,
-			object->baseAddress);
-	serverPipe->sendString(writer.data(), writer.size(), 1, 0);
+	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
+	request.set_identifier(util::String<Allocator>(*allocator, file));
+	request.set_base_address(object->baseAddress);
+
+	util::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	serverPipe->sendString(serialized.data(), serialized.size(), 1, 0);
 	
 	uint8_t buffer[128];
 	int64_t async_id;
 	HEL_CHECK(helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
 			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id));
 	size_t length = eventHub->waitForRecvString(async_id);
-	processServerResponse(object, protobuf::BufferReader(buffer, length));
-	
+
+	managarm::ld_server::ServerResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+
+	object->entry = (void *)response.entry();
+	object->dynamic = (Elf64_Dyn *)response.dynamic();
+
+	for(size_t i = 0; i < response.segments_size(); i++) {
+		auto &segment = response.segments(i);
+
+		uint32_t map_flags = 0;
+		if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
+			map_flags |= kHelMapReadWrite;
+		}else{
+			ASSERT(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
+			map_flags |= kHelMapReadExecute;
+		}
+		
+		int64_t async_id;
+		HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
+				1, 1 + i, kHelNoFunction, kHelNoObject, &async_id));
+		HelHandle memory = eventHub->waitForRecvDescriptor(async_id);
+
+		void *actual_pointer;
+		HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)segment.virt_address(),
+				segment.virt_length(), map_flags, &actual_pointer));
+	}
+
 	parseDynamic(object);
 	p_processQueue.addBack(object);
 	p_scope->objects.push(object);

@@ -6,26 +6,27 @@
 #include <frigg/libc.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/algorithm.hpp>
 #include <frigg/string.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/async.hpp>
 
-#include <frigg/elf.hpp>
-#include <frigg/protobuf.hpp>
-#include <bragi-naked/ld-server.nakedpb.hpp>
-
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
+#include <frigg/elf.hpp>
+#include <frigg/protobuf.hpp>
+
+#define assert ASSERT
+#include "ld-server.frigg_pb.hpp"
 
 namespace util = frigg::util;
 namespace debug = frigg::debug;
 namespace async = frigg::async;
-namespace protobuf = frigg::protobuf;
 
 extern "C" void _exit() {
 	HEL_CHECK(helExitThisThread());
@@ -193,95 +194,26 @@ async::seq(
 );
 
 struct LoadContext {
-	struct Segment {
-		uintptr_t virtAddress;
-		size_t virtLength;
-		int32_t access;
-	};
-
 	LoadContext()
-	: space(kHelNullHandle), segments(*allocator), currentSegment(0) { }
-	
-	LoadContext(const LoadContext &other) = delete;
-	
-	LoadContext(LoadContext &&other) = default;
-	
-	template<typename Reader>
-	void parseObjectMsg(Reader reader) {
-		while(!reader.atEnd()) {
-			auto header = protobuf::fetchHeader(reader);
-			switch(header.field) {
-			case managarm::ld_server::ServerResponse::kField_phdr_pointer:
-				phdrPointer = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::ServerResponse::kField_phdr_entry_size:
-				phdrEntrySize = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::ServerResponse::kField_phdr_count:
-				phdrCount = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::ServerResponse::kField_entry:
-				entry = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::ServerResponse::kField_dynamic:
-				// we don't care about the dynamic section
-				protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::ServerResponse::kField_segments:
-				parseSegmentMsg(protobuf::fetchMessage(reader));
-				break;
-			default:
-				ASSERT(!"Unexpected field in managarm.ld_server.Object message");
-			}
-		}
-	}
-	
-	template<typename Reader>
-	void parseSegmentMsg(Reader reader) {
-		Segment segment;
-
-		while(!reader.atEnd()) {
-			auto header = protobuf::fetchHeader(reader);
-			switch(header.field) {
-			case managarm::ld_server::Segment::kField_virt_address:
-				segment.virtAddress = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::Segment::kField_virt_length:
-				segment.virtLength = protobuf::fetchUInt64(reader);
-				break;
-			case managarm::ld_server::Segment::kField_access:
-				segment.access = protobuf::fetchInt32(reader);
-				break;
-			default:
-				ASSERT(!"Unexpected field in managarm.ld_server.Segment message");
-			}
-		}
-
-		segments.push(segment);
-	}
+	: space(kHelNullHandle), response(*allocator), currentSegment(0) { }
 	
 	HelHandle space;
-	uintptr_t phdrPointer;
-	size_t phdrEntrySize;
-	size_t phdrCount;
-	uintptr_t entry;
-	util::Vector<Segment, Allocator> segments;
-	size_t currentSegment;
 	uint8_t buffer[128];
+	managarm::ld_server::ServerResponse<Allocator> response;
+	size_t currentSegment;
 };
 
 auto loadObject = async::seq(
 	async::lambda([](LoadContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
 			util::StringView object_name, uintptr_t base_address) {
-		protobuf::FixedWriter<64> writer;
-		protobuf::emitString(writer,
-				managarm::ld_server::ClientRequest::kField_identifier,
-				object_name.data(), object_name.size());
-		protobuf::emitUInt64(writer,
-				managarm::ld_server::ClientRequest::kField_base_address,
-				base_address);
-		ldServerPipe.sendString(writer.data(), writer.size(), 1, 0);
+		managarm::ld_server::ClientRequest<Allocator> request(*allocator);
+		request.set_identifier(util::String<Allocator>(*allocator, object_name));
+		request.set_base_address(base_address);
+		
+		util::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		ldServerPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
 		ldServerPipe.recvString(context.buffer, 128, eventHub,
 				1, 0, callback.getObject(), callback.getFunction());
@@ -291,13 +223,13 @@ auto loadObject = async::seq(
 			int64_t msg_request, int64_t msg_seq, size_t length) {
 		HEL_CHECK(error);
 
-		context.parseObjectMsg(protobuf::BufferReader(context.buffer, length));
+		context.response.ParseFromArray(context.buffer, length);
 		callback();
 	}),
 	async::repeatWhile(
 		async::lambda([](LoadContext &context,
 				util::Callback<void(bool)> callback) {
-			callback(context.currentSegment < context.segments.size());
+			callback(context.currentSegment < context.response.segments_size());
 		}),
 		async::seq(
 			async::lambda([](LoadContext &context,
@@ -310,19 +242,19 @@ auto loadObject = async::seq(
 					int64_t msg_request, int64_t msg_seq, HelHandle handle) {
 				HEL_CHECK(error);
 
-				auto &segment = context.segments[context.currentSegment];
+				auto &segment = context.response.segments(context.currentSegment);
 
 				uint32_t map_flags = 0;
-				if(segment.access == managarm::ld_server::Access::READ_WRITE) {
+				if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
 					map_flags |= kHelMapReadWrite;
 				}else{
-					ASSERT(segment.access == managarm::ld_server::Access::READ_EXECUTE);
+					ASSERT(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
 					map_flags |= kHelMapReadExecute;
 				}
 				
 				void *actual_ptr;
-				HEL_CHECK(helMapMemory(handle, context.space, (void *)segment.virtAddress,
-						segment.virtLength, map_flags, &actual_ptr));
+				HEL_CHECK(helMapMemory(handle, context.space, (void *)segment.virt_address(),
+						segment.virt_length(), map_flags, &actual_ptr));
 				context.currentSegment++;
 				callback();
 			})
@@ -345,10 +277,6 @@ struct ExecuteContext {
 		directory.remount("initrd/#this", "initrd");
 	}
 
-	ExecuteContext(const ExecuteContext &other) = delete;
-	
-	ExecuteContext(ExecuteContext &&other) = default;
-	
 	const char *program;
 	HelHandle space;
 
@@ -371,7 +299,6 @@ async::seq(
 		async::lambda([](LoadContext &context,
 				util::Callback<void(util::StringView, uintptr_t)> callback,
 				util::StringView object_name, uintptr_t base_address) {
-			infoLogger->log() << "Loading " << object_name.data() << debug::Finish();
 			callback(object_name, base_address);
 		})
 	),
@@ -393,12 +320,12 @@ async::seq(
 
 		HelThreadState state;
 		memset(&state, 0, sizeof(HelThreadState));
-		state.rip = context.interpreterContext.entry;
+		state.rip = context.interpreterContext.response.entry();
 		state.rsp = (uintptr_t)stack_base + stack_size;
-		state.rdi = context.executableContext.phdrPointer;
-		state.rsi = context.executableContext.phdrEntrySize;
-		state.rdx = context.executableContext.phdrCount;
-		state.rcx = context.executableContext.entry;
+		state.rdi = context.executableContext.response.phdr_pointer();
+		state.rsi = context.executableContext.response.phdr_entry_size();
+		state.rdx = context.executableContext.response.phdr_count();
+		state.rcx = context.executableContext.response.entry();
 
 		infoLogger->log() << "Starting " << context.program << debug::Finish();
 		HelHandle thread;

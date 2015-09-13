@@ -12,6 +12,7 @@ $(call include_dir,drivers/vga_terminal)
 $(call include_dir,drivers/initrd_fs)
 $(call include_dir,zisa)
 
+$(call include_dir,tools/frigg_pb)
 $(call include_dir,hel)
 
 .PHONY: all
