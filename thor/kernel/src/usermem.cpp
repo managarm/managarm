@@ -257,6 +257,9 @@ void AddressSpace::rotateLeft(Mapping *n) {
 		ASSERT(w->rightPtr == u);
 		w->rightPtr = n;
 	}
+
+	updateLargestHoleAt(n);
+	updateLargestHoleAt(u);
 }
 
 void AddressSpace::rotateRight(Mapping *n) {
@@ -280,6 +283,9 @@ void AddressSpace::rotateRight(Mapping *n) {
 		ASSERT(w->rightPtr == u);
 		w->rightPtr = n;
 	}
+
+	updateLargestHoleAt(n);
+	updateLargestHoleAt(u);
 }
 
 bool AddressSpace::isRed(Mapping *mapping) {
@@ -309,7 +315,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 				current->leftPtr = mapping;
 				mapping->parentPtr = current;
 
-				updateLargestHole(mapping);
+				updateLargestHoleAt(mapping);
 
 				fixAfterInsert(mapping);
 				return;
@@ -322,7 +328,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 				current->rightPtr = mapping;
 				mapping->parentPtr = current;
 				
-				updateLargestHole(mapping);
+				updateLargestHoleAt(mapping);
 				
 				fixAfterInsert(mapping);
 				return;
@@ -463,7 +469,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 			}
 		}
 
-		updateLargestHole(pre_parent);
+		updateLargestHoleUpwards(pre_parent);
 
 		// replace the mapping by its predecessor
 		if(parent == nullptr) {
@@ -483,7 +489,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 	}
 	
 	if(parent != nullptr)
-		updateLargestHole(parent);
+		updateLargestHoleUpwards(parent);
 }
 
 void AddressSpace::fixAfterRemove(Mapping *n) {
@@ -569,7 +575,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 	}
 }
 
-void AddressSpace::updateLargestHole(Mapping *mapping) {
+void AddressSpace::updateLargestHoleAt(Mapping *mapping) {
 	size_t hole = 0;
 	if(mapping->type == Mapping::kTypeHole)
 		hole = mapping->length;
@@ -583,9 +589,12 @@ void AddressSpace::updateLargestHole(Mapping *mapping) {
 		hole = mapping->rightPtr->largestHole;
 	
 	mapping->largestHole = hole;
+}
+void AddressSpace::updateLargestHoleUpwards(Mapping *mapping) {
+	updateLargestHoleAt(mapping);
 	
 	if(mapping->parentPtr != nullptr)
-		updateLargestHole(mapping->parentPtr);
+		updateLargestHoleUpwards(mapping->parentPtr);
 }
 
 } // namespace thor

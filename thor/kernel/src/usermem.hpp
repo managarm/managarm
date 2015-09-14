@@ -124,7 +124,8 @@ private:
 	void addressTreeRemove(Mapping *mapping);
 	void fixAfterRemove(Mapping *mapping);
 
-	void updateLargestHole(Mapping *mapping);
+	void updateLargestHoleAt(Mapping *mapping);
+	void updateLargestHoleUpwards(Mapping *mapping);
 	
 	Mapping *p_root;
 	PageSpace p_pageSpace;
