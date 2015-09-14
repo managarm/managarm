@@ -298,6 +298,8 @@ extern "C" void _exit(int status) {
 	HEL_CHECK(helExitThisThread());
 }
 
+extern "C" void __initializeLibc() { }
+
 int main() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-server" << debug::Finish();

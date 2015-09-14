@@ -32,6 +32,8 @@ extern "C" void _exit() {
 	HEL_CHECK(helExitThisThread());
 }
 
+extern "C" void __initializeLibc() { }
+
 util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
 	size_t page_size = 0x1000;
 
