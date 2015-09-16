@@ -39,7 +39,8 @@ uintptr_t libraryBase = 0x41000000;
 // SharedObject
 // --------------------------------------------------------
 
-SharedObject::SharedObject() : baseAddress(0), loadScope(nullptr),
+SharedObject::SharedObject(bool is_main_object)
+		: isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0),
@@ -96,6 +97,39 @@ void processCopyRelocations(SharedObject *object) {
 	}else{
 		ASSERT(!has_rela_offset && !has_rela_length);
 	}
+}
+
+void doInitialize(SharedObject *object) {
+	typedef void (*InitFuncPtr) ();
+
+	InitFuncPtr init_ptr = nullptr;
+	InitFuncPtr *init_array = nullptr;
+	size_t array_size = 0;
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		
+		switch(dynamic->d_tag) {
+		case DT_INIT:
+			if(dynamic->d_ptr != 0)
+				init_ptr = (InitFuncPtr)(object->baseAddress + dynamic->d_ptr);
+			break;
+		case DT_INIT_ARRAY:
+			if(dynamic->d_ptr != 0)
+				init_array = (InitFuncPtr *)(object->baseAddress + dynamic->d_ptr);
+			break;
+		case DT_INIT_ARRAYSZ:
+			array_size = dynamic->d_val;
+			break;
+		}
+	}
+
+	if(init_ptr != nullptr)
+		init_ptr();
+	
+	ASSERT((array_size % sizeof(InitFuncPtr)) == 0);
+	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
+		init_array[i]();
 }
 
 // --------------------------------------------------------
@@ -183,7 +217,7 @@ void *Scope::resolveSymbol(const char *resolve_str,
 // --------------------------------------------------------
 
 Loader::Loader(Scope *scope)
-: p_scope(scope), p_processQueue(*allocator) { }
+: p_scope(scope), p_processQueue(*allocator), p_initQueue(*allocator) { }
 
 void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
@@ -204,6 +238,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	
 	parseDynamic(object);
 	p_processQueue.addBack(object);
+	p_initQueue.addBack(object);
 	p_scope->objects.push(object);
 }
 
@@ -253,6 +288,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	parseDynamic(object);
 	p_processQueue.addBack(object);
+	p_initQueue.addBack(object);
 	p_scope->objects.push(object);
 }
 
@@ -266,6 +302,15 @@ void Loader::process() {
 		processLazyRelocations(object);
 
 		p_processQueue.removeFront();
+	}
+}
+
+void Loader::initialize() {
+	while(!p_initQueue.empty()) {
+		SharedObject *object = p_initQueue.front();
+		doInitialize(object);
+
+		p_initQueue.removeFront();
 	}
 }
 
@@ -311,6 +356,8 @@ void Loader::parseDynamic(SharedObject *object) {
 		// ignore unimportant tags
 		case DT_SONAME: case DT_NEEDED: // we handle this later
 		case DT_INIT: case DT_FINI:
+		case DT_INIT_ARRAY: case DT_INIT_ARRAYSZ:
+		case DT_FINI_ARRAY: case DT_FINI_ARRAYSZ:
 		case DT_DEBUG:
 		case DT_RELA: case DT_RELASZ: case DT_RELAENT: case DT_RELACOUNT:
 		case DT_VERSYM:
@@ -334,7 +381,7 @@ void Loader::processDependencies(SharedObject *object) {
 		const char *library_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + dynamic->d_val);
 
-		auto library = memory::construct<SharedObject>(*allocator);
+		auto library = memory::construct<SharedObject>(*allocator, false);
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library

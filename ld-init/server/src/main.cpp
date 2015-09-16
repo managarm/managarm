@@ -294,13 +294,16 @@ void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 	server->accept(*eventHub, nullptr, &onAccept);
 }
 
-extern "C" void _exit(int status) {
-	HEL_CHECK(helExitThisThread());
-}
-
-extern "C" void __initializeLibc() { }
+typedef void (*InitFuncPtr) ();
+extern InitFuncPtr __init_array_start[];
+extern InitFuncPtr __init_array_end[];
 
 int main() {
+	// we're using no libc, so we have to run constructors manually
+	size_t init_count = __init_array_end - __init_array_start;
+	for(size_t i = 0; i < init_count; i++)
+		__init_array_start[i]();
+
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ld-server" << debug::Finish();
 	allocator.initialize(virtualAlloc);
@@ -326,7 +329,10 @@ int main() {
 
 	while(true)
 		eventHub->defaultProcessEvents();
-	
-	return 0;
 }
+
+asm ( ".global _start\n"
+		"_start:\n"
+		"\tcall main\n"
+		"\tud2" );
 

@@ -26,7 +26,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
 
-$c_LDFLAGS := -nodefaultlibs
+$c_LDFLAGS := -nostdlib
 
 $($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
 	install $< $@

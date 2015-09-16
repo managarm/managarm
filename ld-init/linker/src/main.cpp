@@ -79,7 +79,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	//infoLogger->log() << "Entering ld-init" << debug::Finish();
 	allocator.initialize(virtualAlloc);
 	
-	interpreter.initialize();
+	interpreter.initialize(false);
 	interpreter->baseAddress = (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
 
@@ -121,7 +121,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	HelHandle pipe_handle = eventHub->waitForConnect(async_id);
 	serverPipe.initialize(pipe_handle);
 
-	executable.initialize();
+	executable.initialize(true);
 
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
@@ -132,7 +132,9 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	
 	processCopyRelocations(executable.get());
 
-	//infoLogger->log() << "Leaving ld-init" << debug::Finish();
+	globalLoader->initialize();
+
+//	infoLogger->log() << "Leaving ld-init" << debug::Finish();
 	return executable->entry;
 }
 

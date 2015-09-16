@@ -28,12 +28,6 @@ namespace util = frigg::util;
 namespace debug = frigg::debug;
 namespace async = frigg::async;
 
-extern "C" void _exit() {
-	HEL_CHECK(helExitThisThread());
-}
-
-extern "C" void __initializeLibc() { }
-
 util::Tuple<uintptr_t, size_t> calcSegmentMap(uintptr_t address, size_t length) {
 	size_t page_size = 0x1000;
 
@@ -388,7 +382,20 @@ async::seq(
 	async::subContext(&InitContext::startZisaContext, executeProgram)
 );
 
-void main() {
+extern "C" void exit(int status) {
+	HEL_CHECK(helExitThisThread());
+}
+
+typedef void (*InitFuncPtr) ();
+extern InitFuncPtr __init_array_start[];
+extern InitFuncPtr __init_array_end[];
+
+int main() {
+	// we're using no libc, so we have to run constructors manually
+	size_t init_count = __init_array_end - __init_array_start;
+	for(size_t i = 0; i < init_count; i++)
+		__init_array_start[i]();
+
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering user_boot" << debug::Finish();
 	allocator.initialize(virtualAlloc);
@@ -402,7 +409,10 @@ void main() {
 	
 	while(true)
 		eventHub.defaultProcessEvents();
-
-	HEL_CHECK(helExitThisThread());
 }
+
+asm ( ".global _start\n"
+		"_start:\n"
+		"\tcall main\n"
+		"\tud2" );
 

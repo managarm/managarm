@@ -6,7 +6,9 @@ struct Scope;
 // --------------------------------------------------------
 
 struct SharedObject {
-	SharedObject();
+	SharedObject(bool is_main_object);
+
+	bool isMainObject;
 
 	// base address this shared object was loaded to
 	uintptr_t baseAddress;
@@ -63,6 +65,8 @@ public:
 	
 	void process();
 
+	void initialize();
+
 private:
 	void parseDynamic(SharedObject *object);
 	void processDependencies(SharedObject *object);
@@ -73,6 +77,7 @@ private:
 
 	Scope *p_scope;
 	util::LinkedList<SharedObject *, Allocator> p_processQueue;
+	util::LinkedList<SharedObject *, Allocator> p_initQueue;
 };
 
 // --------------------------------------------------------
