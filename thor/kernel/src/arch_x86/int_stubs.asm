@@ -28,8 +28,6 @@
 .set .L_kGsExtendedState, 0x18
 .set .L_kGsFlags, 0x28
 
-.set .L_kGsFlagAllowInts, 1
-
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10
 .set .L_userCode64Selector, 0x2B
@@ -39,6 +37,40 @@
 thorRtEntry:
 	call thorMain
 	ud2
+
+# saves the registers in the thread structure
+# expects the thread general save state in %rbx
+.macro SAVE_REGISTERS
+	mov %rax, .L_generalRax(%rbx)
+	mov %rcx, .L_generalRcx(%rbx)
+	mov %rdx, .L_generalRdx(%rbx)
+	mov %rsi, .L_generalRsi(%rbx)
+	mov %rdi, .L_generalRdi(%rbx)
+	mov %rbp, .L_generalRbp(%rbx)
+
+	mov %r8, .L_generalR8(%rbx)
+	mov %r9, .L_generalR9(%rbx)
+	mov %r10, .L_generalR10(%rbx)
+	mov %r11, .L_generalR11(%rbx)
+	mov %r12, .L_generalR12(%rbx)
+	mov %r13, .L_generalR13(%rbx)
+	mov %r14, .L_generalR14(%rbx)
+	mov %r15, .L_generalR15(%rbx)
+.endm
+
+# saves the interrupt stack frame in the thread structure
+# expects the thread general save state in %rbx
+.macro SAVE_FRAME
+	popq .L_generalRip(%rbx)
+	popq %rax # cs
+	popq .L_generalRflags(%rbx)
+	popq .L_generalRsp(%rbx)
+	add $8, %rsp # skip ss
+
+	# determine if we interrupted the kernel or userspace
+	test $3, %rax
+	setzb .L_generalKernel(%rbx)
+.endm
 
 .macro MAKE_FAULT_HANDLER name
 .global faultStub\name
@@ -105,84 +137,15 @@ MAKE_FAULT_HANDLER_WITHCODE Page
 thorRtIsrIrq\irq:
 	pushq %rbx
 	mov %gs:.L_kGsGeneralState, %rbx
-
-	# check if we interrupted a thread
-	cmp $0, %rbx
-	je .L_nothread_irq\irq
-
-	# save the registers in the thread structure
-	mov %rax, .L_generalRax(%rbx)
-	mov %rcx, .L_generalRcx(%rbx)
-	mov %rdx, .L_generalRdx(%rbx)
-	mov %rsi, .L_generalRsi(%rbx)
-	mov %rdi, .L_generalRdi(%rbx)
-	mov %rbp, .L_generalRbp(%rbx)
-
-	mov %r8, .L_generalR8(%rbx)
-	mov %r9, .L_generalR9(%rbx)
-	mov %r10, .L_generalR10(%rbx)
-	mov %r11, .L_generalR11(%rbx)
-	mov %r12, .L_generalR12(%rbx)
-	mov %r13, .L_generalR13(%rbx)
-	mov %r14, .L_generalR14(%rbx)
-	mov %r15, .L_generalR15(%rbx)
-
+	SAVE_REGISTERS
 	popq .L_generalRbx(%rbx)
-	popq .L_generalRip(%rbx)
-	popq %rax # cs
-	popq .L_generalRflags(%rbx)
-	popq .L_generalRsp(%rbx)
-	add $8, %rsp # skip ss
-
-	# determine if we interrupted the kernel or userspace
-	test $3, %rax
-	setzb .L_generalKernel(%rbx)
+	SAVE_FRAME
 
 	mov $\irq, %rdi
 	push $restoreThisThread
 	jmp thorIrq
-
-.L_nothread_irq\irq:
-	# this happens only while we are in the scheduler
-	pushq %rax
-	pushq %rcx
-	pushq %rdx
-	pushq %rdi
-	pushq %rsi
-	pushq %rbp
-	
-	pushq %r8
-	pushq %r9
-	pushq %r10
-	pushq %r11
-	pushq %r12
-	pushq %r13
-	pushq %r14
-	pushq %r15
-
-	mov $\irq, %rdi
-	call thorIrq
-	
-	popq %r15
-	popq %r14
-	popq %r13
-	popq %r12
-	popq %r11
-	popq %r10
-	popq %r9
-	popq %r8
-
-	popq %rbp
-	popq %rsi
-	popq %rdi
-	popq %rdx
-	popq %rcx
-	popq %rax
-
-	popq %rbx
-	iretq
-
 .endm
+
 MAKE_IRQ_HANDLER 0
 MAKE_IRQ_HANDLER 1
 MAKE_IRQ_HANDLER 2
@@ -258,21 +221,13 @@ restoreThisThread:
 	mov .L_generalR14(%rbx), %r14
 	mov .L_generalR15(%rbx), %r15
 	
-	# enable/disable interrupts in rflags
-	mov .L_generalRflags(%rbx), %rax
-	or $.L_kRflagsIf, %rax
-	testq $.L_kGsFlagAllowInts, %gs:.L_kGsFlags
-	jnz .L_with_ints
-	xor $.L_kRflagsIf, %rax
-
-.L_with_ints:
 	# check if we return to kernel mode
 	testb $1, .L_generalKernel(%rbx)
 	jnz .L_restore_kernel
 
 	pushq $.L_userDataSelector
 	pushq .L_generalRsp(%rbx)
-	pushq %rax # rflags
+	pushq .L_generalRflags(%rbx)
 	pushq $.L_userCode64Selector
 	pushq .L_generalRip(%rbx)
 	
@@ -283,7 +238,7 @@ restoreThisThread:
 .L_restore_kernel:
 	pushq $.L_kernelDataSelector
 	pushq .L_generalRsp(%rbx)
-	pushq %rax # rflags
+	pushq .L_generalRflags(%rbx)
 	pushq $.L_kernelCodeSelector
 	pushq .L_generalRip(%rbx)
 	

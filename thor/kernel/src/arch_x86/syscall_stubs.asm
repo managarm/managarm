@@ -14,8 +14,6 @@
 .set .L_kGsSyscallStackPtr, 0x20
 .set .L_kGsFlags, 0x28
 
-.set .L_kGsFlagEnableInts, 1
-
 .global syscallStub
 syscallStub:
 	mov %gs:.L_kGsSyscallState, %rbx
@@ -61,13 +59,7 @@ thorRtReturnSyscall3:
 	# setup rcx and r11 for sysret
 	mov .L_kSyscallRip(%rbx), %rcx
 	mov .L_kSyscallRflags(%rbx), %r11
+	or $.L_kRflagsIf, %r11 # enable interrupts
 	
-	# enable/disable interrupts in rflags
-	or $.L_kRflagsIf, %r11
-	testq $.L_kGsFlagEnableInts, %gs:.L_kGsFlags
-	jnz .L_with_ints
-	xor $.L_kRflagsIf, %r11
-
-.L_with_ints:
 	sysretq
 

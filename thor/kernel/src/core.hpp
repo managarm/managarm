@@ -70,7 +70,10 @@ class IrqLine;
 class IoSpace;
 
 struct CpuContext {
+	CpuContext();
+
 	KernelUnsafePtr<Thread> currentThread;
+	KernelUnsafePtr<Thread> idleThread;
 };
 
 struct Timer {

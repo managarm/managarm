@@ -5,7 +5,7 @@ namespace thor {
 
 void initializeTheSystem() {
 	initLocalApicOnTheSystem();
-	setupLegacyPic();
+	maskLegacyPic();
 }
 
 void controlArch(int interface, const void *input, void *output) {
@@ -23,7 +23,7 @@ void controlArch(int interface, const void *input, void *output) {
 		bootSecondary(*apic_id);
 	} break;	
 	case kThorIfFinishBoot: {
-		allowInts();
+		// do nothing for now
 	} break;
 	default:
 		ASSERT(!"Illegal interface");

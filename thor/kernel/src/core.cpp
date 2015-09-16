@@ -67,6 +67,27 @@ frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
+// CpuContext class
+// --------------------------------------------------------
+
+CpuContext::CpuContext() {
+	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	auto thread = frigg::makeShared<Thread>(*kernelAlloc, KernelSharedPtr<Universe>(),
+			traits::move(address_space), KernelSharedPtr<RdFolder>(), true);
+	
+	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
+			+ ThorRtThreadState::kSyscallStackSize;
+	thread->accessSaveState().generalState.rsp = stack_ptr;
+	thread->accessSaveState().generalState.rflags = 0x200; // enable interrupts
+	thread->accessSaveState().generalState.rip = (Word)&idleRoutine;
+	thread->accessSaveState().generalState.kernel = 1;
+	
+	idleThread = thread;
+	activeList->addBack(traits::move(thread));
+}
+
+// --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
 

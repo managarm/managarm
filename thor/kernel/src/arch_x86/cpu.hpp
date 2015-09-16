@@ -151,7 +151,7 @@ struct ThorRtKernelGs {
 	};
 
 	enum {
-		kFlagAllowInts = 1
+		// there are no flags for now
 	};
 
 	ThorRtKernelGs();

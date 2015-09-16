@@ -48,23 +48,27 @@ void doSchedule(ScheduleGuard &&guard) {
 	ASSERT(guard.protects(scheduleLock.get()));
 	ASSERT(!getCpuContext()->currentThread);
 	
-	while(scheduleQueue->empty()) {
+	if(!scheduleQueue->empty()) {
+		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
 		guard.unlock();
-		enableInts();
-		halt();
-		disableInts();
-		guard.lock();
+		enterThread(thread);
+	}else{
+		guard.unlock();
+		enterThread(getCpuContext()->idleThread);
 	}
-
-	guard.unlock();
-	
-	enterThread(scheduleQueue->removeFront());
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
 	ASSERT(guard.protects(scheduleLock.get()));
 
 	scheduleQueue->addBack(thread);
+}
+
+void idleRoutine() {
+	while(true) {
+		ASSERT(intsAreEnabled());
+		halt();
+	}
 }
 
 } // namespace thor

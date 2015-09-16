@@ -82,7 +82,6 @@ bool intsAreEnabled() {
 }
 
 void enableInts() {
-	ASSERT(intsAreAllowed());
 	asm volatile ( "sti" );
 }
 

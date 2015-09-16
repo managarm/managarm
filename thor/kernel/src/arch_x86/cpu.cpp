@@ -98,22 +98,6 @@ CpuContext *getCpuContext() {
 	return context;
 }
 
-bool intsAreAllowed() {
-	uint32_t flags;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (flags)
-			: "i" (ThorRtKernelGs::kOffFlags) );
-	return (flags & ThorRtKernelGs::kFlagAllowInts) != 0;
-}
-
-void allowInts() {
-	uint32_t flags;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (flags)
-			: "i" (ThorRtKernelGs::kOffFlags) );
-	flags |= ThorRtKernelGs::kFlagAllowInts;
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (flags),
-			"i" (ThorRtKernelGs::kOffFlags) );
-}
-
 void callOnCpuStack(void (*function) ()) {
 	ASSERT(!intsAreEnabled());
 
@@ -236,7 +220,6 @@ extern "C" void thorRtSecondaryEntry() {
 	thor::infoLogger->log() << "Hello world from CPU #"
 			<< (getLocalApicId() >> 24) << debug::Finish();	
 	initializeThisProcessor();
-	allowInts();
 
 	thor::infoLogger->log() << "Start scheduling on AP" << debug::Finish();
 	ScheduleGuard schedule_guard(scheduleLock.get());

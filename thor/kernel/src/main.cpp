@@ -122,12 +122,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 
-	initializeThisProcessor();
-	initializeTheSystem();
-
 	activeList.initialize();
 	scheduleQueue.initialize(*kernelAlloc);
 	scheduleLock.initialize();
+
+	initializeThisProcessor();
+	initializeTheSystem();
 	
 	// create a directory and load the memory regions of all modules into it
 	ASSERT(info->numModules >= 1);
@@ -166,7 +166,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			+ ThorRtThreadState::kSyscallStackSize;
 	thread->accessSaveState().generalState.rdi = modules[0].physicalBase;
 	thread->accessSaveState().generalState.rsp = stack_ptr;
-	thread->accessSaveState().generalState.rip = (Word)enterImage;
+	thread->accessSaveState().generalState.rip = (Word)&enterImage;
 	thread->accessSaveState().generalState.kernel = 1;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);

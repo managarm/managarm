@@ -33,5 +33,7 @@ void doSchedule(ScheduleGuard &&guard) __attribute__ (( noreturn ));
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread);
 
+void idleRoutine();
+
 } // namespace thor
 
