@@ -9,8 +9,7 @@
 #include <frigg/memory.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/async.hpp>
+#include <frigg/async2.hpp>
 #include <frigg/protobuf.hpp>
 
 #include <frigg/glue-hel.hpp>
@@ -23,7 +22,6 @@
 #include "posix.frigg_pb.hpp"
 
 namespace util = frigg::util;
-namespace async = frigg::async;
 
 helx::EventHub eventHub;
 helx::Client ldServerConnect;
@@ -41,9 +39,10 @@ struct LoadContext {
 	size_t currentSegment;
 };
 
-auto loadObject = async::seq(
-	async::lambda([](LoadContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
+auto loadObject =
+frigg::asyncSeq(
+	frigg::wrapFuncPtr<helx::RecvStringFunction>([](LoadContext *context,
+			void *cb_object, auto cb_function,
 			util::StringView object_name, uintptr_t base_address) {
 		managarm::ld_server::ClientRequest<Allocator> request(*allocator);
 		request.set_identifier(util::String<Allocator>(*allocator, object_name));
@@ -53,34 +52,31 @@ auto loadObject = async::seq(
 		request.SerializeToString(&serialized);
 		ldServerPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
-		ldServerPipe.recvString(context.buffer, 128, eventHub,
-				1, 0, callback.getObject(), callback.getFunction());
+		ldServerPipe.recvString(context->buffer, 128, eventHub,
+				1, 0, cb_object, cb_function);
 	}),
-	async::lambda([](LoadContext &context,
-			util::Callback<void()> callback, HelError error,
+	frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, size_t length) {
 		HEL_CHECK(error);
 
-		context.response.ParseFromArray(context.buffer, length);
+		context->response.ParseFromArray(context->buffer, length);
 		callback();
 	}),
-	async::repeatWhile(
-		async::lambda([](LoadContext &context,
-				util::Callback<void(bool)> callback) {
-			callback(context.currentSegment < context.response.segments_size());
+	frigg::asyncRepeatWhile(
+		frigg::wrapFunctor([] (LoadContext *context, auto &callback) {
+			callback(context->currentSegment < context->response.segments_size());
 		}),
-		async::seq(
-			async::lambda([](LoadContext &context,
-					util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-				ldServerPipe.recvDescriptor(eventHub, 1, 1 + context.currentSegment,
-						callback.getObject(), callback.getFunction());
+		frigg::asyncSeq(
+			frigg::wrapFuncPtr<helx::RecvDescriptorFunction>([](LoadContext *context,
+					void *cb_object, auto cb_function) {
+				ldServerPipe.recvDescriptor(eventHub, 1, 1 + context->currentSegment,
+						cb_object, cb_function);
 			}),
-			async::lambda([](LoadContext &context,
-					util::Callback<void()> callback, HelError error,
+			frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
 					int64_t msg_request, int64_t msg_seq, HelHandle handle) {
 				HEL_CHECK(error);
 
-				auto &segment = context.response.segments(context.currentSegment);
+				auto &segment = context->response.segments(context->currentSegment);
 
 				uint32_t map_flags = 0;
 				if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
@@ -91,9 +87,9 @@ auto loadObject = async::seq(
 				}
 				
 				void *actual_ptr;
-				HEL_CHECK(helMapMemory(handle, context.space, (void *)segment.virt_address(),
+				HEL_CHECK(helMapMemory(handle, context->space, (void *)segment.virt_address(),
 						segment.virt_length(), map_flags, &actual_ptr));
-				context.currentSegment++;
+				context->currentSegment++;
 				callback();
 			})
 		)
@@ -125,54 +121,51 @@ struct ExecuteContext {
 };
 
 auto executeProgram =
-async::seq(
-	async::lambda([](ExecuteContext &context,
-			util::Callback<void(util::StringView, uintptr_t)> callback) {
-		context.configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
+frigg::asyncSeq(
+	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
+		context->configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
 
 		helx::Server server;
 		helx::Client client;
 		helx::Server::createServer(server, client);
 		acceptProcess(server);
 
-		context.localDirectory.publish(client.getHandle(), "posix");
+		context->localDirectory.publish(client.getHandle(), "posix");
 
-		callback(util::StringView(context.program.data(), context.program.size()), 0);
+		callback(util::StringView(context->program.data(), context->program.size()), 0);
 	}),
-	async::subContext(&ExecuteContext::executableContext,
-		async::lambda([](LoadContext &context,
-				util::Callback<void(util::StringView, uintptr_t)> callback,
+	frigg::subContext(&ExecuteContext::executableContext,
+		frigg::wrapFunctor([](LoadContext *context, auto &callback,
 				util::StringView object_name, uintptr_t base_address) {
 			callback(object_name, base_address);
 		})
 	),
-	async::subContext(&ExecuteContext::executableContext, loadObject),
-	async::lambda([](ExecuteContext &context,
-			util::Callback<void(util::StringView, uintptr_t)> callback) {
+	frigg::subContext(&ExecuteContext::executableContext, loadObject),
+	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
 		callback(util::StringView("ld-init.so"), 0x40000000);
 	}),
-	async::subContext(&ExecuteContext::interpreterContext, loadObject),
-	async::lambda([](ExecuteContext &context, util::Callback<void()> callback) {
+	frigg::subContext(&ExecuteContext::interpreterContext, loadObject),
+	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
 		constexpr size_t stack_size = 0x200000;
 		
 		HelHandle stack_memory;
 		HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
 
 		void *stack_base;
-		HEL_CHECK(helMapMemory(stack_memory, context.space, nullptr,
+		HEL_CHECK(helMapMemory(stack_memory, context->space, nullptr,
 				stack_size, kHelMapReadWrite, &stack_base));
 
 		HelThreadState state;
 		memset(&state, 0, sizeof(HelThreadState));
-		state.rip = context.interpreterContext.response.entry();
+		state.rip = context->interpreterContext.response.entry();
 		state.rsp = (uintptr_t)stack_base + stack_size;
-		state.rdi = context.executableContext.response.phdr_pointer();
-		state.rsi = context.executableContext.response.phdr_entry_size();
-		state.rdx = context.executableContext.response.phdr_count();
-		state.rcx = context.executableContext.response.entry();
+		state.rdi = context->executableContext.response.phdr_pointer();
+		state.rsi = context->executableContext.response.phdr_entry_size();
+		state.rdx = context->executableContext.response.phdr_count();
+		state.rcx = context->executableContext.response.entry();
 
 		HelHandle thread;
-		HEL_CHECK(helCreateThread(context.space, context.directory.getHandle(),
+		HEL_CHECK(helCreateThread(context->space, context->directory.getHandle(),
 				&state, &thread));
 		callback();
 	})
@@ -185,28 +178,24 @@ struct ProcessContext {
 	helx::Pipe pipe;
 };
 
-auto processRequest = async::repeatWhile(
-	async::lambda([] (ProcessContext &context, util::Callback<void(bool)> callback) {
-		callback(true);
-	}),
-	async::seq(
-		async::lambda([] (ProcessContext &context, util::Callback<void(HelError, int64_t,
-				int64_t, size_t)> callback) {
-			context.pipe.recvString(context.buffer, 128, eventHub,
+auto processRequest =
+frigg::asyncRepeatUntil(
+	frigg::asyncSeq(
+		frigg::wrapFuncPtr<helx::RecvStringFunction>([] (ProcessContext *context,
+				void *cb_object, auto cb_function) {
+			context->pipe.recvString(context->buffer, 128, eventHub,
 					kHelAnyRequest, kHelAnySequence,
-					callback.getObject(), callback.getFunction());
+					cb_object, cb_function);
 		}),
-		async::lambda([] (ProcessContext &context, util::Callback<void()> callback, 
+		frigg::wrapFunctor([] (ProcessContext *context, auto &callback,
 				HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
 			HEL_CHECK(error);
 
 			managarm::posix::ClientRequest<Allocator> request(*allocator);
-			request.ParseFromArray(context.buffer, length);
+			request.ParseFromArray(context->buffer, length);
 
-			auto on_complete = [] (ExecuteContext &context) { };
-			async::run(*allocator, executeProgram, ExecuteContext(request.path()), on_complete);
-
-			callback();
+			frigg::runAsync<ExecuteContext>(*allocator, executeProgram, request.path());
+			callback(true);
 		})
 	)
 );
@@ -218,30 +207,26 @@ void acceptProcess(helx::Server server) {
 		helx::Server server;
 	};
 
-	auto acceptLoop = async::repeatWhile(
-		async::lambda([] (AcceptContext &context, util::Callback<void(bool)> callback) {
-			callback(true);
-		}),
-		async::seq(
-			async::lambda([] (AcceptContext &context,
-					util::Callback<void(HelError, HelHandle)> callback) {
-				context.server.accept(eventHub, callback.getObject(), callback.getFunction());
+	auto acceptLoop =
+	frigg::asyncRepeatUntil(
+		frigg::asyncSeq(
+			frigg::wrapFuncPtr<helx::AcceptFunction>([] (AcceptContext *context,
+					void *cb_object, auto cb_function) {
+				context->server.accept(eventHub, cb_object, cb_function);
 			}),
-			async::lambda([] (AcceptContext &context, util::Callback<void()> callback,
+			frigg::wrapFunctor([] (AcceptContext *context, auto &callback,
 					HelError error, HelHandle handle) {
 				HEL_CHECK(error);
+				
+				frigg::runAsync<ProcessContext>(*allocator, processRequest,
+						helx::Pipe(handle));
 
-				auto on_complete = [] (ProcessContext &context) { };
-				helx::Pipe pipe(handle);
-				async::run(*allocator, processRequest, ProcessContext(pipe), on_complete);
-
-				callback();
+				callback(true);
 			})
 		)
 	);
 
-	auto on_complete = [] (AcceptContext &context) { };
-	async::run(*allocator, acceptLoop, AcceptContext(server), on_complete);
+	frigg::runAsync<AcceptContext>(*allocator, acceptLoop, server);
 }
 
 typedef void (*InitFuncPtr) ();

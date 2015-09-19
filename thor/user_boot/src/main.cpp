@@ -12,6 +12,7 @@
 #include <frigg/vector.hpp>
 #include <frigg/callback.hpp>
 #include <frigg/async.hpp>
+#include <frigg/async2.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
