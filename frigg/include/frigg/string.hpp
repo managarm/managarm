@@ -53,6 +53,12 @@ public:
 		memcpy(p_buffer, c_string, sizeof(Char) * p_length);
 	}
 
+	BasicString(Allocator &allocator, const Char *buffer, size_t size)
+	: p_allocator(&allocator), p_length(size) {
+		p_buffer = (Char *)p_allocator->allocate(sizeof(Char) * p_length);
+		memcpy(p_buffer, buffer, sizeof(Char) * p_length);
+	}
+
 	BasicString(Allocator &allocator, const BasicStringView<Char> &view)
 	: p_allocator(&allocator), p_length(view.size()) {
 		p_buffer = (Char *)p_allocator->allocate(sizeof(Char) * p_length);

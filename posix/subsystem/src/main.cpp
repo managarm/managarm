@@ -9,6 +9,8 @@
 #include <frigg/memory.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
+#include <frigg/optional.hpp>
+#include <frigg/hashmap.hpp>
 #include <frigg/async2.hpp>
 #include <frigg/protobuf.hpp>
 
@@ -171,6 +173,24 @@ frigg::asyncSeq(
 	})
 );
 
+struct OpenFile {
+	virtual void write(const void *buffer, size_t length) = 0;
+};
+
+util::Hashmap<int, OpenFile *,
+		util::DefaultHasher<int>, Allocator> 
+		allOpenFiles(util::DefaultHasher<int>(), *allocator);
+
+int nextFd = 3;
+
+struct KernelOutFile : public OpenFile {
+	virtual void write(const void *buffer, size_t length) override;
+};
+
+void KernelOutFile::write(const void *buffer, size_t length) {
+	HEL_CHECK(helLog((const char *)buffer, length));
+}
+
 struct ProcessContext {
 	ProcessContext(helx::Pipe pipe) : pipe(pipe) { }
 
@@ -194,7 +214,57 @@ frigg::asyncRepeatUntil(
 			managarm::posix::ClientRequest<Allocator> request(*allocator);
 			request.ParseFromArray(context->buffer, length);
 
-			frigg::runAsync<ExecuteContext>(*allocator, executeProgram, request.path());
+			if(request.request_type() == managarm::posix::ClientRequestType::SPAWN) {
+				frigg::runAsync<ExecuteContext>(*allocator, executeProgram, request.path());
+				
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+				int fd = nextFd;
+				nextFd++;
+
+				auto file = frigg::memory::construct<KernelOutFile>(*allocator);
+				allOpenFiles.insert(fd, file);
+
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+				response.set_fd(fd);
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				auto file_wrapper = allOpenFiles.get(request.fd());
+				if(file_wrapper) {
+					auto file = **file_wrapper;
+					file->write(request.buffer().data(), request.buffer().size());
+
+					response.set_error(managarm::posix::Errors::SUCCESS);
+				}else{
+					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				}
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}else{
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}
+
 			callback(true);
 		})
 	)
@@ -272,4 +342,11 @@ asm ( ".global _start\n"
 		"_start:\n"
 		"\tcall main\n"
 		"\tud2" );
+
+extern "C"
+int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
+
+}
+
+void *__dso_handle;
 

@@ -155,6 +155,14 @@ public:
 	}
 };
 
+template<>
+class DefaultHasher<int> {
+public:
+	unsigned int operator() (int v) {
+		return v;
+	}
+};
+
 class CStringHasher {
 public:
 	unsigned int operator() (const char *str) {

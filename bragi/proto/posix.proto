@@ -1,12 +1,49 @@
 
 package managarm.posix;
 
-message ClientRequest {
-	enum RequestType {
-		SPAWN = 1;
-	};
-
-	optional RequestType request_type = 1;
-	optional string path = 2;
+enum Errors {
+	SUCCESS = 0;
+	FILE_NOT_FOUND = 1;
+	ACCESS_DENIED = 2;
+	ALREADY_EXISTS = 3;
+	ILLEGAL_REQUEST = 4;
+	NO_SUCH_FD = 5;
 }
 
+enum ClientRequestType {
+	SPAWN = 1;
+	OPEN = 2;
+	READ = 3;
+	WRITE = 4;
+	CLOSE = 5;
+};
+
+message ClientRequest {
+	optional ClientRequestType request_type = 1;
+	
+	// used by SPAWN and OPEN
+	optional string path = 2;
+
+	// used by OPEN
+	optional int32 flags = 3;
+
+	// used by READ and CLOSE and WRITE
+	optional int32 fd = 4;
+
+	// used by READ
+	optional int32 size = 5;
+
+	// used by WRITE
+	optional bytes buffer = 6;
+}
+
+message ServerResponse {
+	// return of ALL
+	optional int32 error = 3;
+
+	// return of OPEN
+	optional int32 fd = 1;
+
+	// return of READ
+	optional bytes buffer = 2;
+}
