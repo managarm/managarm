@@ -1,9 +1,12 @@
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include <assert.h>
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/debug.hpp>
+#include <frigg/libc.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/atomic.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/glue-hel.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -12,8 +15,10 @@ extern "C" {
 #include <acpi.h>
 }
 
-#define NOT_IMPLEMENTED() do { printf("ACPI interface function %s is not implemented!\n", \
-		__func__); abort(); } while(0)
+#define assert ASSERT
+
+#define NOT_IMPLEMENTED() do { frigg::debug::panicLogger.log() << "ACPI interface function " \
+		<< __func__ << " is not implemented!" << frigg::debug::Finish(); } while(0)
 
 // --------------------------------------------------------
 // Initialization and shutdown
@@ -29,10 +34,9 @@ ACPI_STATUS AcpiOsTerminate() {
 
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 	ACPI_SIZE pointer;
-	if(AcpiFindRootPointer(&pointer) != AE_OK) {
-		printf("Could not find ACPI RSDP table");
-		abort();
-	}
+	if(AcpiFindRootPointer(&pointer) != AE_OK)
+		frigg::debug::panicLogger.log() << "Could not find ACPI RSDP table"
+				<< frigg::debug::Finish();
 	return pointer;
 }
 
@@ -48,7 +52,84 @@ void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf (const char *format, ...) {
 }
 
 void AcpiOsVprintf (const char *format, va_list args) {
-	vprintf(format, args);
+	while(*format != 0) {
+		if(*format != '%') {
+			infoSink.print(*format);
+			++format;
+		}else{
+			++format;
+			ASSERT(*format != 0);
+			
+			bool left_justify = false;
+			bool always_sign = false;
+			bool plus_becomes_space = false;
+			bool alt_conversion = false;
+			bool fill_zeros = false;
+
+			while(true) {
+				if(*format == '-') {
+					left_justify = true;
+					++format;
+					ASSERT(*format != 0);
+				}else if(*format == '+') {
+					always_sign = true;
+					++format;
+					ASSERT(*format != 0);
+				}else if(*format == ' ') {
+					plus_becomes_space = true;
+					++format;
+					ASSERT(*format != 0);
+				}else if(*format == '#') {
+					alt_conversion = true;
+					++format;
+					ASSERT(*format != 0);
+				}else if(*format == '0') {
+					fill_zeros = true;
+					++format;
+					ASSERT(*format != 0);
+				}else{
+					break;
+				}
+			}
+
+			int minimum_width = 0;
+			while(*format >= '0' && *format <= '9') {
+				minimum_width = minimum_width * 10 + (*format - '0');
+				++format;
+				ASSERT(*format != 0);
+			}
+			
+			int precision = 0;
+			if(*format == '.') {
+				++format;
+				ASSERT(*format != 0);
+
+				while(*format >= '0' && *format <= '9') {
+					precision = precision * 10 + (*format - '0');
+					++format;
+					ASSERT(*format != 0);
+				}
+			}
+
+			switch(*format) {
+			case 'd':
+				infoSink.print("(int)");
+				break;
+			case 'u':
+				infoSink.print("(unsigned)");
+				break;
+			case 'X':
+				infoSink.print("(hex)");
+				break;
+			case 's':
+				infoSink.print("(string)");
+				break;
+			default:
+				ASSERT(!"Illegal printf modifier");
+			}
+			++format;
+		}
+	}
 }
 
 // --------------------------------------------------------
@@ -81,7 +162,7 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
 
 ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
 		ACPI_SEMAPHORE *out_handle) {
-	auto semaphore = new AcpiSemaphore;
+	auto semaphore = frigg::memory::construct<AcpiSemaphore>(*allocator);
 	semaphore->counter = initial_units;
 	*out_handle = semaphore;
 	return AE_OK;
@@ -134,11 +215,11 @@ void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
 // --------------------------------------------------------
 
 void *AcpiOsAllocate(ACPI_SIZE size) {
-	return malloc(size);
+	return allocator->allocate(size);
 }
 
 void AcpiOsFree(void *pointer) {
-	free(pointer);
+	allocator->free(pointer);
 }
 
 // --------------------------------------------------------
@@ -147,7 +228,7 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	printf("Handle int %d\n", interrupt);
+	infoLogger->log() << "Handle int " << interrupt << frigg::debug::Finish();
 	//NOT_IMPLEMENTED();
 	return AE_OK;
 }
@@ -246,8 +327,7 @@ ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width)
 		asm volatile ( "inl %1, %0" : "=a"(result) : "d"(port) );
 		*value = result;
 	}else{
-		printf("Unexpected bit width for AcpiOsReadPort()");
-		abort();
+		assert(!"Unexpected bit width for AcpiOsReadPort()");
 	}
 	
 	return AE_OK;
@@ -288,8 +368,7 @@ ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width)
 		uint32_t to_write = value;
 		asm volatile ( "outl %0, %1" : : "a"(to_write), "d"(port) );
 	}else{
-		printf("Unexpected bit width for AcpiOsWritePort()");
-		abort();
+		ASSERT(!"Unexpected bit width for AcpiOsWritePort()");
 	}
 	
 	return AE_OK;
@@ -311,13 +390,13 @@ ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *pci_id, UINT32 register_num
 
 ACPI_STATUS AcpiOsPredefinedOverride(const ACPI_PREDEFINED_NAMES *predefined,
 		ACPI_STRING *new_value) {
-	*new_value = NULL;
+	*new_value = nullptr;
 	return AE_OK;
 }
 
 ACPI_STATUS AcpiOsTableOverride(ACPI_TABLE_HEADER *existing,
 		ACPI_TABLE_HEADER **new_table) {
-	*new_table = NULL;
+	*new_table = nullptr;
 	return AE_OK;
 }
 

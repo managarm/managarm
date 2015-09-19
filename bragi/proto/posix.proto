@@ -1,0 +1,12 @@
+
+package managarm.posix;
+
+message ClientRequest {
+	enum RequestType {
+		SPAWN = 1;
+	};
+
+	optional RequestType request_type = 1;
+	optional string path = 2;
+}
+

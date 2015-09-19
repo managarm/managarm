@@ -1,13 +1,16 @@
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-
-#include <vector>
+#include <frigg/types.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/debug.hpp>
+#include <frigg/libc.hpp>
+#include <frigg/initializer.hpp>
+#include <frigg/atomic.hpp>
+#include <frigg/memory.hpp>
+#include <frigg/glue-hel.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helx.hpp>
 #include <thor.h>
 
 extern "C" {
@@ -70,11 +73,16 @@ struct HpetEntry {
 	uint8_t pageProtection;
 } __attribute__ (( packed ));
 
-#define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
-		printf("ACPICA_CHECK failed: " #expr "\n" \
-		"In file " __FILE__ " on line %d\n", __LINE__); abort(); } } while(0)
+void acpicaCheckFailed(const char *expr, const char *file, int line) {
+	frigg::debug::panicLogger.log() << "ACPICA_CHECK failed: "
+			<< expr << "\nIn file " << file << " on line " << line
+			<< frigg::debug::Finish();
+}
 
-void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
+#define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
+		acpicaCheckFailed(#expr, __FILE__, __LINE__); } } while(0)
+
+/*void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
 		std::vector<ACPI_HANDLE> &results) {
 	ACPI_HANDLE previous = nullptr;
 	while(true) {
@@ -166,17 +174,30 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 				&& child_type != ACPI_TYPE_PACKAGE)
 			dumpNamespace(*it, depth + 1);
 	}
-}
+}*/
 
 void pciDiscover(); // TODO: put this in a header file
 
+
+typedef void (*InitFuncPtr) ();
+extern InitFuncPtr __init_array_start[];
+extern InitFuncPtr __init_array_end[];
+
 int main() {
+	// we're using no libc, so we have to run constructors manually
+	size_t init_count = __init_array_end - __init_array_start;
+	for(size_t i = 0; i < init_count; i++)
+		__init_array_start[i]();
+	
+	infoLogger.initialize(infoSink);
+	allocator.initialize(virtualAlloc);
+
 	ACPICA_CHECK(AcpiInitializeSubsystem());
 	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
 	ACPICA_CHECK(AcpiLoadTables());
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	printf("ACPI initialized successfully\n");
+	infoLogger->log() << "ACPI initialized successfully" << frigg::debug::Finish();
 	
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;
@@ -196,7 +217,8 @@ int main() {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt_table + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
-			printf("    Local APIC id: %d\n", entry->localApicId);
+			infoLogger->log() << "    Local APIC id: "
+					<< entry->localApicId << frigg::debug::Finish();
 
 			if(seen_bsp)
 				helControlKernel(kThorSubArch, kThorIfBootSecondary,
@@ -204,21 +226,24 @@ int main() {
 			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
-			printf("    I/O APIC id: %d, sytem interrupt base: %d\n",
-					entry->ioApicId, entry->systemIntBase);
+			infoLogger->log() << "    I/O APIC id: " << entry->ioApicId
+					<< ", sytem interrupt base: " << entry->systemIntBase
+					<< frigg::debug::Finish();
 			
 			uint64_t address = entry->mmioAddress;
 			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			printf("    Int override: bus %d, irq %d -> %u\n",
-					entry->bus, entry->sourceIrq, entry->systemInt);
+			infoLogger->log() << "    Int override: bus " << entry->bus
+					<< ", irq " << entry->sourceIrq << " -> " << entry->systemInt
+					<< frigg::debug::Finish();
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
-			printf("    Local APIC NMI: processor %d, lint: %d\n",
-					entry->processorId, entry->localInt);
+			infoLogger->log() << "    Local APIC NMI: processor " << entry->processorId
+					<< ", lint: " << entry->localInt << frigg::debug::Finish();
 		}else{
-			printf("    Unexpected MADT entry of type %d\n", generic->type);
+			infoLogger->log() << "    Unexpected MADT entry of type "
+					<< generic->type << frigg::debug::Finish();
 		}
 		offset += generic->length;
 	}
@@ -226,15 +251,22 @@ int main() {
 	
 //	dumpNamespace(ACPI_ROOT_OBJECT, 0);
 
-	pciDiscover();
+//	pciDiscover();
 
-	HelHandle directory;
-	HEL_CHECK(helCreateRd(&directory));
+	helx::Server server;
+	helx::Client client;
+	helx::Server::createServer(server, client);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, directory, 0, 0));
+	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+
+	HEL_CHECK(helExitThisThread());
 }
 
+asm ( ".global _start\n"
+		"_start:\n"
+		"\tcall main\n"
+		"\tud2" );
 
