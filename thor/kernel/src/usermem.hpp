@@ -37,7 +37,7 @@ struct Mapping {
 	Mapping *lowerPtr;
 	Mapping *higherPtr;
 	
-	// pointers to the next / previous / parent mappings in the address tree
+	// pointers to the left / right / parent mappings in the address tree
 	Mapping *leftPtr;
 	Mapping *rightPtr;
 	Mapping *parentPtr;
@@ -48,6 +48,7 @@ struct Mapping {
 
 	KernelSharedPtr<Memory> memoryRegion;
 	size_t memoryOffset;
+	bool writePermission, executePermission;
 
 	Mapping(Type type, VirtualAddr base_address, size_t length);
 };
@@ -69,9 +70,13 @@ public:
 
 	AddressSpace(PageSpace page_space);
 
+	void setupDefaultMappings();
+
 	void map(Guard &guard, KernelUnsafePtr<Memory> memory,
 			VirtualAddr address, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
+	
+	KernelSharedPtr<AddressSpace> fork(Guard &guard);
 	
 	void activate();
 
@@ -85,6 +90,8 @@ private:
 	Mapping *allocate(size_t length, MapFlags flags);
 
 	Mapping *allocateAt(VirtualAddr address, size_t length);
+
+	void cloneRecursive(Mapping *mapping, AddressSpace *dest_space);
 
 	// creates a new mapping inside a hole
 	// the new mapping has type kTypeNone

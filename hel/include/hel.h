@@ -15,6 +15,7 @@ enum {
 	kHelCallAllocateMemory = 2,
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSpace = 27,
+	kHelCallForkSpace = 33,
 	kHelCallMapMemory = 6,
 	kHelCallMemoryInfo = 26,
 	
@@ -133,6 +134,7 @@ HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
+HEL_C_LINKAGE HelError helForkSpace(HelHandle handle, HelHandle *forked);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle handle, HelHandle space,
 		void *pointer, size_t size, uint32_t flags, void **actual_pointer);
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,

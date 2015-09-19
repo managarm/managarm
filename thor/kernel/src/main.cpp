@@ -158,7 +158,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
 	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
-	
+	address_space->setupDefaultMappings();
+
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(root_directory), true);
 	
@@ -310,6 +311,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelHandle handle;
 			HelError error = helCreateSpace(&handle);
 			thorRtReturnSyscall2((Word)error, (Word)handle);
+		}
+		case kHelCallForkSpace: {
+			HelHandle forked;
+			HelError error = helForkSpace((HelHandle)arg0, &forked);
+			thorRtReturnSyscall2((Word)error, (Word)forked);
 		}
 		case kHelCallMapMemory: {
 			void *actual_pointer;

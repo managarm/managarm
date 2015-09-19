@@ -821,10 +821,14 @@ async::seq(
 	})
 );
 
+#include <unistd.h>
+
 int main() {
-	open("zisa", O_RDONLY);
-	printf("opened!\n");
-	while(true)
-		eventHub.defaultProcessEvents();
+	pid_t child = fork();
+	if(child == 0) {
+		printf("Hello from child!\n");
+	}else{
+		printf("Hello from parent!\n");
+	}
 }
 

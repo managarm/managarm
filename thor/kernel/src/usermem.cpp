@@ -48,7 +48,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 		lowerPtr(nullptr), higherPtr(nullptr),
 		leftPtr(nullptr), rightPtr(nullptr),
 		parentPtr(nullptr), color(kColorNone),
-		memoryOffset(0) {
+		memoryOffset(0), writePermission(false), executePermission(false) {
 	if(type == kTypeHole)
 		largestHole = length;
 }
@@ -58,7 +58,9 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 // --------------------------------------------------------
 
 AddressSpace::AddressSpace(PageSpace page_space)
-: p_pageSpace(page_space) {
+: p_pageSpace(page_space) { }
+
+void AddressSpace::setupDefaultMappings() {
 	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);
 	addressTreeInsert(mapping);
@@ -87,8 +89,10 @@ void AddressSpace::map(Guard &guard,
 	constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
 	if((flags & mask) == kMapReadWrite) {
 		page_flags |= PageSpace::kAccessWrite;
+		mapping->writePermission = true;
 	}else if((flags & mask) == kMapReadExecute) {
 		page_flags |= PageSpace::kAccessExecute;
+		mapping->executePermission = true;
 	}else{
 		assert((flags & mask) == kMapReadOnly);
 	}
@@ -103,6 +107,17 @@ void AddressSpace::map(Guard &guard,
 		physical_guard.unlock();
 
 	*actual_address = mapping->baseAddress;
+}
+
+KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
+	assert(guard.protects(&lock));
+
+	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	
+	cloneRecursive(p_root, forked.get());
+
+	return traits::move(forked);
 }
 
 void AddressSpace::activate() {
@@ -175,6 +190,51 @@ Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
 	assert(hole->type == Mapping::kTypeHole);
 	
 	return splitHole(hole, address - hole->baseAddress, length);
+}
+
+void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
+	Mapping *dest_mapping = frigg::memory::construct<Mapping>(*kernelAlloc, mapping->type,
+			mapping->baseAddress, mapping->length);
+
+	if(mapping->type == Mapping::kTypeHole) {
+		// holes do not require additional handling
+	}else if(mapping->type == Mapping::kTypeMemory) {
+		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
+
+		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc);
+		dest_memory->resize(memory->getSize());
+		for(size_t i = 0; i < memory->getSize() / kPageSize; i++)
+			memcpy(physicalToVirtual(dest_memory->getPage(i)),
+					physicalToVirtual(memory->getPage(i)), kPageSize);
+
+		uint32_t page_flags = 0;
+		if(mapping->writePermission)
+			page_flags |= PageSpace::kAccessWrite;
+		if(mapping->executePermission);
+			page_flags |= PageSpace::kAccessExecute;
+
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
+		for(size_t i = 0; i < dest_mapping->length / kPageSize; i++) {
+			PhysicalAddr physical = dest_memory->getPage(i);
+			VirtualAddr vaddr = dest_mapping->baseAddress + i * kPageSize;
+			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		}
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+		
+		dest_mapping->memoryRegion = traits::move(dest_memory);
+		dest_mapping->writePermission = mapping->writePermission;
+		dest_mapping->executePermission = mapping->executePermission;
+	}else{
+		assert(!"Illegal mapping type");
+	}
+
+	dest_space->addressTreeInsert(dest_mapping);
+
+	if(mapping->leftPtr != nullptr)
+		cloneRecursive(mapping->leftPtr, dest_space);
+	if(mapping->rightPtr != nullptr)
+		cloneRecursive(mapping->rightPtr, dest_space);
 }
 
 Mapping *AddressSpace::splitHole(Mapping *mapping,

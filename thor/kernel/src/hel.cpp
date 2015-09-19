@@ -100,10 +100,42 @@ HelError helCreateSpace(HelHandle *handle) {
 
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
+	space->setupDefaultMappings();
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
 			AddressSpaceDescriptor(traits::move(space)));
+	universe_guard.unlock();
+
+	return kHelErrNone;
+}
+
+HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	KernelSharedPtr<AddressSpace> space;
+	if(handle == kHelNullHandle) {
+		space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+	}else{
+		auto space_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!space_wrapper)
+			return kHelErrNoDescriptor;
+		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+			return kHelErrBadDescriptor;
+		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
+	}
+	universe_guard.unlock();
+
+	AddressSpace::Guard space_guard(&space->lock);
+	auto forked = space->fork(space_guard);
+	space_guard.unlock();
+	
+	universe_guard.lock();
+	*forked_handle = universe->attachDescriptor(universe_guard,
+			AddressSpaceDescriptor(traits::move(forked)));
 	universe_guard.unlock();
 
 	return kHelErrNone;

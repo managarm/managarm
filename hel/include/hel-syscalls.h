@@ -80,6 +80,12 @@ DEFINE_SYSCALL(CreateSpace, HelHandle *handle)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
+DEFINE_SYSCALL(ForkSpace, HelHandle handle, HelHandle *forked)
+	IN(0, handle)
+	DO_SYSCALL(ForkSpace)
+	OUT(0, HelHandle, forked)
+END_SYSCALL()
+
 DEFINE_SYSCALL(MapMemory, HelHandle handle, HelHandle space,
 		void *pointer, size_t size, uint32_t flags, void **actual_pointer)
 	IN(0, handle) IN(1, space) IN(2, pointer) IN(3, size) IN(4, flags)
