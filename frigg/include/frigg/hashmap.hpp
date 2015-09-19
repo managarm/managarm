@@ -115,7 +115,7 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 		}
 	}
 
-	ASSERT(!"remove(): Element not found");
+	assert(!"remove(): Element not found");
 	__builtin_unreachable();
 }
 

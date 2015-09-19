@@ -29,7 +29,7 @@ KernelVirtualAlloc::KernelVirtualAlloc()
 : p_nextPage(0xFFFF800200000000) { }
 
 uintptr_t KernelVirtualAlloc::map(size_t length) {
-	ASSERT((length % kPageSize) == 0);
+	assert((length % kPageSize) == 0);
 	uintptr_t address = p_nextPage;
 	p_nextPage += length;
 
@@ -48,8 +48,8 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 }
 
 void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
-	ASSERT((address % kPageSize) == 0);
-	ASSERT((length % kPageSize) == 0);
+	assert((address % kPageSize) == 0);
+	assert((length % kPageSize) == 0);
 
 	asm("" : : : "memory");
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
@@ -95,7 +95,7 @@ Universe::Universe()
 		: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc) { }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	Handle handle = p_nextHandle++;
 	p_descriptorMap.insert(handle, traits::move(descriptor));
@@ -103,13 +103,13 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 }
 
 frigg::Optional<AnyDescriptor *> Universe::getDescriptor(Guard &guard, Handle handle) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	return p_descriptorMap.get(handle);
 }
 
 AnyDescriptor Universe::detachDescriptor(Guard &guard, Handle handle) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	return p_descriptorMap.remove(handle);
 }

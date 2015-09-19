@@ -22,11 +22,6 @@ struct NullLock {
 	void unlock() { }
 };
 
-// FIXME: UGLY HACK
-#ifndef ASSERT
-#define ASSERT assert
-#endif
-
 struct DontLock { };
 
 constexpr DontLock dontLock = DontLock();
@@ -57,13 +52,13 @@ public:
 	LockGuard &operator= (const LockGuard &other) = delete;
 
 	void lock() {
-		ASSERT(!p_isLocked);
+		assert(!p_isLocked);
 		p_mutex->lock();
 		p_isLocked = true;
 	}
 
 	void unlock() {
-		ASSERT(p_isLocked);
+		assert(p_isLocked);
 		p_mutex->unlock();
 		p_isLocked = false;
 	}

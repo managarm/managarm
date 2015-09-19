@@ -38,7 +38,7 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	for(int i = 0; i < 256; i++)
 		new_pml4_pointer[i] = 0;
 	for(int i = 256; i < 512; i++) {
-		ASSERT((this_pml4_pointer[i] & kPagePresent) != 0);
+		assert((this_pml4_pointer[i] & kPagePresent) != 0);
 		new_pml4_pointer[i] = this_pml4_pointer[i];
 	}
 
@@ -47,8 +47,8 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 
 void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 		VirtualAddr pointer, PhysicalAddr physical, bool user_page, uint32_t flags) {
-	ASSERT((pointer % 0x1000) == 0);
-	ASSERT((physical % 0x1000) == 0);
+	assert((pointer % 0x1000) == 0);
+	assert((physical % 0x1000) == 0);
 
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
@@ -77,7 +77,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 			new_entry |= kPageUser;
 		pml4_pointer[pml4_index] = new_entry;
 	}
-	ASSERT(user_page ? ((pml4_pointer[pml4_index] & kPageUser) != 0)
+	assert(user_page ? ((pml4_pointer[pml4_index] & kPageUser) != 0)
 			: ((pml4_pointer[pml4_index] & kPageUser) == 0));
 	
 	// make sure there is a pd
@@ -99,7 +99,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 			new_entry |= kPageUser;
 		pdpt_pointer[pdpt_index] = new_entry;
 	}
-	ASSERT(user_page ? ((pdpt_pointer[pdpt_index] & kPageUser) != 0)
+	assert(user_page ? ((pdpt_pointer[pdpt_index] & kPageUser) != 0)
 			: ((pdpt_pointer[pdpt_index] & kPageUser) == 0));
 	
 	// make sure there is a pt
@@ -121,11 +121,11 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 			new_entry |= kPageUser;
 		pd_pointer[pd_index] = new_entry;
 	}
-	ASSERT(user_page ? ((pd_pointer[pd_index] & kPageUser) != 0)
+	assert(user_page ? ((pd_pointer[pd_index] & kPageUser) != 0)
 			: ((pd_pointer[pd_index] & kPageUser) == 0));
 
 	// setup the new pt entry
-	ASSERT((pt_pointer[pt_index] & kPagePresent) == 0);
+	assert((pt_pointer[pt_index] & kPagePresent) == 0);
 	uint64_t new_entry = physical | kPagePresent;
 	if(user_page)
 		new_entry |= kPageUser;
@@ -137,7 +137,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 }
 
 PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
-	ASSERT((pointer % 0x1000) == 0);
+	assert((pointer % 0x1000) == 0);
 
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
@@ -149,24 +149,24 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
-	ASSERT((pml4_entry & kPagePresent) != 0);
+	assert((pml4_entry & kPagePresent) != 0);
 	volatile uint64_t *pdpt_pointer
 			= (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// find the pd entry
-	ASSERT((pdpt_entry & kPagePresent) != 0);
+	assert((pdpt_entry & kPagePresent) != 0);
 	volatile uint64_t *pd_pointer
 			= (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// find the pt entry
-	ASSERT((pd_entry & kPagePresent) != 0);
+	assert((pd_entry & kPagePresent) != 0);
 	volatile uint64_t *pt_pointer
 			= (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// change the pt entry
-	ASSERT((pt_pointer[pt_index] & kPagePresent) != 0);
+	assert((pt_pointer[pt_index] & kPagePresent) != 0);
 	pt_pointer[pt_index] ^= kPagePresent;
 
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;

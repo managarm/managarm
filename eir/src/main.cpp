@@ -60,14 +60,14 @@ uint64_t bootstrapBase;
 void bootAlign(size_t alignment) {
 	if((bootstrapPointer % alignment) != 0)
 		bootstrapPointer += alignment - (bootstrapPointer % alignment);
-	ASSERT(bootstrapPointer <= bootstrapLimit);
+	assert(bootstrapPointer <= bootstrapLimit);
 }
 
 uintptr_t bootReserve(size_t length, size_t alignment) {
 	bootAlign(alignment);
 	uintptr_t pointer = bootstrapPointer;
 	bootstrapPointer += length;
-	ASSERT(bootstrapPointer <= bootstrapLimit);
+	assert(bootstrapPointer <= bootstrapLimit);
 	return pointer;
 }
 
@@ -111,8 +111,8 @@ enum {
 };
 
 void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
-	ASSERT(address % 0x1000 == 0);
-	ASSERT(physical % 0x1000 == 0);
+	assert(address % 0x1000 == 0);
+	assert(physical % 0x1000 == 0);
 
 	int pml4_index = (int)((address >> 39) & 0x1FF);
 	int pdpt_index = (int)((address >> 30) & 0x1FF);
@@ -154,7 +154,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
 	// setup the new pt entry
-	ASSERT((pt_entry & kPagePresent) == 0);
+	assert((pt_entry & kPagePresent) == 0);
 	uint64_t new_entry = physical | kPagePresent;
 	if((flags & kAccessWrite) != 0)
 		new_entry |= kPageWrite;
@@ -188,15 +188,15 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 			|| ehdr->e_ident[3] != 'F') {
 		debug::panicLogger.log() << "Illegal magic fields" << debug::Finish();
 	}
-	ASSERT(ehdr->e_type == ET_EXEC);
+	assert(ehdr->e_type == ET_EXEC);
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		Elf64_Phdr *phdr = (Elf64_Phdr *)((uintptr_t)image
 				+ (uintptr_t)ehdr->e_phoff
 				+ i * ehdr->e_phentsize);
-		ASSERT((phdr->p_offset % 0x1000) == 0);
-		ASSERT((phdr->p_paddr % 0x1000) == 0);
-		ASSERT(phdr->p_filesz == phdr->p_memsz);
+		assert((phdr->p_offset % 0x1000) == 0);
+		assert((phdr->p_paddr % 0x1000) == 0);
+		assert(phdr->p_filesz == phdr->p_memsz);
 		
 		if(phdr->p_type != PT_LOAD)
 			continue;
@@ -286,7 +286,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		debug::panicLogger.log() << "NX bit is not supported on this CPU" << debug::Finish();
 	
 	// compute the bootstrap memory base
-	ASSERT((mb_info->flags & kMbInfoPlainMemory) != 0);
+	assert((mb_info->flags & kMbInfoPlainMemory) != 0);
 	bootstrapPointer = (uintptr_t)&eirRtImageCeiling;
 	bootstrapLimit = 0x100000 + (uint64_t)mb_info->memUpper * 1024;
 
@@ -313,7 +313,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	bootAlign(0x1000);
 	bootstrapBase = bootstrapPointer;
 	
-	ASSERT((mb_info->flags & kMbInfoMemoryMap) != 0);
+	assert((mb_info->flags & kMbInfoMemoryMap) != 0);
 	infoLogger->log() << "Memory map:" << debug::Finish();
 	size_t offset = 0;
 	while(offset < mb_info->memoryMapLength) {
@@ -345,8 +345,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	for(uint64_t addr = 0; addr < 0x100000000; addr += 0x1000)
 		mapSingle4kPage(physical_window + addr, addr, kAccessWrite);
 	
-	ASSERT((mb_info->flags & kMbInfoModules) != 0);
-	ASSERT(mb_info->numModules >= 2);
+	assert((mb_info->flags & kMbInfoModules) != 0);
+	assert(mb_info->numModules >= 2);
 	MbModule *kernel_module = &mb_info->modulesPtr[0];
 
 	uint64_t kernel_entry;
@@ -371,7 +371,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	// finalize the eir information struct
 	bootAlign(0x1000);
-	ASSERT((bootstrapLimit % 0x1000) == 0);
+	assert((bootstrapLimit % 0x1000) == 0);
 	info->bootstrapPhysical = bootstrapPointer;
 	info->bootstrapLength = bootstrapLimit - bootstrapPointer;
 

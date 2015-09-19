@@ -44,17 +44,17 @@ typedef util::Hashmap<const char *, SharedObject *,
 util::LazyInitializer<ObjectHashmap> allObjects;
 
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
-	ASSERT(object->lazyExplicitAddend);
+	assert(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
 			+ rel_index * sizeof(Elf64_Rela));
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
 
-	ASSERT(type == R_X86_64_JUMP_SLOT);
+	assert(type == R_X86_64_JUMP_SLOT);
 
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 			+ symbol_index * sizeof(Elf64_Sym));
-	ASSERT(symbol->st_name != 0);
+	assert(symbol->st_name != 0);
 
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
@@ -102,10 +102,10 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 			interpreter->symbolTableOffset = dynamic->d_ptr;
 			break;
 		case DT_SYMENT:
-			ASSERT(dynamic->d_val == sizeof(Elf64_Sym));
+			assert(dynamic->d_val == sizeof(Elf64_Sym));
 			break;
 		default:
-			ASSERT(!"Unexpected dynamic entry in program interpreter");
+			assert(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
 

@@ -24,7 +24,6 @@
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
 
-#define assert ASSERT
 #include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
@@ -49,19 +48,19 @@ SharedObject::SharedObject(bool is_main_object)
 void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
-	ASSERT(type == R_X86_64_COPY);
+	assert(type == R_X86_64_COPY);
 	
 	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 	
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 			+ symbol_index * sizeof(Elf64_Sym));
-	ASSERT(symbol->st_name != 0);
+	assert(symbol->st_name != 0);
 
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
 	uintptr_t copy_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str,
 			object, Scope::kResolveCopy);
-	ASSERT(copy_addr != 0);
+	assert(copy_addr != 0);
 
 	memcpy((void *)rel_addr, (void *)copy_addr, symbol->st_size);
 }
@@ -84,7 +83,7 @@ void processCopyRelocations(SharedObject *object) {
 			has_rela_length = true;
 			break;
 		case DT_RELAENT:
-			ASSERT(dynamic->d_val == sizeof(Elf64_Rela));
+			assert(dynamic->d_val == sizeof(Elf64_Rela));
 			break;
 		}
 	}
@@ -95,7 +94,7 @@ void processCopyRelocations(SharedObject *object) {
 			processCopyRela(object, reloc);
 		}
 	}else{
-		ASSERT(!has_rela_offset && !has_rela_length);
+		assert(!has_rela_offset && !has_rela_length);
 	}
 }
 
@@ -127,7 +126,7 @@ void doInitialize(SharedObject *object) {
 	if(init_ptr != nullptr)
 		init_ptr();
 	
-	ASSERT((array_size % sizeof(InitFuncPtr)) == 0);
+	assert((array_size % sizeof(InitFuncPtr)) == 0);
 	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
 		init_array[i]();
 }
@@ -168,7 +167,7 @@ bool symbolMatches(SharedObject *object, Elf64_Sym *symbol, const char *resolve_
 		return false; // TODO: support local and weak symbols
 	if(symbol->st_shndx == SHN_UNDEF)
 		return false;
-	ASSERT(symbol->st_name != 0);
+	assert(symbol->st_name != 0);
 
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
@@ -272,7 +271,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 		if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
 			map_flags |= kHelMapReadWrite;
 		}else{
-			ASSERT(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
+			assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
 			map_flags |= kHelMapReadExecute;
 		}
 		
@@ -315,7 +314,7 @@ void Loader::initialize() {
 }
 
 void Loader::parseDynamic(SharedObject *object) {
-	ASSERT(object->dynamic != nullptr);
+	assert(object->dynamic != nullptr);
 
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &object->dynamic[i];
@@ -333,7 +332,7 @@ void Loader::parseDynamic(SharedObject *object) {
 			object->symbolTableOffset = dynamic->d_ptr;
 			break;
 		case DT_SYMENT:
-			ASSERT(dynamic->d_val == sizeof(Elf64_Sym));
+			assert(dynamic->d_val == sizeof(Elf64_Sym));
 			break;
 		// handle lazy relocation table
 		case DT_PLTGOT:
@@ -350,7 +349,7 @@ void Loader::parseDynamic(SharedObject *object) {
 			if(dynamic->d_val == DT_RELA) {
 				object->lazyExplicitAddend = true;
 			}else{
-				ASSERT(dynamic->d_val == DT_REL);
+				assert(dynamic->d_val == DT_REL);
 			}
 			break;
 		// ignore unimportant tags
@@ -403,7 +402,7 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	if(symbol_index != 0) {
 		auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 				+ symbol_index * sizeof(Elf64_Sym));
-		ASSERT(symbol->st_name != 0);
+		assert(symbol->st_name != 0);
 
 		const char *symbol_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + symbol->st_name);
@@ -457,7 +456,7 @@ void Loader::processStaticRelocations(SharedObject *object) {
 			has_rela_length = true;
 			break;
 		case DT_RELAENT:
-			ASSERT(dynamic->d_val == sizeof(Elf64_Rela));
+			assert(dynamic->d_val == sizeof(Elf64_Rela));
 			break;
 		}
 	}
@@ -468,13 +467,13 @@ void Loader::processStaticRelocations(SharedObject *object) {
 			processRela(object, reloc);
 		}
 	}else{
-		ASSERT(!has_rela_offset && !has_rela_length);
+		assert(!has_rela_offset && !has_rela_length);
 	}
 }
 
 void Loader::processLazyRelocations(SharedObject *object) {
 	if(object->globalOffsetTable == nullptr) {
-		ASSERT(object->lazyRelocTableOffset == 0);
+		assert(object->lazyRelocTableOffset == 0);
 		return;
 	}
 
@@ -482,14 +481,14 @@ void Loader::processLazyRelocations(SharedObject *object) {
 	object->globalOffsetTable[2] = (void *)&pltRelocateStub;
 	
 	// adjust the addresses of JUMP_SLOT relocations
-	ASSERT(object->lazyExplicitAddend);
+	assert(object->lazyExplicitAddend);
 	for(size_t offset = 0; offset < object->lazyTableSize; offset += sizeof(Elf64_Rela)) {
 		auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset + offset);
 		Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 
 		uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 
-		ASSERT(type == R_X86_64_JUMP_SLOT);
+		assert(type == R_X86_64_JUMP_SLOT);
 		*((uint64_t *)rel_addr) += object->baseAddress;
 	}
 }

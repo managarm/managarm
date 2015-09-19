@@ -26,7 +26,7 @@ void controlArch(int interface, const void *input, void *output) {
 		// do nothing for now
 	} break;
 	default:
-		ASSERT(!"Illegal interface");
+		assert(!"Illegal interface");
 	}
 }
 

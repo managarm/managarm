@@ -23,7 +23,7 @@ void RdFolder::mount(const char *name, size_t name_length,
 	Entry entry(kTypeMounted);
 	entry.mounted = traits::move(mounted);
 
-	ASSERT(name_length <= kNameLength);
+	assert(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;
@@ -36,7 +36,7 @@ void RdFolder::publish(const char *name, size_t name_length,
 	Entry entry(kTypeDescriptor);
 	entry.descriptor = traits::move(descriptor);
 
-	ASSERT(name_length <= kNameLength);
+	assert(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;

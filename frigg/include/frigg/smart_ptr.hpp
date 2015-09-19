@@ -44,8 +44,8 @@ struct SharedBlock {
 	SharedBlock &operator= (const SharedBlock &other) = delete;
 
 	~SharedBlock() {
-		ASSERT(volatileRead<int>(&refCount) == 0);
-		ASSERT(volatileRead<int>(&weakCount) == 0);
+		assert(volatileRead<int>(&refCount) == 0);
+		assert(volatileRead<int>(&weakCount) == 0);
 	}
 
 	Allocator &allocator;
@@ -77,7 +77,7 @@ public:
 		if(p_block != nullptr) {
 			int old_ref_count;
 			fetchInc(&p_block->refCount, old_ref_count);
-			ASSERT(old_ref_count > 0);
+			assert(old_ref_count > 0);
 		}
 	}
 	
@@ -111,7 +111,7 @@ public:
 
 			int old_weak_count;
 			fetchDec(&p_block->weakCount, old_weak_count);
-			ASSERT(old_weak_count > 0);
+			assert(old_weak_count > 0);
 			if(old_weak_count == 1)
 				memory::destruct(p_block->allocator, p_block);
 		}
@@ -151,7 +151,7 @@ public:
 		if(p_block != nullptr) {
 			int old_weak_count;
 			fetchInc(&p_block->weakCount, old_weak_count);
-			ASSERT(old_weak_count > 0);
+			assert(old_weak_count > 0);
 		}
 	}
 	
@@ -178,7 +178,7 @@ public:
 
 		int old_weak_count;
 		fetchDec(&p_block->weakCount, old_weak_count);
-		ASSERT(old_weak_count > 0);
+		assert(old_weak_count > 0);
 		if(old_weak_count == 1)
 			memory::destruct(p_block->allocator, p_block);
 		
@@ -241,7 +241,7 @@ SharedPtr<T, Allocator>::SharedPtr(const UnsafePtr<T, Allocator> &unsafe)
 : p_block(unsafe.p_block) {
 	int old_ref_count;
 	fetchInc<int>(&p_block->refCount, old_ref_count);
-	ASSERT(old_ref_count > 0);
+	assert(old_ref_count > 0);
 }
 
 template<typename T, typename Allocator>
@@ -249,7 +249,7 @@ WeakPtr<T, Allocator>::WeakPtr(const UnsafePtr<T, Allocator> &unsafe)
 : p_block(unsafe.p_block) {
 	int old_weak_count;
 	fetchInc<int>(&p_block->weakCount, old_weak_count);
-	ASSERT(old_weak_count > 0);
+	assert(old_weak_count > 0);
 }
 
 template<typename T, typename Allocator, typename... Args>

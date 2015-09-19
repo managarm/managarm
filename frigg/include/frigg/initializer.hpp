@@ -13,7 +13,7 @@ class LazyInitializer {
 public:
 	template<typename... Args>
 	void initialize(Args&&... args) {
-		ASSERT(!p_initialized);
+		assert(!p_initialized);
 		new(p_object) T(traits::forward<Args>(args)...);
 		p_initialized = true;
 	}
@@ -27,11 +27,11 @@ public:
 	}
 
 	T *operator-> () {
-		ASSERT(p_initialized);
+		assert(p_initialized);
 		return get();
 	}
 	T &operator* () {
-		ASSERT(p_initialized);
+		assert(p_initialized);
 		return *get();
 	}
 

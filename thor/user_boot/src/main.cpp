@@ -21,7 +21,6 @@
 #include <frigg/elf.hpp>
 #include <frigg/protobuf.hpp>
 
-#define assert ASSERT
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
 
@@ -44,11 +43,11 @@ void loadImage(const char *path, HelHandle directory) {
 	HEL_CHECK(helCreateSpace(&space));
 	
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
-	ASSERT(ehdr->e_ident[0] == 0x7F
+	assert(ehdr->e_ident[0] == 0x7F
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC);
+	assert(ehdr->e_type == ET_EXEC);
 	
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
@@ -95,7 +94,7 @@ void loadImage(const char *path, HelHandle directory) {
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
-			ASSERT(!"Unexpected PHDR");
+			assert(!"Unexpected PHDR");
 		}
 	}
 	

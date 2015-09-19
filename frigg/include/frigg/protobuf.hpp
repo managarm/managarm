@@ -8,16 +8,16 @@ public:
 	: p_buffer(buffer), p_index(0), p_length(length) { }
 
 	void poke(uint8_t byte) {
-		ASSERT(p_index < p_length);
+		assert(p_index < p_length);
 		p_buffer[p_index++] = byte;
 	}
 	void poke(const void *source, size_t length) {
-		ASSERT(p_index + length <= p_length);
+		assert(p_index + length <= p_length);
 		memcpy(p_buffer + p_index, source, length);
 		p_index += length;
 	}
 	void advance(size_t peek_length) {
-		ASSERT(p_index + peek_length <= p_length);
+		assert(p_index + peek_length <= p_length);
 		p_index += peek_length;
 	}
 
@@ -43,16 +43,16 @@ public:
 	: p_index(0), p_length(length), p_buffer(buffer) { }
 	
 	uint8_t peek() {
-		ASSERT(p_index < p_length);
+		assert(p_index < p_length);
 		return p_buffer[p_index++];
 	}
 	void peek(void *dest, size_t peek_length) {
-		ASSERT(p_index + peek_length <= p_length);
+		assert(p_index + peek_length <= p_length);
 		memcpy(dest, &p_buffer[p_index], peek_length);
 		p_index += peek_length;
 	}
 	void advance(size_t peek_length) {
-		ASSERT(p_index + peek_length <= p_length);
+		assert(p_index + peek_length <= p_length);
 		p_index += peek_length;
 	}
 	
@@ -156,7 +156,7 @@ struct Header {
 
 template<typename Writer>
 void pokeHeader(Writer &writer, Header header) {
-	ASSERT(header.wire < 8);
+	assert(header.wire < 8);
 	pokeVarint(writer, (header.field << 3) | header.wire);
 }
 

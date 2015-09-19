@@ -73,7 +73,7 @@ void ThreadQueue::addBack(KernelSharedPtr<Thread> &&thread) {
 }
 
 KernelSharedPtr<Thread> ThreadQueue::removeFront() {
-	ASSERT(!empty());
+	assert(!empty());
 	
 	// move the front and second element out of the queue
 	KernelSharedPtr<Thread> front = traits::move(p_front);

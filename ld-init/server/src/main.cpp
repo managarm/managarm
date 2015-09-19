@@ -24,7 +24,6 @@
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
 
-#define assert ASSERT
 #include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
@@ -104,11 +103,11 @@ Object *readObject(util::StringView path) {
 	
 	// parse the ELf file format
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
-	ASSERT(ehdr->e_ident[0] == 0x7F
+	assert(ehdr->e_ident[0] == 0x7F
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
+	assert(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
 
 	Object *object = memory::construct<Object>(*allocator);
 	object->imagePtr = image_ptr;
@@ -122,7 +121,7 @@ Object *readObject(util::StringView path) {
 			object->phdrPointer = phdr->p_vaddr;
 			object->hasPhdrImage = true;
 			
-			ASSERT(phdr->p_memsz == ehdr->e_phnum * (size_t)ehdr->e_phentsize);
+			assert(phdr->p_memsz == ehdr->e_phnum * (size_t)ehdr->e_phentsize);
 			object->phdrEntrySize = ehdr->e_phentsize;
 			object->phdrCount = ehdr->e_phnum;
 		}else if(phdr->p_type == PT_LOAD) {
@@ -136,7 +135,7 @@ Object *readObject(util::StringView path) {
 						<< debug::Finish();
 			}
 
-			ASSERT(phdr->p_memsz > 0);
+			assert(phdr->p_memsz > 0);
 			
 			// align virtual address and length to page size
 			uintptr_t virt_address = phdr->p_vaddr;
@@ -177,7 +176,7 @@ Object *readObject(util::StringView path) {
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
-			ASSERT(!"Unexpected PHDR");
+			assert(!"Unexpected PHDR");
 		}
 	}
 	
@@ -207,7 +206,7 @@ void sendObject(HelHandle pipe, int64_t request_id,
 			
 			memory = segment.memory;
 		}else{
-			ASSERT(wrapper.is<UniqueSegment>());
+			assert(wrapper.is<UniqueSegment>());
 			auto &segment = wrapper.get<UniqueSegment>();
 			base_segment = &segment;
 

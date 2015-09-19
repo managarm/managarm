@@ -67,17 +67,17 @@ AddressSpace::AddressSpace(PageSpace page_space)
 void AddressSpace::map(Guard &guard,
 		KernelUnsafePtr<Memory> memory, VirtualAddr address,
 		size_t length, uint32_t flags, VirtualAddr *actual_address) {
-	ASSERT(guard.protects(&lock));
-	ASSERT((length % kPageSize) == 0);
+	assert(guard.protects(&lock));
+	assert((length % kPageSize) == 0);
 
 	Mapping *mapping;
 	if((flags & kMapFixed) != 0) {
-		ASSERT((address % kPageSize) == 0);
+		assert((address % kPageSize) == 0);
 		mapping = allocateAt(address, length);
 	}else{
 		mapping = allocate(length, flags);
 	}
-	ASSERT(mapping != nullptr);
+	assert(mapping != nullptr);
 
 	mapping->type = Mapping::kTypeMemory;
 	mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
@@ -90,7 +90,7 @@ void AddressSpace::map(Guard &guard,
 	}else if((flags & mask) == kMapReadExecute) {
 		page_flags |= PageSpace::kAccessExecute;
 	}else{
-		ASSERT((flags & mask) == kMapReadOnly);
+		assert((flags & mask) == kMapReadOnly);
 	}
 
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
@@ -118,7 +118,7 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 		}else if(address >= current->baseAddress + current->length) {
 			current = current->rightPtr;
 		}else{
-			ASSERT(address >= current->baseAddress
+			assert(address >= current->baseAddress
 					&& address < current->baseAddress + current->length);
 			return current;
 		}
@@ -128,7 +128,7 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 }
 
 Mapping *AddressSpace::allocate(size_t length, MapFlags flags) {
-	ASSERT((length % kPageSize) == 0);
+	assert((length % kPageSize) == 0);
 
 	if(p_root->largestHole < length)
 		return nullptr;
@@ -147,12 +147,12 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
 				&& mapping->leftPtr->largestHole >= length)
 			return allocateDfs(mapping->leftPtr, length, flags);
 		
-		ASSERT(mapping->rightPtr != nullptr
+		assert(mapping->rightPtr != nullptr
 				&& mapping->rightPtr->largestHole >= length);
 		return allocateDfs(mapping->rightPtr, length, flags);
 	}else{
 		// try to allocate memory at the top of the range
-		ASSERT((flags & kMapPreferTop) != 0);
+		assert((flags & kMapPreferTop) != 0);
 		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
 			return splitHole(mapping, mapping->length - length, length);
 
@@ -160,28 +160,28 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
 				&& mapping->rightPtr->largestHole >= length)
 			return allocateDfs(mapping->rightPtr, length, flags);
 		
-		ASSERT(mapping->leftPtr != nullptr
+		assert(mapping->leftPtr != nullptr
 				&& mapping->leftPtr->largestHole >= length);
 		return allocateDfs(mapping->leftPtr, length, flags);
 	}
 }
 
 Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
-	ASSERT((address % kPageSize) == 0);
-	ASSERT((length % kPageSize) == 0);
+	assert((address % kPageSize) == 0);
+	assert((length % kPageSize) == 0);
 
 	Mapping *hole = getMapping(address);
-	ASSERT(hole != nullptr);
-	ASSERT(hole->type == Mapping::kTypeHole);
+	assert(hole != nullptr);
+	assert(hole->type == Mapping::kTypeHole);
 	
 	return splitHole(hole, address - hole->baseAddress, length);
 }
 
 Mapping *AddressSpace::splitHole(Mapping *mapping,
 		VirtualAddr split_offset, size_t split_length) {
-	ASSERT(split_length > 0);
-	ASSERT(mapping->type == Mapping::kTypeHole);
-	ASSERT(split_offset + split_length <= mapping->length);
+	assert(split_length > 0);
+	assert(mapping->type == Mapping::kTypeHole);
+	assert(split_offset + split_length <= mapping->length);
 	
 	Mapping *lower = mapping->lowerPtr;
 	Mapping *higher = mapping->higherPtr;
@@ -225,7 +225,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 
 		addressTreeInsert(following);
 	}else{
-		ASSERT(hole_length == split_offset + split_length);
+		assert(hole_length == split_offset + split_length);
 
 		// the split mapping goes on until the end of the hole
 		split->higherPtr = higher;
@@ -238,7 +238,7 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 
 void AddressSpace::rotateLeft(Mapping *n) {
 	Mapping *u = n->parentPtr;
-	ASSERT(u != nullptr && u->rightPtr == n);
+	assert(u != nullptr && u->rightPtr == n);
 	Mapping *v = n->leftPtr;
 	Mapping *w = u->parentPtr;
 
@@ -254,7 +254,7 @@ void AddressSpace::rotateLeft(Mapping *n) {
 	}else if(w->leftPtr == u) {
 		w->leftPtr = n;
 	}else{
-		ASSERT(w->rightPtr == u);
+		assert(w->rightPtr == u);
 		w->rightPtr = n;
 	}
 
@@ -264,7 +264,7 @@ void AddressSpace::rotateLeft(Mapping *n) {
 
 void AddressSpace::rotateRight(Mapping *n) {
 	Mapping *u = n->parentPtr;
-	ASSERT(u != nullptr && u->leftPtr == n);
+	assert(u != nullptr && u->leftPtr == n);
 	Mapping *v = n->rightPtr;
 	Mapping *w = u->parentPtr;
 	
@@ -280,7 +280,7 @@ void AddressSpace::rotateRight(Mapping *n) {
 	}else if(w->leftPtr == u) {
 		w->leftPtr = n;
 	}else{
-		ASSERT(w->rightPtr == u);
+		assert(w->rightPtr == u);
 		w->rightPtr = n;
 	}
 
@@ -323,7 +323,7 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 				current = current->leftPtr;
 			}
 		}else{
-			ASSERT(mapping->baseAddress > current->baseAddress);
+			assert(mapping->baseAddress > current->baseAddress);
 			if(current->rightPtr == nullptr) {
 				current->rightPtr = mapping;
 				mapping->parentPtr = current;
@@ -354,7 +354,7 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	
 	// the rb invariants guarantee that a grandparent exists
 	Mapping *grand = parent->parentPtr;
-	ASSERT(grand != nullptr);
+	assert(grand != nullptr);
 	
 	// handle the red uncle case
 	if(grand->leftPtr == parent && isRed(grand->rightPtr)) {
@@ -406,7 +406,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = right;
 		}else{
-			ASSERT(mapping == parent->rightPtr);
+			assert(mapping == parent->rightPtr);
 			parent->rightPtr = right;
 		}
 		if(right) {
@@ -427,7 +427,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = left;
 		}else{
-			ASSERT(mapping == parent->rightPtr);
+			assert(mapping == parent->rightPtr);
 			parent->rightPtr = left;
 		}
 		if(left) {
@@ -446,7 +446,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		Mapping *predecessor = mapping->leftPtr;
 		while(predecessor->rightPtr != nullptr)
 			predecessor = predecessor->rightPtr;
-		ASSERT(predecessor == mapping->lowerPtr);
+		assert(predecessor == mapping->lowerPtr);
 
 		// replace the predecessor by its left child
 		Mapping *pre_parent = predecessor->parentPtr;
@@ -454,7 +454,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		if(predecessor == pre_parent->leftPtr) {
 			pre_parent->leftPtr = pre_replace;
 		}else{
-			ASSERT(predecessor == pre_parent->rightPtr);
+			assert(predecessor == pre_parent->rightPtr);
 			pre_parent->rightPtr = pre_replace;
 		}
 		if(pre_replace) {
@@ -477,7 +477,7 @@ void AddressSpace::addressTreeRemove(Mapping *mapping) {
 		}else if(mapping == parent->leftPtr) {
 			parent->leftPtr = predecessor;
 		}else{
-			ASSERT(mapping == parent->rightPtr);
+			assert(mapping == parent->rightPtr);
 			parent->rightPtr = predecessor;
 		}
 		predecessor->leftPtr = left;
@@ -511,7 +511,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		
 		s = parent->rightPtr;
 	}else{
-		ASSERT(parent->rightPtr == n);
+		assert(parent->rightPtr == n);
 		if(isRed(parent->leftPtr)) {
 			rotateLeft(parent->leftPtr);
 			
@@ -547,14 +547,14 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 
 			s = child;
 		}
-		ASSERT(isRed(s->rightPtr));
+		assert(isRed(s->rightPtr));
 
 		rotateLeft(s);
 		parent->color = Mapping::kColorBlack;
 		s->color = parent_color;
 		s->rightPtr->color = Mapping::kColorBlack;
 	}else{
-		ASSERT(parent->rightPtr == n);
+		assert(parent->rightPtr == n);
 
 		// rotate so that s->leftPtr is red
 		if(isRed(s->rightPtr) && isBlack(s->leftPtr)) {
@@ -566,7 +566,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 
 			s = child;
 		}
-		ASSERT(isRed(s->leftPtr));
+		assert(isRed(s->leftPtr));
 
 		rotateRight(s);
 		parent->color = Mapping::kColorBlack;

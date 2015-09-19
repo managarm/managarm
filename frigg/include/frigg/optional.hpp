@@ -73,11 +73,11 @@ public:
 	}
 
 	T &operator* () {
-		ASSERT(p_isExpected);
+		assert(p_isExpected);
 		return p_union.expected;
 	}
 	T *operator-> () {
-		ASSERT(p_isExpected);
+		assert(p_isExpected);
 		return &p_union.expected;
 	}
 
@@ -101,7 +101,7 @@ public:
 			new (&first.p_union.error) E(traits::move(second_error));
 			new (&second.p_union.expected) T(traits::move(first_expected));
 		}else{
-			ASSERT(!first.p_isExpected && second.p_isExpected);
+			assert(!first.p_isExpected && second.p_isExpected);
 			E first_error(traits::move(first.p_union.error));
 			T second_expected(traits::move(second.p_union.expected));
 
@@ -177,11 +177,11 @@ public:
 	}
 
 	T &operator* () {
-		ASSERT(p_hasOptional);
+		assert(p_hasOptional);
 		return p_union.object;
 	}
 	T *operator-> () {
-		ASSERT(p_hasOptional);
+		assert(p_hasOptional);
 		return &p_union.object;
 	}
 

@@ -2,7 +2,7 @@
 namespace frigg {
 namespace debug {
 
-#define ASSERT(c) do { if(!(c)) ::frigg::debug::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
+#define assert(c) do { if(!(c)) ::frigg::debug::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
 
 class VirtualSink {
 public:

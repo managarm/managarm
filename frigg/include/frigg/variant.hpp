@@ -144,7 +144,7 @@ struct Destruct<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct Destruct<tag_iter> {
 	static void destruct(int tag, Storage<> &storage) {
-		ASSERT(!"Destruct: Illegal variant tag");
+		assert(!"Destruct: Illegal variant tag");
 	}
 };
 
@@ -169,7 +169,7 @@ struct CopyConstruct<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct CopyConstruct<tag_iter> {
 	static void construct(int tag, Storage<> &dest, const Storage<> &src) {
-		ASSERT(!"CopyConstruct: Illegal variant tag");
+		assert(!"CopyConstruct: Illegal variant tag");
 	}
 };
 
@@ -190,7 +190,7 @@ struct CopyAssign<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct CopyAssign<tag_iter> {
 	static void assign(int tag, Storage<> &dest, const Storage<> &src) {
-		ASSERT(!"CopyAssign: Illegal variant tag");
+		assert(!"CopyAssign: Illegal variant tag");
 	}
 };
 
@@ -215,7 +215,7 @@ struct MoveConstruct<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct MoveConstruct<tag_iter> {
 	static void construct(int tag, Storage<> &dest, Storage<> &src) {
-		ASSERT(!"MoveConstruct: Illegal variant tag");
+		assert(!"MoveConstruct: Illegal variant tag");
 	}
 };
 
@@ -236,7 +236,7 @@ struct MoveAssign<tag_iter, T, Tail...> {
 template<int tag_iter>
 struct MoveAssign<tag_iter> {
 	static void assign(int tag, Storage<> &dest, Storage<> &src) {
-		ASSERT(!"MoveAssign: Illegal variant tag");
+		assert(!"MoveAssign: Illegal variant tag");
 	}
 };
 

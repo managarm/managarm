@@ -41,7 +41,7 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 		user_info->type = kHelDescDirectory;
 		break;
 	default:
-		ASSERT(!"Illegal descriptor");
+		assert(!"Illegal descriptor");
 	}
 	universe_guard.unlock();
 
@@ -76,8 +76,8 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 }
 
 HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
-	ASSERT((physical % kPageSize) == 0);
-	ASSERT((size % kPageSize) == 0);
+	assert((physical % kPageSize) == 0);
+	assert((size % kPageSize) == 0);
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -153,7 +153,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}else if((flags & mask) == kHelMapReadExecute) {
 		map_flags |= AddressSpace::kMapReadExecute;
 	}else{
-		ASSERT((flags & mask) == kHelMapReadOnly);
+		assert((flags & mask) == kHelMapReadOnly);
 		map_flags |= AddressSpace::kMapReadOnly;
 	}
 	
@@ -315,7 +315,7 @@ HelError helWaitForEvents(HelHandle handle,
 		while(!event_hub->hasEvent(hub_guard) && currentTicks() < deadline)
 			event_hub->blockCurrentThread(hub_guard);
 	}else if(max_nanotime < 0) {
-		ASSERT(!"Illegal time parameter");
+		assert(!"Illegal time parameter");
 	}
 
 	size_t count; 
@@ -348,7 +348,7 @@ HelError helWaitForEvents(HelHandle handle,
 				user_evt->error = kHelErrBufferTooSmall;
 				break;
 			default:
-				ASSERT(!"Unexpected error");
+				assert(!"Unexpected error");
 			}
 		} break;
 		case UserEvent::kTypeRecvDescriptor: {
@@ -385,7 +385,7 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->error = kHelErrNone;
 		} break;
 		default:
-			ASSERT(!"Illegal event type");
+			assert(!"Illegal event type");
 		}
 
 		user_evt->asyncId = event.submitInfo.asyncId;

@@ -39,7 +39,7 @@ enum {
 
 void initLocalApicOnTheSystem() {
 	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
-	ASSERT((apic_info & (1 << 11)) != 0); // local APIC is enabled
+	assert((apic_info & (1 << 11)) != 0); // local APIC is enabled
 	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
 }
 
@@ -87,7 +87,7 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id) {
 }
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
-	ASSERT((page % 0x1000) == 0);
+	assert((page % 0x1000) == 0);
 	uint32_t vector = page / 0x1000; // determines the startup code page
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
 			dest_apic_id << 24);
@@ -213,7 +213,7 @@ void acknowledgeIrq(int irq) {
 			frigg::arch_x86::ioOutByte(kPic2Command, kPicEoi);
 		frigg::arch_x86::ioOutByte(kPic1Command, kPicEoi);
 	}else{
-		ASSERT(!"Illegal PIC model");
+		assert(!"Illegal PIC model");
 	}
 }
 

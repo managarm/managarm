@@ -99,7 +99,7 @@ CpuContext *getCpuContext() {
 }
 
 void callOnCpuStack(void (*function) ()) {
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 
 	ThorRtCpuSpecific *cpu_specific;
 	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
@@ -191,8 +191,8 @@ void initializeThisProcessor() {
 	uint64_t cr0, cr4;
 	asm volatile ( "mov %%cr0, %0" : "=r" (cr0) );
 	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
-	ASSERT((cr0 & 4) == 0); // make sure EM is disabled
-	ASSERT((cr0 & 2) == 0); // make sure MP is enabled
+	assert((cr0 & 4) == 0); // make sure EM is disabled
+	assert((cr0 & 2) == 0); // make sure MP is enabled
 	cr4 |= 0x200; // enable OSFXSR
 	cr4 |= 0x400; // enable OSXMMEXCPT
 	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
@@ -230,8 +230,8 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	// copy the trampoline code into low physical memory
 	uintptr_t trampoline_addr = (uintptr_t)trampoline;
 	size_t trampoline_size = (uintptr_t)_trampoline_endLma - (uintptr_t)_trampoline_startLma;
-	ASSERT((trampoline_addr % 0x1000) == 0);
-	ASSERT((trampoline_size % 0x1000) == 0);
+	assert((trampoline_addr % 0x1000) == 0);
+	assert((trampoline_size % 0x1000) == 0);
 	memcpy(thor::physicalToVirtual(trampoline_addr), _trampoline_startLma, trampoline_size);
 	
 	size_t trampoline_stack_size = 0x100000;

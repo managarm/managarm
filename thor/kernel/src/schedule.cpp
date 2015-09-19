@@ -14,16 +14,16 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 }
 
 void resetCurrentThread() {
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 	auto cpu_context = getCpuContext();
-	ASSERT(cpu_context->currentThread);
+	assert(cpu_context->currentThread);
 
 	cpu_context->currentThread->deactivate();
 	cpu_context->currentThread = KernelUnsafePtr<Thread>();
 }
 
 void dropCurrentThread() {
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	resetCurrentThread();
 	activeList->remove(this_thread);
@@ -34,9 +34,9 @@ void dropCurrentThread() {
 }
 
 void enterThread(KernelUnsafePtr<Thread> thread) {
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 	auto cpu_context = getCpuContext();
-	ASSERT(!cpu_context->currentThread);
+	assert(!cpu_context->currentThread);
 
 	thread->activate();
 	cpu_context->currentThread = thread;
@@ -44,9 +44,9 @@ void enterThread(KernelUnsafePtr<Thread> thread) {
 }
 
 void doSchedule(ScheduleGuard &&guard) {
-	ASSERT(!intsAreEnabled());
-	ASSERT(guard.protects(scheduleLock.get()));
-	ASSERT(!getCpuContext()->currentThread);
+	assert(!intsAreEnabled());
+	assert(guard.protects(scheduleLock.get()));
+	assert(!getCpuContext()->currentThread);
 	
 	if(!scheduleQueue->empty()) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
@@ -59,14 +59,14 @@ void doSchedule(ScheduleGuard &&guard) {
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
-	ASSERT(guard.protects(scheduleLock.get()));
+	assert(guard.protects(scheduleLock.get()));
 
 	scheduleQueue->addBack(thread);
 }
 
 void idleRoutine() {
 	while(true) {
-		ASSERT(intsAreEnabled());
+		assert(intsAreEnabled());
 		halt();
 	}
 }

@@ -40,7 +40,7 @@ void friggPanic() {
 }
 
 uintptr_t VirtualAlloc::map(size_t length) {
-	ASSERT((length % 0x1000) == 0);
+	assert((length % 0x1000) == 0);
 
 	HelHandle memory;
 	void *actual_ptr;

@@ -28,7 +28,7 @@ UserEvent::UserEvent(Type type, SubmitInfo submit_info)
 EventHub::EventHub() : p_queue(*kernelAlloc), p_waitingThreads(*kernelAlloc) { }
 
 void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	p_queue.addBack(traits::move(event));
 
@@ -42,21 +42,21 @@ void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
 }
 
 bool EventHub::hasEvent(Guard &guard) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	return !p_queue.empty();
 }
 
 UserEvent EventHub::dequeueEvent(Guard &guard) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
 	return p_queue.removeFront();
 }
 
 void EventHub::blockCurrentThread(Guard &guard) {
-	ASSERT(guard.protects(&lock));
+	assert(guard.protects(&lock));
 
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 	if(saveThisThread()) {
 		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 		p_waitingThreads.addBack(KernelWeakPtr<Thread>(this_thread));

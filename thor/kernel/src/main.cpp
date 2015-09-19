@@ -23,11 +23,11 @@ void enterImage(PhysicalAddr image_paddr) {
 	
 	// parse the ELf file format
 	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
-	ASSERT(ehdr->e_ident[0] == 0x7F
+	assert(ehdr->e_ident[0] == 0x7F
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	ASSERT(ehdr->e_type == ET_EXEC);
+	assert(ehdr->e_type == ET_EXEC);
 
 	AddressSpace::Guard space_guard(&space->lock, frigg::dontLock);
 
@@ -36,7 +36,7 @@ void enterImage(PhysicalAddr image_paddr) {
 				+ i * ehdr->e_phentsize);
 		
 		if(phdr->p_type == PT_LOAD) {
-			ASSERT(phdr->p_memsz > 0);
+			assert(phdr->p_memsz > 0);
 			
 			// align virtual address and length to page size
 			uintptr_t virt_address = phdr->p_vaddr;
@@ -75,7 +75,7 @@ void enterImage(PhysicalAddr image_paddr) {
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
-			ASSERT(!"Unexpected PHDR");
+			assert(!"Unexpected PHDR");
 		}
 	}
 	
@@ -130,7 +130,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeTheSystem();
 	
 	// create a directory and load the memory regions of all modules into it
-	ASSERT(info->numModules >= 1);
+	assert(info->numModules >= 1);
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
@@ -200,8 +200,8 @@ extern "C" void handleProtectionFault(Word error) {
 
 extern "C" void thorKernelPageFault(uintptr_t address,
 		uintptr_t fault_ip, Word error) {
-	ASSERT((error & 4) == 0);
-	ASSERT((error & 8) == 0);
+	assert((error & 4) == 0);
+	assert((error & 8) == 0);
 	auto msg = debug::panicLogger.log();
 	msg << "Kernel page fault"
 			<< " at " << (void *)address
@@ -226,7 +226,7 @@ extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
 	uintptr_t address;
 	asm volatile ( "mov %%cr2, %0" : "=r" (address) );
 
-	ASSERT((error & 8) == 0);
+	assert((error & 8) == 0);
 	auto msg = debug::panicLogger.log();
 	msg << "Page fault"
 			<< " at " << (void *)address
@@ -253,7 +253,7 @@ extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
 }
 
 extern "C" void thorIrq(int irq) {
-	ASSERT(!intsAreEnabled());
+	assert(!intsAreEnabled());
 
 	infoLogger->log() << "IRQ #" << irq << debug::Finish();
 	
@@ -267,7 +267,7 @@ extern "C" void thorIrq(int irq) {
 }
 
 extern "C" void thorImplementNoThreadIrqs() {
-	ASSERT(!"Implement no-thread IRQ stubs");
+	assert(!"Implement no-thread IRQ stubs");
 }
 
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
@@ -457,16 +457,16 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 					getCurrentThread()->accessSaveState().syscallState.rflags |= 0x100;
 					thorRtReturnSyscall1((Word)kHelErrNone);
 				}else{
-					ASSERT(!"Illegal debug interface");
+					assert(!"Illegal debug interface");
 				}
 			}else{
-				ASSERT(!"Illegal subsystem");
+				assert(!"Illegal subsystem");
 			}
 		}
 		default:
-			ASSERT(!"Illegal syscall");
+			assert(!"Illegal syscall");
 	}
 
-	ASSERT(!"No return at end of thorSyscall()");
+	assert(!"No return at end of thorSyscall()");
 }
 

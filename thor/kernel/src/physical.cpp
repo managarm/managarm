@@ -107,7 +107,7 @@ void Chunk::checkNeighbors(int level, int entry_in_level,
 				all_red = false;
 				break;
 			default:
-				ASSERT(!"Unexpected color");
+				assert(!"Unexpected color");
 			}
 		}
 	}
@@ -131,7 +131,7 @@ void Chunk::markBlackRecursive(int level, int entry_in_level) {
 	bool all_white, all_black_or_red, all_red;
 	checkNeighbors(level, entry_in_level,
 			all_white, all_black_or_red, all_red);
-	ASSERT(!all_white && !all_red);
+	assert(!all_white && !all_red);
 
 	if(all_black_or_red) {
 		markBlackRecursive(level - 1, entry_in_level / kGranularity);
@@ -149,7 +149,7 @@ void Chunk::markWhiteRecursive(int level, int entry_in_level) {
 	bool all_white, all_black_or_red, all_red;
 	checkNeighbors(level, entry_in_level,
 			all_white, all_black_or_red, all_red);
-	ASSERT(!all_black_or_red && !all_red);
+	assert(!all_black_or_red && !all_red);
 
 	if(all_white) {
 		markWhiteRecursive(level - 1, entry_in_level / kGranularity);
@@ -163,7 +163,7 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 	size_t offset = Chunk::offsetOfLevel(level);
 	
 	// this is a simplification that allows us to only look at whole bytes
-	ASSERT((start_entry_in_level % Chunk::kEntriesPerByte) == 0
+	assert((start_entry_in_level % Chunk::kEntriesPerByte) == 0
 			&& (limit_entry_in_level % Chunk::kEntriesPerByte) == 0);
 
 	size_t start_byte_in_level = start_entry_in_level / Chunk::kEntriesPerByte;
@@ -182,7 +182,7 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 
 					return chunk->baseAddress + entry_in_level * chunk->spacePerEntry(level);
 				}else{
-					ASSERT(entry == Chunk::kColorBlack
+					assert(entry == Chunk::kColorBlack
 							|| entry == Chunk::kColorRed);
 					// just continue searching
 				}
@@ -193,7 +193,7 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 							entry_in_level * Chunk::kGranularity,
 							(entry_in_level + 1) * Chunk::kGranularity);
 				}else{
-					ASSERT(entry == Chunk::kColorBlack
+					assert(entry == Chunk::kColorBlack
 							|| entry == Chunk::kColorRed);
 					// just continue searching
 				}
@@ -212,21 +212,21 @@ PhysicalChunkAllocator::PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
 		size_t bootstrap_length)
 : p_bootstrapBase(bootstrap_base), p_bootstrapLength(bootstrap_length),
 		p_bootstrapPtr(bootstrap_base), p_root(nullptr) {
-	ASSERT((bootstrap_base % 0x1000) == 0);
-	ASSERT((bootstrap_length % 0x1000) == 0);
+	assert((bootstrap_base % 0x1000) == 0);
+	assert((bootstrap_length % 0x1000) == 0);
 }
 
 void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base,
 		size_t chunk_length) {
-	ASSERT((chunk_base % 0x1000) == 0);
-	ASSERT((chunk_length % 0x1000) == 0);
+	assert((chunk_base % 0x1000) == 0);
+	assert((chunk_length % 0x1000) == 0);
 	Chunk *chunk = new (bootstrapAlloc(sizeof(Chunk), alignof(Chunk)))
 			Chunk(chunk_base, 0x1000, chunk_length / 0x1000);
 	
 	void *tree_ptr = bootstrapAlloc(chunk->calcBitmapTreeSize(), 1);
 	chunk->setupBitmapTree((uint8_t *)tree_ptr);
 
-	ASSERT(p_root == nullptr);
+	assert(p_root == nullptr);
 	p_root = chunk;
 }
 
@@ -235,8 +235,8 @@ void PhysicalChunkAllocator::bootstrap() {
 	if((p_bootstrapPtr % 0x1000) != 0)
 		p_bootstrapPtr += 0x1000 - (p_bootstrapPtr % 0x1000);
 	
-	ASSERT(p_bootstrapBase >= p_root->baseAddress);
-	ASSERT(p_bootstrapPtr <= p_root->baseAddress
+	assert(p_bootstrapBase >= p_root->baseAddress);
+	assert(p_bootstrapPtr <= p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);
 	
 	size_t num_pages = (p_bootstrapPtr - p_bootstrapBase) / 0x1000;
@@ -246,16 +246,16 @@ void PhysicalChunkAllocator::bootstrap() {
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t num_pages) {
-	ASSERT(guard.protects(&lock));
-	ASSERT(num_pages == 1);
+	assert(guard.protects(&lock));
+	assert(num_pages == 1);
 
 	return allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
 }
 
 void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
-	ASSERT(guard.protects(&lock));
-	ASSERT(address >= p_root->baseAddress);
-	ASSERT(address < p_root->baseAddress
+	assert(guard.protects(&lock));
+	assert(address >= p_root->baseAddress);
+	assert(address < p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);
 	
 	p_root->markWhiteRecursive(p_root->treeHeight,
@@ -268,7 +268,7 @@ void *PhysicalChunkAllocator::bootstrapAlloc(size_t length,
 		p_bootstrapPtr += alignment - (p_bootstrapPtr % alignment);
 	void *pointer = physicalToVirtual(p_bootstrapPtr);
 	p_bootstrapPtr += length;
-	ASSERT(p_bootstrapPtr <= p_bootstrapBase + p_bootstrapLength);
+	assert(p_bootstrapPtr <= p_bootstrapBase + p_bootstrapLength);
 	
 	return pointer;
 }

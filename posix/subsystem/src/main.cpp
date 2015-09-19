@@ -19,7 +19,6 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
-#define assert ASSERT
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
 
@@ -87,7 +86,7 @@ auto loadObject = async::seq(
 				if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
 					map_flags |= kHelMapReadWrite;
 				}else{
-					ASSERT(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
+					assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
 					map_flags |= kHelMapReadExecute;
 				}
 				
