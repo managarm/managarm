@@ -210,40 +210,56 @@ public:
 	class Bound {
 	public:
 		template<typename... CbArgs>
-		Bound(const RepeatWhile &repeat_until, Context *context, CbArgs &&... cb_args) { }
-		//: p_body(repeat_until.p_body, context, this, traits::forward<CbArgs>(cb_args)...) { }
+		Bound(const RepeatWhile &repeat_while, Context *context, CbArgs &&... cb_args)
+		: p_condition(repeat_while.p_condition, context, repeat_while, context, this,
+				traits::forward<CbArgs>(cb_args)...) { }
 		
-		// disallow copying as it would break the Check::p_super pointer
+		// disallow copying as it would break the Loop::p_super pointer
 		Bound(const Bound &other) = delete;
 		Bound &operator= (const Bound &other) = delete;
 
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			//p_body(traits::forward<Args>(args)...);
+			p_condition(traits::forward<Args>(args)...);
 		}
 
-/*	private:
+	private:
+		class Loop {
+		public:
+			Loop(Bound *super)
+			: p_super(super) { }
+
+			template<typename... Args>
+			void operator() (Args &&... args) {
+				(*p_super)(traits::forward<Args>(args)...);
+			}
+
+		private:
+			Bound *p_super;
+		};
+
 		class Check {
 		public:
 			template<typename... CbArgs>
-			Check(Bound *super, CbArgs &&... cb_args)
-			: p_super(super), p_callback(traits::forward<CbArgs>(cb_args)...) { }
+			Check(const RepeatWhile &repeat_while, Context *context, Bound *super, CbArgs &&... cb_args)
+			: p_body(repeat_while.p_body, context, super),
+					p_callback(traits::forward<CbArgs>(cb_args)...) { }
 
 			template<typename... Args>
 			void operator() (bool another_loop, Args &&... args) {
 				if(another_loop) {
-					(*p_super)(traits::forward<Args>(args)...);
+					p_body(traits::forward<Args>(args)...);
 				}else{
 					p_callback(traits::forward<Args>(args)...);
 				}
 			}
 
 		private:
-			Bound *p_super;
+			typename Body::template Bound<Loop, Context> p_body;
 			Callback p_callback;
 		};
 		
-		typename Body::template Bound<Check, Context> p_body;*/
+		typename Condition::template Bound<Check, Context> p_condition;
 	};
 
 private:
