@@ -29,7 +29,24 @@ helx::EventHub eventHub;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 
-void acceptProcess(helx::Server server);
+struct OpenFile {
+	virtual void write(const void *buffer, size_t length) = 0;
+	virtual void read(void *buffer, size_t max_length, size_t &actual_length) = 0;
+};
+
+struct Process {
+	Process();
+
+	util::Hashmap<int, OpenFile *, util::DefaultHasher<int>,
+			Allocator> allOpenFiles;
+	int nextFd = 3;
+};
+
+Process::Process() : allOpenFiles(util::DefaultHasher<int>(), *allocator){
+
+}
+
+void acceptLoop(helx::Server server, Process *process);
 
 struct LoadContext {
 	LoadContext()
@@ -130,7 +147,7 @@ frigg::asyncSeq(
 		helx::Server server;
 		helx::Client client;
 		helx::Server::createServer(server, client);
-		acceptProcess(server);
+		acceptLoop(server, frigg::memory::construct<Process>(*allocator));
 
 		context->localDirectory.publish(client.getHandle(), "posix");
 
@@ -173,41 +190,39 @@ frigg::asyncSeq(
 	})
 );
 
-struct OpenFile {
-	virtual void write(const void *buffer, size_t length) = 0;
-};
-
-util::Hashmap<int, OpenFile *,
-		util::DefaultHasher<int>, Allocator> 
-		allOpenFiles(util::DefaultHasher<int>(), *allocator);
-
-int nextFd = 3;
-
 struct KernelOutFile : public OpenFile {
 	virtual void write(const void *buffer, size_t length) override;
+	virtual void read(void *buffer, size_t max_length, size_t &actual_length) override;
 };
 
 void KernelOutFile::write(const void *buffer, size_t length) {
 	HEL_CHECK(helLog((const char *)buffer, length));
 }
 
-struct ProcessContext {
-	ProcessContext(helx::Pipe pipe) : pipe(pipe) { }
+void KernelOutFile::read(void *buffer, size_t max_length,
+		size_t &actual_length) {
+
+}
+
+struct RequestLoopContext {
+	RequestLoopContext(helx::Pipe pipe, Process *process)
+	: pipe(pipe), process(process) { }
 
 	uint8_t buffer[128];
 	helx::Pipe pipe;
+	Process *process;
 };
 
-auto processRequest =
+auto requestLoop =
 frigg::asyncRepeatUntil(
 	frigg::asyncSeq(
-		frigg::wrapFuncPtr<helx::RecvStringFunction>([] (ProcessContext *context,
+		frigg::wrapFuncPtr<helx::RecvStringFunction>([] (RequestLoopContext *context,
 				void *cb_object, auto cb_function) {
 			context->pipe.recvString(context->buffer, 128, eventHub,
-					kHelAnyRequest, kHelAnySequence,
+					kHelAnyRequest, 0,
 					cb_object, cb_function);
 		}),
-		frigg::wrapFunctor([] (ProcessContext *context, auto &callback,
+		frigg::wrapFunctor([] (RequestLoopContext *context, auto &callback,
 				HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
 			HEL_CHECK(error);
 
@@ -222,14 +237,14 @@ frigg::asyncRepeatUntil(
 
 				util::String<Allocator> serialized(*allocator);
 				response.SerializeToString(&serialized);
-//				context->pipe.sendString(serialized.data(), serialized.size(),
-//						msg_request, 0);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
 			}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
-				int fd = nextFd;
-				nextFd++;
+				int fd = context->process->nextFd;
+				context->process->nextFd++;
 
 				auto file = frigg::memory::construct<KernelOutFile>(*allocator);
-				allOpenFiles.insert(fd, file);
+				context->process->allOpenFiles.insert(fd, file);
 
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
@@ -239,12 +254,69 @@ frigg::asyncRepeatUntil(
 				response.SerializeToString(&serialized);
 				context->pipe.sendString(serialized.data(), serialized.size(),
 						msg_request, 0);
+			}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+				auto file_wrapper = context->process->allOpenFiles.get(request.fd());
+				if(file_wrapper) {
+					size_t actual_len;
+					auto file = **file_wrapper;
+					util::String<Allocator> buffer(*allocator);
+					buffer.resize(request.size());
+					file->read(buffer.data(), request.size(), actual_len);
+
+					request.set_buffer(frigg::util::String<Allocator>(*allocator,
+							buffer.data(), actual_len));
+					response.set_error(managarm::posix::Errors::SUCCESS);
+				}else{
+					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				}
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
 			}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
-				auto file_wrapper = allOpenFiles.get(request.fd());
+
+				auto file_wrapper = context->process->allOpenFiles.get(request.fd());
 				if(file_wrapper) {
 					auto file = **file_wrapper;
 					file->write(request.buffer().data(), request.buffer().size());
+
+					response.set_error(managarm::posix::Errors::SUCCESS);
+				}else{
+					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				}
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+				int32_t fd = request.fd();
+				auto file_wrapper = context->process->allOpenFiles.get(fd);
+				if(file_wrapper){
+					context->process->allOpenFiles.remove(fd);
+					response.set_error(managarm::posix::Errors::SUCCESS);
+				}else{
+					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				}
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);	
+			}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+				int32_t oldfd = request.fd();
+				int32_t newfd = request.newfd();
+				auto file_wrapper = context->process->allOpenFiles.get(oldfd);
+				if(file_wrapper){
+					auto file = **file_wrapper;
+					context->process->allOpenFiles.insert(newfd, file);
 
 					response.set_error(managarm::posix::Errors::SUCCESS);
 				}else{
@@ -270,14 +342,16 @@ frigg::asyncRepeatUntil(
 	)
 );
 
-void acceptProcess(helx::Server server) {
+void acceptLoop(helx::Server server, Process *process) {
 	struct AcceptContext {
-		AcceptContext(helx::Server server) : server(server) { }
+		AcceptContext(helx::Server server, Process *process)
+		: server(server), process(process) { }
 
 		helx::Server server;
+		Process *process;
 	};
 
-	auto acceptLoop =
+	auto body =
 	frigg::asyncRepeatUntil(
 		frigg::asyncSeq(
 			frigg::wrapFuncPtr<helx::AcceptFunction>([] (AcceptContext *context,
@@ -288,15 +362,15 @@ void acceptProcess(helx::Server server) {
 					HelError error, HelHandle handle) {
 				HEL_CHECK(error);
 				
-				frigg::runAsync<ProcessContext>(*allocator, processRequest,
-						helx::Pipe(handle));
+				frigg::runAsync<RequestLoopContext>(*allocator, requestLoop,
+						helx::Pipe(handle), context->process);
 
 				callback(true);
 			})
 		)
 	);
 
-	frigg::runAsync<AcceptContext>(*allocator, acceptLoop, server);
+	frigg::runAsync<AcceptContext>(*allocator, body, server, process);
 }
 
 typedef void (*InitFuncPtr) ();
@@ -326,7 +400,7 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptProcess(server);
+	acceptLoop(server, nullptr);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;

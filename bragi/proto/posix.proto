@@ -16,6 +16,7 @@ enum ClientRequestType {
 	READ = 3;
 	WRITE = 4;
 	CLOSE = 5;
+	DUP2 = 6;
 };
 
 message ClientRequest {
@@ -29,6 +30,9 @@ message ClientRequest {
 
 	// used by READ and CLOSE and WRITE
 	optional int32 fd = 4;
+
+	// used by DUP2
+	optional int32 newfd = 7;
 
 	// used by READ
 	optional int32 size = 5;

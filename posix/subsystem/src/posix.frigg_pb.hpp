@@ -21,7 +21,8 @@ struct ClientRequestType {
     OPEN = 2,
     READ = 3,
     WRITE = 4,
-    CLOSE = 5
+    CLOSE = 5,
+    DUP2 = 6
   };
 };
 
@@ -39,6 +40,7 @@ public:
     m_path(allocator),
     m_flags(0),
     m_fd(0),
+    m_newfd(0),
     m_size(0),
     m_buffer(allocator) { }
 
@@ -70,6 +72,13 @@ public:
     m_fd = value;
   }
 
+  inline int32_t newfd() const {
+    return m_newfd;
+  }
+  inline void set_newfd(int32_t value) {
+    m_newfd = value;
+  }
+
   inline int32_t size() const {
     return m_size;
   }
@@ -96,6 +105,8 @@ public:
     p_cachedSize += frigg::protobuf::varintSize(m_flags);
     p_cachedSize += frigg::protobuf::varintSize(4 << 3);
     p_cachedSize += frigg::protobuf::varintSize(m_fd);
+    p_cachedSize += frigg::protobuf::varintSize(7 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_newfd);
     p_cachedSize += frigg::protobuf::varintSize(5 << 3);
     p_cachedSize += frigg::protobuf::varintSize(m_size);
     p_cachedSize += frigg::protobuf::varintSize(6 << 3);
@@ -114,6 +125,7 @@ public:
     frigg::protobuf::emitString(writer, 2, m_path.data(), m_path.size());
     frigg::protobuf::emitInt32(writer, 3, m_flags);
     frigg::protobuf::emitInt32(writer, 4, m_fd);
+    frigg::protobuf::emitInt32(writer, 7, m_newfd);
     frigg::protobuf::emitInt32(writer, 5, m_size);
     frigg::protobuf::emitString(writer, 6, m_buffer.data(), m_buffer.size());
     assert(writer.offset() == length);
@@ -147,6 +159,10 @@ public:
         assert(header.wire == frigg::protobuf::kWireVarint);
         m_fd = fetchInt32(reader);
         break;
+      case 7:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_newfd = fetchInt32(reader);
+        break;
       case 5:
         assert(header.wire == frigg::protobuf::kWireVarint);
         m_size = fetchInt32(reader);
@@ -170,6 +186,7 @@ private:
   String m_path;
   int32_t m_flags;
   int32_t m_fd;
+  int32_t m_newfd;
   int32_t m_size;
   String m_buffer;
 };

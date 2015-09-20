@@ -4,9 +4,18 @@
 
 #include <spawn.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <vector>
 
 int main() {
+	int fd = open("whatever", O_WRONLY);
+	dup2(fd, STDOUT_FILENO);
+	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");
 
 	std::vector<char *> argv;
