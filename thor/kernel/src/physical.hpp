@@ -17,10 +17,12 @@ struct Chunk {
 		kEntryMask = 3,
 		kEntriesPerByte = 4,
 		
+		kMultiplicator = 1,
+
 		// Number of entries corresponding to a single entry at a lower level
 		// Must be a multiple of kEntriesPerByte
-		kEntryToWordGranularity = 2,
-		kGranularity = kEntryToWordGranularity * kEntriesPerByte,
+		kGranularity = kMultiplicator * kEntriesPerByte,
+
 		// Number of bytes in the lowest level
 		kBytesInRoot = 2
 	};

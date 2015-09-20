@@ -825,13 +825,14 @@ async::seq(
 
 int main() {
 	FILE *file = fopen("whatever", "w");
-	fprintf(file, "Hello world\n");
+	fprintf(file, "Starting zisa\n");
 //	printf("Hello world");
-/*	pid_t child = fork();
+
+	pid_t child = fork();
 	if(child == 0) {
-		printf("Hello from child!\n");
+		fprintf(file, "Hello from child!\n");
 	}else{
-		printf("Hello from parent!\n");
-	}*/
+		fprintf(file, "Hello from parent!\n");
+	}
 }
 

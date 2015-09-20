@@ -40,7 +40,7 @@ Chunk::Chunk(PhysicalAddr base_addr, size_t page_size, size_t num_pages)
 
 size_t Chunk::calcBitmapTreeSize() {
 	size_t size = 0;
-	for(int k = 0; k < treeHeight; k++)
+	for(int k = 0; k <= treeHeight; k++)
 		size += numBytesInLevel(k);
 	return size;
 }
@@ -245,7 +245,9 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t num_pages) {
 	assert(guard.protects(&lock));
 	assert(num_pages == 1);
 
-	return allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
+	PhysicalAddr result = allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
+	assert(result != 0);
+	return result;
 }
 
 void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
