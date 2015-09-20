@@ -182,19 +182,16 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 
 					return chunk->baseAddress + entry_in_level * chunk->spacePerEntry(level);
 				}else{
-					assert(entry == Chunk::kColorBlack
-							|| entry == Chunk::kColorRed);
+					assert(entry == Chunk::kColorBlack || entry == Chunk::kColorRed);
 					// just continue searching
 				}
 			}else{
-				if(entry == Chunk::kColorWhite
-						|| entry == Chunk::kColorGray) {
+				if(entry == Chunk::kColorWhite || entry == Chunk::kColorGray) {
 					return allocateInLevel(chunk, level + 1,
 							entry_in_level * Chunk::kGranularity,
 							(entry_in_level + 1) * Chunk::kGranularity);
 				}else{
-					assert(entry == Chunk::kColorBlack
-							|| entry == Chunk::kColorRed);
+					assert(entry == Chunk::kColorBlack || entry == Chunk::kColorRed);
 					// just continue searching
 				}
 			}
@@ -236,8 +233,7 @@ void PhysicalChunkAllocator::bootstrap() {
 		p_bootstrapPtr += 0x1000 - (p_bootstrapPtr % 0x1000);
 	
 	assert(p_bootstrapBase >= p_root->baseAddress);
-	assert(p_bootstrapPtr <= p_root->baseAddress
-			+ p_root->pageSize * p_root->numPages);
+	assert(p_bootstrapPtr <= p_root->baseAddress + p_root->pageSize * p_root->numPages);
 	
 	size_t num_pages = (p_bootstrapPtr - p_bootstrapBase) / 0x1000;
 	for(size_t i = 0; i < num_pages; i++)
@@ -262,8 +258,7 @@ void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
 			(address - p_root->baseAddress) / 0x1000);
 }
 
-void *PhysicalChunkAllocator::bootstrapAlloc(size_t length,
-		size_t alignment) {
+void *PhysicalChunkAllocator::bootstrapAlloc(size_t length, size_t alignment) {
 	if((p_bootstrapPtr % alignment) != 0)
 		p_bootstrapPtr += alignment - (p_bootstrapPtr % alignment);
 	void *pointer = physicalToVirtual(p_bootstrapPtr);

@@ -22,8 +22,16 @@ extern inline __attribute__ (( always_inline )) HelError helSyscall(int number,
 	register HelWord out1 asm("rdi");
 	register HelWord out2 asm("rsi");
 	register HelWord out3 asm("rdx");
+	register HelWord out4 asm("rax");
+	register HelWord out5 asm("r8");
+	register HelWord out6 asm("r9");
+	register HelWord out7 asm("r10");
+	register HelWord out8 asm("r12");
+	register HelWord out9 asm("r13");
+	register HelWord out10 asm("r14");
 	
-	asm volatile ( "syscall" : "=r" (out1), "=r" (out2), "=r" (out3)
+	asm volatile ( "syscall" : "=r" (out1), "=r" (out2), "=r" (out3), "=r" (out4), "=r" (out5),
+				"=r" (out6), "=r" (out7), "=r" (out8), "=r" (out9), "=r" (out10)
 			: "r" (in1), "r" (in2), "r" (in3), "r" (in4), "r" (in5),
 				"r" (in6), "r" (in7), "r" (in8), "r" (in9), "r" (in10)
 			: "rcx", "r11", "rbx", "memory" );

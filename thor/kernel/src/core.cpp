@@ -92,7 +92,8 @@ CpuContext::CpuContext() {
 // --------------------------------------------------------
 
 Universe::Universe()
-		: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc) { }
+: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc),
+		p_nextHandle(1) { }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 	assert(guard.protects(&lock));

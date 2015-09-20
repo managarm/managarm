@@ -341,11 +341,18 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		}
 
 		case kHelCallCreateEventHub: {
+//			infoLogger->log() << "helCreateEventHub" << frigg::debug::Finish();
 			HelHandle handle;
 			HelError error = helCreateEventHub(&handle);
+
+//			infoLogger->log() << "    -> " << handle << frigg::debug::Finish();
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallWaitForEvents: {
+//			infoLogger->log() << "helWaitForEvents(" << (HelHandle)arg0
+//					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
+//					<< ", " << (HelNanotime)arg3 << ")" << frigg::debug::Finish();
+
 			size_t num_items;
 			HelError error = helWaitForEvents((HelHandle)arg0,
 					(HelEvent *)arg1, (size_t)arg2, (HelNanotime)arg3,

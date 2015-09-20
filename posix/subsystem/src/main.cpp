@@ -222,8 +222,8 @@ frigg::asyncRepeatUntil(
 
 				util::String<Allocator> serialized(*allocator);
 				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
+//				context->pipe.sendString(serialized.data(), serialized.size(),
+//						msg_request, 0);
 			}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 				int fd = nextFd;
 				nextFd++;
@@ -304,14 +304,14 @@ extern InitFuncPtr __init_array_start[];
 extern InitFuncPtr __init_array_end[];
 
 int main() {
+	infoLogger.initialize(infoSink);
+	infoLogger->log() << "Starting posix-subsystem" << frigg::debug::Finish();
+	allocator.initialize(virtualAlloc);
+
 	// we're using no libc, so we have to run constructors manually
 	size_t init_count = __init_array_end - __init_array_start;
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
-	
-	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Starting posix-subsystem" << frigg::debug::Finish();
-	allocator.initialize(virtualAlloc);
 	
 	const char *ld_path = "local/rtdl-server";
 	HelHandle ld_handle;
@@ -345,7 +345,7 @@ asm ( ".global _start\n"
 
 extern "C"
 int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
-
+	return 0;
 }
 
 void *__dso_handle;

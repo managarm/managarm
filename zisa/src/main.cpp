@@ -824,11 +824,14 @@ async::seq(
 #include <unistd.h>
 
 int main() {
-	pid_t child = fork();
+	FILE *file = fopen("whatever", "w");
+	fprintf(file, "Hello world\n");
+//	printf("Hello world");
+/*	pid_t child = fork();
 	if(child == 0) {
 		printf("Hello from child!\n");
 	}else{
 		printf("Hello from parent!\n");
-	}
+	}*/
 }
 

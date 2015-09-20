@@ -222,13 +222,16 @@ async::seq(
 	})
 );
 
-struct PosixInitContext { };
+struct PosixInitContext {
+	uint8_t buffer[128];
+};
 
 auto runPosixInit =
 async::seq(
 	async::lambda([](PosixInitContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
+		request.set_request_type(managarm::posix::ClientRequestType::SPAWN);
 		request.set_path(util::String<Allocator>(*allocator, "posix-init"));
 		
 		util::String<Allocator> serialized(*allocator);
@@ -236,15 +239,19 @@ async::seq(
 		posixPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
 //		posixPipe.recvString(context.buffer, 128, eventHub,
-//				1, 0, callback.getObject(), callback.getFunction());
+//				0, 0, callback.getObject(), callback.getFunction());
+		callback(0, 0, 0, 0);
 	}),
 	async::lambda([](PosixInitContext &context,
 			util::Callback<void()> callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, size_t length) {
 		HEL_CHECK(error);
+		
+//		managarm::posix::ServerResponse<Allocator> response(*allocator);
+//		response.ParseFromArray(context.buffer, length);
+//		assert(response.error() == managarm::posix::Errors::SUCCESS);
 
-//		context.response.ParseFromArray(context.buffer, length);
-//		callback();
+		callback();
 	})
 );
 
