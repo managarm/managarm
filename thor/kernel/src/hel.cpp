@@ -259,29 +259,28 @@ HelError helCreateThread(HelHandle space_handle,
 			KernelSharedPtr<Universe>(this_universe),
 			traits::move(address_space), traits::move(directory), false);
 	
-	ThorRtGeneralState &state = new_thread->accessSaveState().generalState;
+	auto base_state = new_thread->accessSaveState().accessGeneralBaseState();
+	base_state->rax = user_state->rax;
+	base_state->rbx = user_state->rbx;
+	base_state->rcx = user_state->rcx;
+	base_state->rdx = user_state->rdx;
+	base_state->rsi = user_state->rsi;
+	base_state->rdi = user_state->rdi;
+	base_state->rbp = user_state->rbp;
 
-	state.rax = user_state->rax;
-	state.rbx = user_state->rbx;
-	state.rcx = user_state->rcx;
-	state.rdx = user_state->rdx;
-	state.rsi = user_state->rsi;
-	state.rdi = user_state->rdi;
-	state.rbp = user_state->rbp;
+	base_state->r8 = user_state->r8;
+	base_state->r9 = user_state->r9;
+	base_state->r10 = user_state->r10;
+	base_state->r11 = user_state->r11;
+	base_state->r12 = user_state->r12;
+	base_state->r13 = user_state->r13;
+	base_state->r14 = user_state->r14;
+	base_state->r15 = user_state->r15;
 
-	state.r8 = user_state->r8;
-	state.r9 = user_state->r9;
-	state.r10 = user_state->r10;
-	state.r11 = user_state->r11;
-	state.r12 = user_state->r12;
-	state.r13 = user_state->r13;
-	state.r14 = user_state->r14;
-	state.r15 = user_state->r15;
-
-	state.rip = user_state->rip;
-	state.rsp = user_state->rsp;
-	state.rflags = 0x200; // set the interrupt flag
-	state.kernel = 0;
+	base_state->rip = user_state->rip;
+	base_state->rsp = user_state->rsp;
+	base_state->rflags = 0x200; // set the interrupt flag
+	base_state->kernel = 0;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
 	activeList->addBack(traits::move(new_thread));

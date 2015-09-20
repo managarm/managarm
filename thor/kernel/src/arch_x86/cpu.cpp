@@ -24,25 +24,26 @@ void BochsSink::print(const char *str) {
 // --------------------------------------------------------
 
 ThorRtThreadState::ThorRtThreadState() {
+	size_t general_size = sizeof(GeneralBaseState) + sizeof(FxSaveState);
+	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxSaveState);
+	generalState = kernelAlloc->allocate(general_size);
+	syscallState = kernelAlloc->allocate(syscall_size);
+
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
-
-	extendedState = memory::construct<FxSaveState>(*kernelAlloc);
-	memset(extendedState, 0, sizeof(FxSaveState));
 }
 
 ThorRtThreadState::~ThorRtThreadState() {
-	memory::destruct<FxSaveState>(*kernelAlloc, extendedState);
+	kernelAlloc->free(generalState);
+	kernelAlloc->free(syscallState);
 }
 
 void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (&generalState),
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (generalState),
 			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (&syscallState),
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (syscallState),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (extendedState),
-			"i" (ThorRtKernelGs::kOffExtendedState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
 			: : "r" (syscallStack + kSyscallStackSize),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
@@ -64,8 +65,6 @@ void ThorRtThreadState::deactivate() {
 			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffExtendedState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
@@ -186,16 +185,6 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
 			(uint64_t(0x1B) << 48) | (uint64_t(0x08) << 32));
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x200); // mask interrupts
-
-	// enable sse support
-	uint64_t cr0, cr4;
-	asm volatile ( "mov %%cr0, %0" : "=r" (cr0) );
-	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
-	assert((cr0 & 4) == 0); // make sure EM is disabled
-	assert((cr0 & 2) == 0); // make sure MP is enabled
-	cr4 |= 0x200; // enable OSFXSR
-	cr4 |= 0x400; // enable OSXMMEXCPT
-	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
 
 	initLocalApicPerCpu();
 }

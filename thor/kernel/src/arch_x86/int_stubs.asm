@@ -24,9 +24,10 @@
 .set .L_generalRflags, 0x88
 .set .L_generalKernel, 0x90
 
+.set .L_generalFxSave, 0xA0
+
 .set .L_kGsGeneralState, 0x08
-.set .L_kGsExtendedState, 0x18
-.set .L_kGsFlags, 0x28
+.set .L_kGsFlags, 0x20
 
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10
@@ -35,6 +36,17 @@
 
 .global thorRtEntry
 thorRtEntry:
+	# enable SSE support
+	mov %cr0, %rax
+	and $0xFFFFFFFFFFFFFFFB, %rax # disable EM
+	or $2, %rax # enable MP
+	mov %rax, %cr0
+
+	mov %cr4, %rax
+	or $0x200, %rax # enable OSFXSR
+	or $0x400, %rax # enable OSXMMEXCPT
+	mov %rax, %cr4
+
 	call thorMain
 	ud2
 
@@ -168,9 +180,8 @@ MAKE_IRQ_HANDLER 15
 # and 0 when the thread is continues execution
 .global saveThisThread
 saveThisThread:
-	# system v abi says we can clobber rax and rcx
+	# system v abi says we can clobber rax
 	mov %gs:.L_kGsGeneralState, %rax
-	mov %gs:.L_kGsExtendedState, %rcx
 	
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_generalRbx(%rax)
@@ -181,7 +192,7 @@ saveThisThread:
 	mov %r15, .L_generalR15(%rax)
 
 	# save the cpu's extended state
-	fxsaveq (%rcx)
+	fxsaveq .L_generalFxSave(%rax)
 	
 	# setup the state for the second return
 	pushfq
@@ -202,10 +213,6 @@ saveThisThread:
 restoreThisThread:
 	mov %gs:.L_kGsGeneralState, %rbx
 	
-	# restore the cpu's extended state
-	mov %gs:.L_kGsExtendedState, %rcx
-	fxrstor (%rcx)
-
 	mov .L_generalRcx(%rbx), %rcx
 	mov .L_generalRdx(%rbx), %rdx
 	mov .L_generalRsi(%rbx), %rsi
@@ -221,6 +228,9 @@ restoreThisThread:
 	mov .L_generalR14(%rbx), %r14
 	mov .L_generalR15(%rbx), %r15
 	
+	# restore the cpu's extended state
+	fxrstorq .L_generalFxSave(%rbx)
+
 	# check if we return to kernel mode
 	testb $1, .L_generalKernel(%rbx)
 	jnz .L_restore_kernel

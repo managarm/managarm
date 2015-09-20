@@ -10,9 +10,6 @@ namespace traits = frigg::traits;
 namespace memory = frigg::memory;
 namespace util = frigg::util;
 
-//FIXME: LazyInitializer<debug::VgaScreen> vgaScreen;
-//LazyInitializer<debug::Terminal> vgaTerminal;
-
 // loads an elf image into the current address space
 // this is called in kernel mode from the initial user thread
 void enterImage(PhysicalAddr image_paddr) {
@@ -97,12 +94,11 @@ void enterImage(PhysicalAddr image_paddr) {
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	//vgaScreen.initialize((char *)physicalToVirtual(0xB8000), 80, 25);
-//FIXME	vgaTerminal.initialize(vgaScreen.get());
 	infoLogger.initialize(infoSink);
-
 	infoLogger->log() << "Starting Thor" << debug::Finish();
 
+	initializeProcessorEarly();
+	
 	auto info = accessPhysical<EirInfo>(info_paddr);
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
@@ -111,7 +107,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->bootstrap();
-	
+
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	kernelSpace.initialize(pml4_ptr);
@@ -165,10 +161,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
-	thread->accessSaveState().generalState.rdi = modules[0].physicalBase;
-	thread->accessSaveState().generalState.rsp = stack_ptr;
-	thread->accessSaveState().generalState.rip = (Word)&enterImage;
-	thread->accessSaveState().generalState.kernel = 1;
+	auto base_state = thread->accessSaveState().accessGeneralBaseState();
+	base_state->rdi = modules[0].physicalBase;
+	base_state->rsp = stack_ptr;
+	base_state->rip = (Word)&enterImage;
+	base_state->kernel = 1;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
 	activeList->addBack(traits::move(thread));
@@ -466,12 +463,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 				controlArch(interface, user_input, user_output);
 				thorRtReturnSyscall1((Word)kHelErrNone);
 			}else if(subsystem == kThorSubDebug) {
-				if(interface == kThorIfSingleStepMe) {
-					getCurrentThread()->accessSaveState().syscallState.rflags |= 0x100;
-					thorRtReturnSyscall1((Word)kHelErrNone);
-				}else{
-					assert(!"Illegal debug interface");
-				}
+				assert(!"Illegal debug interface");
 			}else{
 				assert(!"Illegal subsystem");
 			}

@@ -78,10 +78,11 @@ CpuContext::CpuContext() {
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
-	thread->accessSaveState().generalState.rsp = stack_ptr;
-	thread->accessSaveState().generalState.rflags = 0x200; // enable interrupts
-	thread->accessSaveState().generalState.rip = (Word)&idleRoutine;
-	thread->accessSaveState().generalState.kernel = 1;
+	auto base_state = thread->accessSaveState().accessGeneralBaseState();
+	base_state->rsp = stack_ptr;
+	base_state->rflags = 0x200; // enable interrupts
+	base_state->rip = (Word)&idleRoutine;
+	base_state->kernel = 1;
 	
 	idleThread = thread;
 	activeList->addBack(traits::move(thread));

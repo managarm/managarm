@@ -32,8 +32,8 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	PhysicalAddr new_pml4_page = physicalAllocator->allocate(physical_guard, 1);
 	physical_guard.unlock();
 
-	volatile uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
-	volatile uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
+	uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
 
 	for(int i = 0; i < 256; i++)
 		new_pml4_pointer[i] = 0;
@@ -56,11 +56,11 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 	
 	// the pml4 exists already
-	volatile uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
 
 	// make sure there is a pdpt
 	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
-	volatile uint64_t *pdpt_pointer;
+	uint64_t *pdpt_pointer;
 	if((pml4_initial_entry & kPagePresent) != 0) {
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
@@ -82,7 +82,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	
 	// make sure there is a pd
 	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
-	volatile uint64_t *pd_pointer;
+	uint64_t *pd_pointer;
 	if((pdpt_initial_entry & kPagePresent) != 0) {
 		pd_pointer = (uint64_t *)physicalToVirtual(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
@@ -104,7 +104,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	
 	// make sure there is a pt
 	uint64_t pd_initial_entry = pd_pointer[pd_index];
-	volatile uint64_t *pt_pointer;
+	uint64_t *pt_pointer;
 	if((pd_initial_entry & kPagePresent) != 0) {
 		pt_pointer = (uint64_t *)physicalToVirtual(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
@@ -134,6 +134,8 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	if((flags & kAccessExecute) == 0)
 		new_entry |= kPageXd;
 	pt_pointer[pt_index] = new_entry;
+
+	frigg::atomic::barrier();
 }
 
 PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
@@ -145,29 +147,28 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 	
 	// find the pml4_entry
-	volatile uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
 	assert((pml4_entry & kPagePresent) != 0);
-	volatile uint64_t *pdpt_pointer
-			= (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// find the pd entry
 	assert((pdpt_entry & kPagePresent) != 0);
-	volatile uint64_t *pd_pointer
-			= (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// find the pt entry
 	assert((pd_entry & kPagePresent) != 0);
-	volatile uint64_t *pt_pointer
-			= (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// change the pt entry
 	assert((pt_pointer[pt_index] & kPagePresent) != 0);
 	pt_pointer[pt_index] ^= kPagePresent;
+
+	frigg::atomic::barrier();
 
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
@@ -178,7 +179,7 @@ PhysicalAddr PageSpace::getPml4() {
 
 void thorRtInvalidateSpace() {
 	asm volatile ("movq %%cr3, %%rax\n\t"
-		"movq %%rax, %%cr3" : : : "%rax");
+		"movq %%rax, %%cr3" : : : "%rax", "memory");
 }
 
 } // namespace thor

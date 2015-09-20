@@ -1,6 +1,8 @@
 
 namespace thor {
 
+void initializeProcessorEarly();
+
 void setupIdt(uint32_t *table);
 
 bool intsAreEnabled();

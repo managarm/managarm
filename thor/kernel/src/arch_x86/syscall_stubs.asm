@@ -10,9 +10,11 @@
 .set .L_kSyscallRip, 0x30
 .set .L_kSyscallRflags, 0x38
 
+.set .L_kSyscallFxSave, 0x40
+
 .set .L_kGsSyscallState, 0x10
-.set .L_kGsSyscallStackPtr, 0x20
-.set .L_kGsFlags, 0x28
+.set .L_kGsSyscallStackPtr, 0x18
+.set .L_kGsFlags, 0x20
 
 .global syscallStub
 syscallStub:
@@ -24,10 +26,13 @@ syscallStub:
 	mov %r14, .L_kSyscallR14(%rbx)
 	mov %r15, .L_kSyscallR15(%rbx)
 	mov %rsp, .L_kSyscallRsp(%rbx)
-
+	
 	# syscall stores rip to rcx and rflags to r11
 	mov %rcx, .L_kSyscallRip(%rbx)
 	mov %r11, .L_kSyscallRflags(%rbx)
+
+	# save the cpu's extended state
+	fxsaveq .L_kSyscallFxSave(%rbx)
 
 	mov %gs:.L_kGsSyscallStackPtr, %rsp
 	
@@ -55,6 +60,9 @@ thorRtReturnSyscall3:
 	mov .L_kSyscallR14(%rbx), %r14
 	mov .L_kSyscallR15(%rbx), %r15
 	mov .L_kSyscallRsp(%rbx), %rsp
+	
+	# restore the cpu's extended state
+	fxrstorq .L_kSyscallFxSave(%rbx)
 
 	# setup rcx and r11 for sysret
 	mov .L_kSyscallRip(%rbx), %rcx

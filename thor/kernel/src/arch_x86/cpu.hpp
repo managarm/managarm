@@ -11,7 +11,7 @@ namespace thor {
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct ThorRtGeneralState {
+struct GeneralBaseState {
 	Word rax;			// offset 0x00
 	Word rbx;			// offset 0x08
 	Word rcx;			// offset 0x10
@@ -35,7 +35,10 @@ struct ThorRtGeneralState {
 	// 0 = thread saved in user mode
 	// 1 = thread saved in kernel mode
 	uint8_t kernel;		// offset 0x90
+	uint8_t padding[15];
 };
+
+static_assert(sizeof(GeneralBaseState) == 0xA0, "Bad sizeof(GeneralBaseState)");
 
 struct FxSaveState {
 	uint16_t fcw; // x87 control word
@@ -87,7 +90,7 @@ static_assert(sizeof(FxSaveState) == 512, "Bad sizeof(FxSaveState)");
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct ThorRtSyscallState {
+struct SyscallBaseState {
 	Word rbp;		// offset 0x00
 	Word r12;		// offset 0x08
 	Word r13;		// offset 0x10
@@ -97,6 +100,8 @@ struct ThorRtSyscallState {
 	Word rip;		// offset 0x30
 	Word rflags;	// offset 0x38
 };
+
+static_assert(sizeof(SyscallBaseState) == 0x40, "Bad sizeof(SyscallBaseState)");
 
 struct ThorRtThreadState {
 	enum {
@@ -114,10 +119,13 @@ struct ThorRtThreadState {
 	void activate();
 	void deactivate();
 
-	ThorRtGeneralState generalState;
-	ThorRtSyscallState syscallState;
+	inline GeneralBaseState *accessGeneralBaseState() {
+		return (GeneralBaseState *)generalState;
+	}
+	
+	void *generalState;
+	void *syscallState;
 	frigg::arch_x86::Tss64 threadTss;
-	FxSaveState *extendedState;
 
 	alignas(kSyscallStackAlign) uint8_t syscallStack[kSyscallStackSize];
 };
@@ -144,10 +152,9 @@ struct ThorRtKernelGs {
 		kOffCpuContext = 0x00,
 		kOffGeneralState = 0x08,
 		kOffSyscallState = 0x10,
-		kOffExtendedState = 0x18,
-		kOffSyscallStackPtr = 0x20,
-		kOffFlags = 0x28,
-		kOffCpuSpecific = 0x30
+		kOffSyscallStackPtr = 0x18,
+		kOffFlags = 0x20,
+		kOffCpuSpecific = 0x28
 	};
 
 	enum {
@@ -157,13 +164,12 @@ struct ThorRtKernelGs {
 	ThorRtKernelGs();
 
 	CpuContext *cpuContext;				// offset 0x00
-	ThorRtGeneralState *generalState;	// offset 0x08
-	ThorRtSyscallState *syscallState;	// offset 0x10
-	FxSaveState *extendedState;			// offset 0x18
-	void *syscallStackPtr;				// offset 0x20
-	uint32_t flags;						// offset 0x28
+	void *generalState;					// offset 0x08
+	void *syscallState;					// offset 0x10
+	void *syscallStackPtr;				// offset 0x18
+	uint32_t flags;						// offset 0x20
 	uint32_t padding;
-	ThorRtCpuSpecific *cpuSpecific;		// offset 0x30
+	ThorRtCpuSpecific *cpuSpecific;		// offset 0x28
 };
 
 CpuContext *getCpuContext();

@@ -7,7 +7,8 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 
 $c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
-	arch_x86/int_stubs.o arch_x86/syscall_stubs.o arch_x86/cpu.o arch_x86/trampoline.o \
+	arch_x86/early_stubs.o arch_x86/int_stubs.o arch_x86/syscall_stubs.o \
+	arch_x86/cpu.o arch_x86/trampoline.o \
 	arch_x86/ints.o arch_x86/pic.o arch_x86/system.o arch_x86/paging.o \
 	arch_x86/hpet.o \
 	physical.o main.o hel.o \
@@ -39,8 +40,9 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel \
-	-fno-exceptions -fno-rtti -std=c++1y -Wall
+$c_CXXFLAGS += -std=c++1y -Wall -O2
+$c_CXXFLAGS += -fno-exceptions -fno-rtti
+$c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 
 $c_AS := x86_64-managarm-as
 $c_ASFLAGS :=

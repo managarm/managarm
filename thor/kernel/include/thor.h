@@ -11,8 +11,5 @@ enum {
 	kThorIfSetupIoApic = 2,
 	kThorIfBootSecondary = 3,
 	kThorIfFinishBoot = 4,
-
-	// x86_64 debug interfaces
-	kThorIfSingleStepMe = 1
 };
 
