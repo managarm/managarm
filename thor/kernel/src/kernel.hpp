@@ -9,13 +9,13 @@
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/optional.hpp>
+#include <frigg/tuple.hpp>
 #include <frigg/string.hpp>
 #include <frigg/array.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/priority_queue.hpp>
-#include <frigg/tuple.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/smart_ptr.hpp>
 

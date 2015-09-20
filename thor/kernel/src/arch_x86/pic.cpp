@@ -10,7 +10,7 @@ enum {
 	kModelApic = 2
 };
 
-static int picModel =  kModelLegacy;
+static int picModel = kModelLegacy;
 
 // --------------------------------------------------------
 // Local PIC management
@@ -41,28 +41,27 @@ void initLocalApicOnTheSystem() {
 	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
 	assert((apic_info & (1 << 11)) != 0); // local APIC is enabled
 	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
+
+	infoLogger->log() << "Booting on CPU #" << getLocalApicId() << frigg::debug::Finish();
 }
 
 void initLocalApicPerCpu() {
 	// enable the local apic
 	uint32_t spurious_vector = 0x81;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious],
-			spurious_vector | 0x100);
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious], spurious_vector | 0x100);
 	
 	// setup a timer interrupt for scheduling
 	uint32_t schedule_vector = 0x82;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer],
-			schedule_vector);
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer], schedule_vector);
 }
 
 uint32_t getLocalApicId() {
-	return frigg::volatileRead<uint32_t>(&localApicRegs[kLApicId]);
+	return (frigg::volatileRead<uint32_t>(&localApicRegs[kLApicId]) >> 24) & 0xFF;
 }
 
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount],
-			0xFFFFFFFF);
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0xFFFFFFFF);
 	pollSleepNano(millis * 1000000);
 	uint32_t elapsed = 0xFFFFFFFF
 			- frigg::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
@@ -70,6 +69,20 @@ void calibrateApicTimer() {
 	apicTicksPerMilli = elapsed / millis;
 	
 	infoLogger->log() << "Local elapsed ticks: " << elapsed << debug::Finish();
+}
+
+void preemptThisCpu(uint64_t slice_nano) {
+	if(apicTicksPerMilli == 0)
+		return;
+	
+	uint64_t ticks = (slice_nano / 1000000) * apicTicksPerMilli;
+	if(ticks == 0)
+		ticks = 1;
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], ticks);
+}
+
+void acknowledgePreemption() {
+	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicEoi], 0);
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {

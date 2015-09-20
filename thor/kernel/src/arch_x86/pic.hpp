@@ -12,6 +12,10 @@ uint32_t getLocalApicId();
 
 void calibrateApicTimer();
 
+void preemptThisCpu(uint64_t slice_nanos);
+
+void acknowledgePreemption();
+
 void raiseInitAssertIpi(uint32_t dest_apic_id);
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id);

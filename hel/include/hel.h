@@ -20,6 +20,7 @@ enum {
 	kHelCallMemoryInfo = 26,
 	
 	kHelCallCreateThread = 3,
+	kHelCallYield = 34,
 	kHelCallExitThisThread = 5,
 	
 	kHelCallCreateEventHub = 13,
@@ -142,6 +143,7 @@ HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
 		HelHandle directory, struct HelThreadState *state, HelHandle *handle);
+HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);

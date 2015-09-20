@@ -10,6 +10,7 @@
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/optional.hpp>
+#include <frigg/tuple.hpp>
 #include <frigg/hashmap.hpp>
 #include <frigg/async2.hpp>
 #include <frigg/protobuf.hpp>
@@ -37,6 +38,8 @@ struct OpenFile {
 struct Process {
 	Process();
 
+	Process *fork();
+
 	util::Hashmap<int, OpenFile *, util::DefaultHasher<int>,
 			Allocator> allOpenFiles;
 	int nextFd = 3;
@@ -44,6 +47,16 @@ struct Process {
 
 Process::Process() : allOpenFiles(util::DefaultHasher<int>(), *allocator){
 
+}
+
+Process *Process::fork() {
+	auto new_process = frigg::memory::construct<Process>(*allocator);
+
+	for(auto it = allOpenFiles.iterator(); it; ++it) {
+		new_process->allOpenFiles.insert(it->get<0>(), it->get<1>());
+	}
+
+	return new_process;
 }
 
 void acceptLoop(helx::Server server, Process *process);
@@ -116,8 +129,9 @@ frigg::asyncSeq(
 );
 
 struct ExecuteContext {
-	ExecuteContext(util::String<Allocator> program)
-	: program(frigg::traits::move(program)), directory(helx::Directory::create()),
+	ExecuteContext(util::String<Allocator> program, Process *process)
+	: program(frigg::traits::move(program)), process(process),
+			directory(helx::Directory::create()),
 			localDirectory(helx::Directory::create()),
 			configDirectory(helx::Directory::create()) {
 		HEL_CHECK(helCreateSpace(&space));
@@ -131,6 +145,7 @@ struct ExecuteContext {
 
 	util::String<Allocator> program;
 	HelHandle space;
+	Process *process;
 
 	helx::Directory directory;
 	helx::Directory localDirectory;
@@ -147,7 +162,7 @@ frigg::asyncSeq(
 		helx::Server server;
 		helx::Client client;
 		helx::Server::createServer(server, client);
-		acceptLoop(server, frigg::memory::construct<Process>(*allocator));
+		acceptLoop(server, context->process);
 
 		context->localDirectory.publish(client.getHandle(), "posix");
 
@@ -229,8 +244,21 @@ frigg::asyncRepeatUntil(
 			managarm::posix::ClientRequest<Allocator> request(*allocator);
 			request.ParseFromArray(context->buffer, length);
 
-			if(request.request_type() == managarm::posix::ClientRequestType::SPAWN) {
-				frigg::runAsync<ExecuteContext>(*allocator, executeProgram, request.path());
+			if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
+				auto new_process = frigg::memory::construct<Process>(*allocator);
+				frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
+						request.path(), new_process);
+				
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+
+				util::String<Allocator> serialized(*allocator);
+				response.SerializeToString(&serialized);
+				context->pipe.sendString(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}else if(request.request_type() == managarm::posix::ClientRequestType::SPAWN) {
+				frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
+						request.path(), context->process->fork());
 				
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);

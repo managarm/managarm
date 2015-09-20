@@ -206,8 +206,7 @@ extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
 	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
-	thor::infoLogger->log() << "Hello world from CPU #"
-			<< (getLocalApicId() >> 24) << debug::Finish();	
+	thor::infoLogger->log() << "Hello world from CPU #" << getLocalApicId() << debug::Finish();	
 	initializeThisProcessor();
 
 	thor::infoLogger->log() << "Start scheduling on AP" << debug::Finish();

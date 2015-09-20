@@ -122,8 +122,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	scheduleQueue.initialize(*kernelAlloc);
 	scheduleLock.initialize();
 
-	initializeThisProcessor();
 	initializeTheSystem();
+	initializeThisProcessor();
 	
 	// create a directory and load the memory regions of all modules into it
 	assert(info->numModules >= 1);
@@ -177,14 +177,12 @@ extern "C" void handleDivideByZeroFault() {
 	debug::panicLogger.log() << "Divide by zero" << debug::Finish();
 }
 
-extern "C" void handleDebugFault(uint64_t fault_ip) {
-	infoLogger->log() << "[" << (void *)fault_ip << "] Debug" << debug::Finish();
+extern "C" void handleDebugFault() {
+	infoLogger->log() << "Debug fault" << debug::Finish();
 }
 
-extern "C" void handleOpcodeFault(uint64_t fault_ip) {
-	debug::panicLogger.log() << "Invalid opcode"
-			<< ", faulting ip: " << (void *)fault_ip
-			<< debug::Finish();
+extern "C" void handleOpcodeFault() {
+	debug::panicLogger.log() << "Invalid opcode" << debug::Finish();
 }
 
 extern "C" void handleDoubleFault() {
@@ -192,8 +190,10 @@ extern "C" void handleDoubleFault() {
 }
 
 extern "C" void handleProtectionFault(Word error) {
+//	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
 	debug::panicLogger.log() << "General protection fault\n"
-			<< "   Faulting segment: " << (void *)error << debug::Finish();
+//			<< "    Faulting IP: " << (void *)base_state->rip << "\n"
+			<< "    Faulting segment: " << (void *)error << debug::Finish();
 }
 
 extern "C" void thorKernelPageFault(uintptr_t address,

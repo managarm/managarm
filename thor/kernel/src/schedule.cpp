@@ -37,6 +37,8 @@ void enterThread(KernelUnsafePtr<Thread> thread) {
 	assert(!intsAreEnabled());
 	auto cpu_context = getCpuContext();
 	assert(!cpu_context->currentThread);
+	
+	preemptThisCpu(100000000);
 
 	thread->activate();
 	cpu_context->currentThread = thread;
@@ -50,12 +52,25 @@ void doSchedule(ScheduleGuard &&guard) {
 	
 	if(!scheduleQueue->empty()) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
+		
 		guard.unlock();
 		enterThread(thread);
 	}else{
 		guard.unlock();
 		enterThread(getCpuContext()->idleThread);
 	}
+}
+
+extern "C" void onPreemption() {
+	acknowledgePreemption();
+	
+	KernelUnsafePtr<Thread> thread = getCurrentThread();
+	resetCurrentThread();
+	
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	if(thread.get() != getCpuContext()->idleThread.get())
+		enqueueInSchedule(schedule_guard, thread);
+	doSchedule(traits::move(schedule_guard));
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
@@ -66,6 +81,8 @@ void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
 
 void idleRoutine() {
 	while(true) {
+		disableInts();
+		enableInts();
 		assert(intsAreEnabled());
 		halt();
 	}

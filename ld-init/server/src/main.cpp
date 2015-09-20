@@ -9,6 +9,7 @@
 #include <frigg/memory.hpp>
 #include <frigg/libc.hpp>
 #include <frigg/optional.hpp>
+#include <frigg/tuple.hpp>
 #include <frigg/string.hpp>
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>

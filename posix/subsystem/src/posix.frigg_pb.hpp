@@ -17,6 +17,7 @@ struct Errors {
 
 struct ClientRequestType {
   enum {
+    INIT = 7,
     SPAWN = 1,
     OPEN = 2,
     READ = 3,

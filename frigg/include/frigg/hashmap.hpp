@@ -5,11 +5,75 @@ namespace util {
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 class Hashmap {
 public:
+	typedef Tuple<const Key, Value> Entry;
+
+private:
+	struct Item {
+		Entry entry;
+		Item *chain;
+
+		Item(const Key &new_key, const Value &new_value)
+				: entry(new_key, new_value), chain(nullptr) { }
+		Item(const Key &new_key, Value &&new_value)
+				: entry(new_key, traits::move(new_value)), chain(nullptr) { }
+	};
+
+public:
+	class Iterator {
+	friend class Hashmap;
+	public:
+		Iterator &operator++ () {
+			assert(item != nullptr);
+
+			item = item->chain;
+			if(item != nullptr)
+				return *this;
+
+			while(bucket < map.p_capacity) {
+				item = map.p_table[bucket];
+				bucket++;
+				if(item != nullptr)
+					break;
+			}
+
+			return *this;
+		}
+
+		Entry &operator* () {
+			return item->entry;
+		}
+		Entry *operator-> () {
+			return &item->entry;
+		}
+
+		operator bool () {
+			return item != nullptr;
+		}
+
+	private:
+		Iterator(Hashmap &map) : map(map), item(nullptr), bucket(0) {
+			while(bucket < map.p_capacity) {
+				item = map.p_table[bucket];
+				bucket++;
+				if(item != nullptr)
+					break;
+			}
+		}
+
+		Hashmap &map;
+		Item *item;
+		size_t bucket;
+	};
+
 	Hashmap(const Hasher &hasher, Allocator &allocator);
 	~Hashmap();
 
 	void insert(const Key &key, const Value &value);
 	void insert(const Key &key, Value &&value);
+
+	Iterator iterator() {
+		return Iterator(*this);
+	}
 
 	Optional<Value *> get(const Key &key);
 
@@ -17,17 +81,6 @@ public:
 
 private:
 	void rehash();
-
-	struct Item {
-		Key key;
-		Value value;
-		Item *chain;
-
-		Item(const Key &new_key, const Value &new_value)
-				: key(new_key), value(new_value), chain(nullptr) { }
-		Item(const Key &new_key, Value &&new_value)
-				: key(new_key), value(traits::move(new_value)), chain(nullptr) { }
-	};
 	
 	Hasher p_hasher;
 	Allocator &p_allocator;
@@ -87,8 +140,8 @@ Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
-		if(item->key == key)
-			return &item->value;
+		if(item->entry.template get<0>() == key)
+			return &item->entry.template get<1>();
 	}
 
 	return Optional<Value *>();
@@ -100,8 +153,8 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 	
 	Item *previous = nullptr;
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
-		if(item->key == key) {
-			Value value = traits::move(item->value);
+		if(item->entry.template get<0>() == key) {
+			Value value = traits::move(item->entry.template get<1>());
 			
 			if(previous == nullptr) {
 				p_table[bucket] = item->chain;
@@ -129,7 +182,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::rehash() {
 	for(size_t i = 0; i < p_capacity; i++) {
 		Item *item = p_table[i];
 		while(item != nullptr) {
-			auto bucket = ((unsigned int)p_hasher(item->key)) % new_capacity;
+			auto bucket = ((unsigned int)p_hasher(item->entry.template get<0>())) % new_capacity;
 
 			Item *chain = item->chain;
 			item->chain = new_table[bucket];

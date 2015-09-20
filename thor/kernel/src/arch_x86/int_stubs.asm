@@ -68,6 +68,9 @@ thorRtEntry:
 	mov %r13, .L_generalR13(%rbx)
 	mov %r14, .L_generalR14(%rbx)
 	mov %r15, .L_generalR15(%rbx)
+
+	# save the cpu's extended state
+	fxsaveq .L_generalFxSave(%rbx)
 .endm
 
 # saves the interrupt stack frame in the thread structure
@@ -88,53 +91,27 @@ thorRtEntry:
 .global faultStub\name
 faultStub\name:
 	pushq %rbx
-	mov 8(%rsp), %rbx # rip
-	pushq %rax
-	pushq %rcx
-	pushq %rdx
-	pushq %rdi
-	pushq %rsi
-	pushq %rbp
-	
-	pushq %r8
-	pushq %r9
-	pushq %r10
-	pushq %r11
-	pushq %r12
-	pushq %r13
-	pushq %r14
-	pushq %r15
-	
-	mov %rbx, %rdi
-	call handle\name\()Fault
-	
-	popq %r15
-	popq %r14
-	popq %r13
-	popq %r12
-	popq %r11
-	popq %r10
-	popq %r9
-	popq %r8
+	mov %gs:.L_kGsGeneralState, %rbx
+	SAVE_REGISTERS
+	popq .L_generalRbx(%rbx)
+	SAVE_FRAME
 
-	popq %rbp
-	popq %rsi
-	popq %rdi
-	popq %rdx
-	popq %rcx
-	popq %rax
-	popq %rbx
-	iretq
+	push $restoreThisThread
+	jmp handle\name\()Fault
 .endm
 
 .macro MAKE_FAULT_HANDLER_WITHCODE name
 .global faultStub\name
 faultStub\name:
+	pushq %rbx
+	mov %gs:.L_kGsGeneralState, %rbx
+	SAVE_REGISTERS
+	popq .L_generalRbx(%rbx)
 	popq %rdi # error code
-	popq %rsi # rip
+	SAVE_FRAME
 
-	call handle\name\()Fault
-	ud2
+	push $restoreThisThread
+	jmp handle\name\()Fault
 .endm
 
 MAKE_FAULT_HANDLER DivideByZero
@@ -174,6 +151,17 @@ MAKE_IRQ_HANDLER 12
 MAKE_IRQ_HANDLER 13
 MAKE_IRQ_HANDLER 14
 MAKE_IRQ_HANDLER 15
+
+.global thorRtIsrPreempted
+thorRtIsrPreempted:
+	pushq %rbx
+	mov %gs:.L_kGsGeneralState, %rbx
+	SAVE_REGISTERS
+	popq .L_generalRbx(%rbx)
+	SAVE_FRAME
+
+	push $restoreThisThread
+	jmp onPreemption
 
 # blocks the current thread. returns twice (like fork)
 # returns 1 when the thread is blocked
@@ -261,7 +249,7 @@ restoreThisThread:
 enterUserMode:
 	pushq $.L_userDataSelector
 	pushq %rdi # rsp
-	pushq $0 # rflags
+	pushq $.L_kRflagsIf # rflags, enable interrupts
 	pushq $.L_userCode64Selector
 	pushq %rsi # rip
 	iretq

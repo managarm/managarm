@@ -40,20 +40,17 @@ struct Access;
 
 template<int n, typename T, typename... Types>
 struct Access<n, T, Types...> {
-	static typename NthType<n - 1, Types...>::type
-	access(Storage<T, Types...> &storage) {
+	static typename NthType<n - 1, Types...>::type &access(Storage<T, Types...> &storage) {
 		return Access<n - 1, Types...>::access(storage.tail);
 	}
 };
 
 template<typename T, typename... Types>
 struct Access<0, T, Types...> {
-	static T access(Storage<T, Types...> &storage) {
+	static T &access(Storage<T, Types...> &storage) {
 		return storage.item;
 	}
 };
-
-struct MakeTuple { };
 
 } // namespace tuple_impl
 
@@ -63,11 +60,11 @@ public:
 	Tuple(const Tuple &other) = default;
 
 	template<typename... FwTypes>
-	Tuple(tuple_impl::MakeTuple, FwTypes &&... args)
+	explicit Tuple(FwTypes &&... args)
 	: p_storage(traits::forward<FwTypes>(args)...) { }
 
 	template<int n>
-	typename tuple_impl::NthType<n, Types...>::type get() {
+	typename tuple_impl::NthType<n, Types...>::type &get() {
 		return tuple_impl::Access<n, Types...>::access(p_storage);
 	}
 
@@ -77,7 +74,7 @@ private:
 
 template<typename... Types>
 Tuple<Types...> makeTuple(Types &&... args) {
-	return Tuple<Types...>(tuple_impl::MakeTuple(), traits::forward<Types>(args)...);
+	return Tuple<Types...>(traits::forward<Types>(args)...);
 }
 
 } } // namespace frigg::util

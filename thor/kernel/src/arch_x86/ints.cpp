@@ -31,6 +31,8 @@ extern "C" void thorRtIsrIrq13();
 extern "C" void thorRtIsrIrq14();
 extern "C" void thorRtIsrIrq15();
 
+extern "C" void thorRtIsrPreempted();
+
 namespace thor {
 
 uint32_t earlyGdt[3];
@@ -137,6 +139,9 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq14, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 79,
 			0x8, (void *)&thorRtIsrIrq15, 1);
+	
+	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
+			0x8, (void *)&thorRtIsrPreempted, 1);
 }
 
 bool intsAreEnabled() {

@@ -735,102 +735,37 @@ struct LibcAllocator {
 
 LibcAllocator allocator;
 
-struct TestContext {
-	TestContext(helx::Client client) : client(client) { }
+void thread1() {
+	helLog("a", 1);
+	while(true) {
+//		helLog("a", 1);
+	}
+}
 
-	int64_t fd;
-	helx::Client client;
-	int8_t buffer[128];
-	helx::Pipe pipe;
-};
+void thread2() {
+	helLog("b", 1);
+	while(true) {
+//		helLog("b", 1);
+	}
+}
 
-auto test =
-async::seq(
-	async::lambda([] (TestContext &context, util::Callback<void(HelError, HelHandle)> callback) {
-		context.client.connect(eventHub, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)>
-			callback, HelError error, HelHandle handle) {
-		printf("connected to initrd_fs_server\n");
-
-		managarm::fs::ClientRequest request;
-		request.set_request_type(managarm::fs::ClientRequest::OPEN);
-		request.set_filename("zisa");
-		std::string serialized;
-		request.SerializeToString(&serialized);
-
-		context.pipe = helx::Pipe(handle);
-		context.pipe.sendString(serialized.data(), serialized.length(),
-				0, 0);
-		context.pipe.recvString(context.buffer, 128, eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)> 
-			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-
-		managarm::fs::ServerResponse response;
-		response.ParseFromArray(context.buffer, length);
-		context.fd = response.fd();
-
-		if(response.error() == -1) {
-			printf("error while opening\n");
-		}
-
-		managarm::fs::ClientRequest request;
-		request.set_request_type(managarm::fs::ClientRequest::READ);
-		request.set_fd(context.fd);
-		request.set_size(32);
-
-		std::string serialized;
-		request.SerializeToString(&serialized);
-
-		context.pipe.sendString(serialized.data(), serialized.length(), 0, 0);
-		context.pipe.recvString(context.buffer, 128, eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([] (TestContext &context, util::Callback<void(HelError, int64_t, int64_t, size_t)> 
-			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-
-		managarm::fs::ServerResponse response;
-		response.ParseFromArray(context.buffer, length);
-
-		if(response.error() == -1) {
-			printf("error while reading\n");
-		}
-
-		managarm::fs::ClientRequest request;
-		request.set_request_type(managarm::fs::ClientRequest::CLOSE);
-		request.set_fd(context.fd);
-		
-		std::string serialized;
-		request.SerializeToString(&serialized);
-
-		context.pipe.sendString(serialized.data(), serialized.length(), 0, 0);
-	}),
-	async::lambda([] (TestContext &context, util::Callback<void()> 
-			callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-		managarm::fs::ServerResponse response;
-		response.ParseFromArray(context.buffer, length);
-
-		if(response.error() == -1) {
-			printf("error while closing\n");
-		}
-	})
-);
+uint8_t stack1[4096];
+uint8_t stack2[4096];
 
 #include <unistd.h>
 
 int main() {
 	printf("Hello world");
 
-	pid_t child = fork();
-	if(child == 0) {
-		printf("Hello from child!\n");
-	}else{
-		printf("Hello from parent!\n");
-	}
+	HelThreadState state;
+	HelHandle handle1, handle2;
+
+	state.rip = (uint64_t)&thread1;
+	state.rsp = (uint64_t)(stack1 + 4096);
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, &handle1));
+	
+	state.rip = (uint64_t)&thread2;
+	state.rsp = (uint64_t)(stack2 + 4096);
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, &handle1));
 }
 

@@ -231,7 +231,7 @@ async::seq(
 	async::lambda([](PosixInitContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
-		request.set_request_type(managarm::posix::ClientRequestType::SPAWN);
+		request.set_request_type(managarm::posix::ClientRequestType::INIT);
 		request.set_path(util::String<Allocator>(*allocator, "posix-init"));
 		
 		util::String<Allocator> serialized(*allocator);
