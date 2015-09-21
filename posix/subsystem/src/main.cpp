@@ -234,8 +234,7 @@ frigg::asyncRepeatUntil(
 		frigg::wrapFuncPtr<helx::RecvStringFunction>([] (RequestLoopContext *context,
 				void *cb_object, auto cb_function) {
 			context->pipe.recvString(context->buffer, 128, eventHub,
-					kHelAnyRequest, 0,
-					cb_object, cb_function);
+					kHelAnyRequest, 0, cb_object, cb_function);
 		}),
 		frigg::wrapFunctor([] (RequestLoopContext *context, auto &callback,
 				HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {

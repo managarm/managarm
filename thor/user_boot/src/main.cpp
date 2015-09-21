@@ -238,18 +238,17 @@ async::seq(
 		request.SerializeToString(&serialized);
 		posixPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
-//		posixPipe.recvString(context.buffer, 128, eventHub,
-//				0, 0, callback.getObject(), callback.getFunction());
-		callback(0, 0, 0, 0);
+		posixPipe.recvString(context.buffer, 128, eventHub,
+				1, 0, callback.getObject(), callback.getFunction());
 	}),
 	async::lambda([](PosixInitContext &context,
 			util::Callback<void()> callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, size_t length) {
 		HEL_CHECK(error);
 		
-//		managarm::posix::ServerResponse<Allocator> response(*allocator);
-//		response.ParseFromArray(context.buffer, length);
-//		assert(response.error() == managarm::posix::Errors::SUCCESS);
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.ParseFromArray(context.buffer, length);
+		assert(response.error() == managarm::posix::Errors::SUCCESS);
 
 		callback();
 	})

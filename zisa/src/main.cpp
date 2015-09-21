@@ -755,7 +755,7 @@ uint8_t stack2[4096];
 #include <unistd.h>
 
 int main() {
-	printf("Hello world");
+	printf("Hello world\n");
 
 	HelThreadState state;
 	HelHandle handle1, handle2;
