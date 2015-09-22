@@ -236,6 +236,10 @@ DEFINE_SYSCALL(EnableIo, HelHandle handle)
 	DO_SYSCALL(EnableIo)
 END_SYSCALL()
 
+DEFINE_SYSCALL(EnableFullIo)
+	DO_SYSCALL(EnableFullIo)
+END_SYSCALL()
+
 DEFINE_SYSCALL(ControlKernel, int subsystem, int interface,
 		const void *input, void *output)
 	IN(0, subsystem) IN(1, interface) IN(2, input) IN(3, output)

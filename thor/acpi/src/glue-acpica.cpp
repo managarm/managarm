@@ -289,36 +289,18 @@ ACPI_STATUS AcpiOsWriteMemory(ACPI_PHYSICAL_ADDRESS address,
 
 ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width) {
 	if(width == 8) {
-		// enable the I/O port
-		uintptr_t base = address;
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(&base, 1, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint8_t result;
 		asm volatile ( "inb %1, %0" : "=a"(result) : "d"(port) );
 		*value = result;
 	}else if(width == 16) {
-		// enable the I/O port
-		uintptr_t array[2] = { address, address + 1 };
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(array, 2, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint16_t result;
 		asm volatile ( "inw %1, %0" : "=a"(result) : "d"(port) );
 		*value = result;
 	}else if(width == 32) {
-		// enable the I/O port
-		uintptr_t array[4] = { address, address + 1, address + 2, address + 3 };
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(array, 4, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint32_t result;
@@ -333,34 +315,16 @@ ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width)
 
 ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width) {
 	if(width == 8) {
-		// enable the I/O port
-		uintptr_t base = address;
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(&base, 1, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint8_t to_write = value;
 		asm volatile ( "outb %0, %1" : : "a"(to_write), "d"(port) );
 	}else if(width == 16) {
-		// enable the I/O port
-		uintptr_t array[2] = { address, address + 1 };
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(array, 2, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint16_t to_write = value;
 		asm volatile ( "outw %0, %1" : : "a"(to_write), "d"(port) );
 	}else if(width == 32) {
-		// enable the I/O port
-		uintptr_t array[4] = { address, address + 1, address + 2, address + 3 };
-		HelHandle handle;
-		HEL_CHECK(helAccessIo(array, 4, &handle));
-		HEL_CHECK(helEnableIo(handle));
-
 		// read the I/O port
 		uint16_t port = address;
 		uint32_t to_write = value;

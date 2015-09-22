@@ -189,6 +189,8 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 	
+	HEL_CHECK(helEnableFullIo());
+	
 	infoLogger.initialize(infoSink);
 	allocator.initialize(virtualAlloc);
 

@@ -452,6 +452,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelError error = helEnableIo((HelHandle)arg0);
 			thorRtReturnSyscall1((Word)error);
 		}
+		case kHelCallEnableFullIo: {
+			HelError error = helEnableFullIo();
+			thorRtReturnSyscall1((Word)error);
+		}
 		
 		case kHelCallControlKernel: {
 			int subsystem = (int)arg0;
@@ -469,7 +473,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			}
 		}
 		default:
-			assert(!"Illegal syscall");
+			thorRtReturnSyscall1(kHelErrIllegalSyscall);
 	}
 
 	assert(!"No return at end of thorSyscall()");

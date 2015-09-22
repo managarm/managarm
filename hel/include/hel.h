@@ -47,12 +47,14 @@ enum {
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12,
+	kHelCallEnableFullIo = 35,
 	
 	kHelCallControlKernel = 31
 };
 
 enum {
 	kHelErrNone = 0,
+	kHelErrIllegalSyscall = 5,
 	kHelErrBufferTooSmall = 1,
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
@@ -192,6 +194,7 @@ HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handl
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
+HEL_C_LINKAGE HelError helEnableFullIo();
 
 HEL_C_LINKAGE HelError helControlKernel(int subsystem, int interface,
 		const void *input, void *output);
@@ -200,6 +203,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 	switch(code) {
 	case kHelErrNone:
 		return "Success";
+	case kHelErrIllegalSyscall:
+		return "Illegal syscall";
 	case kHelErrNoDescriptor:
 		return "No such descriptor";
 	case kHelErrBadDescriptor:

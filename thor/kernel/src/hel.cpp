@@ -923,6 +923,7 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 
 	return kHelErrNone;
 }
+
 HelError helEnableIo(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -938,6 +939,15 @@ HelError helEnableIo(HelHandle handle) {
 	universe_guard.unlock();
 	
 	io_space->enableInThread(this_thread);
+
+	return kHelErrNone;
+}
+
+HelError helEnableFullIo() {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+
+	for(uintptr_t port = 0; port < 0x10000; port++)
+		this_thread->enableIoPort(port);
 
 	return kHelErrNone;
 }
