@@ -38,7 +38,8 @@ void enterThread(KernelUnsafePtr<Thread> thread) {
 	auto cpu_context = getCpuContext();
 	assert(!cpu_context->currentThread);
 	
-	preemptThisCpu(100000000);
+	if((thread->flags & Thread::kFlagExclusive) == 0)
+		preemptThisCpu(100000000);
 
 	thread->activate();
 	cpu_context->currentThread = thread;
@@ -68,7 +69,7 @@ extern "C" void onPreemption() {
 	resetCurrentThread();
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	if(thread.get() != getCpuContext()->idleThread.get())
+	if((thread->flags & Thread::kFlagNotScheduled) == 0)
 		enqueueInSchedule(schedule_guard, thread);
 	doSchedule(traits::move(schedule_guard));
 }

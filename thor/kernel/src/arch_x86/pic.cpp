@@ -72,8 +72,7 @@ void calibrateApicTimer() {
 }
 
 void preemptThisCpu(uint64_t slice_nano) {
-	if(apicTicksPerMilli == 0)
-		return;
+	assert(apicTicksPerMilli > 0);
 	
 	uint64_t ticks = (slice_nano / 1000000) * apicTicksPerMilli;
 	if(ticks == 0)

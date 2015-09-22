@@ -126,6 +126,11 @@ enum HelMapFlags {
 	kHelMapReadExecute = 4
 };
 
+enum HelThreadFlags {
+	kHelThreadNewUniverse = 1,
+	kHelThreadExclusive = 2
+};
+
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
@@ -144,7 +149,8 @@ HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
-		HelHandle directory, struct HelThreadState *state, HelHandle *handle);
+		HelHandle directory, struct HelThreadState *state,
+		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helExitThisThread();
 

@@ -762,10 +762,10 @@ int main() {
 
 	state.rip = (uint64_t)&thread1;
 	state.rsp = (uint64_t)(stack1 + 4096);
-	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, &handle1));
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));
 	
 	state.rip = (uint64_t)&thread2;
 	state.rsp = (uint64_t)(stack2 + 4096);
-	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, &handle1));
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));
 }
 

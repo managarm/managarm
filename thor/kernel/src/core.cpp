@@ -74,8 +74,9 @@ CpuContext::CpuContext() {
 	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, KernelSharedPtr<Universe>(),
-			traits::move(address_space), KernelSharedPtr<RdFolder>(), true);
-	
+			traits::move(address_space), KernelSharedPtr<RdFolder>());
+	thread->flags |= Thread::kFlagNotScheduled;
+
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
 	auto base_state = thread->accessSaveState().accessGeneralBaseState();

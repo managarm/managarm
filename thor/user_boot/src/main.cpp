@@ -29,7 +29,7 @@ namespace util = frigg::util;
 namespace debug = frigg::debug;
 namespace async = frigg::async;
 
-void loadImage(const char *path, HelHandle directory) {
+void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	// open and map the executable image into this address space
 	HelHandle image_handle;
 	HEL_CHECK(helRdOpen(path, strlen(path), &image_handle));
@@ -114,7 +114,10 @@ void loadImage(const char *path, HelHandle directory) {
 	state.rsp = (uintptr_t)stack_base + stack_size;
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(space, directory, &state, &thread));
+	uint32_t thread_flags = 0;
+	if(exclusive)
+		thread_flags |= kHelThreadExclusive;
+	HEL_CHECK(helCreateThread(space, directory, &state, thread_flags, &thread));
 }
 
 helx::EventHub eventHub;
@@ -142,7 +145,7 @@ auto startAcpi =
 async::seq(
 	async::lambda([](StartFreeContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		loadImage("initrd/acpi", context.directory.getHandle());
+		loadImage("initrd/acpi", context.directory.getHandle(), true);
 
 		// receive a client handle from the posix subsystem
 		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
@@ -170,7 +173,7 @@ auto startLdServer =
 async::seq(
 	async::lambda([](StartFreeContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		loadImage("initrd/ld-server", context.directory.getHandle());
+		loadImage("initrd/ld-server", context.directory.getHandle(), false);
 
 		// receive a client handle from ld-server
 		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
@@ -199,7 +202,7 @@ async::seq(
 			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
 		context.localDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
 
-		loadImage("initrd/posix-subsystem", context.directory.getHandle());
+		loadImage("initrd/posix-subsystem", context.directory.getHandle(), false);
 
 		// receive a client handle from the posix subsystem
 		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,

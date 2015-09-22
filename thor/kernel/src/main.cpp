@@ -158,7 +158,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	address_space->setupDefaultMappings();
 
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
-			traits::move(address_space), traits::move(root_directory), true);
+			traits::move(address_space), traits::move(root_directory));
+	thread->flags |= Thread::kFlagExclusive;
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
@@ -330,7 +331,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		case kHelCallCreateThread: {
 			HelHandle handle;
 			HelError error = helCreateThread((HelHandle)arg0,
-					(HelHandle)arg1, (HelThreadState *)arg2, &handle);
+					(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
 			thorRtReturnSyscall2((Word)error, (Word)handle);
 		}
 		case kHelCallExitThisThread: {

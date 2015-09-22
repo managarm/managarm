@@ -107,9 +107,9 @@ DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
 	OUT(0, size_t, size)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateThread, HelHandle address_space,
-		HelHandle directory, struct HelThreadState *state, HelHandle *handle)
-	IN(0, address_space) IN(1, directory) IN(2, state)
+DEFINE_SYSCALL(CreateThread, HelHandle address_space, HelHandle directory,
+		struct HelThreadState *state, uint32_t flags, HelHandle *handle)
+	IN(0, address_space) IN(1, directory) IN(2, state) IN(3, flags)
 	DO_SYSCALL(CreateThread)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()

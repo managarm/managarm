@@ -12,10 +12,9 @@ namespace thor {
 
 Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<AddressSpace> &&address_space,
-		KernelSharedPtr<RdFolder> &&directory,
-		bool kernel_thread)
-: p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory), p_kernelThread(kernel_thread) { }
+		KernelSharedPtr<RdFolder> &&directory)
+: flags(0), p_universe(universe), p_addressSpace(address_space),
+		p_directory(directory) { }
 
 KernelUnsafePtr<Universe> Thread::getUniverse() {
 	return p_universe;
@@ -25,10 +24,6 @@ KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
 }
 KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
-}
-
-bool Thread::isKernelThread() {
-	return p_kernelThread;
 }
 
 void Thread::enableIoPort(uintptr_t port) {

@@ -222,8 +222,8 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 }
 
 
-HelError helCreateThread(HelHandle space_handle,
-		HelHandle directory_handle, HelThreadState *user_state, HelHandle *handle) {
+HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
+		HelThreadState *user_state, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
@@ -257,7 +257,9 @@ HelError helCreateThread(HelHandle space_handle,
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc,
 			KernelSharedPtr<Universe>(this_universe),
-			traits::move(address_space), traits::move(directory), false);
+			traits::move(address_space), traits::move(directory));
+	if((flags & kHelThreadExclusive) != 0)
+		new_thread->flags |= Thread::kFlagExclusive;
 	
 	auto base_state = new_thread->accessSaveState().accessGeneralBaseState();
 	base_state->rax = user_state->rax;
