@@ -250,7 +250,7 @@ frigg::asyncSeq(
 
 		HelHandle thread;
 		HEL_CHECK(helCreateThread(context->space, context->directory.getHandle(),
-				&state, 0, &thread));
+				&state, kHelThreadNewUniverse, &thread));
 		callback();
 	})
 );

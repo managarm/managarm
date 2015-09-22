@@ -254,9 +254,15 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		directory = KernelSharedPtr<RdFolder>(dir_desc.getFolder());
 	}
 	universe_guard.unlock();
+	
+	KernelSharedPtr<Universe> universe;
+	if((flags & kHelThreadNewUniverse) != 0) {
+		universe = frigg::makeShared<Universe>(*kernelAlloc);
+	}else{
+		universe = KernelSharedPtr<Universe>(this_universe);
+	}
 
-	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc,
-			KernelSharedPtr<Universe>(this_universe),
+	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
 			traits::move(address_space), traits::move(directory));
 	if((flags & kHelThreadExclusive) != 0)
 		new_thread->flags |= Thread::kFlagExclusive;

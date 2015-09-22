@@ -114,7 +114,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	state.rsp = (uintptr_t)stack_base + stack_size;
 
 	HelHandle thread;
-	uint32_t thread_flags = 0;
+	uint32_t thread_flags = kHelThreadNewUniverse;
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
 	HEL_CHECK(helCreateThread(space, directory, &state, thread_flags, &thread));
