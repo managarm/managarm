@@ -30,18 +30,68 @@ helx::EventHub eventHub;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 
-struct OpenFile {
-	virtual void write(const void *buffer, size_t length) = 0;
-	virtual void read(void *buffer, size_t max_length, size_t &actual_length) = 0;
+struct OpenVfsNode {
+	virtual OpenVfsNode *openRelative(util::StringView path);
+	
+	virtual void write(const void *buffer, size_t length);
+	virtual void read(void *buffer, size_t max_length, size_t &actual_length);
+};
+
+OpenVfsNode *OpenVfsNode::openRelative(util::StringView path) {
+	assert(!"Illegal operation for this file");
+	__builtin_unreachable();
+}
+void OpenVfsNode::write(const void *buffer, size_t length) {
+	assert(!"Illegal operation for this file");
+}
+void OpenVfsNode::read(void *buffer, size_t max_length, size_t &actual_length) {
+	assert(!"Illegal operation for this file");
+}
+
+struct MountSpace {
+	MountSpace();
+
+	OpenVfsNode *openAbsolute(util::StringView path);
+
+	util::Hashmap<util::String<Allocator>, OpenVfsNode *,
+			util::DefaultHasher<util::StringView>, Allocator> allMounts;
+};
+
+MountSpace::MountSpace()
+: allMounts(util::DefaultHasher<util::StringView>(), *allocator) { }
+
+OpenVfsNode *MountSpace::openAbsolute(util::StringView path) {
+	assert(path.size() > 0);
+	assert(path[0] == '/');
+	
+	// splits the path into a prefix that identifies the mount point
+	// and a suffix that specifies remaining path relative to this mount point
+	util::StringView prefix = path;
+	util::StringView suffix;
+	
+	while(true) {
+		auto mount = allMounts.get(prefix);
+		if(mount)
+			return (**mount)->openRelative(suffix);
+
+		if(prefix == "/")
+			return nullptr;
+
+		size_t seperator = prefix.findLast('/');
+		assert(seperator != size_t(-1));
+		prefix = path.subString(0, seperator);
+		suffix = path.subString(seperator + 1, path.size() - (seperator + 1));
+	}
 };
 
 struct Process {
 	Process();
 
 	Process *fork();
+	
+	MountSpace *mountSpace;
 
-	util::Hashmap<int, OpenFile *, util::DefaultHasher<int>,
-			Allocator> allOpenFiles;
+	util::Hashmap<int, OpenVfsNode *, util::DefaultHasher<int>, Allocator> allOpenFiles;
 	int nextFd = 3;
 };
 
@@ -205,7 +255,7 @@ frigg::asyncSeq(
 	})
 );
 
-struct KernelOutFile : public OpenFile {
+struct KernelOutFile : public OpenVfsNode {
 	virtual void write(const void *buffer, size_t length) override;
 	virtual void read(void *buffer, size_t max_length, size_t &actual_length) override;
 };
@@ -218,6 +268,26 @@ void KernelOutFile::read(void *buffer, size_t max_length,
 		size_t &actual_length) {
 
 }
+
+namespace dev_fs {
+
+struct RootNode : public OpenVfsNode {
+	virtual OpenVfsNode *openRelative(util::StringView path) override;
+};
+
+struct DeviceNode : public OpenVfsNode {
+
+};
+
+OpenVfsNode *RootNode::openRelative(util::StringView path) {
+	if(path == "helout") {
+		return frigg::memory::construct<KernelOutFile>(*allocator);
+	}else{
+		return nullptr;
+	}
+}
+
+}; // namespace dev_fs
 
 struct RequestLoopContext {
 	RequestLoopContext(helx::Pipe pipe, Process *process)
@@ -245,6 +315,10 @@ frigg::asyncRepeatUntil(
 
 			if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
 				auto new_process = frigg::memory::construct<Process>(*allocator);
+				new_process->mountSpace = frigg::memory::construct<MountSpace>(*allocator);
+				new_process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator,
+						"/dev"), frigg::memory::construct<dev_fs::RootNode>(*allocator));
+
 				frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
 						request.path(), new_process);
 				
@@ -267,10 +341,12 @@ frigg::asyncRepeatUntil(
 				context->pipe.sendString(serialized.data(), serialized.size(),
 						msg_request, 0);
 			}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+				MountSpace *mount_space = context->process->mountSpace;
+				OpenVfsNode *file = mount_space->openAbsolute(request.path());
+				assert(file != nullptr);
+
 				int fd = context->process->nextFd;
 				context->process->nextFd++;
-
-				auto file = frigg::memory::construct<KernelOutFile>(*allocator);
 				context->process->allOpenFiles.insert(fd, file);
 
 				managarm::posix::ServerResponse<Allocator> response(*allocator);

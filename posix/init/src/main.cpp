@@ -13,7 +13,7 @@
 #include <vector>
 
 int main() {
-	int fd = open("whatever", O_WRONLY);
+	int fd = open("/dev/helout", O_WRONLY);
 	dup2(fd, STDOUT_FILENO);
 	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");

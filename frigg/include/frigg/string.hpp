@@ -7,28 +7,55 @@ class BasicStringView {
 public:
 	typedef Char CharType;
 
+	BasicStringView()
+	: p_pointer(nullptr), p_length(0) { }
+
 	BasicStringView(const Char *c_string)
 	: p_pointer(c_string), p_length(strlen(c_string)) { }
 
 	BasicStringView(const Char *pointer, size_t length)
 	: p_pointer(pointer), p_length(length) { }
 
-	template<typename String>
-	bool operator== (const String &other) const {
-		if(p_length != other.size())
-			return false;
-		for(size_t i = 0; i < p_length; i++)
-			if(p_pointer[i] != other.data()[i])
-				return false;
-		return true;
-	}
-
 	const Char *data() const {
 		return p_pointer;
 	}
 
+	const Char &operator[] (size_t index) const {
+		return p_pointer[index];
+	}
+
 	size_t size() const {
 		return p_length;
+	}
+
+	bool operator== (BasicStringView other) {
+		if(p_length != other.p_length)
+			return false;
+		for(size_t i = 0; i < p_length; i++)
+			if(p_pointer[i] != other.p_pointer[i])
+				return false;
+		return true;
+	}
+
+	size_t findFirst(Char c) {
+		for(size_t i = 0; i < p_length; i++)
+			if(p_pointer[i] == c)
+				return i;
+
+		return size_t(-1);
+	}
+
+	size_t findLast(Char c) {
+		for(size_t i = p_length; i > 0; i--)
+			if(p_pointer[i - 1] == c)
+				return i - 1;
+		
+		return size_t(-1);
+	}
+
+	BasicStringView subString(size_t from, size_t size) {
+		assert(from + size <= p_length);
+		return BasicStringView(p_pointer + from, size);
 	}
 
 private:
@@ -85,9 +112,7 @@ public:
 		p_buffer = new_buffer;
 	}
 	
-	// TODO: ensure that both CharTypes are the same
-	template<typename String>
-	BasicString &operator+= (const String &other) {
+	BasicString &operator+= (const BasicStringView<Char> &other) {
 		size_t new_length = p_length + other.size();
 		Char *new_buffer = (Char *)p_allocator->allocate(sizeof(Char) * new_length);
 		memcpy(new_buffer, p_buffer, sizeof(Char) * p_length);
@@ -113,8 +138,28 @@ public:
 		return p_buffer;
 	}
 
+	Char &operator[] (size_t index) {
+		return p_buffer[index];
+	}	
+	const Char &operator[] (size_t index) const {
+		return p_buffer[index];
+	}
+
 	size_t size() const {
 		return p_length;
+	}
+
+	bool operator== (const BasicStringView<Char> &other) const {
+		if(p_length != other.size())
+			return false;
+		for(size_t i = 0; i < p_length; i++)
+			if(p_buffer[i] != other[i])
+				return false;
+		return true;
+	}
+
+	operator BasicStringView<Char> () const {
+		return BasicStringView<Char>(p_buffer, p_length);
 	}
 
 	friend void swap(BasicString &a, BasicString &b) {
@@ -128,6 +173,31 @@ private:
 	Allocator *p_allocator;
 	Char *p_buffer;
 	size_t p_length;
+};
+
+template<typename T>
+class DefaultHasher;
+
+template<typename Char>
+class DefaultHasher<BasicStringView<Char>> {
+public:
+	unsigned int operator() (const BasicStringView<Char> &string) {
+		unsigned int hash = 0;
+		for(size_t i = 0; i < string.size(); i++)
+			hash += 31 * hash + string[i];
+		return hash;
+	}
+};
+
+template<typename Char, typename Allocator>
+class DefaultHasher<BasicString<Char, Allocator>> {
+public:
+	unsigned int operator() (const BasicString<Char, Allocator> &string) {
+		unsigned int hash = 0;
+		for(size_t i = 0; i < string.size(); i++)
+			hash += 31 * hash + string[i];
+		return hash;
+	}
 };
 
 template<typename Allocator>

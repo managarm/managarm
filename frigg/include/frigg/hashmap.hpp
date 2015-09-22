@@ -74,8 +74,9 @@ public:
 	Iterator iterator() {
 		return Iterator(*this);
 	}
-
-	Optional<Value *> get(const Key &key);
+	
+	template<typename KeyCompatible>
+	Optional<Value *> get(const KeyCompatible &key);
 
 	Value remove(const Key &key);
 
@@ -136,7 +137,8 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const Key &key) {
+template<typename KeyCompatible>
+Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatible &key) {
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
