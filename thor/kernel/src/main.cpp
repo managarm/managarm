@@ -149,6 +149,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	const char *mod_path = "initrd";
 	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
+	
 
 	// finally we lauch the user_boot program
 	auto universe = frigg::makeShared<Universe>(*kernelAlloc);

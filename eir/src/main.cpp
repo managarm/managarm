@@ -303,6 +303,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)bootstrapPointer << ", length: "
 			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << debug::Finish();
+	
+	// trash boostrap memory for debugging purposes
+#ifdef EIR_TRASH_MEMORY
+	assert((bootstrapLimit % 4) == 0);
+	uint32_t *pointer = (uint32_t *)bootstrapPointer;
+	while((uintptr_t)pointer < bootstrapLimit)
+		*(++pointer) = 0xBAD0BEEF;
+#endif
 
 	// allocate a stack for the real thor kernel
 	size_t thor_stack_length = 0x100000;

@@ -47,7 +47,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 : baseAddress(base_address), length(length), type(type),
 		lowerPtr(nullptr), higherPtr(nullptr),
 		leftPtr(nullptr), rightPtr(nullptr),
-		parentPtr(nullptr), color(kColorNone),
+		parentPtr(nullptr), color(kColorNone), largestHole(0),
 		memoryOffset(0), writePermission(false), executePermission(false) {
 	if(type == kTypeHole)
 		largestHole = length;
@@ -58,7 +58,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 // --------------------------------------------------------
 
 AddressSpace::AddressSpace(PageSpace page_space)
-: p_pageSpace(page_space) { }
+: p_root(nullptr), p_pageSpace(page_space) { }
 
 void AddressSpace::setupDefaultMappings() {
 	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
