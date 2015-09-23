@@ -7,10 +7,11 @@ namespace posix {
 struct Errors {
   enum {
     SUCCESS = 0,
+    DEAD_FORK = 6,
+    ILLEGAL_REQUEST = 4,
     FILE_NOT_FOUND = 1,
     ACCESS_DENIED = 2,
     ALREADY_EXISTS = 3,
-    ILLEGAL_REQUEST = 4,
     NO_SUCH_FD = 5
   };
 };
@@ -18,7 +19,8 @@ struct Errors {
 struct ClientRequestType {
   enum {
     INIT = 7,
-    SPAWN = 1,
+    FORK = 8,
+    EXEC = 1,
     OPEN = 2,
     READ = 3,
     WRITE = 4,
@@ -43,7 +45,9 @@ public:
     m_fd(0),
     m_newfd(0),
     m_size(0),
-    m_buffer(allocator) { }
+    m_buffer(allocator),
+    m_child_sp(0),
+    m_child_ip(0) { }
 
   inline int64_t request_type() const {
     return m_request_type;
@@ -94,6 +98,20 @@ public:
     m_buffer = value;
   }
 
+  inline uint64_t child_sp() const {
+    return m_child_sp;
+  }
+  inline void set_child_sp(uint64_t value) {
+    m_child_sp = value;
+  }
+
+  inline uint64_t child_ip() const {
+    return m_child_ip;
+  }
+  inline void set_child_ip(uint64_t value) {
+    m_child_ip = value;
+  }
+
   size_t ByteSize() {
     p_cachedSize = 0;
     p_cachedSize += frigg::protobuf::varintSize(1 << 3);
@@ -114,6 +132,10 @@ public:
     size_t buffer_length = m_buffer.size();
     p_cachedSize += frigg::protobuf::varintSize(buffer_length);
     p_cachedSize += buffer_length;
+    p_cachedSize += frigg::protobuf::varintSize(8 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_child_sp);
+    p_cachedSize += frigg::protobuf::varintSize(9 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_child_ip);
     return p_cachedSize;
   }
   size_t GetCachedSize() {
@@ -129,6 +151,8 @@ public:
     frigg::protobuf::emitInt32(writer, 7, m_newfd);
     frigg::protobuf::emitInt32(writer, 5, m_size);
     frigg::protobuf::emitString(writer, 6, m_buffer.data(), m_buffer.size());
+    frigg::protobuf::emitUInt64(writer, 8, m_child_sp);
+    frigg::protobuf::emitUInt64(writer, 9, m_child_ip);
     assert(writer.offset() == length);
   }
   void SerializeToString(String *string) {
@@ -174,6 +198,14 @@ public:
         m_buffer.resize(buffer_length);
         reader.peek(m_buffer.data(), buffer_length);
       } break;
+      case 8:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_child_sp = fetchUInt64(reader);
+        break;
+      case 9:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_child_ip = fetchUInt64(reader);
+        break;
       default:
         assert(!"Unexpected field number");
       }
@@ -190,6 +222,8 @@ private:
   int32_t m_newfd;
   int32_t m_size;
   String m_buffer;
+  uint64_t m_child_sp;
+  uint64_t m_child_ip;
 };
 
 template<typename Allocator>

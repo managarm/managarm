@@ -3,16 +3,18 @@ package managarm.posix;
 
 enum Errors {
 	SUCCESS = 0;
+	DEAD_FORK = 6;
+	ILLEGAL_REQUEST = 4;
 	FILE_NOT_FOUND = 1;
 	ACCESS_DENIED = 2;
 	ALREADY_EXISTS = 3;
-	ILLEGAL_REQUEST = 4;
 	NO_SUCH_FD = 5;
 }
 
 enum ClientRequestType {
 	INIT = 7;
-	SPAWN = 1;
+	FORK = 8;
+	EXEC = 1;
 	OPEN = 2;
 	READ = 3;
 	WRITE = 4;
@@ -23,7 +25,7 @@ enum ClientRequestType {
 message ClientRequest {
 	optional ClientRequestType request_type = 1;
 	
-	// used by INIT, SPAWN and OPEN
+	// used by INIT, EXEC and OPEN
 	optional string path = 2;
 
 	// used by OPEN
@@ -40,6 +42,10 @@ message ClientRequest {
 
 	// used by WRITE
 	optional bytes buffer = 6;
+
+	// used by FORK
+	optional uint64 child_sp = 8;
+	optional uint64 child_ip = 9;
 }
 
 message ServerResponse {
@@ -52,3 +58,4 @@ message ServerResponse {
 	// return of READ
 	optional bytes buffer = 2;
 }
+

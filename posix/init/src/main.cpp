@@ -1,14 +1,14 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
+
+#include <unistd.h>
+#include <fcntl.h>
 #include <spawn.h>
-
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#include <fcntl.h>
-#include <unistd.h>
 
 #include <vector>
 
@@ -18,16 +18,17 @@ int main() {
 	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");
 
-	std::vector<char *> argv;
-	argv.push_back(const_cast<char *>("acpi"));
-	argv.push_back(nullptr);
+	std::vector<char *> args;
+	args.push_back(const_cast<char *>("acpi"));
+	args.push_back(nullptr);
 
 	char *envp[] = { nullptr };
 
-	pid_t pid;
-	if(posix_spawn(&pid, "zisa", nullptr, nullptr, argv.data(), envp)) {
-		printf("posix_spawn() failed\n");
-		abort();
+	pid_t child = fork();
+	assert(child != -1);
+
+	if(child == 0) {
+		execve("zisa", args.data(), envp);
 	}
 }
 

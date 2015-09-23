@@ -85,31 +85,72 @@ OpenVfsNode *MountSpace::openAbsolute(util::StringView path) {
 };
 
 struct Process {
-	Process();
+	// creates a new process to run the "init" program
+	static Process *init();
 
+	Process();
+	
+	// creates a hel directory for this process
+	helx::Directory buildConfiguration();
+
+	// creates a new process by forking an old one
 	Process *fork();
 	
+	// incremented when this process calls execve()
+	// ensures that we don't accept new requests from old pipes after execve()
+	int iteration;
+
+	// mount namespace and virtual memory space of this process
 	MountSpace *mountSpace;
+	HelHandle vmSpace;
 
 	util::Hashmap<int, OpenVfsNode *, util::DefaultHasher<int>, Allocator> allOpenFiles;
-	int nextFd = 3;
+	int nextFd;
 };
 
-Process::Process() : allOpenFiles(util::DefaultHasher<int>(), *allocator){
+void acceptLoop(helx::Server server, Process *process, int iteration);
 
+Process *Process::init() {
+	auto new_process = frigg::memory::construct<Process>(*allocator);
+	new_process->mountSpace = frigg::memory::construct<MountSpace>(*allocator);
+	new_process->nextFd = 3; // reserve space for stdio
+
+	return new_process;
+}
+
+Process::Process()
+: iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
+		allOpenFiles(util::DefaultHasher<int>(), *allocator), nextFd(-1) { }
+
+helx::Directory Process::buildConfiguration() {
+	auto directory = helx::Directory::create();
+	auto localDirectory = helx::Directory::create();
+	auto configDirectory = helx::Directory::create();
+	
+	directory.mount(configDirectory.getHandle(), "config");
+	directory.mount(localDirectory.getHandle(), "local");
+
+	configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
+
+	helx::Server server;
+	helx::Client client;
+	helx::Server::createServer(server, client);
+	acceptLoop(server, this, iteration);
+	localDirectory.publish(client.getHandle(), "posix");
+
+	return directory;
 }
 
 Process *Process::fork() {
 	auto new_process = frigg::memory::construct<Process>(*allocator);
 
-	for(auto it = allOpenFiles.iterator(); it; ++it) {
+	HEL_CHECK(helForkSpace(vmSpace, &new_process->vmSpace));
+
+	for(auto it = allOpenFiles.iterator(); it; ++it)
 		new_process->allOpenFiles.insert(it->get<0>(), it->get<1>());
-	}
 
 	return new_process;
 }
-
-void acceptLoop(helx::Server server, Process *process);
 
 struct LoadContext {
 	LoadContext()
@@ -180,26 +221,17 @@ frigg::asyncSeq(
 
 struct ExecuteContext {
 	ExecuteContext(util::String<Allocator> program, Process *process)
-	: program(frigg::traits::move(program)), process(process),
-			directory(helx::Directory::create()),
-			localDirectory(helx::Directory::create()),
-			configDirectory(helx::Directory::create()) {
-		HEL_CHECK(helCreateSpace(&space));
-		executableContext.space = space;
-		interpreterContext.space = space;
-
-		directory.mount(localDirectory.getHandle(), "local");
-		directory.mount(configDirectory.getHandle(), "config");
-		directory.remount("initrd/#this", "initrd");
+	: program(frigg::traits::move(program)), process(process) {
+		// reset the virtual memory space of the process
+		HEL_CHECK(helCreateSpace(&process->vmSpace));
+		executableContext.space = process->vmSpace;
+		interpreterContext.space = process->vmSpace;
+		process->iteration++;
 	}
 
 	util::String<Allocator> program;
-	HelHandle space;
 	Process *process;
 
-	helx::Directory directory;
-	helx::Directory localDirectory;
-	helx::Directory configDirectory;
 	LoadContext executableContext;
 	LoadContext interpreterContext;
 };
@@ -207,15 +239,6 @@ struct ExecuteContext {
 auto executeProgram =
 frigg::asyncSeq(
 	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		context->configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
-
-		helx::Server server;
-		helx::Client client;
-		helx::Server::createServer(server, client);
-		acceptLoop(server, context->process);
-
-		context->localDirectory.publish(client.getHandle(), "posix");
-
 		callback(util::StringView(context->program.data(), context->program.size()), 0);
 	}),
 	frigg::subContext(&ExecuteContext::executableContext,
@@ -236,7 +259,7 @@ frigg::asyncSeq(
 		HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
 
 		void *stack_base;
-		HEL_CHECK(helMapMemory(stack_memory, context->space, nullptr,
+		HEL_CHECK(helMapMemory(stack_memory, context->process->vmSpace, nullptr,
 				stack_size, kHelMapReadWrite, &stack_base));
 
 		HelThreadState state;
@@ -248,8 +271,10 @@ frigg::asyncSeq(
 		state.rdx = context->executableContext.response.phdr_count();
 		state.rcx = context->executableContext.response.entry();
 
+		helx::Directory directory = context->process->buildConfiguration();
+
 		HelHandle thread;
-		HEL_CHECK(helCreateThread(context->space, context->directory.getHandle(),
+		HEL_CHECK(helCreateThread(context->process->vmSpace, directory.getHandle(),
 				&state, kHelThreadNewUniverse, &thread));
 		callback();
 	})
@@ -290,13 +315,149 @@ OpenVfsNode *RootNode::openRelative(util::StringView path) {
 }; // namespace dev_fs
 
 struct RequestLoopContext {
-	RequestLoopContext(helx::Pipe pipe, Process *process)
-	: pipe(pipe), process(process) { }
+	RequestLoopContext(helx::Pipe pipe, Process *process, int iteration)
+	: pipe(pipe), process(process), iteration(iteration) { }
+	
+	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+	
+	void sendResponse(managarm::posix::ServerResponse<Allocator> &response, int64_t msg_request) {
+		util::String<Allocator> serialized(*allocator);
+		response.SerializeToString(&serialized);
+		pipe.sendString(serialized.data(), serialized.size(), msg_request, 0);
+	}
 
 	uint8_t buffer[128];
 	helx::Pipe pipe;
 	Process *process;
+	int iteration;
 };
+
+void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator> request,
+		int64_t msg_request) {
+	// check the iteration number to prevent this process from being hijacked
+	if(process != nullptr && iteration != process->iteration) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::DEAD_FORK);
+		sendResponse(response, msg_request);
+		return;
+	}
+
+	if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
+		assert(process == nullptr);
+
+		process = Process::init();
+		process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator,
+				"/dev"), frigg::memory::construct<dev_fs::RootNode>(*allocator));
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
+		Process *new_process = process->fork();
+
+		HelThreadState state;
+		memset(&state, 0, sizeof(HelThreadState));
+		state.rip = request.child_ip();
+		state.rsp = request.child_sp();
+		
+		helx::Directory directory = new_process->buildConfiguration();
+
+		HelHandle thread;
+		HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
+				&state, kHelThreadNewUniverse, &thread));
+
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
+		frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
+				request.path(), process);
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+		MountSpace *mount_space = process->mountSpace;
+		OpenVfsNode *file = mount_space->openAbsolute(request.path());
+		assert(file != nullptr);
+
+		int fd = process->nextFd;
+		assert(fd > 0);
+		process->nextFd++;
+		process->allOpenFiles.insert(fd, file);
+
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		response.set_fd(fd);
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		if(file_wrapper) {
+			size_t actual_len;
+			auto file = **file_wrapper;
+			util::String<Allocator> buffer(*allocator);
+			buffer.resize(request.size());
+			file->read(buffer.data(), request.size(), actual_len);
+
+			request.set_buffer(frigg::util::String<Allocator>(*allocator,
+					buffer.data(), actual_len));
+			response.set_error(managarm::posix::Errors::SUCCESS);
+		}else{
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		}
+
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		if(file_wrapper) {
+			auto file = **file_wrapper;
+			file->write(request.buffer().data(), request.buffer().size());
+
+			response.set_error(managarm::posix::Errors::SUCCESS);
+		}else{
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		}
+
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+		int32_t fd = request.fd();
+		auto file_wrapper = process->allOpenFiles.get(fd);
+		if(file_wrapper){
+			process->allOpenFiles.remove(fd);
+			response.set_error(managarm::posix::Errors::SUCCESS);
+		}else{
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		}
+		
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+		int32_t oldfd = request.fd();
+		int32_t newfd = request.newfd();
+		auto file_wrapper = process->allOpenFiles.get(oldfd);
+		if(file_wrapper){
+			auto file = **file_wrapper;
+			process->allOpenFiles.insert(newfd, file);
+
+			response.set_error(managarm::posix::Errors::SUCCESS);
+		}else{
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		}
+
+		sendResponse(response, msg_request);
+	}else{
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+		sendResponse(response, msg_request);
+	}
+}
 
 auto requestLoop =
 frigg::asyncRepeatUntil(
@@ -312,146 +473,21 @@ frigg::asyncRepeatUntil(
 
 			managarm::posix::ClientRequest<Allocator> request(*allocator);
 			request.ParseFromArray(context->buffer, length);
-
-			if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
-				auto new_process = frigg::memory::construct<Process>(*allocator);
-				new_process->mountSpace = frigg::memory::construct<MountSpace>(*allocator);
-				new_process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator,
-						"/dev"), frigg::memory::construct<dev_fs::RootNode>(*allocator));
-
-				frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
-						request.path(), new_process);
-				
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-				response.set_error(managarm::posix::Errors::SUCCESS);
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else if(request.request_type() == managarm::posix::ClientRequestType::SPAWN) {
-				frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
-						request.path(), context->process->fork());
-				
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-				response.set_error(managarm::posix::Errors::SUCCESS);
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
-				MountSpace *mount_space = context->process->mountSpace;
-				OpenVfsNode *file = mount_space->openAbsolute(request.path());
-				assert(file != nullptr);
-
-				int fd = context->process->nextFd;
-				context->process->nextFd++;
-				context->process->allOpenFiles.insert(fd, file);
-
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-				response.set_error(managarm::posix::Errors::SUCCESS);
-				response.set_fd(fd);
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-
-				auto file_wrapper = context->process->allOpenFiles.get(request.fd());
-				if(file_wrapper) {
-					size_t actual_len;
-					auto file = **file_wrapper;
-					util::String<Allocator> buffer(*allocator);
-					buffer.resize(request.size());
-					file->read(buffer.data(), request.size(), actual_len);
-
-					request.set_buffer(frigg::util::String<Allocator>(*allocator,
-							buffer.data(), actual_len));
-					response.set_error(managarm::posix::Errors::SUCCESS);
-				}else{
-					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				}
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-
-				auto file_wrapper = context->process->allOpenFiles.get(request.fd());
-				if(file_wrapper) {
-					auto file = **file_wrapper;
-					file->write(request.buffer().data(), request.buffer().size());
-
-					response.set_error(managarm::posix::Errors::SUCCESS);
-				}else{
-					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				}
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-
-				int32_t fd = request.fd();
-				auto file_wrapper = context->process->allOpenFiles.get(fd);
-				if(file_wrapper){
-					context->process->allOpenFiles.remove(fd);
-					response.set_error(managarm::posix::Errors::SUCCESS);
-				}else{
-					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				}
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);	
-			}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-
-				int32_t oldfd = request.fd();
-				int32_t newfd = request.newfd();
-				auto file_wrapper = context->process->allOpenFiles.get(oldfd);
-				if(file_wrapper){
-					auto file = **file_wrapper;
-					context->process->allOpenFiles.insert(newfd, file);
-
-					response.set_error(managarm::posix::Errors::SUCCESS);
-				}else{
-					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				}
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}else{
-				managarm::posix::ServerResponse<Allocator> response(*allocator);
-				response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-
-				util::String<Allocator> serialized(*allocator);
-				response.SerializeToString(&serialized);
-				context->pipe.sendString(serialized.data(), serialized.size(),
-						msg_request, 0);
-			}
+			context->processRequest(frigg::traits::move(request), msg_request);
 
 			callback(true);
 		})
 	)
 );
 
-void acceptLoop(helx::Server server, Process *process) {
+void acceptLoop(helx::Server server, Process *process, int iteration) {
 	struct AcceptContext {
-		AcceptContext(helx::Server server, Process *process)
-		: server(server), process(process) { }
+		AcceptContext(helx::Server server, Process *process, int iteration)
+		: server(server), process(process), iteration(iteration) { }
 
 		helx::Server server;
 		Process *process;
+		int iteration;
 	};
 
 	auto body =
@@ -466,14 +502,14 @@ void acceptLoop(helx::Server server, Process *process) {
 				HEL_CHECK(error);
 				
 				frigg::runAsync<RequestLoopContext>(*allocator, requestLoop,
-						helx::Pipe(handle), context->process);
+						helx::Pipe(handle), context->process, context->iteration);
 
 				callback(true);
 			})
 		)
 	);
 
-	frigg::runAsync<AcceptContext>(*allocator, body, server, process);
+	frigg::runAsync<AcceptContext>(*allocator, body, server, process, iteration);
 }
 
 typedef void (*InitFuncPtr) ();
@@ -503,7 +539,7 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(server, nullptr);
+	acceptLoop(server, nullptr, 0);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
