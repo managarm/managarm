@@ -48,19 +48,23 @@ void OpenVfsNode::read(void *buffer, size_t max_length, size_t &actual_length) {
 	assert(!"Illegal operation for this file");
 }
 
+struct VfsMountPoint {
+	virtual OpenVfsNode *open(util::StringView path) = 0;
+};
+
 struct MountSpace {
 	MountSpace();
 
-	OpenVfsNode *openAbsolute(util::StringView path);
+	OpenVfsNode *open(util::StringView path);
 
-	util::Hashmap<util::String<Allocator>, OpenVfsNode *,
+	util::Hashmap<util::String<Allocator>, VfsMountPoint *,
 			util::DefaultHasher<util::StringView>, Allocator> allMounts;
 };
 
 MountSpace::MountSpace()
 : allMounts(util::DefaultHasher<util::StringView>(), *allocator) { }
 
-OpenVfsNode *MountSpace::openAbsolute(util::StringView path) {
+OpenVfsNode *MountSpace::open(util::StringView path) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
 	
@@ -72,7 +76,7 @@ OpenVfsNode *MountSpace::openAbsolute(util::StringView path) {
 	while(true) {
 		auto mount = allMounts.get(prefix);
 		if(mount)
-			return (**mount)->openRelative(suffix);
+			return (**mount)->open(suffix);
 
 		if(prefix == "/")
 			return nullptr;
@@ -296,15 +300,15 @@ void KernelOutFile::read(void *buffer, size_t max_length,
 
 namespace dev_fs {
 
-struct RootNode : public OpenVfsNode {
-	virtual OpenVfsNode *openRelative(util::StringView path) override;
+struct MountPoint : public VfsMountPoint {
+	virtual OpenVfsNode *open(util::StringView path) override;
 };
 
 struct DeviceNode : public OpenVfsNode {
 
 };
 
-OpenVfsNode *RootNode::openRelative(util::StringView path) {
+OpenVfsNode *MountPoint::open(util::StringView path) {
 	if(path == "helout") {
 		return frigg::memory::construct<KernelOutFile>(*allocator);
 	}else{
@@ -347,7 +351,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 
 		process = Process::init();
 		process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator,
-				"/dev"), frigg::memory::construct<dev_fs::RootNode>(*allocator));
+				"/dev"), frigg::memory::construct<dev_fs::MountPoint>(*allocator));
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
@@ -378,7 +382,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		sendResponse(response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		MountSpace *mount_space = process->mountSpace;
-		OpenVfsNode *file = mount_space->openAbsolute(request.path());
+		OpenVfsNode *file = mount_space->open(request.path());
 		assert(file != nullptr);
 
 		int fd = process->nextFd;
