@@ -122,6 +122,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 
 helx::EventHub eventHub;
 helx::Client ldServerConnect;
+helx::Client acpiConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe posixPipe;
 
@@ -152,19 +153,11 @@ async::seq(
 				callback.getObject(), callback.getFunction());
 	}),
 	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, HelHandle)> callback, HelError error,
+			util::Callback<void()> callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
 		HEL_CHECK(error);
 
-//		helx::Client posix_connect(connect_handle);
-//		posix_connect.connect(eventHub, callback.getObject(), callback.getFunction());
-		callback(0, 0);
-	}),
-	async::lambda([](StartFreeContext &context, util::Callback<void()> callback,
-			HelError error, HelHandle pipe_handle) {
-		HEL_CHECK(error);
-
-//		posixPipe = helx::Pipe(pipe_handle);
+		acpiConnect = helx::Client(connect_handle);
 		callback();
 	})
 );
@@ -233,6 +226,7 @@ auto runPosixInit =
 async::seq(
 	async::lambda([](PosixInitContext &context,
 			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
+		// first we send an INIT request to create an initial process
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
 		request.set_request_type(managarm::posix::ClientRequestType::INIT);
 		
@@ -252,6 +246,52 @@ async::seq(
 		response.ParseFromArray(context.buffer, length);
 		assert(response.error() == managarm::posix::Errors::SUCCESS);
 		
+		// create a helfd file for the hardware driver
+		managarm::posix::ClientRequest<Allocator> request(*allocator);
+		request.set_request_type(managarm::posix::ClientRequestType::OPEN);
+		request.set_path(util::String<Allocator>(*allocator, "/dev/hw"));
+		request.set_flags(managarm::posix::OpenFlags::CREAT);
+		request.set_mode(managarm::posix::OpenMode::HELFD);
+		
+		util::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		posixPipe.sendString(serialized.data(), serialized.size(), 2, 0);
+		
+		posixPipe.recvString(context.buffer, 128, eventHub,
+				2, 0, callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([](PosixInitContext &context,
+			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
+			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.ParseFromArray(context.buffer, length);
+		assert(response.error() == managarm::posix::Errors::SUCCESS);
+		
+		// attach the server to the helfd
+		managarm::posix::ClientRequest<Allocator> request(*allocator);
+		request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
+		request.set_fd(response.fd());
+		
+		util::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		posixPipe.sendString(serialized.data(), serialized.size(), 3, 0);
+		posixPipe.sendDescriptor(acpiConnect.getHandle(), 3, 1);
+		
+		posixPipe.recvString(context.buffer, 128, eventHub,
+				3, 0, callback.getObject(), callback.getFunction());
+	}),
+	async::lambda([](PosixInitContext &context,
+			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
+			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+		HEL_CHECK(error);
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.ParseFromArray(context.buffer, length);
+		assert(response.error() == managarm::posix::Errors::SUCCESS);
+		
+		// after that we EXEC the actual init program
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
 		request.set_request_type(managarm::posix::ClientRequestType::EXEC);
 		request.set_path(util::String<Allocator>(*allocator, "posix-init"));

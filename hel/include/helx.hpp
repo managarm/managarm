@@ -148,6 +148,14 @@ public:
 		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
 				msg_request, msg_seq, (uintptr_t)function, (uintptr_t)object, &async_id));
 	}
+	
+	inline void recvDescriptorSync(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq, HelHandle &handle) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
+				msg_request, msg_seq, 0, 0, &async_id));
+		handle = event_hub.waitForRecvDescriptor(async_id);
+	}
 
 private:
 	HelHandle p_handle;

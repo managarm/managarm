@@ -1,4 +1,7 @@
 
+#ifndef HEL_H
+#define HEL_H
+
 #ifdef __cplusplus
 #define HEL_C_LINKAGE extern "C"
 #else
@@ -239,4 +242,6 @@ extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError er
 #define HEL_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
 		_helCheckFailed(_error, "HEL_CHECK failed: " #expr "\n" \
 		"In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n"); } while(0)
+
+#endif // HEL_H
 

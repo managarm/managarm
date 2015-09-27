@@ -753,9 +753,17 @@ uint8_t stack1[4096];
 uint8_t stack2[4096];
 
 #include <unistd.h>
+#include <sys/helfd.h>
 
 int main() {
 	printf("Hello world\n");
+
+	int fd = open("/dev/hw", O_RDONLY);
+	assert(fd != -1);
+
+	HelHandle handle;
+	int clone_res = helfd_clone(fd, &handle);
+	assert(clone_res == 0);
 
 	HelThreadState state;
 	HelHandle handle1, handle2;

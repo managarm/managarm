@@ -198,31 +198,9 @@ extern "C" void handleProtectionFault(Word error) {
 			<< "    Faulting segment: " << (void *)error << debug::Finish();
 }
 
-extern "C" void thorKernelPageFault(uintptr_t address,
-		uintptr_t fault_ip, Word error) {
-	assert((error & 4) == 0);
-	assert((error & 8) == 0);
-	auto msg = debug::panicLogger.log();
-	msg << "Kernel page fault"
-			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)fault_ip << "\n";
-	msg << "Errors: ";
-	if((error & 1) == 0) {
-		msg << " (Page not present)";
-	}else{
-		msg << " (Access violation)";
-	}
-	if((error & 2) != 0) {
-		msg << " (Write)";
-	}else if((error & 16) != 0) {
-		msg << " (Instruction fetch)";
-	}else{
-		msg << " (Read)";
-	}
-	msg << debug::Finish();
-}
+extern "C" void handlePageFault(Word error) {
+	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
 
-extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
 	uintptr_t address;
 	asm volatile ( "mov %%cr2, %0" : "=r" (address) );
 
@@ -230,7 +208,7 @@ extern "C" void handlePageFault(Word error, uintptr_t fault_ip) {
 	auto msg = debug::panicLogger.log();
 	msg << "Page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)fault_ip << "\n";
+			<< ", faulting ip: " << (void *)base_state->rip << "\n";
 	msg << "Errors:";
 	if((error & 4) != 0) {
 		msg << " (User)";

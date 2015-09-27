@@ -30,32 +30,51 @@ helx::EventHub eventHub;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 
-struct OpenVfsNode {
-	virtual OpenVfsNode *openRelative(util::StringView path);
+struct VfsOpenFile {
+	virtual VfsOpenFile *openAt(util::StringView path);
 	
 	virtual void write(const void *buffer, size_t length);
 	virtual void read(void *buffer, size_t max_length, size_t &actual_length);
+
+	virtual void setHelfd(HelHandle handle);
+	virtual HelHandle getHelfd();
 };
 
-OpenVfsNode *OpenVfsNode::openRelative(util::StringView path) {
+VfsOpenFile *VfsOpenFile::openAt(util::StringView path) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
 }
-void OpenVfsNode::write(const void *buffer, size_t length) {
+void VfsOpenFile::write(const void *buffer, size_t length) {
 	assert(!"Illegal operation for this file");
 }
-void OpenVfsNode::read(void *buffer, size_t max_length, size_t &actual_length) {
+void VfsOpenFile::read(void *buffer, size_t max_length, size_t &actual_length) {
 	assert(!"Illegal operation for this file");
+}
+
+void VfsOpenFile::setHelfd(HelHandle handle) {
+	assert(!"Illegal operation for this file");
+}
+HelHandle VfsOpenFile::getHelfd() {
+	assert(!"Illegal operation for this file");
+	__builtin_unreachable();
 }
 
 struct VfsMountPoint {
-	virtual OpenVfsNode *open(util::StringView path) = 0;
+	virtual VfsOpenFile *openMounted(util::StringView path, uint32_t flags, uint32_t mode) = 0;
 };
 
 struct MountSpace {
+	enum OpenFlags : uint32_t {
+		kOpenCreat = 1
+	};
+
+	enum OpenMode : uint32_t {
+		kOpenHelfd = 1
+	};
+
 	MountSpace();
 
-	OpenVfsNode *open(util::StringView path);
+	VfsOpenFile *openAbsolute(util::StringView path, uint32_t flags, uint32_t mode);
 
 	util::Hashmap<util::String<Allocator>, VfsMountPoint *,
 			util::DefaultHasher<util::StringView>, Allocator> allMounts;
@@ -64,7 +83,7 @@ struct MountSpace {
 MountSpace::MountSpace()
 : allMounts(util::DefaultHasher<util::StringView>(), *allocator) { }
 
-OpenVfsNode *MountSpace::open(util::StringView path) {
+VfsOpenFile *MountSpace::openAbsolute(util::StringView path, uint32_t flags, uint32_t mode) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
 	
@@ -76,7 +95,7 @@ OpenVfsNode *MountSpace::open(util::StringView path) {
 	while(true) {
 		auto mount = allMounts.get(prefix);
 		if(mount)
-			return (**mount)->open(suffix);
+			return (**mount)->openMounted(suffix, flags, mode);
 
 		if(prefix == "/")
 			return nullptr;
@@ -108,7 +127,7 @@ struct Process {
 	MountSpace *mountSpace;
 	HelHandle vmSpace;
 
-	util::Hashmap<int, OpenVfsNode *, util::DefaultHasher<int>, Allocator> allOpenFiles;
+	util::Hashmap<int, VfsOpenFile *, util::DefaultHasher<int>, Allocator> allOpenFiles;
 	int nextFd;
 };
 
@@ -147,11 +166,13 @@ helx::Directory Process::buildConfiguration() {
 
 Process *Process::fork() {
 	auto new_process = frigg::memory::construct<Process>(*allocator);
-
+	
+	new_process->mountSpace = mountSpace;
 	HEL_CHECK(helForkSpace(vmSpace, &new_process->vmSpace));
 
 	for(auto it = allOpenFiles.iterator(); it; ++it)
 		new_process->allOpenFiles.insert(it->get<0>(), it->get<1>());
+	new_process->nextFd = nextFd;
 
 	return new_process;
 }
@@ -284,7 +305,7 @@ frigg::asyncSeq(
 	})
 );
 
-struct KernelOutFile : public OpenVfsNode {
+struct KernelOutFile : public VfsOpenFile {
 	virtual void write(const void *buffer, size_t length) override;
 	virtual void read(void *buffer, size_t max_length, size_t &actual_length) override;
 };
@@ -300,20 +321,127 @@ void KernelOutFile::read(void *buffer, size_t max_length,
 
 namespace dev_fs {
 
-struct MountPoint : public VfsMountPoint {
-	virtual OpenVfsNode *open(util::StringView path) override;
+struct Inode {
+	virtual VfsOpenFile *openSelf() = 0;
 };
 
-struct DeviceNode : public OpenVfsNode {
-
+struct DeviceNode : public Inode {
+	// inherited from Inode
+	virtual VfsOpenFile *openSelf() override;
 };
 
-OpenVfsNode *MountPoint::open(util::StringView path) {
-	if(path == "helout") {
-		return frigg::memory::construct<KernelOutFile>(*allocator);
+VfsOpenFile *DeviceNode::openSelf() {
+	// TODO: support other devices
+	return frigg::memory::construct<KernelOutFile>(*allocator);
+}
+
+class HelfdNode : public Inode {
+public:
+	class OpenFile : public VfsOpenFile {
+	public:
+		OpenFile(HelfdNode *inode);
+		
+		// inherited from VfsOpenFile
+		virtual void setHelfd(HelHandle handle) override;
+		virtual HelHandle getHelfd() override;
+	
+	private:
+		HelfdNode *p_inode;
+	};
+
+	// inherited from Inode
+	virtual VfsOpenFile *openSelf() override;
+
+private:
+	HelHandle p_handle;
+};
+
+VfsOpenFile *HelfdNode::openSelf() {
+	return frigg::memory::construct<OpenFile>(*allocator, this);
+}
+
+HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
+: p_inode(inode) { }
+
+void HelfdNode::OpenFile::setHelfd(HelHandle handle) {
+	p_inode->p_handle = handle;
+}
+HelHandle HelfdNode::OpenFile::getHelfd() {
+	return p_inode->p_handle;
+}
+
+struct DirectoryNode : public Inode {
+	DirectoryNode();
+
+	VfsOpenFile *openRelative(util::StringView path, uint32_t flags, uint32_t mode);
+	
+	// inherited from Inode
+	virtual VfsOpenFile *openSelf() override;
+
+	util::Hashmap<util::String<Allocator>, Inode *,
+			util::DefaultHasher<util::StringView>, Allocator> entries;
+};
+
+DirectoryNode::DirectoryNode()
+: entries(util::DefaultHasher<util::StringView>(), *allocator) { }
+
+VfsOpenFile *DirectoryNode::openSelf() {
+	assert(!"TODO: Implement this");
+	__builtin_unreachable();
+}
+
+VfsOpenFile *DirectoryNode::openRelative(util::StringView path, uint32_t flags, uint32_t mode) {
+	util::StringView segment;
+	
+	size_t seperator = path.findFirst('/');
+	if(seperator == size_t(-1)) {
+		auto entry = entries.get(path);
+		if(entry) {
+			return (**entry)->openSelf();
+		}else if((flags & MountSpace::kOpenCreat) != 0) {
+			Inode *inode;
+			if((mode & MountSpace::kOpenHelfd) != 0) {
+				inode = frigg::memory::construct<HelfdNode>(*allocator);
+			}else{
+				assert(!"mode not supported");
+			}
+			VfsOpenFile *open_file = inode->openSelf();
+			entries.insert(util::String<Allocator>(*allocator, path), inode);
+			return open_file;
+		}else{
+			return nullptr;
+		}
 	}else{
-		return nullptr;
+		assert(!"Not tested");
+		util::StringView segment = path.subString(0, seperator);
+		util::StringView tail = path.subString(seperator + 1, path.size() - (seperator + 1));
+		
+		auto entry = entries.get(segment);
+		if(!entry)
+			return nullptr;
+		auto directory = static_cast<DirectoryNode *>(**entry);
+		return directory->openRelative(tail, flags, mode);
 	}
+}
+
+class MountPoint : public VfsMountPoint {
+public:
+	MountPoint();
+	
+	virtual VfsOpenFile *openMounted(util::StringView path,
+			uint32_t flags, uint32_t mode) override;
+
+private:
+	DirectoryNode rootDirectory;
+};
+
+MountPoint::MountPoint() {
+	rootDirectory.entries.insert(util::String<Allocator>(*allocator, "helout"),
+			frigg::memory::construct<DeviceNode>(*allocator));
+}
+
+VfsOpenFile *MountPoint::openMounted(util::StringView path, uint32_t flags, uint32_t mode) {
+	return rootDirectory.openRelative(path, flags, mode);
 }
 
 }; // namespace dev_fs
@@ -381,8 +509,16 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+		uint32_t open_flags = 0;
+		if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
+			open_flags |= MountSpace::kOpenCreat;
+
+		uint32_t open_mode = 0;
+		if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
+			open_mode |= MountSpace::kOpenHelfd;
+
 		MountSpace *mount_space = process->mountSpace;
-		OpenVfsNode *file = mount_space->open(request.path());
+		VfsOpenFile *file = mount_space->openAbsolute(request.path(), open_flags, open_mode);
 		assert(file != nullptr);
 
 		int fd = process->nextFd;
@@ -455,6 +591,39 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
 		}
 
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
+		HelHandle handle;
+		pipe.recvDescriptorSync(eventHub, msg_request, 1, handle);
+
+		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		if(!file_wrapper) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+			sendResponse(response, msg_request);
+			return;
+		}
+
+		auto file = **file_wrapper;
+		file->setHelfd(handle);
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		sendResponse(response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
+		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		if(!file_wrapper) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+			sendResponse(response, msg_request);
+			return;
+		}
+
+		auto file = **file_wrapper;
+		pipe.sendDescriptor(file->getHelfd(), msg_request, 1);
+		
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(response, msg_request);
 	}else{
 		managarm::posix::ServerResponse<Allocator> response(*allocator);

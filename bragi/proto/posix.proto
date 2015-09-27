@@ -20,6 +20,17 @@ enum ClientRequestType {
 	WRITE = 4;
 	CLOSE = 5;
 	DUP2 = 6;
+	HELFD_ATTACH = 10;
+	HELFD_CLONE = 11;
+};
+
+enum OpenFlags {
+	CREAT = 1;
+};
+
+enum OpenMode {
+	REGULAR = 1;
+	HELFD = 2;
 };
 
 message ClientRequest {
@@ -30,8 +41,9 @@ message ClientRequest {
 
 	// used by OPEN
 	optional int32 flags = 3;
+	optional int32 mode = 10;
 
-	// used by READ, WRITE, CLOSE and DUP2
+	// used by READ, WRITE, CLOSE, DUP2, HELFD_ATTACH, HELFD_CLONE
 	optional int32 fd = 4;
 
 	// used by DUP2
