@@ -7,6 +7,7 @@
 #include <frigg/libc.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/smart_ptr.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/optional.hpp>
@@ -24,6 +25,12 @@
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
 
+template<typename T>
+using StdSharedPtr = frigg::SharedPtr<T, Allocator>;
+
+template<typename T>
+using StdUnsafePtr = frigg::UnsafePtr<T, Allocator>;
+
 namespace util = frigg::util;
 
 helx::EventHub eventHub;
@@ -31,7 +38,7 @@ helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 
 struct VfsOpenFile {
-	virtual VfsOpenFile *openAt(util::StringView path);
+	virtual StdSharedPtr<VfsOpenFile> openAt(util::StringView path);
 	
 	virtual void write(const void *buffer, size_t length);
 	virtual void read(void *buffer, size_t max_length, size_t &actual_length);
@@ -40,7 +47,7 @@ struct VfsOpenFile {
 	virtual HelHandle getHelfd();
 };
 
-VfsOpenFile *VfsOpenFile::openAt(util::StringView path) {
+StdSharedPtr<VfsOpenFile> VfsOpenFile::openAt(util::StringView path) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
 }
@@ -60,7 +67,8 @@ HelHandle VfsOpenFile::getHelfd() {
 }
 
 struct VfsMountPoint {
-	virtual VfsOpenFile *openMounted(util::StringView path, uint32_t flags, uint32_t mode) = 0;
+	virtual StdSharedPtr<VfsOpenFile> openMounted(util::StringView path,
+			uint32_t flags, uint32_t mode) = 0;
 };
 
 struct MountSpace {
@@ -74,7 +82,7 @@ struct MountSpace {
 
 	MountSpace();
 
-	VfsOpenFile *openAbsolute(util::StringView path, uint32_t flags, uint32_t mode);
+	StdSharedPtr<VfsOpenFile> openAbsolute(util::StringView path, uint32_t flags, uint32_t mode);
 
 	util::Hashmap<util::String<Allocator>, VfsMountPoint *,
 			util::DefaultHasher<util::StringView>, Allocator> allMounts;
@@ -83,7 +91,8 @@ struct MountSpace {
 MountSpace::MountSpace()
 : allMounts(util::DefaultHasher<util::StringView>(), *allocator) { }
 
-VfsOpenFile *MountSpace::openAbsolute(util::StringView path, uint32_t flags, uint32_t mode) {
+StdSharedPtr<VfsOpenFile> MountSpace::openAbsolute(util::StringView path,
+		uint32_t flags, uint32_t mode) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
 	
@@ -98,7 +107,7 @@ VfsOpenFile *MountSpace::openAbsolute(util::StringView path, uint32_t flags, uin
 			return (**mount)->openMounted(suffix, flags, mode);
 
 		if(prefix == "/")
-			return nullptr;
+			return StdSharedPtr<VfsOpenFile>();
 
 		size_t seperator = prefix.findLast('/');
 		assert(seperator != size_t(-1));
@@ -109,15 +118,14 @@ VfsOpenFile *MountSpace::openAbsolute(util::StringView path, uint32_t flags, uin
 
 struct Process {
 	// creates a new process to run the "init" program
-	static Process *init();
+	static StdSharedPtr<Process> init();
+	
+	static helx::Directory runServer(StdSharedPtr<Process> process);
 
 	Process();
-	
-	// creates a hel directory for this process
-	helx::Directory buildConfiguration();
 
 	// creates a new process by forking an old one
-	Process *fork();
+	StdSharedPtr<Process> fork();
 	
 	// incremented when this process calls execve()
 	// ensures that we don't accept new requests from old pipes after execve()
@@ -127,25 +135,24 @@ struct Process {
 	MountSpace *mountSpace;
 	HelHandle vmSpace;
 
-	util::Hashmap<int, VfsOpenFile *, util::DefaultHasher<int>, Allocator> allOpenFiles;
+	util::Hashmap<int, StdSharedPtr<VfsOpenFile>,
+			util::DefaultHasher<int>, Allocator> allOpenFiles;
 	int nextFd;
 };
 
-void acceptLoop(helx::Server server, Process *process, int iteration);
+void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration);
 
-Process *Process::init() {
-	auto new_process = frigg::memory::construct<Process>(*allocator);
+StdSharedPtr<Process> Process::init() {
+	auto new_process = frigg::makeShared<Process>(*allocator);
 	new_process->mountSpace = frigg::memory::construct<MountSpace>(*allocator);
 	new_process->nextFd = 3; // reserve space for stdio
 
 	return new_process;
 }
 
-Process::Process()
-: iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
-		allOpenFiles(util::DefaultHasher<int>(), *allocator), nextFd(-1) { }
+helx::Directory Process::runServer(StdSharedPtr<Process> process) {
+	int iteration = process->iteration;
 
-helx::Directory Process::buildConfiguration() {
 	auto directory = helx::Directory::create();
 	auto localDirectory = helx::Directory::create();
 	auto configDirectory = helx::Directory::create();
@@ -154,18 +161,22 @@ helx::Directory Process::buildConfiguration() {
 	directory.mount(localDirectory.getHandle(), "local");
 
 	configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
-
+	
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(server, this, iteration);
+	acceptLoop(server, frigg::traits::move(process), iteration);
 	localDirectory.publish(client.getHandle(), "posix");
 
 	return directory;
 }
 
-Process *Process::fork() {
-	auto new_process = frigg::memory::construct<Process>(*allocator);
+Process::Process()
+: iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
+		allOpenFiles(util::DefaultHasher<int>(), *allocator), nextFd(-1) { }
+
+StdSharedPtr<Process> Process::fork() {
+	auto new_process = frigg::makeShared<Process>(*allocator);
 	
 	new_process->mountSpace = mountSpace;
 	HEL_CHECK(helForkSpace(vmSpace, &new_process->vmSpace));
@@ -245,7 +256,7 @@ frigg::asyncSeq(
 );
 
 struct ExecuteContext {
-	ExecuteContext(util::String<Allocator> program, Process *process)
+	ExecuteContext(util::String<Allocator> program, StdSharedPtr<Process> process)
 	: program(frigg::traits::move(program)), process(process) {
 		// reset the virtual memory space of the process
 		HEL_CHECK(helCreateSpace(&process->vmSpace));
@@ -255,7 +266,7 @@ struct ExecuteContext {
 	}
 
 	util::String<Allocator> program;
-	Process *process;
+	StdSharedPtr<Process> process;
 
 	LoadContext executableContext;
 	LoadContext interpreterContext;
@@ -296,7 +307,7 @@ frigg::asyncSeq(
 		state.rdx = context->executableContext.response.phdr_count();
 		state.rcx = context->executableContext.response.entry();
 
-		helx::Directory directory = context->process->buildConfiguration();
+		helx::Directory directory = Process::runServer(context->process);
 
 		HelHandle thread;
 		HEL_CHECK(helCreateThread(context->process->vmSpace, directory.getHandle(),
@@ -322,17 +333,18 @@ void KernelOutFile::read(void *buffer, size_t max_length,
 namespace dev_fs {
 
 struct Inode {
-	virtual VfsOpenFile *openSelf() = 0;
+	virtual StdSharedPtr<VfsOpenFile> openSelf() = 0;
 };
 
 struct DeviceNode : public Inode {
 	// inherited from Inode
-	virtual VfsOpenFile *openSelf() override;
+	virtual StdSharedPtr<VfsOpenFile> openSelf() override;
 };
 
-VfsOpenFile *DeviceNode::openSelf() {
+StdSharedPtr<VfsOpenFile> DeviceNode::openSelf() {
 	// TODO: support other devices
-	return frigg::memory::construct<KernelOutFile>(*allocator);
+	auto open_file = frigg::makeShared<KernelOutFile>(*allocator);
+	return frigg::staticPointerCast<VfsOpenFile>(frigg::traits::move(open_file));
 }
 
 class HelfdNode : public Inode {
@@ -350,14 +362,15 @@ public:
 	};
 
 	// inherited from Inode
-	virtual VfsOpenFile *openSelf() override;
+	virtual StdSharedPtr<VfsOpenFile> openSelf() override;
 
 private:
 	HelHandle p_handle;
 };
 
-VfsOpenFile *HelfdNode::openSelf() {
-	return frigg::memory::construct<OpenFile>(*allocator, this);
+StdSharedPtr<VfsOpenFile> HelfdNode::openSelf() {
+	auto open_file = frigg::makeShared<OpenFile>(*allocator, this);
+	return frigg::staticPointerCast<VfsOpenFile>(frigg::traits::move(open_file));
 }
 
 HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
@@ -373,24 +386,25 @@ HelHandle HelfdNode::OpenFile::getHelfd() {
 struct DirectoryNode : public Inode {
 	DirectoryNode();
 
-	VfsOpenFile *openRelative(util::StringView path, uint32_t flags, uint32_t mode);
+	StdSharedPtr<VfsOpenFile> openRelative(util::StringView path, uint32_t flags, uint32_t mode);
 	
 	// inherited from Inode
-	virtual VfsOpenFile *openSelf() override;
+	virtual StdSharedPtr<VfsOpenFile> openSelf() override;
 
-	util::Hashmap<util::String<Allocator>, Inode *,
+	util::Hashmap<util::String<Allocator>, StdSharedPtr<Inode>,
 			util::DefaultHasher<util::StringView>, Allocator> entries;
 };
 
 DirectoryNode::DirectoryNode()
 : entries(util::DefaultHasher<util::StringView>(), *allocator) { }
 
-VfsOpenFile *DirectoryNode::openSelf() {
+StdSharedPtr<VfsOpenFile> DirectoryNode::openSelf() {
 	assert(!"TODO: Implement this");
 	__builtin_unreachable();
 }
 
-VfsOpenFile *DirectoryNode::openRelative(util::StringView path, uint32_t flags, uint32_t mode) {
+StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(util::StringView path,
+		uint32_t flags, uint32_t mode) {
 	util::StringView segment;
 	
 	size_t seperator = path.findFirst('/');
@@ -399,17 +413,18 @@ VfsOpenFile *DirectoryNode::openRelative(util::StringView path, uint32_t flags, 
 		if(entry) {
 			return (**entry)->openSelf();
 		}else if((flags & MountSpace::kOpenCreat) != 0) {
-			Inode *inode;
+			StdSharedPtr<Inode> inode;
 			if((mode & MountSpace::kOpenHelfd) != 0) {
-				inode = frigg::memory::construct<HelfdNode>(*allocator);
+				auto real_inode = frigg::makeShared<HelfdNode>(*allocator);
+				inode = frigg::staticPointerCast<Inode>(frigg::traits::move(real_inode));
 			}else{
 				assert(!"mode not supported");
 			}
-			VfsOpenFile *open_file = inode->openSelf();
-			entries.insert(util::String<Allocator>(*allocator, path), inode);
+			StdSharedPtr<VfsOpenFile> open_file = inode->openSelf();
+			entries.insert(util::String<Allocator>(*allocator, path), frigg::traits::move(inode));
 			return open_file;
 		}else{
-			return nullptr;
+			return StdSharedPtr<VfsOpenFile>();
 		}
 	}else{
 		assert(!"Not tested");
@@ -418,8 +433,8 @@ VfsOpenFile *DirectoryNode::openRelative(util::StringView path, uint32_t flags, 
 		
 		auto entry = entries.get(segment);
 		if(!entry)
-			return nullptr;
-		auto directory = static_cast<DirectoryNode *>(**entry);
+			return StdSharedPtr<VfsOpenFile>();
+		auto directory = frigg::staticPointerCast<DirectoryNode>(**entry);
 		return directory->openRelative(tail, flags, mode);
 	}
 }
@@ -428,7 +443,7 @@ class MountPoint : public VfsMountPoint {
 public:
 	MountPoint();
 	
-	virtual VfsOpenFile *openMounted(util::StringView path,
+	virtual StdSharedPtr<VfsOpenFile> openMounted(util::StringView path,
 			uint32_t flags, uint32_t mode) override;
 
 private:
@@ -436,18 +451,19 @@ private:
 };
 
 MountPoint::MountPoint() {
+	auto real_inode = frigg::makeShared<DeviceNode>(*allocator);
 	rootDirectory.entries.insert(util::String<Allocator>(*allocator, "helout"),
-			frigg::memory::construct<DeviceNode>(*allocator));
+			frigg::staticPointerCast<Inode>(frigg::traits::move(real_inode)));
 }
 
-VfsOpenFile *MountPoint::openMounted(util::StringView path, uint32_t flags, uint32_t mode) {
+StdSharedPtr<VfsOpenFile> MountPoint::openMounted(util::StringView path, uint32_t flags, uint32_t mode) {
 	return rootDirectory.openRelative(path, flags, mode);
 }
 
 }; // namespace dev_fs
 
 struct RequestLoopContext {
-	RequestLoopContext(helx::Pipe pipe, Process *process, int iteration)
+	RequestLoopContext(helx::Pipe pipe, StdSharedPtr<Process> process, int iteration)
 	: pipe(pipe), process(process), iteration(iteration) { }
 	
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
@@ -460,14 +476,14 @@ struct RequestLoopContext {
 
 	uint8_t buffer[128];
 	helx::Pipe pipe;
-	Process *process;
+	StdSharedPtr<Process> process;
 	int iteration;
 };
 
 void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator> request,
 		int64_t msg_request) {
 	// check the iteration number to prevent this process from being hijacked
-	if(process != nullptr && iteration != process->iteration) {
+	if(process && iteration != process->iteration) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::DEAD_FORK);
 		sendResponse(response, msg_request);
@@ -475,7 +491,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 	}
 
 	if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
-		assert(process == nullptr);
+		assert(!process);
 
 		process = Process::init();
 		process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator,
@@ -485,14 +501,14 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
-		Process *new_process = process->fork();
+		StdSharedPtr<Process> new_process = process->fork();
 
 		HelThreadState state;
 		memset(&state, 0, sizeof(HelThreadState));
 		state.rip = request.child_ip();
 		state.rsp = request.child_sp();
 		
-		helx::Directory directory = new_process->buildConfiguration();
+		helx::Directory directory = Process::runServer(new_process);
 
 		HelHandle thread;
 		HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
@@ -518,13 +534,14 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 			open_mode |= MountSpace::kOpenHelfd;
 
 		MountSpace *mount_space = process->mountSpace;
-		VfsOpenFile *file = mount_space->openAbsolute(request.path(), open_flags, open_mode);
-		assert(file != nullptr);
+		StdSharedPtr<VfsOpenFile> file = mount_space->openAbsolute(request.path(),
+				open_flags, open_mode);
+		assert(file);
 
 		int fd = process->nextFd;
 		assert(fd > 0);
 		process->nextFd++;
-		process->allOpenFiles.insert(fd, file);
+		process->allOpenFiles.insert(fd, frigg::traits::move(file));
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
@@ -653,13 +670,13 @@ frigg::asyncRepeatUntil(
 	)
 );
 
-void acceptLoop(helx::Server server, Process *process, int iteration) {
+void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration) {
 	struct AcceptContext {
-		AcceptContext(helx::Server server, Process *process, int iteration)
+		AcceptContext(helx::Server server, StdSharedPtr<Process> process, int iteration)
 		: server(server), process(process), iteration(iteration) { }
 
 		helx::Server server;
-		Process *process;
+		StdSharedPtr<Process> process;
 		int iteration;
 	};
 
@@ -712,7 +729,7 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(server, nullptr, 0);
+	acceptLoop(server, StdSharedPtr<Process>(), 0);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;

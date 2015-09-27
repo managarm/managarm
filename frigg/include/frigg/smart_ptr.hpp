@@ -1,6 +1,37 @@
 
 namespace frigg {
 
+template<typename T, typename Allocator>
+class SharedPtr;
+
+template<typename T, typename Allocator>
+class WeakPtr;
+
+template<typename T, typename Allocator>
+class UnsafePtr;
+
+template<typename Allocator>
+struct SharedBlock {
+	typedef void (*DeleteFuncPtr) (SharedBlock *block);
+
+	SharedBlock(Allocator &allocator, DeleteFuncPtr delete_object)
+	: allocator(allocator), refCount(1), weakCount(1), deleteObject(delete_object) { }
+
+	SharedBlock(const SharedBlock &other) = delete;
+
+	SharedBlock &operator= (const SharedBlock &other) = delete;
+
+	~SharedBlock() {
+		assert(volatileRead<int>(&refCount) == 0);
+		assert(volatileRead<int>(&weakCount) == 0);
+	}
+
+	Allocator &allocator;
+	int refCount;
+	int weakCount;
+	DeleteFuncPtr deleteObject;
+};
+
 template<typename T>
 union SharedStorage {
 	SharedStorage() { }
@@ -23,50 +54,58 @@ union SharedStorage {
 };
 
 template<typename T, typename Allocator>
-class SharedPtr;
+struct SharedStruct {
+	static void deleteObject(SharedBlock<Allocator> *block) {
+		auto *self = reinterpret_cast<SharedStruct *>(block);
+		self->storage.destruct();
+	}
 
-template<typename T, typename Allocator>
-class WeakPtr;
-
-template<typename T, typename Allocator>
-class UnsafePtr;
-
-template<typename T, typename Allocator>
-struct SharedBlock {
 	template<typename... Args>
-	SharedBlock(Allocator &allocator, Args &&... args)
-	: allocator(allocator), refCount(1), weakCount(1) {
+	SharedStruct(Allocator &allocator, Args &&... args)
+	: block(allocator, &deleteObject) {
 		storage.construct(traits::forward<Args>(args)...);
 	}
 
-	SharedBlock(const SharedBlock &other) = delete;
-
-	SharedBlock &operator= (const SharedBlock &other) = delete;
-
-	~SharedBlock() {
-		assert(volatileRead<int>(&refCount) == 0);
-		assert(volatileRead<int>(&weakCount) == 0);
-	}
-
-	Allocator &allocator;
-	int refCount;
-	int weakCount;
-	
+	SharedBlock<Allocator> block;
 	SharedStorage<T> storage;
 };
+
+namespace details {
+
+struct Cast {
+	template<typename U, typename T, typename Allocator>
+	static SharedPtr<U, Allocator> staticPointerCast(SharedPtr<T, Allocator> pointer) {
+		SharedPtr<U, Allocator> result(pointer.p_block, static_cast<U *>(pointer.p_object));
+		// reset the input pointer to keep the ref count accurate
+		pointer.p_block = nullptr;
+		pointer.p_object = nullptr;
+		return traits::move(result);
+	}
+	
+	template<typename U, typename T, typename Allocator>
+	static UnsafePtr<U, Allocator> staticPointerCast(UnsafePtr<T, Allocator> pointer) {
+		return UnsafePtr<U, Allocator>(pointer.p_block, static_cast<U *>(pointer.p_object));
+	}
+};
+
+} // namespace details
 
 template<typename T, typename Allocator>
 class SharedPtr {
 	friend class UnsafePtr<T, Allocator>;
+
+	friend class details::Cast;
+
 public:
 	template<typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
-		auto block = memory::construct<SharedBlock<T, Allocator>>
+		auto shared_struct = memory::construct<SharedStruct<T, Allocator>>
 				(allocator, allocator, traits::forward<Args>(args)...);
-		return SharedPtr<T, Allocator>(block);
+		return SharedPtr<T, Allocator>(reinterpret_cast<SharedBlock<Allocator> *>(shared_struct),
+				&(*shared_struct->storage));
 	}
 
-	SharedPtr() : p_block(nullptr) { }
+	SharedPtr() : p_block(nullptr), p_object(nullptr) { }
 	
 	~SharedPtr() {
 		reset();
@@ -74,6 +113,7 @@ public:
 
 	SharedPtr(const SharedPtr &other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		if(p_block != nullptr) {
 			int old_ref_count;
 			fetchInc(&p_block->refCount, old_ref_count);
@@ -87,12 +127,16 @@ public:
 
 	SharedPtr(SharedPtr &&other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		other.p_block = nullptr;
+		other.p_object = nullptr;
 	}
 
 	SharedPtr &operator= (SharedPtr &&other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		other.p_block = nullptr;
+		other.p_object = nullptr;
 		return *this;
 	}
 
@@ -107,7 +151,7 @@ public:
 		int old_ref_count;
 		fetchDec(&p_block->refCount, old_ref_count);
 		if(old_ref_count == 1) {
-			p_block->storage.destruct();
+			p_block->deleteObject(p_block);
 
 			int old_weak_count;
 			fetchDec(&p_block->weakCount, old_weak_count);
@@ -116,31 +160,35 @@ public:
 				memory::destruct(p_block->allocator, p_block);
 		}
 		p_block = nullptr;
+		p_object = nullptr;
 	}
 
 	T *operator-> () const {
-		if(p_block == nullptr)
-			return nullptr;
-		return &(*p_block->storage);
+		return p_object;
 	}
 	T *get() const {
-		if(p_block == nullptr)
-			return nullptr;
-		return &(*p_block->storage);
+		return p_object;
 	}
 
 private:
-	SharedPtr(SharedBlock<T, Allocator> *pointer) : p_block(pointer) { }
+	SharedPtr(SharedBlock<Allocator> *block, T *object)
+	: p_block(block), p_object(object) { }
 
-	SharedBlock<T, Allocator> *p_block;
+	SharedBlock<Allocator> *p_block;
+	T *p_object;
 };
+	
+template<typename U, typename T, typename Allocator>
+SharedPtr<U, Allocator> staticPointerCast(SharedPtr<T, Allocator> pointer) {
+	return details::Cast::staticPointerCast<U>(pointer);
+}
 
 template<typename T, typename Allocator>
 class WeakPtr {
 	friend class SharedPtr<T, Allocator>;
 	friend class UnsafePtr<T, Allocator>;
 public:
-	WeakPtr() : p_block(nullptr) { }
+	WeakPtr() : p_block(nullptr), p_object(nullptr) { }
 	
 	~WeakPtr() {
 		reset();
@@ -148,6 +196,7 @@ public:
 
 	WeakPtr(const WeakPtr &other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		if(p_block != nullptr) {
 			int old_weak_count;
 			fetchInc(&p_block->weakCount, old_weak_count);
@@ -159,12 +208,16 @@ public:
 
 	WeakPtr(WeakPtr &&other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		other.p_block = nullptr;
+		other.p_object = nullptr;
 	}
 
 	WeakPtr &operator= (WeakPtr &&other) {
 		p_block = other.p_block;
+		p_object = other.p_object;
 		other.p_block = nullptr;
+		other.p_object = nullptr;
 		return *this;
 	}
 
@@ -183,48 +236,55 @@ public:
 			memory::destruct(p_block->allocator, p_block);
 		
 		p_block = nullptr;
+		p_object = nullptr;
 	}
 
 private:
-	SharedBlock<T, Allocator> *p_block;
+	SharedBlock<Allocator> *p_block;
+	T *p_object;
 };
 
 template<typename T, typename Allocator>
 class UnsafePtr {
 	friend class WeakPtr<T, Allocator>;
 	friend class SharedPtr<T, Allocator>;
+
+	friend class details::Cast;
 public:
-	UnsafePtr() : p_block(nullptr) { }
+	UnsafePtr() : p_block(nullptr), p_object(nullptr) { }
 	
 	UnsafePtr(const SharedPtr<T, Allocator> &shared)
-	: p_block(shared.p_block) { }
+	: p_block(shared.p_block), p_object(shared.p_object) { }
 
 	operator bool () {
 		return p_block != nullptr;
 	}
 
 	T *operator-> () {
-		if(p_block == nullptr)
-			return nullptr;
-		return &(*p_block->storage);
+		return p_object;
 	}
 	T *get() {
-		if(p_block == nullptr)
-			return nullptr;
-		return &(*p_block->storage);
+		return p_object;
 	}
 
 private:
-	SharedBlock<T, Allocator> *p_block;
+	SharedBlock<Allocator> *p_block;
+	T *p_object;
 };
+	
+template<typename U, typename T, typename Allocator>
+UnsafePtr<U, Allocator> staticPointerCast(UnsafePtr<T, Allocator> pointer) {
+	return details::Cast::staticPointerCast<U>(pointer);
+}
 
 template<typename T, typename Allocator>
 SharedPtr<T, Allocator>::SharedPtr(const WeakPtr<T, Allocator> &weak)
-: p_block(weak.p_block) {
+: p_block(weak.p_block), p_object(weak.p_object) {
 	int last_ref_count = volatileRead<int>(&p_block->refCount);
 	while(true) {
 		if(last_ref_count == 0) {
 			p_block = nullptr;
+			p_object = nullptr;
 			break;
 		}
 
@@ -238,7 +298,7 @@ SharedPtr<T, Allocator>::SharedPtr(const WeakPtr<T, Allocator> &weak)
 
 template<typename T, typename Allocator>
 SharedPtr<T, Allocator>::SharedPtr(const UnsafePtr<T, Allocator> &unsafe)
-: p_block(unsafe.p_block) {
+: p_block(unsafe.p_block), p_object(unsafe.p_object) {
 	int old_ref_count;
 	fetchInc<int>(&p_block->refCount, old_ref_count);
 	assert(old_ref_count > 0);
@@ -246,7 +306,7 @@ SharedPtr<T, Allocator>::SharedPtr(const UnsafePtr<T, Allocator> &unsafe)
 
 template<typename T, typename Allocator>
 WeakPtr<T, Allocator>::WeakPtr(const UnsafePtr<T, Allocator> &unsafe)
-: p_block(unsafe.p_block) {
+: p_block(unsafe.p_block), p_object(unsafe.p_object) {
 	int old_weak_count;
 	fetchInc<int>(&p_block->weakCount, old_weak_count);
 	assert(old_weak_count > 0);
