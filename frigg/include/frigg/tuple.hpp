@@ -73,8 +73,8 @@ private:
 };
 
 template<typename... Types>
-Tuple<Types...> makeTuple(Types &&... args) {
-	return Tuple<Types...>(traits::forward<Types>(args)...);
+Tuple<typename traits::RemoveRef<Types>::type...> makeTuple(Types &&... args) {
+	return Tuple<typename traits::RemoveRef<Types>::type...>(traits::forward<Types>(args)...);
 }
 
 } } // namespace frigg::util
