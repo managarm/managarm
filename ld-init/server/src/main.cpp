@@ -220,6 +220,7 @@ void sendObject(HelHandle pipe, int64_t request_id,
 			memcpy((void *)((uintptr_t)map_pointer + segment.fileDisplacement),
 					(void *)((uintptr_t)object->imagePtr + segment.fileOffset),
 					segment.fileLength);
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, map_pointer, segment.virtLength));
 		}
 		
 		managarm::ld_server::Segment<Allocator> out_segment(*allocator);
@@ -238,6 +239,9 @@ void sendObject(HelHandle pipe, int64_t request_id,
 		response.add_segments(out_segment);
 		
 		HEL_CHECK(helSendDescriptor(pipe, memory, 1, 1 + i));
+
+		if(wrapper.is<UniqueSegment>())
+			HEL_CHECK(helCloseDescriptor(memory));
 	}
 
 	util::String<Allocator> serialized(*allocator);

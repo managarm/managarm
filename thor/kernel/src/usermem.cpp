@@ -11,10 +11,21 @@ namespace thor {
 // Memory
 // --------------------------------------------------------
 
-Memory::Memory()
-: p_physicalPages(*kernelAlloc) { }
+Memory::Memory(Type type)
+: p_type(type), p_physicalPages(*kernelAlloc) { }
+
+Memory::~Memory() {
+	// TODO: return pages to physical allocator
+	if(p_type == kTypeAllocated)
+		debug::panicLogger.log() << "Memory deallocation" << debug::Finish();
+}
+
+auto Memory::getType() -> Type {
+	return p_type;
+}
 
 void Memory::resize(size_t length) {
+	assert(p_type == kTypeAllocated);
 	for(size_t l = 0; l < length; l += 0x1000) {
 		// note: push might need to allocate memory and thus lock
 		// the physical allocator so we cannot keep the lock for the whole loop
@@ -109,6 +120,52 @@ void AddressSpace::map(Guard &guard,
 	*actual_address = mapping->baseAddress;
 }
 
+void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
+	Mapping *mapping = getMapping(address);
+	assert(mapping != nullptr);
+	assert(mapping->type == Mapping::kTypeMemory);
+
+	// TODO: allow shrink of mapping
+	assert(mapping->baseAddress == address);
+	assert(mapping->length == length);
+	
+	for(size_t i = 0; i < mapping->length / kPageSize; i++) {
+		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+		p_pageSpace.unmapSingle4k(vaddr);
+	}
+
+	mapping->memoryRegion.reset();
+
+	Mapping *lower_ptr = mapping->lowerPtr;
+	Mapping *higher_ptr = mapping->higherPtr;
+
+	if(lower_ptr && higher_ptr
+			&& lower_ptr->type == Mapping::kTypeHole
+			&& higher_ptr->type == Mapping::kTypeHole) {
+		// grow the lower region and remove both the mapping and the higher region
+		assert(!"Case 1"); // TODO: implement this case
+	}else if(lower_ptr && lower_ptr->type == Mapping::kTypeHole) {
+		// grow the lower region and remove the mapping
+		lower_ptr->length += mapping->length;
+		
+		if(lower_ptr)
+			lower_ptr->higherPtr = higher_ptr;
+		if(higher_ptr)
+			higher_ptr->lowerPtr = lower_ptr;
+		addressTreeRemove(mapping);
+		frigg::memory::destruct(*kernelAlloc, mapping);
+		
+		updateLargestHoleUpwards(lower_ptr);
+	}else if(higher_ptr && higher_ptr->type == Mapping::kTypeHole) {
+		// grow the higher region and remove the mapping
+		assert(!"Case 3"); // TODO: implement this case
+	}else{
+		// turn the mapping into a hole
+		mapping->type = Mapping::kTypeHole;
+		updateLargestHoleUpwards(mapping);
+	}
+}
+
 KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
@@ -200,8 +257,9 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		// holes do not require additional handling
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-
-		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc);
+		
+		assert(memory->getType() == Memory::kTypeAllocated);
+		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 		dest_memory->resize(memory->getSize());
 		for(size_t i = 0; i < memory->getSize() / kPageSize; i++)
 			memcpy(physicalToVirtual(dest_memory->getPage(i)),
@@ -259,7 +317,6 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 			lower->higherPtr = split;
 
 		addressTreeRemove(mapping);
-
 		frigg::memory::destruct(*kernelAlloc, mapping);
 	}else{
 		// the split mapping starts in the middle of the hole

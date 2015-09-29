@@ -64,7 +64,7 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto memory = frigg::makeShared<Memory>(*kernelAlloc);
+	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 	memory->resize(size);
 	
 	Universe::Guard universe_guard(&universe->lock);
@@ -82,7 +82,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto memory = frigg::makeShared<Memory>(*kernelAlloc);
+	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
 	for(size_t offset = 0; offset < size; offset += kPageSize)
 		memory->addPage(physical + offset);
 	
@@ -169,7 +169,6 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}
 	universe_guard.unlock();
 
-
 	// TODO: check proper alignment
 
 	uint32_t map_flags = 0;
@@ -191,13 +190,39 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	
 	VirtualAddr actual_address;
 	AddressSpace::Guard space_guard(&space->lock);
-	space->map(space_guard, memory, (uintptr_t)pointer, length,
+	space->map(space_guard, memory, (VirtualAddr)pointer, length,
 			map_flags, &actual_address);
 	space_guard.unlock();
 	
 	thorRtInvalidateSpace();
 
 	*actual_pointer = (void *)actual_address;
+
+	return kHelErrNone;
+}
+
+HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	KernelSharedPtr<AddressSpace> space;
+	if(space_handle == kHelNullHandle) {
+		space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+	}else{
+		auto space_wrapper = universe->getDescriptor(universe_guard, space_handle);
+		if(!space_wrapper)
+			return kHelErrNoDescriptor;
+		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+			return kHelErrBadDescriptor;
+		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
+	}
+	universe_guard.unlock();
+	
+	AddressSpace::Guard space_guard(&space->lock);
+	space->unmap(space_guard, (VirtualAddr)pointer, length);
+	space_guard.unlock();
 
 	return kHelErrNone;
 }

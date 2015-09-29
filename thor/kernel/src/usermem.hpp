@@ -3,7 +3,16 @@ namespace thor {
 
 class Memory {
 public:
-	Memory();
+	enum Type {
+		kTypeNone,
+		kTypePhysical,
+		kTypeAllocated
+	};
+
+	Memory(Type type);
+	~Memory();
+
+	Type getType();
 
 	void resize(size_t length);
 	void addPage(PhysicalAddr page);
@@ -13,6 +22,7 @@ public:
 	size_t getSize();
 
 private:
+	Type p_type;
 	frigg::util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 };
 
@@ -75,6 +85,8 @@ public:
 	void map(Guard &guard, KernelUnsafePtr<Memory> memory,
 			VirtualAddr address, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
+	
+	void unmap(Guard &guard, VirtualAddr address, size_t length);
 	
 	KernelSharedPtr<AddressSpace> fork(Guard &guard);
 	

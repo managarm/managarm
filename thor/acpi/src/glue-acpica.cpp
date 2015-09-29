@@ -196,16 +196,26 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
 		length += 0x1000 - (length % 0x1000);
 
 	HelHandle memory;
-	helAccessPhysical(physical, length, &memory);
+	HEL_CHECK(helAccessPhysical(physical, length, &memory));
 
 	void *actual_pointer;
-	helMapMemory(memory, kHelNullHandle, NULL, length,
-			kHelMapReadWrite, &actual_pointer);
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, NULL, length,
+			kHelMapReadWrite, &actual_pointer));
+	HEL_CHECK(helCloseDescriptor(memory));
+
 	return (void *)((uintptr_t)actual_pointer + alignment);
 }
 
 void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
-	// TODO: implement this
+	uintptr_t address = (uintptr_t)pointer;
+	ACPI_SIZE alignment = address % 0x1000;
+	address -= alignment;
+	length += alignment;
+
+	if((length % 0x1000) != 0)
+		length += 0x1000 - (length % 0x1000);
+	
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, (void *)address, length));
 }
 
 // --------------------------------------------------------

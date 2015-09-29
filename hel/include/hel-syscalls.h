@@ -101,6 +101,11 @@ DEFINE_SYSCALL(MapMemory, HelHandle handle, HelHandle space,
 	OUT(0, void *, actual_pointer)
 END_SYSCALL()
 
+DEFINE_SYSCALL(UnmapMemory, HelHandle space, void *pointer, size_t size)
+	IN(0, space) IN(1, pointer) IN(2, size)
+	DO_SYSCALL(UnmapMemory)
+END_SYSCALL()
+
 DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
 	IN(0, handle)
 	DO_SYSCALL(MemoryInfo)

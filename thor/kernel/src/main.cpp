@@ -43,7 +43,7 @@ void enterImage(PhysicalAddr image_paddr) {
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = frigg::makeShared<Memory>(*kernelAlloc);
+			auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 			memory->resize(virt_length);
 
 			VirtualAddr actual_address;
@@ -78,7 +78,7 @@ void enterImage(PhysicalAddr image_paddr) {
 	
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x200000;
-	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc);
+	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 	stack_memory->resize(stack_size);
 
 	VirtualAddr stack_base;
@@ -132,7 +132,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	auto mod_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	for(size_t i = 1; i < info->numModules; i++) {
-		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc);
+		// TODO: free module memory if it is not used anymore
+		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
 		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
 			mod_memory->addPage(modules[i].physicalBase + offset);
 		
@@ -299,6 +300,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 			HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
 					(void *)arg2, (size_t)arg3, (uint32_t)arg4, &actual_pointer);
 			thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
+		}
+		case kHelCallUnmapMemory: {
+			HelError error = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
+			thorRtReturnSyscall1((Word)error);
 		}
 		case kHelCallMemoryInfo: {
 			size_t size;
