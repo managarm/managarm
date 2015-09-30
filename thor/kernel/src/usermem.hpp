@@ -39,6 +39,10 @@ struct Mapping {
 		kColorBlack
 	};
 
+	Mapping(Type type, VirtualAddr base_address, size_t length);
+
+	~Mapping();
+
 	VirtualAddr baseAddress;
 	size_t length;
 	Type type;
@@ -59,8 +63,6 @@ struct Mapping {
 	KernelSharedPtr<Memory> memoryRegion;
 	size_t memoryOffset;
 	bool writePermission, executePermission;
-
-	Mapping(Type type, VirtualAddr base_address, size_t length);
 };
 
 class AddressSpace {
@@ -79,6 +81,8 @@ public:
 	};
 
 	AddressSpace(PageSpace page_space);
+
+	~AddressSpace();
 
 	void setupDefaultMappings();
 

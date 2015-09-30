@@ -115,6 +115,9 @@ T *constructN(Allocator &allocator, size_t n, Args &&... args) {
 
 template<typename T, typename Allocator>
 void destruct(Allocator &allocator, T *pointer) {
+	if(!pointer)
+		return;
+	pointer->~T();
 	allocator.free(pointer);
 }
 

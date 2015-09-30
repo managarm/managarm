@@ -323,6 +323,7 @@ frigg::asyncSeq(
 				void *actual_ptr;
 				HEL_CHECK(helMapMemory(handle, context->space, (void *)segment.virt_address(),
 						segment.virt_length(), map_flags, &actual_ptr));
+				HEL_CHECK(helCloseDescriptor(handle));
 				context->currentSegment++;
 				callback();
 			})
@@ -334,6 +335,8 @@ struct ExecuteContext {
 	ExecuteContext(util::String<Allocator> program, StdSharedPtr<Process> process)
 	: program(frigg::traits::move(program)), process(process) {
 		// reset the virtual memory space of the process
+		if(process->vmSpace != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(process->vmSpace));
 		HEL_CHECK(helCreateSpace(&process->vmSpace));
 		executableContext.space = process->vmSpace;
 		interpreterContext.space = process->vmSpace;
@@ -372,6 +375,7 @@ frigg::asyncSeq(
 		void *stack_base;
 		HEL_CHECK(helMapMemory(stack_memory, context->process->vmSpace, nullptr,
 				stack_size, kHelMapReadWrite, &stack_base));
+		HEL_CHECK(helCloseDescriptor(stack_memory));
 
 		HelThreadState state;
 		memset(&state, 0, sizeof(HelThreadState));

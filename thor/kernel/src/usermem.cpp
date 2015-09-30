@@ -15,9 +15,12 @@ Memory::Memory(Type type)
 : p_type(type), p_physicalPages(*kernelAlloc) { }
 
 Memory::~Memory() {
-	// TODO: return pages to physical allocator
-	if(p_type == kTypeAllocated)
-		debug::panicLogger.log() << "Memory deallocation" << debug::Finish();
+	if(p_type == kTypeAllocated) {
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		for(size_t i = 0; i < p_physicalPages.size(); i++)
+			physicalAllocator->free(physical_guard, p_physicalPages[i]);
+		physical_guard.unlock();
+	}
 }
 
 auto Memory::getType() -> Type {
@@ -64,12 +67,21 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 		largestHole = length;
 }
 
+Mapping::~Mapping() {
+	frigg::memory::destruct(*kernelAlloc, leftPtr);
+	frigg::memory::destruct(*kernelAlloc, rightPtr);
+}
+
 // --------------------------------------------------------
 // AddressSpace
 // --------------------------------------------------------
 
 AddressSpace::AddressSpace(PageSpace page_space)
 : p_root(nullptr), p_pageSpace(page_space) { }
+
+AddressSpace::~AddressSpace() {
+	frigg::memory::destruct(*kernelAlloc, p_root);
+}
 
 void AddressSpace::setupDefaultMappings() {
 	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
@@ -584,6 +596,12 @@ void AddressSpace::replaceNode(Mapping *node, Mapping *replacement) {
 	if(node->higherPtr)
 		node->higherPtr->lowerPtr = replacement;
 	
+	node->leftPtr = nullptr;
+	node->rightPtr = nullptr;
+	node->parentPtr = nullptr;
+	node->lowerPtr = nullptr;
+	node->higherPtr = nullptr;
+	
 	updateLargestHoleAt(replacement);
 	updateLargestHoleUpwards(parent);
 }
@@ -621,6 +639,12 @@ void AddressSpace::removeHalfLeaf(Mapping *mapping, Mapping *child) {
 	}
 	if(child)
 		child->parentPtr = parent;
+	
+	mapping->leftPtr = nullptr;
+	mapping->rightPtr = nullptr;
+	mapping->parentPtr = nullptr;
+	mapping->lowerPtr = nullptr;
+	mapping->higherPtr = nullptr;
 	
 	if(parent)
 		updateLargestHoleUpwards(parent);

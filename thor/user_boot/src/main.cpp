@@ -91,6 +91,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			void *actual_ptr;
 			HEL_CHECK(helMapMemory(memory, space, (void *)virt_address, virt_length,
 					map_flags, &actual_ptr));
+			HEL_CHECK(helCloseDescriptor(memory));
 		}else if(phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
@@ -107,7 +108,8 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
 			stack_size, kHelMapReadWrite, &stack_base));
-	
+	HEL_CHECK(helCloseDescriptor(stack_memory));
+
 	HelThreadState state;
 	memset(&state, 0, sizeof(HelThreadState));
 	state.rip = ehdr->e_entry;
@@ -118,6 +120,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
 	HEL_CHECK(helCreateThread(space, directory, &state, thread_flags, &thread));
+	HEL_CHECK(helCloseDescriptor(space));
 }
 
 helx::EventHub eventHub;
