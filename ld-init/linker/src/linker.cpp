@@ -283,6 +283,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 		void *actual_pointer;
 		HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)segment.virt_address(),
 				segment.virt_length(), map_flags, &actual_pointer));
+		HEL_CHECK(helCloseDescriptor(memory));
 	}
 
 	parseDynamic(object);

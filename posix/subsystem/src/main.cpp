@@ -364,7 +364,7 @@ frigg::asyncSeq(
 	}),
 	frigg::subContext(&ExecuteContext::interpreterContext, loadObject),
 	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		constexpr size_t stack_size = 0x200000;
+		constexpr size_t stack_size = 0x10000;
 		
 		HelHandle stack_memory;
 		HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));

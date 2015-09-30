@@ -99,7 +99,8 @@ Object *readObject(util::StringView path) {
 	HEL_CHECK(helMemoryInfo(image_handle, &image_size));
 	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
 			kHelMapReadOnly, &image_ptr));
-	
+	HEL_CHECK(helCloseDescriptor(image_handle));
+
 	constexpr size_t kPageSize = 0x1000;
 	
 	// parse the ELf file format
@@ -159,6 +160,7 @@ Object *readObject(util::StringView path) {
 				memcpy((void *)((uintptr_t)map_pointer + displacement),
 						(void *)((uintptr_t)image_ptr + phdr->p_offset),
 						phdr->p_filesz);
+				HEL_CHECK(helUnmapMemory(kHelNullHandle, map_pointer, virt_length));
 				
 				object->segments.push(SharedSegment(phdr->p_type,
 						phdr->p_flags, virt_address, virt_length, memory));

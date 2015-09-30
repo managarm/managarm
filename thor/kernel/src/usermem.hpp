@@ -121,7 +121,7 @@ private:
 	//    / \           / \         |
 	//   v   y         x   v        |
 	// Note that x and y are left unchanged
-	void rotateLeft(Mapping *mapping);
+	void rotateLeft(Mapping *n);
 
 	// Right rotation (n denotes the given mapping):
 	//     w             w          |
@@ -132,7 +132,7 @@ private:
 	//  / \               / \       |
 	// y   v             v   x      |
 	// Note that x and y are left unchanged
-	void rotateRight(Mapping *mapping);
+	void rotateRight(Mapping *n);
 
 	bool isRed(Mapping *mapping);
 	bool isBlack(Mapping *mapping);
@@ -141,9 +141,15 @@ private:
 	void fixAfterInsert(Mapping *mapping);
 
 	void addressTreeRemove(Mapping *mapping);
+	void replaceNode(Mapping *node, Mapping *replacement);
+	void removeHalfLeaf(Mapping *mapping, Mapping *child);
 	void fixAfterRemove(Mapping *mapping);
+	
+	bool checkInvariant();
+	bool checkInvariant(Mapping *mapping, int &black_depth,
+			Mapping *&minimum, Mapping *&maximum);
 
-	void updateLargestHoleAt(Mapping *mapping);
+	bool updateLargestHoleAt(Mapping *mapping);
 	void updateLargestHoleUpwards(Mapping *mapping);
 	
 	Mapping *p_root;

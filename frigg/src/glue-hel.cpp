@@ -44,14 +44,14 @@ uintptr_t VirtualAlloc::map(size_t length) {
 
 	HelHandle memory;
 	void *actual_ptr;
-	helAllocateMemory(length, &memory);
-	helMapMemory(memory, kHelNullHandle, nullptr, length,
-			kHelMapReadWrite, &actual_ptr);
+	HEL_CHECK(helAllocateMemory(length, &memory));
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, length,
+			kHelMapReadWrite, &actual_ptr));
 	return (uintptr_t)actual_ptr;
 }
 
 void VirtualAlloc::unmap(uintptr_t address, size_t length) {
-
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, (void *)address, length));
 }
 
 VirtualAlloc virtualAlloc;

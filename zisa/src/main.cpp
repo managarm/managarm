@@ -775,5 +775,7 @@ int main() {
 	state.rip = (uint64_t)&thread2;
 	state.rsp = (uint64_t)(stack2 + 4096);
 	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));
+
+	HEL_CHECK(helControlKernel(kThorSubDebug, kThorIfDebugMemory, nullptr, nullptr));
 }
 

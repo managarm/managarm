@@ -99,7 +99,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 		}
 	}
 	
-	constexpr size_t stack_size = 0x200000;
+	constexpr size_t stack_size = 0x10000;
 	
 	HelHandle stack_memory;
 	HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));

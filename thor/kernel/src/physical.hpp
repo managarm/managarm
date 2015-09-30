@@ -68,6 +68,9 @@ public:
 	PhysicalAddr allocate(Guard &guard, size_t num_pages);
 	void free(Guard &guard, PhysicalAddr address);
 
+	size_t numUsedPages();
+	size_t numFreePages();
+
 	Lock lock;
 
 private:
@@ -78,6 +81,9 @@ private:
 	PhysicalAddr p_bootstrapPtr;
 
 	Chunk *p_root;
+
+	size_t p_usedPages;
+	size_t p_freePages;
 };
 
 } // namespace thor

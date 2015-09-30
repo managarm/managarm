@@ -208,13 +208,13 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 PhysicalChunkAllocator::PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
 		size_t bootstrap_length)
 : p_bootstrapBase(bootstrap_base), p_bootstrapLength(bootstrap_length),
-		p_bootstrapPtr(bootstrap_base), p_root(nullptr) {
+		p_bootstrapPtr(bootstrap_base), p_root(nullptr),
+		p_usedPages(0), p_freePages(0) {
 	assert((bootstrap_base % 0x1000) == 0);
 	assert((bootstrap_length % 0x1000) == 0);
 }
 
-void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base,
-		size_t chunk_length) {
+void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base, size_t chunk_length) {
 	assert((chunk_base % 0x1000) == 0);
 	assert((chunk_length % 0x1000) == 0);
 	Chunk *chunk = new (bootstrapAlloc(sizeof(Chunk), alignof(Chunk)))
@@ -225,6 +225,7 @@ void PhysicalChunkAllocator::addChunk(PhysicalAddr chunk_base,
 
 	assert(p_root == nullptr);
 	p_root = chunk;
+	p_freePages += chunk_length / 0x1000;
 }
 
 void PhysicalChunkAllocator::bootstrap() {
@@ -247,6 +248,9 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t num_pages) {
 
 	PhysicalAddr result = allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
 	assert(result != 0);
+	assert(p_freePages > 0);
+	p_usedPages++;
+	p_freePages--;
 	return result;
 }
 
@@ -256,8 +260,17 @@ void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
 	assert(address < p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);
 	
-	p_root->markWhiteRecursive(p_root->treeHeight,
-			(address - p_root->baseAddress) / 0x1000);
+	p_root->markWhiteRecursive(p_root->treeHeight, (address - p_root->baseAddress) / 0x1000);
+	assert(p_usedPages > 0);
+	p_usedPages--;
+	p_freePages++;
+}
+
+size_t PhysicalChunkAllocator::numUsedPages() {
+	return p_usedPages;
+}
+size_t PhysicalChunkAllocator::numFreePages() {
+	return p_freePages;
 }
 
 void *PhysicalChunkAllocator::bootstrapAlloc(size_t length, size_t alignment) {

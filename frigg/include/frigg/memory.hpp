@@ -31,9 +31,13 @@ public:
 	void *allocate(size_t length);
 	void free(void *pointer);
 
+	size_t numUsedPages();
+
 private:
 	VirtualAlloc &p_virtualAllocator;
 	Mutex p_mutex;
+
+	size_t p_usedPages;
 };
 
 // --------------------------------------------------------
@@ -50,7 +54,7 @@ DebugAllocator<VirtualAlloc, Mutex>::Header::Header(size_t num_pages)
 
 template<typename VirtualAlloc, typename Mutex>
 DebugAllocator<VirtualAlloc, Mutex>::DebugAllocator(VirtualAlloc &virt_alloc)
-: p_virtualAllocator(virt_alloc) { }
+: p_virtualAllocator(virt_alloc), p_usedPages(0) { }
 
 template<typename VirtualAlloc, typename Mutex>
 void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
@@ -66,6 +70,8 @@ void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 	Header *header = (Header *)pointer;
 	new (header) Header(num_pages);
 	
+	p_usedPages += num_pages;
+
 	return (void *)(pointer + sizeof(Header));
 }
 
@@ -80,6 +86,14 @@ void DebugAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 	
 	size_t num_pages = header->numPages;
 	p_virtualAllocator.unmap((uintptr_t)header, num_pages * kPageSize);
+
+	assert(p_usedPages >= num_pages);
+	p_usedPages -= num_pages;
+}
+
+template<typename VirtualAlloc, typename Mutex>
+size_t DebugAllocator<VirtualAlloc, Mutex>::numUsedPages() {
+	return p_usedPages;
 }
 
 // --------------------------------------------------------

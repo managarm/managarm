@@ -138,27 +138,40 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 
 	Mapping *lower_ptr = mapping->lowerPtr;
 	Mapping *higher_ptr = mapping->higherPtr;
-
+	
 	if(lower_ptr && higher_ptr
 			&& lower_ptr->type == Mapping::kTypeHole
 			&& higher_ptr->type == Mapping::kTypeHole) {
 		// grow the lower region and remove both the mapping and the higher region
-		assert(!"Case 1"); // TODO: implement this case
+		size_t mapping_length = mapping->length;
+		size_t higher_length = higher_ptr->length;
+
+		addressTreeRemove(mapping);
+		addressTreeRemove(higher_ptr);
+		frigg::memory::destruct(*kernelAlloc, mapping);
+		frigg::memory::destruct(*kernelAlloc, higher_ptr);
+
+		lower_ptr->length += mapping_length + higher_length;
+		updateLargestHoleUpwards(lower_ptr);
 	}else if(lower_ptr && lower_ptr->type == Mapping::kTypeHole) {
 		// grow the lower region and remove the mapping
-		lower_ptr->length += mapping->length;
-		
-		if(lower_ptr)
-			lower_ptr->higherPtr = higher_ptr;
-		if(higher_ptr)
-			higher_ptr->lowerPtr = lower_ptr;
+		size_t mapping_length = mapping->length;
+
 		addressTreeRemove(mapping);
 		frigg::memory::destruct(*kernelAlloc, mapping);
 		
+		lower_ptr->length += mapping_length;
 		updateLargestHoleUpwards(lower_ptr);
 	}else if(higher_ptr && higher_ptr->type == Mapping::kTypeHole) {
 		// grow the higher region and remove the mapping
-		assert(!"Case 3"); // TODO: implement this case
+		size_t mapping_length = mapping->length;
+
+		addressTreeRemove(mapping);
+		frigg::memory::destruct(*kernelAlloc, mapping);
+		
+		higher_ptr->baseAddress -= mapping_length;
+		higher_ptr->length += mapping_length;
+		updateLargestHoleUpwards(higher_ptr);
 	}else{
 		// turn the mapping into a hole
 		mapping->type = Mapping::kTypeHole;
@@ -171,7 +184,7 @@ KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 
 	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
-	
+
 	cloneRecursive(p_root, forked.get());
 
 	return traits::move(forked);
@@ -183,7 +196,7 @@ void AddressSpace::activate() {
 
 Mapping *AddressSpace::getMapping(VirtualAddr address) {
 	Mapping *current = p_root;
-
+	
 	while(current != nullptr) {
 		if(address < current->baseAddress) {
 			current = current->leftPtr;
@@ -215,12 +228,10 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
 		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
 			return splitHole(mapping, 0, length);
 		
-		if(mapping->leftPtr != nullptr
-				&& mapping->leftPtr->largestHole >= length)
+		if(mapping->leftPtr && mapping->leftPtr->largestHole >= length)
 			return allocateDfs(mapping->leftPtr, length, flags);
 		
-		assert(mapping->rightPtr != nullptr
-				&& mapping->rightPtr->largestHole >= length);
+		assert(mapping->rightPtr && mapping->rightPtr->largestHole >= length);
 		return allocateDfs(mapping->rightPtr, length, flags);
 	}else{
 		// try to allocate memory at the top of the range
@@ -228,12 +239,10 @@ Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
 		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
 			return splitHole(mapping, mapping->length - length, length);
 
-		if(mapping->rightPtr != nullptr
-				&& mapping->rightPtr->largestHole >= length)
+		if(mapping->rightPtr && mapping->rightPtr->largestHole >= length)
 			return allocateDfs(mapping->rightPtr, length, flags);
 		
-		assert(mapping->leftPtr != nullptr
-				&& mapping->leftPtr->largestHole >= length);
+		assert(mapping->leftPtr && mapping->leftPtr->largestHole >= length);
 		return allocateDfs(mapping->leftPtr, length, flags);
 	}
 }
@@ -289,9 +298,9 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 
 	dest_space->addressTreeInsert(dest_mapping);
 
-	if(mapping->leftPtr != nullptr)
+	if(mapping->leftPtr)
 		cloneRecursive(mapping->leftPtr, dest_space);
-	if(mapping->rightPtr != nullptr)
+	if(mapping->rightPtr)
 		cloneRecursive(mapping->rightPtr, dest_space);
 }
 
@@ -301,53 +310,33 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 	assert(mapping->type == Mapping::kTypeHole);
 	assert(split_offset + split_length <= mapping->length);
 	
-	Mapping *lower = mapping->lowerPtr;
-	Mapping *higher = mapping->higherPtr;
 	VirtualAddr hole_address = mapping->baseAddress;
 	size_t hole_length = mapping->length;
-
-	auto split = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
-			hole_address + split_offset, split_length);
 	
 	if(split_offset == 0) {
 		// the split mapping starts at the beginning of the hole
 		// we have to delete the hole mapping
-		split->lowerPtr = lower;
-		if(lower != nullptr)
-			lower->higherPtr = split;
-
 		addressTreeRemove(mapping);
 		frigg::memory::destruct(*kernelAlloc, mapping);
 	}else{
 		// the split mapping starts in the middle of the hole
-		split->lowerPtr = mapping;
-		mapping->higherPtr = split;
-
 		mapping->length = split_offset;
+		updateLargestHoleUpwards(mapping);
 	}
 
+	auto split = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
+			hole_address + split_offset, split_length);
 	addressTreeInsert(split);
 
 	if(hole_length > split_offset + split_length) {
 		// the split mapping does not go on until the end of the hole
 		// we have to create another mapping for the rest of the hole
 		auto following = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
-				hole_address + split_offset + split_length,
-				hole_length - split_offset - split_length);
-		split->higherPtr = following;
-		following->lowerPtr = split;
-		following->higherPtr = higher;
-		if(higher != nullptr)
-			higher->lowerPtr = following;
-
+				hole_address + (split_offset + split_length),
+				hole_length - (split_offset + split_length));
 		addressTreeInsert(following);
 	}else{
 		assert(hole_length == split_offset + split_length);
-
-		// the split mapping goes on until the end of the hole
-		split->higherPtr = higher;
-		if(higher != nullptr)
-			higher->lowerPtr = split;
 	}
 
 	return split;
@@ -375,8 +364,8 @@ void AddressSpace::rotateLeft(Mapping *n) {
 		w->rightPtr = n;
 	}
 
-	updateLargestHoleAt(n);
 	updateLargestHoleAt(u);
+	updateLargestHoleAt(n);
 }
 
 void AddressSpace::rotateRight(Mapping *n) {
@@ -401,8 +390,8 @@ void AddressSpace::rotateRight(Mapping *n) {
 		w->rightPtr = n;
 	}
 
-	updateLargestHoleAt(n);
 	updateLargestHoleAt(u);
+	updateLargestHoleAt(n);
 }
 
 bool AddressSpace::isRed(Mapping *mapping) {
@@ -417,37 +406,58 @@ bool AddressSpace::isBlack(Mapping *mapping) {
 }
 
 void AddressSpace::addressTreeInsert(Mapping *mapping) {
-	if(p_root == nullptr) {
+	assert(checkInvariant());
+
+	if(!p_root) {
 		p_root = mapping;
 
 		fixAfterInsert(mapping);
+		assert(checkInvariant());
 		return;
 	}
 
 	Mapping *current = p_root;
-
 	while(true) {
 		if(mapping->baseAddress < current->baseAddress) {
+			assert(mapping->baseAddress + mapping->length <= current->baseAddress);
 			if(current->leftPtr == nullptr) {
 				current->leftPtr = mapping;
 				mapping->parentPtr = current;
 
-				updateLargestHoleAt(mapping);
+				// "current" is the successor of "mapping"
+				Mapping *predecessor = current->lowerPtr;
+				if(predecessor)
+					predecessor->higherPtr = mapping;
+				mapping->lowerPtr = predecessor;
+				mapping->higherPtr = current;
+				current->lowerPtr = mapping;
+
+				updateLargestHoleUpwards(current);
 
 				fixAfterInsert(mapping);
+				assert(checkInvariant());
 				return;
 			}else{
 				current = current->leftPtr;
 			}
 		}else{
-			assert(mapping->baseAddress > current->baseAddress);
+			assert(mapping->baseAddress >= current->baseAddress + current->length);
 			if(current->rightPtr == nullptr) {
 				current->rightPtr = mapping;
 				mapping->parentPtr = current;
+
+				// "current" is the predecessor of "mapping"
+				Mapping *successor = current->higherPtr;
+				current->higherPtr = mapping;
+				mapping->lowerPtr = current;
+				mapping->higherPtr = successor;
+				if(successor)
+					successor->lowerPtr = mapping;
 				
-				updateLargestHoleAt(mapping);
+				updateLargestHoleUpwards(current);
 				
 				fixAfterInsert(mapping);
+				assert(checkInvariant());
 				return;
 			}else{
 				current = current->rightPtr;
@@ -456,14 +466,21 @@ void AddressSpace::addressTreeInsert(Mapping *mapping) {
 	}
 }
 
+// Situation:
+// |     (p)     |
+// |    /   \    |
+// |  (s)   (n)  |
+// Precondition: The red-black property is only violated in the following sense:
+//     Paths from (p) over (n) to a leaf contain one black node more
+//     than paths from (p) over (s) to a leaf
+// Postcondition: The whole tree is a red-black tree
 void AddressSpace::fixAfterInsert(Mapping *n) {
 	Mapping *parent = n->parentPtr;
-
 	if(parent == nullptr) {
 		n->color = Mapping::kColorBlack;
 		return;
 	}
-
+	
 	n->color = Mapping::kColorRed;
 
 	if(parent->color == Mapping::kColorBlack)
@@ -471,7 +488,7 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	
 	// the rb invariants guarantee that a grandparent exists
 	Mapping *grand = parent->parentPtr;
-	assert(grand != nullptr);
+	assert(grand && grand->color == Mapping::kColorBlack);
 	
 	// handle the red uncle case
 	if(grand->leftPtr == parent && isRed(grand->rightPtr)) {
@@ -491,149 +508,163 @@ void AddressSpace::fixAfterInsert(Mapping *n) {
 	}
 	
 	if(parent == grand->leftPtr) {
-		if(n == parent->rightPtr)
+		if(n == parent->rightPtr) {
 			rotateLeft(n);
-
-		rotateRight(parent);
-		parent->color = Mapping::kColorBlack;
-		grand->color = Mapping::kColorRed;
-
-		fixAfterInsert(grand);
-	}else if(parent == grand->rightPtr) {
-		if(n == parent->leftPtr)
 			rotateRight(n);
-
-		rotateLeft(parent);
-		parent->color = Mapping::kColorBlack;
+			n->color = Mapping::kColorBlack;
+		}else{
+			rotateRight(parent);
+			parent->color = Mapping::kColorBlack;
+		}
 		grand->color = Mapping::kColorRed;
-
-		fixAfterInsert(grand);
+	}else{
+		assert(parent == grand->rightPtr);
+		if(n == parent->leftPtr) {
+			rotateRight(n);
+			rotateLeft(n);
+			n->color = Mapping::kColorBlack;
+		}else{
+			rotateLeft(parent);
+			parent->color = Mapping::kColorBlack;
+		}
+		grand->color = Mapping::kColorRed;
 	}
 }
 
 void AddressSpace::addressTreeRemove(Mapping *mapping) {
-	Mapping *parent = mapping->parentPtr;
-	Mapping *left = mapping->leftPtr;
-	Mapping *right = mapping->rightPtr;
+	assert(checkInvariant());
 
-	if(mapping->leftPtr == nullptr) {
-		// replace the mapping by its right child
-		if(parent == nullptr) {
-			p_root = right;
-		}else if(mapping == parent->leftPtr) {
-			parent->leftPtr = right;
-		}else{
-			assert(mapping == parent->rightPtr);
-			parent->rightPtr = right;
-		}
-		if(right) {
-			right->parentPtr = parent;
-			
-			if(mapping->color == Mapping::kColorBlack) {
-				if(right->color == Mapping::kColorRed) {
-					right->color = Mapping::kColorBlack;
-				}else{
-					fixAfterRemove(right);
-				}
-			}
-		}
-	}else if(mapping->rightPtr == nullptr) {
-		// replace the mapping by its left child
-		if(parent == nullptr) {
-			p_root = left;
-		}else if(mapping == parent->leftPtr) {
-			parent->leftPtr = left;
-		}else{
-			assert(mapping == parent->rightPtr);
-			parent->rightPtr = left;
-		}
-		if(left) {
-			left->parentPtr = parent;
+	Mapping *left_ptr = mapping->leftPtr;
+	Mapping *right_ptr = mapping->rightPtr;
 
-			if(mapping->color == Mapping::kColorBlack) {
-				if(left->color == Mapping::kColorRed) {
-					left->color = Mapping::kColorBlack;
-				}else{
-					fixAfterRemove(left);
-				}
-			}
-		}
+	if(!left_ptr) {
+		removeHalfLeaf(mapping, right_ptr);
+	}else if(!right_ptr) {
+		removeHalfLeaf(mapping, left_ptr);
 	}else{
-		// TODO: replace by mapping->lowerPtr
-		Mapping *predecessor = mapping->leftPtr;
-		while(predecessor->rightPtr != nullptr)
-			predecessor = predecessor->rightPtr;
-		assert(predecessor == mapping->lowerPtr);
-
-		// replace the predecessor by its left child
-		Mapping *pre_parent = predecessor->parentPtr;
-		Mapping *pre_replace = predecessor->leftPtr;
-		if(predecessor == pre_parent->leftPtr) {
-			pre_parent->leftPtr = pre_replace;
-		}else{
-			assert(predecessor == pre_parent->rightPtr);
-			pre_parent->rightPtr = pre_replace;
-		}
-		if(pre_replace) {
-			pre_replace->parentPtr = pre_parent;
-			
-			if(predecessor->color == Mapping::kColorBlack) {
-				if(pre_replace->color == Mapping::kColorRed) {
-					pre_replace->color = Mapping::kColorBlack;
-				}else{
-					fixAfterRemove(pre_replace);
-				}
-			}
-		}
-
-		updateLargestHoleUpwards(pre_parent);
-
 		// replace the mapping by its predecessor
-		if(parent == nullptr) {
-			p_root = predecessor;
-		}else if(mapping == parent->leftPtr) {
-			parent->leftPtr = predecessor;
-		}else{
-			assert(mapping == parent->rightPtr);
-			parent->rightPtr = predecessor;
-		}
-		predecessor->leftPtr = left;
-		left->parentPtr = predecessor;
-		predecessor->rightPtr = right;
-		right->parentPtr = predecessor;
-		predecessor->parentPtr = parent;
-		predecessor->color = mapping->color;
+		Mapping *predecessor = mapping->lowerPtr;
+		removeHalfLeaf(predecessor, predecessor->leftPtr);
+		replaceNode(mapping, predecessor);
 	}
 	
-	if(parent != nullptr)
+	assert(checkInvariant());
+}
+
+void AddressSpace::replaceNode(Mapping *node, Mapping *replacement) {
+	Mapping *parent = node->parentPtr;
+	Mapping *left = node->leftPtr;
+	Mapping *right = node->rightPtr;
+
+	// fix the red-black tree
+	if(parent == nullptr) {
+		p_root = replacement;
+	}else if(node == parent->leftPtr) {
+		parent->leftPtr = replacement;
+	}else{
+		assert(node == parent->rightPtr);
+		parent->rightPtr = replacement;
+	}
+	replacement->parentPtr = parent;
+	replacement->color = node->color;
+
+	replacement->leftPtr = left;
+	if(left)
+		left->parentPtr = replacement;
+	
+	replacement->rightPtr = right;
+	if(right)
+		right->parentPtr = replacement;
+	
+	// fix the linked list
+	if(node->lowerPtr)
+		node->lowerPtr->higherPtr = replacement;
+	replacement->lowerPtr = node->lowerPtr;
+	replacement->higherPtr = node->higherPtr;
+	if(node->higherPtr)
+		node->higherPtr->lowerPtr = replacement;
+	
+	updateLargestHoleAt(replacement);
+	updateLargestHoleUpwards(parent);
+}
+
+void AddressSpace::removeHalfLeaf(Mapping *mapping, Mapping *child) {
+	Mapping *predecessor = mapping->lowerPtr;
+	Mapping *successor = mapping->higherPtr;
+	if(predecessor)
+		predecessor->higherPtr = successor;
+	if(successor)
+		successor->lowerPtr = predecessor;
+
+	if(mapping->color == Mapping::kColorBlack) {
+		if(isRed(child)) {
+			child->color = Mapping::kColorBlack;
+		}else{
+			// decrement the number of black nodes all paths through "mapping"
+			// before removing the child. this makes sure we're correct even when
+			// "child" is null
+			fixAfterRemove(mapping);
+		}
+	}
+	
+	assert((!mapping->leftPtr && mapping->rightPtr == child)
+			|| (mapping->leftPtr == child && !mapping->rightPtr));
+		
+	Mapping *parent = mapping->parentPtr;
+	if(!parent) {
+		p_root = child;
+	}else if(parent->leftPtr == mapping) {
+		parent->leftPtr = child;
+	}else{
+		assert(parent->rightPtr == mapping);
+		parent->rightPtr = child;
+	}
+	if(child)
+		child->parentPtr = parent;
+	
+	if(parent)
 		updateLargestHoleUpwards(parent);
 }
 
+// Situation:
+// |     (p)     |
+// |    /   \    |
+// |  (s)   (n)  |
+// Precondition: The red-black property is only violated in the following sense:
+//     Paths from (p) over (n) to a leaf contain one black node less
+//     than paths from (p) over (s) to a leaf
+// Postcondition: The whole tree is a red-black tree
 void AddressSpace::fixAfterRemove(Mapping *n) {
+	assert(n->color == Mapping::kColorBlack);
+	
 	Mapping *parent = n->parentPtr;
 	if(parent == nullptr)
 		return;
 	
-	// this will always be the sibling of our node
-	Mapping *s;
-	
 	// rotate so that our node has a black sibling
+	Mapping *s; // this will always be the sibling of our node
 	if(parent->leftPtr == n) {
-		if(isRed(parent->rightPtr)) {
+		assert(parent->rightPtr);
+		if(parent->rightPtr->color == Mapping::kColorRed) {
+			Mapping *x = parent->rightPtr;
 			rotateLeft(parent->rightPtr);
+			assert(n == parent->leftPtr);
 			
 			parent->color = Mapping::kColorRed;
-			parent->rightPtr->color = Mapping::kColorBlack;
+			x->color = Mapping::kColorBlack;
 		}
 		
 		s = parent->rightPtr;
 	}else{
 		assert(parent->rightPtr == n);
-		if(isRed(parent->leftPtr)) {
-			rotateLeft(parent->leftPtr);
+		assert(parent->leftPtr);
+		if(parent->leftPtr->color == Mapping::kColorRed) {
+			Mapping *x = parent->leftPtr;
+			rotateRight(x);
+			assert(n == parent->rightPtr);
 			
 			parent->color = Mapping::kColorRed;
-			parent->leftPtr->color = Mapping::kColorBlack;
+			x->color = Mapping::kColorBlack;
 		}
 		
 		s = parent->leftPtr;
@@ -676,7 +707,7 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 		// rotate so that s->leftPtr is red
 		if(isRed(s->rightPtr) && isBlack(s->leftPtr)) {
 			Mapping *child = s->rightPtr;
-			rotateRight(child);
+			rotateLeft(child);
 
 			s->color = Mapping::kColorRed;
 			child->color = Mapping::kColorBlack;
@@ -692,23 +723,119 @@ void AddressSpace::fixAfterRemove(Mapping *n) {
 	}
 }
 
-void AddressSpace::updateLargestHoleAt(Mapping *mapping) {
+bool AddressSpace::checkInvariant() {
+	if(!p_root)
+		return true;
+
+	int black_depth;
+	Mapping *minimal, *maximal;
+	return checkInvariant(p_root, black_depth, minimal, maximal);
+}
+
+bool AddressSpace::checkInvariant(Mapping *mapping, int &black_depth,
+		Mapping *&minimal, Mapping *&maximal) {
+	// check largest hole invariant
 	size_t hole = 0;
 	if(mapping->type == Mapping::kTypeHole)
 		hole = mapping->length;
-	
-	if(mapping->leftPtr != nullptr
-			&& mapping->leftPtr->largestHole > hole)
+	if(mapping->leftPtr && mapping->leftPtr->largestHole > hole)
 		hole = mapping->leftPtr->largestHole;
-	
-	if(mapping->rightPtr != nullptr
-			&& mapping->rightPtr->largestHole > hole)
+	if(mapping->rightPtr && mapping->rightPtr->largestHole > hole)
 		hole = mapping->rightPtr->largestHole;
 	
-	mapping->largestHole = hole;
+	if(mapping->largestHole != hole) {
+		infoLogger->log() << "largestHole violation" << debug::Finish();
+		return false;
+	}
+
+	// check alternating colors invariant
+	if(mapping->color == Mapping::kColorRed)
+		if(!isBlack(mapping->leftPtr) || !isBlack(mapping->rightPtr)) {
+			infoLogger->log() << "Alternating colors violation" << debug::Finish();
+			return false;
+		}
+	
+	// check recursive invariants
+	int left_black_depth = 0;
+	int right_black_depth = 0;
+	
+	if(mapping->leftPtr) {
+		Mapping *predecessor;
+		if(!checkInvariant(mapping->leftPtr, left_black_depth, minimal, predecessor))
+			return false;
+
+		// check search tree invariant
+		if(mapping->baseAddress < predecessor->baseAddress + predecessor->length) {
+			infoLogger->log() << "Search tree (left) violation" << debug::Finish();
+			return false;
+		}
+		
+		// check predecessor invariant
+		if(predecessor->higherPtr != mapping) {
+			infoLogger->log() << "Linked list (predecessor, forward) violation" << debug::Finish();
+			return false;
+		}else if(mapping->lowerPtr != predecessor) {
+			infoLogger->log() << "Linked list (predecessor, backward) violation" << debug::Finish();
+			return false;
+		}
+	}else{
+		minimal = mapping;
+	}
+
+	if(mapping->rightPtr) {
+		Mapping *successor;
+		if(!checkInvariant(mapping->rightPtr, right_black_depth, successor, maximal))
+			return false;
+		
+		// check search tree invariant
+		if(mapping->baseAddress + mapping->length > successor->baseAddress) {
+			infoLogger->log() << "Search tree (right) violation" << debug::Finish();
+			return false;
+		}
+
+		// check successor invariant
+		if(mapping->higherPtr != successor) {
+			infoLogger->log() << "Linked list (successor, forward) violation" << debug::Finish();
+			return false;
+		}else if(successor->lowerPtr != mapping) {
+			infoLogger->log() << "Linked list (successor, backward) violation" << debug::Finish();
+			return false;
+		}
+	}else{
+		maximal = mapping;
+	}
+	
+	// check black-depth invariant
+	if(left_black_depth != right_black_depth) {
+		infoLogger->log() << "Black-depth violation" << debug::Finish();
+		return false;
+	}
+
+	black_depth = left_black_depth;
+	if(mapping->color == Mapping::kColorBlack)
+		black_depth++;
+	
+	return true;
+}
+
+bool AddressSpace::updateLargestHoleAt(Mapping *mapping) {
+	size_t hole = 0;
+	if(mapping->type == Mapping::kTypeHole)
+		hole = mapping->length;
+	if(mapping->leftPtr && mapping->leftPtr->largestHole > hole)
+		hole = mapping->leftPtr->largestHole;
+	if(mapping->rightPtr && mapping->rightPtr->largestHole > hole)
+		hole = mapping->rightPtr->largestHole;
+	
+	if(mapping->largestHole != hole) {
+		mapping->largestHole = hole;
+		return true;
+	}
+	return false;
 }
 void AddressSpace::updateLargestHoleUpwards(Mapping *mapping) {
-	updateLargestHoleAt(mapping);
+	if(!updateLargestHoleAt(mapping))
+		return;
 	
 	if(mapping->parentPtr != nullptr)
 		updateLargestHoleUpwards(mapping->parentPtr);

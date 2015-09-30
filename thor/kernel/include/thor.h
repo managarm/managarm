@@ -11,5 +11,8 @@ enum {
 	kThorIfSetupIoApic = 2,
 	kThorIfBootSecondary = 3,
 	kThorIfFinishBoot = 4,
+
+	// debug interfaces
+	kThorIfDebugMemory = 1
 };
 
