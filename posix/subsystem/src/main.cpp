@@ -317,7 +317,7 @@ frigg::asyncSeq(
 					map_flags |= kHelMapReadWrite;
 				}else{
 					assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
-					map_flags |= kHelMapReadExecute;
+					map_flags |= kHelMapReadExecute | kHelMapShareOnFork;
 				}
 				
 				void *actual_ptr;

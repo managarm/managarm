@@ -39,6 +39,10 @@ struct Mapping {
 		kColorBlack
 	};
 
+	enum Flags : uint32_t {
+		kFlagShareOnFork = 1
+	};
+
 	Mapping(Type type, VirtualAddr base_address, size_t length);
 
 	~Mapping();
@@ -62,6 +66,7 @@ struct Mapping {
 
 	KernelSharedPtr<Memory> memoryRegion;
 	size_t memoryOffset;
+	uint32_t flags;
 	bool writePermission, executePermission;
 };
 
@@ -77,7 +82,8 @@ public:
 		kMapPreferTop = 0x04,
 		kMapReadOnly = 0x08,
 		kMapReadWrite = 0x10,
-		kMapReadExecute = 0x20
+		kMapReadExecute = 0x20,
+		kMapShareOnFork = 0x40
 	};
 
 	AddressSpace(PageSpace page_space);

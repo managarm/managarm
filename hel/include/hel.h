@@ -127,7 +127,8 @@ struct HelDescriptorInfo {
 enum HelMapFlags {
 	kHelMapReadOnly = 1,
 	kHelMapReadWrite = 2,
-	kHelMapReadExecute = 4
+	kHelMapReadExecute = 4,
+	kHelMapShareOnFork = 8
 };
 
 enum HelThreadFlags {

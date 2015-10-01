@@ -62,7 +62,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 		lowerPtr(nullptr), higherPtr(nullptr),
 		leftPtr(nullptr), rightPtr(nullptr),
 		parentPtr(nullptr), color(kColorNone), largestHole(0),
-		memoryOffset(0), writePermission(false), executePermission(false) {
+		memoryOffset(0), flags(0), writePermission(false), executePermission(false) {
 	if(type == kTypeHole)
 		largestHole = length;
 }
@@ -119,6 +119,9 @@ void AddressSpace::map(Guard &guard,
 	}else{
 		assert((flags & mask) == kMapReadOnly);
 	}
+
+	if(flags & kMapShareOnFork)
+		mapping->flags |= Mapping::kFlagShareOnFork;
 
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 	for(size_t i = 0; i < length / kPageSize; i++) {
@@ -276,6 +279,28 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 
 	if(mapping->type == Mapping::kTypeHole) {
 		// holes do not require additional handling
+	}else if(mapping->type == Mapping::kTypeMemory
+			&& (mapping->flags & Mapping::kFlagShareOnFork)) {
+		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
+
+		uint32_t page_flags = 0;
+		if(mapping->writePermission)
+			page_flags |= PageSpace::kAccessWrite;
+		if(mapping->executePermission);
+			page_flags |= PageSpace::kAccessExecute;
+
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
+		for(size_t i = 0; i < dest_mapping->length / kPageSize; i++) {
+			PhysicalAddr physical = memory->getPage(i);
+			VirtualAddr vaddr = dest_mapping->baseAddress + i * kPageSize;
+			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		}
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+		
+		dest_mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
+		dest_mapping->writePermission = mapping->writePermission;
+		dest_mapping->executePermission = mapping->executePermission;
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 		

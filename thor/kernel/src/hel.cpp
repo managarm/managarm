@@ -187,6 +187,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		assert((flags & mask) == kHelMapReadOnly);
 		map_flags |= AddressSpace::kMapReadOnly;
 	}
+
+	if(flags & kHelMapShareOnFork)
+		map_flags |= AddressSpace::kMapShareOnFork;
 	
 	VirtualAddr actual_address;
 	AddressSpace::Guard space_guard(&space->lock);
