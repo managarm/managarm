@@ -10,6 +10,10 @@ public:
 		kTypeCopyOnWrite
 	};
 
+	enum Flags : uint32_t {
+		kFlagOnDemand = 0x01
+	};
+
 	Memory(Type type);
 	~Memory();
 
@@ -21,6 +25,8 @@ public:
 	PhysicalAddr getPage(size_t index);
 
 	size_t numPages();
+
+	uint32_t flags;
 
 	KernelSharedPtr<Memory> master;
 
@@ -43,7 +49,7 @@ struct Mapping {
 	};
 
 	enum Flags : uint32_t {
-		kFlagShareOnFork = 1
+		kFlagShareOnFork = 0x01
 	};
 
 	Mapping(Type type, VirtualAddr base_address, size_t length);

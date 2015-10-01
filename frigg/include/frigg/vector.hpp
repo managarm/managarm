@@ -14,7 +14,8 @@ public:
 	
 	T pop();
 
-	void resize(size_t new_size);
+	template<typename... Args>
+	void resize(size_t new_size, Args &&... args);
 
 	size_t size() const {
 		return p_size;
@@ -68,11 +69,12 @@ T &Vector<T, Allocator>::push(T &&element) {
 }
 
 template<typename T, typename Allocator>
-void Vector<T, Allocator>::resize(size_t new_size) {
+template<typename... Args>
+void Vector<T, Allocator>::resize(size_t new_size, Args &&... args) {
 	assert(p_size < new_size);
 	ensureCapacity(new_size);
 	for(size_t i = p_size; i < new_size; i++)
-		new (&p_elements[i]) T();
+		new (&p_elements[i]) T(traits::forward<Args>(args)...);
 	p_size = new_size;
 }
 

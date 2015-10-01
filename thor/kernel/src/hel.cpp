@@ -60,7 +60,7 @@ HelError helCloseDescriptor(HelHandle handle) {
 }
 
 
-HelError helAllocateMemory(size_t size, HelHandle *handle) {
+HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	assert((size % kPageSize) == 0);
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
@@ -68,11 +68,15 @@ HelError helAllocateMemory(size_t size, HelHandle *handle) {
 
 	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 	memory->resize(size / kPageSize);
-
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-	for(size_t i = 0; i < memory->numPages(); i++)
-		memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
-	physical_guard.unlock();
+	
+	if(flags & kHelAllocOnDemand) {
+		memory->flags |= Memory::kFlagOnDemand;
+	}else{
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		for(size_t i = 0; i < memory->numPages(); i++)
+			memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
+		physical_guard.unlock();
+	}
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,

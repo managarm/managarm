@@ -85,12 +85,7 @@ void enterImage(PhysicalAddr image_paddr) {
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 	stack_memory->resize(stack_size / kPageSize);
-	
-	// TODO: on-demand allocate stacks
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-	for(size_t i = 0; i < stack_memory->numPages(); i++)
-		stack_memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
-	physical_guard.unlock();
+	stack_memory->flags |= Memory::kFlagOnDemand;
 
 	VirtualAddr stack_base;
 	space_guard.lock();
@@ -311,7 +306,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
-		HelError error = helAllocateMemory((size_t)arg0, &handle);
+		HelError error = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
 		thorRtReturnSyscall2((Word)error, (Word)handle);
 	}
 	case kHelCallAccessPhysical: {

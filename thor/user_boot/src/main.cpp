@@ -67,7 +67,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			
 			// map the segment memory as read/write and initialize it
 			HelHandle memory;
-			HEL_CHECK(helAllocateMemory(virt_length, &memory));
+			HEL_CHECK(helAllocateMemory(virt_length, 0, &memory));
 			
 			void *write_ptr;
 			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, virt_length,
@@ -103,7 +103,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	constexpr size_t stack_size = 0x10000;
 	
 	HelHandle stack_memory;
-	HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
+	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,

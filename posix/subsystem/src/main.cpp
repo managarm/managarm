@@ -370,7 +370,7 @@ frigg::asyncSeq(
 		constexpr size_t stack_size = 0x10000;
 		
 		HelHandle stack_memory;
-		HEL_CHECK(helAllocateMemory(stack_size, &stack_memory));
+		HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 		void *stack_base;
 		HEL_CHECK(helMapMemory(stack_memory, context->process->vmSpace, nullptr,

@@ -150,7 +150,7 @@ Object *readObject(util::StringView path) {
 			uintptr_t displacement = phdr->p_vaddr - virt_address;
 			if(can_share) {
 				HelHandle memory;
-				HEL_CHECK(helAllocateMemory(virt_length, &memory));
+				HEL_CHECK(helAllocateMemory(virt_length, 0, &memory));
 
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
@@ -213,7 +213,7 @@ void sendObject(HelHandle pipe, int64_t request_id,
 			auto &segment = wrapper.get<UniqueSegment>();
 			base_segment = &segment;
 
-			HEL_CHECK(helAllocateMemory(segment.virtLength, &memory));
+			HEL_CHECK(helAllocateMemory(segment.virtLength, 0, &memory));
 
 			void *map_pointer;
 			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,

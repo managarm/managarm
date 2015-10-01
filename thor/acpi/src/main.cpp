@@ -192,6 +192,7 @@ int main() {
 	HEL_CHECK(helEnableFullIo());
 	
 	infoLogger.initialize(infoSink);
+	infoLogger->log() << "Entering ACPI driver" << frigg::debug::Finish();
 	allocator.initialize(virtualAlloc);
 
 	ACPICA_CHECK(AcpiInitializeSubsystem());

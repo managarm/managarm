@@ -124,6 +124,10 @@ struct HelDescriptorInfo {
 	int type;
 };
 
+enum HelAllocFlags {
+	kHelAllocOnDemand = 1
+};
+
 enum HelMapFlags {
 	kHelMapReadOnly = 1,
 	kHelMapReadWrite = 2,
@@ -143,7 +147,7 @@ HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
-HEL_C_LINKAGE HelError helAllocateMemory(size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
