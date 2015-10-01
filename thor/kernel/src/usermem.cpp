@@ -27,30 +27,21 @@ auto Memory::getType() -> Type {
 	return p_type;
 }
 
-void Memory::resize(size_t length) {
-	assert(p_type == kTypeAllocated);
-	for(size_t l = 0; l < length; l += 0x1000) {
-		// note: push might need to allocate memory and thus lock
-		// the physical allocator so we cannot keep the lock for the whole loop
-		// TODO: optimize this. preallocate the vector
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		PhysicalAddr page = physicalAllocator->allocate(physical_guard, 1);
-		physical_guard.unlock();
-
-		p_physicalPages.push(page);
-	}
+void Memory::resize(size_t num_pages) {
+	assert(p_physicalPages.size() < num_pages);
+	p_physicalPages.resize(num_pages);
 }
 
-void Memory::addPage(PhysicalAddr page) {
-	p_physicalPages.push(page);
+void Memory::setPage(size_t index, PhysicalAddr page) {
+	p_physicalPages[index] = page;
 }
 
-PhysicalAddr Memory::getPage(int index) {
+PhysicalAddr Memory::getPage(size_t index) {
 	return p_physicalPages[index];
 }
 
-size_t Memory::getSize() {
-	return p_physicalPages.size() * 0x1000;
+size_t Memory::numPages() {
+	return p_physicalPages.size();
 }
 
 // --------------------------------------------------------
@@ -194,6 +185,48 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	}
 }
 
+bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags) {
+	Mapping *mapping = getMapping(address);
+	if(!mapping)
+		return false;
+	if(mapping->type != Mapping::kTypeMemory)
+		return false;
+
+	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
+	if(memory->getType() == Memory::kTypeCopyOnWrite) {
+		VirtualAddr offset = address - mapping->baseAddress;
+		size_t page_index = offset / kPageSize;
+		
+		// allocate a new page and copy content from the master page
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+		physical_guard.unlock();
+		
+		PhysicalAddr origin = memory->master->getPage(page_index);
+		assert(origin != 0); // TODO: implement recursive copy-on-write
+		memcpy(physicalToVirtual(physical), physicalToVirtual(origin), kPageSize);
+		assert(memory->getPage(page_index) == 0);
+		memory->setPage(page_index, physical);
+
+		// map the new page into the address space
+		uint32_t page_flags = 0;
+		if(mapping->writePermission)
+			page_flags |= PageSpace::kAccessWrite;
+		if(mapping->executePermission);
+			page_flags |= PageSpace::kAccessExecute;
+
+		VirtualAddr vaddr = address - (address % kPageSize);
+		p_pageSpace.unmapSingle4k(vaddr);
+		p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+
+		return true;
+	}
+
+	return false;
+}
+
 KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
@@ -304,29 +337,42 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 		
-		assert(memory->getType() == Memory::kTypeAllocated);
-		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-		dest_memory->resize(memory->getSize());
-		for(size_t i = 0; i < memory->getSize() / kPageSize; i++)
-			memcpy(physicalToVirtual(dest_memory->getPage(i)),
-					physicalToVirtual(memory->getPage(i)), kPageSize);
-
+		// don't set the write flag to enable copy-on-write
 		uint32_t page_flags = 0;
-		if(mapping->writePermission)
-			page_flags |= PageSpace::kAccessWrite;
 		if(mapping->executePermission);
 			page_flags |= PageSpace::kAccessExecute;
-
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-		for(size_t i = 0; i < dest_mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = dest_memory->getPage(i);
-			VirtualAddr vaddr = dest_mapping->baseAddress + i * kPageSize;
+		
+		// create a copy-on-write region for the original space
+		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
+		src_memory->resize(memory->numPages());
+		src_memory->master = KernelSharedPtr<Memory>(memory);
+		mapping->memoryRegion = traits::move(src_memory);
+		
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
+			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+			PhysicalAddr physical = memory->getPage(i);
+			p_pageSpace.unmapSingle4k(vaddr);
+			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		}
+		// we need to release the lock before calling makeShared()
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+		
+		// create a copy-on-write region for the forked space
+		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
+		dest_memory->resize(memory->numPages());
+		dest_memory->master = KernelSharedPtr<Memory>(memory);
+		dest_mapping->memoryRegion = traits::move(dest_memory);
+		
+		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
+			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+			PhysicalAddr physical = memory->getPage(i);
 			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
 		
-		dest_mapping->memoryRegion = traits::move(dest_memory);
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
 	}else{

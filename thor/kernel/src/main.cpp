@@ -44,7 +44,12 @@ void enterImage(PhysicalAddr image_paddr) {
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-			memory->resize(virt_length);
+			memory->resize(virt_length / kPageSize);
+
+			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+			for(size_t i = 0; i < memory->numPages(); i++)
+				memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
+			physical_guard.unlock();
 
 			VirtualAddr actual_address;
 			space_guard.lock();
@@ -79,7 +84,13 @@ void enterImage(PhysicalAddr image_paddr) {
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-	stack_memory->resize(stack_size);
+	stack_memory->resize(stack_size / kPageSize);
+	
+	// TODO: on-demand allocate stacks
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+	for(size_t i = 0; i < stack_memory->numPages(); i++)
+		stack_memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
+	physical_guard.unlock();
 
 	VirtualAddr stack_base;
 	space_guard.lock();
@@ -131,10 +142,14 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	auto mod_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	for(size_t i = 1; i < info->numModules; i++) {
+		size_t virt_length = modules[i].length + (kPageSize - (modules[i].length % kPageSize));
+		assert((virt_length % kPageSize) == 0);
+
 		// TODO: free module memory if it is not used anymore
 		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
-		for(size_t offset = 0; offset < modules[i].length; offset += 0x1000)
-			mod_memory->addPage(modules[i].physicalBase + offset);
+		mod_memory->resize(virt_length / kPageSize);
+		for(size_t j = 0; j < mod_memory->numPages(); j++)
+			mod_memory->setPage(j, modules[i].physicalBase + j * kPageSize);
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
@@ -199,30 +214,50 @@ extern "C" void handleProtectionFault(Word error) {
 }
 
 extern "C" void handlePageFault(Word error) {
-	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
 	uintptr_t address;
 	asm volatile ( "mov %%cr2, %0" : "=r" (address) );
 
-	assert((error & 8) == 0);
+	const Word kPfAccess = 1;
+	const Word kPfWrite = 2;
+	const Word kPfUser = 4;
+	const Word kPfBadTable = 8;
+	const Word kPfInstruction = 16;
+	assert(!(error & kPfBadTable));
+
+	if(error & kPfUser) {
+		uint32_t flags = 0;
+		if(error & kPfWrite)
+			flags |= AddressSpace::kFaultWrite;
+
+		AddressSpace::Guard space_guard(&address_space->lock);
+		if(address_space->handleFault(space_guard, address, flags))
+			return;
+		space_guard.unlock();
+	}
+
+	auto base_state = this_thread->accessSaveState().accessGeneralBaseState();
+
 	auto msg = debug::panicLogger.log();
 	msg << "Page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)base_state->rip << "\n";
 	msg << "Errors:";
-	if((error & 4) != 0) {
+	if(error & kPfUser) {
 		msg << " (User)";
 	}else{
 		msg << " (Supervisor)";
 	}
-	if((error & 1) == 0) {
-		msg << " (Page not present)";
-	}else{
+	if(error & kPfAccess) {
 		msg << " (Access violation)";
+	}else{
+		msg << " (Page not present)";
 	}
-	if((error & 2) != 0) {
+	if(error & kPfWrite) {
 		msg << " (Write)";
-	}else if((error & 16) != 0) {
+	}else if(error & kPfInstruction) {
 		msg << " (Instruction fetch)";
 	}else{
 		msg << " (Read)";

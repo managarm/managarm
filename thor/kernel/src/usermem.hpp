@@ -6,7 +6,8 @@ public:
 	enum Type {
 		kTypeNone,
 		kTypePhysical,
-		kTypeAllocated
+		kTypeAllocated,
+		kTypeCopyOnWrite
 	};
 
 	Memory(Type type);
@@ -15,11 +16,13 @@ public:
 	Type getType();
 
 	void resize(size_t length);
-	void addPage(PhysicalAddr page);
 
-	PhysicalAddr getPage(int index);
+	void setPage(size_t index, PhysicalAddr page);
+	PhysicalAddr getPage(size_t index);
 
-	size_t getSize();
+	size_t numPages();
+
+	KernelSharedPtr<Memory> master;
 
 private:
 	Type p_type;
@@ -86,6 +89,10 @@ public:
 		kMapShareOnFork = 0x40
 	};
 
+	enum FaultFlags : uint32_t {
+		kFaultWrite = 0x01
+	};
+
 	AddressSpace(PageSpace page_space);
 
 	~AddressSpace();
@@ -97,6 +104,8 @@ public:
 			uint32_t flags, VirtualAddr *actual_address);
 	
 	void unmap(Guard &guard, VirtualAddr address, size_t length);
+
+	bool handleFault(Guard &guard, VirtualAddr address, uint32_t flags);
 	
 	KernelSharedPtr<AddressSpace> fork(Guard &guard);
 	

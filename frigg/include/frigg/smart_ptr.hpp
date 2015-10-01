@@ -133,6 +133,7 @@ public:
 	}
 
 	SharedPtr &operator= (SharedPtr &&other) {
+		reset();
 		p_block = other.p_block;
 		p_object = other.p_object;
 		other.p_block = nullptr;
@@ -214,6 +215,7 @@ public:
 	}
 
 	WeakPtr &operator= (WeakPtr &&other) {
+		reset();
 		p_block = other.p_block;
 		p_object = other.p_object;
 		other.p_block = nullptr;
