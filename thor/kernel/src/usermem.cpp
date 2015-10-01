@@ -15,11 +15,17 @@ Memory::Memory(Type type)
 : p_type(type), p_physicalPages(*kernelAlloc) { }
 
 Memory::~Memory() {
-	if(p_type == kTypeAllocated) {
+	if(p_type == kTypePhysical) {
+		// do nothing
+	}else if(p_type == kTypeAllocated || p_type == kTypeCopyOnWrite) {
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		for(size_t i = 0; i < p_physicalPages.size(); i++)
-			physicalAllocator->free(physical_guard, p_physicalPages[i]);
+		for(size_t i = 0; i < p_physicalPages.size(); i++) {
+			if(p_physicalPages[i])
+				physicalAllocator->free(physical_guard, p_physicalPages[i]);
+		}
 		physical_guard.unlock();
+	}else{
+		assert(!"Illegal memory type");
 	}
 }
 
@@ -315,6 +321,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 	}else if(mapping->type == Mapping::kTypeMemory
 			&& (mapping->flags & Mapping::kFlagShareOnFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
+		assert(memory->getType() == Memory::kTypeAllocated);
 
 		uint32_t page_flags = 0;
 		if(mapping->writePermission)
@@ -336,7 +343,8 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_mapping->executePermission = mapping->executePermission;
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-		
+		assert(memory->getType() == Memory::kTypeAllocated);
+
 		// don't set the write flag to enable copy-on-write
 		uint32_t page_flags = 0;
 		if(mapping->executePermission);
