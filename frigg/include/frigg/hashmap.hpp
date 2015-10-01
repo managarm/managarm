@@ -78,7 +78,7 @@ public:
 	template<typename KeyCompatible>
 	Optional<Value *> get(const KeyCompatible &key);
 
-	Value remove(const Key &key);
+	Optional<Value> remove(const Key &key);
 
 private:
 	void rehash();
@@ -150,7 +150,7 @@ Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatibl
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
-Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
+Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
 	Item *previous = nullptr;
@@ -170,8 +170,7 @@ Value Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 		}
 	}
 
-	assert(!"remove(): Element not found");
-	__builtin_unreachable();
+	return Optional<Value>();
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>

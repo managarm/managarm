@@ -240,7 +240,7 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(server, frigg::traits::move(process), iteration);
+	acceptLoop(frigg::traits::move(server), frigg::traits::move(process), iteration);
 	localDirectory.publish(client.getHandle(), "posix");
 
 	return directory;
@@ -565,7 +565,7 @@ StdSharedPtr<VfsOpenFile> MountPoint::openMounted(StdUnsafePtr<Process> process,
 
 struct RequestLoopContext {
 	RequestLoopContext(helx::Pipe pipe, StdSharedPtr<Process> process, int iteration)
-	: pipe(pipe), process(process), iteration(iteration) { }
+	: pipe(frigg::traits::move(pipe)), process(process), iteration(iteration) { }
 	
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 	
@@ -786,7 +786,7 @@ frigg::asyncRepeatUntil(
 void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration) {
 	struct AcceptContext {
 		AcceptContext(helx::Server server, StdSharedPtr<Process> process, int iteration)
-		: server(server), process(process), iteration(iteration) { }
+		: server(frigg::traits::move(server)), process(process), iteration(iteration) { }
 
 		helx::Server server;
 		StdSharedPtr<Process> process;
@@ -812,7 +812,8 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 		)
 	);
 
-	frigg::runAsync<AcceptContext>(*allocator, body, server, process, iteration);
+	frigg::runAsync<AcceptContext>(*allocator, body, frigg::traits::move(server),
+			process, iteration);
 }
 
 typedef void (*InitFuncPtr) ();
@@ -842,7 +843,7 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(server, StdSharedPtr<Process>(), 0);
+	acceptLoop(frigg::traits::move(server), StdSharedPtr<Process>(), 0);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;

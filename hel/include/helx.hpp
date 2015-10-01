@@ -21,6 +21,31 @@ public:
 	inline EventHub() {
 		HEL_CHECK(helCreateEventHub(&p_handle));
 	}
+	
+	inline EventHub(EventHub &&other) {
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline EventHub(const EventHub &other) = delete;
+
+	inline ~EventHub() {
+		reset();
+	}
+	
+	inline EventHub &operator= (EventHub &&other) {
+		reset();
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline EventHub &operator= (const EventHub &other) = delete;
+
+	void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
 
 	inline HelHandle getHandle() {
 		return p_handle;
@@ -105,8 +130,33 @@ public:
 
 	inline Pipe() : p_handle(kHelNullHandle) { }
 
+	inline Pipe(Pipe &&other) {
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Pipe(const Pipe &other) = delete;
+
 	inline Pipe(HelHandle handle) : p_handle(handle) { }
-	
+
+	~Pipe() {
+		reset();
+	}
+
+	inline Pipe &operator= (Pipe &&other) {
+		reset();
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Pipe &operator= (const Pipe &other) = delete;
+
+	inline void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
+
 	inline HelHandle getHandle() {
 		return p_handle;
 	}
@@ -166,6 +216,31 @@ public:
 	inline Client() : p_handle(kHelNullHandle) { }
 
 	inline Client(HelHandle handle) : p_handle(handle) { }
+	
+	inline Client(Client &&other) {
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Client(const Client &other) = delete;
+
+	inline ~Client() {
+		reset();
+	}
+	
+	inline Client &operator= (Client &&other) {
+		reset();
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Client &operator= (const Client &other) = delete;
+
+	void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
 
 	inline HelHandle getHandle() {
 		return p_handle;
@@ -194,6 +269,31 @@ public:
 	inline Server() : p_handle(kHelNullHandle) { }
 
 	inline Server(HelHandle handle) : p_handle(handle) { }
+	
+	inline Server(Server &&other) {
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Server(const Server &other) = delete;
+
+	inline ~Server() {
+		reset();
+	}
+	
+	inline Server &operator= (Server &&other) {
+		reset();
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Server &operator= (const Server &other) = delete;
+
+	void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
 
 	inline HelHandle getHandle() {
 		return p_handle;
@@ -221,6 +321,31 @@ public:
 	inline Directory() : p_handle(kHelNullHandle) { }
 
 	inline Directory(HelHandle handle) : p_handle(handle) { }
+	
+	inline Directory(Directory &&other) {
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Directory(const Directory &other) = delete;
+
+	inline ~Directory() {
+		reset();
+	}
+	
+	inline Directory &operator= (Directory &&other) {
+		reset();
+		p_handle = other.p_handle;
+		other.p_handle = kHelNullHandle;
+	}
+
+	inline Directory &operator= (const Directory &other) = delete;
+
+	void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
 
 	inline HelHandle getHandle() {
 		return p_handle;

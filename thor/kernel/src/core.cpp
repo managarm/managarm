@@ -111,7 +111,7 @@ frigg::Optional<AnyDescriptor *> Universe::getDescriptor(Guard &guard, Handle ha
 	return p_descriptorMap.get(handle);
 }
 
-AnyDescriptor Universe::detachDescriptor(Guard &guard, Handle handle) {
+frigg::Optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
 
 	return p_descriptorMap.remove(handle);

@@ -123,7 +123,7 @@ void closeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg
 }
 
 struct ProcessContext {
-	ProcessContext(helx::Pipe pipe) : pipe(pipe) { }
+	ProcessContext(helx::Pipe pipe) : pipe(frigg::traits::move(pipe)) { }
 
 	uint8_t buffer[128];
 	helx::Pipe pipe;
@@ -148,16 +148,13 @@ auto processRequest = async::repeatWhile(
 			client_request.ParseFromArray(context.buffer, length);
 
 			if(client_request.request_type() == managarm::fs::ClientRequest::OPEN) {
-				openFile(client_request, context.pipe, msg_request);
-			}
-			else if(client_request.request_type() == managarm::fs::ClientRequest::READ) {
-				readFile(client_request, context.pipe, msg_request);
-			}
-			else if(client_request.request_type() == managarm::fs::ClientRequest::WRITE) {
-				writeFile(client_request, context.pipe, msg_request);
-			}
-			else if(client_request.request_type() == managarm::fs::ClientRequest::CLOSE) {
-				closeFile(client_request, context.pipe, msg_request);
+				openFile(client_request, frigg::traits::move(context.pipe), msg_request);
+			}else if(client_request.request_type() == managarm::fs::ClientRequest::READ) {
+				readFile(client_request, frigg::traits::move(context.pipe), msg_request);
+			}else if(client_request.request_type() == managarm::fs::ClientRequest::WRITE) {
+				writeFile(client_request, frigg::traits::move(context.pipe), msg_request);
+			}else if(client_request.request_type() == managarm::fs::ClientRequest::CLOSE) {
+				closeFile(client_request, frigg::traits::move(context.pipe), msg_request);
 			}
 
 			callback();
@@ -166,7 +163,7 @@ auto processRequest = async::repeatWhile(
 );
 
 struct AcceptContext {
-	AcceptContext(helx::Server server) : server(server) { }
+	AcceptContext(helx::Server server) : server(frigg::traits::move(server)) { }
 
 	helx::Server server;
 };
@@ -185,7 +182,8 @@ auto processAccept = async::repeatWhile(
 
 			auto on_complete = [] (ProcessContext &context) { };
 			helx::Pipe pipe(handle);
-			async::run(allocator, processRequest, ProcessContext(pipe), on_complete);
+			async::run(allocator, processRequest,
+					ProcessContext(frigg::traits::move(pipe)), on_complete);
 
 			callback();
 		})
@@ -198,7 +196,7 @@ int main() {
 	helx::Server::createServer(server, client);
 
 	auto on_complete = [] (AcceptContext &context) { };
-	async::run(allocator, processAccept, AcceptContext(server), on_complete);
+	async::run(allocator, processAccept, AcceptContext(frigg::traits::move(server)), on_complete);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;

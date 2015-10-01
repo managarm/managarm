@@ -53,7 +53,8 @@ HelError helCloseDescriptor(HelHandle handle) {
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	Universe::Guard universe_guard(&universe->lock);
-	universe->detachDescriptor(universe_guard, handle);
+	if(!universe->detachDescriptor(universe_guard, handle))
+		return kHelErrNoDescriptor;
 	universe_guard.unlock();
 
 	return kHelErrNone;

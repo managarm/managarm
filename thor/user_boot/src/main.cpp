@@ -39,6 +39,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	HEL_CHECK(helMemoryInfo(image_handle, &size));
 	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, size,
 			kHelMapReadOnly, &image_ptr));
+	HEL_CHECK(helCloseDescriptor(image_handle));
 	
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
@@ -396,4 +397,11 @@ asm ( ".global _start\n"
 		"_start:\n"
 		"\tcall main\n"
 		"\tud2" );
+
+extern "C"
+int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
+	return 0;
+}
+
+void *__dso_handle;
 

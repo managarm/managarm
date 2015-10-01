@@ -264,6 +264,7 @@ int main() {
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	HEL_CHECK(helCloseDescriptor(parent_handle));
 
 	HEL_CHECK(helExitThisThread());
 }

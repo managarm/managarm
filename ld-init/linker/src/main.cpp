@@ -118,6 +118,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	int64_t async_id;
 	HEL_CHECK(helSubmitConnect(server_handle, eventHub->getHandle(),
 			kHelNoFunction, kHelNoObject, &async_id));
+	HEL_CHECK(helCloseDescriptor(server_handle));
 	HelHandle pipe_handle = eventHub->waitForConnect(async_id);
 	serverPipe.initialize(pipe_handle);
 
