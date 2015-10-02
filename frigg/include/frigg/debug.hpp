@@ -4,10 +4,6 @@
 
 namespace frigg {
 
-#ifndef assert
-#define assert(c) do { if(!(c)) ::frigg::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
-#endif
-
 class VirtualSink {
 public:
 	virtual void print(char c) = 0;
@@ -157,13 +153,6 @@ public:
 };
 
 extern PanicLogger panicLogger;
-
-// --------------------------------------------------------
-// Namespace scope functions
-// --------------------------------------------------------
-
-void assertionFail(const char *message, const char *function,
-		const char *file, int line);
 
 } // namespace frigg
 

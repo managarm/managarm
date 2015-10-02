@@ -2,7 +2,7 @@
 #ifndef FRIGG_INITIALIZER_HPP
 #define FRIGG_INITIALIZER_HPP
 
-void *operator new (size_t size, void *pointer);
+#include <frigg/cxx-support.hpp>
 
 namespace frigg {
 

@@ -11,10 +11,11 @@ $c_CCFLAGS := $($c_INCLUDE)
 
 $c_CXX := x86_64-managarm-g++
 $c_CXXFLAGS := -std=c++11 -fno-rtti -fno-exceptions $($c_INCLUDE)
+$c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_LDFLAGS := -nostdlib
 
-$c_OBJECTS := main.o glue-acpica.o frigg-glue-hel.o frigg-debug.o frigg-initializer.o frigg-libc.o
+$c_OBJECTS := main.o glue-acpica.o frigg-glue-hel.o frigg-debug.o frigg-libc.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths

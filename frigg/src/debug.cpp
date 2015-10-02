@@ -1,5 +1,5 @@
 
-#include <frigg/types.hpp>
+#include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 #include <frigg/support.hpp>
 #include <frigg/debug.hpp>

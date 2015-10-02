@@ -2,7 +2,6 @@
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 #include <frigg/debug.hpp>
-#include <frigg/initializer.hpp>
 #include <frigg/libc.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>

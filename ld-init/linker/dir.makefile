@@ -5,7 +5,7 @@ $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
 $c_OBJECTS := main.o frigg-glue-hel.o linker.o runtime.o \
-	frigg-debug.o frigg-initializer.o frigg-libc.o
+	frigg-debug.o frigg-libc.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_TARGETS := all-$c clean-$c $($c_BINDIR)/ld-init.so $($c_BINDIR)

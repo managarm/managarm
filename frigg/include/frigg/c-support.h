@@ -14,10 +14,7 @@ extern "C" {
 void __assert_fail(const char *assertion,
 		const char *file, unsigned int line, const char *function);
 
-//FIXME
-#ifndef assert
 #define assert(c) do { if(!(c)) __assert_fail(#c, __FILE__, __LINE__, __func__); } while(0)
-#endif
 
 #ifdef __cplusplus
 }

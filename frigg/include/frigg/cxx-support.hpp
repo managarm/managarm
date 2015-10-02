@@ -4,7 +4,13 @@
 
 #include <frigg/c-support.h>
 
-void *operator new (size_t size, void *pointer);
+#ifdef FRIGG_NO_LIBC
+
+inline void *operator new (size_t size, void *pointer) {
+	return pointer;
+}
+
+#endif // FRIGG_NO_LIBC
 
 #endif // FRIGG_CXX_SUPORT_HPP
 

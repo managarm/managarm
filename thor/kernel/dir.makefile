@@ -5,7 +5,7 @@ $c_GENDIR := $(BUILD_PATH)/$c/gen
 $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
-$c_OBJECTS := frigg-debug.o frigg-initializer.o frigg-libc.o \
+$c_OBJECTS := frigg-debug.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
 	arch_x86/early_stubs.o arch_x86/int_stubs.o arch_x86/syscall_stubs.o \
 	arch_x86/cpu.o arch_x86/trampoline.o \
