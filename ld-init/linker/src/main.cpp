@@ -105,7 +105,8 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 		}
 	}
 
-	eventHub.initialize();
+	eventHub.initialize(helx::EventHub::create());
+	serverPipe.initialize();
 	
 	const char *path = "config/rtdl-server";
 	HelHandle server_handle;
@@ -115,8 +116,10 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	HEL_CHECK(helSubmitConnect(server_handle, eventHub->getHandle(),
 			kHelNoFunction, kHelNoObject, &async_id));
 	HEL_CHECK(helCloseDescriptor(server_handle));
-	HelHandle pipe_handle = eventHub->waitForConnect(async_id);
-	serverPipe.initialize(pipe_handle);
+
+	HelError connect_error;
+	eventHub->waitForConnect(async_id, connect_error, *serverPipe);
+	HEL_CHECK(connect_error);
 
 	executable.initialize(true);
 

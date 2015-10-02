@@ -252,7 +252,10 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	int64_t async_id;
 	HEL_CHECK(helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
 			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id));
-	size_t length = eventHub->waitForRecvString(async_id);
+	HelError response_error;
+	size_t length;
+	eventHub->waitForRecvString(async_id, response_error, length);
+	HEL_CHECK(response_error);
 
 	managarm::ld_server::ServerResponse<Allocator> response(*allocator);
 	response.ParseFromArray(buffer, length);
@@ -274,12 +277,15 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
 				1, 1 + i, kHelNoFunction, kHelNoObject, &async_id));
-		HelHandle memory = eventHub->waitForRecvDescriptor(async_id);
+		HelError memory_error;
+		HelHandle memory_handle;
+		eventHub->waitForRecvDescriptor(async_id, memory_error, memory_handle);
+		HEL_CHECK(memory_error);
 
 		void *actual_pointer;
-		HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)segment.virt_address(),
+		HEL_CHECK(helMapMemory(memory_handle, kHelNullHandle, (void *)segment.virt_address(),
 				segment.virt_length(), map_flags, &actual_pointer));
-		HEL_CHECK(helCloseDescriptor(memory));
+		HEL_CHECK(helCloseDescriptor(memory_handle));
 	}
 
 	parseDynamic(object);

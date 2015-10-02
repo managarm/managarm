@@ -123,7 +123,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	HEL_CHECK(helCloseDescriptor(space));
 }
 
-helx::EventHub eventHub;
+helx::EventHub eventHub = helx::EventHub::create();
 helx::Client ldServerConnect;
 helx::Client acpiConnect;
 helx::Pipe ldServerPipe;

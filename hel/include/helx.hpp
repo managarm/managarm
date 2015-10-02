@@ -14,13 +14,25 @@ typedef void (*AcceptFunction) (void *, HelError, HelHandle);
 typedef void (*ConnectFunction) (void *, HelError, HelHandle);
 typedef void (*IrqFunction) (void *, HelError);
 
+class Pipe;
+class Client;
+class Server;
+
 class EventHub {
 public:
+	static inline EventHub create() {
+		HelHandle handle;
+		HEL_CHECK(helCreateEventHub(&handle));
+		return EventHub(handle);
+	}
+
 	enum { kEventsPerCall = 16 };
 
-	inline EventHub() {
-		HEL_CHECK(helCreateEventHub(&p_handle));
-	}
+	inline EventHub()
+	: p_handle(kHelNullHandle) { }
+
+	explicit inline EventHub(HelHandle handle)
+	: p_handle(handle) { }
 	
 	inline EventHub(EventHub &&other) {
 		p_handle = other.p_handle;
@@ -102,18 +114,9 @@ public:
 		}
 	}
 
-	inline size_t waitForRecvString(int64_t async_id) {
-		HelEvent event = waitForEvent(async_id);
-		return event.length;
-	}
-	inline HelHandle waitForRecvDescriptor(int64_t async_id) {
-		HelEvent event = waitForEvent(async_id);
-		return event.handle;
-	}
-	inline HelHandle waitForConnect(int64_t async_id) {
-		HelEvent event = waitForEvent(async_id);
-		return event.handle;
-	}
+	inline void waitForRecvString(int64_t async_id, HelError &error, size_t &length);
+	inline void waitForRecvDescriptor(int64_t async_id, HelError &error, HelHandle &handle);
+	inline void waitForConnect(int64_t async_id, HelError &error, Pipe &pipe);
 
 private:
 	HelHandle p_handle;
@@ -121,7 +124,7 @@ private:
 
 class Pipe {
 public:
-	static void createBiDirection(Pipe &first, Pipe &second) {
+	static inline void createBiDirection(Pipe &first, Pipe &second) {
 		HelHandle first_handle, second_handle;
 		HEL_CHECK(helCreateBiDirectionPipe(&first_handle, &second_handle));
 		first = Pipe(first_handle);
@@ -137,7 +140,7 @@ public:
 
 	inline Pipe(const Pipe &other) = delete;
 
-	inline Pipe(HelHandle handle) : p_handle(handle) { }
+	explicit inline Pipe(HelHandle handle) : p_handle(handle) { }
 
 	~Pipe() {
 		reset();
@@ -183,12 +186,12 @@ public:
 
 	inline void recvStringSync(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			size_t &length) {
+			HelError &error, size_t &length) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
 				0, 0, &async_id));
-		length = event_hub.waitForRecvString(async_id);
+		event_hub.waitForRecvString(async_id, error, length);
 	}
 	
 	inline void recvDescriptor(EventHub &event_hub,
@@ -200,11 +203,12 @@ public:
 	}
 	
 	inline void recvDescriptorSync(EventHub &event_hub,
-			int64_t msg_request, int64_t msg_seq, HelHandle &handle) {
+			int64_t msg_request, int64_t msg_seq,
+			HelError &error, HelHandle &handle) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
 				msg_request, msg_seq, 0, 0, &async_id));
-		handle = event_hub.waitForRecvDescriptor(async_id);
+		event_hub.waitForRecvDescriptor(async_id, error, handle);
 	}
 
 private:
@@ -215,7 +219,7 @@ class Client {
 public:
 	inline Client() : p_handle(kHelNullHandle) { }
 
-	inline Client(HelHandle handle) : p_handle(handle) { }
+	explicit inline Client(HelHandle handle) : p_handle(handle) { }
 	
 	inline Client(Client &&other) {
 		p_handle = other.p_handle;
@@ -259,7 +263,7 @@ private:
 
 class Server {
 public:
-	static void createServer(Server &server, Client &client) {
+	static inline void createServer(Server &server, Client &client) {
 		HelHandle server_handle, client_handle;
 		HEL_CHECK(helCreateServer(&server_handle, &client_handle));
 		server = Server(server_handle);
@@ -268,7 +272,7 @@ public:
 
 	inline Server() : p_handle(kHelNullHandle) { }
 
-	inline Server(HelHandle handle) : p_handle(handle) { }
+	explicit inline Server(HelHandle handle) : p_handle(handle) { }
 	
 	inline Server(Server &&other) {
 		p_handle = other.p_handle;
@@ -320,7 +324,7 @@ public:
 
 	inline Directory() : p_handle(kHelNullHandle) { }
 
-	inline Directory(HelHandle handle) : p_handle(handle) { }
+	explicit inline Directory(HelHandle handle) : p_handle(handle) { }
 	
 	inline Directory(Directory &&other) {
 		p_handle = other.p_handle;
@@ -368,6 +372,26 @@ public:
 private:
 	HelHandle p_handle;
 };
+
+// --------------------------------------------------------
+// EventHub implementation
+// --------------------------------------------------------
+
+void EventHub::waitForRecvString(int64_t async_id, HelError &error, size_t &length) {
+	HelEvent event = waitForEvent(async_id);
+	error = event.error;
+	length = event.length;
+}
+void EventHub::waitForRecvDescriptor(int64_t async_id, HelError &error, HelHandle &handle) {
+	HelEvent event = waitForEvent(async_id);
+	error = event.error;
+	handle = event.handle;
+}
+void EventHub::waitForConnect(int64_t async_id, HelError &error, Pipe &pipe) {
+	HelEvent event = waitForEvent(async_id);
+	error = event.error;
+	pipe = Pipe(event.handle);
+}
 
 } // namespace helx
 

@@ -31,7 +31,7 @@ using StdSharedPtr = frigg::SharedPtr<T, Allocator>;
 template<typename T>
 using StdUnsafePtr = frigg::UnsafePtr<T, Allocator>;
 
-helx::EventHub eventHub;
+helx::EventHub eventHub = helx::EventHub::create();
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 
@@ -721,8 +721,11 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 
 		sendResponse(response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
+		HelError error;
 		HelHandle handle;
-		pipe.recvDescriptorSync(eventHub, msg_request, 1, handle);
+		//FIXME
+		pipe.recvDescriptorSync(eventHub, msg_request, 1, error, handle);
+		HEL_CHECK(error);
 
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		if(!file_wrapper) {
@@ -831,12 +834,14 @@ int main() {
 	const char *ld_path = "local/rtdl-server";
 	HelHandle ld_handle;
 	HEL_CHECK(helRdOpen(ld_path, strlen(ld_path), &ld_handle));
-	ldServerConnect = ld_handle;
+	ldServerConnect = helx::Client(ld_handle);
 
 	int64_t ld_connect_id;
 	HEL_CHECK(helSubmitConnect(ldServerConnect.getHandle(), eventHub.getHandle(),
 			0, 0, &ld_connect_id));
-	ldServerPipe = eventHub.waitForConnect(ld_connect_id);
+	HelError connect_error;
+	eventHub.waitForConnect(ld_connect_id, connect_error, ldServerPipe);
+	HEL_CHECK(connect_error);
 
 	helx::Server server;
 	helx::Client client;
@@ -847,6 +852,7 @@ int main() {
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	client.reset();
 
 	while(true) {
 		eventHub.defaultProcessEvents();

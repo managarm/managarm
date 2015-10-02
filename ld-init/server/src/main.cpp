@@ -246,8 +246,8 @@ void sendObject(HelHandle pipe, int64_t request_id,
 	HEL_CHECK(helSendString(pipe, (uint8_t *)serialized.data(), serialized.size(), 1, 0));
 }
 
-frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Server> server;
+helx::EventHub eventHub = helx::EventHub::create();
+helx::Server server;
 
 void requestLoop(helx::Pipe pipe) {
 	struct Context {
@@ -264,7 +264,7 @@ void requestLoop(helx::Pipe pipe) {
 			frigg::wrapFuncPtr<helx::RecvStringFunction>([](auto *context,
 					void *cb_object, auto cb_function) {
 				context->pipe.recvString(context->buffer, 128,
-						*eventHub, kHelAnyRequest, 0, cb_object, cb_function);
+						eventHub, kHelAnyRequest, 0, cb_object, cb_function);
 			}),
 			frigg::wrapFunctor([](auto *context, auto callback, HelError error,
 					int64_t msg_request, int64_t msg_sequence, size_t length) {
@@ -287,7 +287,7 @@ void requestLoop(helx::Pipe pipe) {
 void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 	HEL_CHECK(error);
 	requestLoop(helx::Pipe(pipe_handle));
-	server->accept(*eventHub, nullptr, &onAccept);
+	server.accept(eventHub, nullptr, &onAccept);
 }
 
 typedef void (*InitFuncPtr) ();
@@ -304,14 +304,10 @@ int main() {
 	infoLogger->log() << "Entering ld-server" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 
-	eventHub.initialize();
-
 	// create a server and listen for requests
-	HelHandle serve_handle, client_handle;
-	HEL_CHECK(helCreateServer(&serve_handle, &client_handle));
-
-	server.initialize(serve_handle);
-	server->accept(*eventHub, nullptr, &onAccept);
+	helx::Client client;
+	helx::Server::createServer(server, client);
+	server.accept(eventHub, nullptr, &onAccept);
 	
 	// inform user_boot that we are ready to server requests
 	const char *path = "local/parent";
@@ -319,16 +315,24 @@ int main() {
 	HEL_CHECK(helRdOpen(path, strlen(path), &parent_handle));
 
 	helx::Pipe parent_pipe(parent_handle);
-	parent_pipe.sendDescriptor(client_handle, 1, 0);
+	parent_pipe.sendDescriptor(client.getHandle(), 1, 0);
+	client.reset();
 
 	infoLogger->log() << "ld-server initialized succesfully!" << frigg::EndLog();
 
 	while(true)
-		eventHub->defaultProcessEvents();
+		eventHub.defaultProcessEvents();
 }
 
 asm ( ".global _start\n"
 		"_start:\n"
 		"\tcall main\n"
 		"\tud2" );
+
+extern "C"
+int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
+	return 0;
+}
+
+void *__dso_handle;
 
