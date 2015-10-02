@@ -11,17 +11,13 @@
 #include <frigg/traits.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/async.hpp>
+#include <frigg/async2.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
 #include "fs.pb.h"
-
-namespace util = frigg::util;
-namespace async = frigg::async;
 
 helx::EventHub eventHub;
 
@@ -122,86 +118,85 @@ void closeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg
 	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);	
 }
 
-struct ProcessContext {
-	ProcessContext(helx::Pipe pipe) : pipe(std::move(pipe)) { }
+void requestLoop(helx::Pipe pipe) {
+	struct Context {
+		Context(helx::Pipe pipe) : pipe(std::move(pipe)) { }
 
-	uint8_t buffer[128];
-	helx::Pipe pipe;
-};
+		uint8_t buffer[128];
+		helx::Pipe pipe;
+	};
 
-auto processRequest = async::repeatWhile(
-	async::lambda([] (ProcessContext &context, util::Callback<void(bool)> callback) {
-		callback(true);
-	}),
-	async::seq(
-		async::lambda([] (ProcessContext &context, util::Callback<void(HelError, int64_t,
-				int64_t, size_t)> callback) {
-			context.pipe.recvString(context.buffer, 128, eventHub,
-					kHelAnyRequest, kHelAnySequence,
-					callback.getObject(), callback.getFunction());
-		}),
-		async::lambda([] (ProcessContext &context, util::Callback<void()> callback, 
-				HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-			HEL_CHECK(error);
+	auto routine =
+	frigg::asyncRepeatUntil(
+		frigg::asyncSeq(
+			frigg::wrapFuncPtr<helx::RecvStringFunction>([] (auto *context,
+					void *cb_object, auto cb_function) {
+				context->pipe.recvString(context->buffer, 128, eventHub,
+						kHelAnyRequest, kHelAnySequence,
+						cb_object, cb_function);
+			}),
+			frigg::wrapFunctor([] (auto *context, auto callback, HelError error,
+					int64_t msg_request, int64_t msg_seq, size_t length) {
+				HEL_CHECK(error);
 
-			managarm::fs::ClientRequest client_request;
-			client_request.ParseFromArray(context.buffer, length);
+				managarm::fs::ClientRequest client_request;
+				client_request.ParseFromArray(context->buffer, length);
 
-			if(client_request.request_type() == managarm::fs::ClientRequest::OPEN) {
-				openFile(client_request, std::move(context.pipe), msg_request);
-			}else if(client_request.request_type() == managarm::fs::ClientRequest::READ) {
-				readFile(client_request, std::move(context.pipe), msg_request);
-			}else if(client_request.request_type() == managarm::fs::ClientRequest::WRITE) {
-				writeFile(client_request, std::move(context.pipe), msg_request);
-			}else if(client_request.request_type() == managarm::fs::ClientRequest::CLOSE) {
-				closeFile(client_request, std::move(context.pipe), msg_request);
-			}
+				if(client_request.request_type() == managarm::fs::ClientRequest::OPEN) {
+//FIXME:					openFile(client_request, std::move(context.pipe), msg_request);
+				}else if(client_request.request_type() == managarm::fs::ClientRequest::READ) {
+//FIXME:					readFile(client_request, std::move(context.pipe), msg_request);
+				}else if(client_request.request_type() == managarm::fs::ClientRequest::WRITE) {
+//FIXME:					writeFile(client_request, std::move(context.pipe), msg_request);
+				}else if(client_request.request_type() == managarm::fs::ClientRequest::CLOSE) {
+//FIXME:					closeFile(client_request, std::move(context.pipe), msg_request);
+				}
 
-			callback();
-		})
-	)
-);
+				callback(true);
+			})
+		)
+	);
 
-struct AcceptContext {
-	AcceptContext(helx::Server server) : server(std::move(server)) { }
+	frigg::runAsync<Context>(allocator, routine, std::move(pipe));
+}
 
-	helx::Server server;
-};
+void acceptLoop(helx::Server server) {
+	struct Context {
+		Context(helx::Server server) : server(std::move(server)) { }
 
-auto processAccept = async::repeatWhile(
-	async::lambda([] (AcceptContext &context, util::Callback<void(bool)> callback) {
-		callback(true);
-	}),
-	async::seq(
-		async::lambda([] (AcceptContext &context, util::Callback<void(HelError, HelHandle)> callback) {
-			context.server.accept(eventHub, callback.getObject(), callback.getFunction());
-		}),
-		async::lambda([] (AcceptContext &context, util::Callback<void()> callback,
-				HelError error, HelHandle handle) {
- 			HEL_CHECK(error);
+		helx::Server server;
+	};
 
-			auto on_complete = [] (ProcessContext &context) { };
-			helx::Pipe pipe(handle);
-			async::run(allocator, processRequest,
-					ProcessContext(std::move(pipe)), on_complete);
-
-			callback();
-		})
-	)
-);
+	auto routine =
+	frigg::asyncRepeatUntil(
+		frigg::asyncSeq(
+			frigg::wrapFuncPtr<helx::AcceptFunction>([] (auto *context,
+					void *cb_object, auto cb_function) {
+				context->server.accept(eventHub, cb_object, cb_function);
+			}),
+			frigg::wrapFunctor([] (Context *context, auto callback, HelError error,
+					HelHandle handle) {
+				HEL_CHECK(error);
+				requestLoop(helx::Pipe(handle));
+				callback(true);
+			})
+		)
+	);
+	
+	frigg::runAsync<Context>(allocator, routine, std::move(server));
+}
 
 int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-
-	auto on_complete = [] (AcceptContext &context) { };
-	async::run(allocator, processAccept, AcceptContext(std::move(server)), on_complete);
-
+	acceptLoop(std::move(server));
+	
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	client.reset();
 
 	while(true) {
 		eventHub.defaultProcessEvents();

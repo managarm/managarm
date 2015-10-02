@@ -27,7 +27,7 @@ int main() {
 	assert(child != -1);
 
 	if(child == 0) {
-		execve("zisa", args.data(), envp);
+		execve("vga_terminal", args.data(), envp);
 	}
 }
 
