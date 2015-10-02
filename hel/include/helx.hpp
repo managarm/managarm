@@ -34,9 +34,9 @@ public:
 	explicit inline EventHub(HelHandle handle)
 	: p_handle(handle) { }
 	
-	inline EventHub(EventHub &&other) {
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline EventHub(EventHub &&other)
+	: EventHub() {
+		swap(*this, other);
 	}
 
 	inline EventHub(const EventHub &other) = delete;
@@ -45,18 +45,21 @@ public:
 		reset();
 	}
 	
-	inline EventHub &operator= (EventHub &&other) {
-		reset();
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline EventHub &operator= (EventHub other) {
+		swap(*this, other);
+		other.reset();
+		return *this;
 	}
-
-	inline EventHub &operator= (const EventHub &other) = delete;
 
 	void reset() {
 		if(p_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(p_handle));
 		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(EventHub &a, EventHub &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
 	}
 
 	inline HelHandle getHandle() {
@@ -149,6 +152,7 @@ public:
 	inline Pipe &operator= (Pipe other) {
 		swap(*this, other);
 		other.reset();
+		return *this;
 	}
 
 	inline void reset() {
@@ -223,9 +227,9 @@ public:
 
 	explicit inline Client(HelHandle handle) : p_handle(handle) { }
 	
-	inline Client(Client &&other) {
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Client(Client &&other)
+	: Client() {
+		swap(*this, other);
 	}
 
 	inline Client(const Client &other) = delete;
@@ -234,18 +238,21 @@ public:
 		reset();
 	}
 	
-	inline Client &operator= (Client &&other) {
-		reset();
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Client &operator= (Client other) {
+		swap(*this, other);
+		other.reset();
+		return *this;
 	}
-
-	inline Client &operator= (const Client &other) = delete;
 
 	void reset() {
 		if(p_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(p_handle));
 		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(Client &a, Client &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
 	}
 
 	inline HelHandle getHandle() {
@@ -283,9 +290,9 @@ public:
 
 	explicit inline Server(HelHandle handle) : p_handle(handle) { }
 	
-	inline Server(Server &&other) {
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Server(Server &&other)
+	: Server() {
+		swap(*this, other);
 	}
 
 	inline Server(const Server &other) = delete;
@@ -294,18 +301,21 @@ public:
 		reset();
 	}
 	
-	inline Server &operator= (Server &&other) {
-		reset();
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Server &operator= (Server other) {
+		swap(*this, other);
+		other.reset();
+		return *this;
 	}
-
-	inline Server &operator= (const Server &other) = delete;
 
 	void reset() {
 		if(p_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(p_handle));
 		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(Server &a, Server &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
 	}
 
 	inline HelHandle getHandle() {
@@ -335,9 +345,9 @@ public:
 
 	explicit inline Directory(HelHandle handle) : p_handle(handle) { }
 	
-	inline Directory(Directory &&other) {
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Directory(Directory &&other)
+	: Directory() {
+		swap(*this, other);
 	}
 
 	inline Directory(const Directory &other) = delete;
@@ -346,18 +356,21 @@ public:
 		reset();
 	}
 	
-	inline Directory &operator= (Directory &&other) {
-		reset();
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Directory &operator= (Directory other) {
+		swap(*this, other);
+		other.reset();
+		return *this;
 	}
-
-	inline Directory &operator= (const Directory &other) = delete;
 
 	void reset() {
 		if(p_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(p_handle));
 		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(Directory &a, Directory &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
 	}
 
 	inline HelHandle getHandle() {
