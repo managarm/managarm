@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace memory {
 
 // --------------------------------------------------------
 // DebugAllocator declarations
@@ -121,5 +120,5 @@ void destruct(Allocator &allocator, T *pointer) {
 	allocator.free(pointer);
 }
 
-} } // namespace frigg::memory
+} // namespace frigg
 

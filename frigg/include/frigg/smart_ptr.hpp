@@ -99,7 +99,7 @@ class SharedPtr {
 public:
 	template<typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
-		auto shared_struct = memory::construct<SharedStruct<T, Allocator>>
+		auto shared_struct = construct<SharedStruct<T, Allocator>>
 				(allocator, allocator, traits::forward<Args>(args)...);
 		return SharedPtr<T, Allocator>(reinterpret_cast<SharedBlock<Allocator> *>(shared_struct),
 				&(*shared_struct->storage));
@@ -158,7 +158,7 @@ public:
 			fetchDec(&p_block->weakCount, old_weak_count);
 			assert(old_weak_count > 0);
 			if(old_weak_count == 1)
-				memory::destruct(p_block->allocator, p_block);
+				destruct(p_block->allocator, p_block);
 		}
 		p_block = nullptr;
 		p_object = nullptr;
@@ -235,7 +235,7 @@ public:
 		fetchDec(&p_block->weakCount, old_weak_count);
 		assert(old_weak_count > 0);
 		if(old_weak_count == 1)
-			memory::destruct(p_block->allocator, p_block);
+			destruct(p_block->allocator, p_block);
 		
 		p_block = nullptr;
 		p_object = nullptr;

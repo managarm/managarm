@@ -31,8 +31,7 @@ private:
 	uintptr_t p_nextPage;
 };
 
-typedef frigg::memory::DebugAllocator<KernelVirtualAlloc,
-		frigg::TicketLock> KernelAlloc;
+typedef frigg::DebugAllocator<KernelVirtualAlloc, frigg::TicketLock> KernelAlloc;
 extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;

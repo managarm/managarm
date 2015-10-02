@@ -31,7 +31,7 @@ void run(Allocator &allocator, const AsyncElement &element, typename AsyncElemen
 		CompleteFunctor complete_functor, Inputs... inputs) {
 	typedef run_impl::Block<AsyncElement, CompleteFunctor,
 			typename AsyncElement::OutputPack> Block;
-	auto block = memory::construct<Block>(allocator,
+	auto block = construct<Block>(allocator,
 			element, traits::move(context), complete_functor);
 	block->closure(inputs...);
 }

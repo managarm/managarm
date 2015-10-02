@@ -217,7 +217,7 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 
 StdSharedPtr<Process> Process::init() {
 	auto new_process = frigg::makeShared<Process>(*allocator);
-	new_process->mountSpace = frigg::memory::construct<MountSpace>(*allocator);
+	new_process->mountSpace = frigg::construct<MountSpace>(*allocator);
 	new_process->nextFd = 3; // reserve space for stdio
 
 	return new_process;
@@ -601,7 +601,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		char_devices.allocateDevice("misc",
 				frigg::staticPointerCast<Device>(frigg::traits::move(device)), major, minor);
 
-		auto fs = frigg::memory::construct<dev_fs::MountPoint>(*allocator);
+		auto fs = frigg::construct<dev_fs::MountPoint>(*allocator);
 		auto real_inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
 		fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
 				frigg::staticPointerCast<dev_fs::Inode>(frigg::traits::move(real_inode)));

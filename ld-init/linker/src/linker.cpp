@@ -27,7 +27,6 @@
 #include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
-namespace memory = frigg::memory;
 
 #include "linker.hpp"
 
@@ -380,7 +379,7 @@ void Loader::processDependencies(SharedObject *object) {
 		const char *library_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + dynamic->d_val);
 
-		auto library = memory::construct<SharedObject>(*allocator, false);
+		auto library = frigg::construct<SharedObject>(*allocator, false);
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library

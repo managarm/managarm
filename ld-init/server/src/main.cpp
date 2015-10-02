@@ -29,7 +29,6 @@
 
 namespace debug = frigg::debug;
 namespace util = frigg::util;
-namespace memory = frigg::memory;
 namespace async = frigg::async;
 
 struct BaseSegment {
@@ -111,7 +110,7 @@ Object *readObject(frigg::StringView path) {
 			&& ehdr->e_ident[3] == 'F');
 	assert(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
 
-	Object *object = memory::construct<Object>(*allocator);
+	Object *object = frigg::construct<Object>(*allocator);
 	object->imagePtr = image_ptr;
 	object->entry = ehdr->e_entry;
 

@@ -65,8 +65,8 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 }
 
 Mapping::~Mapping() {
-	frigg::memory::destruct(*kernelAlloc, leftPtr);
-	frigg::memory::destruct(*kernelAlloc, rightPtr);
+	frigg::destruct(*kernelAlloc, leftPtr);
+	frigg::destruct(*kernelAlloc, rightPtr);
 }
 
 // --------------------------------------------------------
@@ -77,11 +77,11 @@ AddressSpace::AddressSpace(PageSpace page_space)
 : p_root(nullptr), p_pageSpace(page_space) { }
 
 AddressSpace::~AddressSpace() {
-	frigg::memory::destruct(*kernelAlloc, p_root);
+	frigg::destruct(*kernelAlloc, p_root);
 }
 
 void AddressSpace::setupDefaultMappings() {
-	auto mapping = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
+	auto mapping = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 			0x100000, 0x7ffffff00000);
 	addressTreeInsert(mapping);
 }
@@ -162,8 +162,8 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 
 		addressTreeRemove(mapping);
 		addressTreeRemove(higher_ptr);
-		frigg::memory::destruct(*kernelAlloc, mapping);
-		frigg::memory::destruct(*kernelAlloc, higher_ptr);
+		frigg::destruct(*kernelAlloc, mapping);
+		frigg::destruct(*kernelAlloc, higher_ptr);
 
 		lower_ptr->length += mapping_length + higher_length;
 		updateLargestHoleUpwards(lower_ptr);
@@ -172,7 +172,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 		size_t mapping_length = mapping->length;
 
 		addressTreeRemove(mapping);
-		frigg::memory::destruct(*kernelAlloc, mapping);
+		frigg::destruct(*kernelAlloc, mapping);
 		
 		lower_ptr->length += mapping_length;
 		updateLargestHoleUpwards(lower_ptr);
@@ -181,7 +181,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 		size_t mapping_length = mapping->length;
 
 		addressTreeRemove(mapping);
-		frigg::memory::destruct(*kernelAlloc, mapping);
+		frigg::destruct(*kernelAlloc, mapping);
 		
 		higher_ptr->baseAddress -= mapping_length;
 		higher_ptr->length += mapping_length;
@@ -335,7 +335,7 @@ Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
 }
 
 void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
-	Mapping *dest_mapping = frigg::memory::construct<Mapping>(*kernelAlloc, mapping->type,
+	Mapping *dest_mapping = frigg::construct<Mapping>(*kernelAlloc, mapping->type,
 			mapping->baseAddress, mapping->length);
 
 	if(mapping->type == Mapping::kTypeHole) {
@@ -436,21 +436,21 @@ Mapping *AddressSpace::splitHole(Mapping *mapping,
 		// the split mapping starts at the beginning of the hole
 		// we have to delete the hole mapping
 		addressTreeRemove(mapping);
-		frigg::memory::destruct(*kernelAlloc, mapping);
+		frigg::destruct(*kernelAlloc, mapping);
 	}else{
 		// the split mapping starts in the middle of the hole
 		mapping->length = split_offset;
 		updateLargestHoleUpwards(mapping);
 	}
 
-	auto split = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
+	auto split = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
 			hole_address + split_offset, split_length);
 	addressTreeInsert(split);
 
 	if(hole_length > split_offset + split_length) {
 		// the split mapping does not go on until the end of the hole
 		// we have to create another mapping for the rest of the hole
-		auto following = frigg::memory::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
+		auto following = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
 				hole_address + (split_offset + split_length),
 				hole_length - (split_offset + split_length));
 		addressTreeInsert(following);

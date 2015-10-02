@@ -368,7 +368,7 @@ struct Closure {
 template<typename Context, typename Allocator, typename Async, typename... CtxArgs>
 void runAsync(Allocator &allocator, const Async &async, CtxArgs &&... ctx_args) {
 	typedef details::Closure<Async, Context> Closure;
-	auto closure_ptr = memory::construct<Closure>(allocator,
+	auto closure_ptr = construct<Closure>(allocator,
 			async, traits::forward<CtxArgs>(ctx_args)...);
 	closure_ptr->run();
 }

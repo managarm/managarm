@@ -7,7 +7,6 @@
 using namespace thor;
 namespace debug = frigg::debug;
 namespace traits = frigg::traits;
-namespace memory = frigg::memory;
 
 // loads an elf image into the current address space
 // this is called in kernel mode from the initial user thread

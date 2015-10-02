@@ -23,7 +23,6 @@
 #include <frigg/glue-hel.hpp>
 
 namespace debug = frigg::debug;
-namespace memory = frigg::memory;
 
 #include "linker.hpp"
 

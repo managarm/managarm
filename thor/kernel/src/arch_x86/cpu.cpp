@@ -2,7 +2,6 @@
 #include "../kernel.hpp"
 
 namespace traits = frigg::traits;
-namespace memory = frigg::memory;
 namespace debug = frigg::debug;
 
 namespace thor {
@@ -116,13 +115,13 @@ void callOnCpuStack(void (*function) ()) {
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
-	auto cpu_specific = memory::construct<ThorRtCpuSpecific>(*thor::kernelAlloc);
+	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*thor::kernelAlloc);
 	
 	// set up the kernel gs segment
-	auto kernel_gs = memory::construct<ThorRtKernelGs>(*thor::kernelAlloc);
+	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*thor::kernelAlloc);
 	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
-	kernel_gs->cpuContext = memory::construct<CpuContext>(*kernelAlloc);
+	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
 
 	// setup the gdt

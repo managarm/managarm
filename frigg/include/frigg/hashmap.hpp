@@ -103,7 +103,7 @@ Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
 		Item *item = p_table[i];
 		while(item != nullptr) {
 			Item *chain = item->chain;
-			memory::destruct(p_allocator, item);
+			destruct(p_allocator, item);
 			item = chain;
 		}
 	}
@@ -117,7 +117,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = memory::construct<Item>(p_allocator, key, value);
+	auto item = construct<Item>(p_allocator, key, value);
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -129,7 +129,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = memory::construct<Item>(p_allocator, key, traits::move(value));
+	auto item = construct<Item>(p_allocator, key, traits::move(value));
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -162,7 +162,7 @@ Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 			}else{
 				previous->chain = item->chain;
 			}
-			memory::destruct(p_allocator, item);
+			destruct(p_allocator, item);
 			p_size--;
 
 			return value;
