@@ -506,6 +506,8 @@ HelError helSendString(HelHandle handle,
 	Universe::Guard universe_guard(&universe->lock);
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
+		infoLogger->log() << "No descriptor " << handle << frigg::EndLog();
+	if(!wrapper)
 		return kHelErrNoDescriptor;
 
 	switch((*wrapper)->tag()) {

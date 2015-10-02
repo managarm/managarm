@@ -12,9 +12,10 @@ private:
 		Item *chain;
 
 		Item(const Key &new_key, const Value &new_value)
-				: entry(new_key, new_value), chain(nullptr) { }
+		: entry(new_key, new_value), chain(nullptr) { }
+
 		Item(const Key &new_key, Value &&new_value)
-				: entry(new_key, move(new_value)), chain(nullptr) { }
+		: entry(new_key, move(new_value)), chain(nullptr) { }
 	};
 
 public:
@@ -167,6 +168,8 @@ Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 
 			return value;
 		}
+
+		previous = item;
 	}
 
 	return Optional<Value>();

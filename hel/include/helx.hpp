@@ -133,31 +133,33 @@ public:
 
 	inline Pipe() : p_handle(kHelNullHandle) { }
 
-	inline Pipe(Pipe &&other) {
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Pipe(Pipe &&other)
+	: Pipe() {
+		swap(*this, other);
 	}
 
 	inline Pipe(const Pipe &other) = delete;
 
 	explicit inline Pipe(HelHandle handle) : p_handle(handle) { }
 
-	~Pipe() {
+	inline ~Pipe() {
 		reset();
 	}
 
-	inline Pipe &operator= (Pipe &&other) {
-		reset();
-		p_handle = other.p_handle;
-		other.p_handle = kHelNullHandle;
+	inline Pipe &operator= (Pipe other) {
+		swap(*this, other);
+		other.reset();
 	}
-
-	inline Pipe &operator= (const Pipe &other) = delete;
 
 	inline void reset() {
 		if(p_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(p_handle));
 		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(Pipe &a, Pipe &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
 	}
 
 	inline HelHandle getHandle() {
@@ -255,6 +257,13 @@ public:
 		int64_t async_id;
 		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
 				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+	
+	inline void connectSync(EventHub &event_hub, HelError &error, Pipe &pipe) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
+				0, 0, &async_id));
+		event_hub.waitForConnect(async_id, error, pipe);
 	}
 
 private:

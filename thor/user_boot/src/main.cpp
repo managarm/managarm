@@ -14,11 +14,11 @@
 #include <frigg/async.hpp>
 #include <frigg/async2.hpp>
 
+#include <frigg/glue-hel.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
-#include <frigg/glue-hel.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/protobuf.hpp>
 
@@ -76,6 +76,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			memset(write_ptr, 0, virt_length);
 			memcpy((void *)((uintptr_t)write_ptr + (phdr->p_vaddr - virt_address)),
 					(void *)((uintptr_t)image_ptr + phdr->p_offset), phdr->p_filesz);
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, virt_length));
 			
 			// map the segment memory to its own address space
 			uint32_t map_flags = 0;
@@ -132,12 +133,6 @@ helx::Pipe posixPipe;
 struct StartFreeContext {
 	StartFreeContext()
 	: directory(helx::Directory::create()), localDirectory(helx::Directory::create()) {
-		helx::Pipe parent_pipe;
-		helx::Pipe::createBiDirection(childPipe, parent_pipe);
-		localDirectory.publish(parent_pipe.getHandle(), "parent");
-
-		directory.mount(localDirectory.getHandle(), "local");
-		directory.remount("initrd/#this", "initrd");
 	}
 
 	helx::Directory directory;
@@ -145,225 +140,131 @@ struct StartFreeContext {
 	helx::Pipe childPipe;
 };
 
-auto startAcpi =
-async::seq(
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		loadImage("initrd/acpi", context.directory.getHandle(), true);
+void startAcpi() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
 
-		// receive a client handle from the posix subsystem
-		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void()> callback, HelError error,
-			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
-		HEL_CHECK(error);
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	loadImage("initrd/acpi", directory.getHandle(), true);
+	
+	// receive a client handle from the child process
+	HelError recv_error;
+	HelHandle connect_handle;
+	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+			recv_error, connect_handle);
+	HEL_CHECK(recv_error);
+	acpiConnect = helx::Client(connect_handle);
+}
 
-		acpiConnect = helx::Client(connect_handle);
-		callback();
-	})
-);
+void startLdServer() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
 
-auto startLdServer =
-async::seq(
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		loadImage("initrd/ld-server", context.directory.getHandle(), false);
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	directory.remount("initrd/#this", "initrd");
+	loadImage("initrd/ld-server", directory.getHandle(), false);
+	
+	// receive a client handle from the child process
+	HelError recv_error;
+	HelHandle connect_handle;
+	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+			recv_error, connect_handle);
+	HEL_CHECK(recv_error);
+	ldServerConnect = helx::Client(connect_handle);
 
-		// receive a client handle from ld-server
-		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, HelHandle)> callback, HelError error,
-			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
-		HEL_CHECK(error);
+	HelError error;
+	ldServerConnect.connectSync(eventHub, error, ldServerPipe);
+	HEL_CHECK(error);
+}
 
-		ldServerConnect = helx::Client(connect_handle);
-		ldServerConnect.connect(eventHub, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](StartFreeContext &context, util::Callback<void()> callback,
-			HelError error, HelHandle pipe_handle) {
-		HEL_CHECK(error);
+void startPosixSubsystem() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
 
-		ldServerPipe = helx::Pipe(pipe_handle);
-		callback();
-	})
-);
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	local_directory.publish(ldServerConnect.getHandle(), "rtdl-server");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	loadImage("initrd/posix-subsystem", directory.getHandle(), false);
+	
+	// receive a client handle from the child process
+	HelError recv_error;
+	HelHandle connect_handle;
+	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+			recv_error, connect_handle);
+	HEL_CHECK(recv_error);
+	
+	helx::Client posix_connect(connect_handle);
+	HelError connect_error;
+	posix_connect.connectSync(eventHub, connect_error, posixPipe);
+	HEL_CHECK(connect_error);
+}
 
-auto startPosix =
-async::seq(
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		context.localDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
+void posixDoRequest(managarm::posix::ClientRequest<Allocator> &request,
+		managarm::posix::ServerResponse<Allocator> &response, int64_t request_id) {
 
-		loadImage("initrd/posix-subsystem", context.directory.getHandle(), false);
-
-		// receive a client handle from the posix subsystem
-		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](StartFreeContext &context,
-			util::Callback<void(HelError, HelHandle)> callback, HelError error,
-			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
-		HEL_CHECK(error);
-
-		helx::Client posix_connect(connect_handle);
-		posix_connect.connect(eventHub, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](StartFreeContext &context, util::Callback<void()> callback,
-			HelError error, HelHandle pipe_handle) {
-		HEL_CHECK(error);
-
-		posixPipe = helx::Pipe(pipe_handle);
-		callback();
-	})
-);
-
-struct PosixInitContext {
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	posixPipe.sendString(serialized.data(), serialized.size(), request_id, 0);
+	
 	uint8_t buffer[128];
-};
+	HelError error;
+	size_t length;
+	posixPipe.recvStringSync(buffer, 128, eventHub, request_id, 0, error, length);
+	HEL_CHECK(error);
+	response.ParseFromArray(buffer, length);
+}
 
-auto runPosixInit =
-async::seq(
-	async::lambda([](PosixInitContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
-		// first we send an INIT request to create an initial process
-		managarm::posix::ClientRequest<Allocator> request(*allocator);
-		request.set_request_type(managarm::posix::ClientRequestType::INIT);
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		posixPipe.sendString(serialized.data(), serialized.size(), 1, 0);
-		
-		posixPipe.recvString(context.buffer, 128, eventHub,
-				1, 0, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](PosixInitContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
-			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.ParseFromArray(context.buffer, length);
-		assert(response.error() == managarm::posix::Errors::SUCCESS);
-		
-		// create a helfd file for the hardware driver
-		managarm::posix::ClientRequest<Allocator> request(*allocator);
-		request.set_request_type(managarm::posix::ClientRequestType::OPEN);
-		request.set_path(frigg::String<Allocator>(*allocator, "/dev/hw"));
-		request.set_flags(managarm::posix::OpenFlags::CREAT);
-		request.set_mode(managarm::posix::OpenMode::HELFD);
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		posixPipe.sendString(serialized.data(), serialized.size(), 2, 0);
-		
-		posixPipe.recvString(context.buffer, 128, eventHub,
-				2, 0, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](PosixInitContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
-			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.ParseFromArray(context.buffer, length);
-		assert(response.error() == managarm::posix::Errors::SUCCESS);
-		
-		// attach the server to the helfd
-		managarm::posix::ClientRequest<Allocator> request(*allocator);
-		request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
-		request.set_fd(response.fd());
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		posixPipe.sendString(serialized.data(), serialized.size(), 3, 0);
-		posixPipe.sendDescriptor(acpiConnect.getHandle(), 3, 1);
-		
-		posixPipe.recvString(context.buffer, 128, eventHub,
-				3, 0, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](PosixInitContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, size_t)> callback,
-			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.ParseFromArray(context.buffer, length);
-		assert(response.error() == managarm::posix::Errors::SUCCESS);
-		
-		// after that we EXEC the actual init program
-		managarm::posix::ClientRequest<Allocator> request(*allocator);
-		request.set_request_type(managarm::posix::ClientRequestType::EXEC);
-		request.set_path(frigg::String<Allocator>(*allocator, "posix-init"));
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		posixPipe.sendString(serialized.data(), serialized.size(), 2, 0);
-		
-		posixPipe.recvString(context.buffer, 128, eventHub,
-				2, 0, callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](PosixInitContext &context, util::Callback<void()> callback,
-			HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
-		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.ParseFromArray(context.buffer, length);
-		assert(response.error() == managarm::posix::Errors::SUCCESS);
+void runPosixInit() {
+	// first we send an INIT request to create an initial process
+	managarm::posix::ClientRequest<Allocator> init_request(*allocator);
+	init_request.set_request_type(managarm::posix::ClientRequestType::INIT);
+	
+	managarm::posix::ServerResponse<Allocator> init_response(*allocator);
+	posixDoRequest(init_request, init_response, 1);
+	assert(init_response.error() == managarm::posix::Errors::SUCCESS);
+	
+	// create a helfd file for the hardware driver
+	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
+	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
+	open_request.set_path(frigg::String<Allocator>(*allocator, "/dev/hw"));
+	open_request.set_flags(managarm::posix::OpenFlags::CREAT);
+	open_request.set_mode(managarm::posix::OpenMode::HELFD);
+	
+	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
+	posixDoRequest(open_request, open_response, 2);
+	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
+	
+	// attach the server to the helfd
+	managarm::posix::ClientRequest<Allocator> attach_request(*allocator);
+	attach_request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
+	attach_request.set_fd(open_response.fd());
 
-		callback();
-	})
-);
-
-/*struct InstallServerContext {
-	InstallServerContext(const char *program, const char *server_path)
-	: executeContext(program), serverPath(server_path) {
-		helx::Pipe parent_pipe;
-		helx::Pipe::createBiDirection(childPipe, parent_pipe);
-		executeContext.localDirectory.publish(parent_pipe.getHandle(), "parent");
-	};
-
-	ExecuteContext executeContext;
-	const char *serverPath;
-	helx::Pipe childPipe;
-};
-
-auto installServer =
-async::seq(
-	async::subContext(&InstallServerContext::executeContext,
-			executeProgram),
-	async::lambda([] (InstallServerContext &context,
-			util::Callback<void(HelError, int64_t, int64_t, HelHandle)> callback) {
-		context.childPipe.recvDescriptor(eventHub, kHelAnyRequest, kHelAnySequence,
-				callback.getObject(), callback.getFunction());
-	}),
-	async::lambda([](InstallServerContext &context,
-			util::Callback<void()> callback, HelError error,
-			int64_t msg_request, int64_t msg_seq, HelHandle connect_handle) {
-		HEL_CHECK(error);
-
-		initDirectory.publish(connect_handle, context.serverPath);
-		callback();
-	})
-);*/
-
-struct InitContext {
-	StartFreeContext startAcpiContext;
-	StartFreeContext startLdServerContext;
-	StartFreeContext startPosixContext;
-	PosixInitContext posixInitContext;
-};
-
-auto initialize =
-async::seq(
-	async::subContext(&InitContext::startAcpiContext, startAcpi),
-	async::subContext(&InitContext::startLdServerContext, startLdServer),
-	async::subContext(&InitContext::startPosixContext, startPosix),
-	async::subContext(&InitContext::posixInitContext, runPosixInit)
-);
+	posixPipe.sendDescriptor(acpiConnect.getHandle(), 3, 1);
+	
+	managarm::posix::ServerResponse<Allocator> attach_response(*allocator);
+	posixDoRequest(attach_request, attach_response, 3);
+	assert(attach_response.error() == managarm::posix::Errors::SUCCESS);
+	
+	// after that we EXEC the actual init program
+	managarm::posix::ClientRequest<Allocator> exec_request(*allocator);
+	exec_request.set_request_type(managarm::posix::ClientRequestType::EXEC);
+	exec_request.set_path(frigg::String<Allocator>(*allocator, "posix-init"));
+	
+	managarm::posix::ServerResponse<Allocator> exec_response(*allocator);
+	posixDoRequest(exec_request, exec_response, 4);
+	assert(exec_response.error() == managarm::posix::Errors::SUCCESS);
+}
 
 extern "C" void exit(int status) {
 	HEL_CHECK(helExitThisThread());
@@ -382,14 +283,15 @@ int main() {
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering user_boot" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
-
-	async::run(*allocator, initialize, InitContext(),
-	[](InitContext &context) {
-		infoLogger->log() << "user_boot finished successfully" << frigg::EndLog();
-	});
 	
-	while(true)
-		eventHub.defaultProcessEvents();
+	startAcpi();
+	startLdServer();
+	startPosixSubsystem();
+	runPosixInit();
+	
+	infoLogger->log() << "user_boot completed successfully" << frigg::EndLog();
+	HEL_CHECK(helExitThisThread());
+	__builtin_unreachable();
 }
 
 asm ( ".global _start\n"

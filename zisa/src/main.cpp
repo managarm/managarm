@@ -701,25 +701,21 @@ int main() {
 
 #include <unordered_map>
 
+#include <frigg/traits.hpp>
+#include <frigg/algorithm.hpp>
+#include <frigg/atomic.hpp>
+#include <frigg/memory.hpp>
+
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 #include <thor.h>
-
-#include <frigg/traits.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/memory.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/async.hpp>
 
 #include "fs.pb.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
-namespace util = frigg::util;
-namespace async = frigg::async;
 
 helx::EventHub eventHub;
 

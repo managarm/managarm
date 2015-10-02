@@ -8,6 +8,7 @@
 #include <string>
 
 #include <frigg/traits.hpp>
+#include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/async2.hpp>

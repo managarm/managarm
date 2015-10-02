@@ -296,6 +296,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		thorRtReturnSyscall1((Word)error);
 	}
 	case kHelCallCloseDescriptor: {
+//		infoLogger->log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		HelError error = helCloseDescriptor((HelHandle)arg0);
 		thorRtReturnSyscall1((Word)error);
 	}
@@ -351,7 +352,6 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 //			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
 		HelError error = helCreateEventHub(&handle);
-
 //			infoLogger->log() << "    -> " << handle << frigg::EndLog();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
 	}
@@ -374,6 +374,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
 	}
 	case kHelCallSendString: {
+//		infoLogger->log() << "helSendString(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		HelError error = helSendString((HelHandle)arg0,
 				(const void *)arg1, (size_t)arg2,
 				(int64_t)arg3, (int64_t)arg4);
