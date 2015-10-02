@@ -14,8 +14,7 @@
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/async.hpp>
+#include <frigg/async2.hpp>
 #include <frigg/elf.hpp>
 
 #include <hel.h>
@@ -26,9 +25,6 @@
 #include <frigg/protobuf.hpp>
 
 #include "ld-server.frigg_pb.hpp"
-
-namespace util = frigg::util;
-namespace async = frigg::async;
 
 struct BaseSegment {
 	BaseSegment(Elf64_Word elf_type, Elf64_Word elf_flags,
@@ -253,48 +249,44 @@ void sendObject(HelHandle pipe, int64_t request_id,
 frigg::LazyInitializer<helx::EventHub> eventHub;
 frigg::LazyInitializer<helx::Server> server;
 
-struct ProcessContext {
-	ProcessContext(HelHandle pipe_handle)
-	: pipeHandle(pipe_handle) { }
+void requestLoop(helx::Pipe pipe) {
+	struct Context {
+		Context(helx::Pipe pipe)
+		: pipe(frigg::move(pipe)) { }
+		
+		helx::Pipe pipe;
+		uint8_t buffer[128];
+	};
 
-	HelHandle pipeHandle;
-	uint8_t buffer[128];
-};
+	auto routine =
+	frigg::asyncRepeatUntil(
+		frigg::asyncSeq(
+			frigg::wrapFuncPtr<helx::RecvStringFunction>([](auto *context,
+					void *cb_object, auto cb_function) {
+				context->pipe.recvString(context->buffer, 128,
+						*eventHub, kHelAnyRequest, 0, cb_object, cb_function);
+			}),
+			frigg::wrapFunctor([](auto *context, auto callback, HelError error,
+					int64_t msg_request, int64_t msg_sequence, size_t length) {
+				HEL_CHECK(error);
 
-auto processRequests =
-async::repeatWhile(
-	async::lambda([](ProcessContext &context, util::Callback<void(bool)> callback) {
-		callback(true);
-	}),
-	async::seq(
-		async::lambda([](ProcessContext &context,
-				util::Callback<void(HelError, int64_t, int64_t, size_t)> callback) {
-			int64_t async_id;
-			HEL_CHECK(helSubmitRecvString(context.pipeHandle, eventHub->getHandle(),
-					context.buffer, 128, kHelAnyRequest, 0,
-					(uintptr_t)callback.getFunction(),
-					(uintptr_t)callback.getObject(),
-					&async_id));
-		}),
-		async::lambda([](ProcessContext &context, util::Callback<void()> callback,
-				HelError error, int64_t msg_request, int64_t msg_sequence, size_t length) {
-			HEL_CHECK(error);
+				managarm::ld_server::ClientRequest<Allocator> request(*allocator);
+				request.ParseFromArray(context->buffer, length);
+				
+				Object *object = readObject(frigg::StringView(request.identifier().data(),
+						request.identifier().size()));
+				sendObject(context->pipe.getHandle(), msg_request, object, request.base_address());
+				callback(true);
+			})
+		)
+	);
 
-			managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-			request.ParseFromArray(context.buffer, length);
-			
-			Object *object = readObject(frigg::StringView(request.identifier().data(),
-					request.identifier().size()));
-			sendObject(context.pipeHandle, msg_request, object, request.base_address());
-			callback();
-		})
-	)
-);
+	frigg::runAsync<Context>(*allocator, routine, frigg::move(pipe));
+}
 
 void onAccept(void *object, HelError error, HelHandle pipe_handle) {
-	async::run(*allocator, processRequests, ProcessContext(pipe_handle),
-		[](ProcessContext &context) { });
-	
+	HEL_CHECK(error);
+	requestLoop(helx::Pipe(pipe_handle));
 	server->accept(*eventHub, nullptr, &onAccept);
 }
 
