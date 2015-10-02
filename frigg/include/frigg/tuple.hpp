@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_TUPLE_HPP
+#define FRIGG_TUPLE_HPP
+
 namespace frigg {
 
 namespace tuple_impl {
@@ -77,4 +80,6 @@ Tuple<typename RemoveRef<Types>::type...> makeTuple(Types &&... args) {
 }
 
 } // namespace frigg
+
+#endif // FRIGG_TUPLE_HPP
 

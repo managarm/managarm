@@ -1,4 +1,10 @@
 
+#ifndef HELX_HPP
+#define HELX_HPP
+
+#include <hel.h>
+#include <hel-syscalls.h>
+
 namespace helx {
 
 inline void panic(const char *string) {
@@ -416,4 +422,6 @@ void EventHub::waitForConnect(int64_t async_id, HelError &error, Pipe &pipe) {
 }
 
 } // namespace helx
+
+#endif // HELX_HPP
 

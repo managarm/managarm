@@ -48,6 +48,14 @@ void assertionFail(const char *message, const char *function,
 
 } // namespace frigg
 
+extern "C" void __assert_fail(const char *assertion, const char *file,
+		unsigned int line, const char *function) {
+	frigg::PanicLogger logger;
+	logger.log() << "Assertion failed: " << assertion << "\n"
+			<< "In function " << function
+			<< " at " << file << ":" << line << frigg::EndLog();
+}
+
 extern "C" void __cxa_pure_virtual() {
 	frigg::PanicLogger logger;
 	logger.log() << "Pure virtual call" << frigg::EndLog();

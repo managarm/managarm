@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_MEMORY_HPP
+#define FRIGG_MEMORY_HPP
+
 namespace frigg {
 
 // --------------------------------------------------------
@@ -121,4 +124,6 @@ void destruct(Allocator &allocator, T *pointer) {
 }
 
 } // namespace frigg
+
+#endif // FRIGG_MEMORY_HPP
 

@@ -24,6 +24,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y
+$c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LIBS = -lprotobuf-lite
 

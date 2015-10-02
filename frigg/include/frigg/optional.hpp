@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_OPTIONAL_HPP
+#define FRIGG_OPTIONAL_HPP
+
 namespace frigg {
 
 namespace expected_impl {
@@ -213,4 +216,6 @@ private:
 };
 
 } // namespace frigg
+
+#endif // FRIGG_OPTIONAL_HPP
 

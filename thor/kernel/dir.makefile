@@ -43,6 +43,7 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
+$c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_AS := x86_64-managarm-as
 $c_ASFLAGS :=

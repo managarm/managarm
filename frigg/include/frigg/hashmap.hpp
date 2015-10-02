@@ -1,4 +1,10 @@
 
+#ifndef FRIGG_HASHMAP_HPP
+#define FRIGG_HASHMAP_HPP
+
+#include <frigg/tuple.hpp>
+#include <frigg/optional.hpp>
+
 namespace frigg {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
@@ -232,4 +238,6 @@ public:
 };
 
 } // namespace frigg
+
+#endif // FRIGG_HASHMAP_HPP
 

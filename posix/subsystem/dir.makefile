@@ -4,7 +4,8 @@ $c_GENDIR := $(BUILD_PATH)/$c/gen
 $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
-$c_OBJECTS := main.o frigg-glue-hel.o frigg-debug.o frigg-initializer.o frigg-libc.o
+$c_OBJECTS := main.o device.o vfs.o process.o dev_fs.o \
+		frigg-glue-hel.o frigg-debug.o frigg-initializer.o frigg-libc.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_TARGETS := all-$c clean-$c $($c_BINDIR)/posix-subsystem $($c_BINDIR)
@@ -25,6 +26,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
+$c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_LDFLAGS := -nostdlib
 

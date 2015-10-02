@@ -1,7 +1,12 @@
 
+#ifndef FRIGG_DEBUG_HPP
+#define FRIGG_DEBUG_HPP
+
 namespace frigg {
 
+#ifndef assert
 #define assert(c) do { if(!(c)) ::frigg::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
+#endif
 
 class VirtualSink {
 public:
@@ -161,4 +166,6 @@ void assertionFail(const char *message, const char *function,
 		const char *file, int line);
 
 } // namespace frigg
+
+#endif // FRIGG_DEBUG_HPP
 

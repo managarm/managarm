@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename Prototype>
 class Callback;
@@ -91,5 +90,5 @@ struct CallbackFromPack<R, TypePack<Args...>> {
 	typedef Callback<R(Args...)> Type;
 };
 
-} } // namespace frigg::util
+} // namespace frigg
 

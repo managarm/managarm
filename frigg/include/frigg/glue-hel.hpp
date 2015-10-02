@@ -1,4 +1,10 @@
 
+#ifndef FRIGG_GLUE_HEL_HPP
+#define FRIGG_GLUE_HEL_HPP
+
+#include <frigg/debug.hpp>
+#include <frigg/initializer.hpp>
+
 class InfoSink {
 public:
 	void print(char c);
@@ -19,4 +25,6 @@ public:
 typedef frigg::DebugAllocator<VirtualAlloc, frigg::TicketLock> Allocator;
 extern VirtualAlloc virtualAlloc;
 extern frigg::LazyInitializer<Allocator> allocator;
+
+#endif // FRIGG_GLUE_HEL_HPP
 

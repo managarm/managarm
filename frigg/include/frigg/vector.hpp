@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_VECTOR_HPP
+#define FRIGG_VECTOR_HPP
+
 namespace frigg {
 
 template<typename T, typename Allocator>
@@ -104,4 +107,6 @@ T Vector<T, Allocator>::pop() {
 }
 
 } // namespace frigg
+
+#endif // FRIGG_VECTOR_HPP
 

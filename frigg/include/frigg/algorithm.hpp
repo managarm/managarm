@@ -1,4 +1,9 @@
 
+#ifndef FRIGG_ALGORITHM_HPP
+#define FRIGG_ALGORITHM_HPP
+
+#include <frigg/traits.hpp>
+
 namespace frigg {
 
 template<typename T>
@@ -9,4 +14,6 @@ void swap(T &a, T &b) {
 }
 
 } // namespace frigg
+
+#endif // FRIGG_ALGORITHM_HPP
 

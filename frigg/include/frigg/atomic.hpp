@@ -1,11 +1,6 @@
 
-namespace frigg {
-
-inline void barrier() {
-	asm volatile ( "" : : : "memory" );
-}
-
-} // namespace frigg
+#ifndef FRIGG_ATOMIC_HPP
+#define FRIGG_ATOMIC_HPP
 
 #if defined(__i386__)
 #include "arch_x86/atomic_impl.hpp"
@@ -81,4 +76,6 @@ LockGuard<Mutex> guard(Mutex *mutex) {
 }
 
 } // namespace frigg
+
+#endif // FRIGG_ATOMIC_HPP
 

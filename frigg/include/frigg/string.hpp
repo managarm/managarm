@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_STRING_HPP
+#define FRIGG_STRING_HPP
+
 namespace frigg {
 
 template<typename Char>
@@ -210,4 +213,6 @@ struct Print<P, StringView> {
 };
 
 } // namespace frigg
+
+#endif // FRIGG_STRING_HPP
 

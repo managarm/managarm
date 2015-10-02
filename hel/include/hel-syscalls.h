@@ -1,4 +1,7 @@
 
+#ifndef HEL_SYSCALLS_H
+#define HEL_SYSCALLS_H
+
 typedef uint64_t HelWord;
 typedef HelWord HelSyscallInput[9];
 typedef HelWord HelSyscallOutput[2];
@@ -256,4 +259,6 @@ END_SYSCALL()
 #undef DO_SYSCALL
 #undef OUT
 #undef END_SYSCALL
+
+#endif // HEL_SYSCALLS_H
 

@@ -1,4 +1,11 @@
 
+#ifndef FRIGG_SMART_PTR_HPP
+#define FRIGG_SMART_PTR_HPP
+
+#include <frigg/atomic.hpp>
+#include <frigg/traits.hpp>
+#include <frigg/memory.hpp>
+
 namespace frigg {
 
 // --------------------------------------------------------
@@ -374,4 +381,6 @@ private:
 };
 
 } // namespace frigg
+
+#endif // FRIGG_SMART_PTR_HPP
 

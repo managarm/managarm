@@ -1,5 +1,14 @@
 
+#ifndef FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
+#define FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
+
+#include <frigg/cxx-support.hpp>
+
 namespace frigg {
+
+inline void barrier() {
+	asm volatile ( "" : : : "memory" );
+}
 
 template<typename T, typename = void>
 struct Atomic;
@@ -93,4 +102,6 @@ private:
 };
 
 } // namespace frigg
+
+#endif // FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
 

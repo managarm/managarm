@@ -27,6 +27,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -fpic -fvisibility=hidden
+$c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_AS := x86_64-managarm-as
 

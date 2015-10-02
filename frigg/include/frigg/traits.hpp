@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_TRAITS_HPP
+#define FRIGG_TRAITS_HPP
+
 namespace frigg {
 
 template<typename... Types>
@@ -74,4 +77,6 @@ T &&forward(typename RemoveRef<T>::type &arg) noexcept {
 } 
 
 } // namespace frigg
+
+#endif // FRIGG_TRAITS_HPP
 
