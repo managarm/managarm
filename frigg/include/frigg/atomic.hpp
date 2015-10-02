@@ -1,12 +1,11 @@
 
 namespace frigg {
-namespace atomic {
 
 inline void barrier() {
 	asm volatile ( "" : : : "memory" );
 }
 
-} } // namespace frigg::atomic
+} // namespace frigg
 
 #if defined(__i386__)
 #include "arch_x86/atomic_impl.hpp"

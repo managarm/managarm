@@ -135,7 +135,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 		new_entry |= kPageXd;
 	pt_pointer[pt_index] = new_entry;
 
-	frigg::atomic::barrier();
+	frigg::barrier();
 }
 
 PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
@@ -168,7 +168,7 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pt_pointer[pt_index] & kPagePresent) != 0);
 	pt_pointer[pt_index] ^= kPagePresent;
 
-	frigg::atomic::barrier();
+	frigg::barrier();
 
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
