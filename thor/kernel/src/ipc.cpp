@@ -14,11 +14,11 @@ void Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
 	assert(guard.protects(&lock));
 
-	void *kernel_buffer = kernelAlloc->allocate(length);
-	memcpy(kernel_buffer, user_buffer, length);
+	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
+	memcpy(kernel_buffer.get(), user_buffer, length);
 	
 	Message message(kMsgString, msg_request, msg_sequence);
-	message.kernelBuffer = kernel_buffer;
+	message.kernelBuffer = frigg::move(kernel_buffer);
 	message.length = length;
 
 	bool queue_message = true;
@@ -132,7 +132,7 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 		UserEvent event(UserEvent::kTypeRecvStringTransfer, request.submitInfo);
 		event.msgRequest = message.msgRequest;
 		event.msgSequence = message.msgSequence;
-		event.kernelBuffer = message.kernelBuffer;
+		event.kernelBuffer = frigg::move(message.kernelBuffer);
 		event.userBuffer = request.userBuffer;
 		event.length = message.length;
 		
@@ -159,7 +159,7 @@ void Channel::processDescriptorRequest(Message &message, Request &request) {
 // --------------------------------------------------------
 
 Channel::Message::Message(MsgType type, int64_t msg_request, int64_t msg_sequence)
-	: type(type), kernelBuffer(nullptr), length(0),
+	: type(type), length(0),
 		msgRequest(msg_request), msgSequence(msg_sequence) { }
 
 // --------------------------------------------------------

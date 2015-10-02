@@ -1,6 +1,10 @@
 
 namespace frigg {
 
+// --------------------------------------------------------
+// SharedPtr
+// --------------------------------------------------------
+
 template<typename T, typename Allocator>
 class SharedPtr;
 
@@ -318,6 +322,56 @@ template<typename T, typename Allocator, typename... Args>
 SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
 	return SharedPtr<T, Allocator>::make(allocator, forward<Args>(args)...);
 }
+
+// --------------------------------------------------------
+// UniqueMemory
+// --------------------------------------------------------
+
+template<typename Allocator>
+class UniqueMemory {
+public:
+	UniqueMemory()
+	: p_pointer(nullptr), p_allocator(nullptr) { }
+
+	explicit UniqueMemory(Allocator &allocator, size_t size)
+	: p_allocator(&allocator) {
+		p_pointer = p_allocator->allocate(size);
+	}
+
+	UniqueMemory(UniqueMemory &&other)
+	: UniqueMemory() {
+		swap(*this, other);
+	}
+
+	~UniqueMemory() {
+		reset();
+	}
+
+	UniqueMemory(const UniqueMemory &other) = delete;
+
+	UniqueMemory &operator= (UniqueMemory other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	void reset() {
+		if(p_pointer)
+			p_allocator->free(p_pointer);
+	}
+
+	friend void swap(UniqueMemory &a, UniqueMemory &b) {
+		swap(a.p_pointer, b.p_pointer);
+		swap(a.p_allocator, b.p_allocator);
+	}
+
+	void *get() {
+		return p_pointer;
+	}
+
+private:
+	void *p_pointer;
+	Allocator *p_allocator;
+};
 
 } // namespace frigg
 

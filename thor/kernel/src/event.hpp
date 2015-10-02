@@ -22,7 +22,7 @@ struct UserEvent {
 	};
 
 	UserEvent(Type type, SubmitInfo submit_info);
-	
+
 	Type type;
 	SubmitInfo submitInfo;
 
@@ -34,7 +34,7 @@ struct UserEvent {
 	int64_t msgSequence;
 
 	// used by kTypeRecvStringTransfer
-	void *kernelBuffer;
+	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 	void *userBuffer;
 	size_t length;
 

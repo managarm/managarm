@@ -37,7 +37,7 @@ private:
 		Message(MsgType type, int64_t msg_request, int64_t msg_sequence);
 		
 		MsgType type;
-		void *kernelBuffer;
+		frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 		size_t length;
 		AnyDescriptor descriptor;
 		int64_t msgRequest;
