@@ -820,7 +820,7 @@ extern InitFuncPtr __init_array_end[];
 
 int main() {
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Starting posix-subsystem" << frigg::debug::Finish();
+	infoLogger->log() << "Starting posix-subsystem" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 
 	// we're using no libc, so we have to run constructors manually

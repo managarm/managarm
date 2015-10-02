@@ -11,7 +11,6 @@
 #include <frigg/support.hpp>
 #include <eir/interface.hpp>
 
-namespace debug = frigg::debug;
 namespace arch = frigg::arch_x86;
 
 class BochsSink {
@@ -28,7 +27,7 @@ void BochsSink::print(const char *str) {
 		arch::ioOutByte(0xE9, *str++);
 }
 
-typedef debug::DefaultLogger<BochsSink> InfoLogger;
+typedef frigg::DefaultLogger<BochsSink> InfoLogger;
 BochsSink infoSink;
 frigg::LazyInitializer<InfoLogger> infoLogger;
 
@@ -185,7 +184,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
 			|| ehdr->e_ident[3] != 'F') {
-		debug::panicLogger.log() << "Illegal magic fields" << debug::Finish();
+		frigg::panicLogger.log() << "Illegal magic fields" << frigg::EndLog();
 	}
 	assert(ehdr->e_type == ET_EXEC);
 	
@@ -208,8 +207,8 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			map_flags |= kAccessExecute;
 		}else{
-			debug::panicLogger.log() << "Illegal combination of segment permissions"
-					<< debug::Finish();
+			frigg::panicLogger.log() << "Illegal combination of segment permissions"
+					<< frigg::EndLog();
 		}
 
 		uint32_t page = 0;
@@ -267,7 +266,7 @@ struct MbMemoryMap {
 extern "C" void eirMain(MbInfo *mb_info) {
 	infoLogger.initialize(infoSink);
 
-	infoLogger->log() << "Starting Eir" << debug::Finish();
+	infoLogger->log() << "Starting Eir" << frigg::EndLog();
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
@@ -275,14 +274,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
 	memcpy(&vendor_str[8], &vendor_res[2], 4);
 	vendor_str[12] = 0;
-	infoLogger->log() << "CPU vendor: " << (const char *)vendor_str << debug::Finish();
+	infoLogger->log() << "CPU vendor: " << (const char *)vendor_str << frigg::EndLog();
 	
 	// make sure everything we require is supported by the CPU
 	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
-		debug::panicLogger.log() << "Long mode is not supported on this CPU" << debug::Finish();
+		frigg::panicLogger.log() << "Long mode is not supported on this CPU" << frigg::EndLog();
 	if((extended[3] & arch::kCpuFlagNx) == 0)
-		debug::panicLogger.log() << "NX bit is not supported on this CPU" << debug::Finish();
+		frigg::panicLogger.log() << "NX bit is not supported on this CPU" << frigg::EndLog();
 	
 	// compute the bootstrap memory base
 	assert((mb_info->flags & kMbInfoPlainMemory) != 0);
@@ -301,7 +300,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)bootstrapPointer << ", length: "
-			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << debug::Finish();
+			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << frigg::EndLog();
 	
 	// trash boostrap memory for debugging purposes
 #ifdef EIR_TRASH_MEMORY
@@ -321,7 +320,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	bootstrapBase = bootstrapPointer;
 	
 	assert((mb_info->flags & kMbInfoMemoryMap) != 0);
-	infoLogger->log() << "Memory map:" << debug::Finish();
+	infoLogger->log() << "Memory map:" << frigg::EndLog();
 	size_t offset = 0;
 	while(offset < mb_info->memoryMapLength) {
 		MbMemoryMap *map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr
@@ -329,7 +328,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		
 		if(map->type == 1)
 			infoLogger->log() << "   Base: " << (void *)map->baseAddress
-					<< ", length: " << (map->length / 1024) << " KiB" << debug::Finish();
+					<< ", length: " << (map->length / 1024) << " KiB" << frigg::EndLog();
 
 		offset += map->size + 4;
 	}
@@ -382,7 +381,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info->bootstrapPhysical = bootstrapPointer;
 	info->bootstrapLength = bootstrapLimit - bootstrapPointer;
 
-	infoLogger->log() << "Leaving Eir and entering the real kernel" << debug::Finish();
+	infoLogger->log() << "Leaving Eir and entering the real kernel" << frigg::EndLog();
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
 			physical_window + thor_stack_base + thor_stack_length, info);
 }

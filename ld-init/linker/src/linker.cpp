@@ -26,8 +26,6 @@
 
 #include "ld-server.frigg_pb.hpp"
 
-namespace debug = frigg::debug;
-
 #include "linker.hpp"
 
 uintptr_t libraryBase = 0x41000000;
@@ -240,7 +238,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
-	//infoLogger->log() << "Loading " << file << debug::Finish();
+	//infoLogger->log() << "Loading " << file << frigg::EndLog();
 
 	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
 	request.set_identifier(frigg::String<Allocator>(*allocator, file));
@@ -363,8 +361,8 @@ void Loader::parseDynamic(SharedObject *object) {
 		case DT_VERNEED: case DT_VERNEEDNUM:
 			break;
 		default:
-			debug::panicLogger.log() << "Unexpected dynamic entry "
-					<< (void *)dynamic->d_tag << " in object" << debug::Finish();
+			frigg::panicLogger.log() << "Unexpected dynamic entry "
+					<< (void *)dynamic->d_tag << " in object" << frigg::EndLog();
 		}
 	}
 }
@@ -405,11 +403,11 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 
 		const char *symbol_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + symbol->st_name);
-		//FIXME infoLogger->log() << "Looking up " << symbol_str << debug::Finish();
+		//FIXME infoLogger->log() << "Looking up " << symbol_str << frigg::EndLog();
 		symbol_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str, object, 0);
 		if(symbol_addr == 0 && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-			debug::panicLogger.log() << "Unresolved static symbol "
-					<< (const char *)symbol_str << debug::Finish();
+			frigg::panicLogger.log() << "Unresolved static symbol "
+					<< (const char *)symbol_str << frigg::EndLog();
 	}
 
 	switch(type) {
@@ -417,23 +415,23 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 		*((uint64_t *)rel_addr) = symbol_addr + reloc->r_addend;
 		//FIXME infoLogger->log() << "R_X86_64_64 at " << (void *)rel_addr
 		//		<< " resolved to " << (void *)(symbol_addr + reloc->r_addend)
-		//		<< debug::Finish();
+		//		<< frigg::EndLog();
 		break;
 	case R_X86_64_GLOB_DAT:
 		*((uint64_t *)rel_addr) = symbol_addr;
 		//FIXME infoLogger->log() << "R_X86_64_GLOB_DAT at " << (void *)rel_addr
 		//		<< " resolved to " << (void *)(symbol_addr)
-		//		<< debug::Finish();
+		//		<< frigg::EndLog();
 		break;
 	case R_X86_64_RELATIVE:
 		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
 		//FIXME infoLogger->log() << "R_X86_64_RELATIVE at " << (void *)rel_addr
 		//		<< " resolved to " << (void *)(object->baseAddress + reloc->r_addend)
-		//		<< debug::Finish();
+		//		<< frigg::EndLog();
 		break;
 	default:
-		debug::panicLogger.log() << "Unexpected relocation type "
-				<< (void *)type << debug::Finish();
+		frigg::panicLogger.log() << "Unexpected relocation type "
+				<< (void *)type << frigg::EndLog();
 	}
 }
 

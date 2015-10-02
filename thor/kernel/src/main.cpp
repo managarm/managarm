@@ -5,7 +5,6 @@
 #include <eir/interface.hpp>
 
 using namespace thor;
-namespace debug = frigg::debug;
 namespace traits = frigg::traits;
 
 // loads an elf image into the current address space
@@ -60,8 +59,8 @@ void enterImage(PhysicalAddr image_paddr) {
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
-				debug::panicLogger.log() << "Illegal combination of segment permissions"
-						<< debug::Finish();
+				frigg::panicLogger.log() << "Illegal combination of segment permissions"
+						<< frigg::EndLog();
 			}
 			space_guard.unlock();
 			thorRtInvalidateSpace();
@@ -92,20 +91,20 @@ void enterImage(PhysicalAddr image_paddr) {
 	space_guard.unlock();
 	thorRtInvalidateSpace();
 	
-	infoLogger->log() << "Entering user mode" << debug::Finish();
+	infoLogger->log() << "Entering user mode" << frigg::EndLog();
 	enterUserMode((void *)(stack_base + stack_size), (void *)ehdr->e_entry);
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Starting Thor" << debug::Finish();
+	infoLogger->log() << "Starting Thor" << frigg::EndLog();
 
 	initializeProcessorEarly();
 	
 	auto info = accessPhysical<EirInfo>(info_paddr);
 	infoLogger->log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
-			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << debug::Finish();
+			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::EndLog();
 
 	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
@@ -147,7 +146,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
 		infoLogger->log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
-				<< ", length: " << modules[i].length << debug::Finish();
+				<< ", length: " << modules[i].length << frigg::EndLog();
 
 		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
 		mod_directory->publish(name_ptr, modules[i].nameLength,
@@ -179,31 +178,31 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
 	activeList->addBack(traits::move(thread));
-	infoLogger->log() << "Leaving Thor" << debug::Finish();
+	infoLogger->log() << "Leaving Thor" << frigg::EndLog();
 	enterThread(thread_ptr);
 }
 
 extern "C" void handleDivideByZeroFault() {
-	debug::panicLogger.log() << "Divide by zero" << debug::Finish();
+	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
 
 extern "C" void handleDebugFault() {
-	infoLogger->log() << "Debug fault" << debug::Finish();
+	infoLogger->log() << "Debug fault" << frigg::EndLog();
 }
 
 extern "C" void handleOpcodeFault() {
-	debug::panicLogger.log() << "Invalid opcode" << debug::Finish();
+	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
 }
 
 extern "C" void handleDoubleFault() {
-	debug::panicLogger.log() << "Double fault" << debug::Finish();
+	frigg::panicLogger.log() << "Double fault" << frigg::EndLog();
 }
 
 extern "C" void handleProtectionFault(Word error) {
 //	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
-	debug::panicLogger.log() << "General protection fault\n"
+	frigg::panicLogger.log() << "General protection fault\n"
 //			<< "    Faulting IP: " << (void *)base_state->rip << "\n"
-			<< "    Faulting segment: " << (void *)error << debug::Finish();
+			<< "    Faulting segment: " << (void *)error << frigg::EndLog();
 }
 
 extern "C" void handlePageFault(Word error) {
@@ -233,7 +232,7 @@ extern "C" void handlePageFault(Word error) {
 
 	auto base_state = this_thread->accessSaveState().accessGeneralBaseState();
 
-	auto msg = debug::panicLogger.log();
+	auto msg = frigg::panicLogger.log();
 	msg << "Page fault"
 			<< " at " << (void *)address
 			<< ", faulting ip: " << (void *)base_state->rip << "\n";
@@ -255,13 +254,13 @@ extern "C" void handlePageFault(Word error) {
 	}else{
 		msg << " (Read)";
 	}
-	msg << debug::Finish();
+	msg << frigg::EndLog();
 }
 
 extern "C" void thorIrq(int irq) {
 	assert(!intsAreEnabled());
 
-	infoLogger->log() << "IRQ #" << irq << debug::Finish();
+	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
 	
 	if(irq == 2)
 		timerInterrupt();
@@ -279,7 +278,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		Word arg2, Word arg3, Word arg4, Word arg5,
 		Word arg6, Word arg7, Word arg8) {
-//	infoLogger->log() << "syscall #" << index << debug::Finish();
+//	infoLogger->log() << "syscall #" << index << frigg::EndLog();
 
 	switch(index) {
 	case kHelCallLog: {
@@ -287,7 +286,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		thorRtReturnSyscall1((Word)error);
 	}
 	case kHelCallPanic: {
-		infoLogger->log() << "User space panic:" << debug::Finish();
+		infoLogger->log() << "User space panic:" << frigg::EndLog();
 		helLog((const char *)arg0, (size_t)arg1);
 		
 		while(true) { }
@@ -350,17 +349,17 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	}
 
 	case kHelCallCreateEventHub: {
-//			infoLogger->log() << "helCreateEventHub" << frigg::debug::Finish();
+//			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
 		HelError error = helCreateEventHub(&handle);
 
-//			infoLogger->log() << "    -> " << handle << frigg::debug::Finish();
+//			infoLogger->log() << "    -> " << handle << frigg::EndLog();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
 	}
 	case kHelCallWaitForEvents: {
 //			infoLogger->log() << "helWaitForEvents(" << (HelHandle)arg0
 //					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
-//					<< ", " << (HelNanotime)arg3 << ")" << frigg::debug::Finish();
+//					<< ", " << (HelNanotime)arg3 << ")" << frigg::EndLog();
 
 		size_t num_items;
 		HelError error = helWaitForEvents((HelHandle)arg0,
@@ -484,7 +483,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 						<< "    Physical pages: Used: " << physicalAllocator->numUsedPages()
 						<< ", free: " << physicalAllocator->numFreePages() << "\n"
 						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
-						<< debug::Finish();
+						<< frigg::EndLog();
 				thorRtReturnSyscall1((Word)kHelErrNone);
 			}else{
 				assert(!"Illegal debug interface");

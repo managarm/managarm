@@ -14,7 +14,7 @@ public:
 };
 
 extern BochsSink infoSink;
-extern frigg::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+extern frigg::LazyInitializer<frigg::DefaultLogger<BochsSink>> infoLogger;
 
 // --------------------------------------------------------
 // Memory management

@@ -39,29 +39,29 @@ uint32_t earlyGdt[3];
 uint32_t earlyIdt[512];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
-	frigg::debug::panicLogger.log() << "Division by zero during boot\n"
-			<< "Faulting IP: " << rip << frigg::debug::Finish();
+	frigg::panicLogger.log() << "Division by zero during boot\n"
+			<< "Faulting IP: " << rip << frigg::EndLog();
 }
 
 extern "C" void handleEarlyOpcodeFault(void *rip) {
-	frigg::debug::panicLogger.log() << "Invalid opcode during boot\n"
-			<< "Faulting IP: " << rip << frigg::debug::Finish();
+	frigg::panicLogger.log() << "Invalid opcode during boot\n"
+			<< "Faulting IP: " << rip << frigg::EndLog();
 }
 
 extern "C" void handleEarlyDoubleFault(uint64_t errcode, void *rip) {
-	frigg::debug::panicLogger.log() << "Double fault during boot\n"
-			<< "Faulting IP: " << rip << frigg::debug::Finish();
+	frigg::panicLogger.log() << "Double fault during boot\n"
+			<< "Faulting IP: " << rip << frigg::EndLog();
 }
 
 extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
-	frigg::debug::panicLogger.log() << "Protection fault during boot\n"
+	frigg::panicLogger.log() << "Protection fault during boot\n"
 			<< "Segment: " << errcode << "\n"
-			<< "Faulting IP: " << rip << frigg::debug::Finish();
+			<< "Faulting IP: " << rip << frigg::EndLog();
 }
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
-	frigg::debug::panicLogger.log() << "Page fault during boot\n"
-			<< "Faulting IP: " << rip << frigg::debug::Finish();
+	frigg::panicLogger.log() << "Page fault during boot\n"
+			<< "Faulting IP: " << rip << frigg::EndLog();
 }
 
 void initializeProcessorEarly() {

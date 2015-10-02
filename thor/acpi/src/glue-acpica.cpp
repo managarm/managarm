@@ -15,8 +15,8 @@ extern "C" {
 #include <acpi.h>
 }
 
-#define NOT_IMPLEMENTED() do { frigg::debug::panicLogger.log() << "ACPI interface function " \
-		<< __func__ << " is not implemented!" << frigg::debug::Finish(); } while(0)
+#define NOT_IMPLEMENTED() do { frigg::panicLogger.log() << "ACPI interface function " \
+		<< __func__ << " is not implemented!" << frigg::EndLog(); } while(0)
 
 // --------------------------------------------------------
 // Initialization and shutdown
@@ -33,8 +33,8 @@ ACPI_STATUS AcpiOsTerminate() {
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 	ACPI_SIZE pointer;
 	if(AcpiFindRootPointer(&pointer) != AE_OK)
-		frigg::debug::panicLogger.log() << "Could not find ACPI RSDP table"
-				<< frigg::debug::Finish();
+		frigg::panicLogger.log() << "Could not find ACPI RSDP table"
+				<< frigg::EndLog();
 	return pointer;
 }
 
@@ -160,7 +160,7 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
 
 ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
 		ACPI_SEMAPHORE *out_handle) {
-	auto semaphore = frigg::memory::construct<AcpiSemaphore>(*allocator);
+	auto semaphore = frigg::construct<AcpiSemaphore>(*allocator);
 	semaphore->counter = initial_units;
 	*out_handle = semaphore;
 	return AE_OK;
@@ -236,7 +236,7 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	infoLogger->log() << "Handle int " << interrupt << frigg::debug::Finish();
+	infoLogger->log() << "Handle int " << interrupt << frigg::EndLog();
 	//NOT_IMPLEMENTED();
 	return AE_OK;
 }

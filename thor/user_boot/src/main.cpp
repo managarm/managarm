@@ -26,7 +26,6 @@
 #include "posix.frigg_pb.hpp"
 
 namespace util = frigg::util;
-namespace debug = frigg::debug;
 namespace async = frigg::async;
 
 void loadImage(const char *path, HelHandle directory, bool exclusive) {
@@ -85,8 +84,8 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				map_flags |= kHelMapReadExecute;
 			}else{
-				debug::panicLogger.log() << "Illegal combination of segment permissions"
-						<< debug::Finish();
+				frigg::panicLogger.log() << "Illegal combination of segment permissions"
+						<< frigg::EndLog();
 			}
 
 			void *actual_ptr;
@@ -381,12 +380,12 @@ int main() {
 		__init_array_start[i]();
 
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering user_boot" << debug::Finish();
+	infoLogger->log() << "Entering user_boot" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 
 	async::run(*allocator, initialize, InitContext(),
 	[](InitContext &context) {
-		infoLogger->log() << "user_boot finished successfully" << debug::Finish();
+		infoLogger->log() << "user_boot finished successfully" << frigg::EndLog();
 	});
 	
 	while(true)

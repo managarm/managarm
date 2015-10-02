@@ -201,11 +201,6 @@ public:
 template<typename Allocator>
 using String = BasicString<char, Allocator>;
 
-} // namespace frigg
-
-namespace frigg {
-namespace debug {
-
 template<typename P>
 struct Print<P, StringView> {
 	static void print(P &printer, StringView string) {
@@ -214,5 +209,5 @@ struct Print<P, StringView> {
 	}
 };
 
-} } // namespace frigg::debug
+} // namespace frigg
 

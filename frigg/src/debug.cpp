@@ -6,7 +6,6 @@
 #include <frigg/initializer.hpp>
 
 namespace frigg {
-namespace debug {
 
 PanicLogger panicLogger;
 
@@ -44,13 +43,13 @@ void assertionFail(const char *message, const char *function,
 	PanicLogger logger;
 	logger.log() << "Assertion failed: " << message << "\n"
 			<< "In function " << function
-			<< " at " << file << ":" << line << Finish();
+			<< " at " << file << ":" << line << EndLog();
 }
 
-}} // namespace frigg::debug
+} // namespace frigg
 
 extern "C" void __cxa_pure_virtual() {
-	frigg::debug::PanicLogger logger;
-	logger.log() << "Pure virtual call" << frigg::debug::Finish();
+	frigg::PanicLogger logger;
+	logger.log() << "Pure virtual call" << frigg::EndLog();
 }
 

@@ -4,7 +4,6 @@
 
 using namespace thor;
 namespace traits = frigg::traits;
-namespace debug = frigg::debug;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)

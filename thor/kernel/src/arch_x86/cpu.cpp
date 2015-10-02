@@ -2,7 +2,6 @@
 #include "../kernel.hpp"
 
 namespace traits = frigg::traits;
-namespace debug = frigg::debug;
 
 namespace thor {
 
@@ -115,10 +114,10 @@ void callOnCpuStack(void (*function) ()) {
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
-	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*thor::kernelAlloc);
+	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*kernelAlloc);
 	
 	// set up the kernel gs segment
-	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*thor::kernelAlloc);
+	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
 	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
 	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
@@ -148,7 +147,7 @@ void initializeThisProcessor() {
 
 	// setup a stack for irqs
 	size_t irq_stack_size = 0x10000;
-	void *irq_stack_base = thor::kernelAlloc->allocate(irq_stack_size);
+	void *irq_stack_base = kernelAlloc->allocate(irq_stack_size);
 	
 	// setup the kernel tss
 	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
@@ -171,8 +170,8 @@ void initializeThisProcessor() {
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
 			& frigg::arch_x86::kCpuFlagSyscall) == 0)
-		frigg::debug::panicLogger.log() << "CPU does not support the syscall instruction"
-				<< frigg::debug::Finish();
+		frigg::panicLogger.log() << "CPU does not support the syscall instruction"
+				<< frigg::EndLog();
 	
 	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
@@ -205,10 +204,10 @@ extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
 	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
-	thor::infoLogger->log() << "Hello world from CPU #" << getLocalApicId() << debug::Finish();	
+	infoLogger->log() << "Hello world from CPU #" << getLocalApicId() << frigg::EndLog();	
 	initializeThisProcessor();
 
-	thor::infoLogger->log() << "Start scheduling on AP" << debug::Finish();
+	infoLogger->log() << "Start scheduling on AP" << frigg::EndLog();
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(traits::move(schedule_guard));
 }
@@ -219,17 +218,17 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	size_t trampoline_size = (uintptr_t)_trampoline_endLma - (uintptr_t)_trampoline_startLma;
 	assert((trampoline_addr % 0x1000) == 0);
 	assert((trampoline_size % 0x1000) == 0);
-	memcpy(thor::physicalToVirtual(trampoline_addr), _trampoline_startLma, trampoline_size);
+	memcpy(physicalToVirtual(trampoline_addr), _trampoline_startLma, trampoline_size);
 	
 	size_t trampoline_stack_size = 0x100000;
-	void *trampoline_stack_base = thor::kernelAlloc->allocate(trampoline_stack_size);
+	void *trampoline_stack_base = kernelAlloc->allocate(trampoline_stack_size);
 
 	// setup the trampoline data area
-	auto status_ptr = thor::accessPhysical<uint32_t>((PhysicalAddr)&trampolineStatus);
-	auto pml4_ptr = thor::accessPhysical<uint32_t>((PhysicalAddr)&trampolinePml4);
-	auto stack_ptr = thor::accessPhysical<uint64_t>((PhysicalAddr)&trampolineStack);
+	auto status_ptr = accessPhysical<uint32_t>((PhysicalAddr)&trampolineStatus);
+	auto pml4_ptr = accessPhysical<uint32_t>((PhysicalAddr)&trampolinePml4);
+	auto stack_ptr = accessPhysical<uint64_t>((PhysicalAddr)&trampolineStack);
 	secondaryBootComplete = false;
-	*pml4_ptr = thor::kernelSpace->getPml4();
+	*pml4_ptr = kernelSpace->getPml4();
 	*stack_ptr = ((uintptr_t)trampoline_stack_base + trampoline_stack_size);
 
 	raiseInitAssertIpi(secondary_apic_id);
@@ -238,13 +237,13 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	asm volatile ( "" : : : "memory" );
 	
 	// wait until the ap wakes up
-	thor::infoLogger->log() << "Waiting for AP to wake up" << debug::Finish();
+	infoLogger->log() << "Waiting for AP to wake up" << frigg::EndLog();
 	while(frigg::volatileRead<uint32_t>(status_ptr) == 0) {
 		frigg::pause();
 	}
 	
 	// allow ap code to initialize the processor
-	thor::infoLogger->log() << "AP is booting" << debug::Finish();
+	infoLogger->log() << "AP is booting" << frigg::EndLog();
 	frigg::volatileWrite<uint32_t>(status_ptr, 2);
 	
 	// wait until the secondary processor completed its boot process
@@ -252,7 +251,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	while(!frigg::volatileRead<bool>(&secondaryBootComplete)) {
 		frigg::pause();
 	}
-	thor::infoLogger->log() << "AP finished booting" << debug::Finish();
+	infoLogger->log() << "AP finished booting" << frigg::EndLog();
 }
 
 } // namespace thor

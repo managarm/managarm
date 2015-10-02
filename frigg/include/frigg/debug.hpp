@@ -1,8 +1,7 @@
 
 namespace frigg {
-namespace debug {
 
-#define assert(c) do { if(!(c)) ::frigg::debug::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
+#define assert(c) do { if(!(c)) ::frigg::assertionFail(#c, __func__, __FILE__, __LINE__); } while(0)
 
 class VirtualSink {
 public:
@@ -41,14 +40,14 @@ void printUInt(P &printer, T number, int radix) {
 }
 
 
-class Finish { };
+class EndLog { };
 
 template<typename P, typename T, typename E = void>
 struct Print;
 
 template<typename P>
-struct Print<P, Finish> {
-	static void print(P &printer, Finish token) {
+struct Print<P, EndLog> {
+	static void print(P &printer, EndLog token) {
 		printer.finish();
 	}
 };
@@ -161,5 +160,5 @@ extern PanicLogger panicLogger;
 void assertionFail(const char *message, const char *function,
 		const char *file, int line);
 
-} } // namespace frigg::debug
+} // namespace frigg
 

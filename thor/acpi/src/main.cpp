@@ -74,9 +74,9 @@ struct HpetEntry {
 } __attribute__ (( packed ));
 
 void acpicaCheckFailed(const char *expr, const char *file, int line) {
-	frigg::debug::panicLogger.log() << "ACPICA_CHECK failed: "
+	frigg::panicLogger.log() << "ACPICA_CHECK failed: "
 			<< expr << "\nIn file " << file << " on line " << line
-			<< frigg::debug::Finish();
+			<< frigg::EndLog();
 }
 
 #define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
@@ -192,7 +192,7 @@ int main() {
 	HEL_CHECK(helEnableFullIo());
 	
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering ACPI driver" << frigg::debug::Finish();
+	infoLogger->log() << "Entering ACPI driver" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 
 	ACPICA_CHECK(AcpiInitializeSubsystem());
@@ -200,7 +200,7 @@ int main() {
 	ACPICA_CHECK(AcpiLoadTables());
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	infoLogger->log() << "ACPI initialized successfully" << frigg::debug::Finish();
+	infoLogger->log() << "ACPI initialized successfully" << frigg::EndLog();
 	
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;
@@ -221,7 +221,7 @@ int main() {
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			infoLogger->log() << "    Local APIC id: "
-					<< entry->localApicId << frigg::debug::Finish();
+					<< entry->localApicId << frigg::EndLog();
 
 			if(seen_bsp)
 				helControlKernel(kThorSubArch, kThorIfBootSecondary,
@@ -231,7 +231,7 @@ int main() {
 			auto entry = (MadtIoEntry *)generic;
 			infoLogger->log() << "    I/O APIC id: " << entry->ioApicId
 					<< ", sytem interrupt base: " << entry->systemIntBase
-					<< frigg::debug::Finish();
+					<< frigg::EndLog();
 			
 			uint64_t address = entry->mmioAddress;
 			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
@@ -239,14 +239,14 @@ int main() {
 			auto entry = (MadtIntOverrideEntry *)generic;
 			infoLogger->log() << "    Int override: bus " << entry->bus
 					<< ", irq " << entry->sourceIrq << " -> " << entry->systemInt
-					<< frigg::debug::Finish();
+					<< frigg::EndLog();
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
 			infoLogger->log() << "    Local APIC NMI: processor " << entry->processorId
-					<< ", lint: " << entry->localInt << frigg::debug::Finish();
+					<< ", lint: " << entry->localInt << frigg::EndLog();
 		}else{
 			infoLogger->log() << "    Unexpected MADT entry of type "
-					<< generic->type << frigg::debug::Finish();
+					<< generic->type << frigg::EndLog();
 		}
 		offset += generic->length;
 	}

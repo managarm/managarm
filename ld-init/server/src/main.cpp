@@ -27,7 +27,6 @@
 
 #include "ld-server.frigg_pb.hpp"
 
-namespace debug = frigg::debug;
 namespace util = frigg::util;
 namespace async = frigg::async;
 
@@ -132,8 +131,8 @@ Object *readObject(frigg::StringView path) {
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				can_share = true;
 			}else{
-				debug::panicLogger.log() << "Illegal combination of segment permissions"
-						<< debug::Finish();
+				frigg::panicLogger.log() << "Illegal combination of segment permissions"
+						<< frigg::EndLog();
 			}
 
 			assert(phdr->p_memsz > 0);
@@ -233,8 +232,8 @@ void sendObject(HelHandle pipe, int64_t request_id,
 		}else if((base_segment->elfFlags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			out_segment.set_access(managarm::ld_server::Access::READ_EXECUTE);
 		}else{
-			debug::panicLogger.log() << "Illegal combination of segment permissions"
-					<< debug::Finish();
+			frigg::panicLogger.log() << "Illegal combination of segment permissions"
+					<< frigg::EndLog();
 		}
 		
 		response.add_segments(out_segment);
@@ -310,7 +309,7 @@ int main() {
 		__init_array_start[i]();
 
 	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering ld-server" << debug::Finish();
+	infoLogger->log() << "Entering ld-server" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 
 	eventHub.initialize();
@@ -330,7 +329,7 @@ int main() {
 	helx::Pipe parent_pipe(parent_handle);
 	parent_pipe.sendDescriptor(client_handle, 1, 0);
 
-	infoLogger->log() << "ld-server initialized succesfully!" << debug::Finish();
+	infoLogger->log() << "ld-server initialized succesfully!" << frigg::EndLog();
 
 	while(true)
 		eventHub->defaultProcessEvents();

@@ -22,8 +22,6 @@
 
 #include <frigg/glue-hel.hpp>
 
-namespace debug = frigg::debug;
-
 #include "linker.hpp"
 
 #define HIDDEN  __attribute__ ((visibility ("hidden")))
@@ -59,10 +57,10 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 	void *pointer = globalScope->resolveSymbol(symbol_str, object, 0);
 	if(pointer == nullptr)
-		debug::panicLogger.log() << "Unresolved lazy symbol" << debug::Finish();
+		frigg::panicLogger.log() << "Unresolved lazy symbol" << frigg::EndLog();
 
 	//infoLogger->log() << "Lazy relocation to " << symbol_str
-	//		<< " resolved to " << pointer << debug::Finish();
+	//		<< " resolved to " << pointer << frigg::EndLog();
 
 	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
 	return pointer;
@@ -74,7 +72,7 @@ frigg::LazyInitializer<helx::Pipe> serverPipe;
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	infoLogger.initialize(infoSink);
-	//infoLogger->log() << "Entering ld-init" << debug::Finish();
+	//infoLogger->log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
 	interpreter.initialize(false);
@@ -133,7 +131,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	globalLoader->initialize();
 
-//	infoLogger->log() << "Leaving ld-init" << debug::Finish();
+//	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 
