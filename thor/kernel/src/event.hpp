@@ -63,8 +63,8 @@ public:
 	Lock lock;
 
 private:
-	frigg::util::LinkedList<UserEvent, KernelAlloc> p_queue;
-	frigg::util::LinkedList<KernelWeakPtr<Thread>, KernelAlloc> p_waitingThreads;
+	frigg::LinkedList<UserEvent, KernelAlloc> p_queue;
+	frigg::LinkedList<KernelWeakPtr<Thread>, KernelAlloc> p_waitingThreads;
 };
 
 } // namespace thor

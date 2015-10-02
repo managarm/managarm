@@ -31,8 +31,6 @@ using StdSharedPtr = frigg::SharedPtr<T, Allocator>;
 template<typename T>
 using StdUnsafePtr = frigg::UnsafePtr<T, Allocator>;
 
-namespace util = frigg::util;
-
 helx::EventHub eventHub;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
@@ -63,11 +61,11 @@ void KernelOutDevice::write(const void *buffer, size_t length) {
 struct DeviceAllocator {
 private:
 	struct SecondaryTable {
-		SecondaryTable(util::String<Allocator> group_name)
+		SecondaryTable(frigg::String<Allocator> group_name)
 		: groupName(frigg::traits::move(group_name)), minorTable(*allocator) { }
 
-		util::String<Allocator> groupName;
-		util::Vector<StdSharedPtr<Device>, Allocator> minorTable;
+		frigg::String<Allocator> groupName;
+		frigg::Vector<StdSharedPtr<Device>, Allocator> minorTable;
 	};
 
 public:
@@ -77,17 +75,17 @@ public:
 		return index;
 	}
 	
-	unsigned int accessGroup(util::StringView group_name) {
+	unsigned int accessGroup(frigg::StringView group_name) {
 		size_t index;
 		for(index = 0; index < majorTable.size(); index++)
 			if(majorTable[index].groupName == group_name)
 				return index;
 
-		majorTable.push(SecondaryTable(util::String<Allocator>(*allocator, group_name)));
+		majorTable.push(SecondaryTable(frigg::String<Allocator>(*allocator, group_name)));
 		return index;
 	}
 
-	void allocateDevice(util::StringView group_name,
+	void allocateDevice(frigg::StringView group_name,
 			StdSharedPtr<Device> device, unsigned int &major, unsigned int &minor) {
 		major = accessGroup(group_name);
 		minor = allocateSlot(major, frigg::traits::move(device));
@@ -105,11 +103,11 @@ public:
 	: majorTable(*allocator) { }
 
 private:
-	util::Vector<SecondaryTable, Allocator> majorTable;
+	frigg::Vector<SecondaryTable, Allocator> majorTable;
 };
 
 struct VfsOpenFile {
-	virtual StdSharedPtr<VfsOpenFile> openAt(util::StringView path);
+	virtual StdSharedPtr<VfsOpenFile> openAt(frigg::StringView path);
 	
 	virtual void write(const void *buffer, size_t length);
 	virtual void read(void *buffer, size_t max_length, size_t &actual_length);
@@ -118,7 +116,7 @@ struct VfsOpenFile {
 	virtual HelHandle getHelfd();
 };
 
-StdSharedPtr<VfsOpenFile> VfsOpenFile::openAt(util::StringView path) {
+StdSharedPtr<VfsOpenFile> VfsOpenFile::openAt(frigg::StringView path) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
 }
@@ -139,7 +137,7 @@ HelHandle VfsOpenFile::getHelfd() {
 
 struct VfsMountPoint {
 	virtual StdSharedPtr<VfsOpenFile> openMounted(StdUnsafePtr<Process> process,
-			util::StringView path, uint32_t flags, uint32_t mode) = 0;
+			frigg::StringView path, uint32_t flags, uint32_t mode) = 0;
 };
 
 struct MountSpace {
@@ -154,27 +152,27 @@ struct MountSpace {
 	MountSpace();
 
 	StdSharedPtr<VfsOpenFile> openAbsolute(StdUnsafePtr<Process> process,
-			util::StringView path, uint32_t flags, uint32_t mode);
+			frigg::StringView path, uint32_t flags, uint32_t mode);
 
-	util::Hashmap<util::String<Allocator>, VfsMountPoint *,
-			util::DefaultHasher<util::StringView>, Allocator> allMounts;
+	frigg::Hashmap<frigg::String<Allocator>, VfsMountPoint *,
+			frigg::DefaultHasher<frigg::StringView>, Allocator> allMounts;
 
 	DeviceAllocator charDevices;
 	DeviceAllocator blockDevices;
 };
 
 MountSpace::MountSpace()
-: allMounts(util::DefaultHasher<util::StringView>(), *allocator) { }
+: allMounts(frigg::DefaultHasher<frigg::StringView>(), *allocator) { }
 
 StdSharedPtr<VfsOpenFile> MountSpace::openAbsolute(StdUnsafePtr<Process> process,
-		util::StringView path, uint32_t flags, uint32_t mode) {
+		frigg::StringView path, uint32_t flags, uint32_t mode) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
 	
 	// splits the path into a prefix that identifies the mount point
 	// and a suffix that specifies remaining path relative to this mount point
-	util::StringView prefix = path;
-	util::StringView suffix;
+	frigg::StringView prefix = path;
+	frigg::StringView suffix;
 	
 	while(true) {
 		auto mount = allMounts.get(prefix);
@@ -210,8 +208,8 @@ struct Process {
 	MountSpace *mountSpace;
 	HelHandle vmSpace;
 
-	util::Hashmap<int, StdSharedPtr<VfsOpenFile>,
-			util::DefaultHasher<int>, Allocator> allOpenFiles;
+	frigg::Hashmap<int, StdSharedPtr<VfsOpenFile>,
+			frigg::DefaultHasher<int>, Allocator> allOpenFiles;
 	int nextFd;
 };
 
@@ -248,7 +246,7 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 
 Process::Process()
 : iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
-		allOpenFiles(util::DefaultHasher<int>(), *allocator), nextFd(-1) { }
+		allOpenFiles(frigg::DefaultHasher<int>(), *allocator), nextFd(-1) { }
 
 StdSharedPtr<Process> Process::fork() {
 	auto new_process = frigg::makeShared<Process>(*allocator);
@@ -277,12 +275,12 @@ auto loadObject =
 frigg::asyncSeq(
 	frigg::wrapFuncPtr<helx::RecvStringFunction>([](LoadContext *context,
 			void *cb_object, auto cb_function,
-			util::StringView object_name, uintptr_t base_address) {
+			frigg::StringView object_name, uintptr_t base_address) {
 		managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-		request.set_identifier(util::String<Allocator>(*allocator, object_name));
+		request.set_identifier(frigg::String<Allocator>(*allocator, object_name));
 		request.set_base_address(base_address);
 		
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		ldServerPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
@@ -332,7 +330,7 @@ frigg::asyncSeq(
 );
 
 struct ExecuteContext {
-	ExecuteContext(util::String<Allocator> program, StdSharedPtr<Process> process)
+	ExecuteContext(frigg::String<Allocator> program, StdSharedPtr<Process> process)
 	: program(frigg::traits::move(program)), process(process) {
 		// reset the virtual memory space of the process
 		if(process->vmSpace != kHelNullHandle)
@@ -343,7 +341,7 @@ struct ExecuteContext {
 		process->iteration++;
 	}
 
-	util::String<Allocator> program;
+	frigg::String<Allocator> program;
 	StdSharedPtr<Process> process;
 
 	LoadContext executableContext;
@@ -353,17 +351,17 @@ struct ExecuteContext {
 auto executeProgram =
 frigg::asyncSeq(
 	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		callback(util::StringView(context->program.data(), context->program.size()), 0);
+		callback(frigg::StringView(context->program.data(), context->program.size()), 0);
 	}),
 	frigg::subContext(&ExecuteContext::executableContext,
 		frigg::wrapFunctor([](LoadContext *context, auto &callback,
-				util::StringView object_name, uintptr_t base_address) {
+				frigg::StringView object_name, uintptr_t base_address) {
 			callback(object_name, base_address);
 		})
 	),
 	frigg::subContext(&ExecuteContext::executableContext, loadObject),
 	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		callback(util::StringView("ld-init.so"), 0x40000000);
+		callback(frigg::StringView("ld-init.so"), 0x40000000);
 	}),
 	frigg::subContext(&ExecuteContext::interpreterContext, loadObject),
 	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
@@ -485,17 +483,17 @@ struct DirectoryNode : public Inode {
 	DirectoryNode();
 
 	StdSharedPtr<VfsOpenFile> openRelative(StdUnsafePtr<Process> process,
-			util::StringView path, uint32_t flags, uint32_t mode);
+			frigg::StringView path, uint32_t flags, uint32_t mode);
 	
 	// inherited from Inode
 	StdSharedPtr<VfsOpenFile> openSelf(StdUnsafePtr<Process> process) override;
 
-	util::Hashmap<util::String<Allocator>, StdSharedPtr<Inode>,
-			util::DefaultHasher<util::StringView>, Allocator> entries;
+	frigg::Hashmap<frigg::String<Allocator>, StdSharedPtr<Inode>,
+			frigg::DefaultHasher<frigg::StringView>, Allocator> entries;
 };
 
 DirectoryNode::DirectoryNode()
-: entries(util::DefaultHasher<util::StringView>(), *allocator) { }
+: entries(frigg::DefaultHasher<frigg::StringView>(), *allocator) { }
 
 StdSharedPtr<VfsOpenFile> DirectoryNode::openSelf(StdUnsafePtr<Process> process) {
 	assert(!"TODO: Implement this");
@@ -503,8 +501,8 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openSelf(StdUnsafePtr<Process> process)
 }
 
 StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> process,
-		util::StringView path, uint32_t flags, uint32_t mode) {
-	util::StringView segment;
+		frigg::StringView path, uint32_t flags, uint32_t mode) {
+	frigg::StringView segment;
 	
 	size_t seperator = path.findFirst('/');
 	if(seperator == size_t(-1)) {
@@ -520,15 +518,15 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> proc
 				assert(!"mode not supported");
 			}
 			StdSharedPtr<VfsOpenFile> open_file = inode->openSelf(process);
-			entries.insert(util::String<Allocator>(*allocator, path), frigg::traits::move(inode));
+			entries.insert(frigg::String<Allocator>(*allocator, path), frigg::traits::move(inode));
 			return open_file;
 		}else{
 			return StdSharedPtr<VfsOpenFile>();
 		}
 	}else{
 		assert(!"Not tested");
-		util::StringView segment = path.subString(0, seperator);
-		util::StringView tail = path.subString(seperator + 1, path.size() - (seperator + 1));
+		frigg::StringView segment = path.subString(0, seperator);
+		frigg::StringView tail = path.subString(seperator + 1, path.size() - (seperator + 1));
 		
 		auto entry = entries.get(segment);
 		if(!entry)
@@ -548,7 +546,7 @@ public:
 	
 	// inherited from VfsMountPoint
 	StdSharedPtr<VfsOpenFile> openMounted(StdUnsafePtr<Process> process,
-			util::StringView path, uint32_t flags, uint32_t mode) override;
+			frigg::StringView path, uint32_t flags, uint32_t mode) override;
 	
 private:
 	DirectoryNode rootDirectory;
@@ -557,7 +555,7 @@ private:
 MountPoint::MountPoint() { }
 
 StdSharedPtr<VfsOpenFile> MountPoint::openMounted(StdUnsafePtr<Process> process,
-		util::StringView path, uint32_t flags, uint32_t mode) {
+		frigg::StringView path, uint32_t flags, uint32_t mode) {
 	return rootDirectory.openRelative(process, path, flags, mode);
 }
 
@@ -570,7 +568,7 @@ struct RequestLoopContext {
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 	
 	void sendResponse(managarm::posix::ServerResponse<Allocator> &response, int64_t msg_request) {
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
 		pipe.sendString(serialized.data(), serialized.size(), msg_request, 0);
 	}
@@ -605,10 +603,10 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 
 		auto fs = frigg::memory::construct<dev_fs::MountPoint>(*allocator);
 		auto real_inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
-		fs->getRootDirectory()->entries.insert(util::String<Allocator>(*allocator, "helout"),
+		fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
 				frigg::staticPointerCast<dev_fs::Inode>(frigg::traits::move(real_inode)));
 
-		process->mountSpace->allMounts.insert(util::String<Allocator>(*allocator, "/dev"), fs);
+		process->mountSpace->allMounts.insert(frigg::String<Allocator>(*allocator, "/dev"), fs);
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
@@ -667,11 +665,11 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		if(file_wrapper) {
 			size_t actual_len;
 			auto file = **file_wrapper;
-			util::String<Allocator> buffer(*allocator);
+			frigg::String<Allocator> buffer(*allocator);
 			buffer.resize(request.size());
 			file->read(buffer.data(), request.size(), actual_len);
 
-			request.set_buffer(frigg::util::String<Allocator>(*allocator,
+			request.set_buffer(frigg::String<Allocator>(*allocator,
 					buffer.data(), actual_len));
 			response.set_error(managarm::posix::Errors::SUCCESS);
 		}else{

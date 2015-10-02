@@ -5,7 +5,6 @@
 using namespace thor;
 namespace traits = frigg::traits;
 namespace debug = frigg::debug;
-namespace util = frigg::util;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
@@ -870,9 +869,9 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 	size_t search_from = 0;
 	while(true) {
 		size_t next_slash = find_char(user_name, '/', search_from, name_length);
-		util::StringView part(user_name + search_from, next_slash - search_from);
+		frigg::StringView part(user_name + search_from, next_slash - search_from);
 		if(next_slash == name_length) {
-			if(part == util::StringView("#this")) {
+			if(part == frigg::StringView("#this")) {
 				// open a handle to this directory
 				KernelSharedPtr<RdFolder> copy(directory);
 			

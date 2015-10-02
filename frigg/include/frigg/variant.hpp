@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 namespace variant_impl {
 
@@ -342,6 +341,6 @@ private:
 	int p_tag;
 };
 
-} } // namespace frigg::util
+} // namespace frigg
 
 

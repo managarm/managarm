@@ -7,7 +7,7 @@ public:
 
 typedef frigg::debug::DefaultLogger<InfoSink> InfoLogger;
 extern InfoSink infoSink;
-extern frigg::util::LazyInitializer<InfoLogger> infoLogger;
+extern frigg::LazyInitializer<InfoLogger> infoLogger;
 
 struct VirtualAlloc {
 public:
@@ -19,5 +19,5 @@ public:
 typedef frigg::memory::DebugAllocator<VirtualAlloc,
 		frigg::TicketLock> Allocator;
 extern VirtualAlloc virtualAlloc;
-extern frigg::util::LazyInitializer<Allocator> allocator;
+extern frigg::LazyInitializer<Allocator> allocator;
 

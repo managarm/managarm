@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 namespace tuple_impl {
 
@@ -77,5 +76,5 @@ Tuple<typename traits::RemoveRef<Types>::type...> makeTuple(Types &&... args) {
 	return Tuple<typename traits::RemoveRef<Types>::type...>(traits::forward<Types>(args)...);
 }
 
-} } // namespace frigg::util
+} // namespace frigg
 

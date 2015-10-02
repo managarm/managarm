@@ -8,7 +8,6 @@ using namespace thor;
 namespace debug = frigg::debug;
 namespace traits = frigg::traits;
 namespace memory = frigg::memory;
-namespace util = frigg::util;
 
 // loads an elf image into the current address space
 // this is called in kernel mode from the initial user thread
@@ -148,7 +147,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
-		infoLogger->log() << "Module " << util::StringView(name_ptr, modules[i].nameLength)
+		infoLogger->log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << debug::Finish();
 
 		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));

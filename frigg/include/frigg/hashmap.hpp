@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 class Hashmap {
@@ -229,5 +228,5 @@ public:
 	}
 };
 
-}} // namespace frigg::util
+} // namespace frigg
 

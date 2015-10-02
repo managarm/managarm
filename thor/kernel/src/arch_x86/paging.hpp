@@ -40,7 +40,7 @@ private:
 	PhysicalAddr p_pml4Address;
 };
 
-extern frigg::util::LazyInitializer<PageSpace> kernelSpace;
+extern frigg::LazyInitializer<PageSpace> kernelSpace;
 
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();

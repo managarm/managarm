@@ -66,7 +66,7 @@ struct UniqueSegment : BaseSegment {
 	size_t fileLength;
 };
 
-typedef util::Variant<SharedSegment,
+typedef frigg::Variant<SharedSegment,
 		UniqueSegment> Segment;
 
 struct Object {
@@ -79,15 +79,15 @@ struct Object {
 	uintptr_t phdrPointer, phdrEntrySize, phdrCount;
 	uintptr_t entry;
 	uintptr_t dynamic;
-	util::Vector<Segment, Allocator> segments;
+	frigg::Vector<Segment, Allocator> segments;
 	bool hasPhdrImage;
 };
 
-typedef util::Hashmap<const char *, Object *,
-		util::CStringHasher, Allocator> objectMap;
+typedef frigg::Hashmap<const char *, Object *,
+		frigg::CStringHasher, Allocator> objectMap;
 
-Object *readObject(util::StringView path) {
-	util::String<Allocator> full_path(*allocator, "initrd/");
+Object *readObject(frigg::StringView path) {
+	frigg::String<Allocator> full_path(*allocator, "initrd/");
 	full_path += path;
 
 	// open and map the executable image into this address space
@@ -246,14 +246,14 @@ void sendObject(HelHandle pipe, int64_t request_id,
 			HEL_CHECK(helCloseDescriptor(memory));
 	}
 
-	util::String<Allocator> serialized(*allocator);
+	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 
 	HEL_CHECK(helSendString(pipe, (uint8_t *)serialized.data(), serialized.size(), 1, 0));
 }
 
-util::LazyInitializer<helx::EventHub> eventHub;
-util::LazyInitializer<helx::Server> server;
+frigg::LazyInitializer<helx::EventHub> eventHub;
+frigg::LazyInitializer<helx::Server> server;
 
 struct ProcessContext {
 	ProcessContext(HelHandle pipe_handle)
@@ -285,7 +285,7 @@ async::repeatWhile(
 			managarm::ld_server::ClientRequest<Allocator> request(*allocator);
 			request.ParseFromArray(context.buffer, length);
 			
-			Object *object = readObject(util::StringView(request.identifier().data(),
+			Object *object = readObject(frigg::StringView(request.identifier().data(),
 					request.identifier().size()));
 			sendObject(context.pipeHandle, msg_request, object, request.base_address());
 			callback();

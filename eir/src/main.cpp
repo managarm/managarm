@@ -12,7 +12,6 @@
 #include <eir/interface.hpp>
 
 namespace debug = frigg::debug;
-namespace util = frigg::util;
 namespace arch = frigg::arch_x86;
 
 class BochsSink {
@@ -31,7 +30,7 @@ void BochsSink::print(const char *str) {
 
 typedef debug::DefaultLogger<BochsSink> InfoLogger;
 BochsSink infoSink;
-util::LazyInitializer<InfoLogger> infoLogger;
+frigg::LazyInitializer<InfoLogger> infoLogger;
 
 void friggPrintCritical(char c) {
 	infoSink.print(c);
@@ -270,7 +269,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	infoLogger->log() << "Starting Eir" << debug::Finish();
 
-	util::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
+	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
 	memcpy(&vendor_str[0], &vendor_res[1], 4);
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
@@ -279,7 +278,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	infoLogger->log() << "CPU vendor: " << (const char *)vendor_str << debug::Finish();
 	
 	// make sure everything we require is supported by the CPU
-	util::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
+	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
 		debug::panicLogger.log() << "Long mode is not supported on this CPU" << debug::Finish();
 	if((extended[3] & arch::kCpuFlagNx) == 0)

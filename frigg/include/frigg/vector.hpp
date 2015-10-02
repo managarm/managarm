@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename T, typename Allocator>
 class Vector {
@@ -104,5 +103,5 @@ T Vector<T, Allocator>::pop() {
 	return element;
 }
 
-}} // namespace frigg::util
+} // namespace frigg
 

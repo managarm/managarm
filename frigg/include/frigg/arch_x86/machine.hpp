@@ -13,8 +13,8 @@ enum {
 	kCpuFlagLongMode = 0x20000000
 };
 
-extern inline util::Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
-	util::Array<uint32_t, 4> out;
+extern inline Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
+	Array<uint32_t, 4> out;
 	asm volatile ( "cpuid"
 			: "=a" (out[0]), "=b" (out[1]), "=c" (out[2]), "=d" (out[3])
 			: "a" (eax), "c" (ecx) );

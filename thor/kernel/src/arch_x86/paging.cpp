@@ -10,7 +10,7 @@ enum {
 
 namespace thor {
 
-frigg::util::LazyInitializer<PageSpace> kernelSpace;
+frigg::LazyInitializer<PageSpace> kernelSpace;
 
 void *physicalToVirtual(PhysicalAddr address) {
 	return (void *)(0xFFFF800100000000 + address);

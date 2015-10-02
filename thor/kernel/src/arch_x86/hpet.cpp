@@ -46,7 +46,7 @@ enum {
 };
 
 typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
-frigg::util::LazyInitializer<TimerQueue> timerQueue;
+frigg::LazyInitializer<TimerQueue> timerQueue;
 
 void setupHpet(PhysicalAddr address) {
 	infoLogger->log() << "HPET at " << (void *)address << frigg::debug::Finish();

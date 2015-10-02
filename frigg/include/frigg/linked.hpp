@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename T, typename Allocator>
 class LinkedList {
@@ -118,5 +117,5 @@ private:
 	Item *p_back;
 };
 
-} } // namespace frigg::util
+} // namespace frigg
 

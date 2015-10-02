@@ -32,7 +32,7 @@ public:
 
 private:
 	Type p_type;
-	frigg::util::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
+	frigg::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 };
 
 struct Mapping {

@@ -14,7 +14,7 @@ public:
 };
 
 extern BochsSink infoSink;
-extern frigg::util::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+extern frigg::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 // --------------------------------------------------------
 // Memory management
@@ -33,9 +33,9 @@ private:
 
 typedef frigg::memory::DebugAllocator<KernelVirtualAlloc,
 		frigg::TicketLock> KernelAlloc;
-extern frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
-extern frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
-extern frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
+extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 template<typename T>
 using KernelSharedPtr = frigg::SharedPtr<T, KernelAlloc>;
@@ -121,8 +121,8 @@ public:
 	Lock lock;
 
 private:
-	frigg::util::Hashmap<Handle, AnyDescriptor,
-			frigg::util::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
+	frigg::Hashmap<Handle, AnyDescriptor,
+			frigg::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
 	Handle p_nextHandle;
 };
 

@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename T>
 void swap(T &a, T &b) {
@@ -9,5 +8,5 @@ void swap(T &a, T &b) {
 	b = traits::move(temp);
 }
 
-} } // namespace frigg::util
+} // namespace frigg
 

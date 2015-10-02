@@ -2,7 +2,6 @@
 void *operator new (size_t size, void *pointer);
 
 namespace frigg {
-namespace util {
 
 // note: this class has to be placed in zero'd memory
 // (e.g. in the BSS segment), otherise p_initialized will contain garbage
@@ -40,5 +39,5 @@ private:
 	bool p_initialized;
 };
 
-} } // namespace frigg::util
+} // namespace frigg
 

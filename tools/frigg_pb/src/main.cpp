@@ -370,10 +370,10 @@ void generateMessage(pb::io::Printer &printer, const pb::Descriptor *descriptor)
 			"class $name$ {\n"
 			"public:\n", "name", descriptor->name());
 	printer.Indent();
-	printer.Print("typedef frigg::util::String<Allocator> String;\n"
+	printer.Print("typedef frigg::String<Allocator> String;\n"
 			"\n"
 			"template<typename T>\n"
-			"using Vector = frigg::util::Vector<T, Allocator>;\n");
+			"using Vector = frigg::Vector<T, Allocator>;\n");
 
 	for(int i = 0; i < descriptor->enum_type_count(); i++) {
 		printer.Print("\n");

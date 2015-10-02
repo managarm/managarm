@@ -19,7 +19,7 @@ public:
 	T dequeue() {
 		T event = traits::move(p_heap[0]);
 		
-		util::swap(p_heap[0], p_heap[p_heap.size() - 1]);
+		swap(p_heap[0], p_heap[p_heap.size() - 1]);
 		p_heap.pop();
 		down(0);
 
@@ -47,7 +47,7 @@ private:
 			if(p_heap[p] < p_heap[k])
 				break;
 
-			util::swap(p_heap[p], p_heap[k]);
+			swap(p_heap[p], p_heap[k]);
 			k = p;
 		}
 	}
@@ -66,12 +66,12 @@ private:
 			if(p_heap[k] < p_heap[c])
 				break;
 
-			util::swap(p_heap[k], p_heap[c]);
+			swap(p_heap[k], p_heap[c]);
 			k = c;
 		}
 	}
 
-	util::Vector<T, Allocator> p_heap;
+	Vector<T, Allocator> p_heap;
 };
 
 } // namespace frigg

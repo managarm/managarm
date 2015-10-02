@@ -234,7 +234,7 @@ async::seq(
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
 		request.set_request_type(managarm::posix::ClientRequestType::INIT);
 		
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		posixPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
@@ -253,11 +253,11 @@ async::seq(
 		// create a helfd file for the hardware driver
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
 		request.set_request_type(managarm::posix::ClientRequestType::OPEN);
-		request.set_path(util::String<Allocator>(*allocator, "/dev/hw"));
+		request.set_path(frigg::String<Allocator>(*allocator, "/dev/hw"));
 		request.set_flags(managarm::posix::OpenFlags::CREAT);
 		request.set_mode(managarm::posix::OpenMode::HELFD);
 		
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		posixPipe.sendString(serialized.data(), serialized.size(), 2, 0);
 		
@@ -278,7 +278,7 @@ async::seq(
 		request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
 		request.set_fd(response.fd());
 		
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		posixPipe.sendString(serialized.data(), serialized.size(), 3, 0);
 		posixPipe.sendDescriptor(acpiConnect.getHandle(), 3, 1);
@@ -298,9 +298,9 @@ async::seq(
 		// after that we EXEC the actual init program
 		managarm::posix::ClientRequest<Allocator> request(*allocator);
 		request.set_request_type(managarm::posix::ClientRequestType::EXEC);
-		request.set_path(util::String<Allocator>(*allocator, "posix-init"));
+		request.set_path(frigg::String<Allocator>(*allocator, "posix-init"));
 		
-		util::String<Allocator> serialized(*allocator);
+		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		posixPipe.sendString(serialized.data(), serialized.size(), 2, 0);
 		

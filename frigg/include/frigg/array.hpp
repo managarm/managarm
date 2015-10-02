@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename T, int n>
 class Array {
@@ -13,5 +12,5 @@ private:
 	T p_array[n];
 };
 
-} } // namespace frigg::util
+} // namespace frigg
 

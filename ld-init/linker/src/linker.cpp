@@ -27,7 +27,6 @@
 #include "ld-server.frigg_pb.hpp"
 
 namespace debug = frigg::debug;
-namespace util = frigg::util;
 namespace memory = frigg::memory;
 
 #include "linker.hpp"
@@ -245,10 +244,10 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	//infoLogger->log() << "Loading " << file << debug::Finish();
 
 	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-	request.set_identifier(util::String<Allocator>(*allocator, file));
+	request.set_identifier(frigg::String<Allocator>(*allocator, file));
 	request.set_base_address(object->baseAddress);
 
-	util::String<Allocator> serialized(*allocator);
+	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
 	serverPipe->sendString(serialized.data(), serialized.size(), 1, 0);
 	

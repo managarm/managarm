@@ -23,7 +23,6 @@
 #include <frigg/glue-hel.hpp>
 
 namespace debug = frigg::debug;
-namespace util = frigg::util;
 namespace memory = frigg::memory;
 
 #include "linker.hpp"
@@ -34,14 +33,14 @@ namespace memory = frigg::memory;
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
-util::LazyInitializer<SharedObject> interpreter;
-util::LazyInitializer<SharedObject> executable;
-util::LazyInitializer<Scope> globalScope;
-util::LazyInitializer<Loader> globalLoader;
+frigg::LazyInitializer<SharedObject> interpreter;
+frigg::LazyInitializer<SharedObject> executable;
+frigg::LazyInitializer<Scope> globalScope;
+frigg::LazyInitializer<Loader> globalLoader;
 
-typedef util::Hashmap<const char *, SharedObject *,
-		util::CStringHasher, Allocator> ObjectHashmap;
-util::LazyInitializer<ObjectHashmap> allObjects;
+typedef frigg::Hashmap<const char *, SharedObject *,
+		frigg::CStringHasher, Allocator> ObjectHashmap;
+frigg::LazyInitializer<ObjectHashmap> allObjects;
 
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	assert(object->lazyExplicitAddend);
@@ -70,8 +69,8 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return pointer;
 }
 
-util::LazyInitializer<helx::EventHub> eventHub;
-util::LazyInitializer<helx::Pipe> serverPipe;
+frigg::LazyInitializer<helx::EventHub> eventHub;
+frigg::LazyInitializer<helx::Pipe> serverPipe;
 
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {

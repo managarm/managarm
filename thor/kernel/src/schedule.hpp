@@ -4,12 +4,12 @@ namespace thor {
 typedef frigg::TicketLock ScheduleLock;
 typedef frigg::LockGuard<ScheduleLock> ScheduleGuard;
 
-extern frigg::util::LazyInitializer<ThreadQueue> activeList;
+extern frigg::LazyInitializer<ThreadQueue> activeList;
 
-typedef frigg::util::LinkedList<KernelUnsafePtr<Thread>, KernelAlloc> ScheduleQueue;
-extern frigg::util::LazyInitializer<ScheduleQueue> scheduleQueue;
+typedef frigg::LinkedList<KernelUnsafePtr<Thread>, KernelAlloc> ScheduleQueue;
+extern frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
 
-extern frigg::util::LazyInitializer<ScheduleLock> scheduleLock;
+extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 

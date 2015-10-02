@@ -86,7 +86,6 @@ public:
 	}
 
 	friend void swap(Expected &first, Expected &second) {
-		using util::swap;
 		if(first.p_isExpected && second.p_isExpected) {
 			swap(first.p_union.expected, second.p_union.expected);
 		}else if(!first.p_isExpected && !second.p_isExpected) {
@@ -186,7 +185,6 @@ public:
 	}
 
 	friend void swap(Optional &first, Optional &second) {
-		using util::swap;
 		if(first.p_hasOptional && second.p_hasOptional) {
 			swap(first.p_union.object, second.p_union.object);
 		}else if(first.p_hasOptional && !second.p_hasOptional) {

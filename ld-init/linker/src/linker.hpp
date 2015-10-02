@@ -48,7 +48,7 @@ struct Scope {
 	void *resolveSymbol(const char *resolve_str,
 			SharedObject *from_object, uint32_t flags);
 
-	util::Vector<SharedObject *, Allocator> objects;
+	frigg::Vector<SharedObject *, Allocator> objects;
 };
 
 // --------------------------------------------------------
@@ -76,8 +76,8 @@ private:
 	void processRela(SharedObject *object, Elf64_Rela *reloc);
 
 	Scope *p_scope;
-	util::LinkedList<SharedObject *, Allocator> p_processQueue;
-	util::LinkedList<SharedObject *, Allocator> p_initQueue;
+	frigg::LinkedList<SharedObject *, Allocator> p_processQueue;
+	frigg::LinkedList<SharedObject *, Allocator> p_initQueue;
 };
 
 // --------------------------------------------------------
@@ -90,6 +90,6 @@ extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 // Communication stuff
 // --------------------------------------------------------
 
-extern util::LazyInitializer<helx::EventHub> eventHub;
-extern util::LazyInitializer<helx::Pipe> serverPipe;
+extern frigg::LazyInitializer<helx::EventHub> eventHub;
+extern frigg::LazyInitializer<helx::Pipe> serverPipe;
 

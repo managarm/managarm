@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace util {
 
 template<typename Char>
 class BasicStringView {
@@ -163,7 +162,6 @@ public:
 	}
 
 	friend void swap(BasicString &a, BasicString &b) {
-		using util::swap;
 		swap(a.p_allocator, b.p_allocator);
 		swap(a.p_buffer, b.p_buffer);
 		swap(a.p_length, b.p_length);
@@ -203,14 +201,14 @@ public:
 template<typename Allocator>
 using String = BasicString<char, Allocator>;
 
-} } // namespace frigg::util
+} // namespace frigg
 
 namespace frigg {
 namespace debug {
 
 template<typename P>
-struct Print<P, util::StringView> {
-	static void print(P &printer, util::StringView string) {
+struct Print<P, StringView> {
+	static void print(P &printer, StringView string) {
 		for(size_t i = 0; i < string.size(); i++)
 			printer.print(string.data()[i]);
 	}

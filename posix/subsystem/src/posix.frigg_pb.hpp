@@ -47,10 +47,10 @@ struct OpenMode {
 template<typename Allocator>
 class ClientRequest {
 public:
-  typedef frigg::util::String<Allocator> String;
+  typedef frigg::String<Allocator> String;
 
   template<typename T>
-  using Vector = frigg::util::Vector<T, Allocator>;
+  using Vector = frigg::Vector<T, Allocator>;
 
   ClientRequest(Allocator &allocator)
   : p_allocator(&allocator), p_cachedSize(0),
@@ -260,10 +260,10 @@ private:
 template<typename Allocator>
 class ServerResponse {
 public:
-  typedef frigg::util::String<Allocator> String;
+  typedef frigg::String<Allocator> String;
 
   template<typename T>
-  using Vector = frigg::util::Vector<T, Allocator>;
+  using Vector = frigg::Vector<T, Allocator>;
 
   ServerResponse(Allocator &allocator)
   : p_allocator(&allocator), p_cachedSize(0),

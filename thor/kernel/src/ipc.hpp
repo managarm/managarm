@@ -65,8 +65,8 @@ private:
 
 	void processDescriptorRequest(Message &message, Request &request);
 
-	frigg::util::LinkedList<Message, KernelAlloc> p_messages;
-	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::LinkedList<Message, KernelAlloc> p_messages;
+	frigg::LinkedList<Request, KernelAlloc> p_requests;
 };
 
 class BiDirectionPipe {
@@ -115,8 +115,8 @@ private:
 	void processRequests(const AcceptRequest &accept,
 			const ConnectRequest &connect);
 	
-	frigg::util::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
-	frigg::util::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
+	frigg::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
+	frigg::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
 };
 
 } // namespace thor

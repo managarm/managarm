@@ -28,10 +28,10 @@ private:
 		SubmitInfo submitInfo;
 	};
 
-	frigg::util::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-extern frigg::util::LazyInitializer<IrqRelay> irqRelays[16];
+extern frigg::LazyInitializer<IrqRelay> irqRelays[16];
 
 class IrqLine {
 public:
@@ -52,7 +52,7 @@ public:
 	void enableInThread(KernelUnsafePtr<Thread> thread);
 
 private:
-	frigg::util::Vector<uintptr_t, KernelAlloc> p_ports;
+	frigg::Vector<uintptr_t, KernelAlloc> p_ports;
 };
 
 } // namespace thor

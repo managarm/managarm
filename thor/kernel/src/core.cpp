@@ -2,7 +2,6 @@
 #include "kernel.hpp"
 
 namespace traits = frigg::traits;
-namespace util = frigg::util;
 
 namespace thor {
 
@@ -19,7 +18,7 @@ int64_t allocAsyncId() {
 // --------------------------------------------------------
 
 BochsSink infoSink;
-frigg::util::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
+frigg::LazyInitializer<frigg::debug::DefaultLogger<BochsSink>> infoLogger;
 
 // --------------------------------------------------------
 // Memory management
@@ -62,9 +61,9 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	thorRtInvalidateSpace();
 }
 
-frigg::util::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
-frigg::util::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
-frigg::util::LazyInitializer<KernelAlloc> kernelAlloc;
+frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
+frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
 // CpuContext class
@@ -94,7 +93,7 @@ CpuContext::CpuContext() {
 // --------------------------------------------------------
 
 Universe::Universe()
-: p_descriptorMap(util::DefaultHasher<Handle>(), *kernelAlloc),
+: p_descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc),
 		p_nextHandle(1) { }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {

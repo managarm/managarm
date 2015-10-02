@@ -24,7 +24,7 @@ void InfoSink::print(const char *str) {
 }
 
 InfoSink infoSink;
-frigg::util::LazyInitializer<InfoLogger> infoLogger;
+frigg::LazyInitializer<InfoLogger> infoLogger;
 
 void friggPrintCritical(char c) {
 	infoSink.print(c);
@@ -56,5 +56,5 @@ void VirtualAlloc::unmap(uintptr_t address, size_t length) {
 }
 
 VirtualAlloc virtualAlloc;
-frigg::util::LazyInitializer<Allocator> allocator;
+frigg::LazyInitializer<Allocator> allocator;
 
