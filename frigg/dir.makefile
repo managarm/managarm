@@ -1,0 +1,20 @@
+
+$c_HEADERDIR := $(TREE_PATH)/$c/include
+
+$c_HEADERS := frigg/traits.hpp frigg/debug.hpp frigg/algorithm.hpp \
+		frigg/string.hpp frigg/vector.hpp frigg/protobuf.hpp frigg/atomic.hpp \
+		frigg/arch_x86/atomic_impl.hpp
+
+$c_TARGETS := install-$c
+
+.PHONY: all-$c clean-$c install-$c
+
+all-$c:
+
+clean-$c:
+
+install-$c:
+	mkdir -p  $(SYSROOT_PATH)/usr/include/frigg
+	mkdir -p  $(SYSROOT_PATH)/usr/include/frigg/arch_x86
+	for f in $($d_HEADERS); do install $($d_HEADERDIR)/$$f $(SYSROOT_PATH)/usr/include/$$f; done
+

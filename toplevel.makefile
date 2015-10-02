@@ -2,6 +2,7 @@
 .DEFAULT_GOAL = all
 
 include $(TREE_PATH)/rules.makefile
+$(call include_dir,frigg)
 $(call include_dir,eir)
 $(call include_dir,thor/kernel)
 $(call include_dir,thor/user_boot)
