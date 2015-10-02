@@ -142,7 +142,7 @@ DEFINE_SYSCALL(CreateBiDirectionPipe, HelHandle *first, HelHandle *second)
 	OUT(1, HelHandle, second)
 END_SYSCALL()
 
-DEFINE_SYSCALL(SendString, HelHandle handle, const uint8_t *buffer, size_t length,
+DEFINE_SYSCALL(SendString, HelHandle handle, const void *buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence)
 	IN(0, handle) IN(1, buffer) IN(2, length) IN(3, msg_request) IN(4, msg_sequence)
 	DO_SYSCALL(SendString)
@@ -155,7 +155,7 @@ DEFINE_SYSCALL(SendDescriptor, HelHandle handle, HelHandle send_handle,
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitRecvString, HelHandle handle, HelHandle hub_handle,
-		uint8_t *buffer, size_t max_length,
+		void *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
 	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, max_length)

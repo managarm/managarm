@@ -496,7 +496,7 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 }
 
 HelError helSendString(HelHandle handle,
-		const uint8_t *user_buffer, size_t length,
+		const void *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -586,7 +586,7 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 }
 
 HelError helSubmitRecvString(HelHandle handle,
-		HelHandle hub_handle, uint8_t *user_buffer, size_t max_length,
+		HelHandle hub_handle, void *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();

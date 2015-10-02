@@ -10,11 +10,11 @@ namespace thor {
 Channel::Channel() : p_messages(*kernelAlloc),
 		p_requests(*kernelAlloc) { }
 
-void Channel::sendString(Guard &guard, const uint8_t *user_buffer, size_t length,
+void Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
 	assert(guard.protects(&lock));
 
-	uint8_t *kernel_buffer = (uint8_t *)kernelAlloc->allocate(length);
+	void *kernel_buffer = kernelAlloc->allocate(length);
 	memcpy(kernel_buffer, user_buffer, length);
 	
 	Message message(kMsgString, msg_request, msg_sequence);
@@ -58,7 +58,7 @@ void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 }
 
 void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-		uint8_t *user_buffer, size_t max_length,
+		void *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));

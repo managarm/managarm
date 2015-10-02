@@ -9,14 +9,14 @@ public:
 
 	Channel();
 
-	void sendString(Guard &guard, const uint8_t *user_buffer, size_t length,
+	void sendString(Guard &guard, const void *user_buffer, size_t length,
 			int64_t msg_request, int64_t msg_sequence);
 	
 	void sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 			int64_t msg_request, int64_t msg_sequence);
 	
 	void submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-			uint8_t *user_buffer, size_t length,
+			void *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 	
@@ -37,7 +37,7 @@ private:
 		Message(MsgType type, int64_t msg_request, int64_t msg_sequence);
 		
 		MsgType type;
-		uint8_t *kernelBuffer;
+		void *kernelBuffer;
 		size_t length;
 		AnyDescriptor descriptor;
 		int64_t msgRequest;
@@ -52,7 +52,7 @@ private:
 		MsgType type;
 		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
-		uint8_t *userBuffer;
+		void *userBuffer;
 		size_t maxLength;
 		int64_t filterRequest;
 		int64_t filterSequence;

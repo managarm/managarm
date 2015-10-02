@@ -172,12 +172,12 @@ HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
 		HelHandle *second);
 HEL_C_LINKAGE HelError helSendString(HelHandle handle,
-		const uint8_t *buffer, size_t length,
+		const void *buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence);
 HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 		int64_t msg_request, int64_t msg_sequence);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
-		HelHandle hub_handle, uint8_t *buffer, size_t max_length,
+		HelHandle hub_handle, void *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_handle,

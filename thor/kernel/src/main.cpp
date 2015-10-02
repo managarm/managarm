@@ -375,7 +375,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	}
 	case kHelCallSendString: {
 		HelError error = helSendString((HelHandle)arg0,
-				(const uint8_t *)arg1, (size_t)arg2,
+				(const void *)arg1, (size_t)arg2,
 				(int64_t)arg3, (int64_t)arg4);
 		thorRtReturnSyscall1((Word)error);
 	}
@@ -394,7 +394,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	case kHelCallSubmitRecvString: {
 		int64_t async_id;
 		HelError error = helSubmitRecvString((HelHandle)arg0,
-				(HelHandle)arg1, (uint8_t *)arg2, (size_t)arg3,
+				(HelHandle)arg1, (void *)arg2, (size_t)arg3,
 				(int64_t)arg4, (int64_t)arg5,
 				(uintptr_t)arg6, (uintptr_t)arg7, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);

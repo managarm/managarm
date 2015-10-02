@@ -34,8 +34,8 @@ struct UserEvent {
 	int64_t msgSequence;
 
 	// used by kTypeRecvStringTransfer
-	uint8_t *kernelBuffer;
-	uint8_t *userBuffer;
+	void *kernelBuffer;
+	void *userBuffer;
 	size_t length;
 
 	// used by kTypeAccept, kTypeConnect
