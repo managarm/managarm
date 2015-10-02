@@ -8,10 +8,10 @@ struct RepeatWhile;
 
 template<typename Condition, typename Body,
 		typename... Inputs, typename... Outputs>
-struct RepeatWhile<Condition, Body, traits::TypePack<Inputs...>, traits::TypePack<Outputs...>> {
+struct RepeatWhile<Condition, Body, TypePack<Inputs...>, TypePack<Outputs...>> {
 	typedef typename Condition::Context Context;
-	typedef traits::TypePack<Inputs...> InputPack;
-	typedef traits::TypePack<Outputs...> OutputPack;
+	typedef TypePack<Inputs...> InputPack;
+	typedef TypePack<Outputs...> OutputPack;
 	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {

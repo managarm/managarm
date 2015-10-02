@@ -110,7 +110,7 @@ void installTimer(Timer &&timer) {
 		frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerComparator0], timer.deadline);
 	}
 
-	timerQueue->enqueue(frigg::traits::move(timer));
+	timerQueue->enqueue(frigg::move(timer));
 }
 
 void timerInterrupt() {

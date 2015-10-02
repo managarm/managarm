@@ -5,7 +5,6 @@
 #include <eir/interface.hpp>
 
 using namespace thor;
-namespace traits = frigg::traits;
 
 // loads an elf image into the current address space
 // this is called in kernel mode from the initial user thread
@@ -148,14 +147,14 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		infoLogger->log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << frigg::EndLog();
 
-		MemoryAccessDescriptor mod_descriptor(traits::move(mod_memory));
+		MemoryAccessDescriptor mod_descriptor(frigg::move(mod_memory));
 		mod_directory->publish(name_ptr, modules[i].nameLength,
-				AnyDescriptor(traits::move(mod_descriptor)));
+				AnyDescriptor(frigg::move(mod_descriptor)));
 	}
 	
 	const char *mod_path = "initrd";
 	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
-	root_directory->mount(mod_path, strlen(mod_path), traits::move(mod_directory));
+	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
 	
 
 	// finally we lauch the user_boot program
@@ -164,8 +163,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			kernelSpace->cloneFromKernelSpace());
 	address_space->setupDefaultMappings();
 
-	auto thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
-			traits::move(address_space), traits::move(root_directory));
+	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
+			frigg::move(address_space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive;
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
@@ -177,7 +176,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	base_state->kernel = 1;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
-	activeList->addBack(traits::move(thread));
+	activeList->addBack(frigg::move(thread));
 	infoLogger->log() << "Leaving Thor" << frigg::EndLog();
 	enterThread(thread_ptr);
 }

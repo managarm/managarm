@@ -62,7 +62,7 @@ struct DeviceAllocator {
 private:
 	struct SecondaryTable {
 		SecondaryTable(frigg::String<Allocator> group_name)
-		: groupName(frigg::traits::move(group_name)), minorTable(*allocator) { }
+		: groupName(frigg::move(group_name)), minorTable(*allocator) { }
 
 		frigg::String<Allocator> groupName;
 		frigg::Vector<StdSharedPtr<Device>, Allocator> minorTable;
@@ -71,7 +71,7 @@ private:
 public:
 	unsigned int allocateSlot(unsigned int major, StdSharedPtr<Device> device) {
 		unsigned int index = majorTable[major].minorTable.size();
-		majorTable[major].minorTable.push(frigg::traits::move(device));
+		majorTable[major].minorTable.push(frigg::move(device));
 		return index;
 	}
 	
@@ -88,7 +88,7 @@ public:
 	void allocateDevice(frigg::StringView group_name,
 			StdSharedPtr<Device> device, unsigned int &major, unsigned int &minor) {
 		major = accessGroup(group_name);
-		minor = allocateSlot(major, frigg::traits::move(device));
+		minor = allocateSlot(major, frigg::move(device));
 	}
 
 	StdUnsafePtr<Device> getDevice(unsigned int major, unsigned int minor) {
@@ -238,7 +238,7 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(frigg::traits::move(server), frigg::traits::move(process), iteration);
+	acceptLoop(frigg::move(server), frigg::move(process), iteration);
 	localDirectory.publish(client.getHandle(), "posix");
 
 	return directory;
@@ -331,7 +331,7 @@ frigg::asyncSeq(
 
 struct ExecuteContext {
 	ExecuteContext(frigg::String<Allocator> program, StdSharedPtr<Process> process)
-	: program(frigg::traits::move(program)), process(process) {
+	: program(frigg::move(program)), process(process) {
 		// reset the virtual memory space of the process
 		if(process->vmSpace != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(process->vmSpace));
@@ -429,11 +429,11 @@ StdSharedPtr<VfsOpenFile> CharDeviceNode::openSelf(StdUnsafePtr<Process> process
 	StdUnsafePtr<Device> device = process->mountSpace->charDevices.getDevice(major, minor);
 	assert(device);
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, StdSharedPtr<Device>(device));
-	return frigg::staticPointerCast<VfsOpenFile>(frigg::traits::move(open_file));
+	return frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file));
 }
 
 CharDeviceNode::OpenFile::OpenFile(StdSharedPtr<Device> device)
-: p_device(frigg::traits::move(device)) { }
+: p_device(frigg::move(device)) { }
 
 void CharDeviceNode::OpenFile::write(const void *buffer, size_t length) {
 	p_device->write(buffer, length);
@@ -466,7 +466,7 @@ private:
 
 StdSharedPtr<VfsOpenFile> HelfdNode::openSelf(StdUnsafePtr<Process> process) {
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, this);
-	return frigg::staticPointerCast<VfsOpenFile>(frigg::traits::move(open_file));
+	return frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file));
 }
 
 HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
@@ -513,12 +513,12 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> proc
 			StdSharedPtr<Inode> inode;
 			if((mode & MountSpace::kOpenHelfd) != 0) {
 				auto real_inode = frigg::makeShared<HelfdNode>(*allocator);
-				inode = frigg::staticPointerCast<Inode>(frigg::traits::move(real_inode));
+				inode = frigg::staticPointerCast<Inode>(frigg::move(real_inode));
 			}else{
 				assert(!"mode not supported");
 			}
 			StdSharedPtr<VfsOpenFile> open_file = inode->openSelf(process);
-			entries.insert(frigg::String<Allocator>(*allocator, path), frigg::traits::move(inode));
+			entries.insert(frigg::String<Allocator>(*allocator, path), frigg::move(inode));
 			return open_file;
 		}else{
 			return StdSharedPtr<VfsOpenFile>();
@@ -563,7 +563,7 @@ StdSharedPtr<VfsOpenFile> MountPoint::openMounted(StdUnsafePtr<Process> process,
 
 struct RequestLoopContext {
 	RequestLoopContext(helx::Pipe pipe, StdSharedPtr<Process> process, int iteration)
-	: pipe(frigg::traits::move(pipe)), process(process), iteration(iteration) { }
+	: pipe(frigg::move(pipe)), process(process), iteration(iteration) { }
 	
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 	
@@ -599,12 +599,12 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		unsigned int major, minor;
 		DeviceAllocator &char_devices = process->mountSpace->charDevices;
 		char_devices.allocateDevice("misc",
-				frigg::staticPointerCast<Device>(frigg::traits::move(device)), major, minor);
+				frigg::staticPointerCast<Device>(frigg::move(device)), major, minor);
 
 		auto fs = frigg::construct<dev_fs::MountPoint>(*allocator);
 		auto real_inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
 		fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
-				frigg::staticPointerCast<dev_fs::Inode>(frigg::traits::move(real_inode)));
+				frigg::staticPointerCast<dev_fs::Inode>(frigg::move(real_inode)));
 
 		process->mountSpace->allMounts.insert(frigg::String<Allocator>(*allocator, "/dev"), fs);
 
@@ -652,7 +652,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		int fd = process->nextFd;
 		assert(fd > 0);
 		process->nextFd++;
-		process->allOpenFiles.insert(fd, frigg::traits::move(file));
+		process->allOpenFiles.insert(fd, frigg::move(file));
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
@@ -774,7 +774,7 @@ frigg::asyncRepeatUntil(
 
 			managarm::posix::ClientRequest<Allocator> request(*allocator);
 			request.ParseFromArray(context->buffer, length);
-			context->processRequest(frigg::traits::move(request), msg_request);
+			context->processRequest(frigg::move(request), msg_request);
 
 			callback(true);
 		})
@@ -784,7 +784,7 @@ frigg::asyncRepeatUntil(
 void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration) {
 	struct AcceptContext {
 		AcceptContext(helx::Server server, StdSharedPtr<Process> process, int iteration)
-		: server(frigg::traits::move(server)), process(process), iteration(iteration) { }
+		: server(frigg::move(server)), process(process), iteration(iteration) { }
 
 		helx::Server server;
 		StdSharedPtr<Process> process;
@@ -810,7 +810,7 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 		)
 	);
 
-	frigg::runAsync<AcceptContext>(*allocator, body, frigg::traits::move(server),
+	frigg::runAsync<AcceptContext>(*allocator, body, frigg::move(server),
 			process, iteration);
 }
 
@@ -841,7 +841,7 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	acceptLoop(frigg::traits::move(server), StdSharedPtr<Process>(), 0);
+	acceptLoop(frigg::move(server), StdSharedPtr<Process>(), 0);
 
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;

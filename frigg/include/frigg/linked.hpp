@@ -11,7 +11,7 @@ private:
 
 		Item(const T &new_element) : element(new_element),
 				previous(nullptr), next(nullptr) { }
-		Item(T &&new_element) : element(traits::move(new_element)),
+		Item(T &&new_element) : element(move(new_element)),
 				previous(nullptr), next(nullptr) { }
 	};
 
@@ -57,7 +57,7 @@ public:
 		addItemBack(item);
 	}
 	void addBack(T &&element) {
-		auto item = construct<Item>(p_allocator, traits::move(element));
+		auto item = construct<Item>(p_allocator, move(element));
 		addItemBack(item);
 	}
 
@@ -76,7 +76,7 @@ public:
 	T remove(const Iterator &iter) {
 		Item *item = iter.p_current;
 		
-		T element = traits::move(item->element);
+		T element = move(item->element);
 
 		Item *next = item->next;
 		Item *previous = item->previous;

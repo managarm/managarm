@@ -9,11 +9,11 @@ struct SubContext;
 
 template<typename TheContext, typename InnerContext, typename Delegate,
 		typename... Inputs>
-struct SubContext<InnerContext TheContext::*, Delegate, traits::TypePack<Inputs...>> {
+struct SubContext<InnerContext TheContext::*, Delegate, TypePack<Inputs...>> {
 	typedef InnerContext TheContext::*FieldPtr;
 
 	typedef TheContext Context;
-	typedef traits::TypePack<Inputs...> InputPack;
+	typedef TypePack<Inputs...> InputPack;
 	typedef typename Delegate::OutputPack OutputPack;
 	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 

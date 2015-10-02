@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -261,7 +259,7 @@ KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 
 	cloneRecursive(p_root, forked.get());
 
-	return traits::move(forked);
+	return frigg::move(forked);
 }
 
 void AddressSpace::activate() {
@@ -376,7 +374,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
 		src_memory->resize(memory->numPages());
 		src_memory->master = KernelSharedPtr<Memory>(memory);
-		mapping->memoryRegion = traits::move(src_memory);
+		mapping->memoryRegion = frigg::move(src_memory);
 		
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
@@ -395,7 +393,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
 		dest_memory->resize(memory->numPages());
 		dest_memory->master = KernelSharedPtr<Memory>(memory);
-		dest_mapping->memoryRegion = traits::move(dest_memory);
+		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		
 		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
 			PhysicalAddr physical = memory->getPage(i);

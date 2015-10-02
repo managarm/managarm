@@ -313,7 +313,7 @@ void printEmbeddedParse(pb::io::Printer &printer, const pb::FieldDescriptor *fie
 				"size_t $name$_length = peekVarint(reader);\n"
 				"$msg_type$<Allocator> element(*p_allocator);\n"
 				"element.ParseFromArray((uint8_t *)array + reader.offset(), $name$_length);\n"
-				"m_$name$.push(frigg::traits::move(element));\n"
+				"m_$name$.push(frigg::move(element));\n"
 				"reader.advance($name$_length);\n",
 				"msg_type", qualified, "name", field->name());
 		printer.Outdent();

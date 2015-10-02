@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 static int64_t nextAsyncId = 1;
@@ -73,7 +71,7 @@ CpuContext::CpuContext() {
 	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, KernelSharedPtr<Universe>(),
-			traits::move(address_space), KernelSharedPtr<RdFolder>());
+			frigg::move(address_space), KernelSharedPtr<RdFolder>());
 	thread->flags |= Thread::kFlagNotScheduled;
 
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
@@ -85,7 +83,7 @@ CpuContext::CpuContext() {
 	base_state->kernel = 1;
 	
 	idleThread = thread;
-	activeList->addBack(traits::move(thread));
+	activeList->addBack(frigg::move(thread));
 }
 
 // --------------------------------------------------------
@@ -100,7 +98,7 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 	assert(guard.protects(&lock));
 
 	Handle handle = p_nextHandle++;
-	p_descriptorMap.insert(handle, traits::move(descriptor));
+	p_descriptorMap.insert(handle, frigg::move(descriptor));
 	return handle;
 }
 

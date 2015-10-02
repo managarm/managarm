@@ -3,15 +3,13 @@
 
 namespace thor {
 
-namespace traits = frigg::traits;
-
 // --------------------------------------------------------
 // IrqRelay
 // --------------------------------------------------------
 
 IrqRelay::Request::Request(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 frigg::LazyInitializer<IrqRelay> irqRelays[16];
 
@@ -22,8 +20,8 @@ void IrqRelay::submitWaitRequest(Guard &guard, KernelSharedPtr<EventHub> &&event
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
 
-	Request request(traits::move(event_hub), submit_info);
-	p_requests.addBack(traits::move(request));
+	Request request(frigg::move(event_hub), submit_info);
+	p_requests.addBack(frigg::move(request));
 }
 
 void IrqRelay::fire(Guard &guard) {
@@ -36,7 +34,7 @@ void IrqRelay::fire(Guard &guard) {
 		UserEvent event(UserEvent::kTypeIrq, request.submitInfo);
 
 		EventHub::Guard hub_guard(&request.eventHub->lock);
-		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 	}
 }

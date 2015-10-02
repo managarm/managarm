@@ -8,7 +8,7 @@ public:
 	: p_heap(allocator) { }
 
 	void enqueue(T &&event) {
-		p_heap.push(traits::move(event));
+		p_heap.push(move(event));
 		up(p_heap.size() - 1);
 	}
 
@@ -17,7 +17,7 @@ public:
 	}
 
 	T dequeue() {
-		T event = traits::move(p_heap[0]);
+		T event = move(p_heap[0]);
 		
 		swap(p_heap[0], p_heap[p_heap.size() - 1]);
 		p_heap.pop();

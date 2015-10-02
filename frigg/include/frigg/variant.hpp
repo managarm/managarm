@@ -204,7 +204,7 @@ template<int tag_iter, typename T, typename... Tail>
 struct MoveConstruct<tag_iter, T, Tail...> {
 	static void construct(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
 		if(tag == tag_iter) {
-			new (&dest) T(traits::move(src.element));
+			new (&dest) T(move(src.element));
 		}else{
 			MoveConstruct<tag_iter + 1, Tail...>::construct(tag, dest.others, src.others);
 		}
@@ -225,7 +225,7 @@ template<int tag_iter, typename T, typename... Tail>
 struct MoveAssign<tag_iter, T, Tail...> {
 	static void assign(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
 		if(tag == tag_iter) {
-			dest.element = traits::move(src.element);
+			dest.element = move(src.element);
 		}else{
 			MoveAssign<tag_iter + 1, Tail...>::assign(tag, dest.others, src.others);
 		}
@@ -251,16 +251,16 @@ public:
 	Variant() : p_tag(0) { }
 
 	template<typename T, typename Enable
-			= typename traits::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
+			= typename EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(const T &element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
 		new (&p_storage) T(element);
 	}
 	template<typename T, typename Enable
-			= typename traits::EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
+			= typename EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
 	Variant(T &&element) {
 		p_tag = variant_impl::TagOf<T, Types...>::value;
-		new (&p_storage) T(traits::move(element));
+		new (&p_storage) T(move(element));
 	}
 
 	Variant(const Variant &other) {

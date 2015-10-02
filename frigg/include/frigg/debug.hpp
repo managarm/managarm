@@ -60,8 +60,8 @@ struct Print<P, const char *> {
 };
 
 template<typename P, typename IntType>
-struct Print<P, IntType, typename traits::EnableIf<traits::IsIntegral<IntType>::value
-			&& traits::IsSigned<IntType>::value>::type> {
+struct Print<P, IntType, typename EnableIf<IsIntegral<IntType>::value
+			&& IsSigned<IntType>::value>::type> {
 	static void print(P &printer, IntType number) {
 		if(number < 0) {
 			printer.print('-');
@@ -73,8 +73,8 @@ struct Print<P, IntType, typename traits::EnableIf<traits::IsIntegral<IntType>::
 };
 
 template<typename P, typename UIntType>
-struct Print<P, UIntType, typename traits::EnableIf<traits::IsIntegral<UIntType>::value
-				&& traits::IsUnsigned<UIntType>::value>::type> {
+struct Print<P, UIntType, typename EnableIf<IsIntegral<UIntType>::value
+				&& IsUnsigned<UIntType>::value>::type> {
 	static void print(P &printer, UIntType number) {
 		printUInt(printer, number, 10);
 	}

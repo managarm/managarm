@@ -62,7 +62,7 @@ T &Vector<T, Allocator>::push(const T &element) {
 template<typename T, typename Allocator>
 T &Vector<T, Allocator>::push(T &&element) {
 	ensureCapacity(p_size + 1);
-	T *pointer = new (&p_elements[p_size]) T(traits::move(element));
+	T *pointer = new (&p_elements[p_size]) T(move(element));
 	p_size++;
 	return *pointer;
 }
@@ -73,7 +73,7 @@ void Vector<T, Allocator>::resize(size_t new_size, Args &&... args) {
 	assert(p_size < new_size);
 	ensureCapacity(new_size);
 	for(size_t i = p_size; i < new_size; i++)
-		new (&p_elements[i]) T(traits::forward<Args>(args)...);
+		new (&p_elements[i]) T(forward<Args>(args)...);
 	p_size = new_size;
 }
 
@@ -85,7 +85,7 @@ void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 	size_t new_capacity = capacity * 2;	
 	T *new_array = (T *)p_allocator.allocate(sizeof(T) * new_capacity);
 	for(size_t i = 0; i < p_capacity; i++)
-		new (&new_array[i]) T(traits::move(p_elements[i]));
+		new (&new_array[i]) T(move(p_elements[i]));
 	
 	for(size_t i = 0; i < p_size; i++)
 		p_elements[i].~T();
@@ -98,7 +98,7 @@ void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 template<typename T, typename Allocator>
 T Vector<T, Allocator>::pop() {
 	p_size--;
-	T element = traits::move(p_elements[p_size]);
+	T element = move(p_elements[p_size]);
 	p_elements[p_size].~T();
 	return element;
 }

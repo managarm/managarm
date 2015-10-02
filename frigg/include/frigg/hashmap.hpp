@@ -14,7 +14,7 @@ private:
 		Item(const Key &new_key, const Value &new_value)
 				: entry(new_key, new_value), chain(nullptr) { }
 		Item(const Key &new_key, Value &&new_value)
-				: entry(new_key, traits::move(new_value)), chain(nullptr) { }
+				: entry(new_key, move(new_value)), chain(nullptr) { }
 	};
 
 public:
@@ -129,7 +129,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = construct<Item>(p_allocator, key, traits::move(value));
+	auto item = construct<Item>(p_allocator, key, move(value));
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -155,7 +155,7 @@ Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 	Item *previous = nullptr;
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
 		if(item->entry.template get<0>() == key) {
-			Value value = traits::move(item->entry.template get<1>());
+			Value value = move(item->entry.template get<1>());
 			
 			if(previous == nullptr) {
 				p_table[bucket] = item->chain;

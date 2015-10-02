@@ -1,6 +1,5 @@
 
 namespace frigg {
-namespace traits {
 
 template<typename... Types>
 struct TypePack;
@@ -74,4 +73,5 @@ T &&forward(typename RemoveRef<T>::type &arg) noexcept {
 	return static_cast<T &&>(arg);
 } 
 
-}} // namespace frigg::traits
+} // namespace frigg
+

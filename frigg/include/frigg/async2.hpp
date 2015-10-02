@@ -16,12 +16,12 @@ public:
 	public:
 		template<typename... CbArgs>
 		Bound(const WrapFunctor &wrap, Context *context, CbArgs &&... cb_args)
-		: p_functor(wrap.p_functor), p_callback(traits::forward<CbArgs>(cb_args)...),
+		: p_functor(wrap.p_functor), p_callback(forward<CbArgs>(cb_args)...),
 				p_context(context) { }
 		
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_functor(p_context, p_callback, traits::forward<Args>(args)...);
+			p_functor(p_context, p_callback, forward<Args>(args)...);
 		}
 
 	private:
@@ -57,12 +57,12 @@ public:
 	public:
 		template<typename... CbArgs>
 		Bound(const WrapFuncPtr &wrap, Context *context, CbArgs &&... cb_args)
-		: p_functor(wrap.p_functor), p_callback(traits::forward<CbArgs>(cb_args)...),
+		: p_functor(wrap.p_functor), p_callback(forward<CbArgs>(cb_args)...),
 				p_context(context) { }
 		
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_functor(p_context, this, &invokeCallback, traits::forward<Args>(args)...);
+			p_functor(p_context, this, &invokeCallback, forward<Args>(args)...);
 		}
 
 	private:
@@ -104,11 +104,11 @@ public:
 		template<typename... CbArgs>
 		Bound(const SubContext &sub_context, Outer *outer, CbArgs &&... cb_args)
 		: p_async(sub_context.p_async, &(outer->*(sub_context.p_memberPtr)),
-				traits::forward<CbArgs>(cb_args)...) { }
+				forward<CbArgs>(cb_args)...) { }
 		
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_async(traits::forward<Args>(args)...);
+			p_async(forward<Args>(args)...);
 		}
 
 	private:
@@ -146,11 +146,11 @@ public:
 		template<typename... CbArgs>
 		Bound(const Seq &seq, Context *context, CbArgs &&... cb_args)
 		: p_first(seq.p_first, context, seq.p_follow, context,
-				traits::forward<CbArgs>(cb_args)...) { }
+				forward<CbArgs>(cb_args)...) { }
 		
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_first(traits::forward<Args>(args)...);
+			p_first(forward<Args>(args)...);
 		}
 
 	private:
@@ -174,11 +174,11 @@ public:
 	public:
 		template<typename... CbArgs>
 		Bound(const Seq &seq, Context *context, CbArgs &&... cb_args)
-		: p_finally(seq.p_finally, context, traits::forward<CbArgs>(cb_args)...) { }
+		: p_finally(seq.p_finally, context, forward<CbArgs>(cb_args)...) { }
 		
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_finally(traits::forward<Args>(args)...);
+			p_finally(forward<Args>(args)...);
 		}
 
 	private:
@@ -212,7 +212,7 @@ public:
 		template<typename... CbArgs>
 		Bound(const RepeatWhile &repeat_while, Context *context, CbArgs &&... cb_args)
 		: p_condition(repeat_while.p_condition, context, repeat_while, context, this,
-				traits::forward<CbArgs>(cb_args)...) { }
+				forward<CbArgs>(cb_args)...) { }
 		
 		// disallow copying as it would break the Loop::p_super pointer
 		Bound(const Bound &other) = delete;
@@ -220,7 +220,7 @@ public:
 
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_condition(traits::forward<Args>(args)...);
+			p_condition(forward<Args>(args)...);
 		}
 
 	private:
@@ -231,7 +231,7 @@ public:
 
 			template<typename... Args>
 			void operator() (Args &&... args) {
-				(*p_super)(traits::forward<Args>(args)...);
+				(*p_super)(forward<Args>(args)...);
 			}
 
 		private:
@@ -243,14 +243,14 @@ public:
 			template<typename... CbArgs>
 			Check(const RepeatWhile &repeat_while, Context *context, Bound *super, CbArgs &&... cb_args)
 			: p_body(repeat_while.p_body, context, super),
-					p_callback(traits::forward<CbArgs>(cb_args)...) { }
+					p_callback(forward<CbArgs>(cb_args)...) { }
 
 			template<typename... Args>
 			void operator() (bool another_loop, Args &&... args) {
 				if(another_loop) {
-					p_body(traits::forward<Args>(args)...);
+					p_body(forward<Args>(args)...);
 				}else{
-					p_callback(traits::forward<Args>(args)...);
+					p_callback(forward<Args>(args)...);
 				}
 			}
 
@@ -288,7 +288,7 @@ public:
 	public:
 		template<typename... CbArgs>
 		Bound(const RepeatUntil &repeat_until, Context *context, CbArgs &&... cb_args)
-		: p_body(repeat_until.p_body, context, this, traits::forward<CbArgs>(cb_args)...) { }
+		: p_body(repeat_until.p_body, context, this, forward<CbArgs>(cb_args)...) { }
 		
 		// disallow copying as it would break the Check::p_super pointer
 		Bound(const Bound &other) = delete;
@@ -296,7 +296,7 @@ public:
 
 		template<typename... Args>
 		void operator() (Args &&... args) {
-			p_body(traits::forward<Args>(args)...);
+			p_body(forward<Args>(args)...);
 		}
 
 	private:
@@ -304,14 +304,14 @@ public:
 		public:
 			template<typename... CbArgs>
 			Check(Bound *super, CbArgs &&... cb_args)
-			: p_super(super), p_callback(traits::forward<CbArgs>(cb_args)...) { }
+			: p_super(super), p_callback(forward<CbArgs>(cb_args)...) { }
 
 			template<typename... Args>
 			void operator() (bool another_loop, Args &&... args) {
 				if(another_loop) {
-					(*p_super)(traits::forward<Args>(args)...);
+					(*p_super)(forward<Args>(args)...);
 				}else{
-					p_callback(traits::forward<Args>(args)...);
+					p_callback(forward<Args>(args)...);
 				}
 			}
 
@@ -353,7 +353,7 @@ struct Closure {
 	
 	template<typename... CtxArgs>
 	Closure(const Async &async, CtxArgs &&... ctx_args)
-	: async(async, &context, this), context(traits::forward<CtxArgs>(ctx_args)...) { }
+	: async(async, &context, this), context(forward<CtxArgs>(ctx_args)...) { }
 
 	void run() {
 		async();
@@ -369,7 +369,7 @@ template<typename Context, typename Allocator, typename Async, typename... CtxAr
 void runAsync(Allocator &allocator, const Async &async, CtxArgs &&... ctx_args) {
 	typedef details::Closure<Async, Context> Closure;
 	auto closure_ptr = construct<Closure>(allocator,
-			async, traits::forward<CtxArgs>(ctx_args)...);
+			async, forward<CtxArgs>(ctx_args)...);
 	closure_ptr->run();
 }
 

@@ -102,13 +102,13 @@ size_t DebugAllocator<VirtualAlloc, Mutex>::numUsedPages() {
 template<typename T, typename Allocator, typename... Args>
 T *construct(Allocator &allocator, Args &&... args) {
 	void *pointer = allocator.allocate(sizeof(T));
-	return new(pointer) T(traits::forward<Args>(args)...);
+	return new(pointer) T(forward<Args>(args)...);
 }
 template<typename T, typename Allocator, typename... Args>
 T *constructN(Allocator &allocator, size_t n, Args &&... args) {
 	T *pointer = (T *)allocator.allocate(sizeof(T) * n);
 	for(size_t i = 0; i < n; i++)
-		new(&pointer[i]) T(traits::forward<Args>(args)...);
+		new(&pointer[i]) T(forward<Args>(args)...);
 	return pointer;
 }
 

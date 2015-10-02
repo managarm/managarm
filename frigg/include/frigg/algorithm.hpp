@@ -3,9 +3,9 @@ namespace frigg {
 
 template<typename T>
 void swap(T &a, T &b) {
-	T temp(traits::move(a));
-	a = traits::move(b);
-	b = traits::move(temp);
+	T temp(move(a));
+	a = move(b);
+	b = move(temp);
 }
 
 } // namespace frigg

@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -21,27 +19,27 @@ RdFolder::RdFolder()
 void RdFolder::mount(const char *name, size_t name_length,
 		KernelSharedPtr<RdFolder> &&mounted) {
 	Entry entry(kTypeMounted);
-	entry.mounted = traits::move(mounted);
+	entry.mounted = frigg::move(mounted);
 
 	assert(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;
 
-	p_entries.push(traits::move(entry));
+	p_entries.push(frigg::move(entry));
 }
 
 void RdFolder::publish(const char *name, size_t name_length,
 		AnyDescriptor &&descriptor) {
 	Entry entry(kTypeDescriptor);
-	entry.descriptor = traits::move(descriptor);
+	entry.descriptor = frigg::move(descriptor);
 
 	assert(name_length <= kNameLength);
 	for(size_t i = 0; i < name_length; i++)
 		entry.name[i] = name[i];
 	entry.nameLength = name_length;
 
-	p_entries.push(traits::move(entry));
+	p_entries.push(frigg::move(entry));
 }
 
 bool strNEquals(const char *str1, const char *str2, size_t length) {

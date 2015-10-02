@@ -25,9 +25,9 @@ struct RecursiveClosure;
 // if there is another element, we pass an artificial callback
 template<typename Element, typename Next, typename... Tail,
 		typename... CurrentInputs, typename... CurrentOutputs, typename... LastOutputs>
-struct RecursiveClosure<traits::TypePack<Element, Next, Tail...>,
-		traits::TypePack<CurrentInputs...>, traits::TypePack<CurrentOutputs...>,
-		traits::TypePack<LastOutputs...>> {
+struct RecursiveClosure<TypePack<Element, Next, Tail...>,
+		TypePack<CurrentInputs...>, TypePack<CurrentOutputs...>,
+		TypePack<LastOutputs...>> {
 	typedef typename Element::Context Context;
 	typedef util::Callback<void(LastOutputs...)> Callback;
 
@@ -45,16 +45,16 @@ struct RecursiveClosure<traits::TypePack<Element, Next, Tail...>,
 	}
 
 	typename Element::Closure elementClosure;
-	RecursiveClosure<traits::TypePack<Next, Tail...>,
+	RecursiveClosure<TypePack<Next, Tail...>,
 			typename Next::InputPack, typename Next::OutputPack,
-			traits::TypePack<LastOutputs...>> recursiveTail;
+			TypePack<LastOutputs...>> recursiveTail;
 };
 
 // the last element gets the real callback
 template<typename Element, typename... CurrentInputs, typename... CurrentOutputs, typename... LastOutputs>
-struct RecursiveClosure<traits::TypePack<Element>,
-		traits::TypePack<CurrentInputs...>, traits::TypePack<CurrentOutputs...>,
-		traits::TypePack<LastOutputs...>> {
+struct RecursiveClosure<TypePack<Element>,
+		TypePack<CurrentInputs...>, TypePack<CurrentOutputs...>,
+		TypePack<LastOutputs...>> {
 	typedef typename Element::Context Context;
 	typedef util::Callback<void(LastOutputs...)> Callback;
 
@@ -75,12 +75,12 @@ struct Seq;
 
 template<typename... Elements, typename TheContext,
 		typename... FirstInputs, typename... FirstOutputs, typename... LastOutputs>
-struct Seq<traits::TypePack<Elements...>, TheContext,
-		traits::TypePack<FirstInputs...>, traits::TypePack<FirstOutputs...>,
-		traits::TypePack<LastOutputs...>> {
+struct Seq<TypePack<Elements...>, TheContext,
+		TypePack<FirstInputs...>, TypePack<FirstOutputs...>,
+		TypePack<LastOutputs...>> {
 	typedef TheContext Context;
-	typedef traits::TypePack<FirstInputs...> InputPack;
-	typedef traits::TypePack<LastOutputs...> OutputPack;
+	typedef TypePack<FirstInputs...> InputPack;
+	typedef TypePack<LastOutputs...> OutputPack;
 	typedef typename util::CallbackFromPack<void, OutputPack>::Type Callback;
 
 	struct Closure {
@@ -91,9 +91,9 @@ struct Seq<traits::TypePack<Elements...>, TheContext,
 			recursiveClosure.invoke(first_inputs...);
 		}
 
-		seq_impl::RecursiveClosure<traits::TypePack<Elements...>,
-				traits::TypePack<FirstInputs...>, traits::TypePack<FirstOutputs...>,
-				traits::TypePack<LastOutputs...>> recursiveClosure;
+		seq_impl::RecursiveClosure<TypePack<Elements...>,
+				TypePack<FirstInputs...>, TypePack<FirstOutputs...>,
+				TypePack<LastOutputs...>> recursiveClosure;
 	};
 
 	Seq(const Elements &... elements) : recursiveElements(elements...) { }
@@ -128,7 +128,7 @@ struct InspectLast<LastElement> {
 
 template<typename... Elements>
 auto seq(const Elements &... elements) {
-	typedef seq_impl::Seq<traits::TypePack<Elements...>,
+	typedef seq_impl::Seq<TypePack<Elements...>,
 			typename seq_impl::InspectFirst<Elements...>::Context,
 			typename seq_impl::InspectFirst<Elements...>::InputPack,
 			typename seq_impl::InspectFirst<Elements...>::OutputPack,

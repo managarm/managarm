@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -37,7 +35,7 @@ void Channel::sendString(Guard &guard, const uint8_t *user_buffer, size_t length
 	}
 
 	if(queue_message)
-		p_messages.addBack(traits::move(message));
+		p_messages.addBack(frigg::move(message));
 }
 
 void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
@@ -45,7 +43,7 @@ void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 	assert(guard.protects(&lock));
 
 	Message message(kMsgDescriptor, msg_request, msg_sequence);
-	message.descriptor = traits::move(descriptor);
+	message.descriptor = frigg::move(descriptor);
 
 	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
 		if(!matchRequest(message, *it))
@@ -56,7 +54,7 @@ void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 		return;
 	}
 
-	p_messages.addBack(traits::move(message));
+	p_messages.addBack(frigg::move(message));
 }
 
 void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
@@ -65,7 +63,7 @@ void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_h
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
 
-	Request request(kMsgString, traits::move(event_hub),
+	Request request(kMsgString, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
@@ -83,7 +81,7 @@ void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_h
 	}
 	
 	if(queue_request)
-		p_requests.addBack(traits::move(request));
+		p_requests.addBack(frigg::move(request));
 }
 
 void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
@@ -91,7 +89,7 @@ void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&eve
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
 
-	Request request(kMsgDescriptor, traits::move(event_hub),
+	Request request(kMsgDescriptor, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 
 	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
@@ -103,7 +101,7 @@ void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&eve
 		return;
 	}
 	
-	p_requests.addBack(traits::move(request));
+	p_requests.addBack(frigg::move(request));
 }
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
@@ -127,7 +125,7 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 		event.error = kErrBufferTooSmall;
 
 		EventHub::Guard hub_guard(&request.eventHub->lock);
-		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 		return false;
 	}else{
@@ -139,7 +137,7 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 		event.length = message.length;
 		
 		EventHub::Guard hub_guard(&request.eventHub->lock);
-		request.eventHub->raiseEvent(hub_guard, traits::move(event));
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 		return true;
 	}
@@ -149,10 +147,10 @@ void Channel::processDescriptorRequest(Message &message, Request &request) {
 	UserEvent event(UserEvent::kTypeRecvDescriptor, request.submitInfo);
 	event.msgRequest = message.msgRequest;
 	event.msgSequence = message.msgSequence;
-	event.descriptor = traits::move(message.descriptor);
+	event.descriptor = frigg::move(message.descriptor);
 		
 	EventHub::Guard hub_guard(&request.eventHub->lock);
-	request.eventHub->raiseEvent(hub_guard, traits::move(event));
+	request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 	hub_guard.unlock();
 }
 
@@ -172,7 +170,7 @@ Channel::Request::Request(MsgType type,
 		KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
-	: type(type), eventHub(traits::move(event_hub)), submitInfo(submit_info),
+	: type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
 		userBuffer(nullptr), maxLength(0),
 		filterRequest(filter_request), filterSequence(filter_sequence) { }
 
@@ -203,13 +201,13 @@ void Server::submitAccept(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
 
-	AcceptRequest request(traits::move(event_hub), submit_info);
+	AcceptRequest request(frigg::move(event_hub), submit_info);
 	
 	if(!p_connectRequests.empty()) {
 		processRequests(request, p_connectRequests.front());
 		p_connectRequests.removeFront();
 	}else{
-		p_acceptRequests.addBack(traits::move(request));
+		p_acceptRequests.addBack(frigg::move(request));
 	}
 }
 
@@ -217,13 +215,13 @@ void Server::submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
 
-	ConnectRequest request(traits::move(event_hub), submit_info);
+	ConnectRequest request(frigg::move(event_hub), submit_info);
 
 	if(!p_acceptRequests.empty()) {
 		processRequests(p_acceptRequests.front(), request);
 		p_acceptRequests.removeFront();
 	}else{
-		p_connectRequests.addBack(traits::move(request));
+		p_connectRequests.addBack(frigg::move(request));
 	}
 }
 
@@ -233,17 +231,17 @@ void Server::processRequests(const AcceptRequest &accept,
 	KernelSharedPtr<BiDirectionPipe> copy(pipe);
 
 	UserEvent accept_event(UserEvent::kTypeAccept, accept.submitInfo);
-	accept_event.pipe = traits::move(pipe);
+	accept_event.pipe = frigg::move(pipe);
 	
 	EventHub::Guard accept_hub_guard(&accept.eventHub->lock);
-	accept.eventHub->raiseEvent(accept_hub_guard, traits::move(accept_event));
+	accept.eventHub->raiseEvent(accept_hub_guard, frigg::move(accept_event));
 	accept_hub_guard.unlock();
 
 	UserEvent connect_event(UserEvent::kTypeConnect, connect.submitInfo);
-	connect_event.pipe = traits::move(copy);
+	connect_event.pipe = frigg::move(copy);
 	
 	EventHub::Guard connect_hub_guard(&connect.eventHub->lock);
-	connect.eventHub->raiseEvent(connect_hub_guard, traits::move(connect_event));
+	connect.eventHub->raiseEvent(connect_hub_guard, frigg::move(connect_event));
 	connect_hub_guard.unlock();
 }
 
@@ -253,7 +251,7 @@ void Server::processRequests(const AcceptRequest &accept,
 
 Server::AcceptRequest::AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 // --------------------------------------------------------
 // Server::ConnectRequest
@@ -261,7 +259,7 @@ Server::AcceptRequest::AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
 
 Server::ConnectRequest::ConnectRequest(KernelSharedPtr<EventHub> &&event_hub,
 		SubmitInfo submit_info)
-	: eventHub(traits::move(event_hub)), submitInfo(submit_info) { }
+	: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 } // namespace thor
 

@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -30,7 +28,7 @@ EventHub::EventHub() : p_queue(*kernelAlloc), p_waitingThreads(*kernelAlloc) { }
 void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
 	assert(guard.protects(&lock));
 
-	p_queue.addBack(traits::move(event));
+	p_queue.addBack(frigg::move(event));
 
 	while(!p_waitingThreads.empty()) {
 		KernelSharedPtr<Thread> waiting(p_waitingThreads.removeFront());
@@ -67,7 +65,7 @@ void EventHub::blockCurrentThread(Guard &guard) {
 		resetCurrentThread();
 		
 		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(traits::move(schedule_guard));
+		doSchedule(frigg::move(schedule_guard));
 		// note: doSchedule() takes care of the schedule_guard lock
 	}
 	

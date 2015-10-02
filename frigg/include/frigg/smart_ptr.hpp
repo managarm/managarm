@@ -39,7 +39,7 @@ union SharedStorage {
 
 	template<typename... Args>
 	void construct(Args &&... args) {
-		new (&object) T(traits::forward<Args>(args)...);
+		new (&object) T(forward<Args>(args)...);
 	}
 	
 	void destruct() {
@@ -63,7 +63,7 @@ struct SharedStruct {
 	template<typename... Args>
 	SharedStruct(Allocator &allocator, Args &&... args)
 	: block(allocator, &deleteObject) {
-		storage.construct(traits::forward<Args>(args)...);
+		storage.construct(forward<Args>(args)...);
 	}
 
 	SharedBlock<Allocator> block;
@@ -79,7 +79,7 @@ struct Cast {
 		// reset the input pointer to keep the ref count accurate
 		pointer.p_block = nullptr;
 		pointer.p_object = nullptr;
-		return traits::move(result);
+		return move(result);
 	}
 	
 	template<typename U, typename T, typename Allocator>
@@ -100,7 +100,7 @@ public:
 	template<typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
 		auto shared_struct = construct<SharedStruct<T, Allocator>>
-				(allocator, allocator, traits::forward<Args>(args)...);
+				(allocator, allocator, forward<Args>(args)...);
 		return SharedPtr<T, Allocator>(reinterpret_cast<SharedBlock<Allocator> *>(shared_struct),
 				&(*shared_struct->storage));
 	}
@@ -316,7 +316,7 @@ WeakPtr<T, Allocator>::WeakPtr(const UnsafePtr<T, Allocator> &unsafe)
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T, Allocator>::make(allocator, traits::forward<Args>(args)...);
+	return SharedPtr<T, Allocator>::make(allocator, forward<Args>(args)...);
 }
 
 } // namespace frigg

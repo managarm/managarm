@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 frigg::LazyInitializer<ThreadQueue> activeList;
@@ -29,7 +27,7 @@ void dropCurrentThread() {
 	activeList->remove(this_thread);
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(traits::move(schedule_guard));
+	doSchedule(frigg::move(schedule_guard));
 	// note: doSchedule takes care of the lock
 }
 
@@ -71,7 +69,7 @@ extern "C" void onPreemption() {
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	if((thread->flags & Thread::kFlagNotScheduled) == 0)
 		enqueueInSchedule(schedule_guard, thread);
-	doSchedule(traits::move(schedule_guard));
+	doSchedule(frigg::move(schedule_guard));
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {

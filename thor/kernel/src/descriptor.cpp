@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -10,7 +8,7 @@ namespace thor {
 // --------------------------------------------------------
 
 MemoryAccessDescriptor::MemoryAccessDescriptor(KernelSharedPtr<Memory> &&memory)
-		: p_memory(traits::move(memory)) { }
+		: p_memory(frigg::move(memory)) { }
 
 KernelUnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
 	return p_memory;
@@ -21,7 +19,7 @@ KernelUnsafePtr<Memory> MemoryAccessDescriptor::getMemory() {
 // --------------------------------------------------------
 
 AddressSpaceDescriptor::AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> &&space)
-		: p_space(traits::move(space)) { }
+		: p_space(frigg::move(space)) { }
 
 KernelUnsafePtr<AddressSpace> AddressSpaceDescriptor::getSpace() {
 	return p_space;
@@ -32,7 +30,7 @@ KernelUnsafePtr<AddressSpace> AddressSpaceDescriptor::getSpace() {
 // --------------------------------------------------------
 
 EventHubDescriptor::EventHubDescriptor(KernelSharedPtr<EventHub> &&event_hub)
-		: p_eventHub(traits::move(event_hub)) { }
+		: p_eventHub(frigg::move(event_hub)) { }
 
 KernelUnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 	return p_eventHub;
@@ -43,7 +41,7 @@ KernelUnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 // --------------------------------------------------------
 
 BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
-		: p_pipe(traits::move(pipe)) { }
+		: p_pipe(frigg::move(pipe)) { }
 
 KernelUnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
 	return p_pipe;
@@ -54,7 +52,7 @@ KernelUnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
 // --------------------------------------------------------
 
 BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
-		: p_pipe(traits::move(pipe)) { }
+		: p_pipe(frigg::move(pipe)) { }
 
 KernelUnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 	return p_pipe;
@@ -65,7 +63,7 @@ KernelUnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
 // --------------------------------------------------------
 
 ServerDescriptor::ServerDescriptor(KernelSharedPtr<Server> &&server)
-		: p_server(traits::move(server)) { }
+		: p_server(frigg::move(server)) { }
 
 KernelUnsafePtr<Server> ServerDescriptor::getServer() {
 	return p_server;
@@ -76,7 +74,7 @@ KernelUnsafePtr<Server> ServerDescriptor::getServer() {
 // --------------------------------------------------------
 
 ClientDescriptor::ClientDescriptor(KernelSharedPtr<Server> &&server)
-		: p_server(traits::move(server)) { }
+		: p_server(frigg::move(server)) { }
 
 KernelUnsafePtr<Server> ClientDescriptor::getServer() {
 	return p_server;
@@ -87,7 +85,7 @@ KernelUnsafePtr<Server> ClientDescriptor::getServer() {
 // --------------------------------------------------------
 
 RdDescriptor::RdDescriptor(KernelSharedPtr<RdFolder> &&folder)
-		: p_folder(traits::move(folder)) { }
+		: p_folder(frigg::move(folder)) { }
 
 KernelUnsafePtr<RdFolder> RdDescriptor::getFolder() {
 	return p_folder;
@@ -98,7 +96,7 @@ KernelUnsafePtr<RdFolder> RdDescriptor::getFolder() {
 // --------------------------------------------------------
 
 IrqDescriptor::IrqDescriptor(KernelSharedPtr<IrqLine> &&irq_line)
-		: p_irqLine(traits::move(irq_line)) { }
+		: p_irqLine(frigg::move(irq_line)) { }
 
 KernelUnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
 	return p_irqLine;
@@ -109,7 +107,7 @@ KernelUnsafePtr<IrqLine> IrqDescriptor::getIrqLine() {
 // --------------------------------------------------------
 
 IoDescriptor::IoDescriptor(KernelSharedPtr<IoSpace> &&io_space)
-		: p_ioSpace(traits::move(io_space)) { }
+		: p_ioSpace(frigg::move(io_space)) { }
 
 KernelUnsafePtr<IoSpace> IoDescriptor::getIoSpace() {
 	return p_ioSpace;

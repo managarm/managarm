@@ -11,7 +11,7 @@ struct Branch;
 template<typename Condition, typename IfCase, typename ElseCase,
 		typename... Inputs, typename... CaseInputs>
 struct Branch<Condition, IfCase, ElseCase,
-		traits::TypePack<Inputs...>, traits::TypePack<CaseInputs...>> {
+		TypePack<Inputs...>, TypePack<CaseInputs...>> {
 	typedef typename Condition::Context Context;
 	typedef typename Condition::InputPack InputPack;
 	typedef typename IfCase::OutputPack OutputPack;

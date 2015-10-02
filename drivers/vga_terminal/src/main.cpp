@@ -76,7 +76,7 @@ void screen() {
 }
 
 struct ProcessContext {
-	ProcessContext(helx::Pipe pipe) : pipe(frigg::traits::move(pipe)) { }
+	ProcessContext(helx::Pipe pipe) : pipe(std::move(pipe)) { }
 
 	uint8_t buffer[128];
 	helx::Pipe pipe;
@@ -107,7 +107,7 @@ auto processRequest = async::repeatWhile(
 );
 
 struct AcceptContext {
-	AcceptContext(helx::Server server) : server(frigg::traits::move(server)) { }
+	AcceptContext(helx::Server server) : server(std::move(server)) { }
 
 	helx::Server server;
 };
@@ -127,7 +127,7 @@ auto processAccept = async::repeatWhile(
 			auto on_complete = [] (ProcessContext &context) { };
 			helx::Pipe pipe(handle);
 			async::run(allocator, processRequest,
-					ProcessContext(frigg::traits::move(pipe)), on_complete);
+					ProcessContext(std::move(pipe)), on_complete);
 
 			callback();
 		})
@@ -154,7 +154,7 @@ int main() {
 	helx::Server::createServer(server, client);
 
 	auto on_complete = [] (AcceptContext &context) { };
-	async::run(allocator, processAccept, AcceptContext(frigg::traits::move(server)), on_complete);
+	async::run(allocator, processAccept, AcceptContext(std::move(server)), on_complete);
 
 	client.connect(eventHub, nullptr, &on_connect);
 

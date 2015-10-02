@@ -3,7 +3,6 @@
 #include "../../hel/include/hel.h"
 
 using namespace thor;
-namespace traits = frigg::traits;
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
@@ -79,7 +78,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			MemoryAccessDescriptor(traits::move(memory)));
+			MemoryAccessDescriptor(frigg::move(memory)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -99,7 +98,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			MemoryAccessDescriptor(traits::move(memory)));
+			MemoryAccessDescriptor(frigg::move(memory)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -115,7 +114,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			AddressSpaceDescriptor(traits::move(space)));
+			AddressSpaceDescriptor(frigg::move(space)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -146,7 +145,7 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 	
 	universe_guard.lock();
 	*forked_handle = universe->attachDescriptor(universe_guard,
-			AddressSpaceDescriptor(traits::move(forked)));
+			AddressSpaceDescriptor(frigg::move(forked)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -301,8 +300,8 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		universe = KernelSharedPtr<Universe>(this_universe);
 	}
 
-	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, traits::move(universe),
-			traits::move(address_space), traits::move(directory));
+	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
+			frigg::move(address_space), frigg::move(directory));
 	if((flags & kHelThreadExclusive) != 0)
 		new_thread->flags |= Thread::kFlagExclusive;
 	
@@ -330,14 +329,14 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	base_state->kernel = 0;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
-	activeList->addBack(traits::move(new_thread));
+	activeList->addBack(frigg::move(new_thread));
 
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	enqueueInSchedule(schedule_guard, new_thread_ptr);
 	schedule_guard.unlock();
 
-//	ThreadObserveDescriptor base(traits::move(new_thread));
-//	*handle = universe->attachDescriptor(traits::move(base));
+//	ThreadObserveDescriptor base(frigg::move(new_thread));
+//	*handle = universe->attachDescriptor(frigg::move(base));
 
 	return kHelErrNone;
 }
@@ -355,7 +354,7 @@ HelError helCreateEventHub(HelHandle *handle) {
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			EventHubDescriptor(traits::move(event_hub)));
+			EventHubDescriptor(frigg::move(event_hub)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -388,7 +387,7 @@ HelError helWaitForEvents(HelHandle handle,
 
 		Timer timer(deadline);
 		timer.thread = KernelWeakPtr<Thread>(this_thread);
-		installTimer(traits::move(timer));
+		installTimer(frigg::move(timer));
 
 		while(!event_hub->hasEvent(hub_guard) && currentTicks() < deadline)
 			event_hub->blockCurrentThread(hub_guard);
@@ -437,7 +436,7 @@ HelError helWaitForEvents(HelHandle handle,
 			
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
-					AnyDescriptor(traits::move(event.descriptor)));
+					AnyDescriptor(frigg::move(event.descriptor)));
 			universe_guard.unlock();
 		} break;
 		case UserEvent::kTypeAccept: {
@@ -446,7 +445,7 @@ HelError helWaitForEvents(HelHandle handle,
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
-					BiDirectionFirstDescriptor(traits::move(event.pipe)));
+					BiDirectionFirstDescriptor(frigg::move(event.pipe)));
 			universe_guard.unlock();
 		} break;
 		case UserEvent::kTypeConnect: {
@@ -455,7 +454,7 @@ HelError helWaitForEvents(HelHandle handle,
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
-					BiDirectionSecondDescriptor(traits::move(event.pipe)));
+					BiDirectionSecondDescriptor(frigg::move(event.pipe)));
 			universe_guard.unlock();
 		} break;
 		case UserEvent::kTypeIrq: {
@@ -488,9 +487,9 @@ HelError helCreateBiDirectionPipe(HelHandle *first_handle,
 
 	Universe::Guard universe_guard(&universe->lock);
 	*first_handle = universe->attachDescriptor(universe_guard,
-			BiDirectionFirstDescriptor(traits::move(pipe)));
+			BiDirectionFirstDescriptor(frigg::move(pipe)));
 	*second_handle = universe->attachDescriptor(universe_guard,
-			BiDirectionSecondDescriptor(traits::move(copy)));
+			BiDirectionSecondDescriptor(frigg::move(copy)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -706,9 +705,9 @@ HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
 
 	Universe::Guard universe_guard(&universe->lock);
 	*server_handle = universe->attachDescriptor(universe_guard,
-			ServerDescriptor(traits::move(server)));
+			ServerDescriptor(frigg::move(server)));
 	*client_handle = universe->attachDescriptor(universe_guard,
-			ClientDescriptor(traits::move(copy)));
+			ClientDescriptor(frigg::move(copy)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -740,7 +739,7 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Server::Guard server_guard(&server->lock);
-	server->submitAccept(server_guard, traits::move(event_hub), submit_info);
+	server->submitAccept(server_guard, frigg::move(event_hub), submit_info);
 	server_guard.unlock();
 
 	*async_id = submit_info.asyncId;
@@ -773,7 +772,7 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Server::Guard server_guard(&server->lock);
-	server->submitConnect(server_guard, traits::move(event_hub), submit_info);
+	server->submitConnect(server_guard, frigg::move(event_hub), submit_info);
 	server_guard.unlock();
 
 	*async_id = submit_info.asyncId;
@@ -789,7 +788,7 @@ HelError helCreateRd(HelHandle *handle) {
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			RdDescriptor(traits::move(folder)));
+			RdDescriptor(frigg::move(folder)));
 	universe_guard.unlock();
 	
 	return kHelErrNone;
@@ -818,7 +817,7 @@ HelError helRdMount(HelHandle handle, const char *user_name,
 	KernelSharedPtr<RdFolder> mount_directory(mount_desc.getFolder());
 	universe_guard.unlock();
 
-	directory->mount(user_name, name_length, traits::move(mount_directory));
+	directory->mount(user_name, name_length, frigg::move(mount_directory));
 	
 	return kHelErrNone;
 }
@@ -844,7 +843,7 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	AnyDescriptor publish_copy(**publish_wrapper);
 	universe_guard.unlock();
 
-	directory->publish(user_name, name_length, traits::move(publish_copy));
+	directory->publish(user_name, name_length, frigg::move(publish_copy));
 	
 	return kHelErrNone;
 }
@@ -876,7 +875,7 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 			
 				Universe::Guard universe_guard(&universe->lock);
 				*handle = universe->attachDescriptor(universe_guard,
-						RdDescriptor(traits::move(copy)));
+						RdDescriptor(frigg::move(copy)));
 				universe_guard.unlock();
 
 				return kHelErrNone;
@@ -889,7 +888,7 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 				AnyDescriptor copy((*entry)->descriptor);
 				
 				Universe::Guard universe_guard(&universe->lock);
-				*handle = universe->attachDescriptor(universe_guard, traits::move(copy));
+				*handle = universe->attachDescriptor(universe_guard, frigg::move(copy));
 				universe_guard.unlock();
 
 				return kHelErrNone;
@@ -915,7 +914,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			IrqDescriptor(traits::move(irq_line)));
+			IrqDescriptor(frigg::move(irq_line)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -946,7 +945,7 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 
 	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
-	irqRelays[number]->submitWaitRequest(irq_guard, traits::move(event_hub), submit_info);
+	irqRelays[number]->submitWaitRequest(irq_guard, frigg::move(event_hub), submit_info);
 	irq_guard.unlock();
 
 	*async_id = submit_info.asyncId;
@@ -965,7 +964,7 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			IoDescriptor(traits::move(io_space)));
+			IoDescriptor(frigg::move(io_space)));
 	universe_guard.unlock();
 
 	return kHelErrNone;

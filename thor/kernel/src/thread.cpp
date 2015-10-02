@@ -1,8 +1,6 @@
 
 #include "kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -59,10 +57,10 @@ void ThreadQueue::addBack(KernelSharedPtr<Thread> &&thread) {
 
 	// move the thread pointer into the queue
 	if(empty()) {
-		p_front = traits::move(thread);
+		p_front = frigg::move(thread);
 	}else{
 		thread->p_previousInQueue = back;
-		back->p_nextInQueue = traits::move(thread);
+		back->p_nextInQueue = frigg::move(thread);
 	}
 }
 
@@ -70,8 +68,8 @@ KernelSharedPtr<Thread> ThreadQueue::removeFront() {
 	assert(!empty());
 	
 	// move the front and second element out of the queue
-	KernelSharedPtr<Thread> front = traits::move(p_front);
-	KernelSharedPtr<Thread> next = traits::move(front->p_nextInQueue);
+	KernelSharedPtr<Thread> front = frigg::move(p_front);
+	KernelSharedPtr<Thread> next = frigg::move(front->p_nextInQueue);
 	front->p_previousInQueue = KernelUnsafePtr<Thread>();
 
 	// fix the pointers to previous elements
@@ -82,14 +80,14 @@ KernelSharedPtr<Thread> ThreadQueue::removeFront() {
 	}
 
 	// move the second element back to the queue
-	p_front = traits::move(next);
+	p_front = frigg::move(next);
 
 	return front;
 }
 
 KernelSharedPtr<Thread> ThreadQueue::remove(KernelUnsafePtr<Thread> thread) {
 	// move the successor out of the queue
-	KernelSharedPtr<Thread> next = traits::move(thread->p_nextInQueue);
+	KernelSharedPtr<Thread> next = frigg::move(thread->p_nextInQueue);
 	KernelUnsafePtr<Thread> previous = thread->p_previousInQueue;
 	thread->p_previousInQueue = KernelUnsafePtr<Thread>();
 
@@ -104,11 +102,11 @@ KernelSharedPtr<Thread> ThreadQueue::remove(KernelUnsafePtr<Thread> thread) {
 	// move the thread out of the queue
 	KernelSharedPtr<Thread> reference;
 	if(p_front.get() == thread.get()) {
-		reference = traits::move(p_front);
-		p_front = traits::move(next);
+		reference = frigg::move(p_front);
+		p_front = frigg::move(next);
 	}else{
-		reference = traits::move(previous->p_nextInQueue);
-		previous->p_nextInQueue = traits::move(next);
+		reference = frigg::move(previous->p_nextInQueue);
+		previous->p_nextInQueue = frigg::move(next);
 	}
 
 	return reference;

@@ -87,7 +87,7 @@ template<typename R, typename ArgPack>
 struct CallbackFromPack;
 
 template<typename R, typename... Args>
-struct CallbackFromPack<R, traits::TypePack<Args...>> {
+struct CallbackFromPack<R, TypePack<Args...>> {
 	typedef Callback<R(Args...)> Type;
 };
 

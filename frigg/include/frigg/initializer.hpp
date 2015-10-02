@@ -13,7 +13,7 @@ public:
 	template<typename... Args>
 	void initialize(Args&&... args) {
 		assert(!p_initialized);
-		new(p_object) T(traits::forward<Args>(args)...);
+		new(p_object) T(forward<Args>(args)...);
 		p_initialized = true;
 	}
 

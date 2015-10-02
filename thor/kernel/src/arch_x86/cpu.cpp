@@ -1,8 +1,6 @@
 
 #include "../kernel.hpp"
 
-namespace traits = frigg::traits;
-
 namespace thor {
 
 // --------------------------------------------------------
@@ -209,7 +207,7 @@ extern "C" void thorRtSecondaryEntry() {
 
 	infoLogger->log() << "Start scheduling on AP" << frigg::EndLog();
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(traits::move(schedule_guard));
+	doSchedule(frigg::move(schedule_guard));
 }
 
 void bootSecondary(uint32_t secondary_apic_id) {

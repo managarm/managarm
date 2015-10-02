@@ -10,7 +10,7 @@ template<typename T, typename... Types>
 struct Storage<T, Types...> {
 	template<typename FwT, typename... FwTypes>
 	Storage(FwT &&item, FwTypes &&... tail)
-	: item(traits::forward<FwT>(item)), tail(traits::forward<FwTypes>(tail)...) { }
+	: item(forward<FwT>(item)), tail(forward<FwTypes>(tail)...) { }
 
 	T item;
 	Storage<Types...> tail;
@@ -60,7 +60,7 @@ public:
 
 	template<typename... FwTypes>
 	explicit Tuple(FwTypes &&... args)
-	: p_storage(traits::forward<FwTypes>(args)...) { }
+	: p_storage(forward<FwTypes>(args)...) { }
 
 	template<int n>
 	typename tuple_impl::NthType<n, Types...>::type &get() {
@@ -72,8 +72,8 @@ private:
 };
 
 template<typename... Types>
-Tuple<typename traits::RemoveRef<Types>::type...> makeTuple(Types &&... args) {
-	return Tuple<typename traits::RemoveRef<Types>::type...>(traits::forward<Types>(args)...);
+Tuple<typename RemoveRef<Types>::type...> makeTuple(Types &&... args) {
+	return Tuple<typename RemoveRef<Types>::type...>(forward<Types>(args)...);
 }
 
 } // namespace frigg

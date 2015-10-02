@@ -323,7 +323,7 @@ public:
         size_t segments_length = peekVarint(reader);
         ::managarm::ld_server::Segment<Allocator> element(*p_allocator);
         element.ParseFromArray((uint8_t *)array + reader.offset(), segments_length);
-        m_segments.push(frigg::traits::move(element));
+        m_segments.push(frigg::move(element));
         reader.advance(segments_length);
       } break;
       default:
