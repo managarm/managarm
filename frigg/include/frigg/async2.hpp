@@ -338,27 +338,29 @@ constexpr auto asyncRepeatUntil(const Body &body) {
 
 namespace details {
 
-template<typename Async, typename Context>
+template<typename Allocator, typename Async, typename Context>
 struct Closure {
 	struct DeleteMe {
 		DeleteMe(Closure *closure_ptr)
 		: closurePtr(closure_ptr) { }
 
 		void operator() () {
-			// TODO: delete this object
+			destruct(closurePtr->allocator, closurePtr);
 		}
 
 		Closure *closurePtr;
 	};
 	
 	template<typename... CtxArgs>
-	Closure(const Async &async, CtxArgs &&... ctx_args)
-	: async(async, &context, this), context(forward<CtxArgs>(ctx_args)...) { }
+	Closure(Allocator &allocator, const Async &async, CtxArgs &&... ctx_args)
+	: allocator(allocator), async(async, &context, this),
+			context(forward<CtxArgs>(ctx_args)...) { }
 
 	void run() {
 		async();
 	}
 	
+	Allocator &allocator;
 	typename Async::template Bound<DeleteMe, Context> async;
 	Context context;
 };
@@ -367,8 +369,8 @@ struct Closure {
 
 template<typename Context, typename Allocator, typename Async, typename... CtxArgs>
 void runAsync(Allocator &allocator, const Async &async, CtxArgs &&... ctx_args) {
-	typedef details::Closure<Async, Context> Closure;
-	auto closure_ptr = construct<Closure>(allocator,
+	typedef details::Closure<Allocator, Async, Context> Closure;
+	auto closure_ptr = construct<Closure>(allocator, allocator,
 			async, forward<CtxArgs>(ctx_args)...);
 	closure_ptr->run();
 }
