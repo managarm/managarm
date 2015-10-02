@@ -10,23 +10,18 @@
 #include <frigg/string.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/vector.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/async.hpp>
 #include <frigg/async2.hpp>
 
-#include <frigg/glue-hel.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
+#include <frigg/glue-hel.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/protobuf.hpp>
 
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
-
-namespace util = frigg::util;
-namespace async = frigg::async;
 
 void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	// open and map the executable image into this address space
