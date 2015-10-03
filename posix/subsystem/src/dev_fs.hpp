@@ -14,7 +14,8 @@ namespace dev_fs {
 // --------------------------------------------------------
 
 struct Inode {
-	virtual StdSharedPtr<VfsOpenFile> openSelf(StdUnsafePtr<Process> process) = 0;
+	virtual void openSelf(StdUnsafePtr<Process> process,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) = 0;
 };
 
 // --------------------------------------------------------
@@ -28,8 +29,10 @@ public:
 		OpenFile(StdSharedPtr<Device> device);
 		
 		// inherited from VfsOpenFile
-		void write(const void *buffer, size_t length) override;
-		void read(void *buffer, size_t max_length, size_t &actual_length) override;
+		void write(const void *buffer, size_t length,
+				frigg::CallbackPtr<void()> callback) override;
+		void read(void *buffer, size_t max_length,
+				frigg::CallbackPtr<void(size_t)> callback) override;
 	
 	private:
 		StdSharedPtr<Device> p_device;
@@ -38,7 +41,8 @@ public:
 	CharDeviceNode(unsigned int major, unsigned int minor);
 
 	// inherited from Inode
-	StdSharedPtr<VfsOpenFile> openSelf(StdUnsafePtr<Process> process) override;
+	void openSelf(StdUnsafePtr<Process> process,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
 
 private:
 	unsigned int major, minor;
@@ -63,7 +67,8 @@ public:
 	};
 
 	// inherited from Inode
-	StdSharedPtr<VfsOpenFile> openSelf(StdUnsafePtr<Process> process) override;
+	void openSelf(StdUnsafePtr<Process> process,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
 
 private:
 	HelHandle p_handle;
@@ -76,11 +81,13 @@ private:
 struct DirectoryNode : public Inode {
 	DirectoryNode();
 
-	StdSharedPtr<VfsOpenFile> openRelative(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode);
+	void openEntry(StdUnsafePtr<Process> process,
+			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 	
 	// inherited from Inode
-	StdSharedPtr<VfsOpenFile> openSelf(StdUnsafePtr<Process> process) override;
+	void openSelf(StdUnsafePtr<Process> process,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
 
 	frigg::Hashmap<frigg::String<Allocator>, StdSharedPtr<Inode>,
 			frigg::DefaultHasher<frigg::StringView>, Allocator> entries;
@@ -99,8 +106,9 @@ public:
 	}
 	
 	// inherited from VfsMountPoint
-	StdSharedPtr<VfsOpenFile> openMounted(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode) override;
+	void openMounted(StdUnsafePtr<Process> process,
+			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
 	
 private:
 	DirectoryNode rootDirectory;

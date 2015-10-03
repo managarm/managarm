@@ -4,6 +4,7 @@
 
 #include <frigg/string.hpp>
 #include <frigg/hashmap.hpp>
+#include <frigg/callback.hpp>
 #include <hel.h>
 
 #include "device.hpp"
@@ -15,10 +16,13 @@ struct Process;
 // --------------------------------------------------------
 
 struct VfsOpenFile {
-	virtual StdSharedPtr<VfsOpenFile> openAt(frigg::StringView path);
+	virtual void openAt(frigg::StringView path,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 	
-	virtual void write(const void *buffer, size_t length);
-	virtual void read(void *buffer, size_t max_length, size_t &actual_length);
+	virtual void write(const void *buffer, size_t length,
+			frigg::CallbackPtr<void()> callback);
+	virtual void read(void *buffer, size_t max_length,
+			frigg::CallbackPtr<void(size_t)> callback);
 
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();
@@ -29,8 +33,9 @@ struct VfsOpenFile {
 // --------------------------------------------------------
 
 struct VfsMountPoint {
-	virtual StdSharedPtr<VfsOpenFile> openMounted(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode) = 0;
+	virtual void openMounted(StdUnsafePtr<Process> process,
+			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) = 0;
 };
 
 // --------------------------------------------------------
@@ -48,8 +53,9 @@ struct MountSpace {
 
 	MountSpace();
 
-	StdSharedPtr<VfsOpenFile> openAbsolute(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode);
+	void openAbsolute(StdUnsafePtr<Process> process,
+			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 
 	frigg::Hashmap<frigg::String<Allocator>, VfsMountPoint *,
 			frigg::DefaultHasher<frigg::StringView>, Allocator> allMounts;

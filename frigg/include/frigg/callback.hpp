@@ -1,40 +1,43 @@
 
+#ifndef FRIGG_CALLBACK_HPP
+#define FRIGG_CALLBACK_HPP
+
 namespace frigg {
 
 template<typename Prototype>
-class Callback;
+class CallbackPtr;
 
 template<typename R, typename... Args>
-class Callback<R(Args...)> {
+class CallbackPtr<R(Args...)> {
 public:
 	template<typename T, R (T::*pointer) (Args...)>
-	static Callback ptrToMember(T *object) {
+	static CallbackPtr ptrToMember(T *object) {
 		struct Wrapper {
 			static R invoke(void *object, Args... args) {
 				return (static_cast<T *>(object)->*pointer)(args...);
 			}
 		};
 
-		return Callback(object, &Wrapper::invoke);
+		return CallbackPtr(object, &Wrapper::invoke);
 	}
 
 	template<typename T, R (*pointer) (T *, Args...)>
-	static Callback staticPtr(T *object) {
+	static CallbackPtr staticPtr(T *object) {
 		struct Wrapper {
 			static R invoke(void *object, Args... args) {
 				return pointer(static_cast<T *>(object), args...);
 			}
 		};
 
-		return Callback(object, &Wrapper::invoke);
+		return CallbackPtr(object, &Wrapper::invoke);
 	}
 
 	typedef R (*FunctionPtr) (void *, Args...);
 	
-	Callback()
+	CallbackPtr()
 	: object(nullptr), function(nullptr) { }
 
-	Callback(void *object, FunctionPtr function)
+	CallbackPtr(void *object, FunctionPtr function)
 	: object(object), function(function) { }
 	
 	void *getObject() {
@@ -58,11 +61,11 @@ struct CallbackMember;
 
 template<typename T, typename R, typename... Args>
 struct CallbackMember<R (T::*) (Args...)> {
-	typedef Callback<R(Args...)> Type;
+	typedef CallbackPtr<R(Args...)> Type;
 
 	template<R (T::*pointer) (Args...)>
-	static Callback<R(Args...)> ptrToMember(T *object) {
-		return Callback<R(Args...)>::template ptrToMember<T, pointer>(object);
+	static CallbackPtr<R(Args...)> ptrToMember(T *object) {
+		return CallbackPtr<R(Args...)>::template ptrToMember<T, pointer>(object);
 	}
 };
 
@@ -71,24 +74,26 @@ struct CallbackStatic;
 
 template<typename R, typename T, typename... Args>
 struct CallbackStatic<R (*) (T *, Args...)> {
-	typedef Callback<R(Args...)> Type;
+	typedef CallbackPtr<R(Args...)> Type;
 
 	template<R (*pointer) (T *, Args...)>
-	static Callback<R(Args...)> staticPtr(T *object) {
-		return Callback<R(Args...)>::template staticPtr<T, pointer>(object);
+	static CallbackPtr<R(Args...)> staticPtr(T *object) {
+		return CallbackPtr<R(Args...)>::template staticPtr<T, pointer>(object);
 	}
 };
 
-#define CALLBACK_MEMBER(object, pointer) ::frigg::util::CallbackMember<decltype(pointer)>::template ptrToMember<pointer>(object)
-#define CALLBACK_STATIC(object, pointer) ::frigg::util::CallbackStatic<decltype(pointer)>::template staticPtr<pointer>(object)
+#define CALLBACK_MEMBER(object, pointer) ::frigg::CallbackMember<decltype(pointer)>::template ptrToMember<pointer>(object)
+#define CALLBACK_STATIC(object, pointer) ::frigg::CallbackStatic<decltype(pointer)>::template staticPtr<pointer>(object)
 
 template<typename R, typename ArgPack>
 struct CallbackFromPack;
 
 template<typename R, typename... Args>
 struct CallbackFromPack<R, TypePack<Args...>> {
-	typedef Callback<R(Args...)> Type;
+	typedef CallbackPtr<R(Args...)> Type;
 };
 
 } // namespace frigg
+
+#endif // FRIGG_CALLBACK_HPP
 

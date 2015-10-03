@@ -6,14 +6,16 @@
 // VfsOpenFile
 // --------------------------------------------------------
 
-StdSharedPtr<VfsOpenFile> VfsOpenFile::openAt(frigg::StringView path) {
+void VfsOpenFile::openAt(frigg::StringView path,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
 }
-void VfsOpenFile::write(const void *buffer, size_t length) {
+void VfsOpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
 	assert(!"Illegal operation for this file");
 }
-void VfsOpenFile::read(void *buffer, size_t max_length, size_t &actual_length) {
+void VfsOpenFile::read(void *buffer, size_t max_length,
+		frigg::CallbackPtr<void(size_t)> callback) {
 	assert(!"Illegal operation for this file");
 }
 
@@ -32,8 +34,9 @@ HelHandle VfsOpenFile::getHelfd() {
 MountSpace::MountSpace()
 : allMounts(frigg::DefaultHasher<frigg::StringView>(), *allocator) { }
 
-StdSharedPtr<VfsOpenFile> MountSpace::openAbsolute(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode) {
+void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
+		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
 	
@@ -44,11 +47,16 @@ StdSharedPtr<VfsOpenFile> MountSpace::openAbsolute(StdUnsafePtr<Process> process
 	
 	while(true) {
 		auto mount = allMounts.get(prefix);
-		if(mount)
-			return (**mount)->openMounted(process, suffix, flags, mode);
-
-		if(prefix == "/")
-			return StdSharedPtr<VfsOpenFile>();
+		if(mount) {
+			(**mount)->openMounted(process, suffix, flags, mode, callback);
+			return;
+		}
+		
+		// we failed to find a root mount point
+		if(prefix == "/") {
+			callback(StdSharedPtr<VfsOpenFile>());
+			return;
+		}
 
 		size_t seperator = prefix.findLast('/');
 		assert(seperator != size_t(-1));

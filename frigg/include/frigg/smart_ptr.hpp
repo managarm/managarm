@@ -175,10 +175,13 @@ public:
 		p_object = nullptr;
 	}
 
-	T *operator-> () const {
+	T *get() const {
 		return p_object;
 	}
-	T *get() const {
+	T &operator* () const {
+		return *p_object;
+	}
+	T *operator-> () const {
 		return p_object;
 	}
 

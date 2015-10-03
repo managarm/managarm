@@ -1,4 +1,6 @@
 
+#include <frigg/callback.hpp>
+
 namespace frigg {
 
 // --------------------------------------------------------
@@ -37,6 +39,53 @@ private:
 template<typename Functor>
 constexpr auto wrapFunctor(Functor functor) {
 	return WrapFunctor<Functor>(functor);
+};
+
+// --------------------------------------------------------
+// cwrap()
+// --------------------------------------------------------
+
+template<typename Signature, typename Functor>
+class CWrap;
+
+template<typename... PArgs, typename Functor>
+class CWrap<void(PArgs...), Functor> {
+public:
+	constexpr CWrap(Functor functor)
+	: p_functor(functor) { }
+
+	template<typename Callback, typename Context>
+	class Bound {
+	public:
+		template<typename... CbArgs>
+		Bound(const CWrap &wrap, Context *context, CbArgs &&... cb_args)
+		: p_functor(wrap.p_functor), p_callback(forward<CbArgs>(cb_args)...),
+				p_context(context) { }
+		
+		template<typename... Args>
+		void operator() (Args &&... args) {
+			p_functor(p_context, CallbackPtr<void(PArgs...)>(this, &invokeCallback),
+					forward<Args>(args)...);
+		}
+
+	private:
+		static void invokeCallback(void *object, PArgs... pargs) {
+			auto bound = static_cast<Bound *>(object);
+			bound->p_callback(pargs...);
+		}
+
+		Functor p_functor;
+		Callback p_callback;
+		Context *p_context;
+	};
+
+private:
+	Functor p_functor;
+};
+
+template<typename Signature, typename Functor>
+constexpr auto cwrap(Functor functor) {
+	return CWrap<Signature, Functor>(functor);
 };
 
 // --------------------------------------------------------

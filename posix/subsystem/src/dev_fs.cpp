@@ -12,31 +12,38 @@ namespace dev_fs {
 CharDeviceNode::CharDeviceNode(unsigned int major, unsigned int minor)
 : major(major), minor(minor) { }
 
-StdSharedPtr<VfsOpenFile> CharDeviceNode::openSelf(StdUnsafePtr<Process> process) {
+void CharDeviceNode::openSelf(StdUnsafePtr<Process> process,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	StdUnsafePtr<Device> device = process->mountSpace->charDevices.getDevice(major, minor);
 	assert(device);
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, StdSharedPtr<Device>(device));
-	return frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file));
+	callback(frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file)));
 }
 
 CharDeviceNode::OpenFile::OpenFile(StdSharedPtr<Device> device)
 : p_device(frigg::move(device)) { }
 
-void CharDeviceNode::OpenFile::write(const void *buffer, size_t length) {
+void CharDeviceNode::OpenFile::write(const void *buffer, size_t length,
+		frigg::CallbackPtr<void()> callback) {
 	p_device->write(buffer, length);
+	callback();
 }
 
-void CharDeviceNode::OpenFile::read(void *buffer, size_t max_length, size_t &actual_length) {
+void CharDeviceNode::OpenFile::read(void *buffer, size_t max_length,
+		frigg::CallbackPtr<void(size_t)> callback) {
+	size_t actual_length;
 	p_device->read(buffer, max_length, actual_length);
+	callback(actual_length);
 }
 
 // --------------------------------------------------------
 // CharDeviceNode
 // --------------------------------------------------------
 
-StdSharedPtr<VfsOpenFile> HelfdNode::openSelf(StdUnsafePtr<Process> process) {
+void HelfdNode::openSelf(StdUnsafePtr<Process> process,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, this);
-	return frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file));
+	callback(frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file)));
 }
 
 HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
@@ -56,20 +63,22 @@ HelHandle HelfdNode::OpenFile::getHelfd() {
 DirectoryNode::DirectoryNode()
 : entries(frigg::DefaultHasher<frigg::StringView>(), *allocator) { }
 
-StdSharedPtr<VfsOpenFile> DirectoryNode::openSelf(StdUnsafePtr<Process> process) {
+void DirectoryNode::openSelf(StdUnsafePtr<Process> process,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(!"TODO: Implement this");
 	__builtin_unreachable();
 }
 
-StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode) {
+void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
+		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	frigg::StringView segment;
 	
 	size_t seperator = path.findFirst('/');
 	if(seperator == size_t(-1)) {
 		auto entry = entries.get(path);
 		if(entry) {
-			return (**entry)->openSelf(process);
+			(**entry)->openSelf(process, callback);
 		}else if((flags & MountSpace::kOpenCreat) != 0) {
 			StdSharedPtr<Inode> inode;
 			if((mode & MountSpace::kOpenHelfd) != 0) {
@@ -78,11 +87,12 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> proc
 			}else{
 				assert(!"mode not supported");
 			}
-			StdSharedPtr<VfsOpenFile> open_file = inode->openSelf(process);
-			entries.insert(frigg::String<Allocator>(*allocator, path), frigg::move(inode));
-			return open_file;
+
+			entries.insert(frigg::String<Allocator>(*allocator, path),
+					StdSharedPtr<Inode>(inode));
+			inode->openSelf(process, callback);
 		}else{
-			return StdSharedPtr<VfsOpenFile>();
+			callback(StdSharedPtr<VfsOpenFile>());
 		}
 	}else{
 		assert(!"Not tested");
@@ -90,10 +100,12 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> proc
 		frigg::StringView tail = path.subString(seperator + 1, path.size() - (seperator + 1));
 		
 		auto entry = entries.get(segment);
-		if(!entry)
-			return StdSharedPtr<VfsOpenFile>();
+		if(!entry) {
+			callback(StdSharedPtr<VfsOpenFile>());
+			return;
+		}
 		auto directory = frigg::staticPointerCast<DirectoryNode>(**entry);
-		return directory->openRelative(process, tail, flags, mode);
+		directory->openEntry(process, tail, flags, mode, callback);
 	}
 }
 
@@ -103,9 +115,10 @@ StdSharedPtr<VfsOpenFile> DirectoryNode::openRelative(StdUnsafePtr<Process> proc
 
 MountPoint::MountPoint() { }
 
-StdSharedPtr<VfsOpenFile> MountPoint::openMounted(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode) {
-	return rootDirectory.openRelative(process, path, flags, mode);
+void MountPoint::openMounted(StdUnsafePtr<Process> process,
+		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
+	rootDirectory.openEntry(process, path, flags, mode, callback);
 }
 
 } // namespace dev_fs
