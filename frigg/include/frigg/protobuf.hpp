@@ -112,7 +112,7 @@ inline int varintSize(uint64_t value) {
 	return size;
 }
 
-uint64_t encodeZigZag(int64_t value) {
+inline uint64_t encodeZigZag(int64_t value) {
 	if(value >= 0) {
 		return (uint64_t)value << 1;
 	}else{
@@ -120,7 +120,7 @@ uint64_t encodeZigZag(int64_t value) {
 	}
 }
 
-int64_t decodeZigZag(uint64_t encoded) {
+inline int64_t decodeZigZag(uint64_t encoded) {
 	if((encoded & 1) != 0) {
 		return -(int64_t)(encoded >> 1);
 	}else{

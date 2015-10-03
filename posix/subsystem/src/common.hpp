@@ -10,5 +10,7 @@ using StdSharedPtr = frigg::SharedPtr<T, Allocator>;
 template<typename T>
 using StdUnsafePtr = frigg::UnsafePtr<T, Allocator>;
 
+extern helx::EventHub eventHub;
 extern helx::Client ldServerConnect;
+extern helx::Pipe ldServerPipe;
 

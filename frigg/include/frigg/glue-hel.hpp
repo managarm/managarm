@@ -4,6 +4,7 @@
 
 #include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
+#include <frigg/memory.hpp>
 
 class InfoSink {
 public:

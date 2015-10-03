@@ -2,6 +2,7 @@
 #ifndef FRIGG_MEMORY_HPP
 #define FRIGG_MEMORY_HPP
 
+#include <frigg/atomic.hpp>
 #include <frigg/memory-slab.hpp>
 
 namespace frigg {
