@@ -13,8 +13,8 @@ struct SubmitInfo {
 struct UserEvent {
 	enum Type {
 		kTypeNone,
+		kTypeError,
 		kTypeRecvStringTransfer,
-		kTypeRecvStringError,
 		kTypeRecvDescriptor,
 		kTypeAccept,
 		kTypeConnect,

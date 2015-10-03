@@ -7,12 +7,15 @@ namespace thor {
 // Channel
 // --------------------------------------------------------
 
-Channel::Channel() : p_messages(*kernelAlloc),
-		p_requests(*kernelAlloc) { }
+Channel::Channel()
+: p_messages(*kernelAlloc), p_requests(*kernelAlloc), p_wasClosed(false) { }
 
-void Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
+Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence) {
 	assert(guard.protects(&lock));
+
+	if(p_wasClosed)
+		return kErrPipeClosed;
 
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.get(), user_buffer, length);
@@ -36,11 +39,15 @@ void Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 
 	if(queue_message)
 		p_messages.addBack(frigg::move(message));
+	return kErrSuccess;
 }
 
-void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
+Error Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 		int64_t msg_request, int64_t msg_sequence) {
 	assert(guard.protects(&lock));
+
+	if(p_wasClosed)
+		return kErrPipeClosed;
 
 	Message message(kMsgDescriptor, msg_request, msg_sequence);
 	message.descriptor = frigg::move(descriptor);
@@ -51,17 +58,21 @@ void Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 		
 		processDescriptorRequest(message, *it);
 		p_requests.remove(it);
-		return;
+		return kErrSuccess;
 	}
 
 	p_messages.addBack(frigg::move(message));
+	return kErrSuccess;
 }
 
-void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		void *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
+
+	if(p_wasClosed)
+		return kErrPipeClosed;
 
 	Request request(kMsgString, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
@@ -82,12 +93,16 @@ void Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_h
 	
 	if(queue_request)
 		p_requests.addBack(frigg::move(request));
+	return kErrSuccess;
 }
 
-void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+Error Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info) {
 	assert(guard.protects(&lock));
+
+	if(p_wasClosed)
+		return kErrPipeClosed;
 
 	Request request(kMsgDescriptor, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
@@ -98,10 +113,28 @@ void Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&eve
 		
 		processDescriptorRequest(*it, request);
 		p_messages.remove(it);
-		return;
+		return kErrSuccess;
 	}
 	
 	p_requests.addBack(frigg::move(request));
+	return kErrSuccess;
+}
+
+void Channel::close(Guard &guard) {
+	while(!p_messages.empty())
+		p_messages.removeFront();
+
+	while(!p_requests.empty()) {
+		Request request = p_requests.removeFront();
+		UserEvent event(UserEvent::kTypeError, request.submitInfo);
+		event.error = kErrPipeClosed;
+
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
+		hub_guard.unlock();
+	}
+
+	p_wasClosed = true;
 }
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
@@ -121,7 +154,7 @@ bool Channel::matchRequest(const Message &message, const Request &request) {
 
 bool Channel::processStringRequest(Message &message, Request &request) {
 	if(message.length > request.maxLength) {
-		UserEvent event(UserEvent::kTypeRecvStringError, request.submitInfo);
+		UserEvent event(UserEvent::kTypeError, request.submitInfo);
 		event.error = kErrBufferTooSmall;
 
 		EventHub::Guard hub_guard(&request.eventHub->lock);
@@ -196,6 +229,14 @@ Channel &FullPipe::getChannel(size_t index) {
 Endpoint::Endpoint(KernelSharedPtr<FullPipe> pipe,
 		size_t read_index, size_t write_index)
 : p_pipe(pipe), p_readIndex(read_index), p_writeIndex(write_index) { }
+
+Endpoint::~Endpoint() {
+	for(size_t i = 0; i < 2; i++) {
+		Channel &channel = p_pipe->getChannel(i);
+		Channel::Guard guard(&channel.lock);
+		channel.close(guard);
+	}
+}
 
 KernelUnsafePtr<FullPipe> Endpoint::getPipe() {
 	return p_pipe;

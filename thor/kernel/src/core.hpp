@@ -51,7 +51,8 @@ using KernelUnsafePtr = frigg::UnsafePtr<T, KernelAlloc>;
 
 enum Error {
 	kErrSuccess,
-	kErrBufferTooSmall
+	kErrBufferTooSmall,
+	kErrPipeClosed
 };
 
 typedef uint64_t Handle;

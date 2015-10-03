@@ -416,10 +416,13 @@ HelError helWaitForEvents(HelHandle handle,
 			hub_guard.lock();
 			user_evt->length = event.length;
 		} break;
-		case UserEvent::kTypeRecvStringError: {
+		case UserEvent::kTypeError: {
 			user_evt->type = kHelEventRecvString;
 
 			switch(event.error) {
+			case kErrPipeClosed:
+				user_evt->error = kHelErrPipeClosed;
+				break;
 			case kErrBufferTooSmall:
 				user_evt->error = kHelErrBufferTooSmall;
 				break;
@@ -517,9 +520,14 @@ HelError helSendString(HelHandle handle,
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	channel.sendString(channel_guard, user_buffer, length, msg_request, msg_sequence);
+	Error error = channel.sendString(channel_guard, user_buffer, length,
+			msg_request, msg_sequence);
 	channel_guard.unlock();
 
+	if(error == kErrPipeClosed)
+		return kHelErrPipeClosed;
+
+	assert(error == kErrSuccess);
 	return kHelErrNone;
 }
 
@@ -548,10 +556,14 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 
 	Channel::Guard channel_guard(&channel.lock);
-	channel.sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
+	Error error = channel.sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
 			msg_request, msg_sequence);
 	channel_guard.unlock();
 
+	if(error == kErrPipeClosed)
+		return kHelErrPipeClosed;
+
+	assert(error == kErrSuccess);
 	return kHelErrNone;
 }
 
@@ -585,12 +597,15 @@ HelError helSubmitRecvString(HelHandle handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
+	Error error = channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 			user_buffer, max_length, filter_request, filter_sequence, submit_info);
 	channel_guard.unlock();
 
-	*async_id = submit_info.asyncId;
+	if(error == kErrPipeClosed)
+		return kHelErrPipeClosed;
 
+	assert(error == kErrSuccess);
+	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -624,12 +639,16 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	channel.submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
+	Error error = channel.submitRecvDescriptor(channel_guard,
+			KernelSharedPtr<EventHub>(event_hub),
 			filter_request, filter_sequence, submit_info);
 	channel_guard.unlock();
-
+	
+	if(error == kErrPipeClosed)
+		return kHelErrPipeClosed;
+	
+	assert(error == kErrSuccess);
 	*async_id = submit_info.asyncId;
-
 	return kHelErrNone;
 }
 

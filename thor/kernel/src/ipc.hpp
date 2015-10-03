@@ -9,20 +9,22 @@ public:
 
 	Channel();
 
-	void sendString(Guard &guard, const void *user_buffer, size_t length,
+	Error sendString(Guard &guard, const void *user_buffer, size_t length,
 			int64_t msg_request, int64_t msg_sequence);
 	
-	void sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
+	Error sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 			int64_t msg_request, int64_t msg_sequence);
 	
-	void submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+	Error submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			void *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
 	
-	void submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+	Error submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info);
+	
+	void close(Guard &guard);
 
 	Lock lock;
 
@@ -67,6 +69,7 @@ private:
 
 	frigg::LinkedList<Message, KernelAlloc> p_messages;
 	frigg::LinkedList<Request, KernelAlloc> p_requests;
+	bool p_wasClosed;
 };
 
 class Endpoint;
@@ -85,6 +88,7 @@ private:
 class Endpoint {
 public:
 	Endpoint(KernelSharedPtr<FullPipe> pipe, size_t read_index, size_t write_index);
+	~Endpoint();
 
 	KernelUnsafePtr<FullPipe> getPipe();
 

@@ -59,9 +59,10 @@ enum {
 enum {
 	kHelErrNone = 0,
 	kHelErrIllegalSyscall = 5,
-	kHelErrBufferTooSmall = 1,
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
+	kHelErrPipeClosed = 6,
+	kHelErrBufferTooSmall = 1,
 	kHelErrNoSuchPath = 3
 };
 
@@ -225,6 +226,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "No such descriptor";
 	case kHelErrBadDescriptor:
 		return "Illegal descriptor for this operation";
+	case kHelErrPipeClosed:
+		return "Pipe closed";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
 	case kHelErrNoSuchPath:
