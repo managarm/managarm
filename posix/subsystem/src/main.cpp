@@ -380,12 +380,12 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		unsigned int major, minor;
 		DeviceAllocator &char_devices = process->mountSpace->charDevices;
 		char_devices.allocateDevice("misc",
-				frigg::staticPointerCast<Device>(frigg::move(device)), major, minor);
+				frigg::staticPtrCast<Device>(frigg::move(device)), major, minor);
 
 		auto fs = frigg::construct<dev_fs::MountPoint>(*allocator);
-		auto real_inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
+		auto inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
 		fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
-				frigg::staticPointerCast<dev_fs::Inode>(frigg::move(real_inode)));
+				frigg::staticPtrCast<dev_fs::Inode>(frigg::move(inode)));
 
 		process->mountSpace->allMounts.insert(frigg::String<Allocator>(*allocator, "/dev"), fs);
 

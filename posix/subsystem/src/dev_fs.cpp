@@ -17,7 +17,7 @@ void CharDeviceNode::openSelf(StdUnsafePtr<Process> process,
 	StdUnsafePtr<Device> device = process->mountSpace->charDevices.getDevice(major, minor);
 	assert(device);
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, StdSharedPtr<Device>(device));
-	callback(frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file)));
+	callback(frigg::staticPtrCast<VfsOpenFile>(frigg::move(open_file)));
 }
 
 CharDeviceNode::OpenFile::OpenFile(StdSharedPtr<Device> device)
@@ -43,7 +43,7 @@ void CharDeviceNode::OpenFile::read(void *buffer, size_t max_length,
 void HelfdNode::openSelf(StdUnsafePtr<Process> process,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	auto open_file = frigg::makeShared<OpenFile>(*allocator, this);
-	callback(frigg::staticPointerCast<VfsOpenFile>(frigg::move(open_file)));
+	callback(frigg::staticPtrCast<VfsOpenFile>(frigg::move(open_file)));
 }
 
 HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
@@ -83,7 +83,7 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 			StdSharedPtr<Inode> inode;
 			if((mode & MountSpace::kOpenHelfd) != 0) {
 				auto real_inode = frigg::makeShared<HelfdNode>(*allocator);
-				inode = frigg::staticPointerCast<Inode>(frigg::move(real_inode));
+				inode = frigg::staticPtrCast<Inode>(frigg::move(real_inode));
 			}else{
 				assert(!"mode not supported");
 			}
@@ -104,7 +104,7 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 			callback(StdSharedPtr<VfsOpenFile>());
 			return;
 		}
-		auto directory = frigg::staticPointerCast<DirectoryNode>(**entry);
+		auto directory = frigg::staticPtrCast<DirectoryNode>(**entry);
 		directory->openEntry(process, tail, flags, mode, callback);
 	}
 }

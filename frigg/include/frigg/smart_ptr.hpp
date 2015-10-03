@@ -85,7 +85,7 @@ namespace details {
 
 struct Cast {
 	template<typename U, typename T, typename Allocator>
-	static SharedPtr<U, Allocator> staticPointerCast(SharedPtr<T, Allocator> pointer) {
+	static SharedPtr<U, Allocator> staticPtrCast(SharedPtr<T, Allocator> pointer) {
 		SharedPtr<U, Allocator> result(pointer.p_block, static_cast<U *>(pointer.p_object));
 		// reset the input pointer to keep the ref count accurate
 		pointer.p_block = nullptr;
@@ -94,7 +94,7 @@ struct Cast {
 	}
 	
 	template<typename U, typename T, typename Allocator>
-	static UnsafePtr<U, Allocator> staticPointerCast(UnsafePtr<T, Allocator> pointer) {
+	static UnsafePtr<U, Allocator> staticPtrCast(UnsafePtr<T, Allocator> pointer) {
 		return UnsafePtr<U, Allocator>(pointer.p_block, static_cast<U *>(pointer.p_object));
 	}
 };
@@ -194,8 +194,8 @@ private:
 };
 	
 template<typename U, typename T, typename Allocator>
-SharedPtr<U, Allocator> staticPointerCast(SharedPtr<T, Allocator> pointer) {
-	return details::Cast::staticPointerCast<U>(pointer);
+SharedPtr<U, Allocator> staticPtrCast(SharedPtr<T, Allocator> pointer) {
+	return details::Cast::staticPtrCast<U>(pointer);
 }
 
 template<typename T, typename Allocator>
@@ -289,8 +289,8 @@ private:
 };
 	
 template<typename U, typename T, typename Allocator>
-UnsafePtr<U, Allocator> staticPointerCast(UnsafePtr<T, Allocator> pointer) {
-	return details::Cast::staticPointerCast<U>(pointer);
+UnsafePtr<U, Allocator> staticPtrCast(UnsafePtr<T, Allocator> pointer) {
+	return details::Cast::staticPtrCast<U>(pointer);
 }
 
 template<typename T, typename Allocator>
