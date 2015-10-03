@@ -93,6 +93,21 @@ struct CallbackFromPack<R, TypePack<Args...>> {
 	typedef CallbackPtr<R(Args...)> Type;
 };
 
+template<typename C>
+struct BaseClosure {
+protected:
+	template<typename Allocator>
+	void suicide(Allocator &allocator) {
+		destruct(allocator, static_cast<C *>(this));
+	}
+};
+
+template<typename C, typename Allocator, typename... Args>
+static void runClosure(Allocator &allocator, Args &&... args) {
+	auto closure = construct<C>(allocator, forward<Args>(args)...);
+	(*closure)();
+}
+
 } // namespace frigg
 
 #endif // FRIGG_CALLBACK_HPP

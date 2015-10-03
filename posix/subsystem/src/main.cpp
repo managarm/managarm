@@ -178,15 +178,14 @@ void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &
 // OpenClosure
 // --------------------------------------------------------
 
-struct OpenClosure {
+struct OpenClosure : frigg::BaseClosure<OpenClosure> {
 	OpenClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
 			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 
-	void run();
+	void operator() ();
 
 private:
 	void openComplete(StdSharedPtr<VfsOpenFile> file);
-	void finish();
 
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
@@ -199,7 +198,7 @@ OpenClosure::OpenClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> pr
 : pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
 		msgRequest(msg_request) { }
 
-void OpenClosure::run() {
+void OpenClosure::operator() () {
 	uint32_t open_flags = 0;
 	if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
 		open_flags |= MountSpace::kOpenCreat;
@@ -225,26 +224,21 @@ void OpenClosure::openComplete(StdSharedPtr<VfsOpenFile> file) {
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	response.set_fd(fd);
 	sendResponse(*pipe, response, msgRequest);
-	finish();
-}
-
-void OpenClosure::finish() {
-	frigg::destruct(*allocator, this);
+	suicide(*allocator);
 }
 
 // --------------------------------------------------------
 // WriteClosure
 // --------------------------------------------------------
 
-struct WriteClosure {
+struct WriteClosure : frigg::BaseClosure<WriteClosure> {
 	WriteClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
 			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 
-	void run();
+	void operator() ();
 
 private:
 	void writeComplete();
-	void finish();
 
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
@@ -257,13 +251,13 @@ WriteClosure::WriteClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> 
 : pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
 		msgRequest(msg_request) { }
 
-void WriteClosure::run() {
+void WriteClosure::operator() () {
 	auto file = process->allOpenFiles.get(request.fd());
 	if(!file) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
 		sendResponse(*pipe, response, msgRequest);
-		finish();
+		suicide(*allocator);
 		return;
 	}
 	
@@ -275,26 +269,21 @@ void WriteClosure::writeComplete() {
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	sendResponse(*pipe, response, msgRequest);
-	finish();
-}
-
-void WriteClosure::finish() {
-	frigg::destruct(*allocator, this);
+	suicide(*allocator);
 }
 
 // --------------------------------------------------------
 // ReadClosure
 // --------------------------------------------------------
 
-struct ReadClosure {
+struct ReadClosure : frigg::BaseClosure<ReadClosure> {
 	ReadClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
 			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 
-	void run();
+	void operator() ();
 
 private:
 	void readComplete(size_t actual_size);
-	void finish();
 
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
@@ -309,13 +298,13 @@ ReadClosure::ReadClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> pr
 : pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
 		msgRequest(msg_request), buffer(*allocator) { }
 
-void ReadClosure::run() {
+void ReadClosure::operator() () {
 	auto file = process->allOpenFiles.get(request.fd());
 	if(!file) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
 		sendResponse(*pipe, response, msgRequest);
-		finish();
+		suicide(*allocator);
 		return;
 	}
 	
@@ -331,42 +320,37 @@ void ReadClosure::readComplete(size_t actual_size) {
 	response.set_buffer(frigg::move(buffer));
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	sendResponse(*pipe, response, msgRequest);
-	finish();
-}
-
-void ReadClosure::finish() {
-	frigg::destruct(*allocator, this);
+	suicide(*allocator);
 }
 
 // --------------------------------------------------------
-// RequestLoopContext
+// RequestClosure
 // --------------------------------------------------------
 
-struct RequestLoopContext {
-	RequestLoopContext(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process, int iteration)
+struct RequestClosure : frigg::BaseClosure<RequestClosure> {
+	RequestClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process, int iteration)
 	: pipe(frigg::move(pipe)), process(process), iteration(iteration) { }
 	
+	void operator() ();
+	
+private:
+	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 	
-	void sendResponse(managarm::posix::ServerResponse<Allocator> &response, int64_t msg_request) {
-		frigg::String<Allocator> serialized(*allocator);
-		response.SerializeToString(&serialized);
-		pipe->sendString(serialized.data(), serialized.size(), msg_request, 0);
-	}
-
 	uint8_t buffer[128];
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
 	int iteration;
 };
 
-void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator> request,
+void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> request,
 		int64_t msg_request) {
 	// check the iteration number to prevent this process from being hijacked
 	if(process && iteration != process->iteration) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::DEAD_FORK);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 		return;
 	}
 
@@ -391,7 +375,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
 		StdSharedPtr<Process> new_process = process->fork();
 
@@ -408,26 +392,23 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
 		frigg::runAsync<ExecuteContext>(*allocator, executeProgram,
 				request.path(), process);
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
-		auto closure = frigg::construct<OpenClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+		frigg::runClosure<OpenClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
-		closure->run();
 	}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
-		auto closure = frigg::construct<WriteClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+		frigg::runClosure<WriteClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
-		closure->run();
 	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
-		auto closure = frigg::construct<ReadClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+		frigg::runClosure<ReadClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
-		closure->run();
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 
@@ -440,7 +421,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
 		}
 		
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 
@@ -456,7 +437,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
 		}
 
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
 		HelError error;
 		HelHandle handle;
@@ -468,7 +449,7 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		if(!file_wrapper) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-			sendResponse(response, msg_request);
+			sendResponse(*pipe, response, msg_request);
 			return;
 		}
 
@@ -477,13 +458,13 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		if(!file_wrapper) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-			sendResponse(response, msg_request);
+			sendResponse(*pipe, response, msg_request);
 			return;
 		}
 
@@ -492,34 +473,34 @@ void RequestLoopContext::processRequest(managarm::posix::ClientRequest<Allocator
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}else{
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-		sendResponse(response, msg_request);
+		sendResponse(*pipe, response, msg_request);
 	}
 }
 
-auto requestLoop =
-frigg::asyncRepeatUntil(
-	frigg::asyncSeq(
-		frigg::wrapFuncPtr<helx::RecvStringFunction>([] (RequestLoopContext *context,
-				void *cb_object, auto cb_function) {
-			context->pipe->recvString(context->buffer, 128, eventHub,
-					kHelAnyRequest, 0, cb_object, cb_function);
-		}),
-		frigg::wrapFunctor([] (RequestLoopContext *context, auto &callback,
-				HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
-			HEL_CHECK(error);
+void RequestClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
+	pipe->recvString(buffer, 128, eventHub,
+			kHelAnyRequest, 0, callback.getObject(), callback.getFunction());
+}
 
-			managarm::posix::ClientRequest<Allocator> request(*allocator);
-			request.ParseFromArray(context->buffer, length);
-			context->processRequest(frigg::move(request), msg_request);
+void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	if(error == kHelErrPipeClosed) {
+		suicide(*allocator);
+		return;
+	}
+	HEL_CHECK(error);
 
-			callback(true);
-		})
-	)
-);
+	managarm::posix::ClientRequest<Allocator> request(*allocator);
+	request.ParseFromArray(buffer, length);
+	processRequest(frigg::move(request), msg_request);
+
+	(*this)();
+}
 
 void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration) {
 	struct AcceptContext {
@@ -543,8 +524,8 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 				HEL_CHECK(error);
 				
 				auto pipe = frigg::makeShared<helx::Pipe>(*allocator, handle);
-				frigg::runAsync<RequestLoopContext>(*allocator, requestLoop,
-						frigg::move(pipe), context->process, context->iteration);
+				frigg::runClosure<RequestClosure>(*allocator, frigg::move(pipe),
+						context->process, context->iteration);
 
 				callback(true);
 			})
