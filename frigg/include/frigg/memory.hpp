@@ -2,6 +2,8 @@
 #ifndef FRIGG_MEMORY_HPP
 #define FRIGG_MEMORY_HPP
 
+#include <frigg/memory-slab.hpp>
+
 namespace frigg {
 
 // --------------------------------------------------------
@@ -79,10 +81,10 @@ void *DebugAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 
 template<typename VirtualAlloc, typename Mutex>
 void DebugAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
-	LockGuard<Mutex> guard(&p_mutex);
-
 	if(pointer == nullptr)
 		return;
+
+	LockGuard<Mutex> guard(&p_mutex);
 	
 	Header *header = (Header *)((uintptr_t)pointer - sizeof(Header));
 	

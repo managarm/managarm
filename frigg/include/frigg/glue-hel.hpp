@@ -22,7 +22,7 @@ public:
 	void unmap(uintptr_t address, size_t length);
 };
 
-typedef frigg::DebugAllocator<VirtualAlloc, frigg::TicketLock> Allocator;
+typedef frigg::SlabAllocator<VirtualAlloc, frigg::TicketLock> Allocator;
 extern VirtualAlloc virtualAlloc;
 extern frigg::LazyInitializer<Allocator> allocator;
 

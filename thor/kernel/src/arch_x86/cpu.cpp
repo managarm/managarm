@@ -142,7 +142,7 @@ void initializeThisProcessor() {
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
 			".L_reloadCs:" );
-
+	
 	// setup a stack for irqs
 	size_t irq_stack_size = 0x10000;
 	void *irq_stack_base = kernelAlloc->allocate(irq_stack_size);
@@ -218,7 +218,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	assert((trampoline_size % 0x1000) == 0);
 	memcpy(physicalToVirtual(trampoline_addr), _trampoline_startLma, trampoline_size);
 	
-	size_t trampoline_stack_size = 0x100000;
+	size_t trampoline_stack_size = 0x10000;
 	void *trampoline_stack_base = kernelAlloc->allocate(trampoline_stack_size);
 
 	// setup the trampoline data area
