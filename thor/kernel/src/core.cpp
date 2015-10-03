@@ -102,7 +102,7 @@ Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 	return handle;
 }
 
-frigg::Optional<AnyDescriptor *> Universe::getDescriptor(Guard &guard, Handle handle) {
+AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
 
 	return p_descriptorMap.get(handle);

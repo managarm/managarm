@@ -48,7 +48,7 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 	while(true) {
 		auto mount = allMounts.get(prefix);
 		if(mount) {
-			(**mount)->openMounted(process, suffix, flags, mode, callback);
+			(*mount)->openMounted(process, suffix, flags, mode, callback);
 			return;
 		}
 		

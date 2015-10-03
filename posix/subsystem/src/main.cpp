@@ -261,7 +261,7 @@ void WriteClosure::operator() () {
 		return;
 	}
 	
-	(**file)->write(request.buffer().data(), request.buffer().size(),
+	(*file)->write(request.buffer().data(), request.buffer().size(),
 			CALLBACK_MEMBER(this, &WriteClosure::writeComplete));
 }
 
@@ -309,7 +309,7 @@ void ReadClosure::operator() () {
 	}
 	
 	buffer.resize(request.size());
-	(**file)->read(buffer.data(), request.size(),
+	(*file)->read(buffer.data(), request.size(),
 			CALLBACK_MEMBER(this, &ReadClosure::readComplete));
 }
 
@@ -429,7 +429,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		int32_t newfd = request.newfd();
 		auto file_wrapper = process->allOpenFiles.get(oldfd);
 		if(file_wrapper){
-			auto file = **file_wrapper;
+			auto file = *file_wrapper;
 			process->allOpenFiles.insert(newfd, file);
 
 			response.set_error(managarm::posix::Errors::SUCCESS);
@@ -453,7 +453,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			return;
 		}
 
-		auto file = **file_wrapper;
+		auto file = *file_wrapper;
 		file->setHelfd(handle);
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -468,7 +468,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			return;
 		}
 
-		auto file = **file_wrapper;
+		auto file = *file_wrapper;
 		pipe->sendDescriptor(file->getHelfd(), msg_request, 1);
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);

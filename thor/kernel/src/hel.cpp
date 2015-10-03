@@ -20,7 +20,7 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	switch((*wrapper)->tag()) {
+	switch(wrapper->tag()) {
 	case AnyDescriptor::tagOf<EndpointDescriptor>():
 		user_info->type = kHelDescEndpoint;
 		break;
@@ -131,9 +131,9 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 		auto space_wrapper = universe->getDescriptor(universe_guard, handle);
 		if(!space_wrapper)
 			return kHelErrNoDescriptor;
-		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+		if(!space_wrapper->is<AddressSpaceDescriptor>())
 			return kHelErrBadDescriptor;
-		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		auto &space_desc = space_wrapper->get<AddressSpaceDescriptor>();
 		space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
 	}
 	universe_guard.unlock();
@@ -159,9 +159,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto memory_wrapper = universe->getDescriptor(universe_guard, memory_handle);
 	if(!memory_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*memory_wrapper)->is<MemoryAccessDescriptor>())
+	if(!memory_wrapper->is<MemoryAccessDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &memory_desc = (*memory_wrapper)->get<MemoryAccessDescriptor>();
+	auto &memory_desc = memory_wrapper->get<MemoryAccessDescriptor>();
 	KernelSharedPtr<Memory> memory(memory_desc.getMemory());
 	
 	KernelSharedPtr<AddressSpace> space;
@@ -171,9 +171,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto space_wrapper = universe->getDescriptor(universe_guard, space_handle);
 		if(!space_wrapper)
 			return kHelErrNoDescriptor;
-		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+		if(!space_wrapper->is<AddressSpaceDescriptor>())
 			return kHelErrBadDescriptor;
-		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		auto &space_desc = space_wrapper->get<AddressSpaceDescriptor>();
 		space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
 	}
 	universe_guard.unlock();
@@ -225,9 +225,9 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		auto space_wrapper = universe->getDescriptor(universe_guard, space_handle);
 		if(!space_wrapper)
 			return kHelErrNoDescriptor;
-		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+		if(!space_wrapper->is<AddressSpaceDescriptor>())
 			return kHelErrBadDescriptor;
-		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		auto &space_desc = space_wrapper->get<AddressSpaceDescriptor>();
 		space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
 	}
 	universe_guard.unlock();
@@ -247,9 +247,9 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<MemoryAccessDescriptor>())
+	if(!wrapper->is<MemoryAccessDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<MemoryAccessDescriptor>();
+	auto &descriptor = wrapper->get<MemoryAccessDescriptor>();
 	KernelUnsafePtr<Memory> memory = descriptor.getMemory();
 
 	*size = memory->numPages() * kPageSize;
@@ -272,9 +272,9 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 		if(!space_wrapper)
 			return kHelErrNoDescriptor;
-		if(!(*space_wrapper)->is<AddressSpaceDescriptor>())
+		if(!space_wrapper->is<AddressSpaceDescriptor>())
 			return kHelErrBadDescriptor;
-		auto &space_desc = (*space_wrapper)->get<AddressSpaceDescriptor>();
+		auto &space_desc = space_wrapper->get<AddressSpaceDescriptor>();
 		address_space = KernelSharedPtr<AddressSpace>(space_desc.getSpace());
 	}
 
@@ -285,9 +285,9 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		auto dir_wrapper = this_universe->getDescriptor(universe_guard, directory_handle);
 		if(!dir_wrapper)
 			return kHelErrNoDescriptor;
-		if(!(*dir_wrapper)->is<RdDescriptor>())
+		if(!dir_wrapper->is<RdDescriptor>())
 			return kHelErrBadDescriptor;
-		auto &dir_desc = (*dir_wrapper)->get<RdDescriptor>();
+		auto &dir_desc = dir_wrapper->get<RdDescriptor>();
 		directory = KernelSharedPtr<RdFolder>(dir_desc.getFolder());
 	}
 	universe_guard.unlock();
@@ -369,9 +369,9 @@ HelError helWaitForEvents(HelHandle handle,
 	auto hub_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &hub_descriptor = (*hub_wrapper)->get<EventHubDescriptor>();
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
 	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
 	universe_guard.unlock();
 
@@ -510,9 +510,9 @@ HelError helSendString(HelHandle handle,
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<EndpointDescriptor>())
+	if(!wrapper->is<EndpointDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	auto &descriptor = wrapper->get<EndpointDescriptor>();
 	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	universe_guard.unlock();
 	
@@ -542,9 +542,9 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<EndpointDescriptor>())
+	if(!wrapper->is<EndpointDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	auto &descriptor = wrapper->get<EndpointDescriptor>();
 	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	
 	auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
@@ -556,7 +556,7 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 
 	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
+	Error error = channel.sendDescriptor(channel_guard, AnyDescriptor(*send_wrapper),
 			msg_request, msg_sequence);
 	channel_guard.unlock();
 
@@ -578,16 +578,16 @@ HelError helSubmitRecvString(HelHandle handle,
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto event_hub = (*hub_wrapper)->get<EventHubDescriptor>().getEventHub();
+	auto event_hub = hub_wrapper->get<EventHubDescriptor>().getEventHub();
 
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<EndpointDescriptor>())
+	if(!wrapper->is<EndpointDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	auto &descriptor = wrapper->get<EndpointDescriptor>();
 	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	universe_guard.unlock();
 
@@ -620,16 +620,16 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto event_hub = (*hub_wrapper)->get<EventHubDescriptor>().getEventHub();
+	auto event_hub = hub_wrapper->get<EventHubDescriptor>().getEventHub();
 
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<EndpointDescriptor>())
+	if(!wrapper->is<EndpointDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	auto &descriptor = wrapper->get<EndpointDescriptor>();
 	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	universe_guard.unlock();
 
@@ -679,17 +679,17 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	auto serve_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!serve_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*serve_wrapper)->is<ServerDescriptor>())
+	if(!serve_wrapper->is<ServerDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &serve_desc = (*serve_wrapper)->get<ServerDescriptor>();
+	auto &serve_desc = serve_wrapper->get<ServerDescriptor>();
 	KernelSharedPtr<Server> server(serve_desc.getServer());
 
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &hub_desc = (*hub_wrapper)->get<EventHubDescriptor>();
+	auto &hub_desc = hub_wrapper->get<EventHubDescriptor>();
 	KernelSharedPtr<EventHub> event_hub(hub_desc.getEventHub());
 	universe_guard.unlock();
 	
@@ -712,17 +712,17 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	auto connect_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!connect_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*connect_wrapper)->is<ClientDescriptor>())
+	if(!connect_wrapper->is<ClientDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &connect_desc = (*connect_wrapper)->get<ClientDescriptor>();
+	auto &connect_desc = connect_wrapper->get<ClientDescriptor>();
 	KernelSharedPtr<Server> server(connect_desc.getServer());
 
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &hub_desc = (*hub_wrapper)->get<EventHubDescriptor>();
+	auto &hub_desc = hub_wrapper->get<EventHubDescriptor>();
 	KernelSharedPtr<EventHub> event_hub(hub_desc.getEventHub());
 	universe_guard.unlock();
 
@@ -760,17 +760,17 @@ HelError helRdMount(HelHandle handle, const char *user_name,
 	auto dir_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!dir_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*dir_wrapper)->is<RdDescriptor>())
+	if(!dir_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &dir_desc = (*dir_wrapper)->get<RdDescriptor>();
+	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
 	KernelSharedPtr<RdFolder> directory(dir_desc.getFolder());
 
 	auto mount_wrapper = universe->getDescriptor(universe_guard, mount_handle);
 	if(!mount_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*mount_wrapper)->is<RdDescriptor>())
+	if(!mount_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &mount_desc = (*mount_wrapper)->get<RdDescriptor>();
+	auto &mount_desc = mount_wrapper->get<RdDescriptor>();
 	KernelSharedPtr<RdFolder> mount_directory(mount_desc.getFolder());
 	universe_guard.unlock();
 
@@ -788,16 +788,16 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	auto dir_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!dir_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*dir_wrapper)->is<RdDescriptor>())
+	if(!dir_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &dir_desc = (*dir_wrapper)->get<RdDescriptor>();
+	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
 	KernelSharedPtr<RdFolder> directory(dir_desc.getFolder());
 	
 	// copy the descriptor we want to publish
 	auto publish_wrapper = universe->getDescriptor(universe_guard, publish_handle);
 	if(!publish_wrapper)
 		return kHelErrNoDescriptor;
-	AnyDescriptor publish_copy(**publish_wrapper);
+	AnyDescriptor publish_copy(*publish_wrapper);
 	universe_guard.unlock();
 
 	directory->publish(user_name, name_length, frigg::move(publish_copy));
@@ -885,17 +885,17 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!irq_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*irq_wrapper)->is<IrqDescriptor>())
+	if(!irq_wrapper->is<IrqDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &irq_descriptor = (*irq_wrapper)->get<IrqDescriptor>();
+	auto &irq_descriptor = irq_wrapper->get<IrqDescriptor>();
 	int number = irq_descriptor.getIrqLine()->getNumber();
 	
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*hub_wrapper)->is<EventHubDescriptor>())
+	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &hub_descriptor = (*hub_wrapper)->get<EventHubDescriptor>();
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
 	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
 	universe_guard.unlock();
 
@@ -935,9 +935,9 @@ HelError helEnableIo(HelHandle handle) {
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
-	if(!(*wrapper)->is<IoDescriptor>())
+	if(!wrapper->is<IoDescriptor>())
 		return kHelErrBadDescriptor;
-	auto &descriptor = (*wrapper)->get<IoDescriptor>();
+	auto &descriptor = wrapper->get<IoDescriptor>();
 	KernelSharedPtr<IoSpace> io_space(descriptor.getIoSpace());
 	universe_guard.unlock();
 	

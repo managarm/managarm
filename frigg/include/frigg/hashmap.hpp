@@ -29,16 +29,15 @@ public:
 	friend class Hashmap;
 	public:
 		Iterator &operator++ () {
-			assert(item != nullptr);
-
+			assert(item);
 			item = item->chain;
-			if(item != nullptr)
+			if(item)
 				return *this;
 
 			while(bucket < map.p_capacity) {
 				item = map.p_table[bucket];
 				bucket++;
-				if(item != nullptr)
+				if(item)
 					break;
 			}
 
@@ -57,14 +56,8 @@ public:
 		}
 
 	private:
-		Iterator(Hashmap &map) : map(map), item(nullptr), bucket(0) {
-			while(bucket < map.p_capacity) {
-				item = map.p_table[bucket];
-				bucket++;
-				if(item != nullptr)
-					break;
-			}
-		}
+		Iterator(Hashmap &map, size_t bucket, Item *item)
+		: map(map), item(item), bucket(bucket) { }
 
 		Hashmap &map;
 		Item *item;
@@ -78,11 +71,20 @@ public:
 	void insert(const Key &key, Value &&value);
 
 	Iterator iterator() {
-		return Iterator(*this);
+		if(!p_size)
+			return Iterator(*this, p_capacity, nullptr);
+
+		for(size_t bucket = 0; bucket < p_capacity; bucket++) {
+			if(p_table[bucket])
+				return Iterator(*this, bucket, p_table[bucket]);
+		}
+		
+		assert(!"Hashmap corrupted");
+		__builtin_unreachable();
 	}
 	
 	template<typename KeyCompatible>
-	Optional<Value *> get(const KeyCompatible &key);
+	Value *get(const KeyCompatible &key);
 
 	Optional<Value> remove(const Key &key);
 
@@ -144,7 +146,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 template<typename KeyCompatible>
-Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatible &key) {
+Value *Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatible &key) {
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
@@ -152,7 +154,7 @@ Optional<Value *> Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatibl
 			return &item->entry.template get<1>();
 	}
 
-	return Optional<Value *>();
+	return nullptr;
 }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>

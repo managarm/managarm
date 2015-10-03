@@ -78,7 +78,7 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 	if(seperator == size_t(-1)) {
 		auto entry = entries.get(path);
 		if(entry) {
-			(**entry)->openSelf(process, callback);
+			(*entry)->openSelf(process, callback);
 		}else if((flags & MountSpace::kOpenCreat) != 0) {
 			StdSharedPtr<Inode> inode;
 			if((mode & MountSpace::kOpenHelfd) != 0) {
@@ -104,7 +104,7 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 			callback(StdSharedPtr<VfsOpenFile>());
 			return;
 		}
-		auto directory = frigg::staticPtrCast<DirectoryNode>(**entry);
+		auto directory = frigg::staticPtrCast<DirectoryNode>(*entry);
 		directory->openEntry(process, tail, flags, mode, callback);
 	}
 }
