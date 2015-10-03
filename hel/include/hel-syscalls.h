@@ -139,8 +139,8 @@ DEFINE_SYSCALL(WaitForEvents, HelHandle handle,
 	OUT(0, size_t, num_items)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateBiDirectionPipe, HelHandle *first, HelHandle *second)
-	DO_SYSCALL(CreateBiDirectionPipe)
+DEFINE_SYSCALL(CreateFullPipe, HelHandle *first, HelHandle *second)
+	DO_SYSCALL(CreateFullPipe)
 	OUT(0, HelHandle, first)
 	OUT(1, HelHandle, second)
 END_SYSCALL()

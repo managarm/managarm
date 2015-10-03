@@ -57,26 +57,14 @@ private:
 // IPC related descriptors
 // --------------------------------------------------------
 
-// Reads from the first channel, writes to the second
-class BiDirectionFirstDescriptor {
+class EndpointDescriptor {
 public:
-	BiDirectionFirstDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe);
+	EndpointDescriptor(KernelSharedPtr<Endpoint> &&endpoint);
 	
-	KernelUnsafePtr<BiDirectionPipe> getPipe();
+	KernelUnsafePtr<Endpoint> getEndpoint();
 
 private:
-	KernelSharedPtr<BiDirectionPipe> p_pipe;
-};
-
-// Reads from the second channel, writes to the first
-class BiDirectionSecondDescriptor {
-public:
-	BiDirectionSecondDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe);
-	
-	KernelUnsafePtr<BiDirectionPipe> getPipe();
-
-private:
-	KernelSharedPtr<BiDirectionPipe> p_pipe;
+	KernelSharedPtr<Endpoint> p_endpoint;
 };
 
 class ServerDescriptor {
@@ -145,8 +133,7 @@ typedef frigg::Variant<MemoryAccessDescriptor,
 		AddressSpaceDescriptor,
 		ThreadObserveDescriptor,
 		EventHubDescriptor,
-		BiDirectionFirstDescriptor,
-		BiDirectionSecondDescriptor,
+		EndpointDescriptor,
 		ServerDescriptor,
 		ClientDescriptor,
 		RdDescriptor,

@@ -175,19 +175,37 @@ Channel::Request::Request(MsgType type,
 		filterRequest(filter_request), filterSequence(filter_sequence) { }
 
 // --------------------------------------------------------
-// BiDirectionPipe
+// FullPipe
 // --------------------------------------------------------
 
-BiDirectionPipe::BiDirectionPipe() {
-
+void FullPipe::create(KernelSharedPtr<FullPipe> &pipe,
+		KernelSharedPtr<Endpoint> &end1, KernelSharedPtr<Endpoint> &end2) {
+	pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+	end1 = frigg::makeShared<Endpoint>(*kernelAlloc, pipe, 0, 1);
+	end2 = frigg::makeShared<Endpoint>(*kernelAlloc, pipe, 1, 0);
 }
 
-Channel *BiDirectionPipe::getFirstChannel() {
-	return &p_firstChannel;
+Channel &FullPipe::getChannel(size_t index) {
+	return p_channels[index];
 }
 
-Channel *BiDirectionPipe::getSecondChannel() {
-	return &p_secondChannel;
+// --------------------------------------------------------
+// Endpoint
+// --------------------------------------------------------
+
+Endpoint::Endpoint(KernelSharedPtr<FullPipe> pipe,
+		size_t read_index, size_t write_index)
+: p_pipe(pipe), p_readIndex(read_index), p_writeIndex(write_index) { }
+
+KernelUnsafePtr<FullPipe> Endpoint::getPipe() {
+	return p_pipe;
+}
+
+size_t Endpoint::getReadIndex() {
+	return p_readIndex;
+}
+size_t Endpoint::getWriteIndex() {
+	return p_writeIndex;
 }
 
 // --------------------------------------------------------
@@ -227,18 +245,19 @@ void Server::submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 
 void Server::processRequests(const AcceptRequest &accept,
 		const ConnectRequest &connect) {
-	auto pipe = frigg::makeShared<BiDirectionPipe>(*kernelAlloc);
-	KernelSharedPtr<BiDirectionPipe> copy(pipe);
+	KernelSharedPtr<FullPipe> pipe;
+	KernelSharedPtr<Endpoint> end1, end2;
+	FullPipe::create(pipe, end1, end2);
 
 	UserEvent accept_event(UserEvent::kTypeAccept, accept.submitInfo);
-	accept_event.pipe = frigg::move(pipe);
+	accept_event.endpoint = frigg::move(end1);
 	
 	EventHub::Guard accept_hub_guard(&accept.eventHub->lock);
 	accept.eventHub->raiseEvent(accept_hub_guard, frigg::move(accept_event));
 	accept_hub_guard.unlock();
 
 	UserEvent connect_event(UserEvent::kTypeConnect, connect.submitInfo);
-	connect_event.pipe = frigg::move(copy);
+	connect_event.endpoint = frigg::move(end2);
 	
 	EventHub::Guard connect_hub_guard(&connect.eventHub->lock);
 	connect.eventHub->raiseEvent(connect_hub_guard, frigg::move(connect_event));

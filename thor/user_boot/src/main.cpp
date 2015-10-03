@@ -136,7 +136,7 @@ struct StartFreeContext {
 
 void startAcpi() {
 	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");
@@ -156,7 +156,7 @@ void startAcpi() {
 
 void startLdServer() {
 	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");
@@ -181,7 +181,7 @@ void startLdServer() {
 
 void startPosixSubsystem() {
 	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createBiDirection(child_pipe, parent_pipe);
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");

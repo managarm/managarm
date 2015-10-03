@@ -37,25 +37,14 @@ KernelUnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 }
 
 // --------------------------------------------------------
-// BiDirectionFirstDescriptor
+// EndpointDescriptor
 // --------------------------------------------------------
 
-BiDirectionFirstDescriptor::BiDirectionFirstDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
-		: p_pipe(frigg::move(pipe)) { }
+EndpointDescriptor::EndpointDescriptor(KernelSharedPtr<Endpoint> &&endpoint)
+		: p_endpoint(frigg::move(endpoint)) { }
 
-KernelUnsafePtr<BiDirectionPipe> BiDirectionFirstDescriptor::getPipe() {
-	return p_pipe;
-}
-
-// --------------------------------------------------------
-// BiDirectionSecondDescriptor
-// --------------------------------------------------------
-
-BiDirectionSecondDescriptor::BiDirectionSecondDescriptor(KernelSharedPtr<BiDirectionPipe> &&pipe)
-		: p_pipe(frigg::move(pipe)) { }
-
-KernelUnsafePtr<BiDirectionPipe> BiDirectionSecondDescriptor::getPipe() {
-	return p_pipe;
+KernelUnsafePtr<Endpoint> EndpointDescriptor::getEndpoint() {
+	return p_endpoint;
 }
 
 // --------------------------------------------------------

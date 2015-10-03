@@ -133,9 +133,9 @@ private:
 
 class Pipe {
 public:
-	static inline void createBiDirection(Pipe &first, Pipe &second) {
+	static inline void createFullPipe(Pipe &first, Pipe &second) {
 		HelHandle first_handle, second_handle;
-		HEL_CHECK(helCreateBiDirectionPipe(&first_handle, &second_handle));
+		HEL_CHECK(helCreateFullPipe(&first_handle, &second_handle));
 		first = Pipe(first_handle);
 		second = Pipe(second_handle);
 	}

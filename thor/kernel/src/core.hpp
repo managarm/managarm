@@ -63,6 +63,7 @@ class Thread;
 class EventHub;
 class Channel;
 class BiDirectionPipe;
+class Endpoint;
 class Server;
 class RdFolder;
 class IrqLine;

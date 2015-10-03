@@ -39,7 +39,7 @@ struct UserEvent {
 	size_t length;
 
 	// used by kTypeAccept, kTypeConnect
-	KernelSharedPtr<BiDirectionPipe> pipe;
+	KernelSharedPtr<Endpoint> endpoint;
 
 	// used by kTypeRecvDescriptor
 	AnyDescriptor descriptor;

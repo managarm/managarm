@@ -21,9 +21,8 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 	if(!wrapper)
 		return kHelErrNoDescriptor;
 	switch((*wrapper)->tag()) {
-	case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>():
-	case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>():
-		user_info->type = kHelDescChannel;
+	case AnyDescriptor::tagOf<EndpointDescriptor>():
+		user_info->type = kHelDescEndpoint;
 		break;
 	case AnyDescriptor::tagOf<EventHubDescriptor>():
 		user_info->type = kHelDescEventHub;
@@ -445,7 +444,7 @@ HelError helWaitForEvents(HelHandle handle,
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
-					BiDirectionFirstDescriptor(frigg::move(event.pipe)));
+					EndpointDescriptor(frigg::move(event.endpoint)));
 			universe_guard.unlock();
 		} break;
 		case UserEvent::kTypeConnect: {
@@ -454,7 +453,7 @@ HelError helWaitForEvents(HelHandle handle,
 
 			universe_guard.lock();
 			user_evt->handle = universe->attachDescriptor(universe_guard,
-					BiDirectionSecondDescriptor(frigg::move(event.pipe)));
+					EndpointDescriptor(frigg::move(event.endpoint)));
 			universe_guard.unlock();
 		} break;
 		case UserEvent::kTypeIrq: {
@@ -477,19 +476,20 @@ HelError helWaitForEvents(HelHandle handle,
 }
 
 
-HelError helCreateBiDirectionPipe(HelHandle *first_handle,
+HelError helCreateFullPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto pipe = frigg::makeShared<BiDirectionPipe>(*kernelAlloc);
-	KernelSharedPtr<BiDirectionPipe> copy(pipe);
+	KernelSharedPtr<FullPipe> pipe;
+	KernelSharedPtr<Endpoint> end1, end2;
+	FullPipe::create(pipe, end1, end2);
 
 	Universe::Guard universe_guard(&universe->lock);
 	*first_handle = universe->attachDescriptor(universe_guard,
-			BiDirectionFirstDescriptor(frigg::move(pipe)));
+			EndpointDescriptor(frigg::move(end1)));
 	*second_handle = universe->attachDescriptor(universe_guard,
-			BiDirectionSecondDescriptor(frigg::move(copy)));
+			EndpointDescriptor(frigg::move(end2)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -506,37 +506,19 @@ HelError helSendString(HelHandle handle,
 	Universe::Guard universe_guard(&universe->lock);
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
-		infoLogger->log() << "No descriptor " << handle << frigg::EndLog();
-	if(!wrapper)
 		return kHelErrNoDescriptor;
-
-	switch((*wrapper)->tag()) {
-		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionFirstDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			universe_guard.unlock();
-
-			Channel *channel = pipe->getSecondChannel();
-			
-			Channel::Guard channel_guard(&channel->lock);
-			channel->sendString(channel_guard, user_buffer, length,
-					msg_request, msg_sequence);
-			channel_guard.unlock();
-		} break;
-		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionSecondDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getFirstChannel();
-			
-			Channel::Guard channel_guard(&channel->lock);
-			channel->sendString(channel_guard, user_buffer, length,
-					msg_request, msg_sequence);
-			channel_guard.unlock();
-		} break;
-		default: {
-			return kHelErrBadDescriptor;
-		}
-	}
+	if(!(*wrapper)->is<EndpointDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
+	universe_guard.unlock();
+	
+	size_t write_index = endpoint->getWriteIndex();
+	Channel &channel = endpoint->getPipe()->getChannel(write_index);
+	
+	Channel::Guard channel_guard(&channel.lock);
+	channel.sendString(channel_guard, user_buffer, length, msg_request, msg_sequence);
+	channel_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -552,37 +534,23 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
+	if(!(*wrapper)->is<EndpointDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	
 	auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
 	if(!send_wrapper)
 		return kHelErrNoDescriptor;
 	universe_guard.unlock();
+	
+	size_t write_index = endpoint->getWriteIndex();
+	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 
-	switch((*wrapper)->tag()) {
-		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionFirstDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getSecondChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
-					msg_request, msg_sequence);
-			channel_guard.unlock();
-		} break;
-		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionSecondDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getFirstChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
-					msg_request, msg_sequence);
-			channel_guard.unlock();
-		} break;
-		default: {
-			return kHelErrBadDescriptor;
-		}
-	}
+	Channel::Guard channel_guard(&channel.lock);
+	channel.sendDescriptor(channel_guard, AnyDescriptor(**send_wrapper),
+			msg_request, msg_sequence);
+	channel_guard.unlock();
 
 	return kHelErrNone;
 }
@@ -605,39 +573,21 @@ HelError helSubmitRecvString(HelHandle handle,
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
+	if(!(*wrapper)->is<EndpointDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	universe_guard.unlock();
+
+	size_t read_index = endpoint->getReadIndex();
+	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
-	switch((*wrapper)->tag()) {
-		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionFirstDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getFirstChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-					user_buffer, max_length,
-					filter_request, filter_sequence,
-					submit_info);
-			channel_guard.unlock();
-		} break;
-		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionSecondDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getSecondChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-					user_buffer, max_length,
-					filter_request, filter_sequence,
-					submit_info);
-			channel_guard.unlock();
-		} break;
-		default: {
-			return kHelErrBadDescriptor;
-		}
-	}
+	Channel::Guard channel_guard(&channel.lock);
+	channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
+			user_buffer, max_length, filter_request, filter_sequence, submit_info);
+	channel_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 
@@ -662,35 +612,21 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
 		return kHelErrNoDescriptor;
+	if(!(*wrapper)->is<EndpointDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &descriptor = (*wrapper)->get<EndpointDescriptor>();
+	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	universe_guard.unlock();
+
+	size_t read_index = endpoint->getReadIndex();
+	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
-	switch((*wrapper)->tag()) {
-		case AnyDescriptor::tagOf<BiDirectionFirstDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionFirstDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getFirstChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-					filter_request, filter_sequence, submit_info);
-			channel_guard.unlock();
-		} break;
-		case AnyDescriptor::tagOf<BiDirectionSecondDescriptor>(): {
-			auto &descriptor = (*wrapper)->get<BiDirectionSecondDescriptor>();
-			KernelSharedPtr<BiDirectionPipe> pipe(descriptor.getPipe());
-			Channel *channel = pipe->getSecondChannel();
-
-			Channel::Guard channel_guard(&channel->lock);
-			channel->submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-					filter_request, filter_sequence, submit_info);
-			channel_guard.unlock();
-		} break;
-		default: {
-			return kHelErrBadDescriptor;
-		}
-	}
+	Channel::Guard channel_guard(&channel.lock);
+	channel.submitRecvDescriptor(channel_guard, KernelSharedPtr<EventHub>(event_hub),
+			filter_request, filter_sequence, submit_info);
+	channel_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 

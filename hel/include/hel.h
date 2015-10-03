@@ -30,7 +30,7 @@ enum {
 	kHelCallCreateEventHub = 13,
 	kHelCallWaitForEvents = 16,
 
-	kHelCallCreateBiDirectionPipe = 4,
+	kHelCallCreateFullPipe = 4,
 	kHelCallSendString = 8,
 	kHelCallSendDescriptor = 28,
 	kHelCallSubmitRecvString = 9,
@@ -112,7 +112,7 @@ enum {
 	kHelDescAddressSpace = 2,
 	kHelDescThread = 3,
 	kHelDescEventHub = 4,
-	kHelDescChannel = 5,
+	kHelDescEndpoint = 5,
 	kHelDescServer = 6,
 	kHelDescClient = 7,
 	kHelDescDirectory = 8,
@@ -169,7 +169,7 @@ HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 		struct HelEvent *list, size_t max_items,
 		HelNanotime max_time, size_t *num_items);
 
-HEL_C_LINKAGE HelError helCreateBiDirectionPipe(HelHandle *first,
+HEL_C_LINKAGE HelError helCreateFullPipe(HelHandle *first,
 		HelHandle *second);
 HEL_C_LINKAGE HelError helSendString(HelHandle handle,
 		const void *buffer, size_t length,

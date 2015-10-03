@@ -367,10 +367,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		thorRtReturnSyscall2((Word)error, (Word)num_items);
 	}
 
-	case kHelCallCreateBiDirectionPipe: {
+	case kHelCallCreateFullPipe: {
 		HelHandle first;
 		HelHandle second;
-		HelError error = helCreateBiDirectionPipe(&first, &second);
+		HelError error = helCreateFullPipe(&first, &second);
 		thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
 	}
 	case kHelCallSendString: {

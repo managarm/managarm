@@ -69,16 +69,32 @@ private:
 	frigg::LinkedList<Request, KernelAlloc> p_requests;
 };
 
-class BiDirectionPipe {
-public:
-	BiDirectionPipe();
+class Endpoint;
 
-	Channel *getFirstChannel();
-	Channel *getSecondChannel();
+class FullPipe {
+public:
+	static void create(KernelSharedPtr<FullPipe> &pipe,
+			KernelSharedPtr<Endpoint> &end1, KernelSharedPtr<Endpoint> &end2);
+
+	Channel &getChannel(size_t index);
 
 private:
-	Channel p_firstChannel;
-	Channel p_secondChannel;
+	Channel p_channels[2];
+};
+
+class Endpoint {
+public:
+	Endpoint(KernelSharedPtr<FullPipe> pipe, size_t read_index, size_t write_index);
+
+	KernelUnsafePtr<FullPipe> getPipe();
+
+	size_t getReadIndex();
+	size_t getWriteIndex();
+
+private:
+	KernelSharedPtr<FullPipe> p_pipe;
+	size_t p_readIndex;
+	size_t p_writeIndex;
 };
 
 class Server {
