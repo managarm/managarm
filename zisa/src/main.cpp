@@ -752,6 +752,7 @@ uint8_t stack2[4096];
 #include <sys/helfd.h>
 
 int main() {
+	/*
 	printf("Hello world\n");
 
 	int fd = open("/dev/hw", O_RDONLY);
@@ -773,5 +774,20 @@ int main() {
 	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));
 
 	HEL_CHECK(helControlKernel(kThorSubDebug, kThorIfDebugMemory, nullptr, nullptr));
+	*/
+
+	/*
+	int64_t fork_id;
+	fork_id = fork();
+
+	if(fork_id == -1){
+		printf("Error while forking\n");
+		return -1;
+	}
+	if(fork_id == 0) {
+	}
+	*/
+
+	execve("vga_terminal", nullptr, nullptr);
 }
 

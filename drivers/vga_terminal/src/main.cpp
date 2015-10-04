@@ -20,9 +20,13 @@
 #include "char_device.pb.h"
 
 uint8_t *videoMemoryPointer;
-uint8_t screenPosition;
+int xPosition = 0;
+int yPosition = 0;
+int width = 80;
+int height = 25;
 
-helx::EventHub eventHub;
+
+helx::EventHub eventHub = helx::EventHub::create();
 
 struct LibcAllocator {
 	void *allocate(size_t length) {
@@ -36,17 +40,52 @@ struct LibcAllocator {
 
 LibcAllocator allocator;
 
+void setChar(char character, int x, int y, uint8_t color) {
+	int position = y * width + x;
+	videoMemoryPointer[position * 2] = character;
+	videoMemoryPointer[position * 2 + 1] = color;
+}
+void setChar(char character, int x, int y) {
+	setChar(character, x, y, 0x0F); 
+}
+
+char getChar(int x, int y) {
+	int position = y * width + x;
+	return videoMemoryPointer[position * 2];
+}
+uint8_t getColor(int x, int y) {
+	int position = y * width + x;
+	return videoMemoryPointer[position * 2 + 1];
+}
+
 void printChar(char character, uint8_t color) {
-	videoMemoryPointer[screenPosition] = character;
-	screenPosition++;
-	videoMemoryPointer[screenPosition] = color;
-	screenPosition++;
+	if(character == '\n') {
+		yPosition++;
+		xPosition = 0;
+	}else{
+		setChar(character, xPosition, yPosition, color);
+		xPosition++;
+		if(xPosition >= width) {
+			xPosition = 0;
+			yPosition++;
+		}
+	}
+	if(yPosition >= height) {
+		for(int i = 1; i < height; i++) {
+			for(int j = 0; j < width; j++) {
+				char moved_char = getChar(j, i);
+				uint8_t moved_color = getColor(j, i);
+				setChar(moved_char, j, i - 1, moved_color);
+			}
+		}
+		for(int j = 0; j < width; j++) {
+			setChar(' ', j, height - 1, 0x0F);
+		}
+		yPosition = height - 1;
+	}
 }
 void printChar(char character) {
-	videoMemoryPointer[screenPosition] = character;
-	screenPosition++;
-	videoMemoryPointer[screenPosition] = 0x0F;
-	screenPosition++;
+	printChar(character, 0x0F);
 }
 
 void printString(const char *array, size_t length){
@@ -55,7 +94,7 @@ void printString(const char *array, size_t length){
 	}
 }
 
-void screen() {
+void initializeScreen() {
 	// note: the vga test mode memory is actually 4000 bytes long
 	HelHandle screen_memory;
 	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
@@ -65,94 +104,18 @@ void screen() {
 			kHelMapReadWrite, &actual_pointer));
 	
 	videoMemoryPointer = (uint8_t *)actual_pointer;
-
-	char string[] = "Hello World";
-	printString(string, sizeof(string));
-
-	asm volatile ( "" : : : "memory" );
-}
-
-void requestLoop(helx::Pipe pipe) {
-	struct Context {
-		Context(helx::Pipe pipe) : pipe(std::move(pipe)) { }
-
-		uint8_t buffer[128];
-		helx::Pipe pipe;
-	};
-
-	auto routine =
-	frigg::asyncRepeatUntil(
-		frigg::asyncSeq(
-			frigg::wrapFuncPtr<helx::RecvStringFunction>([] (auto *context,
-					void *cb_object, auto cb_function) {
-				context->pipe.recvString(context->buffer, 128, eventHub,
-						kHelAnyRequest, kHelAnySequence,
-						cb_object, cb_function);
-			}),
-			frigg::wrapFunctor([] (auto *context, auto callback, HelError error,
-					int64_t msg_request, int64_t msg_seq, size_t length) {
-				HEL_CHECK(error);
-
-				managarm::char_device::ClientRequest client_request;
-				client_request.ParseFromArray(context->buffer, length);
-				printString(client_request.chars().data(), client_request.chars().size());
-
-				callback(true);
-			})
-		)
-	);
-
-	frigg::runAsync<Context>(allocator, routine, std::move(pipe));
-}
-
-void acceptLoop(helx::Server server) {
-	struct Context {
-		Context(helx::Server server) : server(std::move(server)) { }
-
-		helx::Server server;
-	};
-
-	auto routine =
-	frigg::asyncRepeatUntil(
-		frigg::asyncSeq(
-			frigg::wrapFuncPtr<helx::AcceptFunction>([] (auto *context,
-					void *cb_object, auto cb_function) {
-				context->server.accept(eventHub, cb_object, cb_function);
-			}),
-			frigg::wrapFunctor([] (Context *context, auto callback, HelError error,
-					HelHandle handle) {
-				HEL_CHECK(error);
-				requestLoop(helx::Pipe(handle));
-				callback(true);
-			})
-		)
-	);
-	
-	frigg::runAsync<Context>(allocator, routine, std::move(server));
-}
-
-void on_connect(void *object, HelError error, HelHandle handle) {
-	managarm::char_device::ClientRequest x;
-	x.set_chars("Hello world");
-
-	std::string serialized;
-	x.SerializeToString(&serialized);
-
-	helx::Pipe pipe(handle);
-	pipe.sendString(serialized.data(), serialized.length(),
-			0, 0);
 }
 
 int main() {
-	screen();
+	initializeScreen();
 
-	helx::Server server;
-	helx::Client client;
-	helx::Server::createServer(server, client);
-	acceptLoop(std::move(server));
+	for(int i = 1; i <= 30; i++) {
+		char string[64];
+		sprintf(string, "Hello %d\n", i);
+		printString(string, strlen(string));
+	}
 
-	client.connect(eventHub, nullptr, &on_connect);
-	client.reset();
+	asm volatile ( "" : : : "memory" );
 
 	while(true) {
 		eventHub.defaultProcessEvents();
