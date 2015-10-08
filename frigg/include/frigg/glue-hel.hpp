@@ -2,6 +2,7 @@
 #ifndef FRIGG_GLUE_HEL_HPP
 #define FRIGG_GLUE_HEL_HPP
 
+#include <frigg/cxx-support.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/initializer.hpp>
 #include <frigg/memory.hpp>

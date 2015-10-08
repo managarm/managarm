@@ -12,21 +12,21 @@ namespace frigg {
 // SharedPtr
 // --------------------------------------------------------
 
-template<typename T, typename Allocator>
+template<typename T>
 class SharedPtr;
 
-template<typename T, typename Allocator>
+template<typename T>
 class WeakPtr;
 
-template<typename T, typename Allocator>
+template<typename T>
 class UnsafePtr;
 
-template<typename Allocator>
 struct SharedBlock {
 	typedef void (*DeleteFuncPtr) (SharedBlock *block);
 
-	SharedBlock(Allocator &allocator, DeleteFuncPtr delete_object)
-	: allocator(allocator), refCount(1), weakCount(1), deleteObject(delete_object) { }
+	SharedBlock(DeleteFuncPtr destruct_function, DeleteFuncPtr free_function)
+	: refCount(1), weakCount(1),
+			destructFunction(destruct_function), freeFunction(free_function) { }
 
 	SharedBlock(const SharedBlock &other) = delete;
 
@@ -37,10 +37,10 @@ struct SharedBlock {
 		assert(volatileRead<int>(&weakCount) == 0);
 	}
 
-	Allocator &allocator;
 	int refCount;
 	int weakCount;
-	DeleteFuncPtr deleteObject;
+	DeleteFuncPtr destructFunction;
+	DeleteFuncPtr freeFunction;
 };
 
 template<typename T>
@@ -65,54 +65,59 @@ union SharedStorage {
 };
 
 template<typename T, typename Allocator>
-struct SharedStruct {
-	static void deleteObject(SharedBlock<Allocator> *block) {
+struct SharedStruct : public SharedBlock {
+	static void destructFunction(SharedBlock *block) {
 		auto *self = reinterpret_cast<SharedStruct *>(block);
 		self->storage.destruct();
 	}
 
+	static void freeFunction(SharedBlock *block) {
+		auto *self = reinterpret_cast<SharedStruct *>(block);
+		destruct(self->allocator, self);
+	}
+
 	template<typename... Args>
 	SharedStruct(Allocator &allocator, Args &&... args)
-	: block(allocator, &deleteObject) {
+	: SharedBlock(&destructFunction, &freeFunction), allocator(allocator) {
 		storage.construct(forward<Args>(args)...);
 	}
 
-	SharedBlock<Allocator> block;
 	SharedStorage<T> storage;
+	Allocator &allocator;
 };
 
 namespace details {
 
 struct Cast {
-	template<typename U, typename T, typename Allocator>
-	static SharedPtr<U, Allocator> staticPtrCast(SharedPtr<T, Allocator> pointer) {
-		SharedPtr<U, Allocator> result(pointer.p_block, static_cast<U *>(pointer.p_object));
+	template<typename U, typename T>
+	static SharedPtr<U> staticPtrCast(SharedPtr<T> pointer) {
+		SharedPtr<U> result(pointer.p_block, static_cast<U *>(pointer.p_object));
 		// reset the input pointer to keep the ref count accurate
 		pointer.p_block = nullptr;
 		pointer.p_object = nullptr;
 		return move(result);
 	}
 	
-	template<typename U, typename T, typename Allocator>
-	static UnsafePtr<U, Allocator> staticPtrCast(UnsafePtr<T, Allocator> pointer) {
-		return UnsafePtr<U, Allocator>(pointer.p_block, static_cast<U *>(pointer.p_object));
+	template<typename U, typename T>
+	static UnsafePtr<U> staticPtrCast(UnsafePtr<T> pointer) {
+		return UnsafePtr<U>(pointer.p_block, static_cast<U *>(pointer.p_object));
 	}
 };
 
 } // namespace details
 
-template<typename T, typename Allocator>
+template<typename T>
 class SharedPtr {
-	friend class UnsafePtr<T, Allocator>;
+	friend class UnsafePtr<T>;
 
 	friend class details::Cast;
 
 public:
-	template<typename... Args>
+	template<typename Allocator, typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
 		auto shared_struct = construct<SharedStruct<T, Allocator>>
 				(allocator, allocator, forward<Args>(args)...);
-		return SharedPtr<T, Allocator>(reinterpret_cast<SharedBlock<Allocator> *>(shared_struct),
+		return SharedPtr(static_cast<SharedBlock *>(shared_struct),
 				&(*shared_struct->storage));
 	}
 
@@ -132,9 +137,9 @@ public:
 		}
 	}
 	
-	explicit SharedPtr(const WeakPtr<T, Allocator> &weak);
+	explicit SharedPtr(const WeakPtr<T> &weak);
 	
-	explicit SharedPtr(const UnsafePtr<T, Allocator> &unsafe);
+	explicit SharedPtr(const UnsafePtr<T> &unsafe);
 
 	SharedPtr(SharedPtr &&other) {
 		p_block = other.p_block;
@@ -163,13 +168,13 @@ public:
 		int old_ref_count;
 		fetchDec(&p_block->refCount, old_ref_count);
 		if(old_ref_count == 1) {
-			p_block->deleteObject(p_block);
+			p_block->destructFunction(p_block);
 
 			int old_weak_count;
 			fetchDec(&p_block->weakCount, old_weak_count);
 			assert(old_weak_count > 0);
 			if(old_weak_count == 1)
-				destruct(p_block->allocator, p_block);
+				p_block->freeFunction(p_block);
 		}
 		p_block = nullptr;
 		p_object = nullptr;
@@ -186,22 +191,22 @@ public:
 	}
 
 private:
-	SharedPtr(SharedBlock<Allocator> *block, T *object)
+	SharedPtr(SharedBlock *block, T *object)
 	: p_block(block), p_object(object) { }
 
-	SharedBlock<Allocator> *p_block;
+	SharedBlock *p_block;
 	T *p_object;
 };
 	
-template<typename U, typename T, typename Allocator>
-SharedPtr<U, Allocator> staticPtrCast(SharedPtr<T, Allocator> pointer) {
+template<typename U, typename T>
+SharedPtr<U> staticPtrCast(SharedPtr<T> pointer) {
 	return details::Cast::staticPtrCast<U>(pointer);
 }
 
-template<typename T, typename Allocator>
+template<typename T>
 class WeakPtr {
-	friend class SharedPtr<T, Allocator>;
-	friend class UnsafePtr<T, Allocator>;
+	friend class SharedPtr<T>;
+	friend class UnsafePtr<T>;
 public:
 	WeakPtr() : p_block(nullptr), p_object(nullptr) { }
 	
@@ -219,7 +224,7 @@ public:
 		}
 	}
 	
-	explicit WeakPtr(const UnsafePtr<T, Allocator> &unsafe);
+	explicit WeakPtr(const UnsafePtr<T> &unsafe);
 
 	WeakPtr(WeakPtr &&other) {
 		p_block = other.p_block;
@@ -249,27 +254,27 @@ public:
 		fetchDec(&p_block->weakCount, old_weak_count);
 		assert(old_weak_count > 0);
 		if(old_weak_count == 1)
-			destruct(p_block->allocator, p_block);
+			p_block->freeFunction(p_block);
 		
 		p_block = nullptr;
 		p_object = nullptr;
 	}
 
 private:
-	SharedBlock<Allocator> *p_block;
+	SharedBlock *p_block;
 	T *p_object;
 };
 
-template<typename T, typename Allocator>
+template<typename T>
 class UnsafePtr {
-	friend class WeakPtr<T, Allocator>;
-	friend class SharedPtr<T, Allocator>;
+	friend class WeakPtr<T>;
+	friend class SharedPtr<T>;
 
 	friend class details::Cast;
 public:
 	UnsafePtr() : p_block(nullptr), p_object(nullptr) { }
 	
-	UnsafePtr(const SharedPtr<T, Allocator> &shared)
+	UnsafePtr(const SharedPtr<T> &shared)
 	: p_block(shared.p_block), p_object(shared.p_object) { }
 
 	operator bool () {
@@ -284,17 +289,17 @@ public:
 	}
 
 private:
-	SharedBlock<Allocator> *p_block;
+	SharedBlock *p_block;
 	T *p_object;
 };
 	
-template<typename U, typename T, typename Allocator>
-UnsafePtr<U, Allocator> staticPtrCast(UnsafePtr<T, Allocator> pointer) {
+template<typename U, typename T>
+UnsafePtr<U> staticPtrCast(UnsafePtr<T> pointer) {
 	return details::Cast::staticPtrCast<U>(pointer);
 }
 
-template<typename T, typename Allocator>
-SharedPtr<T, Allocator>::SharedPtr(const WeakPtr<T, Allocator> &weak)
+template<typename T>
+SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
 : p_block(weak.p_block), p_object(weak.p_object) {
 	int last_ref_count = volatileRead<int>(&p_block->refCount);
 	while(true) {
@@ -312,16 +317,16 @@ SharedPtr<T, Allocator>::SharedPtr(const WeakPtr<T, Allocator> &weak)
 	}
 }
 
-template<typename T, typename Allocator>
-SharedPtr<T, Allocator>::SharedPtr(const UnsafePtr<T, Allocator> &unsafe)
+template<typename T>
+SharedPtr<T>::SharedPtr(const UnsafePtr<T> &unsafe)
 : p_block(unsafe.p_block), p_object(unsafe.p_object) {
 	int old_ref_count;
 	fetchInc<int>(&p_block->refCount, old_ref_count);
 	assert(old_ref_count > 0);
 }
 
-template<typename T, typename Allocator>
-WeakPtr<T, Allocator>::WeakPtr(const UnsafePtr<T, Allocator> &unsafe)
+template<typename T>
+WeakPtr<T>::WeakPtr(const UnsafePtr<T> &unsafe)
 : p_block(unsafe.p_block), p_object(unsafe.p_object) {
 	int old_weak_count;
 	fetchInc<int>(&p_block->weakCount, old_weak_count);
@@ -329,8 +334,8 @@ WeakPtr<T, Allocator>::WeakPtr(const UnsafePtr<T, Allocator> &unsafe)
 }
 
 template<typename T, typename Allocator, typename... Args>
-SharedPtr<T, Allocator> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T, Allocator>::make(allocator, forward<Args>(args)...);
+SharedPtr<T> makeShared(Allocator &allocator, Args&&... args) {
+	return SharedPtr<T>::make(allocator, forward<Args>(args)...);
 }
 
 // --------------------------------------------------------

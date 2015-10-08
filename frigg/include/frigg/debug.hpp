@@ -2,6 +2,8 @@
 #ifndef FRIGG_DEBUG_HPP
 #define FRIGG_DEBUG_HPP
 
+#include <frigg/traits.hpp>
+
 namespace frigg {
 
 class VirtualSink {

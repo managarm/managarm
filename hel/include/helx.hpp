@@ -2,6 +2,9 @@
 #ifndef HELX_HPP
 #define HELX_HPP
 
+#include <frigg/cxx-support.hpp>
+#include <frigg/algorithm.hpp>
+
 #include <hel.h>
 #include <hel-syscalls.h>
 
@@ -187,13 +190,13 @@ public:
 		HEL_CHECK(helSendDescriptor(p_handle, send_handle, msg_request, msg_seq));
 	}
 
-	inline void recvString(void *buffer, size_t max_length,
+	inline HelError recvString(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			void *object, RecvStringFunction function) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
+		return helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				(uintptr_t)function, (uintptr_t)object, &async_id));
+				(uintptr_t)function, (uintptr_t)object, &async_id);
 	}
 
 	inline void recvStringSync(void *buffer, size_t max_length,

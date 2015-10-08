@@ -717,7 +717,7 @@ int main() {
 #include <sys/stat.h>
 #include <fcntl.h>
 
-helx::EventHub eventHub;
+helx::EventHub eventHub = helx::EventHub::create();
 
 struct LibcAllocator {
 	void *allocate(size_t length) {

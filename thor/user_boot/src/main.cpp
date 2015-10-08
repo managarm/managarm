@@ -121,6 +121,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 helx::EventHub eventHub = helx::EventHub::create();
 helx::Client ldServerConnect;
 helx::Client acpiConnect;
+helx::Client mbusConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe posixPipe;
 
@@ -154,6 +155,26 @@ void startAcpi() {
 	acpiConnect = helx::Client(connect_handle);
 }
 
+void startMbus() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
+
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	loadImage("initrd/mbus", directory.getHandle(), false);
+	
+	// receive a client handle from the child process
+	HelError recv_error;
+	HelHandle connect_handle;
+	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+			recv_error, connect_handle);
+	HEL_CHECK(recv_error);
+	mbusConnect = helx::Client(connect_handle);
+}
+
 void startLdServer() {
 	helx::Pipe parent_pipe, child_pipe;
 	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
@@ -185,6 +206,7 @@ void startPosixSubsystem() {
 
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");
+	local_directory.publish(mbusConnect.getHandle(), "mbus");
 	local_directory.publish(ldServerConnect.getHandle(), "rtdl-server");
 	
 	auto directory = helx::Directory::create();
@@ -279,6 +301,7 @@ int main() {
 	allocator.initialize(virtualAlloc);
 	
 	startAcpi();
+	startMbus();
 	startLdServer();
 	startPosixSubsystem();
 	runPosixInit();

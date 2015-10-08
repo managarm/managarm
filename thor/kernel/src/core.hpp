@@ -37,13 +37,13 @@ extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 template<typename T>
-using KernelSharedPtr = frigg::SharedPtr<T, KernelAlloc>;
+using KernelSharedPtr = frigg::SharedPtr<T>;
 
 template<typename T>
-using KernelWeakPtr = frigg::WeakPtr<T, KernelAlloc>;
+using KernelWeakPtr = frigg::WeakPtr<T>;
 
 template<typename T>
-using KernelUnsafePtr = frigg::UnsafePtr<T, KernelAlloc>;
+using KernelUnsafePtr = frigg::UnsafePtr<T>;
 
 // --------------------------------------------------------
 // Kernel data types

@@ -1,0 +1,49 @@
+
+package managarm.mbus;
+
+option optimize_for = LITE_RUNTIME;
+
+message Capability {
+	optional string name = 1;
+}
+
+message Interface {
+	optional string name = 1;
+}
+
+enum CntReqType {
+	REGISTER = 1;
+	INTERFACE = 2;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+
+	// used by REGISTER
+	repeated Capability caps = 2;
+	repeated Interface ifs = 3;
+	
+	// used by INTERFACE
+	optional int64 object_id = 4;
+}
+
+message SvrResponse {
+	// answer to REGISTER
+	optional int64 object_id = 1;
+}
+
+enum SvrReqType {
+	BROADCAST = 1;
+}
+
+message SvrRequest {
+	optional SvrReqType req_type = 1;
+	
+	// used by BROADCAST
+	optional int64 object_id = 2;
+
+	// used by BROADCAST
+	repeated Capability caps = 3;
+	repeated Interface ifs = 4;
+}
+

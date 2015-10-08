@@ -132,9 +132,9 @@ void requestLoop(helx::Pipe pipe) {
 		frigg::asyncSeq(
 			frigg::wrapFuncPtr<helx::RecvStringFunction>([] (auto *context,
 					void *cb_object, auto cb_function) {
-				context->pipe.recvString(context->buffer, 128, eventHub,
+				HEL_CHECK(context->pipe.recvString(context->buffer, 128, eventHub,
 						kHelAnyRequest, kHelAnySequence,
-						cb_object, cb_function);
+						cb_object, cb_function));
 			}),
 			frigg::wrapFunctor([] (auto *context, auto callback, HelError error,
 					int64_t msg_request, int64_t msg_seq, size_t length) {

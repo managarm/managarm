@@ -2,6 +2,9 @@
 #ifndef FRIGG_CALLBACK_HPP
 #define FRIGG_CALLBACK_HPP
 
+#include <frigg/traits.hpp>
+#include <frigg/memory.hpp>
+
 namespace frigg {
 
 template<typename Prototype>

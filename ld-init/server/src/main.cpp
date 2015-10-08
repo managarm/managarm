@@ -266,8 +266,8 @@ RequestClosure::RequestClosure(helx::Pipe pipe)
 
 void RequestClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	pipe.recvString(buffer, 128, eventHub,
-			kHelAnyRequest, 0, callback.getObject(), callback.getFunction());
+	HEL_CHECK(pipe.recvString(buffer, 128, eventHub,
+			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
 }
 
 void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,

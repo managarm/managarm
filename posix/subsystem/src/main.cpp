@@ -30,10 +30,13 @@
 #include "dev_fs.hpp"
 
 #include "posix.frigg_pb.hpp"
+#include "mbus.frigg_pb.hpp"
 
 helx::EventHub eventHub = helx::EventHub::create();
+helx::Client mbusConnect;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
+helx::Pipe mbusPipe;
 	
 void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &response,
 		int64_t msg_request) {
@@ -350,8 +353,13 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 void RequestClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	pipe->recvString(buffer, 128, eventHub,
+	HelError error = pipe->recvString(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction());
+	if(error == kHelErrPipeClosed) {
+		suicide(*allocator);
+		return;
+	}
+	HEL_CHECK(error);
 }
 
 void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
@@ -403,6 +411,49 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 			process, iteration);
 }
 
+// --------------------------------------------------------
+// MbusClosure
+// --------------------------------------------------------
+
+struct MbusClosure : public frigg::BaseClosure<MbusClosure> {
+	void operator() ();
+
+private:
+	void recvBroadcast(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length);
+
+	uint8_t buffer[128];
+};
+
+void MbusClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvBroadcast);
+	HEL_CHECK(mbusPipe.recvString(buffer, 128, eventHub,
+			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
+}
+
+bool hasCapability(const managarm::mbus::SvrRequest<Allocator> &svr_request,
+		frigg::StringView name) {
+	for(size_t i = 0; i < svr_request.caps_size(); i++)
+		if(svr_request.caps(i).name() == name)
+			return true;
+	return false;
+}
+
+void MbusClosure::recvBroadcast(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	infoLogger->log() << "Broadcast!" << frigg::EndLog();
+
+	managarm::mbus::SvrRequest<Allocator> svr_request(*allocator);
+	svr_request.ParseFromArray(buffer, length);
+
+	if(hasCapability(svr_request, "block-device"))
+		infoLogger->log() << "New block device!" << frigg::EndLog();
+}
+
+// --------------------------------------------------------
+// main() function
+// --------------------------------------------------------
+
 typedef void (*InitFuncPtr) ();
 extern InitFuncPtr __init_array_start[];
 extern InitFuncPtr __init_array_end[];
@@ -417,6 +468,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 	
+	// connect to the ld-server
 	const char *ld_path = "local/rtdl-server";
 	HelHandle ld_handle;
 	HEL_CHECK(helRdOpen(ld_path, strlen(ld_path), &ld_handle));
@@ -425,10 +477,23 @@ int main() {
 	int64_t ld_connect_id;
 	HEL_CHECK(helSubmitConnect(ldServerConnect.getHandle(), eventHub.getHandle(),
 			0, 0, &ld_connect_id));
-	HelError connect_error;
-	eventHub.waitForConnect(ld_connect_id, connect_error, ldServerPipe);
-	HEL_CHECK(connect_error);
+	HelError ld_connect_error;
+	eventHub.waitForConnect(ld_connect_id, ld_connect_error, ldServerPipe);
+	HEL_CHECK(ld_connect_error);
 
+	// connect to mbus
+	const char *mbus_path = "local/mbus";
+	HelHandle mbus_handle;
+	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
+	mbusConnect = helx::Client(mbus_handle);
+	
+	HelError mbus_connect_error;
+	mbusConnect.connectSync(eventHub, mbus_connect_error, mbusPipe);
+	HEL_CHECK(mbus_connect_error);
+
+	frigg::runClosure<MbusClosure>(*allocator);
+
+	// start our own server
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);

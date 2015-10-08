@@ -100,11 +100,7 @@ private:
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 Hashmap<Key, Value, Hasher, Allocator>::Hashmap(const Hasher &hasher, Allocator &allocator)
-		: p_hasher(hasher), p_allocator(allocator), p_capacity(10), p_size(0) {
-	p_table = (Item **)allocator.allocate(sizeof(Item *) * p_capacity);
-	for(size_t i = 0; i < p_capacity; i++)
-		p_table[i] = nullptr;
-}
+: p_hasher(hasher), p_allocator(allocator), p_table(nullptr), p_capacity(0), p_size(0) { }
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
@@ -121,9 +117,10 @@ Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value &value) {
-	if(p_size > p_capacity)
+	if(p_size >= p_capacity)
 		rehash();
 
+	assert(p_capacity > 0);
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
 	auto item = construct<Item>(p_allocator, key, value);
@@ -133,9 +130,10 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 }
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&value) {
-	if(p_size > p_capacity)
+	if(p_size >= p_capacity)
 		rehash();
 
+	assert(p_capacity > 0);
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
 	auto item = construct<Item>(p_allocator, key, move(value));
@@ -147,6 +145,9 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 template<typename KeyCompatible>
 Value *Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatible &key) {
+	if(p_size == 0)
+		return nullptr;
+
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 
 	for(Item *item = p_table[bucket]; item != nullptr; item = item->chain) {
@@ -159,6 +160,9 @@ Value *Hashmap<Key, Value, Hasher, Allocator>::get(const KeyCompatible &key) {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
+	if(p_size == 0)
+		return Optional<Value>();
+
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
 	Item *previous = nullptr;
@@ -186,6 +190,9 @@ Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 void Hashmap<Key, Value, Hasher, Allocator>::rehash() {
 	size_t new_capacity = 2 * p_size;
+	if(new_capacity < 10)
+		new_capacity = 10;
+
 	Item **new_table = (Item **)p_allocator.allocate(sizeof(Item *) * new_capacity);
 	for(size_t i = 0; i < new_capacity; i++)
 		new_table[i] = nullptr;
@@ -214,6 +221,15 @@ template<>
 class DefaultHasher<uint64_t> {
 public:
 	unsigned int operator() (uint64_t v) {
+		static_assert(sizeof(unsigned int) == 4, "Expected sizeof(int) == 4");
+		return (unsigned int)(v ^ (v >> 32));
+	}
+};
+
+template<>
+class DefaultHasher<int64_t> {
+public:
+	unsigned int operator() (int64_t v) {
 		static_assert(sizeof(unsigned int) == 4, "Expected sizeof(int) == 4");
 		return (unsigned int)(v ^ (v >> 32));
 	}

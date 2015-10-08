@@ -27,6 +27,7 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	directory.mount(configDirectory.getHandle(), "config");
 	directory.mount(localDirectory.getHandle(), "local");
 
+	configDirectory.publish(mbusConnect.getHandle(), "mbus");
 	configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
 	
 	helx::Server server;

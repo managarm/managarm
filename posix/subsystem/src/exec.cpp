@@ -42,8 +42,8 @@ frigg::asyncSeq(
 		request.SerializeToString(&serialized);
 		ldServerPipe.sendString(serialized.data(), serialized.size(), 1, 0);
 		
-		ldServerPipe.recvString(context->buffer, 128, eventHub,
-				1, 0, cb_object, cb_function);
+		HEL_CHECK(ldServerPipe.recvString(context->buffer, 128, eventHub,
+				1, 0, cb_object, cb_function));
 	}),
 	frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
 			int64_t msg_request, int64_t msg_seq, size_t length) {

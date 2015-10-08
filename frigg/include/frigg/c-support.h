@@ -20,7 +20,11 @@ void __assert_fail(const char *assertion,
 }
 #endif
 
-#elif !defined(FRIGG_HAVE_LIBC)
+#elif defined(FRIGG_HAVE_LIBC)
+
+#include <stdint.h>
+
+#else
 #error "Define either FRIGG_HAVE_LIBC or FRIGG_NO_LIBC"
 #endif // FRIGG_NO_LIBC
 

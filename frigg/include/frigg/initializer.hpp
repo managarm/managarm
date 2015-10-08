@@ -21,6 +21,10 @@ public:
 	}
 
 	T *get() {
+		assert(p_initialized);
+		return reinterpret_cast<T *>(p_object);
+	}
+	T* unsafeGet() {
 		return reinterpret_cast<T *>(p_object);
 	}
 
@@ -29,11 +33,9 @@ public:
 	}
 
 	T *operator-> () {
-		assert(p_initialized);
 		return get();
 	}
 	T &operator* () {
-		assert(p_initialized);
 		return *get();
 	}
 
