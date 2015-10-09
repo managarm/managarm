@@ -22,6 +22,7 @@ void protobuf_ShutdownFile_mbus_2eproto() {
   delete CntRequest::default_instance_;
   delete SvrResponse::default_instance_;
   delete SvrRequest::default_instance_;
+  delete CntResponse::default_instance_;
 }
 
 #ifdef GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
@@ -41,11 +42,13 @@ void protobuf_AddDesc_mbus_2eproto() {
   CntRequest::default_instance_ = new CntRequest();
   SvrResponse::default_instance_ = new SvrResponse();
   SvrRequest::default_instance_ = new SvrRequest();
+  CntResponse::default_instance_ = new CntResponse();
   Capability::default_instance_->InitAsDefaultInstance();
   Interface::default_instance_->InitAsDefaultInstance();
   CntRequest::default_instance_->InitAsDefaultInstance();
   SvrResponse::default_instance_->InitAsDefaultInstance();
   SvrRequest::default_instance_->InitAsDefaultInstance();
+  CntResponse::default_instance_->InitAsDefaultInstance();
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_mbus_2eproto);
 }
 
@@ -76,6 +79,7 @@ bool CntReqType_IsValid(int value) {
 bool SvrReqType_IsValid(int value) {
   switch(value) {
     case 1:
+    case 2:
       return true;
     default:
       return false;
@@ -1672,6 +1676,165 @@ SvrRequest::mutable_ifs() {
   // @@protoc_insertion_point(field_mutable_list:managarm.mbus.SvrRequest.ifs)
   return &ifs_;
 }
+
+#endif  // PROTOBUF_INLINE_NOT_IN_HEADERS
+
+// ===================================================================
+
+#ifndef _MSC_VER
+#endif  // !_MSC_VER
+
+CntResponse::CntResponse()
+  : ::google::protobuf::MessageLite(), _arena_ptr_(NULL) {
+  SharedCtor();
+  // @@protoc_insertion_point(constructor:managarm.mbus.CntResponse)
+}
+
+void CntResponse::InitAsDefaultInstance() {
+}
+
+CntResponse::CntResponse(const CntResponse& from)
+  : ::google::protobuf::MessageLite(),
+    _arena_ptr_(NULL) {
+  SharedCtor();
+  MergeFrom(from);
+  // @@protoc_insertion_point(copy_constructor:managarm.mbus.CntResponse)
+}
+
+void CntResponse::SharedCtor() {
+  _cached_size_ = 0;
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+}
+
+CntResponse::~CntResponse() {
+  // @@protoc_insertion_point(destructor:managarm.mbus.CntResponse)
+  SharedDtor();
+}
+
+void CntResponse::SharedDtor() {
+  #ifdef GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
+  if (this != &default_instance()) {
+  #else
+  if (this != default_instance_) {
+  #endif
+  }
+}
+
+void CntResponse::SetCachedSize(int size) const {
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+}
+const CntResponse& CntResponse::default_instance() {
+#ifdef GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
+  protobuf_AddDesc_mbus_2eproto();
+#else
+  if (default_instance_ == NULL) protobuf_AddDesc_mbus_2eproto();
+#endif
+  return *default_instance_;
+}
+
+CntResponse* CntResponse::default_instance_ = NULL;
+
+CntResponse* CntResponse::New(::google::protobuf::Arena* arena) const {
+  CntResponse* n = new CntResponse;
+  if (arena != NULL) {
+    arena->Own(n);
+  }
+  return n;
+}
+
+void CntResponse::Clear() {
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+  mutable_unknown_fields()->clear();
+}
+
+bool CntResponse::MergePartialFromCodedStream(
+    ::google::protobuf::io::CodedInputStream* input) {
+#define DO_(EXPRESSION) if (!(EXPRESSION)) goto failure
+  ::google::protobuf::uint32 tag;
+  ::google::protobuf::io::StringOutputStream unknown_fields_string(
+      mutable_unknown_fields());
+  ::google::protobuf::io::CodedOutputStream unknown_fields_stream(
+      &unknown_fields_string);
+  // @@protoc_insertion_point(parse_start:managarm.mbus.CntResponse)
+  for (;;) {
+    ::std::pair< ::google::protobuf::uint32, bool> p = input->ReadTagWithCutoff(127);
+    tag = p.first;
+    if (!p.second) goto handle_unusual;
+  handle_unusual:
+    if (tag == 0 ||
+        ::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+        ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
+      goto success;
+    }
+    DO_(::google::protobuf::internal::WireFormatLite::SkipField(
+        input, tag, &unknown_fields_stream));
+  }
+success:
+  // @@protoc_insertion_point(parse_success:managarm.mbus.CntResponse)
+  return true;
+failure:
+  // @@protoc_insertion_point(parse_failure:managarm.mbus.CntResponse)
+  return false;
+#undef DO_
+}
+
+void CntResponse::SerializeWithCachedSizes(
+    ::google::protobuf::io::CodedOutputStream* output) const {
+  // @@protoc_insertion_point(serialize_start:managarm.mbus.CntResponse)
+  output->WriteRaw(unknown_fields().data(),
+                   unknown_fields().size());
+  // @@protoc_insertion_point(serialize_end:managarm.mbus.CntResponse)
+}
+
+int CntResponse::ByteSize() const {
+  int total_size = 0;
+
+  total_size += unknown_fields().size();
+
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = total_size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+  return total_size;
+}
+
+void CntResponse::CheckTypeAndMergeFrom(
+    const ::google::protobuf::MessageLite& from) {
+  MergeFrom(*::google::protobuf::down_cast<const CntResponse*>(&from));
+}
+
+void CntResponse::MergeFrom(const CntResponse& from) {
+  if (GOOGLE_PREDICT_FALSE(&from == this)) MergeFromFail(__LINE__);
+  mutable_unknown_fields()->append(from.unknown_fields());
+}
+
+void CntResponse::CopyFrom(const CntResponse& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool CntResponse::IsInitialized() const {
+
+  return true;
+}
+
+void CntResponse::Swap(CntResponse* other) {
+  if (other == this) return;
+  InternalSwap(other);
+}
+void CntResponse::InternalSwap(CntResponse* other) {
+  _unknown_fields_.swap(other->_unknown_fields_);
+  std::swap(_cached_size_, other->_cached_size_);
+}
+
+::std::string CntResponse::GetTypeName() const {
+  return "managarm.mbus.CntResponse";
+}
+
+#if PROTOBUF_INLINE_NOT_IN_HEADERS
+// CntResponse
 
 #endif  // PROTOBUF_INLINE_NOT_IN_HEADERS
 

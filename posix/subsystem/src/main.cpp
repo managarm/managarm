@@ -412,6 +412,35 @@ void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteratio
 }
 
 // --------------------------------------------------------
+// QueryDeviceIfClosure
+// --------------------------------------------------------
+
+struct QueryDeviceIfClosure {
+	QueryDeviceIfClosure(int64_t request_id);
+
+	void operator() ();
+
+private:
+	void recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle);
+
+	int64_t requestId;
+};
+
+QueryDeviceIfClosure::QueryDeviceIfClosure(int64_t request_id)
+: requestId(request_id) { }
+
+void QueryDeviceIfClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &QueryDeviceIfClosure::recvdPipe);
+	mbusPipe.recvDescriptor(eventHub, requestId, 1,
+			callback.getObject(), callback.getFunction());
+}
+
+void QueryDeviceIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msq_seq,
+		HelHandle handle) {
+	infoLogger->log() << "QueryIf complete" << frigg::EndLog();
+}
+
+// --------------------------------------------------------
 // MbusClosure
 // --------------------------------------------------------
 
@@ -419,14 +448,13 @@ struct MbusClosure : public frigg::BaseClosure<MbusClosure> {
 	void operator() ();
 
 private:
-	void recvBroadcast(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length);
+	void recvdBroadcast(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 	uint8_t buffer[128];
 };
 
 void MbusClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvBroadcast);
+	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdBroadcast);
 	HEL_CHECK(mbusPipe.recvString(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
 }
@@ -439,15 +467,26 @@ bool hasCapability(const managarm::mbus::SvrRequest<Allocator> &svr_request,
 	return false;
 }
 
-void MbusClosure::recvBroadcast(HelError error, int64_t msg_request, int64_t msg_seq,
+void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
-	infoLogger->log() << "Broadcast!" << frigg::EndLog();
-
 	managarm::mbus::SvrRequest<Allocator> svr_request(*allocator);
 	svr_request.ParseFromArray(buffer, length);
 
-	if(hasCapability(svr_request, "block-device"))
+	if(hasCapability(svr_request, "block-device")) {
 		infoLogger->log() << "New block device!" << frigg::EndLog();
+
+		managarm::mbus::CntRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+		request.set_object_id(svr_request.object_id());
+
+		frigg::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		mbusPipe.sendString(serialized.data(), serialized.size(), 1, 0);
+
+		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
+	}
+
+	(*this)();
 }
 
 // --------------------------------------------------------

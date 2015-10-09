@@ -14,6 +14,10 @@
 
 helx::EventHub eventHub = helx::EventHub::create();
 
+// --------------------------------------------------------
+// Capability
+// --------------------------------------------------------
+
 struct Capability {
 	Capability();
 
@@ -23,12 +27,17 @@ struct Capability {
 Capability::Capability()
 : name(*allocator) { }
 
-int64_t nextObjectId = 1;
+// --------------------------------------------------------
+// Object
+// --------------------------------------------------------
+
+class Connection;
 
 struct Object {
 	Object(int64_t object_id);
 
 	const int64_t objectId;
+	frigg::SharedPtr<Connection> connection;
 
 	frigg::Vector<Capability, Allocator> caps;
 };
@@ -39,14 +48,21 @@ Object::Object(int64_t object_id)
 frigg::Hashmap<int64_t, frigg::SharedPtr<Object>, frigg::DefaultHasher<int64_t>, Allocator>
 allObjects(frigg::DefaultHasher<int64_t>(), *(allocator.unsafeGet()));
 
+int64_t nextObjectId = 1;
+
+// --------------------------------------------------------
+// Connection
+// --------------------------------------------------------
+
 struct Connection {
 	Connection(helx::Pipe pipe);
 
 	helx::Pipe pipe;
+	int64_t nextRequestId;
 };
 
 Connection::Connection(helx::Pipe pipe)
-: pipe(frigg::move(pipe)) { }
+: pipe(frigg::move(pipe)), nextRequestId(0) { }
 
 frigg::LazyInitializer<frigg::Vector<frigg::WeakPtr<Connection>, Allocator>> allConnections;
 
@@ -57,6 +73,7 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 			continue;
 
 		managarm::mbus::SvrRequest<Allocator> request(*allocator);
+		request.set_object_id(object->objectId);
 		
 		for(size_t i = 0; i < object->caps.size(); i++) {
 			managarm::mbus::Capability<Allocator> capability(*allocator);
@@ -71,17 +88,57 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 }
 
 // --------------------------------------------------------
+// QueryIfClosure
+// --------------------------------------------------------
+
+struct QueryIfClosure : frigg::BaseClosure<QueryIfClosure> {
+public:
+	QueryIfClosure(frigg::SharedPtr<Connection> query_connection,
+			frigg::SharedPtr<Object> object, int64_t query_request_id,
+			int64_t require_request_id);
+
+	void operator() ();
+
+private:
+	void recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle);
+
+	frigg::SharedPtr<Connection> queryConnection;
+	frigg::SharedPtr<Object> object;
+	int64_t queryRequestId;
+	int64_t requireRequestId;
+};
+
+QueryIfClosure::QueryIfClosure(frigg::SharedPtr<Connection> connection,
+		frigg::SharedPtr<Object> object, int64_t query_request_id, int64_t require_request_id)
+: queryConnection(frigg::move(connection)), object(object),
+		queryRequestId(query_request_id), requireRequestId(require_request_id) { }
+
+void QueryIfClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &QueryIfClosure::recvdPipe);
+	object->connection->pipe.recvDescriptor(eventHub, requireRequestId, 1,
+			callback.getObject(), callback.getFunction());
+}
+
+void QueryIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq,
+		HelHandle handle) {
+	queryConnection->pipe.sendDescriptor(handle, queryRequestId, 1);
+	HEL_CHECK(helCloseDescriptor(handle));
+
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
 struct RequestClosure : frigg::BaseClosure<RequestClosure> {
 public:
-	RequestClosure(frigg::SharedPtr<Connection> object);
+	RequestClosure(frigg::SharedPtr<Connection> connection);
 
 	void operator() ();
 
 private:
-	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 	frigg::SharedPtr<Connection> connection;
 	uint8_t buffer[128];
@@ -91,12 +148,12 @@ RequestClosure::RequestClosure(frigg::SharedPtr<Connection> connection)
 : connection(frigg::move(connection)) { }
 
 void RequestClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
+	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvdRequest);
 	HEL_CHECK(connection->pipe.recvString(buffer, 128, eventHub, kHelAnyRequest, 0,
 			callback.getObject(), callback.getFunction()));
 }
 
-void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
+void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
@@ -110,6 +167,7 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 	switch(request.req_type()) {
 	case managarm::mbus::CntReqType::REGISTER: {
 		auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
+		object->connection = frigg::SharedPtr<Connection>(connection);
 		allObjects.insert(object->objectId, object);
 		
 		for(size_t i = 0; i < request.caps_size(); i++) {
@@ -119,6 +177,23 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 		}
 
 		broadcastRegister(frigg::move(object));
+	} break;
+	case managarm::mbus::CntReqType::QUERY_IF: {
+		frigg::SharedPtr<Object> *object = allObjects.get(request.object_id());
+		assert(object);
+
+		managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
+		require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
+		require_request.set_object_id(request.object_id());
+
+		int64_t require_request_id = (*object)->connection->nextRequestId++;
+		frigg::String<Allocator> serialized(*allocator);
+		require_request.SerializeToString(&serialized);
+		(*object)->connection->pipe.sendString(serialized.data(), serialized.size(),
+				require_request_id, 0);
+	
+		frigg::runClosure<QueryIfClosure>(*allocator, connection,
+				*object, msg_request, require_request_id);
 	} break;
 	default:
 		assert(!"Illegal request type");
@@ -153,7 +228,6 @@ void AcceptClosure::operator() () {
 
 void AcceptClosure::accepted(HelError error, HelHandle handle) {
 	HEL_CHECK(error);
-	infoLogger->log() << "Connected" << frigg::EndLog();
 	
 	auto connection = frigg::makeShared<Connection>(*allocator, helx::Pipe(handle));
 	allConnections->push(frigg::WeakPtr<Connection>(connection));

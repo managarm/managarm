@@ -41,22 +41,24 @@ class Interface;
 class CntRequest;
 class SvrResponse;
 class SvrRequest;
+class CntResponse;
 
 enum CntReqType {
   REGISTER = 1,
-  INTERFACE = 2
+  QUERY_IF = 2
 };
 bool CntReqType_IsValid(int value);
 const CntReqType CntReqType_MIN = REGISTER;
-const CntReqType CntReqType_MAX = INTERFACE;
+const CntReqType CntReqType_MAX = QUERY_IF;
 const int CntReqType_ARRAYSIZE = CntReqType_MAX + 1;
 
 enum SvrReqType {
-  BROADCAST = 1
+  BROADCAST = 1,
+  REQUIRE_IF = 2
 };
 bool SvrReqType_IsValid(int value);
 const SvrReqType SvrReqType_MIN = BROADCAST;
-const SvrReqType SvrReqType_MAX = BROADCAST;
+const SvrReqType SvrReqType_MAX = REQUIRE_IF;
 const int SvrReqType_ARRAYSIZE = SvrReqType_MAX + 1;
 
 // ===================================================================
@@ -656,6 +658,99 @@ class SvrRequest : public ::google::protobuf::MessageLite {
   void InitAsDefaultInstance();
   static SvrRequest* default_instance_;
 };
+// -------------------------------------------------------------------
+
+class CntResponse : public ::google::protobuf::MessageLite {
+ public:
+  CntResponse();
+  virtual ~CntResponse();
+
+  CntResponse(const CntResponse& from);
+
+  inline CntResponse& operator=(const CntResponse& from) {
+    CopyFrom(from);
+    return *this;
+  }
+
+  inline const ::std::string& unknown_fields() const {
+    return _unknown_fields_;
+  }
+
+  inline ::std::string* mutable_unknown_fields() {
+    return &_unknown_fields_;
+  }
+
+  static const CntResponse& default_instance();
+
+  #ifdef GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
+  // Returns the internal default instance pointer. This function can
+  // return NULL thus should not be used by the user. This is intended
+  // for Protobuf internal code. Please use default_instance() declared
+  // above instead.
+  static inline const CntResponse* internal_default_instance() {
+    return default_instance_;
+  }
+  #endif
+
+  void Swap(CntResponse* other);
+
+  // implements Message ----------------------------------------------
+
+  inline CntResponse* New() const { return New(NULL); }
+
+  CntResponse* New(::google::protobuf::Arena* arena) const;
+  void CheckTypeAndMergeFrom(const ::google::protobuf::MessageLite& from);
+  void CopyFrom(const CntResponse& from);
+  void MergeFrom(const CntResponse& from);
+  void Clear();
+  bool IsInitialized() const;
+
+  int ByteSize() const;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input);
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const;
+  void DiscardUnknownFields();
+  int GetCachedSize() const { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  void InternalSwap(CntResponse* other);
+  private:
+  inline ::google::protobuf::Arena* GetArenaNoVirtual() const {
+    return _arena_ptr_;
+  }
+  inline ::google::protobuf::Arena* MaybeArenaPtr() const {
+    return _arena_ptr_;
+  }
+  public:
+
+  ::std::string GetTypeName() const;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  // @@protoc_insertion_point(class_scope:managarm.mbus.CntResponse)
+ private:
+
+  ::std::string _unknown_fields_;
+  ::google::protobuf::Arena* _arena_ptr_;
+
+  ::google::protobuf::uint32 _has_bits_[1];
+  mutable int _cached_size_;
+  #ifdef GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER
+  friend void  protobuf_AddDesc_mbus_2eproto_impl();
+  #else
+  friend void  protobuf_AddDesc_mbus_2eproto();
+  #endif
+  friend void protobuf_AssignDesc_mbus_2eproto();
+  friend void protobuf_ShutdownFile_mbus_2eproto();
+
+  void InitAsDefaultInstance();
+  static CntResponse* default_instance_;
+};
 // ===================================================================
 
 
@@ -1028,7 +1123,13 @@ SvrRequest::mutable_ifs() {
   return &ifs_;
 }
 
+// -------------------------------------------------------------------
+
+// CntResponse
+
 #endif  // !PROTOBUF_INLINE_NOT_IN_HEADERS
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

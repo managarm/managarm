@@ -7,13 +7,14 @@ namespace mbus {
 struct CntReqType {
   enum {
     REGISTER = 1,
-    INTERFACE = 2
+    QUERY_IF = 2
   };
 };
 
 struct SvrReqType {
   enum {
-    BROADCAST = 1
+    BROADCAST = 1,
+    REQUIRE_IF = 2
   };
 };
 
@@ -488,6 +489,51 @@ private:
   int64_t m_object_id;
   Vector<::managarm::mbus::Capability<Allocator>> m_caps;
   Vector<::managarm::mbus::Interface<Allocator>> m_ifs;
+};
+
+template<typename Allocator>
+class CntResponse {
+public:
+  typedef frigg::String<Allocator> String;
+
+  template<typename T>
+  using Vector = frigg::Vector<T, Allocator>;
+
+  CntResponse(Allocator &allocator)
+  : p_allocator(&allocator), p_cachedSize(0) { }
+
+  size_t ByteSize() {
+    p_cachedSize = 0;
+    return p_cachedSize;
+  }
+  size_t GetCachedSize() {
+    return p_cachedSize;
+  }
+
+  void SerializeWithCachedSizesToArray(void *array, size_t length) {
+    frigg::protobuf::BufferWriter writer((uint8_t *)array, length);
+    assert(writer.offset() == length);
+  }
+  void SerializeToString(String *string) {
+    string->resize(ByteSize());
+    SerializeWithCachedSizesToArray(string->data(), string->size());
+  }
+
+  void ParseFromArray(const void *buffer, size_t buffer_size) {
+    const uint8_t *array = static_cast<const uint8_t *>(buffer);
+    frigg::protobuf::BufferReader reader(array, buffer_size);
+    while(!reader.atEnd()) {
+      auto header = fetchHeader(reader);
+      switch(header.field) {
+      default:
+        assert(!"Unexpected field number");
+      }
+    }
+  }
+
+private:
+  Allocator *p_allocator;
+  size_t p_cachedSize;
 };
 
 } } // namespace managarm::mbus

@@ -13,7 +13,7 @@ message Interface {
 
 enum CntReqType {
 	REGISTER = 1;
-	INTERFACE = 2;
+	QUERY_IF = 2;
 }
 
 message CntRequest {
@@ -34,6 +34,7 @@ message SvrResponse {
 
 enum SvrReqType {
 	BROADCAST = 1;
+	REQUIRE_IF = 2;
 }
 
 message SvrRequest {
@@ -45,5 +46,9 @@ message SvrRequest {
 	// used by BROADCAST
 	repeated Capability caps = 3;
 	repeated Interface ifs = 4;
+}
+
+message CntResponse {
+
 }
 
