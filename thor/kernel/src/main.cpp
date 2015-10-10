@@ -155,7 +155,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	const char *mod_path = "initrd";
 	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
-	
 
 	// finally we lauch the user_boot program
 	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
@@ -166,6 +165,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(address_space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive;
+	
+	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
+	ThreadGroup::addThreadToGroup(frigg::move(group), KernelWeakPtr<Thread>(thread));
 	
 	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
@@ -342,6 +344,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helCreateThread((HelHandle)arg0,
 				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
 		thorRtReturnSyscall2((Word)error, (Word)handle);
+	}
+	case kHelCallSubmitJoin: {
+		int64_t async_id;
+		HelError error = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
+				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	}
 	case kHelCallExitThisThread: {
 		HelError error = helExitThisThread();

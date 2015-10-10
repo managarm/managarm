@@ -122,6 +122,13 @@ DEFINE_SYSCALL(CreateThread, HelHandle address_space, HelHandle directory,
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
+DEFINE_SYSCALL(SubmitJoin, HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
+	DO_SYSCALL(SubmitJoin)
+	OUT(0, int64_t, async_id)
+END_SYSCALL()
+
 DEFINE_SYSCALL(ExitThisThread)
 	DO_SYSCALL(ExitThisThread)
 END_SYSCALL()

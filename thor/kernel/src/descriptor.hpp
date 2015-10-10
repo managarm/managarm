@@ -29,14 +29,11 @@ private:
 // Threading related descriptors
 // --------------------------------------------------------
 
-class ThreadObserveDescriptor {
+class ThreadDescriptor {
 public:
-	ThreadObserveDescriptor(KernelSharedPtr<Thread> &&thread);
+	ThreadDescriptor(KernelSharedPtr<Thread> &&thread);
 	
-	KernelUnsafePtr<Thread> getThread();
-
-private:
-	KernelSharedPtr<Thread> p_thread;
+	KernelSharedPtr<Thread> thread;
 };
 
 // --------------------------------------------------------
@@ -131,7 +128,7 @@ private:
 
 typedef frigg::Variant<MemoryAccessDescriptor,
 		AddressSpaceDescriptor,
-		ThreadObserveDescriptor,
+		ThreadDescriptor,
 		EventHubDescriptor,
 		EndpointDescriptor,
 		ServerDescriptor,

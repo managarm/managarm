@@ -4,15 +4,6 @@
 namespace thor {
 
 // --------------------------------------------------------
-// SubmitInfo
-// --------------------------------------------------------
-
-SubmitInfo::SubmitInfo(int64_t async_id,
-		uintptr_t submit_function, uintptr_t submit_object)
-	: asyncId(async_id), submitFunction(submit_function),
-		submitObject(submit_object) { }
-
-// --------------------------------------------------------
 // UserEvent
 // --------------------------------------------------------
 

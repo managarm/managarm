@@ -147,7 +147,8 @@ frigg::asyncSeq(
 
 		HelHandle thread;
 		HEL_CHECK(helCreateThread(context->process->vmSpace, directory.getHandle(),
-				&state, kHelThreadNewUniverse, &thread));
+				&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
+		HEL_CHECK(helCloseDescriptor(thread));
 		callback();
 	})
 );

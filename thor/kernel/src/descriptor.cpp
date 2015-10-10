@@ -26,6 +26,13 @@ KernelUnsafePtr<AddressSpace> AddressSpaceDescriptor::getSpace() {
 }
 
 // --------------------------------------------------------
+// ThreadDescriptor
+// --------------------------------------------------------
+
+ThreadDescriptor::ThreadDescriptor(KernelSharedPtr<Thread> &&thread)
+: thread(frigg::move(thread)) { }
+
+// --------------------------------------------------------
 // EventHubDescriptor
 // --------------------------------------------------------
 

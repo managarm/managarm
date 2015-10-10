@@ -11,8 +11,26 @@ Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<AddressSpace> &&address_space,
 		KernelSharedPtr<RdFolder> &&directory)
 : flags(0), p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory) { }
+		p_directory(directory), p_joined(*kernelAlloc) { }
 
+Thread::~Thread() {
+	while(!p_joined.empty()) {
+		JoinRequest request = p_joined.removeFront();
+
+		UserEvent event(UserEvent::kTypeJoin, request.submitInfo);
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
+		hub_guard.unlock();
+	}
+}
+
+void Thread::setThreadGroup(KernelSharedPtr<ThreadGroup> group) {
+	p_threadGroup = frigg::move(group);
+}
+
+KernelUnsafePtr<ThreadGroup> Thread::getThreadGroup() {
+	return p_threadGroup;
+}
 KernelUnsafePtr<Universe> Thread::getUniverse() {
 	return p_universe;
 }
@@ -21,6 +39,11 @@ KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
 }
 KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
+}
+
+void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
+		SubmitInfo submit_info) {
+	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
 }
 
 void Thread::enableIoPort(uintptr_t port) {
@@ -39,6 +62,29 @@ void Thread::deactivate() {
 ThorRtThreadState &Thread::accessSaveState() {
 	return p_saveState;
 }
+
+// --------------------------------------------------------
+// Thread::JoinRequest
+// --------------------------------------------------------
+
+Thread::JoinRequest::JoinRequest(KernelSharedPtr<EventHub> event_hub,
+		SubmitInfo submit_info)
+: BaseRequest(frigg::move(event_hub), submit_info) { }
+
+// --------------------------------------------------------
+// ThreadGroup
+// --------------------------------------------------------
+
+void ThreadGroup::addThreadToGroup(KernelSharedPtr<ThreadGroup> group,
+		KernelWeakPtr<Thread> thread) {
+	KernelUnsafePtr<Thread> thread_ptr = thread;
+	assert(!thread->getThreadGroup());
+	group->p_members.push(frigg::move(thread));
+	thread_ptr->setThreadGroup(frigg::move(group));
+}
+
+ThreadGroup::ThreadGroup()
+: p_members(*kernelAlloc) { }
 
 // --------------------------------------------------------
 // ThreadQueue

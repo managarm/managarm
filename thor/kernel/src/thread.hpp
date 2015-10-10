@@ -1,6 +1,8 @@
 
 namespace thor {
 
+class ThreadGroup;
+
 class Thread {
 friend class ThreadQueue;
 friend void switchThread(KernelUnsafePtr<Thread> thread);
@@ -10,16 +12,23 @@ public:
 		kFlagExclusive = 1,
 
 		// thread is not enqueued in the scheduling queue
+		// e.g. this is set for the per-cpu idle threads
 		kFlagNotScheduled = 2
 	};
 
 	Thread(KernelSharedPtr<Universe> &&universe,
 			KernelSharedPtr<AddressSpace> &&address_space,
 			KernelSharedPtr<RdFolder> &&directory);
+	~Thread();
 
+	void setThreadGroup(KernelSharedPtr<ThreadGroup> group);
+	
+	KernelUnsafePtr<ThreadGroup> getThreadGroup();
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
+
+	void submitJoin(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 
 	void enableIoPort(uintptr_t port);
 	
@@ -31,6 +40,11 @@ public:
 	uint32_t flags;
 
 private:
+	struct JoinRequest : public BaseRequest {
+		JoinRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+	};
+
+	KernelSharedPtr<ThreadGroup> p_threadGroup;
 	KernelSharedPtr<Universe> p_universe;
 	KernelSharedPtr<AddressSpace> p_addressSpace;
 	KernelSharedPtr<RdFolder> p_directory;
@@ -38,8 +52,20 @@ private:
 	KernelSharedPtr<Thread> p_nextInQueue;
 	KernelUnsafePtr<Thread> p_previousInQueue;
 
+	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
+
 	ThorRtThreadState p_saveState;
 	frigg::arch_x86::Tss64 p_tss;
+};
+
+struct ThreadGroup {
+	static void addThreadToGroup(KernelSharedPtr<ThreadGroup> group,
+			KernelWeakPtr<Thread> thread);
+
+	ThreadGroup();
+
+private:
+	frigg::Vector<KernelWeakPtr<Thread>, KernelAlloc> p_members;
 };
 
 class ThreadQueue {

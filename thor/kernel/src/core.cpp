@@ -87,6 +87,22 @@ CpuContext::CpuContext() {
 }
 
 // --------------------------------------------------------
+// SubmitInfo
+// --------------------------------------------------------
+
+SubmitInfo::SubmitInfo(int64_t async_id,
+		uintptr_t submit_function, uintptr_t submit_object)
+	: asyncId(async_id), submitFunction(submit_function),
+		submitObject(submit_object) { }
+
+// --------------------------------------------------------
+// BaseRequest
+// --------------------------------------------------------
+
+BaseRequest::BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info)
+: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
+
+// --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
 

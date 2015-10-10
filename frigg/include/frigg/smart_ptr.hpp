@@ -259,6 +259,10 @@ public:
 		p_block = nullptr;
 		p_object = nullptr;
 	}
+	
+	T *operator-> () {
+		return p_object;
+	}
 
 private:
 	SharedBlock *p_block;
@@ -276,6 +280,9 @@ public:
 	
 	UnsafePtr(const SharedPtr<T> &shared)
 	: p_block(shared.p_block), p_object(shared.p_object) { }
+	
+	UnsafePtr(const WeakPtr<T> &weak)
+	: p_block(weak.p_block), p_object(weak.p_object) { }
 
 	operator bool () {
 		return p_block != nullptr;

@@ -90,6 +90,23 @@ struct Timer {
 	KernelWeakPtr<Thread> thread;
 };
 
+struct SubmitInfo {
+	SubmitInfo(int64_t async_id, uintptr_t submit_function,
+			uintptr_t submit_object);
+	
+	int64_t asyncId;
+	uintptr_t submitFunction;
+	uintptr_t submitObject;
+};
+
+// this is a base class for async request classes
+struct BaseRequest {
+	BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+	
+	KernelSharedPtr<EventHub> eventHub;
+	SubmitInfo submitInfo;
+};
+
 } // namespace thor
 
 #include "descriptor.hpp"

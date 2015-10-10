@@ -9,6 +9,9 @@
 #endif
 
 enum {
+	// largest system call number plus 1
+	kHelNumCalls = 38,
+
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
 
@@ -25,6 +28,7 @@ enum {
 	
 	kHelCallCreateThread = 3,
 	kHelCallYield = 34,
+	kHelCallSubmitJoin = 37,
 	kHelCallExitThisThread = 5,
 	
 	kHelCallCreateEventHub = 13,
@@ -87,6 +91,7 @@ struct HelThreadState {
 };
 
 enum {
+	kHelEventJoin = 6,
 	kHelEventRecvString = 1,
 	kHelEventRecvDescriptor = 5,
 	kHelEventAccept = 2,
@@ -138,6 +143,7 @@ enum HelMapFlags {
 
 enum HelThreadFlags {
 	kHelThreadNewUniverse = 1,
+	kHelThreadNewGroup = 4,
 	kHelThreadExclusive = 2
 };
 
@@ -163,6 +169,8 @@ HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
 		HelHandle directory, struct HelThreadState *state,
 		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
+HEL_C_LINKAGE HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helExitThisThread();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);

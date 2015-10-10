@@ -1,19 +1,11 @@
 
 namespace thor {
 
-struct SubmitInfo {
-	SubmitInfo(int64_t async_id, uintptr_t submit_function,
-			uintptr_t submit_object);
-	
-	int64_t asyncId;
-	uintptr_t submitFunction;
-	uintptr_t submitObject;
-};
-
 struct UserEvent {
 	enum Type {
 		kTypeNone,
 		kTypeError,
+		kTypeJoin,
 		kTypeRecvStringTransfer,
 		kTypeRecvDescriptor,
 		kTypeAccept,

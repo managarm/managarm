@@ -293,16 +293,26 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	universe_guard.unlock();
 	
 	KernelSharedPtr<Universe> universe;
-	if((flags & kHelThreadNewUniverse) != 0) {
+	if(flags & kHelThreadNewUniverse) {
 		universe = frigg::makeShared<Universe>(*kernelAlloc);
 	}else{
 		universe = KernelSharedPtr<Universe>(this_universe);
+	}
+
+	KernelSharedPtr<ThreadGroup> group;
+	if(flags & kHelThreadNewGroup) {
+		group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
+	}else{
+		group = KernelSharedPtr<ThreadGroup>(this_thread->getThreadGroup());
 	}
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(address_space), frigg::move(directory));
 	if((flags & kHelThreadExclusive) != 0)
 		new_thread->flags |= Thread::kFlagExclusive;
+	
+	ThreadGroup::addThreadToGroup(frigg::move(group),
+			KernelWeakPtr<Thread>(new_thread));
 	
 	auto base_state = new_thread->accessSaveState().accessGeneralBaseState();
 	base_state->rax = user_state->rax;
@@ -328,22 +338,54 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	base_state->kernel = 0;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
-	activeList->addBack(frigg::move(new_thread));
+	activeList->addBack(KernelSharedPtr<Thread>(new_thread));
 
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	enqueueInSchedule(schedule_guard, new_thread_ptr);
 	schedule_guard.unlock();
 
-//	ThreadObserveDescriptor base(frigg::move(new_thread));
-//	*handle = universe->attachDescriptor(frigg::move(base));
+	universe_guard.lock();
+	*handle = this_universe->attachDescriptor(universe_guard,
+			ThreadDescriptor(frigg::move(new_thread)));
+	universe_guard.unlock();
 
+	return kHelErrNone;
+}
+
+HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!thread_wrapper)
+		return kHelErrNoDescriptor;
+	if(!thread_wrapper->is<ThreadDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &thread_descriptor = thread_wrapper->get<ThreadDescriptor>();
+	KernelSharedPtr<Thread> thread = thread_descriptor.thread;
+	
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
+	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
+	universe_guard.unlock();
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+
+	thread->submitJoin(frigg::move(event_hub), submit_info);
+
+	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
 HelError helExitThisThread() {
 	callOnCpuStack(&dropCurrentThread);
 }
-
 
 HelError helCreateEventHub(HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
@@ -402,19 +444,9 @@ HelError helWaitForEvents(HelHandle handle,
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
-		case UserEvent::kTypeRecvStringTransfer: {
-			user_evt->type = kHelEventRecvString;
+		case UserEvent::kTypeJoin: {
+			user_evt->type = kHelEventJoin;
 			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-
-			// TODO: check userspace page access rights
-	
-			// do the actual memory transfer
-			hub_guard.unlock();
-			memcpy(event.userBuffer, event.kernelBuffer.get(), event.length);
-			hub_guard.lock();
-			user_evt->length = event.length;
 		} break;
 		case UserEvent::kTypeError: {
 			user_evt->type = kHelEventRecvString;
@@ -429,6 +461,20 @@ HelError helWaitForEvents(HelHandle handle,
 			default:
 				assert(!"Unexpected error");
 			}
+		} break;
+		case UserEvent::kTypeRecvStringTransfer: {
+			user_evt->type = kHelEventRecvString;
+			user_evt->error = kHelErrNone;
+			user_evt->msgRequest = event.msgRequest;
+			user_evt->msgSequence = event.msgSequence;
+
+			// TODO: check userspace page access rights
+	
+			// do the actual memory transfer
+			hub_guard.unlock();
+			memcpy(event.userBuffer, event.kernelBuffer.get(), event.length);
+			hub_guard.lock();
+			user_evt->length = event.length;
 		} break;
 		case UserEvent::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;

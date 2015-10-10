@@ -17,6 +17,7 @@ inline void panic(const char *string) {
 	helPanic(string, length);
 }
 
+typedef void (*JoinFunction) (void *, HelError);
 typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
 typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t, HelHandle);
 typedef void (*AcceptFunction) (void *, HelError, HelHandle);
@@ -84,6 +85,10 @@ public:
 		for(int i = 0; i < num_items; i++) {
 			HelEvent &evt = list[i];
 			switch(evt.type) {
+			case kHelEventJoin: {
+				auto function = (JoinFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error);
+			} break;
 			case kHelEventRecvString: {
 				auto function = (RecvStringFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error,
