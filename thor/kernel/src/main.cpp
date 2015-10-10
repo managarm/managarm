@@ -285,111 +285,95 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	switch(index) {
 	case kHelCallLog: {
 		HelError error = helLog((const char *)arg0, (size_t)arg1);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallPanic: {
 		infoLogger->log() << "User space panic:" << frigg::EndLog();
 		helLog((const char *)arg0, (size_t)arg1);
 		
 		while(true) { }
-	}
+	} break;
 
 	case kHelCallDescriptorInfo: {
 		HelError error = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallCloseDescriptor: {
 //		infoLogger->log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		HelError error = helCloseDescriptor((HelHandle)arg0);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
 		HelError error = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
 		HelError error = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallCreateSpace: {
 		HelHandle handle;
 		HelError error = helCreateSpace(&handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallForkSpace: {
 		HelHandle forked;
 		HelError error = helForkSpace((HelHandle)arg0, &forked);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)forked);
-	}
+	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
 		HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
 				(void *)arg2, (size_t)arg3, (uint32_t)arg4, &actual_pointer);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
-	}
+	} break;
 	case kHelCallUnmapMemory: {
 		HelError error = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
 		HelError error = helMemoryInfo((HelHandle)arg0, &size);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)size);
-	}
+	} break;
 
 	case kHelCallCreateThread: {
 		HelHandle handle;
 		HelError error = helCreateThread((HelHandle)arg0,
 				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallSubmitJoin: {
 		int64_t async_id;
 		HelError error = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 	case kHelCallExitThisThread: {
 		HelError error = helExitThisThread();
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 
 	case kHelCallCreateSignal: {
 		HelHandle handle;
 		HelError error = helCreateSignal((void *)arg0, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallRaiseSignal: {
 		HelError error = helRaiseSignal((HelHandle)arg0);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 
 	case kHelCallCreateEventHub: {
 //			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
 		HelError error = helCreateEventHub(&handle);
 //			infoLogger->log() << "    -> " << handle << frigg::EndLog();
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallWaitForEvents: {
 //			infoLogger->log() << "helWaitForEvents(" << (HelHandle)arg0
 //					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
@@ -399,127 +383,109 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helWaitForEvents((HelHandle)arg0,
 				(HelEvent *)arg1, (size_t)arg2, (HelNanotime)arg3,
 				&num_items);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)num_items);
-	}
+	} break;
 
 	case kHelCallCreateFullPipe: {
 		HelHandle first;
 		HelHandle second;
 		HelError error = helCreateFullPipe(&first, &second);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
-	}
+	} break;
 	case kHelCallSendString: {
 //		infoLogger->log() << "helSendString(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		HelError error = helSendString((HelHandle)arg0,
 				(const void *)arg1, (size_t)arg2,
 				(int64_t)arg3, (int64_t)arg4);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallSendDescriptor: {
 		HelError error = helSendDescriptor((HelHandle)arg0, (HelHandle)arg1,
 				(int64_t)arg2, (int64_t)arg3);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallSubmitRecvDescriptor: {
 		int64_t async_id;
 		HelError error = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
 				(int64_t)arg2, (int64_t)arg3,
 				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 	case kHelCallSubmitRecvString: {
 		int64_t async_id;
 		HelError error = helSubmitRecvString((HelHandle)arg0,
 				(HelHandle)arg1, (void *)arg2, (size_t)arg3,
 				(int64_t)arg4, (int64_t)arg5,
 				(uintptr_t)arg6, (uintptr_t)arg7, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 	
 	case kHelCallCreateServer: {
 		HelHandle server_handle;
 		HelHandle client_handle;
 		HelError error = helCreateServer(&server_handle, &client_handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall3((Word)error, (Word)server_handle, (Word)client_handle);
-	}
+	} break;
 	case kHelCallSubmitAccept: {
 		int64_t async_id;
 		HelError error = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 	case kHelCallSubmitConnect: {
 		int64_t async_id;
 		HelError error = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 
 	case kHelCallCreateRd: {
 		HelHandle handle;
 		HelError error = helCreateRd(&handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallRdMount: {
 		HelError error = helRdMount((HelHandle)arg0,
 				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallRdPublish: {
 		HelError error = helRdPublish((HelHandle)arg0,
 				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallRdOpen: {
 		HelHandle handle;
 		HelError error = helRdOpen((const char *)arg0,
 				(size_t)arg1, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 
 	case kHelCallAccessIrq: {
 		HelHandle handle;
 		HelError error = helAccessIrq((int)arg0, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallSubmitWaitForIrq: {
 		int64_t async_id;
 		HelError error = helSubmitWaitForIrq((HelHandle)arg0,
 				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
-	}
+	} break;
 
 	case kHelCallAccessIo: {
 		HelHandle handle;
 		HelError error = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall2((Word)error, (Word)handle);
-	}
+	} break;
 	case kHelCallEnableIo: {
 		HelError error = helEnableIo((HelHandle)arg0);
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	case kHelCallEnableFullIo: {
 		HelError error = helEnableFullIo();
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1((Word)error);
-	}
+	} break;
 	
 	case kHelCallControlKernel: {
 		int subsystem = (int)arg0;
@@ -529,7 +495,6 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 		if(subsystem == kThorSubArch) {
 			controlArch(interface, user_input, user_output);
-			this_thread->issueSignalAfterSyscall();
 			thorRtReturnSyscall1((Word)kHelErrNone);
 		}else if(subsystem == kThorSubDebug) {
 			if(interface == kThorIfDebugMemory) {
@@ -538,7 +503,6 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 						<< ", free: " << physicalAllocator->numFreePages() << "\n"
 						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
 						<< frigg::EndLog();
-				this_thread->issueSignalAfterSyscall();
 				thorRtReturnSyscall1((Word)kHelErrNone);
 			}else{
 				assert(!"Illegal debug interface");
@@ -546,13 +510,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		}else{
 			assert(!"Illegal subsystem");
 		}
-	}
+	} break;
 	default:
-		this_thread->issueSignalAfterSyscall();
 		thorRtReturnSyscall1(kHelErrIllegalSyscall);
 	}
-
 	
-	assert(!"No return at end of thorSyscall()");
+	this_thread->issueSignalAfterSyscall();
 }
 

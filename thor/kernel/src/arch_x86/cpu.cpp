@@ -252,5 +252,29 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	infoLogger->log() << "AP finished booting" << frigg::EndLog();
 }
 
+void thorRtReturnSyscall1(Word out0) {
+	SyscallBaseState *state;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
+			: "i" (ThorRtKernelGs::kOffSyscallState) );
+	state->returnRdi = out0;
+}
+
+void thorRtReturnSyscall2(Word out0, Word out1) {
+	SyscallBaseState *state;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
+			: "i" (ThorRtKernelGs::kOffSyscallState) );
+	state->returnRdi = out0;
+	state->returnRsi = out1;
+}
+
+void thorRtReturnSyscall3(Word out0, Word out1, Word out2) {
+	SyscallBaseState *state;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
+			: "i" (ThorRtKernelGs::kOffSyscallState) );
+	state->returnRdi = out0;
+	state->returnRsi = out1;
+	state->returnRdx = out2;
+}
+
 } // namespace thor
 

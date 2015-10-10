@@ -91,17 +91,15 @@ static_assert(sizeof(FxSaveState) == 512, "Bad sizeof(FxSaveState)");
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct SyscallBaseState {
-	Word rbp;		// offset 0x00
-	Word r12;		// offset 0x08
-	Word r13;		// offset 0x10
-	Word r14;		// offset 0x18
-	Word r15;		// offset 0x20
-	Word rsp;		// offset 0x28
-	Word rip;		// offset 0x30
-	Word rflags;	// offset 0x38
+	Word rsp;		// offset 0x00
+	Word rip;		// offset 0x08
+	Word rflags;	// offset 0x10
+	Word returnRdi; // offset 0x18
+	Word returnRsi; // offset 0x20
+	Word returnRdx; // offset 0x28
 };
 
-static_assert(sizeof(SyscallBaseState) == 0x40, "Bad sizeof(SyscallBaseState)");
+static_assert(sizeof(SyscallBaseState) == 0x30, "Bad sizeof(SyscallBaseState)");
 
 struct ThorRtThreadState {
 	enum {
@@ -188,6 +186,10 @@ void callOnCpuStack(void (*function) ()) __attribute__ (( noreturn ));
 void initializeThisProcessor();
 
 void bootSecondary(uint32_t secondary_apic_id);
+
+void thorRtReturnSyscall1(Word out0);
+void thorRtReturnSyscall2(Word out0, Word out1);
+void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
 
 } // namespace thor
 
