@@ -122,6 +122,9 @@ struct ThorRtThreadState {
 	inline GeneralBaseState *accessGeneralBaseState() {
 		return (GeneralBaseState *)generalState;
 	}
+	inline SyscallBaseState *accessSyscallBaseState() {
+		return (SyscallBaseState *)syscallState;
+	}
 	
 	void *generalState;
 	void *syscallState;

@@ -11,7 +11,7 @@ Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<AddressSpace> &&address_space,
 		KernelSharedPtr<RdFolder> &&directory)
 : flags(0), p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory), p_joined(*kernelAlloc) { }
+		p_directory(directory), p_pendingSignals(*kernelAlloc), p_joined(*kernelAlloc) { }
 
 Thread::~Thread() {
 	while(!p_joined.empty()) {
@@ -41,6 +41,33 @@ KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
 }
 
+void Thread::queueSignal(void *entry) {
+	p_pendingSignals.addBack(PendingSignal(entry));
+}
+
+void Thread::issueSignalAfterSyscall() {
+	if(p_pendingSignals.empty())
+		return;
+	
+	PendingSignal pending = p_pendingSignals.removeFront();
+	infoLogger->log() << "Issuing signal " << pending.entry << frigg::EndLog();
+
+	SyscallBaseState *state = p_saveState.accessSyscallBaseState();
+	uintptr_t stack_addr = state->rsp - 128; // x86_64 red zone
+	if((stack_addr % 32) != 0)
+		stack_addr -= 32 - (stack_addr % 32);
+	
+	// TODO: lock user space memory
+
+	auto *stack = (uint64_t *)stack_addr;
+	*(--stack) = 0;
+	*(--stack) = 0;
+	*(--stack) = state->rsp;
+	*(--stack) = state->rip;
+	state->rsp = (Word)stack;
+	state->rip = (Word)pending.entry;
+}
+
 void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
 		SubmitInfo submit_info) {
 	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
@@ -62,6 +89,13 @@ void Thread::deactivate() {
 ThorRtThreadState &Thread::accessSaveState() {
 	return p_saveState;
 }
+
+// --------------------------------------------------------
+// Thread::PendingSignal
+// --------------------------------------------------------
+
+Thread::PendingSignal::PendingSignal(void *entry)
+: entry(entry) { }
 
 // --------------------------------------------------------
 // Thread::JoinRequest
@@ -157,6 +191,13 @@ KernelSharedPtr<Thread> ThreadQueue::remove(KernelUnsafePtr<Thread> thread) {
 
 	return reference;
 }
+
+// --------------------------------------------------------
+// Signal
+// --------------------------------------------------------
+
+Signal::Signal(void *entry)
+: entry(entry) { }
 
 } // namespace thor
 

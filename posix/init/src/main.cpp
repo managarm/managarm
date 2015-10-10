@@ -28,8 +28,8 @@ int main() {
 
 	if(child == 0) {
 //		execve("vga_terminal", args.data(), envp);
-		execve("ata", args.data(), envp);
-//		execve("zisa", args.data(), envp);
+//		execve("ata", args.data(), envp);
+		execve("zisa", args.data(), envp);
 	}
 }
 

@@ -36,6 +36,13 @@ public:
 	KernelSharedPtr<Thread> thread;
 };
 
+class SignalDescriptor {
+public:
+	SignalDescriptor(KernelSharedPtr<Signal> signal);
+	
+	KernelSharedPtr<Signal> signal;
+};
+
 // --------------------------------------------------------
 // Event related descriptors
 // --------------------------------------------------------
@@ -129,6 +136,7 @@ private:
 typedef frigg::Variant<MemoryAccessDescriptor,
 		AddressSpaceDescriptor,
 		ThreadDescriptor,
+		SignalDescriptor,
 		EventHubDescriptor,
 		EndpointDescriptor,
 		ServerDescriptor,

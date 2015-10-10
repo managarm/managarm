@@ -33,6 +33,13 @@ ThreadDescriptor::ThreadDescriptor(KernelSharedPtr<Thread> &&thread)
 : thread(frigg::move(thread)) { }
 
 // --------------------------------------------------------
+// SignalDescriptor
+// --------------------------------------------------------
+
+SignalDescriptor::SignalDescriptor(KernelSharedPtr<Signal> signal)
+: signal(frigg::move(signal)) { }
+
+// --------------------------------------------------------
 // EventHubDescriptor
 // --------------------------------------------------------
 

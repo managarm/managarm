@@ -751,11 +751,22 @@ uint8_t stack2[4096];
 #include <unistd.h>
 #include <sys/helfd.h>
 
+asm ( ".section .text\n"
+	".global signalEntry\n"
+	"signalEntry:\n"
+	"\tjmp signalEntry" );
+
+extern "C" void signalEntry();
+
 int main() {
 	/*
 	printf("Hello world\n");
 
-	int fd = open("/dev/hw", O_RDONLY);
+	HelHandle handle;
+	HEL_CHECK(helCreateSignal((void *)&signalEntry, &handle));
+	HEL_CHECK(helRaiseSignal(handle));
+
+/*	int fd = open("/dev/hw", O_RDONLY);
 	assert(fd != -1);
 
 	HelHandle handle;
@@ -771,7 +782,7 @@ int main() {
 	
 	state.rip = (uint64_t)&thread2;
 	state.rsp = (uint64_t)(stack2 + 4096);
-	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));*/
 
 	HEL_CHECK(helControlKernel(kThorSubDebug, kThorIfDebugMemory, nullptr, nullptr));
 	*/

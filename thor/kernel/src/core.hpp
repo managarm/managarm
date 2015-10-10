@@ -61,6 +61,7 @@ class Universe;
 class Memory;
 class AddressSpace;
 class Thread;
+class Signal;
 class EventHub;
 class Channel;
 class BiDirectionPipe;
