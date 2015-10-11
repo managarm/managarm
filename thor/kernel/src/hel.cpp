@@ -420,6 +420,27 @@ HelError helRaiseSignal(HelHandle handle) {
 	return kHelErrNone;
 }
 
+HelError helReturnFromSignal() {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	
+	auto *syscall_state = this_thread->accessSaveState().accessSyscallBaseState();
+
+	// TODO: lock user memory
+
+	AdditionalSyscallState additional;
+	auto stack = (uint64_t *)syscall_state->rsp;
+	additional.rbp = *(stack++);
+	additional.r15 = *(stack++);
+	additional.rdx = *(stack++);
+	additional.rsi = *(stack++);
+	additional.rdi = *(stack++);
+	syscall_state->rflags = *(stack++);
+	syscall_state->rip = *(stack++);
+	syscall_state->rsp = *(stack++);
+
+	jumpFromSyscall(&additional);
+}
+
 HelError helCreateEventHub(HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

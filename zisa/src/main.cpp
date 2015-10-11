@@ -751,10 +751,16 @@ uint8_t stack2[4096];
 #include <unistd.h>
 #include <sys/helfd.h>
 
+extern "C" void testSignal() {
+	printf("In signal\n");
+}
+
 asm ( ".section .text\n"
 	".global signalEntry\n"
 	"signalEntry:\n"
-	"\tjmp signalEntry" );
+	"\tcall testSignal\n"
+	"\tmov $40, %rdi\n"
+	"\tsyscall\n" );
 
 extern "C" void signalEntry();
 
@@ -765,6 +771,8 @@ int main() {
 	HelHandle handle;
 	HEL_CHECK(helCreateSignal((void *)&signalEntry, &handle));
 	HEL_CHECK(helRaiseSignal(handle));
+	
+	printf("After signal\n");
 
 /*	int fd = open("/dev/hw", O_RDONLY);
 	assert(fd != -1);

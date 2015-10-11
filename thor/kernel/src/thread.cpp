@@ -48,9 +48,7 @@ void Thread::queueSignal(void *entry) {
 void Thread::issueSignalAfterSyscall() {
 	if(p_pendingSignals.empty())
 		return;
-	
 	PendingSignal pending = p_pendingSignals.removeFront();
-	infoLogger->log() << "Issuing signal " << pending.entry << frigg::EndLog();
 
 	SyscallBaseState *state = p_saveState.accessSyscallBaseState();
 	uintptr_t stack_addr = state->rsp - 128; // x86_64 red zone
@@ -58,12 +56,17 @@ void Thread::issueSignalAfterSyscall() {
 		stack_addr -= 32 - (stack_addr % 32);
 	
 	// TODO: lock user space memory
-
+	
+	// note: make sure we keep the stack 32 byte aligned
 	auto *stack = (uint64_t *)stack_addr;
-	*(--stack) = 0;
-	*(--stack) = 0;
 	*(--stack) = state->rsp;
 	*(--stack) = state->rip;
+	*(--stack) = state->rflags;
+	*(--stack) = state->returnRdi;
+	*(--stack) = state->returnRsi;
+	*(--stack) = state->returnRdx;
+	*(--stack) = state->savedR15;
+	*(--stack) = state->savedRbp;
 	state->rsp = (Word)stack;
 	state->rip = (Word)pending.entry;
 }

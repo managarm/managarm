@@ -366,6 +366,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helRaiseSignal((HelHandle)arg0);
 		thorRtReturnSyscall1((Word)error);
 	} break;
+	case kHelCallReturnFromSignal: {
+		HelError error = helReturnFromSignal();
+		thorRtReturnSyscall1((Word)error);
+	} break;
 
 	case kHelCallCreateEventHub: {
 //			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
