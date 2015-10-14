@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <unistd.h>
+#include <fcntl.h>
+
 #include <string>
 #include <vector>
 #include <experimental/optional>
@@ -13,7 +16,6 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
-#include <frigg/async2.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -32,9 +34,6 @@ enum Status {
 	kStatusEscape,
 	kStatusCsi
 };
-
-
-helx::EventHub eventHub = helx::EventHub::create();
 
 struct LibcAllocator {
 	void *allocate(size_t length) {
@@ -338,23 +337,38 @@ void initializeScreen() {
 	HelHandle screen_memory;
 	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
 
+	// TODO: replace with drop-on-fork?
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
-			kHelMapReadWrite, &actual_pointer));
+			kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
 	
 	videoMemoryPointer = (uint8_t *)actual_pointer;
 }
 
 int main() {
+	printf("Starting vga_terminal\n");
 	initializeScreen();
 
-	char string[64];
-	sprintf(string, "%c[%d;%dmHello World\n", 27, 34, 47);
-	printString(string, strlen(string));
+	int master_fd = open("/dev/pts/ptmx", O_RDWR);
+	assert(master_fd != -1);
 
-	asm volatile ( "" : : : "memory" );
+	int child = fork();
+	assert(child != -1);
+	if(!child) {
+		int slave_fd = open("/dev/pts/1", O_RDWR);
+		assert(slave_fd != -1);
+		dup2(slave_fd, STDIN_FILENO);
+		dup2(slave_fd, STDOUT_FILENO);
+		dup2(slave_fd, STDERR_FILENO);
 
+		execve("zisa", nullptr, nullptr);
+	}
+	
 	while(true) {
-		eventHub.defaultProcessEvents();
+		char string[16];
+		ssize_t length = read(master_fd, string, 16);
+		assert(length != -1);
+		printString(string, length);
 	}
 }
+

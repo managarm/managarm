@@ -526,7 +526,7 @@ HelError helWaitForEvents(HelHandle handle,
 	
 			// do the actual memory transfer
 			hub_guard.unlock();
-			memcpy(event.userBuffer, event.kernelBuffer.get(), event.length);
+			memcpy(event.userBuffer, event.kernelBuffer.data(), event.length);
 			hub_guard.lock();
 			user_evt->length = event.length;
 		} break;

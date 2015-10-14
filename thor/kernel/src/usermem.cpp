@@ -339,7 +339,8 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 	}else if(mapping->type == Mapping::kTypeMemory
 			&& (mapping->flags & Mapping::kFlagShareOnFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-		assert(memory->getType() == Memory::kTypeAllocated);
+		assert(memory->getType() == Memory::kTypeAllocated
+				|| memory->getType() == Memory::kTypePhysical);
 
 		uint32_t page_flags = 0;
 		if(mapping->writePermission)

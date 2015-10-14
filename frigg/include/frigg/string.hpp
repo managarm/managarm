@@ -2,6 +2,8 @@
 #ifndef FRIGG_STRING_HPP
 #define FRIGG_STRING_HPP
 
+#include <frigg/optional.hpp>
+
 namespace frigg {
 
 template<typename Char>
@@ -58,6 +60,17 @@ public:
 	BasicStringView subString(size_t from, size_t size) {
 		assert(from + size <= p_length);
 		return BasicStringView(p_pointer + from, size);
+	}
+
+	template<typename T>
+	Optional<T> toNumber() {
+		T value = 0;
+		for(size_t i = 0; i < p_length; i++) {
+			if(!(p_pointer[i] >= '0' && p_pointer[i] <= '9'))
+				return Optional<T>();
+			value = value * 10 + (p_pointer[i] - '0');
+		}
+		return value;
 	}
 
 private:

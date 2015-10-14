@@ -765,10 +765,9 @@ asm ( ".section .text\n"
 extern "C" void signalEntry();
 
 int main() {
-	/*
 	printf("Hello world\n");
 
-	HelHandle handle;
+/*	HelHandle handle;
 	HEL_CHECK(helCreateSignal((void *)&signalEntry, &handle));
 	HEL_CHECK(helRaiseSignal(handle));
 	
@@ -793,20 +792,5 @@ int main() {
 	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, &state, 0, &handle1));*/
 
 	HEL_CHECK(helControlKernel(kThorSubDebug, kThorIfDebugMemory, nullptr, nullptr));
-	*/
-
-	/*
-	int64_t fork_id;
-	fork_id = fork();
-
-	if(fork_id == -1){
-		printf("Error while forking\n");
-		return -1;
-	}
-	if(fork_id == 0) {
-	}
-	*/
-
-	execve("vga_terminal", nullptr, nullptr);
 }
 

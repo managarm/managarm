@@ -2,8 +2,9 @@
 #ifndef FRIGG_SMART_PTR_HPP
 #define FRIGG_SMART_PTR_HPP
 
-#include <frigg/atomic.hpp>
 #include <frigg/traits.hpp>
+#include <frigg/algorithm.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 
 namespace frigg {
@@ -353,10 +354,10 @@ template<typename Allocator>
 class UniqueMemory {
 public:
 	UniqueMemory()
-	: p_pointer(nullptr), p_allocator(nullptr) { }
+	: p_pointer(nullptr), p_size(0), p_allocator(nullptr) { }
 
 	explicit UniqueMemory(Allocator &allocator, size_t size)
-	: p_allocator(&allocator) {
+	: p_size(size), p_allocator(&allocator) {
 		p_pointer = p_allocator->allocate(size);
 	}
 
@@ -379,19 +380,27 @@ public:
 	void reset() {
 		if(p_pointer)
 			p_allocator->free(p_pointer);
+		p_pointer = nullptr;
+		p_size = 0;
 	}
 
 	friend void swap(UniqueMemory &a, UniqueMemory &b) {
 		swap(a.p_pointer, b.p_pointer);
+		swap(a.p_size, b.p_size);
 		swap(a.p_allocator, b.p_allocator);
 	}
 
-	void *get() {
+	void *data() {
 		return p_pointer;
+	}
+
+	size_t size() {
+		return p_size;
 	}
 
 private:
 	void *p_pointer;
+	size_t p_size;
 	Allocator *p_allocator;
 };
 

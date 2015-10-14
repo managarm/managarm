@@ -28,6 +28,7 @@
 #include "process.hpp"
 #include "exec.hpp"
 #include "dev_fs.hpp"
+#include "pts_fs.hpp"
 
 #include "posix.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"
@@ -186,9 +187,10 @@ void ReadClosure::operator() () {
 
 void ReadClosure::readComplete(size_t actual_size) {
 	// TODO: make request.size() unsigned
-	assert(actual_size == (size_t)request.size());
+	frigg::String<Allocator> actual_buffer(*allocator,
+			frigg::StringView(buffer).subString(0, actual_size));
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
-	response.set_buffer(frigg::move(buffer));
+	response.set_buffer(frigg::move(actual_buffer));
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	sendResponse(*pipe, response, msgRequest);
 	suicide(*allocator);
@@ -237,12 +239,16 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		char_devices.allocateDevice("misc",
 				frigg::staticPtrCast<Device>(frigg::move(device)), major, minor);
 
-		auto fs = frigg::construct<dev_fs::MountPoint>(*allocator);
+		auto dev_fs = frigg::construct<dev_fs::MountPoint>(*allocator);
 		auto inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
-		fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
+		dev_fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
 				frigg::staticPtrCast<dev_fs::Inode>(frigg::move(inode)));
+		auto dev_root = frigg::String<Allocator>(*allocator, "/dev");
+		process->mountSpace->allMounts.insert(dev_root, dev_fs);
 
-		process->mountSpace->allMounts.insert(frigg::String<Allocator>(*allocator, "/dev"), fs);
+		auto pts_fs = frigg::construct<pts_fs::MountPoint>(*allocator);
+		auto pts_root = frigg::String<Allocator>(*allocator, "/dev/pts");
+		process->mountSpace->allMounts.insert(pts_root, pts_fs);
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);

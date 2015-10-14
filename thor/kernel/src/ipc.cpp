@@ -18,7 +18,7 @@ Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 		return kErrPipeClosed;
 
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
-	memcpy(kernel_buffer.get(), user_buffer, length);
+	memcpy(kernel_buffer.data(), user_buffer, length);
 	
 	Message message(kMsgString, msg_request, msg_sequence);
 	message.kernelBuffer = frigg::move(kernel_buffer);
