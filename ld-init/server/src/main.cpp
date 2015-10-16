@@ -234,7 +234,7 @@ void sendObject(HelHandle pipe, int64_t request_id,
 		
 		response.add_segments(out_segment);
 		
-		HEL_CHECK(helSendDescriptor(pipe, memory, 1, 1 + i));
+		HEL_CHECK(helSendDescriptor(pipe, memory, 1, 1 + i, kHelResponse));
 
 		if(wrapper.is<UniqueSegment>())
 			HEL_CHECK(helCloseDescriptor(memory));
@@ -243,7 +243,8 @@ void sendObject(HelHandle pipe, int64_t request_id,
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 
-	HEL_CHECK(helSendString(pipe, (uint8_t *)serialized.data(), serialized.size(), 1, 0));
+	HEL_CHECK(helSendString(pipe, (uint8_t *)serialized.data(), serialized.size(), 1, 0,
+			kHelResponse));
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
@@ -266,7 +267,7 @@ RequestClosure::RequestClosure(helx::Pipe pipe)
 
 void RequestClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	HEL_CHECK(pipe.recvString(buffer, 128, eventHub,
+	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
 }
 
@@ -319,7 +320,7 @@ int main() {
 	HEL_CHECK(helRdOpen(path, strlen(path), &parent_handle));
 
 	helx::Pipe parent_pipe(parent_handle);
-	parent_pipe.sendDescriptor(client.getHandle(), 1, 0);
+	parent_pipe.sendDescriptorReq(client.getHandle(), 1, 0);
 	client.reset();
 
 	infoLogger->log() << "ld-server initialized succesfully!" << frigg::EndLog();

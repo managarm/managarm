@@ -74,7 +74,7 @@ void openFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);	
+	pipe.sendStringResp(serialized.data(), serialized.length(), msg_request, 0);	
 }
 
 void readFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_request) {
@@ -91,7 +91,7 @@ void readFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);	
+	pipe.sendStringResp(serialized.data(), serialized.length(), msg_request, 0);	
 }
 
 void writeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_request) {
@@ -101,7 +101,7 @@ void writeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg
 	std::string serialized;
 	response.SerializeToString(&serialized);
 
-	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);
+	pipe.sendStringResp(serialized.data(), serialized.length(), msg_request, 0);
 }
 
 void closeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg_request) {
@@ -116,7 +116,7 @@ void closeFile(managarm::fs::ClientRequest request, helx::Pipe pipe, int64_t msg
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	pipe.sendString(serialized.data(), serialized.length(), msg_request, 0);	
+	pipe.sendStringResp(serialized.data(), serialized.length(), msg_request, 0);	
 }
 
 void requestLoop(helx::Pipe pipe) {
@@ -132,7 +132,7 @@ void requestLoop(helx::Pipe pipe) {
 		frigg::asyncSeq(
 			frigg::wrapFuncPtr<helx::RecvStringFunction>([] (auto *context,
 					void *cb_object, auto cb_function) {
-				HEL_CHECK(context->pipe.recvString(context->buffer, 128, eventHub,
+				HEL_CHECK(context->pipe.recvStringReq(context->buffer, 128, eventHub,
 						kHelAnyRequest, kHelAnySequence,
 						cb_object, cb_function));
 			}),
@@ -196,7 +196,8 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0,
+			kHelRequest));
 	client.reset();
 
 	while(true) {

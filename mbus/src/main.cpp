@@ -83,7 +83,7 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
-		other->pipe.sendString(serialized.data(), serialized.size(), 0, 0);
+		other->pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
 	}
 }
 
@@ -115,13 +115,13 @@ QueryIfClosure::QueryIfClosure(frigg::SharedPtr<Connection> connection,
 
 void QueryIfClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &QueryIfClosure::recvdPipe);
-	object->connection->pipe.recvDescriptor(eventHub, requireRequestId, 1,
+	object->connection->pipe.recvDescriptorResp(eventHub, requireRequestId, 1,
 			callback.getObject(), callback.getFunction());
 }
 
 void QueryIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq,
 		HelHandle handle) {
-	queryConnection->pipe.sendDescriptor(handle, queryRequestId, 1);
+	queryConnection->pipe.sendDescriptorReq(handle, queryRequestId, 1);
 	HEL_CHECK(helCloseDescriptor(handle));
 
 	suicide(*allocator);
@@ -149,7 +149,7 @@ RequestClosure::RequestClosure(frigg::SharedPtr<Connection> connection)
 
 void RequestClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvdRequest);
-	HEL_CHECK(connection->pipe.recvString(buffer, 128, eventHub, kHelAnyRequest, 0,
+	HEL_CHECK(connection->pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
 			callback.getObject(), callback.getFunction()));
 }
 
@@ -189,7 +189,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		int64_t require_request_id = (*object)->connection->nextRequestId++;
 		frigg::String<Allocator> serialized(*allocator);
 		require_request.SerializeToString(&serialized);
-		(*object)->connection->pipe.sendString(serialized.data(), serialized.size(),
+		(*object)->connection->pipe.sendStringResp(serialized.data(), serialized.size(),
 				require_request_id, 0);
 	
 		frigg::runClosure<QueryIfClosure>(*allocator, connection,
@@ -263,7 +263,7 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
 	HEL_CHECK(helCloseDescriptor(parent_handle));
 	client.reset();
 

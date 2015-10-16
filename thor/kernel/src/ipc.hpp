@@ -4,25 +4,30 @@ namespace thor {
 // Single producer, single consumer connection
 class Channel {
 public:
+	enum {
+		kFlagRequest = 1,
+		kFlagResponse = 2
+	};
+
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
 
 	Channel();
 
 	Error sendString(Guard &guard, const void *user_buffer, size_t length,
-			int64_t msg_request, int64_t msg_sequence);
+			int64_t msg_request, int64_t msg_sequence, uint32_t flags);
 	
 	Error sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
-			int64_t msg_request, int64_t msg_sequence);
+			int64_t msg_request, int64_t msg_sequence, uint32_t flags);
 	
 	Error submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			void *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
-			SubmitInfo submit_info);
+			SubmitInfo submit_info, uint32_t flags);
 	
 	Error submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			int64_t filter_request, int64_t filter_sequence,
-			SubmitInfo submit_info);
+			SubmitInfo submit_info, uint32_t flags);
 	
 	void close(Guard &guard);
 
@@ -44,6 +49,7 @@ private:
 		AnyDescriptor descriptor;
 		int64_t msgRequest;
 		int64_t msgSequence;
+		uint32_t flags;
 	};
 
 	struct Request {
@@ -58,6 +64,7 @@ private:
 		size_t maxLength;
 		int64_t filterRequest;
 		int64_t filterSequence;
+		uint32_t flags;
 	};
 
 	bool matchRequest(const Message &message, const Request &request);

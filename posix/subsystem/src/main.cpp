@@ -43,7 +43,7 @@ void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &
 		int64_t msg_request) {
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
-	pipe.sendString(serialized.data(), serialized.size(), msg_request, 0);
+	pipe.sendStringResp(serialized.data(), serialized.size(), msg_request, 0);
 }
 
 // --------------------------------------------------------
@@ -319,7 +319,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		HelError error;
 		HelHandle handle;
 		//FIXME
-		pipe->recvDescriptorSync(eventHub, msg_request, 1, error, handle);
+		pipe->recvDescriptorReqSync(eventHub, msg_request, 1, error, handle);
 		HEL_CHECK(error);
 
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
@@ -346,7 +346,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}
 
 		auto file = *file_wrapper;
-		pipe->sendDescriptor(file->getHelfd(), msg_request, 1);
+		pipe->sendDescriptorResp(file->getHelfd(), msg_request, 1);
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
@@ -360,7 +360,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 void RequestClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	HelError error = pipe->recvString(buffer, 128, eventHub,
+	HelError error = pipe->recvStringReq(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction());
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
@@ -438,7 +438,7 @@ QueryDeviceIfClosure::QueryDeviceIfClosure(int64_t request_id)
 
 void QueryDeviceIfClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &QueryDeviceIfClosure::recvdPipe);
-	mbusPipe.recvDescriptor(eventHub, requestId, 1,
+	mbusPipe.recvDescriptorResp(eventHub, requestId, 1,
 			callback.getObject(), callback.getFunction());
 }
 
@@ -462,7 +462,7 @@ private:
 
 void MbusClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdBroadcast);
-	HEL_CHECK(mbusPipe.recvString(buffer, 128, eventHub,
+	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
 }
 
@@ -488,7 +488,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
-		mbusPipe.sendString(serialized.data(), serialized.size(), 1, 0);
+		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
 	}
@@ -548,7 +548,7 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0));
+	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
 	client.reset();
 
 	while(true) {

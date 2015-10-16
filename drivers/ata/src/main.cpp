@@ -45,7 +45,7 @@ private:
 
 void MbusClosure::operator() () {
 	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdRequest);
-	HEL_CHECK(mbusPipe.recvString(buffer, 128, eventHub,
+	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub,
 			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
 }
 
@@ -61,7 +61,7 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 	case managarm::mbus::SvrReqType::REQUIRE_IF: {
 		helx::Pipe server_side, client_side;
 		helx::Pipe::createFullPipe(server_side, client_side);
-		mbusPipe.sendDescriptor(client_side.getHandle(), msg_request, 1);
+		mbusPipe.sendDescriptorResp(client_side.getHandle(), msg_request, 1);
 		client_side.reset();
 	} break;
 	default:
@@ -97,7 +97,7 @@ int main() {
 
 	std::string serialized;
 	request.SerializeToString(&serialized);
-	mbusPipe.sendString(serialized.data(), serialized.size(), 1, 0);
+	mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 	while(true)
 		eventHub.defaultProcessEvents();

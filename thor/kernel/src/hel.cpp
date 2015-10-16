@@ -600,7 +600,13 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 
 HelError helSendString(HelHandle handle,
 		const void *user_buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence) {
+		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+	if(flags & ~(kHelRequest | kHelResponse))
+		return kHelErrIllegalArgs;
+	
+	if(!(flags & kHelRequest) && !(flags & kHelResponse))
+		return kHelErrIllegalArgs;
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -618,10 +624,16 @@ HelError helSendString(HelHandle handle,
 	
 	size_t write_index = endpoint->getWriteIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
+
+	uint32_t send_flags = 0;
+	if(flags & kHelRequest)
+		send_flags |= Channel::kFlagRequest;
+	if(flags & kHelResponse)
+		send_flags |= Channel::kFlagResponse;
 	
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.sendString(channel_guard, user_buffer, length,
-			msg_request, msg_sequence);
+			msg_request, msg_sequence, send_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)
@@ -632,7 +644,13 @@ HelError helSendString(HelHandle handle,
 }
 
 HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
-		int64_t msg_request, int64_t msg_sequence) {
+		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+	if(flags & ~(kHelRequest | kHelResponse))
+		return kHelErrIllegalArgs;
+	
+	if(!(flags & kHelRequest) && !(flags & kHelResponse))
+		return kHelErrIllegalArgs;
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -655,9 +673,15 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	size_t write_index = endpoint->getWriteIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 
+	uint32_t send_flags = 0;
+	if(flags & kHelRequest)
+		send_flags |= Channel::kFlagRequest;
+	if(flags & kHelResponse)
+		send_flags |= Channel::kFlagResponse;
+
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.sendDescriptor(channel_guard, AnyDescriptor(*send_wrapper),
-			msg_request, msg_sequence);
+			msg_request, msg_sequence, send_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)
@@ -670,7 +694,14 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, void *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id) {
+	if(flags & ~(kHelRequest | kHelResponse))
+		return kHelErrIllegalArgs;
+	
+	if(!(flags & kHelRequest) && !(flags & kHelResponse))
+		return kHelErrIllegalArgs;
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -694,11 +725,17 @@ HelError helSubmitRecvString(HelHandle handle,
 	size_t read_index = endpoint->getReadIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
+	uint32_t recv_flags = 0;
+	if(flags & kHelRequest)
+		recv_flags |= Channel::kFlagRequest;
+	if(flags & kHelResponse)
+		recv_flags |= Channel::kFlagResponse;
+
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-			user_buffer, max_length, filter_request, filter_sequence, submit_info);
+			user_buffer, max_length, filter_request, filter_sequence, submit_info, recv_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)
@@ -712,7 +749,14 @@ HelError helSubmitRecvString(HelHandle handle,
 HelError helSubmitRecvDescriptor(HelHandle handle,
 		HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id) {
+	if(flags & ~(kHelRequest | kHelResponse))
+		return kHelErrIllegalArgs;
+	
+	if(!(flags & kHelRequest) && !(flags & kHelResponse))
+		return kHelErrIllegalArgs;
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -736,12 +780,18 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	size_t read_index = endpoint->getReadIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
+	uint32_t recv_flags = 0;
+	if(flags & kHelRequest)
+		recv_flags |= Channel::kFlagRequest;
+	if(flags & kHelResponse)
+		recv_flags |= Channel::kFlagResponse;
+
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.submitRecvDescriptor(channel_guard,
 			KernelSharedPtr<EventHub>(event_hub),
-			filter_request, filter_sequence, submit_info);
+			filter_request, filter_sequence, submit_info, recv_flags);
 	channel_guard.unlock();
 	
 	if(error == kErrPipeClosed)

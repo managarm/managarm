@@ -185,50 +185,114 @@ public:
 	}
 
 	inline void sendString(const void *buffer, size_t length,
-			int64_t msg_request, int64_t msg_seq) {
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		HEL_CHECK(helSendString(p_handle, (const uint8_t *)buffer, length,
-				msg_request, msg_seq));
+				msg_request, msg_seq, flags));
+	}
+	inline void sendStringReq(const void *buffer, size_t length,
+			int64_t msg_request, int64_t msg_seq) {
+		sendString(buffer, length, msg_request, msg_seq, kHelRequest);
+	}
+	inline void sendStringResp(const void *buffer, size_t length,
+			int64_t msg_request, int64_t msg_seq) {
+		sendString(buffer, length, msg_request, msg_seq, kHelResponse);
 	}
 
 	inline void sendDescriptor(HelHandle send_handle,
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		HEL_CHECK(helSendDescriptor(p_handle, send_handle,
+				msg_request, msg_seq, flags));
+	}
+	inline void sendDescriptorReq(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq) {
-		HEL_CHECK(helSendDescriptor(p_handle, send_handle, msg_request, msg_seq));
+		sendDescriptor(send_handle, msg_request, msg_seq, kHelRequest);
+	}
+	inline void sendDescriptorResp(HelHandle send_handle,
+			int64_t msg_request, int64_t msg_seq) {
+		sendDescriptor(send_handle, msg_request, msg_seq, kHelResponse);
 	}
 
 	inline HelError recvString(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			void *object, RecvStringFunction function) {
+			void *object, RecvStringFunction function, uint32_t flags) {
 		int64_t async_id;
 		return helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				(uintptr_t)function, (uintptr_t)object, &async_id);
+				(uintptr_t)function, (uintptr_t)object, flags, &async_id);
+	}
+	inline HelError recvStringReq(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			void *object, RecvStringFunction function) {
+		return recvString(buffer, max_length, event_hub,
+				msg_request, msg_seq, object, function, kHelRequest);
+	}
+	inline HelError recvStringResp(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			void *object, RecvStringFunction function) {
+		return recvString(buffer, max_length, event_hub,
+				msg_request, msg_seq, object, function, kHelResponse);
 	}
 
 	inline void recvStringSync(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			HelError &error, size_t &length) {
+			uint32_t flags, HelError &error, size_t &length) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				0, 0, &async_id));
+				0, 0, flags, &async_id));
 		event_hub.waitForRecvString(async_id, error, length);
+	}
+	inline void recvStringReqSync(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			HelError &error, size_t &length) {
+		recvStringSync(buffer, max_length, event_hub, msg_request, msg_seq, kHelRequest,
+				error, length);
+	}
+	inline void recvStringRespSync(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			HelError &error, size_t &length) {
+		recvStringSync(buffer, max_length, event_hub, msg_request, msg_seq, kHelResponse,
+				error, length);
 	}
 	
 	inline void recvDescriptor(EventHub &event_hub,
 			int64_t msg_request, int64_t msg_seq,
-			void *object, RecvDescriptorFunction function) {
+			void *object, RecvDescriptorFunction function, uint32_t flags) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
-				msg_request, msg_seq, (uintptr_t)function, (uintptr_t)object, &async_id));
+				msg_request, msg_seq, (uintptr_t)function, (uintptr_t)object,
+				flags, &async_id));
+	}
+	inline void recvDescriptorReq(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq,
+			void *object, RecvDescriptorFunction function) {
+		recvDescriptor(event_hub, msg_request, msg_seq, object, function, kHelRequest);
+	}
+	inline void recvDescriptorResp(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq,
+			void *object, RecvDescriptorFunction function) {
+		recvDescriptor(event_hub, msg_request, msg_seq, object, function, kHelResponse);
 	}
 	
 	inline void recvDescriptorSync(EventHub &event_hub,
 			int64_t msg_request, int64_t msg_seq,
-			HelError &error, HelHandle &handle) {
+			uint32_t flags, HelError &error, HelHandle &handle) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
-				msg_request, msg_seq, 0, 0, &async_id));
+				msg_request, msg_seq, 0, 0, flags, &async_id));
 		event_hub.waitForRecvDescriptor(async_id, error, handle);
+	}
+	inline void recvDescriptorReqSync(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq,
+			HelError &error, HelHandle &handle) {
+		recvDescriptorSync(event_hub, msg_request, msg_seq, kHelRequest,
+				error, handle);
+	}
+	inline void recvDescriptorRespSync(EventHub &event_hub,
+			int64_t msg_request, int64_t msg_seq,
+			HelError &error, HelHandle &handle) {
+		recvDescriptorSync(event_hub, msg_request, msg_seq, kHelResponse,
+				error, handle);
 	}
 
 private:

@@ -11,7 +11,7 @@ Channel::Channel()
 : p_messages(*kernelAlloc), p_requests(*kernelAlloc), p_wasClosed(false) { }
 
 Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence) {
+		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
 	assert(guard.protects(&lock));
 
 	if(p_wasClosed)
@@ -21,6 +21,7 @@ Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 	memcpy(kernel_buffer.data(), user_buffer, length);
 	
 	Message message(kMsgString, msg_request, msg_sequence);
+	message.flags = flags;
 	message.kernelBuffer = frigg::move(kernel_buffer);
 	message.length = length;
 
@@ -43,13 +44,14 @@ Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 }
 
 Error Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
-		int64_t msg_request, int64_t msg_sequence) {
+		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
 	assert(guard.protects(&lock));
 
 	if(p_wasClosed)
 		return kErrPipeClosed;
 
 	Message message(kMsgDescriptor, msg_request, msg_sequence);
+	message.flags = flags;
 	message.descriptor = frigg::move(descriptor);
 
 	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
@@ -68,7 +70,7 @@ Error Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		void *user_buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info) {
+		SubmitInfo submit_info, uint32_t flags) {
 	assert(guard.protects(&lock));
 
 	if(p_wasClosed)
@@ -76,6 +78,7 @@ Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_
 
 	Request request(kMsgString, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
+	request.flags = flags;
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
 
@@ -98,7 +101,7 @@ Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_
 
 Error Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info) {
+		SubmitInfo submit_info, uint32_t flags) {
 	assert(guard.protects(&lock));
 
 	if(p_wasClosed)
@@ -106,6 +109,7 @@ Error Channel::submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&ev
 
 	Request request(kMsgDescriptor, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
+	request.flags = flags;
 
 	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
 		if(!matchRequest(*it, request))
@@ -139,6 +143,11 @@ void Channel::close(Guard &guard) {
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
 	if(request.type != message.type)
+		return false;
+
+	if((bool)(request.flags & kFlagRequest) != (bool)(message.flags & kFlagRequest))
+		return false;
+	if((bool)(request.flags & kFlagResponse) != (bool)(message.flags & kFlagResponse))
 		return false;
 	
 	if(request.filterRequest != -1)
@@ -192,8 +201,8 @@ void Channel::processDescriptorRequest(Message &message, Request &request) {
 // --------------------------------------------------------
 
 Channel::Message::Message(MsgType type, int64_t msg_request, int64_t msg_sequence)
-	: type(type), length(0),
-		msgRequest(msg_request), msgSequence(msg_sequence) { }
+: type(type), length(0), msgRequest(msg_request), msgSequence(msg_sequence),
+		flags(0) { }
 
 // --------------------------------------------------------
 // Channel::Request
@@ -203,9 +212,10 @@ Channel::Request::Request(MsgType type,
 		KernelSharedPtr<EventHub> &&event_hub,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
-	: type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
+: type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
 		userBuffer(nullptr), maxLength(0),
-		filterRequest(filter_request), filterSequence(filter_sequence) { }
+		filterRequest(filter_request), filterSequence(filter_sequence),
+		flags(0) { }
 
 // --------------------------------------------------------
 // FullPipe

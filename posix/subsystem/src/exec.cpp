@@ -40,9 +40,9 @@ frigg::asyncSeq(
 		
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
-		ldServerPipe.sendString(serialized.data(), serialized.size(), 1, 0);
+		ldServerPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 		
-		HEL_CHECK(ldServerPipe.recvString(context->buffer, 128, eventHub,
+		HEL_CHECK(ldServerPipe.recvStringResp(context->buffer, 128, eventHub,
 				1, 0, cb_object, cb_function));
 	}),
 	frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
@@ -59,7 +59,7 @@ frigg::asyncSeq(
 		frigg::asyncSeq(
 			frigg::wrapFuncPtr<helx::RecvDescriptorFunction>([](LoadContext *context,
 					void *cb_object, auto cb_function) {
-				ldServerPipe.recvDescriptor(eventHub, 1, 1 + context->currentSegment,
+				ldServerPipe.recvDescriptorResp(eventHub, 1, 1 + context->currentSegment,
 						cb_object, cb_function);
 			}),
 			frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,

@@ -246,12 +246,13 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
-	serverPipe->sendString(serialized.data(), serialized.size(), 1, 0);
+	serverPipe->sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
 	uint8_t buffer[128];
 	int64_t async_id;
 	HEL_CHECK(helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
-			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject, &async_id));
+			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject,
+			kHelResponse, &async_id));
 	HelError response_error;
 	size_t length;
 	eventHub->waitForRecvString(async_id, response_error, length);
@@ -276,7 +277,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 		
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
-				1, 1 + i, kHelNoFunction, kHelNoObject, &async_id));
+				1, 1 + i, kHelNoFunction, kHelNoObject, kHelResponse, &async_id));
 		HelError memory_error;
 		HelHandle memory_handle;
 		eventHub->waitForRecvDescriptor(async_id, memory_error, memory_handle);

@@ -150,7 +150,7 @@ void startAcpi() {
 	// receive a client handle from the child process
 	HelError recv_error;
 	HelHandle connect_handle;
-	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	acpiConnect = helx::Client(connect_handle);
@@ -170,7 +170,7 @@ void startMbus() {
 	// receive a client handle from the child process
 	HelError recv_error;
 	HelHandle connect_handle;
-	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	mbusConnect = helx::Client(connect_handle);
@@ -191,7 +191,7 @@ void startLdServer() {
 	// receive a client handle from the child process
 	HelError recv_error;
 	HelHandle connect_handle;
-	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	ldServerConnect = helx::Client(connect_handle);
@@ -217,7 +217,7 @@ void startPosixSubsystem() {
 	// receive a client handle from the child process
 	HelError recv_error;
 	HelHandle connect_handle;
-	parent_pipe.recvDescriptorSync(eventHub, kHelAnyRequest, kHelAnySequence,
+	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	
@@ -232,12 +232,12 @@ void posixDoRequest(managarm::posix::ClientRequest<Allocator> &request,
 
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
-	posixPipe.sendString(serialized.data(), serialized.size(), request_id, 0);
+	posixPipe.sendStringReq(serialized.data(), serialized.size(), request_id, 0);
 	
 	uint8_t buffer[128];
 	HelError error;
 	size_t length;
-	posixPipe.recvStringSync(buffer, 128, eventHub, request_id, 0, error, length);
+	posixPipe.recvStringRespSync(buffer, 128, eventHub, request_id, 0, error, length);
 	HEL_CHECK(error);
 	response.ParseFromArray(buffer, length);
 }
@@ -267,7 +267,7 @@ void runPosixInit() {
 	attach_request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
 	attach_request.set_fd(open_response.fd());
 
-	posixPipe.sendDescriptor(acpiConnect.getHandle(), 3, 1);
+	posixPipe.sendDescriptorReq(acpiConnect.getHandle(), 3, 1);
 	
 	managarm::posix::ServerResponse<Allocator> attach_response(*allocator);
 	posixDoRequest(attach_request, attach_response, 3);
