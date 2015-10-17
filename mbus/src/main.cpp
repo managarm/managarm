@@ -123,7 +123,7 @@ void QueryIfClosure::operator() () {
 
 void QueryIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq,
 		HelHandle handle) {
-	queryConnection->pipe.sendDescriptorReq(handle, queryRequestId, 1);
+	queryConnection->pipe.sendDescriptorResp(handle, queryRequestId, 1);
 	HEL_CHECK(helCloseDescriptor(handle));
 
 	suicide(*allocator);
@@ -199,7 +199,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		int64_t require_request_id = (*object)->connection->nextRequestId++;
 		frigg::String<Allocator> serialized(*allocator);
 		require_request.SerializeToString(&serialized);
-		(*object)->connection->pipe.sendStringResp(serialized.data(), serialized.size(),
+		(*object)->connection->pipe.sendStringReq(serialized.data(), serialized.size(),
 				require_request_id, 0);
 	
 		frigg::runClosure<QueryIfClosure>(*allocator, connection,

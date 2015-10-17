@@ -14,6 +14,7 @@ $(call include_dir,ld-init/server)
 $(call include_dir,ld-init/linker)
 $(call include_dir,drivers/vga_terminal)
 $(call include_dir,drivers/initrd_fs)
+$(call include_dir,drivers/bochs_vga)
 $(call include_dir,drivers/ata)
 $(call include_dir,zisa)
 

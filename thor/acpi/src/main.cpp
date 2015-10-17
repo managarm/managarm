@@ -8,6 +8,9 @@
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
 #include <frigg/callback.hpp>
+#include <frigg/string.hpp>
+#include <frigg/vector.hpp>
+#include <frigg/protobuf.hpp>
 #include <frigg/glue-hel.hpp>
 
 #include <hel.h>
@@ -20,6 +23,7 @@ extern "C" {
 }
 
 #include "common.hpp"
+#include <mbus.frigg_pb.hpp>
 
 struct GenericAddress {
 	uint8_t space;
@@ -206,7 +210,16 @@ void MbusClosure::operator() () {
 
 void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
-	infoLogger->log() << "ACPI received mbus request" << frigg::EndLog();
+	managarm::mbus::SvrRequest<Allocator> request(*allocator);
+	request.ParseFromArray(buffer, length);
+
+	helx::Pipe local, remote;
+	helx::Pipe::createFullPipe(local, remote);
+	requireObject(request.object_id(), frigg::move(local));
+	mbusPipe.sendDescriptorResp(remote.getHandle(), msg_request, 1);
+	remote.reset();
+
+	(*this)();
 }
 
 // --------------------------------------------------------

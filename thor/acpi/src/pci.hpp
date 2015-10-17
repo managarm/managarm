@@ -18,10 +18,13 @@ struct PciDevice {
 	PciDevice(uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface)
-	: bus(bus), slot(slot), function(function),
+	: mbusId(0), bus(bus), slot(slot), function(function),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface) { }
 	
+	// mbus object ID of the device
+	int64_t mbusId;
+
 	// location of the device on the PCI bus
 	uint32_t bus;
 	uint32_t slot;

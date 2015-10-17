@@ -6,13 +6,15 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--sysroot', required=True)
+parser.add_argument('--protoc', required=True)
 
 args = parser.parse_args()
 
 script_dir = os.path.dirname(sys.argv[0])
 make_cfg = { "TREE_PATH": os.path.relpath(os.path.realpath(script_dir)),
 	"BUILD_PATH": os.path.relpath(os.path.realpath(os.getcwd())),
-	"SYSROOT_PATH": os.path.relpath(os.path.realpath(args.sysroot)) }
+	"SYSROOT_PATH": os.path.relpath(os.path.realpath(args.sysroot)),
+	"PROTOC": args.protoc }
 
 make_fd = open('makefile', 'w')
 for k, v in make_cfg.iteritems():

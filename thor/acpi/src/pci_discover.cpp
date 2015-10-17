@@ -1,6 +1,7 @@
 
 #include <frigg/cxx-support.hpp>
 #include <frigg/glue-hel.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/protobuf.hpp>
@@ -11,7 +12,69 @@
 
 #include "common.hpp"
 #include "pci.hpp"
-#include "mbus.frigg_pb.hpp"
+#include <mbus.frigg_pb.hpp>
+#include <hw.frigg_pb.hpp>
+
+frigg::Vector<PciDevice *, Allocator> allDevices(*allocator.unsafeGet());
+
+// --------------------------------------------------------
+// DeviceClosure
+// --------------------------------------------------------
+
+struct DeviceClosure {
+	DeviceClosure(helx::Pipe pipe, PciDevice *device);
+
+	void operator() ();
+
+private:
+	helx::Pipe pipe;
+	
+	PciDevice *device;
+};
+
+DeviceClosure::DeviceClosure(helx::Pipe pipe, PciDevice *device)
+: pipe(frigg::move(pipe)), device(device) { }
+
+void DeviceClosure::operator() () {
+	managarm::hw::PciDevice<Allocator> response(*allocator);
+
+	for(size_t k = 0; k < 6; k++) {
+		if(device->bars[k].type == PciDevice::kBarIo) {
+			managarm::hw::PciBar<Allocator> bar_response(*allocator);
+			bar_response.set_io_type(managarm::hw::IoType::PORT);
+			bar_response.set_length(device->bars[k].length);
+			response.add_bars(frigg::move(bar_response));
+
+			pipe.sendDescriptorResp(device->bars[k].handle, 1, 1 + k);
+		}else if(device->bars[k].type == PciDevice::kBarMemory) {
+			managarm::hw::PciBar<Allocator> bar_response(*allocator);
+			bar_response.set_io_type(managarm::hw::IoType::MEMORY);
+			bar_response.set_length(device->bars[k].length);
+			response.add_bars(frigg::move(bar_response));
+
+			pipe.sendDescriptorResp(device->bars[k].handle, 1, 1 + k);
+		}
+	}
+
+	frigg::String<Allocator> serialized(*allocator);
+	response.SerializeToString(&serialized);
+	pipe.sendStringResp(serialized.data(), serialized.size(), 1, 0);
+}
+
+void requireObject(int64_t object_id, helx::Pipe pipe) {
+	for(size_t i = 0; i < allDevices.size(); i++) {
+		if(allDevices[i]->mbusId != object_id)
+			continue;
+		frigg::runClosure<DeviceClosure>(*allocator, frigg::move(pipe), allDevices[i]);
+		return;
+	}
+
+	assert(!"Could not find object id");
+}
+
+// --------------------------------------------------------
+// Discovery functionality
+// --------------------------------------------------------
 
 void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
@@ -43,8 +106,8 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			<< ", subclass: " << sub_class << ", interface: " << interface << frigg::EndLog();
 	
 	if((header_type & 0x7F) == 0) {
-		PciDevice device(bus, slot, function, vendor, device_id, revision,
-				class_code, sub_class, interface);
+		auto device = frigg::construct<PciDevice>(*allocator, bus, slot, function,
+				vendor, device_id, revision, class_code, sub_class, interface);
 		
 		// determine the BARs
 		for(int i = 0; i < 6; i++) {
@@ -66,9 +129,9 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				for(uintptr_t offset = 0; offset < length; offset++)
 					ports.push(address + offset);
 
-				device.bars[i].type = PciDevice::kBarIo;
-				device.bars[i].length = length;
-				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device.bars[i].handle));
+				device->bars[i].type = PciDevice::kBarIo;
+				device->bars[i].length = length;
+				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
 				infoLogger->log() << "        I/O space BAR #" << i
 						<< " at 0x" << frigg::logHex(address)
@@ -82,9 +145,9 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				writePciWord(bus, slot, function, offset, bar);
 				uint32_t length = ~(mask & 0xFFFFFFF0) + 1;
 				
-				device.bars[i].type = PciDevice::kBarMemory;
-				device.bars[i].length = length;
-				HEL_CHECK(helAccessPhysical(address, length, &device.bars[i].handle));
+				device->bars[i].type = PciDevice::kBarMemory;
+				device->bars[i].length = length;
+				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
 
 				infoLogger->log() << "        32-bit memory BAR #" << i
 						<< " at 0x" << frigg::logHex(address)
@@ -111,8 +174,11 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		
 		managarm::mbus::SvrResponse<Allocator> response(*allocator);
 		response.ParseFromArray(buffer, length);
-
+		
+		device->mbusId = response.object_id();
 		infoLogger->log() << "        ObjectID " << response.object_id() << frigg::EndLog();
+
+		allDevices.push(device);
 	}
 }
 
