@@ -15,7 +15,8 @@ $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_LDFLAGS := -nostdlib
 
-$c_OBJECTS := main.o glue-acpica.o frigg-glue-hel.o frigg-debug.o frigg-libc.o
+$c_OBJECTS := main.o pci_io.o pci_discover.o \
+	glue-acpica.o frigg-glue-hel.o frigg-debug.o frigg-libc.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths

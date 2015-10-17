@@ -11,13 +11,13 @@
 #include <frigg/vector.hpp>
 #include <frigg/async2.hpp>
 
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
-
 #include <frigg/glue-hel.hpp>
 #include <frigg/elf.hpp>
 #include <frigg/protobuf.hpp>
+
+#include <hel.h>
+#include <hel-syscalls.h>
+#include <helx.hpp>
 
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
@@ -120,21 +120,31 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
-helx::Client ldServerConnect;
-helx::Client acpiConnect;
 helx::Client mbusConnect;
+helx::Client acpiConnect;
+helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe posixPipe;
 
-struct StartFreeContext {
-	StartFreeContext()
-	: directory(helx::Directory::create()), localDirectory(helx::Directory::create()) {
-	}
+void startMbus() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
-	helx::Directory directory;
-	helx::Directory localDirectory;
-	helx::Pipe childPipe;
-};
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	loadImage("initrd/mbus", directory.getHandle(), true);
+	
+	// receive a client handle from the child process
+	HelError recv_error;
+	HelHandle connect_handle;
+	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
+			recv_error, connect_handle);
+	HEL_CHECK(recv_error);
+	mbusConnect = helx::Client(connect_handle);
+}
 
 void startAcpi() {
 	helx::Pipe parent_pipe, child_pipe;
@@ -142,6 +152,7 @@ void startAcpi() {
 
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");
+	local_directory.publish(mbusConnect.getHandle(), "mbus");
 	
 	auto directory = helx::Directory::create();
 	directory.mount(local_directory.getHandle(), "local");
@@ -154,26 +165,6 @@ void startAcpi() {
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	acpiConnect = helx::Client(connect_handle);
-}
-
-void startMbus() {
-	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
-
-	auto local_directory = helx::Directory::create();
-	local_directory.publish(child_pipe.getHandle(), "parent");
-	
-	auto directory = helx::Directory::create();
-	directory.mount(local_directory.getHandle(), "local");
-	loadImage("initrd/mbus", directory.getHandle(), false);
-	
-	// receive a client handle from the child process
-	HelError recv_error;
-	HelHandle connect_handle;
-	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
-			recv_error, connect_handle);
-	HEL_CHECK(recv_error);
-	mbusConnect = helx::Client(connect_handle);
 }
 
 void startLdServer() {
@@ -301,8 +292,8 @@ int main() {
 	infoLogger->log() << "Entering user_boot" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
-	startAcpi();
 	startMbus();
+	startAcpi();
 	startLdServer();
 	startPosixSubsystem();
 	runPosixInit();

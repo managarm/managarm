@@ -1,8 +1,5 @@
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <assert.h>
+#include <frigg/cxx-support.hpp>
 
 #include <hel.h>
 

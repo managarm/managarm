@@ -7,6 +7,7 @@
 #include <frigg/initializer.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/glue-hel.hpp>
 
 #include <hel.h>
@@ -17,6 +18,8 @@
 extern "C" {
 #include <acpi.h>
 }
+
+#include "common.hpp"
 
 struct GenericAddress {
 	uint8_t space;
@@ -179,6 +182,36 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 
 void pciDiscover(); // TODO: put this in a header file
 
+helx::EventHub eventHub = helx::EventHub::create();
+helx::Pipe mbusPipe;
+
+// --------------------------------------------------------
+// MbusClosure
+// --------------------------------------------------------
+
+struct MbusClosure {
+	void operator() ();
+
+private:
+	void recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+
+	uint8_t buffer[128];
+};
+
+void MbusClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdRequest);
+	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub,
+			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
+}
+
+void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	infoLogger->log() << "ACPI received mbus request" << frigg::EndLog();
+}
+
+// --------------------------------------------------------
+// main()
+// --------------------------------------------------------
 
 typedef void (*InitFuncPtr) ();
 extern InitFuncPtr __init_array_start[];
@@ -190,11 +223,24 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 	
-	HEL_CHECK(helEnableFullIo());
-	
 	infoLogger.initialize(infoSink);
 	infoLogger->log() << "Entering ACPI driver" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
+	
+	// connect to mbus
+	const char *mbus_path = "local/mbus";
+	HelHandle mbus_handle;
+	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
+	helx::Client mbus_client(mbus_handle);
+	HelError mbus_error;
+	mbus_client.connectSync(eventHub, mbus_error, mbusPipe);
+	HEL_CHECK(mbus_error);
+	mbus_client.reset();
+	
+	frigg::runClosure<MbusClosure>(*allocator);
+
+	// initialize the ACPI subsystem
+	HEL_CHECK(helEnableFullIo());
 
 	ACPICA_CHECK(AcpiInitializeSubsystem());
 	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
@@ -255,7 +301,7 @@ int main() {
 	
 //	dumpNamespace(ACPI_ROOT_OBJECT, 0);
 
-//	pciDiscover();
+	pciDiscover();
 
 	helx::Server server;
 	helx::Client client;
@@ -268,11 +314,19 @@ int main() {
 	HEL_CHECK(helCloseDescriptor(parent_handle));
 	client.reset();
 
-	HEL_CHECK(helExitThisThread());
+	while(true)
+		eventHub.defaultProcessEvents();
 }
 
 asm ( ".global _start\n"
 		"_start:\n"
 		"\tcall main\n"
 		"\tud2" );
+
+extern "C"
+int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
+	return 0;
+}
+
+void *__dso_handle;
 

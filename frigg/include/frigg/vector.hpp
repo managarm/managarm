@@ -19,6 +19,10 @@ public:
 	template<typename... Args>
 	void resize(size_t new_size, Args &&... args);
 
+	T *data() {
+		return p_elements;
+	}
+
 	size_t size() const {
 		return p_size;
 	}

@@ -2,13 +2,13 @@
 #include <frigg/callback.hpp>
 #include <frigg/smart_ptr.hpp>
 
-#include <helx.hpp>
-
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
+
+#include <helx.hpp>
 
 #include "mbus.frigg_pb.hpp"
 
@@ -70,6 +70,8 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 	for(size_t i = 0; i < allConnections->size(); i++) {
 		frigg::SharedPtr<Connection> other((*allConnections)[i]);
 		if(!other)
+			continue;
+		if(other.get() == object->connection.get())
 			continue;
 
 		managarm::mbus::SvrRequest<Allocator> request(*allocator);
@@ -176,7 +178,15 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 			object->caps.push(frigg::move(capability));
 		}
 
-		broadcastRegister(frigg::move(object));
+		managarm::mbus::SvrResponse<Allocator> response(*allocator);
+		response.set_object_id(object->objectId);
+
+		frigg::String<Allocator> serialized(*allocator);
+		response.SerializeToString(&serialized);
+		connection->pipe.sendStringResp(serialized.data(), serialized.size(),
+				msg_request, 0);
+
+//		broadcastRegister(frigg::move(object));
 	} break;
 	case managarm::mbus::CntReqType::QUERY_IF: {
 		frigg::SharedPtr<Object> *object = allObjects.get(request.object_id());

@@ -126,7 +126,7 @@ public:
 
 			if(num_items == 0)
 				continue;
-			//ASSERT(event.asyncId == async_id);
+			assert(event.asyncId == async_id);
 			return event;
 		}
 	}

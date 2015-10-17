@@ -45,6 +45,19 @@ void printUInt(P &printer, T number, int radix) {
 
 class EndLog { };
 
+template<typename T>
+struct LogHex {
+	LogHex(const T &value)
+	: value(value) { }
+
+	const T value;
+};
+
+template<typename T>
+LogHex<T> logHex(const T &value) {
+	return LogHex<T>(value);
+}
+
 template<typename P, typename T, typename E = void>
 struct Print;
 
@@ -52,6 +65,13 @@ template<typename P>
 struct Print<P, EndLog> {
 	static void print(P &printer, EndLog token) {
 		printer.finish();
+	}
+};
+
+template<typename P, typename T>
+struct Print<P, LogHex<T>> {
+	static void print(P &printer, LogHex<T> token) {
+		printUInt(printer, token.value, 16);
 	}
 };
 
