@@ -411,6 +411,61 @@ private:
 	HelHandle p_handle;
 };
 
+class Irq {
+public:
+	inline static Irq access(int number) {
+		HelHandle handle;
+		HEL_CHECK(helAccessIrq(number, &handle));
+		return Irq(handle);
+	}
+
+	inline Irq() : p_handle(kHelNullHandle) { }
+
+	explicit inline Irq(HelHandle handle) : p_handle(handle) { }
+	
+	inline Irq(Irq &&other)
+	: Irq() {
+		swap(*this, other);
+	}
+
+	inline Irq(const Irq &other) = delete;
+
+	inline ~Irq() {
+		reset();
+	}
+	
+	inline Irq &operator= (Irq other) {
+		swap(*this, other);
+		other.reset();
+		return *this;
+	}
+
+	void reset() {
+		if(p_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(p_handle));
+		p_handle = kHelNullHandle;
+	}
+
+	friend inline void swap(Irq &a, Irq &b) {
+		using frigg::swap;
+		swap(a.p_handle, b.p_handle);
+	}
+
+	inline HelHandle getHandle() {
+		return p_handle;
+	}
+
+	inline void wait(EventHub &event_hub,
+			void *object, IrqFunction function) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitWaitForIrq(p_handle, event_hub.getHandle(),
+				(uintptr_t)function, (uintptr_t)object, &async_id));
+	}
+
+private:
+	HelHandle p_handle;
+};
+
 class Directory {
 public:
 	static inline Directory create() {

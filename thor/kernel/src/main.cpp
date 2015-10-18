@@ -261,7 +261,7 @@ extern "C" void handlePageFault(Word error) {
 extern "C" void thorIrq(int irq) {
 	assert(!intsAreEnabled());
 
-	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
+//	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
 	
 	if(irq == 2)
 		timerInterrupt();
