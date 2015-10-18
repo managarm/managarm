@@ -10,7 +10,7 @@
 
 #include <helx.hpp>
 
-#include "mbus.frigg_pb.hpp"
+#include <mbus.frigg_pb.hpp>
 
 helx::EventHub eventHub = helx::EventHub::create();
 
@@ -36,6 +36,8 @@ class Connection;
 struct Object {
 	Object(int64_t object_id);
 
+	bool hasCapability(frigg::StringView name);
+
 	const int64_t objectId;
 	frigg::SharedPtr<Connection> connection;
 
@@ -44,6 +46,14 @@ struct Object {
 
 Object::Object(int64_t object_id)
 : objectId(object_id), caps(*allocator) { }
+
+bool Object::hasCapability(frigg::StringView name) {
+	for(size_t i = 0; i < caps.size(); i++)
+		if(caps[i].name == name)
+			return true;
+	
+	return false;
+}
 
 frigg::Hashmap<int64_t, frigg::SharedPtr<Object>, frigg::DefaultHasher<int64_t>, Allocator>
 allObjects(frigg::DefaultHasher<int64_t>(), *(allocator.unsafeGet()));
@@ -187,6 +197,27 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 				msg_request, 0);
 
 //		broadcastRegister(frigg::move(object));
+	} break;
+	case managarm::mbus::CntReqType::ENUMERATE: {
+		for(auto it = allObjects.iterator(); it; ++it) {
+			frigg::UnsafePtr<Object> object = it->get<1>();
+			assert(request.caps_size() == 1);
+			if(!object->hasCapability(request.caps(0).name()))
+				continue;
+			
+			managarm::mbus::SvrResponse<Allocator> response(*allocator);
+			response.set_object_id(object->objectId);
+
+			frigg::String<Allocator> serialized(*allocator);
+			response.SerializeToString(&serialized);
+			connection->pipe.sendStringResp(serialized.data(), serialized.size(),
+					msg_request, 0);
+
+			(*this)(); //FIXME
+			return;
+		}
+
+		assert(!"Not matching object");
 	} break;
 	case managarm::mbus::CntReqType::QUERY_IF: {
 		frigg::SharedPtr<Object> *object = allObjects.get(request.object_id());

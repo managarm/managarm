@@ -1,7 +1,8 @@
 
-package managarm.mbus;
-
+syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
+
+package managarm.mbus;
 
 message Capability {
 	optional string name = 1;
@@ -13,14 +14,17 @@ message Interface {
 
 enum CntReqType {
 	REGISTER = 1;
+	ENUMERATE = 3;
 	QUERY_IF = 2;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
 
-	// used by REGISTER
+	// used by REGISTER / ENUMERATE
 	repeated Capability caps = 2;
+
+	// used by REGISTER
 	repeated Interface ifs = 3;
 	
 	// used by INTERFACE

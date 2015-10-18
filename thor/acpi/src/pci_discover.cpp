@@ -161,6 +161,19 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		
 		managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::REGISTER);
+
+		const char *digits = "0123456789ABCDEF";
+		char number[4];
+		number[0] = digits[vendor >> 12];
+		number[1] = digits[(vendor >> 8) & 0xF];
+		number[2] = digits[(vendor >> 4) & 0xF];
+		number[3] = digits[vendor & 0xF];
+		
+		frigg::String<Allocator> vendor_str(*allocator, "pci-vendor:0x");
+		vendor_str += frigg::StringView(number, 4);
+		managarm::mbus::Capability<Allocator> vendor_cap(*allocator);
+		vendor_cap.set_name(frigg::move(vendor_str));
+		request.add_caps(frigg::move(vendor_cap));
 		
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);

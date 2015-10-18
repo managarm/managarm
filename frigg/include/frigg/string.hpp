@@ -2,6 +2,7 @@
 #ifndef FRIGG_STRING_HPP
 #define FRIGG_STRING_HPP
 
+#include <frigg/algorithm.hpp>
 #include <frigg/optional.hpp>
 
 namespace frigg {

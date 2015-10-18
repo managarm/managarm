@@ -7,7 +7,7 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 $c_OBJECTS := main.o mbus.pb.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c gen-$c $($c_BINDIR)/bochs_vga
+$c_TARGETS := all-$c clean-$c gen-$c
 
 .PHONY: all-$c clean-$c
 
@@ -15,6 +15,8 @@ all-$c: $($c_BINDIR)/bochs_vga
 
 clean-$c:
 	rm -f $($d_BINDIR)/bochs_vga $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
+
+gen: gen-$c
 
 $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
 	mkdir -p $@
@@ -40,6 +42,7 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 gen-$c: $($c_GENDIR)/mbus.pb.tag $($c_GENDIR)/hw.pb.tag
 
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
+	true
 	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 	touch $@
 

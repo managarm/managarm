@@ -21,7 +21,7 @@ $(call include_dir,zisa)
 $(call include_dir,tools/frigg_pb)
 $(call include_dir,hel)
 
-.PHONY: all
+.PHONY: all clean gen
 
 all: $(addprefix all-,$(DIRECTORIES))
 

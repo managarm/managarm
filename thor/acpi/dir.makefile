@@ -32,7 +32,7 @@ $c_ACPICA_SUBDIR_PATHS := $(addprefix $($c_ACPICA_OBJDIR)/,$(ACPICA_SUBDIRS))
 $c_ACPICA_OBJECTS := $(foreach x,$(ACPICA_SUBDIRS),$($c_find_acpica))
 $c_ACPICA_OBJECT_PATHS := $(addprefix $($c_ACPICA_OBJDIR)/,$($c_ACPICA_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c gen-$c $($c_BINDIR)/acpi
+$c_TARGETS := all-$c clean-$c gen-$c
 $c_TARGETS += $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS)
 
 .PHONY: all-$c clean-$c
@@ -41,6 +41,8 @@ all-$c: $($c_BINDIR)/acpi
 
 clean-$c:
 	rm -f $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
+
+gen: gen-$c
 
 $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR) $($c_ACPICA_SUBDIR_PATHS):
 	mkdir -p $@

@@ -72,14 +72,35 @@ int main() {
 	mbus_connect.connectSync(eventHub, mbus_connect_error, mbusPipe);
 	HEL_CHECK(mbus_connect_error);
 
-	// query the bochs vga PCI device
-	managarm::mbus::CntRequest request;
-	request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-	request.set_object_id(5);
+	// enumerate the Bochs VGA device
+	managarm::mbus::CntRequest enumerate_request;
+	enumerate_request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
 
-	std::string serialized;
-	request.SerializeToString(&serialized);
-	mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	managarm::mbus::Capability *cap = enumerate_request.add_caps();
+	cap->set_name("pci-vendor:0x1234");
+
+	std::string enumerate_serialized;
+	enumerate_request.SerializeToString(&enumerate_serialized);
+	mbusPipe.sendStringReq(enumerate_serialized.data(), enumerate_serialized.size(), 1, 0);
+	
+	HelError enumerate_error;
+	uint8_t enumerate_buffer[128];
+	size_t enumerate_length;
+	mbusPipe.recvStringRespSync(enumerate_buffer, 128, eventHub, 1, 0,
+			enumerate_error, enumerate_length);
+	HEL_CHECK(enumerate_error);
+
+	managarm::mbus::SvrResponse enumerate_response;
+	enumerate_response.ParseFromArray(enumerate_buffer, enumerate_length);
+
+	// query the Bochs VGA PCI device
+	managarm::mbus::CntRequest query_request;
+	query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+	query_request.set_object_id(enumerate_response.object_id());
+
+	std::string query_serialized;
+	query_request.SerializeToString(&query_serialized);
+	mbusPipe.sendStringReq(query_serialized.data(), query_serialized.size(), 1, 0);
 
 	HelError device_error;
 	HelHandle device_handle;
@@ -89,13 +110,14 @@ int main() {
 
 	// acquire the device's resources
 	HelError acquire_error;
-	uint8_t buffer[128];
-	size_t length;
-	device_pipe.recvStringRespSync(buffer, 128, eventHub, 1, 0, acquire_error, length);
+	uint8_t acquire_buffer[128];
+	size_t acquire_length;
+	device_pipe.recvStringRespSync(acquire_buffer, 128, eventHub, 1, 0,
+			acquire_error, acquire_length);
 	HEL_CHECK(acquire_error);
 
-	managarm::hw::PciDevice response;
-	response.ParseFromArray(buffer, length);
+	managarm::hw::PciDevice acquire_response;
+	acquire_response.ParseFromArray(acquire_buffer, acquire_length);
 
 	HelError bar_error;
 	HelHandle bar_handle;
@@ -116,7 +138,7 @@ int main() {
 
 	void *framebuffer;
 	HEL_CHECK(helMapMemory(bar_handle, kHelNullHandle, nullptr,
-			response.bars(0).length(), kHelMapReadWrite, &framebuffer));
+			acquire_response.bars(0).length(), kHelMapReadWrite, &framebuffer));
 	pixels = (uint8_t *)framebuffer;
 	
 	for(int y = 0; y < height; y++)
