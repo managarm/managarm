@@ -50,7 +50,7 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 gen-$c: $($c_GENDIR)/mbus.frigg_pb.hpp
 
 $c_TARGETS += $($c_GENDIR)/%.frigg_pb.hpp
-$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 

@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_ARRAY_HPP
+#define FRIGG_ARRAY_HPP
+
 namespace frigg {
 
 template<typename T, int n>
@@ -14,3 +17,4 @@ private:
 
 } // namespace frigg
 
+#endif // FRIGG_ARRAY_HPP

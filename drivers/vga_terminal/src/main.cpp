@@ -16,6 +16,7 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/arch_x86/machine.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -28,6 +29,7 @@ int xPosition = 0;
 int yPosition = 0;
 int width = 80;
 int height = 25;
+HelHandle ioHandle;
 
 enum Status {
 	kStatusNormal,
@@ -287,6 +289,19 @@ void handleCsi(char character) {
 	}
 }
 
+void setCursor(int x, int y) {
+	int position = x + width * y;
+
+	uintptr_t ports[] = { 0x3D4, 0x3D5};
+	HEL_CHECK(helAccessIo(ports, 2, &ioHandle));
+	HEL_CHECK(helEnableIo(ioHandle));
+
+    frigg::arch_x86::ioOutByte(0x3D4, 0x0F);
+    frigg::arch_x86::ioOutByte(0x3D5, position & 0xFF);
+    frigg::arch_x86::ioOutByte(0x3D4, 0x0E);
+    frigg::arch_x86::ioOutByte(0x3D5, (position >> 8) & 0xFF);
+}
+
 void printChar(char character) {
 	if(status == kStatusNormal) {
 		if(character == 27) { //ASCII for escape
@@ -317,6 +332,7 @@ void printChar(char character) {
 			}
 			yPosition = height - 1;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(status == kStatusEscape) {
 		if(character == '[') {
 			status = kStatusCsi;

@@ -1,4 +1,9 @@
 
+#ifndef FRIGG_MACHINE_HPP
+#define FRIGG_MACHINE_HPP
+
+#include <frigg/array.hpp>
+
 namespace frigg {
 namespace arch_x86 {
 
@@ -65,3 +70,4 @@ extern inline void ioOutByte(uint16_t port, uint8_t value) {
 
 } } // namespace frigg::arch_x86
 
+#endif // FRIGG_MACHINE_HPP
