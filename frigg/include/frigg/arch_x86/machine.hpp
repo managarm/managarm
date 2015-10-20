@@ -18,7 +18,7 @@ enum {
 	kCpuFlagLongMode = 0x20000000
 };
 
-extern inline Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
+inline Array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
 	Array<uint32_t, 4> out;
 	asm volatile ( "cpuid"
 			: "=a" (out[0]), "=b" (out[1]), "=c" (out[2]), "=d" (out[3])
@@ -41,28 +41,35 @@ enum {
 	kMsrSyscallEnable = 1
 };
 
-extern inline void wrmsr(uint32_t index, uint64_t value) {
+inline void wrmsr(uint32_t index, uint64_t value) {
 	uint32_t low = value;
 	uint32_t high = value >> 32;
 	asm volatile ( "wrmsr" : : "c" (index),
 			"a" (low), "d" (high) : "memory" );
 }
 
-extern inline uint64_t rdmsr(uint32_t index) {
+inline uint64_t rdmsr(uint32_t index) {
 	uint32_t low, high;
 	asm volatile ( "rdmsr" : "=a" (low), "=d" (high)
 			: "c" (index) : "memory" );
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }
 
-extern inline uint8_t ioInByte(uint16_t port) {
+inline uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t out_value asm("al");
 	asm volatile ( "inb %%dx, %%al" : "=r" (out_value) : "r" (in_port) );
 	return out_value;
 }
 
-extern inline void ioOutByte(uint16_t port, uint8_t value) {
+inline uint16_t ioInShort(uint16_t port) {
+	register uint16_t in_port asm("dx") = port;
+	register uint16_t out_value asm("ax");
+	asm volatile ( "inw %%dx, %%ax" : "=r" (out_value) : "r" (in_port) );
+	return out_value;
+}
+
+inline void ioOutByte(uint16_t port, uint8_t value) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t in_value asm("al") = value;
 	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
