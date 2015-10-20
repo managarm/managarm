@@ -116,12 +116,6 @@ void Driver::performRequest() {
 
 	Request &request = p_requestQueue.front();
 
-	auto callback = CALLBACK_MEMBER(this, &Driver::onReadIrq);
-	int64_t async_id;
-	HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, eventHub.getHandle(),
-			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-			&async_id));
-
 	frigg::arch_x86::ioOutByte(p_basePort + kPortWriteDevice, kDeviceLba);
 	
 	frigg::arch_x86::ioOutByte(p_basePort + kPortWriteSectorCount, (request.numSectors >> 8) & 0xFF);
@@ -135,18 +129,18 @@ void Driver::performRequest() {
 	frigg::arch_x86::ioOutByte(p_basePort + kPortWriteLba3, (request.sector >> 16) & 0xFF);
 	
 	frigg::arch_x86::ioOutByte(p_basePort + kPortWriteCommand, kCommandReadSectorsExt);
+
+	auto callback = CALLBACK_MEMBER(this, &Driver::onReadIrq);
+	int64_t async_id;
+	HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, eventHub.getHandle(),
+			(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+			&async_id));
 }
 
 void Driver::onReadIrq(HelError error) {
 	Request &request = p_requestQueue.front();
-	if(request.sectorsRead + 1 < request.numSectors) {
-		auto callback = CALLBACK_MEMBER(this, &Driver::onReadIrq);
-		int64_t async_id;
-		HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, eventHub.getHandle(),
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-				&async_id));
-	}
-
+	
+	// acknowledge the interrupt
 	/*uint8_t status =*/ frigg::arch_x86::ioInByte(p_basePort + kPortReadStatus);
 //	assert((status & kStatusBsy) == 0);
 //	assert((status & kStatusDrq) != 0);
@@ -160,12 +154,15 @@ void Driver::onReadIrq(HelError error) {
 	}
 	
 	request.sectorsRead++;
-	if(request.sectorsRead == request.numSectors) {
-		// acknowledge the interrupt
-		frigg::arch_x86::ioInByte(p_basePort + kPortReadStatus);
-
+	if(request.sectorsRead < request.numSectors) {
+		auto callback = CALLBACK_MEMBER(this, &Driver::onReadIrq);
+		int64_t async_id;
+		HEL_CHECK(helSubmitWaitForIrq(p_irqHandle, eventHub.getHandle(),
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				&async_id));
+	}else{
+		assert(request.sectorsRead == request.numSectors);
 		request.callback();
-
 		p_requestQueue.pop();
 
 		p_inRequest = false;

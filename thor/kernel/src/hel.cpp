@@ -1018,6 +1018,10 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto irq_line = frigg::makeShared<IrqLine>(*kernelAlloc, number);
+	
+	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
+	irqRelays[number]->addLine(irq_guard, frigg::WeakPtr<IrqLine>(irq_line));
+	irq_guard.unlock();
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
@@ -1038,7 +1042,7 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 	if(!irq_wrapper->is<IrqDescriptor>())
 		return kHelErrBadDescriptor;
 	auto &irq_descriptor = irq_wrapper->get<IrqDescriptor>();
-	int number = irq_descriptor.getIrqLine()->getNumber();
+	frigg::SharedPtr<IrqLine> line(irq_descriptor.getIrqLine());
 	
 	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 	if(!hub_wrapper)
@@ -1051,9 +1055,9 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 
-	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
-	irqRelays[number]->submitWaitRequest(irq_guard, frigg::move(event_hub), submit_info);
-	irq_guard.unlock();
+	IrqRelay::Guard line_guard(&line->lock);
+	line->submitWait(line_guard, frigg::move(event_hub), submit_info);
+	line_guard.unlock();
 
 	*async_id = submit_info.asyncId;
 	return kHelErrNone;
