@@ -37,27 +37,7 @@ void CharDeviceNode::OpenFile::read(void *buffer, size_t max_length,
 }
 
 // --------------------------------------------------------
-// CharDeviceNode
-// --------------------------------------------------------
-
-void HelfdNode::openSelf(StdUnsafePtr<Process> process,
-		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
-	auto open_file = frigg::makeShared<OpenFile>(*allocator, this);
-	callback(frigg::staticPtrCast<VfsOpenFile>(frigg::move(open_file)));
-}
-
-HelfdNode::OpenFile::OpenFile(HelfdNode *inode)
-: p_inode(inode) { }
-
-void HelfdNode::OpenFile::setHelfd(HelHandle handle) {
-	p_inode->p_handle = handle;
-}
-HelHandle HelfdNode::OpenFile::getHelfd() {
-	return p_inode->p_handle;
-}
-
-// --------------------------------------------------------
-// CharDeviceNode
+// DirectoryNode
 // --------------------------------------------------------
 
 DirectoryNode::DirectoryNode()
@@ -81,12 +61,12 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 			(*entry)->openSelf(process, callback);
 		}else if((flags & MountSpace::kOpenCreat) != 0) {
 			StdSharedPtr<Inode> inode;
-			if((mode & MountSpace::kOpenHelfd) != 0) {
-				auto real_inode = frigg::makeShared<HelfdNode>(*allocator);
-				inode = frigg::staticPtrCast<Inode>(frigg::move(real_inode));
-			}else{
-				assert(!"mode not supported");
-			}
+			//if((mode & MountSpace::kOpenHelfd) != 0) {
+			//	auto real_inode = frigg::makeShared<HelfdNode>(*allocator);
+			//	inode = frigg::staticPtrCast<Inode>(frigg::move(real_inode));
+			//}else{
+				assert(!"Mode not supported");
+			//}
 
 			entries.insert(frigg::String<Allocator>(*allocator, path),
 					StdSharedPtr<Inode>(inode));
@@ -110,7 +90,7 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 }
 
 // --------------------------------------------------------
-// CharDeviceNode
+// MountPoint
 // --------------------------------------------------------
 
 MountPoint::MountPoint() { }

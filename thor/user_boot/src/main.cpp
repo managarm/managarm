@@ -245,7 +245,7 @@ void runPosixInit() {
 	// create a helfd file for the hardware driver
 	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
 	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
-	open_request.set_path(frigg::String<Allocator>(*allocator, "/dev/hw"));
+	open_request.set_path(frigg::String<Allocator>(*allocator, "/dev/sysfile/hw"));
 	open_request.set_flags(managarm::posix::OpenFlags::CREAT);
 	open_request.set_mode(managarm::posix::OpenMode::HELFD);
 	

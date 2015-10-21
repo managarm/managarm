@@ -29,6 +29,7 @@
 #include "exec.hpp"
 #include "dev_fs.hpp"
 #include "pts_fs.hpp"
+#include "sysfile_fs.hpp"
 
 #include "posix.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"
@@ -249,6 +250,10 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto pts_fs = frigg::construct<pts_fs::MountPoint>(*allocator);
 		auto pts_root = frigg::String<Allocator>(*allocator, "/dev/pts");
 		process->mountSpace->allMounts.insert(pts_root, pts_fs);
+		
+		auto sysfile_fs = frigg::construct<sysfile_fs::MountPoint>(*allocator);
+		auto sysfile_root = frigg::String<Allocator>(*allocator, "/dev/sysfile");
+		process->mountSpace->allMounts.insert(sysfile_root, sysfile_fs);
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);

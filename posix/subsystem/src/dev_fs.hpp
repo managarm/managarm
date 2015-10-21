@@ -49,32 +49,6 @@ private:
 };
 
 // --------------------------------------------------------
-// HelfdNode
-// --------------------------------------------------------
-
-class HelfdNode : public Inode {
-public:
-	class OpenFile : public VfsOpenFile {
-	public:
-		OpenFile(HelfdNode *inode);
-		
-		// inherited from VfsOpenFile
-		void setHelfd(HelHandle handle) override;
-		HelHandle getHelfd() override;
-	
-	private:
-		HelfdNode *p_inode;
-	};
-
-	// inherited from Inode
-	void openSelf(StdUnsafePtr<Process> process,
-			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
-
-private:
-	HelHandle p_handle;
-};
-
-// --------------------------------------------------------
 // DirectoryNode
 // --------------------------------------------------------
 
