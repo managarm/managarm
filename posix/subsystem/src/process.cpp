@@ -9,8 +9,11 @@
 
 void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration);
 
+// this has to start at 1 so the init process gets the correct pid
+ProcessId nextPid = 1;
+
 StdSharedPtr<Process> Process::init() {
-	auto new_process = frigg::makeShared<Process>(*allocator);
+	auto new_process = frigg::makeShared<Process>(*allocator, nextPid++);
 	new_process->mountSpace = frigg::construct<MountSpace>(*allocator);
 	new_process->nextFd = 3; // reserve space for stdio
 
@@ -39,12 +42,12 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	return directory;
 }
 
-Process::Process()
-: iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
+Process::Process(ProcessId pid)
+: pid(pid), iteration(0), mountSpace(nullptr), vmSpace(kHelNullHandle),
 		allOpenFiles(frigg::DefaultHasher<int>(), *allocator), nextFd(-1) { }
 
 StdSharedPtr<Process> Process::fork() {
-	auto new_process = frigg::makeShared<Process>(*allocator);
+	auto new_process = frigg::makeShared<Process>(*allocator, nextPid++);
 	
 	new_process->mountSpace = mountSpace;
 	HEL_CHECK(helForkSpace(vmSpace, &new_process->vmSpace));

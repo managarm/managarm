@@ -16,13 +16,14 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/arch_x86/machine.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
-#include "char_device.pb.h"
+#include <posix.pb.h>
 
 uint8_t *videoMemoryPointer;
 int xPosition = 0;
@@ -361,12 +362,69 @@ void initializeScreen() {
 	videoMemoryPointer = (uint8_t *)actual_pointer;
 }
 
+helx::EventHub eventHub = helx::EventHub::create();
+int masterFd;
+
+struct ReadMasterClosure {
+	void operator() ();
+
+private:
+	void connected(HelError error, HelHandle handle);
+	void doRead();
+	void recvdResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	
+	helx::Pipe pipe;
+	char buffer[128];
+};
+
+void ReadMasterClosure::operator() () {
+	const char *posix_path = "local/posix";
+	HelHandle posix_handle;
+	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
+	helx::Client posix_client(posix_handle);
+	
+	auto callback = CALLBACK_MEMBER(this, &ReadMasterClosure::connected);
+	posix_client.connect(eventHub, callback.getObject(), callback.getFunction());
+}
+
+void ReadMasterClosure::connected(HelError error, HelHandle handle) {
+	HEL_CHECK(error);
+	pipe = helx::Pipe(handle);
+	doRead();
+}
+
+void ReadMasterClosure::doRead() {
+	managarm::posix::ClientRequest request;
+	request.set_request_type(managarm::posix::ClientRequestType::READ);
+	request.set_fd(masterFd);
+	request.set_size(64);
+
+	std::string serialized;
+	request.SerializeToString(&serialized);
+	pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
+	
+	auto callback = CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse);
+	pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
+			callback.getObject(), callback.getFunction());
+}
+
+void ReadMasterClosure::recvdResponse(HelError error,
+		int64_t msg_request, int64_t msg_seq, size_t length) {
+	HEL_CHECK(error);
+
+	managarm::posix::ServerResponse response;
+	response.ParseFromArray(buffer, length);
+	printString(response.buffer().data(), response.buffer().size());
+
+	doRead();
+}
+
 int main() {
 	printf("Starting vga_terminal\n");
 	initializeScreen();
 
-	int master_fd = open("/dev/pts/ptmx", O_RDWR);
-	assert(master_fd != -1);
+	masterFd = open("/dev/pts/ptmx", O_RDWR);
+	assert(masterFd != -1);
 
 	int child = fork();
 	assert(child != -1);
@@ -379,12 +437,11 @@ int main() {
 
 		execve("zisa", nullptr, nullptr);
 	}
+
+	auto read_master = new ReadMasterClosure();
+	(*read_master)();
 	
-	while(true) {
-		char string[16];
-		ssize_t length = read(master_fd, string, 16);
-		assert(length != -1);
-		printString(string, length);
-	}
+	while(true)
+		eventHub.defaultProcessEvents();
 }
 

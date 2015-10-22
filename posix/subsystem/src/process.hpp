@@ -7,16 +7,21 @@
 class VfsOpenFile;
 class MountSpace;
 
+typedef int ProcessId;
+
 struct Process {
 	// creates a new process to run the "init" program
 	static StdSharedPtr<Process> init();
 	
 	static helx::Directory runServer(StdSharedPtr<Process> process);
 
-	Process();
+	Process(ProcessId pid);
 
 	// creates a new process by forking an old one
 	StdSharedPtr<Process> fork();
+
+	// unix pid of this process
+	ProcessId pid;
 	
 	// incremented when this process calls execve()
 	// ensures that we don't accept new requests from old pipes after execve()

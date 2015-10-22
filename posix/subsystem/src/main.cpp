@@ -34,6 +34,8 @@
 #include "posix.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"
 
+bool traceRequests = false;
+
 helx::EventHub eventHub = helx::EventHub::create();
 helx::Client mbusConnect;
 helx::Client ldServerConnect;
@@ -259,6 +261,9 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] FORK" << frigg::EndLog();
+
 		StdSharedPtr<Process> new_process = process->fork();
 
 		HelThreadState state;
@@ -277,21 +282,36 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] EXEC" << frigg::EndLog();
+
 		execute(process, request.path());
 		
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] OPEN" << frigg::EndLog();
+
 		frigg::runClosure<OpenClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] WRITE" << frigg::EndLog();
+
 		frigg::runClosure<WriteClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] READ" << frigg::EndLog();
+
 		frigg::runClosure<ReadClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] CLOSE" << frigg::EndLog();
+
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 
 		int32_t fd = request.fd();
@@ -305,6 +325,9 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] DUP2" << frigg::EndLog();
+
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 
 		int32_t oldfd = request.fd();
@@ -321,6 +344,9 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] HELFD_ATTACH" << frigg::EndLog();
+
 		HelError error;
 		HelHandle handle;
 		//FIXME
@@ -342,6 +368,9 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] HELFD_CLONE" << frigg::EndLog();
+
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		if(!file_wrapper) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
