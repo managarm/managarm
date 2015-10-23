@@ -107,6 +107,13 @@ public:
 		p_buffer = (Char *)p_allocator->allocate(sizeof(Char) * p_length);
 		memcpy(p_buffer, view.data(), sizeof(Char) * p_length);
 	}
+	
+	BasicString(Allocator &allocator, size_t size, Char c = 0)
+	: p_allocator(&allocator), p_length(size) {
+		p_buffer = (Char *)p_allocator->allocate(sizeof(Char) * p_length);
+		for(size_t i = 0; i < size; i++)
+			p_buffer[i] = c;
+	}
 
 	BasicString(const BasicString &other)
 	: p_allocator(other.p_allocator), p_length(other.p_length) {
@@ -217,6 +224,29 @@ public:
 
 template<typename Allocator>
 using String = BasicString<char, Allocator>;
+
+template<typename Allocator, typename T>
+String<Allocator> uintToString(Allocator &allocator, T number, int radix) {
+	if(number == 0)
+		return String<Allocator>(allocator, "0");
+	
+	int length = 0;
+	T rem = number;
+	while(rem > 0) {
+		length++;
+		rem /= radix;
+	}
+
+	const char *digits = "0123456789abcdef";
+	String<Allocator> string(allocator, length);
+
+	for(int i = length - 1; i >= 0; i--) {
+		string[i] = digits[number % radix];
+		number /= radix;
+	}
+
+	return move(string);
+}
 
 template<typename P>
 struct Print<P, StringView> {
