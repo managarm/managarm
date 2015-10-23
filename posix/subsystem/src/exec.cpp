@@ -6,7 +6,7 @@
 #include <frigg/debug.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
-#include <frigg/async2.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/protobuf.hpp>
 #include <frigg/glue-hel.hpp>
 
@@ -19,141 +19,174 @@
 
 #include "ld-server.frigg_pb.hpp"
 
-struct LoadContext {
-	LoadContext()
-	: space(kHelNullHandle), response(*allocator), currentSegment(0) { }
-	
+// --------------------------------------------------------
+// LoadClosure
+// --------------------------------------------------------
+
+struct LoadClosure {
+	LoadClosure(HelHandle space, frigg::String<Allocator> path, uintptr_t base_address,
+			frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback);
+
+	void operator() ();
+
+private:
+	void recvdResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void processSegment();
+	void recvdSegment(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle);
+
 	HelHandle space;
+	frigg::String<Allocator> path;
+	uintptr_t baseAddress;
+	frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback;
+
 	uint8_t buffer[128];
 	managarm::ld_server::ServerResponse<Allocator> response;
 	size_t currentSegment;
 };
 
-auto loadObject =
-frigg::asyncSeq(
-	frigg::wrapFuncPtr<helx::RecvStringFunction>([](LoadContext *context,
-			void *cb_object, auto cb_function,
-			frigg::StringView object_name, uintptr_t base_address) {
-		managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-		request.set_identifier(frigg::String<Allocator>(*allocator, object_name));
-		request.set_base_address(base_address);
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		ldServerPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
-		
-		HEL_CHECK(ldServerPipe.recvStringResp(context->buffer, 128, eventHub,
-				1, 0, cb_object, cb_function));
-	}),
-	frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
-			int64_t msg_request, int64_t msg_seq, size_t length) {
-		HEL_CHECK(error);
+LoadClosure::LoadClosure(HelHandle space, frigg::String<Allocator> path, uintptr_t base_address,
+		frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback)
+: space(space), path(frigg::move(path)), baseAddress(base_address), callback(callback),
+		response(*allocator), currentSegment(0) { }
 
-		context->response.ParseFromArray(context->buffer, length);
-		callback();
-	}),
-	frigg::asyncRepeatWhile(
-		frigg::wrapFunctor([] (LoadContext *context, auto &callback) {
-			callback(context->currentSegment < context->response.segments_size());
-		}),
-		frigg::asyncSeq(
-			frigg::wrapFuncPtr<helx::RecvDescriptorFunction>([](LoadContext *context,
-					void *cb_object, auto cb_function) {
-				ldServerPipe.recvDescriptorResp(eventHub, 1, 1 + context->currentSegment,
-						cb_object, cb_function);
-			}),
-			frigg::wrapFunctor([](LoadContext *context, auto &callback, HelError error,
-					int64_t msg_request, int64_t msg_seq, HelHandle handle) {
-				HEL_CHECK(error);
+void LoadClosure::operator() () {
+	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
+	request.set_identifier(frigg::move(path));
+	request.set_base_address(baseAddress);
+	
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	ldServerPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	auto cb = CALLBACK_MEMBER(this, &LoadClosure::recvdResponse);
+	HEL_CHECK(ldServerPipe.recvStringResp(buffer, 128, eventHub,
+			1, 0, cb.getObject(), cb.getFunction()));
+}
 
-				auto &segment = context->response.segments(context->currentSegment);
+void LoadClosure::recvdResponse(HelError error,
+		int64_t msg_request, int64_t msg_seq, size_t length) {
+	HEL_CHECK(error);
 
-				uint32_t map_flags = 0;
-				if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
-					map_flags |= kHelMapReadWrite;
-				}else{
-					assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
-					map_flags |= kHelMapReadExecute | kHelMapShareOnFork;
-				}
-				
-				void *actual_ptr;
-				HEL_CHECK(helMapMemory(handle, context->space, (void *)segment.virt_address(),
-						segment.virt_length(), map_flags, &actual_ptr));
-				HEL_CHECK(helCloseDescriptor(handle));
-				context->currentSegment++;
-				callback();
-			})
-		)
-	)
-);
+	response.ParseFromArray(buffer, length);
+	processSegment();
+}
 
-struct ExecuteContext {
-	ExecuteContext(frigg::StringView program, StdUnsafePtr<Process> process)
-	: program(frigg::move(program)), process(process) {
-		// reset the virtual memory space of the process
-		if(process->vmSpace != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(process->vmSpace));
-		HEL_CHECK(helCreateSpace(&process->vmSpace));
-		executableContext.space = process->vmSpace;
-		interpreterContext.space = process->vmSpace;
-		process->iteration++;
+void LoadClosure::processSegment() {
+	if(currentSegment < response.segments_size()) {
+		auto cb = CALLBACK_MEMBER(this, &LoadClosure::recvdSegment);
+		ldServerPipe.recvDescriptorResp(eventHub, 1, 1 + currentSegment,
+				cb.getObject(), cb.getFunction());
+	}else{
+		callback(response.entry(), response.phdr_pointer(), response.phdr_entry_size(),
+				response.phdr_count());
+		frigg::destruct(*allocator, this);
 	}
+}
 
-	frigg::StringView program;
-	StdUnsafePtr<Process> process;
+void LoadClosure::recvdSegment(HelError error,
+		int64_t msg_request, int64_t msg_seq, HelHandle handle) {
+	HEL_CHECK(error);
 
-	LoadContext executableContext;
-	LoadContext interpreterContext;
+	auto &segment = response.segments(currentSegment);
+
+	uint32_t map_flags = 0;
+	if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
+		map_flags |= kHelMapReadWrite;
+	}else{
+		assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
+		map_flags |= kHelMapReadExecute | kHelMapShareOnFork;
+	}
+	
+	void *actual_ptr;
+	HEL_CHECK(helMapMemory(handle, space, (void *)segment.virt_address(),
+			segment.virt_length(), map_flags, &actual_ptr));
+	HEL_CHECK(helCloseDescriptor(handle));
+	currentSegment++;
+
+	processSegment();
+}
+
+// --------------------------------------------------------
+// ExecuteClosure
+// --------------------------------------------------------
+
+struct ExecuteClosure {
+	ExecuteClosure(frigg::SharedPtr<Process> process, frigg::String<Allocator> path);
+	
+	void operator() ();
+
+private:
+	void loadedExecutable(uintptr_t entry, uintptr_t phdr_pointer, size_t phdr_entry_size,
+			size_t phdr_count);
+	void loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer, size_t phdr_entry_size,
+			size_t phdr_count);
+
+	frigg::SharedPtr<Process> process;
+	frigg::String<Allocator> path;
+	uintptr_t programEntry;
+	uintptr_t phdrPointer;
+	size_t phdrEntrySize, phdrCount;
+	uintptr_t interpreterEntry;
 };
 
-auto executeProgram =
-frigg::asyncSeq(
-	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		callback(context->program, 0);
-	}),
-	frigg::subContext(&ExecuteContext::executableContext,
-		frigg::wrapFunctor([](LoadContext *context, auto &callback,
-				frigg::StringView object_name, uintptr_t base_address) {
-			callback(object_name, base_address);
-		})
-	),
-	frigg::subContext(&ExecuteContext::executableContext, loadObject),
-	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		callback(frigg::StringView("ld-init.so"), 0x40000000);
-	}),
-	frigg::subContext(&ExecuteContext::interpreterContext, loadObject),
-	frigg::wrapFunctor([](ExecuteContext *context, auto &callback) {
-		constexpr size_t stack_size = 0x10000;
-		
-		HelHandle stack_memory;
-		HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
+ExecuteClosure::ExecuteClosure(frigg::SharedPtr<Process> process, frigg::String<Allocator> path)
+: process(frigg::move(process)), path(frigg::move(path)) { }
 
-		void *stack_base;
-		HEL_CHECK(helMapMemory(stack_memory, context->process->vmSpace, nullptr,
-				stack_size, kHelMapReadWrite, &stack_base));
-		HEL_CHECK(helCloseDescriptor(stack_memory));
+void ExecuteClosure::operator() () {
+	// reset the virtual memory space of the process
+	if(process->vmSpace != kHelNullHandle)
+		HEL_CHECK(helCloseDescriptor(process->vmSpace));
+	HEL_CHECK(helCreateSpace(&process->vmSpace));
+	process->iteration++;
 
-		HelThreadState state;
-		memset(&state, 0, sizeof(HelThreadState));
-		state.rip = context->interpreterContext.response.entry();
-		state.rsp = (uintptr_t)stack_base + stack_size;
-		state.rdi = context->executableContext.response.phdr_pointer();
-		state.rsi = context->executableContext.response.phdr_entry_size();
-		state.rdx = context->executableContext.response.phdr_count();
-		state.rcx = context->executableContext.response.entry();
-		
-		StdSharedPtr<Process> process(context->process);
-		helx::Directory directory = Process::runServer(frigg::move(process));
+	frigg::runClosure<LoadClosure>(*allocator, process->vmSpace, path, 0,
+			CALLBACK_MEMBER(this, &ExecuteClosure::loadedExecutable));
+}
 
-		HelHandle thread;
-		HEL_CHECK(helCreateThread(context->process->vmSpace, directory.getHandle(),
-				&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
-		HEL_CHECK(helCloseDescriptor(thread));
-		callback();
-	})
-);
+void ExecuteClosure::loadedExecutable(uintptr_t entry, uintptr_t phdr_pointer,
+		size_t phdr_entry_size, size_t phdr_count) {
+	programEntry = entry;
+	phdrPointer = phdr_pointer;
+	phdrEntrySize = phdr_entry_size;
+	phdrCount = phdr_count;
 
-void execute(StdUnsafePtr<Process> process, frigg::StringView path) {
-	frigg::runAsync<ExecuteContext>(*allocator, executeProgram, path, process);
+	frigg::runClosure<LoadClosure>(*allocator, process->vmSpace,
+			frigg::String<Allocator>(*allocator, "ld-init.so"), 0x40000000,
+			CALLBACK_MEMBER(this, &ExecuteClosure::loadedInterpreter));
+}
+
+void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
+		size_t phdr_entry_size, size_t phdr_count) {
+	interpreterEntry = entry;
+
+	constexpr size_t stack_size = 0x10000;
+	
+	HelHandle stack_memory;
+	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
+
+	void *stack_base;
+	HEL_CHECK(helMapMemory(stack_memory, process->vmSpace, nullptr,
+			stack_size, kHelMapReadWrite, &stack_base));
+	HEL_CHECK(helCloseDescriptor(stack_memory));
+
+	HelThreadState state;
+	memset(&state, 0, sizeof(HelThreadState));
+	state.rip = interpreterEntry;
+	state.rsp = (uintptr_t)stack_base + stack_size;
+	state.rdi = phdrPointer;
+	state.rsi = phdrEntrySize;
+	state.rdx = phdrCount;
+	state.rcx = programEntry;
+	
+	helx::Directory directory = Process::runServer(process);
+
+	HelHandle thread;
+	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
+			&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
+	HEL_CHECK(helCloseDescriptor(thread));
+}
+
+void execute(frigg::SharedPtr<Process> process, frigg::String<Allocator> path) {
+	frigg::runClosure<ExecuteClosure>(*allocator, frigg::move(process), frigg::move(path));
 }
 

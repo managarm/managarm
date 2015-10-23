@@ -12,7 +12,6 @@
 #include <frigg/algorithm.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
-#include <frigg/async2.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -204,3 +203,4 @@ int main() {
 		eventHub.defaultProcessEvents();
 	}
 }
+

@@ -14,7 +14,7 @@
 #include <frigg/variant.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
-#include <frigg/async2.hpp>
+#include <frigg/callback.hpp>
 #include <frigg/elf.hpp>
 
 #include <hel.h>

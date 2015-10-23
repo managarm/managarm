@@ -4,7 +4,7 @@
 
 #include "process.hpp"
 
-void execute(StdUnsafePtr<Process> process, frigg::StringView path);
+void execute(StdSharedPtr<Process> process, frigg::String<Allocator> path);
 
 #endif // POSIX_SUBSYSTEM_EXEC_HPP
 

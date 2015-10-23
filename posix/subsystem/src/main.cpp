@@ -13,7 +13,6 @@
 #include <frigg/optional.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/hashmap.hpp>
-#include <frigg/async2.hpp>
 #include <frigg/protobuf.hpp>
 
 #include <frigg/glue-hel.hpp>
@@ -418,38 +417,43 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 	(*this)();
 }
 
+// --------------------------------------------------------
+// AcceptClosure
+// --------------------------------------------------------
+
+struct AcceptClosure : frigg::BaseClosure<AcceptClosure> {
+public:
+	AcceptClosure(helx::Server server, frigg::SharedPtr<Process> process, int iteration);
+
+	void operator() ();
+
+private:
+	void accepted(HelError error, HelHandle handle);
+
+	helx::Server p_server;
+	frigg::SharedPtr<Process> process;
+	int iteration;
+};
+
+AcceptClosure::AcceptClosure(helx::Server server, frigg::SharedPtr<Process> process, int iteration)
+: p_server(frigg::move(server)), process(frigg::move(process)), iteration(iteration) { }
+
+void AcceptClosure::operator() () {
+	auto callback = CALLBACK_MEMBER(this, &AcceptClosure::accepted);
+	p_server.accept(eventHub, callback.getObject(), callback.getFunction());
+}
+
+void AcceptClosure::accepted(HelError error, HelHandle handle) {
+	HEL_CHECK(error);
+	
+	auto pipe = frigg::makeShared<helx::Pipe>(*allocator, handle);
+	frigg::runClosure<RequestClosure>(*allocator, frigg::move(pipe), process, iteration);
+	(*this)();
+}
+
 void acceptLoop(helx::Server server, StdSharedPtr<Process> process, int iteration) {
-	struct AcceptContext {
-		AcceptContext(helx::Server server, StdSharedPtr<Process> process, int iteration)
-		: server(frigg::move(server)), process(process), iteration(iteration) { }
-
-		helx::Server server;
-		StdSharedPtr<Process> process;
-		int iteration;
-	};
-
-	auto body =
-	frigg::asyncRepeatUntil(
-		frigg::asyncSeq(
-			frigg::wrapFuncPtr<helx::AcceptFunction>([] (AcceptContext *context,
-					void *cb_object, auto cb_function) {
-				context->server.accept(eventHub, cb_object, cb_function);
-			}),
-			frigg::wrapFunctor([] (AcceptContext *context, auto &callback,
-					HelError error, HelHandle handle) {
-				HEL_CHECK(error);
-				
-				auto pipe = frigg::makeShared<helx::Pipe>(*allocator, handle);
-				frigg::runClosure<RequestClosure>(*allocator, frigg::move(pipe),
-						context->process, context->iteration);
-
-				callback(true);
-			})
-		)
-	);
-
-	frigg::runAsync<AcceptContext>(*allocator, body, frigg::move(server),
-			process, iteration);
+	frigg::runClosure<AcceptClosure>(*allocator, frigg::move(server),
+			frigg::move(process), iteration);
 }
 
 // --------------------------------------------------------

@@ -9,7 +9,6 @@
 #include <frigg/string.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/vector.hpp>
-#include <frigg/async2.hpp>
 
 #include <frigg/glue-hel.hpp>
 #include <frigg/elf.hpp>
