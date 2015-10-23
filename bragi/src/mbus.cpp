@@ -45,9 +45,7 @@ void Connection::ConnectClosure::operator() () {
 	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
 	
 	helx::Client mbus_connect(mbus_handle);
-	auto callback = CALLBACK_MEMBER(this, &ConnectClosure::connected);
-	mbus_connect.connect(connection.eventHub,
-			callback.getObject(), callback.getFunction());
+	mbus_connect.connect(connection.eventHub, CALLBACK_MEMBER(this, &ConnectClosure::connected));
 }
 
 void Connection::ConnectClosure::connected(HelError error, HelHandle handle) {
@@ -76,9 +74,8 @@ void Connection::EnumerateClosure::operator() () {
 	request.SerializeToString(&serialized);
 	connection.mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
-	auto callback = CALLBACK_MEMBER(this, &EnumerateClosure::recvdResponse);
-	connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
-			callback.getObject(), callback.getFunction());
+	HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &EnumerateClosure::recvdResponse)));
 }
 
 void Connection::EnumerateClosure::recvdResponse(HelError error,
@@ -111,9 +108,8 @@ void Connection::QueryIfClosure::operator() () {
 	request.SerializeToString(&serialized);
 	connection.mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
-	auto callback = CALLBACK_MEMBER(this, &QueryIfClosure::recvdDescriptor);
 	connection.mbusPipe.recvDescriptorResp(connection.eventHub, 1, 1,
-			callback.getObject(), callback.getFunction());
+			CALLBACK_MEMBER(this, &QueryIfClosure::recvdDescriptor));
 }
 
 void Connection::QueryIfClosure::recvdDescriptor(HelError error,

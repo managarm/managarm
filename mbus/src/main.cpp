@@ -126,9 +126,8 @@ QueryIfClosure::QueryIfClosure(frigg::SharedPtr<Connection> connection,
 		queryRequestId(query_request_id), requireRequestId(require_request_id) { }
 
 void QueryIfClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &QueryIfClosure::recvdPipe);
 	object->connection->pipe.recvDescriptorResp(eventHub, requireRequestId, 1,
-			callback.getObject(), callback.getFunction());
+			CALLBACK_MEMBER(this, &QueryIfClosure::recvdPipe));
 }
 
 void QueryIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq,
@@ -160,9 +159,8 @@ RequestClosure::RequestClosure(frigg::SharedPtr<Connection> connection)
 : connection(frigg::move(connection)) { }
 
 void RequestClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvdRequest);
 	HEL_CHECK(connection->pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
-			callback.getObject(), callback.getFunction()));
+			CALLBACK_MEMBER(this, &RequestClosure::recvdRequest)));
 }
 
 void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
@@ -263,8 +261,7 @@ AcceptClosure::AcceptClosure(helx::Server server)
 : p_server(frigg::move(server)) { }
 
 void AcceptClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &AcceptClosure::accepted);
-	p_server.accept(eventHub, callback.getObject(), callback.getFunction());
+	p_server.accept(eventHub, CALLBACK_MEMBER(this, &AcceptClosure::accepted));
 }
 
 void AcceptClosure::accepted(HelError error, HelHandle handle) {

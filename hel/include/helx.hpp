@@ -4,6 +4,7 @@
 
 #include <frigg/cxx-support.hpp>
 #include <frigg/algorithm.hpp>
+#include <frigg/callback.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -57,7 +58,6 @@ public:
 	
 	inline EventHub &operator= (EventHub other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 
@@ -165,7 +165,6 @@ public:
 
 	inline Pipe &operator= (Pipe other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 
@@ -214,23 +213,25 @@ public:
 
 	inline HelError recvString(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			void *object, RecvStringFunction function, uint32_t flags) {
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback,
+			uint32_t flags) {
 		int64_t async_id;
 		return helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				(uintptr_t)function, (uintptr_t)object, flags, &async_id);
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				flags, &async_id);
 	}
 	inline HelError recvStringReq(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			void *object, RecvStringFunction function) {
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback) {
 		return recvString(buffer, max_length, event_hub,
-				msg_request, msg_seq, object, function, kHelRequest);
+				msg_request, msg_seq, callback, kHelRequest);
 	}
 	inline HelError recvStringResp(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			void *object, RecvStringFunction function) {
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback) {
 		return recvString(buffer, max_length, event_hub,
-				msg_request, msg_seq, object, function, kHelResponse);
+				msg_request, msg_seq, callback, kHelResponse);
 	}
 
 	inline void recvStringSync(void *buffer, size_t max_length,
@@ -257,21 +258,23 @@ public:
 	
 	inline void recvDescriptor(EventHub &event_hub,
 			int64_t msg_request, int64_t msg_seq,
-			void *object, RecvDescriptorFunction function, uint32_t flags) {
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, HelHandle)> callback,
+			uint32_t flags) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
-				msg_request, msg_seq, (uintptr_t)function, (uintptr_t)object,
+				msg_request, msg_seq,
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id));
 	}
 	inline void recvDescriptorReq(EventHub &event_hub,
 			int64_t msg_request, int64_t msg_seq,
-			void *object, RecvDescriptorFunction function) {
-		recvDescriptor(event_hub, msg_request, msg_seq, object, function, kHelRequest);
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, HelHandle)> callback) {
+		recvDescriptor(event_hub, msg_request, msg_seq, callback, kHelRequest);
 	}
 	inline void recvDescriptorResp(EventHub &event_hub,
 			int64_t msg_request, int64_t msg_seq,
-			void *object, RecvDescriptorFunction function) {
-		recvDescriptor(event_hub, msg_request, msg_seq, object, function, kHelResponse);
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, HelHandle)> callback) {
+		recvDescriptor(event_hub, msg_request, msg_seq, callback, kHelResponse);
 	}
 	
 	inline void recvDescriptorSync(EventHub &event_hub,
@@ -318,7 +321,6 @@ public:
 	
 	inline Client &operator= (Client other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 
@@ -338,10 +340,10 @@ public:
 	}
 
 	inline void connect(EventHub &event_hub,
-			void *object, ConnectFunction function) {
+			frigg::CallbackPtr<void(HelError, HelHandle)> callback) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
-				(uintptr_t)function, (uintptr_t)object, &async_id));
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
 	}
 	
 	inline void connectSync(EventHub &event_hub, HelError &error, Pipe &pipe) {
@@ -381,7 +383,6 @@ public:
 	
 	inline Server &operator= (Server other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 
@@ -401,10 +402,10 @@ public:
 	}
 
 	inline void accept(EventHub &event_hub,
-			void *object, AcceptFunction function) {
+			frigg::CallbackPtr<void(HelError, HelHandle)> callback) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitAccept(p_handle, event_hub.getHandle(),
-				(uintptr_t)function, (uintptr_t)object, &async_id));
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
 	}
 
 private:
@@ -436,7 +437,6 @@ public:
 	
 	inline Irq &operator= (Irq other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 
@@ -456,10 +456,10 @@ public:
 	}
 
 	inline void wait(EventHub &event_hub,
-			void *object, IrqFunction function) {
+			frigg::CallbackPtr<void(HelError)> callback) {
 		int64_t async_id;
 		HEL_CHECK(helSubmitWaitForIrq(p_handle, event_hub.getHandle(),
-				(uintptr_t)function, (uintptr_t)object, &async_id));
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
 	}
 
 private:
@@ -491,7 +491,6 @@ public:
 	
 	inline Directory &operator= (Directory other) {
 		swap(*this, other);
-		other.reset();
 		return *this;
 	}
 

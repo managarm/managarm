@@ -239,7 +239,7 @@ void onInterrupt(void * object, HelError error) {
 		printf("%s\n", key.data());
 	}
 
-	irq.wait(eventHub, nullptr, &onInterrupt);
+	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 }
 
 int main() {
@@ -251,7 +251,7 @@ int main() {
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
-	irq.wait(eventHub, nullptr, &onInterrupt);
+	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 
 	while(true) {
 		eventHub.defaultProcessEvents();

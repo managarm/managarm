@@ -383,8 +383,7 @@ void ReadMasterClosure::operator() () {
 	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
 	helx::Client posix_client(posix_handle);
 	
-	auto callback = CALLBACK_MEMBER(this, &ReadMasterClosure::connected);
-	posix_client.connect(eventHub, callback.getObject(), callback.getFunction());
+	posix_client.connect(eventHub, CALLBACK_MEMBER(this, &ReadMasterClosure::connected));
 }
 
 void ReadMasterClosure::connected(HelError error, HelHandle handle) {
@@ -403,9 +402,8 @@ void ReadMasterClosure::doRead() {
 	request.SerializeToString(&serialized);
 	pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
 	
-	auto callback = CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse);
-	pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
-			callback.getObject(), callback.getFunction());
+	HEL_CHECK(pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
+			CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse)));
 }
 
 void ReadMasterClosure::recvdResponse(HelError error,

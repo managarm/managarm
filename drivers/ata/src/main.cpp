@@ -731,9 +731,8 @@ private:
 };
 
 void MbusClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdRequest);
-	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub,
-			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
+	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &MbusClosure::recvdRequest)));
 }
 
 void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,

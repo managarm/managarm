@@ -266,9 +266,8 @@ RequestClosure::RequestClosure(helx::Pipe pipe)
 : pipe(frigg::move(pipe)) { }
 
 void RequestClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub,
-			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
+	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &RequestClosure::recvRequest)));
 }
 
 void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
@@ -292,7 +291,7 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 void onAccept(void *object, HelError error, HelHandle pipe_handle) {
 	HEL_CHECK(error);
 	frigg::runClosure<RequestClosure>(*allocator, helx::Pipe(pipe_handle));
-	server.accept(eventHub, nullptr, &onAccept);
+	server.accept(eventHub, CALLBACK_STATIC(nullptr, &onAccept));
 }
 
 typedef void (*InitFuncPtr) ();
@@ -312,7 +311,7 @@ int main() {
 	// create a server and listen for requests
 	helx::Client client;
 	helx::Server::createServer(server, client);
-	server.accept(eventHub, nullptr, &onAccept);
+	server.accept(eventHub, CALLBACK_STATIC(nullptr, &onAccept));
 	
 	// inform user_boot that we are ready to server requests
 	const char *path = "local/parent";

@@ -392,9 +392,8 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 }
 
 void RequestClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &RequestClosure::recvRequest);
-	HelError error = pipe->recvStringReq(buffer, 128, eventHub,
-			kHelAnyRequest, 0, callback.getObject(), callback.getFunction());
+	HelError error = pipe->recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &RequestClosure::recvRequest));
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
 		return;
@@ -439,8 +438,7 @@ AcceptClosure::AcceptClosure(helx::Server server, frigg::SharedPtr<Process> proc
 : p_server(frigg::move(server)), process(frigg::move(process)), iteration(iteration) { }
 
 void AcceptClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &AcceptClosure::accepted);
-	p_server.accept(eventHub, callback.getObject(), callback.getFunction());
+	p_server.accept(eventHub, CALLBACK_MEMBER(this, &AcceptClosure::accepted));
 }
 
 void AcceptClosure::accepted(HelError error, HelHandle handle) {
@@ -475,9 +473,8 @@ QueryDeviceIfClosure::QueryDeviceIfClosure(int64_t request_id)
 : requestId(request_id) { }
 
 void QueryDeviceIfClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &QueryDeviceIfClosure::recvdPipe);
 	mbusPipe.recvDescriptorResp(eventHub, requestId, 1,
-			callback.getObject(), callback.getFunction());
+			CALLBACK_MEMBER(this, &QueryDeviceIfClosure::recvdPipe));
 }
 
 void QueryDeviceIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msq_seq,
@@ -499,9 +496,8 @@ private:
 };
 
 void MbusClosure::operator() () {
-	auto callback = CALLBACK_MEMBER(this, &MbusClosure::recvdBroadcast);
-	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub,
-			kHelAnyRequest, 0, callback.getObject(), callback.getFunction()));
+	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &MbusClosure::recvdBroadcast)));
 }
 
 bool hasCapability(const managarm::mbus::SvrRequest<Allocator> &svr_request,

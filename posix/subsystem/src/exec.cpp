@@ -58,9 +58,8 @@ void LoadClosure::operator() () {
 	request.SerializeToString(&serialized);
 	ldServerPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
-	auto cb = CALLBACK_MEMBER(this, &LoadClosure::recvdResponse);
-	HEL_CHECK(ldServerPipe.recvStringResp(buffer, 128, eventHub,
-			1, 0, cb.getObject(), cb.getFunction()));
+	HEL_CHECK(ldServerPipe.recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &LoadClosure::recvdResponse)));
 }
 
 void LoadClosure::recvdResponse(HelError error,
@@ -73,9 +72,8 @@ void LoadClosure::recvdResponse(HelError error,
 
 void LoadClosure::processSegment() {
 	if(currentSegment < response.segments_size()) {
-		auto cb = CALLBACK_MEMBER(this, &LoadClosure::recvdSegment);
 		ldServerPipe.recvDescriptorResp(eventHub, 1, 1 + currentSegment,
-				cb.getObject(), cb.getFunction());
+				CALLBACK_MEMBER(this, &LoadClosure::recvdSegment));
 	}else{
 		callback(response.entry(), response.phdr_pointer(), response.phdr_entry_size(),
 				response.phdr_count());
