@@ -11,7 +11,7 @@
 
 #include <frigg/atomic.hpp>
 
-#include <mbus.pb.h>
+#include <bragi/mbus.hpp>
 #include <hw.pb.h>
 
 //#include "pci.hpp"
@@ -57,56 +57,38 @@ void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
-helx::Pipe mbusPipe;
+bragi_mbus::Connection mbusConnection(eventHub);
 
-int main() {
-	printf("Starting Bochs VGA driver\n");
+// --------------------------------------------------------
+// InitClosure
+// --------------------------------------------------------
 
-	// connect to mbus
-	const char *mbus_path = "config/mbus";
-	HelHandle mbus_handle;
-	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
-	helx::Client mbus_connect(mbus_handle);
-	
-	HelError mbus_connect_error;
-	mbus_connect.connectSync(eventHub, mbus_connect_error, mbusPipe);
-	HEL_CHECK(mbus_connect_error);
+struct InitClosure {
+	void operator() ();
 
-	// enumerate the Bochs VGA device
-	managarm::mbus::CntRequest enumerate_request;
-	enumerate_request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
+private:
+	void connected();
+	void enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects);
+	void queriedBochs(HelHandle handle);
+};
 
-	managarm::mbus::Capability *cap = enumerate_request.add_caps();
-	cap->set_name("pci-vendor:0x1234");
+void InitClosure::operator() () {
+	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
+}
 
-	std::string enumerate_serialized;
-	enumerate_request.SerializeToString(&enumerate_serialized);
-	mbusPipe.sendStringReq(enumerate_serialized.data(), enumerate_serialized.size(), 1, 0);
-	
-	HelError enumerate_error;
-	uint8_t enumerate_buffer[128];
-	size_t enumerate_length;
-	mbusPipe.recvStringRespSync(enumerate_buffer, 128, eventHub, 1, 0,
-			enumerate_error, enumerate_length);
-	HEL_CHECK(enumerate_error);
+void InitClosure::connected() {
+	mbusConnection.enumerate("pci-vendor:0x1234",
+			CALLBACK_MEMBER(this, &InitClosure::enumeratedBochs));
+}
 
-	managarm::mbus::SvrResponse enumerate_response;
-	enumerate_response.ParseFromArray(enumerate_buffer, enumerate_length);
+void InitClosure::enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects) {
+	assert(objects.size() == 1);
+	mbusConnection.queryIf(objects[0],
+			CALLBACK_MEMBER(this, &InitClosure::queriedBochs));
+}
 
-	// query the Bochs VGA PCI device
-	managarm::mbus::CntRequest query_request;
-	query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-	query_request.set_object_id(enumerate_response.object_id());
-
-	std::string query_serialized;
-	query_request.SerializeToString(&query_serialized);
-	mbusPipe.sendStringReq(query_serialized.data(), query_serialized.size(), 1, 0);
-
-	HelError device_error;
-	HelHandle device_handle;
-	mbusPipe.recvDescriptorRespSync(eventHub, 1, 1, device_error, device_handle);
-	HEL_CHECK(device_error);
-	helx::Pipe device_pipe(device_handle);
+void InitClosure::queriedBochs(HelHandle handle) {
+	helx::Pipe device_pipe(handle);
 
 	// acquire the device's resources
 	HelError acquire_error;
@@ -144,6 +126,20 @@ int main() {
 	for(int y = 0; y < height; y++)
 		for(int x = 0; x < width; x++)
 			setPixel(x, y, 255, 255, 255);
+}
+
+// --------------------------------------------------------
+// main() function
+// --------------------------------------------------------
+
+int main() {
+	printf("Starting Bochs VGA driver\n");
+
+	auto closure = new InitClosure();
+	(*closure)();
+
+	while(true)
+		eventHub.defaultProcessEvents();
 	
 /*	FT_Library library;
 	if(FT_Init_FreeType(&library) != 0) {
