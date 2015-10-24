@@ -1,24 +1,31 @@
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include <string>
 
 #include <helx.hpp>
 
 #include <frigg/arch_x86/machine.hpp>
+#include <bragi/mbus.hpp>
 
 enum Status {
 	kStatusNormal,
 	kStatusE0,
-	kStatusE1
+	kStatusE1First,
+	kStatusE1Second
 };
 
 helx::EventHub eventHub = helx::EventHub::create();
+bragi_mbus::Connection mbusConnection(eventHub);
 helx::Irq irq;
 bool shift;
+bool altGr;
 Status escapeStatus = kStatusNormal;
+int firstScancode;
 
 std::string translate(std::string code) {
 	if(shift) {
@@ -49,6 +56,7 @@ std::string translate(std::string code) {
 		if(code == "KeyN") return "N";
 		if(code == "KeyM") return "M";
 
+		if(code == "Backquote") return "°";
 		if(code == "Digit1") return "!";
 		if(code == "Digit2") return "\"";
 		if(code == "Digit3") return "§";
@@ -66,9 +74,24 @@ std::string translate(std::string code) {
 		if(code == "BracketRight") return "*";
 		if(code == "Semicolon") return "Ö";
 		if(code == "Quote") return "Ä";
+		if(code == "IntlHash") return "'";
+		if(code == "IntlBackslash") return ">";
 		if(code == "Comma") return ";";
 		if(code == "Period") return ":";
 		if(code == "Slash") return "_";
+	}else if(altGr){
+		if(code == "Digit2") return "²";
+		if(code == "Digit3") return "³";
+		if(code == "Digit7") return "{";
+		if(code == "Digit8") return "[";
+		if(code == "Digit9") return "]";
+		if(code == "Digit0") return "}";
+		if(code == "Minus") return "\\";
+		if(code == "KeyQ") return "@";
+		if(code == "KeyE") return "€";
+		if(code == "BracketRight") return "~";
+		if(code == "IntlBackslash") return "|";
+		if(code == "KeyM") return "µ";
 	}else{
 		if(code == "KeyQ") return "q";
 		if(code == "KeyW") return "w";
@@ -97,6 +120,7 @@ std::string translate(std::string code) {
 		if(code == "KeyN") return "n";
 		if(code == "KeyM") return "m";
 
+		if(code == "Backquote") return "^";
 		if(code == "Digit1") return "1";
 		if(code == "Digit2") return "2";
 		if(code == "Digit3") return "3";
@@ -114,17 +138,73 @@ std::string translate(std::string code) {
 		if(code == "BracketRight") return "+";
 		if(code == "Semicolon") return "ö";
 		if(code == "Quote") return "ä";
+		if(code == "IntlHash") return "#";
+		if(code == "IntlBackslash") return "<";
 		if(code == "Comma") return ",";
 		if(code == "Period") return ".";
 		if(code == "Slash") return "-";
 	}
 	
+	if(code == "Numpad0") return "0";
+	if(code == "Numpad1") return "1";
+	if(code == "Numpad2") return "2";
+	if(code == "Numpad3") return "3";
+	if(code == "Numpad4") return "4";
+	if(code == "Numpad5") return "5";
+	if(code == "Numpad6") return "6";
+	if(code == "Numpad7") return "7";
+	if(code == "Numpad8") return "8";
+	if(code == "Numpad9") return "9";
+	if(code == "NumpadDivide") return "/";
 	if(code == "NumpadMultiply") return "*";
 	if(code == "NumpadSubtract") return "-";
 	if(code == "NumpadAdd") return "+";
 	if(code == "NumpadDecimal") return ",";
 
+
+	if(code == "AltLeft") return "Alt";
+	if(code == "AltRight") return "AltGraph";
+	if(code == "CapsLock") return "CapsLock";
+	if(code == "ControlLeft") return "Contol";
+	if(code == "ControlRight") return "Contol";
+	if(code == "NumLock") return "NumLock";
+	if(code == "OSLeft") return "OS";
+	if(code == "OSRight") return "OS";
+	if(code == "ScrollLock") return "ScrollLock";
+	if(code == "ShiftLeft") return "Shift";
+	if(code == "ShiftRight") return "Shift";
+	if(code == "Enter") return "Enter";
+	if(code == "NumpadEnter") return "Enter";
+	if(code == "Tab") return "Tab";
+	if(code == "Space") return " ";
+	if(code == "ArrowLeft") return "ArrowLeft";
+	if(code == "ArrowDown") return "ArrowDown";
+	if(code == "ArrowRight") return "ArrowRight";
+	if(code == "ArrowUp") return "ArrowUp";
+	if(code == "End") return "End";
+	if(code == "Home") return "Home";
+	if(code == "PageDown") return "PageDown";
+	if(code == "PageUp") return "PageUp";
 	if(code == "Backspace") return "Backspace";
+	if(code == "Delete") return "Delete";
+	if(code == "Insert") return "Insert";
+	if(code == "ArrowUp") return "Shift";
+	if(code == "ContextMenu") return "ContextMenu";
+	if(code == "Escape") return "Escape";
+	if(code == "PrintScreen") return "PrintScreen";
+	if(code == "Pause") return "Pause";
+	if(code == "F1") return "F1";
+	if(code == "F2") return "F2";
+	if(code == "F3") return "F3";
+	if(code == "F4") return "F4";
+	if(code == "F5") return "F5";
+	if(code == "F6") return "F6";
+	if(code == "F7") return "F7";
+	if(code == "F8") return "F8";
+	if(code == "F9") return "F9";
+	if(code == "F10") return "F10";
+	if(code == "F11") return "F11";
+	if(code == "F12") return "F12";
 
 	return "Unidentified";
 }
@@ -141,18 +221,31 @@ void onInterrupt(void * object, HelError error) {
 
 		uint8_t scan_code = frigg::arch_x86::ioInByte(0x60);
 
-		printf("%x\n", scan_code);
-
 		if(scan_code == 0xE0) {
 			escapeStatus = kStatusE0;
 			continue;
+		}else if(scan_code == 0xE1) {
+			escapeStatus = kStatusE1First;
+			continue;
 		}
 
-		if(escapeStatus == kStatusE0) {
+		if(escapeStatus == kStatusE1First) {
+			firstScancode = scan_code;
+			escapeStatus = kStatusE1Second;
+			continue;
+		}else if(escapeStatus == kStatusE1Second) {
+			if((firstScancode & 0x7F) == 0x1D && (scan_code & 0X7F) == 0x45){
+				code = "Pause";
+			}else{
+				code = "Unknown";
+			}
+			escapeStatus = kStatusNormal;
+		}else if(escapeStatus == kStatusE0) {
 			switch(scan_code & 0x7F) {
 				case 0x1C: code = "NumpadEnter"; break;
 				case 0x1D: code = "ControlRight"; break;
 				case 0x35: code = "NumpadDivide"; break;
+				case 0x37: code = "PrintScreen"; break;
 				case 0x38: code = "AltRight"; break;
 				case 0x47: code = "Home"; break;
 				case 0x48: code = "ArrowUp"; break;
@@ -267,10 +360,14 @@ void onInterrupt(void * object, HelError error) {
 		if(pressed) {
 			if(code == "ShiftLeft" || code == "ShiftRight") {
 				shift = true;
+			}else if(code == "AltRight") {
+				altGr = true;
 			}
 		}else{
 			if(code == "ShiftLeft" || code == "ShiftRight") {
 				shift = false;
+			}else if(code == "AltRight") {
+				altGr = false;
 			}
 		}
 
@@ -281,7 +378,50 @@ void onInterrupt(void * object, HelError error) {
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 }
 
-#include <unistd.h>
+// --------------------------------------------------------
+// ObjectHandler
+// --------------------------------------------------------
+
+struct ObjectHandler : public bragi_mbus::ObjectHandler {
+	// inherited from bragi_mbus::ObjectHandler
+	void requireIf(bragi_mbus::ObjectId object_id,
+			frigg::CallbackPtr<void(HelHandle)> callback);
+};
+
+void ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
+		frigg::CallbackPtr<void(HelHandle)> callback) {
+	helx::Pipe server_side, client_side;
+	helx::Pipe::createFullPipe(server_side, client_side);
+	callback(client_side.getHandle());
+	client_side.reset();
+}
+
+ObjectHandler objectHandler;
+
+// --------------------------------------------------------
+// InitClosure
+// --------------------------------------------------------
+
+struct InitClosure : public frigg::BaseClosure<InitClosure> {
+	void operator() ();
+
+private:
+	void connected();
+	void registered(bragi_mbus::ObjectId object_id);
+};
+
+void InitClosure::operator() () {
+	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
+}
+
+void InitClosure::connected() {
+	mbusConnection.registerObject("keyboard",
+			CALLBACK_MEMBER(this, &InitClosure::registered));
+}
+
+void InitClosure::registered(bragi_mbus::ObjectId object_id) {
+	// do nothing for now
+}
 
 int main() {
 	printf("Starting kbd\n");
@@ -300,6 +440,17 @@ int main() {
 		execve("vga_terminal", nullptr, nullptr);
 	}
 
+/*
+	mbusConnection.setObjectHandler(&objectHandler);
+	auto closure = new InitClosure();
+	(*closure)();
+
+	pid_t child = fork();
+	assert(child != -1);
+	if(child == 0) {
+		execve("vga_terminal", nullptr, nullptr);
+	}
+*/
 	while(true) {
 		eventHub.defaultProcessEvents();
 	}

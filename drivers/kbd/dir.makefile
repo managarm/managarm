@@ -29,7 +29,7 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -lprotobuf-lite
+$c_LIBS := -lbragi_mbus -lprotobuf-lite
 
 $($c_BINDIR)/kbd: $($c_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_LIBS)
