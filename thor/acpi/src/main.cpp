@@ -212,11 +212,13 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 	managarm::mbus::SvrRequest<Allocator> request(*allocator);
 	request.ParseFromArray(buffer, length);
 
-	helx::Pipe local, remote;
-	helx::Pipe::createFullPipe(local, remote);
-	requireObject(request.object_id(), frigg::move(local));
-	mbusPipe.sendDescriptorResp(remote.getHandle(), msg_request, 1);
-	remote.reset();
+	if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
+		helx::Pipe local, remote;
+		helx::Pipe::createFullPipe(local, remote);
+		requireObject(request.object_id(), frigg::move(local));
+		mbusPipe.sendDescriptorResp(remote.getHandle(), msg_request, 1);
+		remote.reset();
+	}
 
 	(*this)();
 }

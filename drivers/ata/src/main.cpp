@@ -1,4 +1,5 @@
 
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
@@ -17,7 +18,7 @@
 #include <frigg/arch_x86/machine.hpp>
 #include <helx.hpp>
 
-#include "mbus.pb.h"
+#include <bragi/mbus.hpp>
 
 struct Allocator {
 	void *allocate(size_t length) {
@@ -32,7 +33,7 @@ struct Allocator {
 Allocator allocator;
 
 helx::EventHub eventHub = helx::EventHub::create();
-helx::Pipe mbusPipe;
+bragi_mbus::Connection mbusConnection(eventHub);
 
 // --------------------------------------------------------
 // Driver class
@@ -717,44 +718,48 @@ void initAta() {
 }
 
 // --------------------------------------------------------
-// MbusClosure
+// ObjectHandler
 // --------------------------------------------------------
 
-struct MbusClosure : public frigg::BaseClosure<MbusClosure> {
+struct ObjectHandler : public bragi_mbus::ObjectHandler {
+	// inherited from bragi_mbus::ObjectHandler
+	void requireIf(bragi_mbus::ObjectId object_id,
+			frigg::CallbackPtr<void(HelHandle)> callback);
+};
+
+void ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
+		frigg::CallbackPtr<void(HelHandle)> callback) {
+	helx::Pipe server_side, client_side;
+	helx::Pipe::createFullPipe(server_side, client_side);
+	callback(client_side.getHandle());
+	client_side.reset();
+}
+
+ObjectHandler objectHandler;
+
+// --------------------------------------------------------
+// InitClosure
+// --------------------------------------------------------
+
+struct InitClosure : public frigg::BaseClosure<InitClosure> {
 	void operator() ();
 
 private:
-	void recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length);
-
-	uint8_t buffer[128];
+	void connected();
+	void registered(bragi_mbus::ObjectId object_id);
 };
 
-void MbusClosure::operator() () {
-	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
-			CALLBACK_MEMBER(this, &MbusClosure::recvdRequest)));
+void InitClosure::operator() () {
+	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
 }
 
-void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	managarm::mbus::SvrRequest svr_request;
-	svr_request.ParseFromArray(buffer, length);
+void InitClosure::connected() {
+	mbusConnection.registerObject("block-device",
+			CALLBACK_MEMBER(this, &InitClosure::registered));
+}
 
-	switch(svr_request.req_type()) {
-	case managarm::mbus::SvrReqType::BROADCAST:
-		// TODO: only receive certain broadcasts
-		break;
-	case managarm::mbus::SvrReqType::REQUIRE_IF: {
-		helx::Pipe server_side, client_side;
-		helx::Pipe::createFullPipe(server_side, client_side);
-		mbusPipe.sendDescriptorResp(client_side.getHandle(), msg_request, 1);
-		client_side.reset();
-	} break;
-	default:
-		assert(!"Illegal request type");
-	}
-
-	(*this)();
+void InitClosure::registered(bragi_mbus::ObjectId object_id) {
+	// do nothing for now
 }
 
 // --------------------------------------------------------
@@ -763,31 +768,11 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 
 int main() {
 	printf("Starting ATA driver\n");
-	
-	// connect to mbus
-	const char *mbus_path = "config/mbus";
-	HelHandle mbus_handle;
-	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
-	helx::Client mbus_connect(mbus_handle);
-	
-	HelError mbus_connect_error;
-	mbus_connect.connectSync(eventHub, mbus_connect_error, mbusPipe);
-	HEL_CHECK(mbus_connect_error);
-
-	frigg::runClosure<MbusClosure>(allocator);
-
-	// register a block device
-	managarm::mbus::CntRequest request;
-	request.set_req_type(managarm::mbus::CntReqType::REGISTER);
-
-	managarm::mbus::Capability *cap = request.add_caps();
-	cap->set_name("block-device");
-
-	std::string serialized;
-	request.SerializeToString(&serialized);
-	mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 	initAta();
+	
+	mbusConnection.setObjectHandler(&objectHandler);
+	frigg::runClosure<InitClosure>(allocator);
 
 	while(true)
 		eventHub.defaultProcessEvents();

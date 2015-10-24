@@ -194,7 +194,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		connection->pipe.sendStringResp(serialized.data(), serialized.size(),
 				msg_request, 0);
 
-//		broadcastRegister(frigg::move(object));
+		broadcastRegister(frigg::move(object));
 	} break;
 	case managarm::mbus::CntReqType::ENUMERATE: {
 		for(auto it = allObjects.iterator(); it; ++it) {

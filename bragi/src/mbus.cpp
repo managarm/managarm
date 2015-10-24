@@ -13,10 +13,20 @@ namespace bragi_mbus {
 // --------------------------------------------------------
 
 Connection::Connection(helx::EventHub &event_hub)
-: eventHub(event_hub) { }
+: eventHub(event_hub), objectHandler(nullptr) { }
+
+void Connection::setObjectHandler(ObjectHandler *handler) {
+	objectHandler = handler;
+}
 
 void Connection::connect(frigg::CallbackPtr<void()> callback) {
 	auto closure = new ConnectClosure(*this, callback);
+	(*closure)();
+}
+
+void Connection::registerObject(std::string capability,
+		frigg::CallbackPtr<void(ObjectId)> callback) {
+	auto closure = new RegisterClosure(*this, capability, callback);
 	(*closure)();
 }
 
@@ -36,8 +46,8 @@ void Connection::queryIf(ObjectId object_id, frigg::CallbackPtr<void(HelHandle)>
 // --------------------------------------------------------
 
 Connection::ConnectClosure::ConnectClosure(Connection &connection,
-		frigg::CallbackPtr<void()> callback)
-: connection(connection), callback(callback) { }
+		frigg::CallbackPtr<void()> on_connect)
+: connection(connection), onConnect(on_connect) { }
 
 void Connection::ConnectClosure::operator() () {
 	const char *mbus_path = "config/mbus";
@@ -51,7 +61,63 @@ void Connection::ConnectClosure::operator() () {
 void Connection::ConnectClosure::connected(HelError error, HelHandle handle) {
 	HEL_CHECK(error);
 	connection.mbusPipe = helx::Pipe(handle);
-	callback();
+	onConnect();
+
+	processRequest();
+}
+
+void Connection::ConnectClosure::processRequest() {
+	HEL_CHECK(connection.mbusPipe.recvStringReq(buffer, 128,
+			connection.eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &ConnectClosure::recvdRequest)));
+}
+
+void Connection::ConnectClosure::recvdRequest(HelError error,
+		int64_t msg_request, int64_t msg_seq, size_t length) {
+	managarm::mbus::SvrRequest request;
+	request.ParseFromArray(buffer, length);
+
+	if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
+		auto closure = new RequireIfClosure(connection, msg_request, request.object_id());
+		(*closure)();
+	}else{
+		assert(!"Unexpected request type");
+	}
+
+	processRequest();
+}
+
+// --------------------------------------------------------
+// Connection::RegisterClosure
+// --------------------------------------------------------
+
+Connection::RegisterClosure::RegisterClosure(Connection &connection, std::string capability,
+		frigg::CallbackPtr<void(ObjectId)> callback)
+: connection(connection), capability(capability), callback(callback) { }
+
+void Connection::RegisterClosure::operator() () {
+	managarm::mbus::CntRequest request;
+	request.set_req_type(managarm::mbus::CntReqType::REGISTER);
+
+	managarm::mbus::Capability *cap = request.add_caps();
+	cap->set_name(capability);
+
+	std::string serialized;
+	request.SerializeToString(&serialized);
+	connection.mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &RegisterClosure::recvdResponse)));
+}
+
+void Connection::RegisterClosure::recvdResponse(HelError error,
+		int64_t msg_request, int64_t msg_sequence, size_t length) {
+	HEL_CHECK(error);
+
+	managarm::mbus::SvrResponse response;
+	response.ParseFromArray(buffer, length);
+	
+	callback(response.object_id());
 	delete this;
 }
 
@@ -116,6 +182,25 @@ void Connection::QueryIfClosure::recvdDescriptor(HelError error,
 		int64_t msg_request, int64_t msg_sequence, HelHandle handle) {
 	HEL_CHECK(error);
 	callback(handle);
+	delete this;
+}
+
+// --------------------------------------------------------
+// Connection::RequireIfClosure
+// --------------------------------------------------------
+
+Connection::RequireIfClosure::RequireIfClosure(Connection &connection, int64_t request_id,
+		ObjectId object_id)
+: connection(connection), requestId(request_id), objectId(object_id) { }
+
+void Connection::RequireIfClosure::operator() () {
+	assert(connection.objectHandler);
+	connection.objectHandler->requireIf(objectId,
+			CALLBACK_MEMBER(this, &RequireIfClosure::requiredIf));
+}
+
+void Connection::RequireIfClosure::requiredIf(HelHandle handle) {
+	connection.mbusPipe.sendDescriptorResp(handle, requestId, 1);
 	delete this;
 }
 
