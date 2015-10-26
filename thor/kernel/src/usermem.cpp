@@ -44,6 +44,10 @@ PhysicalAddr Memory::getPage(size_t index) {
 
 PhysicalAddr Memory::resolveOriginal(size_t index) {
 	if(p_type == Memory::kTypeAllocated) {
+		PhysicalAddr page = p_physicalPages[index];
+		assert(page != PhysicalAddr(-1));
+		return page;
+	}else if(p_type == Memory::kTypeOnDemand) {
 		return p_physicalPages[index];
 	}else if(p_type == Memory::kTypeCopyOnWrite) {
 		PhysicalAddr page = p_physicalPages[index];
@@ -257,14 +261,14 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	size_t page_index = offset / kPageSize;	
 
 	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-	if(memory->getType() == Memory::kTypeAllocated
-			&& (memory->flags & Memory::kFlagOnDemand)) {
+	if(memory->getType() == Memory::kTypeOnDemand) {
 		assert(memory->getPage(page_index) == PhysicalAddr(-1));
 
 		// allocate a new page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
-		
+		memset(physicalToVirtual(physical), 0, kPageSize);
+
 		memory->setPage(page_index, physical);
 		
 		// map the new page into the address space
@@ -424,6 +428,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 		assert(memory->getType() == Memory::kTypeAllocated
+				|| memory->getType() == Memory::kTypeOnDemand
 				|| memory->getType() == Memory::kTypeCopyOnWrite);
 
 		// don't set the write flag to enable copy-on-write

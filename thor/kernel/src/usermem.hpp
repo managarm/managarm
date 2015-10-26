@@ -7,11 +7,12 @@ public:
 		kTypeNone,
 		kTypePhysical,
 		kTypeAllocated,
+		kTypeOnDemand,
 		kTypeCopyOnWrite
 	};
 
 	enum Flags : uint32_t {
-		kFlagOnDemand = 0x01
+	
 	};
 
 	Memory(Type type);

@@ -63,12 +63,14 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-	memory->resize(size / kPageSize);
-	
+	frigg::SharedPtr<Memory> memory;
 	if(flags & kHelAllocOnDemand) {
-		memory->flags |= Memory::kFlagOnDemand;
+		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
+		memory->resize(size / kPageSize);
 	}else{
+		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
+		memory->resize(size / kPageSize);
+
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < memory->numPages(); i++)
 			memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));

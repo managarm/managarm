@@ -78,9 +78,8 @@ void enterImage(PhysicalAddr image_paddr) {
 	
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
+	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
 	stack_memory->resize(stack_size / kPageSize);
-	stack_memory->flags |= Memory::kFlagOnDemand;
 
 	VirtualAddr stack_base;
 	space_guard.lock();
