@@ -75,6 +75,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 		for(size_t i = 0; i < memory->numPages(); i++)
 			memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
 		physical_guard.unlock();
+
+		memory->zeroPages();
 	}
 	
 	Universe::Guard universe_guard(&universe->lock);
