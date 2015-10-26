@@ -25,6 +25,9 @@ public:
 	PhysicalAddr getPage(size_t index);
 
 	size_t numPages();
+	
+	void zeroPages();
+	void copyTo(size_t offset, void *source, size_t length);
 
 	uint32_t flags;
 

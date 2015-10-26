@@ -54,9 +54,9 @@ trampoline:
 	mov trampolinePml4, %eax
 	mov %eax, %cr3
 	
-	# enable paging
+	# enable paging + WP flag
 	mov %cr0, %eax
-	or $0x80000000, %eax
+	or $0x80010000, %eax
 	mov %eax, %cr0
 	
 	jmpl $0x18, $.L_longmode

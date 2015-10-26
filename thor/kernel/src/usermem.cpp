@@ -46,6 +46,48 @@ size_t Memory::numPages() {
 	return p_physicalPages.size();
 }
 
+void Memory::zeroPages() {
+	assert(p_type == kTypeAllocated);
+	
+	for(size_t i = 0; i < p_physicalPages.size(); i++) {
+		PhysicalAddr page = p_physicalPages[i];
+		assert(page != PhysicalAddr(-1));
+		memset(physicalToVirtual(page), 0, kPageSize);
+	}
+}
+
+void Memory::copyTo(size_t offset, void *source, size_t length) {
+	assert(p_type == kTypeAllocated);
+	
+	size_t disp = 0;
+	size_t index = offset / kPageSize;
+	
+	size_t misalign = offset % kPageSize;
+	if(misalign > 0) {
+		size_t prefix = frigg::min(kPageSize - misalign, length);
+		PhysicalAddr page = p_physicalPages[index];
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)physicalToVirtual(page) + misalign, source, prefix);
+		disp += prefix;
+		index++;
+	}
+
+	while(length - disp >= kPageSize) {
+		assert(((offset + disp) % kPageSize) == 0);
+		PhysicalAddr page = p_physicalPages[index];
+		assert(page != PhysicalAddr(-1));
+		memcpy(physicalToVirtual(page), (uint8_t *)source + disp, kPageSize);
+		disp += kPageSize;
+		index++;
+	}
+
+	if(length - disp > 0) {
+		PhysicalAddr page = p_physicalPages[index];
+		assert(page != PhysicalAddr(-1));
+		memcpy(physicalToVirtual(page), (uint8_t *)source + disp, length - disp);
+	}
+}
+
 // --------------------------------------------------------
 // Mapping
 // --------------------------------------------------------

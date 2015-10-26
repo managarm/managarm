@@ -83,10 +83,10 @@ eirRtEnterKernel:
 	# edi <- eir information struct pointer
 	mov 24(%esp), %edi
 	
-	# enable paging
+	# enable paging + WP bit
 	# note: we cannot access the stack after this jump
 	mov %cr0, %esi
-	or $0x80000000, %esi
+	or $0x80010000, %esi
 	mov %esi, %cr0
 
 	# load a 64 bit code segment

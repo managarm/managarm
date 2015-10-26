@@ -46,6 +46,11 @@ void enterImage(PhysicalAddr image_paddr) {
 			for(size_t i = 0; i < memory->numPages(); i++)
 				memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
 			physical_guard.unlock();
+			
+			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
+			memory->zeroPages();
+			memory->copyTo(virt_disp, (void *)((uintptr_t)image_ptr + phdr->p_offset),
+					phdr->p_filesz);
 
 			VirtualAddr actual_address;
 			space_guard.lock();
@@ -63,12 +68,6 @@ void enterImage(PhysicalAddr image_paddr) {
 			}
 			space_guard.unlock();
 			thorRtInvalidateSpace();
-			
-			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
-			memset((void *)virt_address, 0, virt_length);
-			memcpy((void *)(virt_address + virt_disp),
-					(void *)((uintptr_t)image_ptr + phdr->p_offset),
-					phdr->p_filesz);
 		}else if(phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
@@ -220,16 +219,14 @@ extern "C" void handlePageFault(Word error) {
 	const Word kPfInstruction = 16;
 	assert(!(error & kPfBadTable));
 
-	if(error & kPfUser) {
-		uint32_t flags = 0;
-		if(error & kPfWrite)
-			flags |= AddressSpace::kFaultWrite;
+	uint32_t flags = 0;
+	if(error & kPfWrite)
+		flags |= AddressSpace::kFaultWrite;
 
-		AddressSpace::Guard space_guard(&address_space->lock);
-		if(address_space->handleFault(space_guard, address, flags))
-			return;
-		space_guard.unlock();
-	}
+	AddressSpace::Guard space_guard(&address_space->lock);
+	if(address_space->handleFault(space_guard, address, flags))
+		return;
+	space_guard.unlock();
 
 	auto base_state = this_thread->accessSaveState().accessGeneralBaseState();
 

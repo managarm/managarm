@@ -242,6 +242,8 @@ void onInterrupt(void * object, HelError error) {
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 }
 
+#include <unistd.h>
+
 int main() {
 	printf("Starting kbd\n");
 	irq = helx::Irq::access(1);
@@ -252,6 +254,12 @@ int main() {
 	HEL_CHECK(helEnableIo(handle));
 
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
+	
+	pid_t child = fork();
+	assert(child != -1);
+	if(!child) {
+		execve("vga_terminal", nullptr, nullptr);
+	}
 
 	while(true) {
 		eventHub.defaultProcessEvents();
