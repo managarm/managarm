@@ -18,7 +18,9 @@ struct Atomic<int32_t> {
 	static bool compareSwap(int32_t *pointer,
 			int32_t expect, int32_t overwrite, int32_t &found) {
 		bool success;
-		asm volatile ( "lock cmpxchgl %3, %4" : "=@ccz" (success), "=a" (found)
+		asm volatile ( "lock cmpxchgl %3, %4\n"
+					"\tsetz %0"
+				: "=r" (success), "=a" (found)
 				: "1" (expect), "r" (overwrite), "m" (*pointer) : "memory" );
 		return success;
 	}

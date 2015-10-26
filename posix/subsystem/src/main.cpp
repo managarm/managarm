@@ -94,6 +94,9 @@ void OpenClosure::openComplete(StdSharedPtr<VfsOpenFile> file) {
 	process->nextFd++;
 	process->allOpenFiles.insert(fd, frigg::move(file));
 
+	if(traceRequests)
+		infoLogger->log() << "[" << process->pid << "] OPEN response" << frigg::EndLog();
+
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	response.set_fd(fd);

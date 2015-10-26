@@ -173,6 +173,41 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
 
+bool PageSpace::isMapped(VirtualAddr pointer) {
+	assert((pointer % 0x1000) == 0);
+
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
+	
+	// check the pml4_entry
+	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t pml4_entry = pml4_pointer[pml4_index];
+
+	// check the pdpt entry
+	if(!(pml4_entry & kPagePresent))
+		return false;
+	uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	
+	// check the pd entry
+	if(!(pdpt_entry & kPagePresent))
+		return false;
+	uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t pd_entry = pd_pointer[pd_index];
+	
+	// check the pt entry
+	if(!(pd_entry & kPagePresent))
+		return false;
+	uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
+	
+	// check the pt entry
+	if(!(pt_pointer[pt_index] & kPagePresent))
+		return false;
+	return true;
+}
+
 PhysicalAddr PageSpace::getPml4() {
 	return p_pml4Address;
 }

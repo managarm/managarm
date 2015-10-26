@@ -309,19 +309,18 @@ UnsafePtr<U> staticPtrCast(UnsafePtr<T> pointer) {
 template<typename T>
 SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
 : p_block(weak.p_block), p_object(weak.p_object) {
-	int last_ref_count = volatileRead<int>(&p_block->refCount);
+	int last_count = volatileRead<int>(&p_block->refCount);
 	while(true) {
-		if(last_ref_count == 0) {
+		if(last_count == 0) {
 			p_block = nullptr;
 			p_object = nullptr;
 			break;
 		}
 
-		int found_ref_count;
-		if(compareSwap(&p_block->refCount,
-				last_ref_count, last_ref_count + 1, found_ref_count))
+		int found_count;
+		if(compareSwap(&p_block->refCount, last_count, last_count + 1, found_count))
 			break;
-		last_ref_count = found_ref_count;
+		last_count = found_count;
 	}
 }
 

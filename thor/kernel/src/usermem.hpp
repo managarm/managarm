@@ -24,6 +24,8 @@ public:
 	void setPage(size_t index, PhysicalAddr page);
 	PhysicalAddr getPage(size_t index);
 
+	PhysicalAddr resolveOriginal(size_t index);
+
 	size_t numPages();
 	
 	void zeroPages();

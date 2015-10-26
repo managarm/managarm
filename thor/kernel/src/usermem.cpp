@@ -42,6 +42,20 @@ PhysicalAddr Memory::getPage(size_t index) {
 	return p_physicalPages[index];
 }
 
+PhysicalAddr Memory::resolveOriginal(size_t index) {
+	if(p_type == Memory::kTypeAllocated) {
+		return p_physicalPages[index];
+	}else if(p_type == Memory::kTypeCopyOnWrite) {
+		PhysicalAddr page = p_physicalPages[index];
+		if(page != PhysicalAddr(-1))
+			return page;
+		return master->resolveOriginal(index);
+	}else{
+		assert(!"Unexpected memory type");
+		__builtin_unreachable();
+	}
+}
+
 size_t Memory::numPages() {
 	return p_physicalPages.size();
 }
@@ -245,11 +259,12 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 	if(memory->getType() == Memory::kTypeAllocated
 			&& (memory->flags & Memory::kFlagOnDemand)) {
+		assert(memory->getPage(page_index) == PhysicalAddr(-1));
+
 		// allocate a new page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
 		
-		assert(memory->getPage(page_index) == PhysicalAddr(-1));
 		memory->setPage(page_index, physical);
 		
 		// map the new page into the address space
@@ -264,15 +279,16 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 
 		return true;
 	}else if(memory->getType() == Memory::kTypeCopyOnWrite) {
+		assert(memory->getPage(page_index) == PhysicalAddr(-1));
+
 		// allocate a new page and copy content from the master page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
 		physical_guard.unlock();
 		
-		PhysicalAddr origin = memory->master->getPage(page_index);
-		assert(origin != PhysicalAddr(-1)); // TODO: implement recursive copy-on-write
+		PhysicalAddr origin = memory->master->resolveOriginal(page_index);
+		assert(origin != PhysicalAddr(-1)); // TODO: implement copy-on-write of on-demand pages
 		memcpy(physicalToVirtual(physical), physicalToVirtual(origin), kPageSize);
-		assert(memory->getPage(page_index) == PhysicalAddr(-1));
 		memory->setPage(page_index, physical);
 
 		// map the new page into the address space
@@ -281,8 +297,9 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 			page_flags |= PageSpace::kAccessWrite;
 		if(mapping->executePermission);
 			page_flags |= PageSpace::kAccessExecute;
-
-		p_pageSpace.unmapSingle4k(page_vaddr);
+		
+		if(p_pageSpace.isMapped(page_vaddr))
+			p_pageSpace.unmapSingle4k(page_vaddr);
 		p_pageSpace.mapSingle4k(physical_guard, page_vaddr, physical, true, page_flags);
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
@@ -406,7 +423,8 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_mapping->executePermission = mapping->executePermission;
 	}else if(mapping->type == Mapping::kTypeMemory) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-		assert(memory->getType() == Memory::kTypeAllocated);
+		assert(memory->getType() == Memory::kTypeAllocated
+				|| memory->getType() == Memory::kTypeCopyOnWrite);
 
 		// don't set the write flag to enable copy-on-write
 		uint32_t page_flags = 0;
@@ -421,7 +439,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = memory->getPage(i);
+			PhysicalAddr physical = memory->resolveOriginal(i);
 			if(physical == PhysicalAddr(-1))
 				continue;
 			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
@@ -439,7 +457,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		
 		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = memory->getPage(i);
+			PhysicalAddr physical = memory->resolveOriginal(i);
 			if(physical == PhysicalAddr(-1))
 				continue;
 			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
