@@ -158,7 +158,7 @@ void handleControlSeq(char character) {
 		if(!params.empty())
 			n = params[0];
 		
-		int color = currentTextColor + currentBackgroundColor;
+		int color = currentTextColor | currentBackgroundColor;
 		if(n == 0) {
 			for(int i = xPosition; i <= width; i++) {
 				setChar(' ', i, yPosition, color);
@@ -189,7 +189,7 @@ void handleControlSeq(char character) {
 		if(!params.empty())
 			n = params[0];
 
-		int color = currentTextColor + currentBackgroundColor;
+		int color = currentTextColor | currentBackgroundColor;
 		if(n == 0) {
 			for(int i = xPosition; i < width; i++) {
 				setChar(' ', i, yPosition, color);
@@ -360,6 +360,11 @@ void initializeScreen() {
 			kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
 	
 	videoMemoryPointer = (uint8_t *)actual_pointer;
+	
+	int color = currentTextColor + currentBackgroundColor;
+	for(int i = 0; i <= height; i++)
+		for(int j = 0; j <= width; j++)
+			setChar(' ', i, j, color);
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
