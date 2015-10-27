@@ -356,6 +356,22 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	return kHelErrNone;
 }
 
+HelError helYield() {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	
+	assert(!intsAreEnabled());
+	if(saveThisThread()) {
+		resetCurrentThread();
+	
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		if(!(this_thread->flags & Thread::kFlagNotScheduled))
+			enqueueInSchedule(schedule_guard, this_thread);
+		doSchedule(frigg::move(schedule_guard));
+	}
+
+	return kHelErrNone;
+}
+
 HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();

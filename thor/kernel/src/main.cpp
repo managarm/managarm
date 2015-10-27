@@ -342,6 +342,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
 		thorRtReturnSyscall2((Word)error, (Word)handle);
 	} break;
+	case kHelCallYield: {
+		HelError error = helYield();
+		thorRtReturnSyscall1((Word)error);
+	} break;
 	case kHelCallSubmitJoin: {
 		int64_t async_id;
 		HelError error = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
