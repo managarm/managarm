@@ -20,18 +20,6 @@
 
 #include <bragi/mbus.hpp>
 
-struct Allocator {
-	void *allocate(size_t length) {
-		return malloc(length);
-	}
-
-	void free(void *pointer) {
-		free(pointer);
-	}
-};
-
-Allocator allocator;
-
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 
@@ -147,12 +135,8 @@ void Driver::onReadIrq(HelError error) {
 //	assert((status & kStatusDrq) != 0);
 	
 	size_t offset = request.sectorsRead * 512;
-	auto ptr = (uint8_t *)request.buffer + offset;
-	for(int i = 0; i < 256; i++) {
-		uint16_t word = frigg::arch_x86::ioInShort(p_basePort + kPortReadData);
-		ptr[2 * i] = word & 0xFF;
-		ptr[2 * i + 1] = (word >> 8) & 0xFF;
-	}
+	auto dest = (uint8_t *)request.buffer + offset;
+	frigg::arch_x86::ioPeekMultiple(p_basePort + kPortReadData, (uint16_t *)dest, 256);
 	
 	request.sectorsRead++;
 	if(request.sectorsRead < request.numSectors) {
@@ -677,7 +661,7 @@ Driver ataDriver;
 GptTable gptTable(ataDriver);
 Ext2fs *fs;
 std::shared_ptr<Ext2fs::Inode> rootInode;
-uint8_t dataBuffer[512];
+uint8_t dataBuffer[1024];
 
 struct DirEntry {
 	uint32_t inode;
@@ -699,7 +683,6 @@ void done4(void *object) {
 }
 
 void done3(void *object) {
-	printf("Root file size: %lu\n", rootInode->fileSize);
 	fs->readData(rootInode, 0, 1, dataBuffer, CALLBACK_STATIC(nullptr, &done4));
 }
 
@@ -772,7 +755,8 @@ int main() {
 	initAta();
 	
 	mbusConnection.setObjectHandler(&objectHandler);
-	frigg::runClosure<InitClosure>(allocator);
+	auto init_closure = new InitClosure();
+	(*init_closure)();
 
 	while(true)
 		eventHub.defaultProcessEvents();

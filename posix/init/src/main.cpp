@@ -33,12 +33,12 @@ int main() {
 //		execve("zisa", args.data(), envp);
 	}
 
-	printf("Second fork, here we go!\n");
+/*	printf("Second fork, here we go!\n");
 
 	pid_t child2 = fork();
 	assert(child2 != -1);
 	if(!child2) {
 		execve("vga_terminal", args.data(), envp);
-	}
+	}*/
 }
 

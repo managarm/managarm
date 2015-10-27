@@ -69,6 +69,11 @@ inline uint16_t ioInShort(uint16_t port) {
 	return out_value;
 }
 
+inline void ioPeekMultiple(uint16_t port, uint16_t *dest, size_t count) {
+	asm volatile ( "cld\n"
+			"\trep insw" : : "d" (port), "D" (dest), "c" (count) );
+}
+
 inline void ioOutByte(uint16_t port, uint8_t value) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t in_value asm("al") = value;
