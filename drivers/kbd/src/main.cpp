@@ -6,11 +6,13 @@
 #include <unistd.h>
 
 #include <string>
+#include <vector>
 
 #include <helx.hpp>
 
 #include <frigg/arch_x86/machine.hpp>
 #include <bragi/mbus.hpp>
+#include <input.pb.h>
 
 enum Status {
 	kStatusNormal,
@@ -26,6 +28,7 @@ bool shift;
 bool altGr;
 Status escapeStatus = kStatusNormal;
 int firstScancode;
+std::vector<helx::Pipe> serverPipes;
 
 std::string translate(std::string code) {
 	if(shift) {
@@ -373,6 +376,17 @@ void onInterrupt(void * object, HelError error) {
 
 		std::string key = translate(code);
 		printf("%s\n", key.data());
+
+		for(unsigned int i = 0; i < serverPipes.size(); i++) {
+			managarm::input::ServerRequest request;
+			request.set_request_type(managarm::input::RequestType::DOWN);		
+			request.set_code(code);
+			
+			std::string serialized;
+			request.SerializeToString(&serialized);
+			serverPipes[i].sendStringReq(serialized.data(), 
+					serialized.size() , 0, 0);		
+		}
 	}
 
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
@@ -394,6 +408,7 @@ void ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
 	helx::Pipe::createFullPipe(server_side, client_side);
 	callback(client_side.getHandle());
 	client_side.reset();
+	serverPipes.push_back(std::move(server_side));
 }
 
 ObjectHandler objectHandler;
@@ -433,24 +448,17 @@ int main() {
 	HEL_CHECK(helEnableIo(handle));
 
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
+
+	mbusConnection.setObjectHandler(&objectHandler);
+	auto closure = new InitClosure();
+	(*closure)();
 	
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
 		execve("vga_terminal", nullptr, nullptr);
 	}
-
-/*
-	mbusConnection.setObjectHandler(&objectHandler);
-	auto closure = new InitClosure();
-	(*closure)();
-
-	pid_t child = fork();
-	assert(child != -1);
-	if(child == 0) {
-		execve("vga_terminal", nullptr, nullptr);
-	}
-*/
+	
 	while(true) {
 		eventHub.defaultProcessEvents();
 	}

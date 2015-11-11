@@ -1,0 +1,15 @@
+
+package managarm.input;
+
+option optimize_for = LITE_RUNTIME;
+
+enum RequestType {
+	DOWN = 0;
+	PRESSED = 1;
+	UP = 2;
+}
+
+message ServerRequest {
+	optional RequestType request_type = 1;
+	optional string code = 2;
+}

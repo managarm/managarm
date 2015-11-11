@@ -23,7 +23,9 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
+#include <bragi/mbus.hpp>
 #include <posix.pb.h>
+#include <input.pb.h>
 
 uint8_t *videoMemoryPointer;
 int xPosition = 0;
@@ -368,6 +370,79 @@ void initializeScreen() {
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
+bragi_mbus::Connection mbusConnection(eventHub);
+
+
+// --------------------------------------------------------
+// RecvStrClosure
+// --------------------------------------------------------
+
+struct RecvStrClosure {
+	RecvStrClosure(helx::Pipe pipe);
+	void operator() ();
+	
+private:
+	void rcvdStringRequest(HelError error, int64_t msg_request,
+		int64_t msg_seq, size_t length);
+	char buffer[128];
+	helx::Pipe pipe;	
+};
+
+RecvStrClosure::RecvStrClosure(helx::Pipe pipe)
+: pipe(std::move(pipe)) { }
+
+void RecvStrClosure::operator() () {	
+	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, 0, 0,
+			CALLBACK_MEMBER(this, &RecvStrClosure::rcvdStringRequest)));
+}
+
+void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
+		int64_t msg_seq, size_t length) {
+	HEL_CHECK(error);
+
+	managarm::input::ServerRequest request;
+	request.ParseFromArray(buffer, length);
+	printString(request.code().data(), request.code().size());
+
+	(*this)();
+}
+
+
+// --------------------------------------------------------
+// InitClosure
+// --------------------------------------------------------
+
+struct InitClosure {
+	void operator() ();
+
+private:
+	void connected();
+	void enumeratedKeyboards(std::vector<bragi_mbus::ObjectId> objects);
+	void queriedKeyboards(HelHandle handle);
+};
+
+void InitClosure::operator() () {
+	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
+}
+
+void InitClosure::connected() {
+	mbusConnection.enumerate("keyboard",
+			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
+}
+
+void InitClosure::enumeratedKeyboards(std::vector<bragi_mbus::ObjectId> objects) {
+	assert(objects.size() == 1);
+	mbusConnection.queryIf(objects[0],
+			CALLBACK_MEMBER(this, &InitClosure::queriedKeyboards));
+}
+
+void InitClosure::queriedKeyboards(HelHandle handle) {
+	printf("queried keyboards\n");	
+	
+	auto closure = new RecvStrClosure(helx::Pipe(handle));
+	(*closure)();
+}
+
 int masterFd;
 
 struct ReadMasterClosure {
@@ -428,6 +503,9 @@ int main() {
 
 	masterFd = open("/dev/pts/ptmx", O_RDWR);
 	assert(masterFd != -1);
+
+	auto closure = new InitClosure();
+	(*closure)();
 
 	int child = fork();
 	assert(child != -1);

@@ -4,7 +4,7 @@ $c_GENDIR := $(BUILD_PATH)/$c/gen
 $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
-$c_OBJECTS := main.o posix.pb.o
+$c_OBJECTS := main.o posix.pb.o mbus.pb.o input.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_TARGETS := all-$c clean-$c $($c_BINDIR)/vga_terminal $($c_BINDIR)
@@ -29,7 +29,7 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -lprotobuf-lite
+$c_LIBS := -lprotobuf-lite -lbragi_mbus
 
 $($c_BINDIR)/vga_terminal: $($c_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_LIBS)
@@ -39,7 +39,7 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # compile protobuf files
-gen-$c: $($c_GENDIR)/posix.pb.tag
+gen-$c: $($c_GENDIR)/posix.pb.tag $($c_GENDIR)/mbus.pb.tag $($c_GENDIR)/input.pb.tag
 
 $c_TARGETS += $($c_GENDIR)/%.pb.tag
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
