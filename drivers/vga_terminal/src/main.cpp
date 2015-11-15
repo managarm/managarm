@@ -24,6 +24,7 @@
 #include <helx.hpp>
 
 #include <bragi/mbus.hpp>
+#include <libcompose.hpp>
 #include <posix.pb.h>
 #include <input.pb.h>
 
@@ -51,6 +52,19 @@ struct LibcAllocator {
 };
 
 LibcAllocator allocator;
+
+
+void printString(std::string);
+
+struct VgaComposeHandler : ComposeHandler {
+	void input(std::string string) override;
+};
+void VgaComposeHandler::input(std::string string) {
+	printString(string);
+};
+
+VgaComposeHandler vgaComposeHandle;
+ComposeState composeState(&vgaComposeHandle);
 
 void setChar(char character, int x, int y, uint8_t color) {
 	int position = y * width + x;
@@ -345,9 +359,9 @@ void printChar(char character) {
 	}
 }
 
-void printString(const char *array, size_t length){
-	for(unsigned int i = 0; i < length; i++) {
-		printChar(array[i]);
+void printString(std::string string){
+	for(unsigned int i = 0; i < string.size(); i++) {
+		printChar(string[i]);
 	}
 }
 
@@ -402,7 +416,26 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 
 	managarm::input::ServerRequest request;
 	request.ParseFromArray(buffer, length);
-	printString(request.code().data(), request.code().size());
+	
+	std::pair<KeyType, std::string> pair = translate(request.code(), false, false);
+
+	if(request.request_type() == managarm::input::RequestType::DOWN) {
+		if(pair.first == kKeyChars) {
+			composeState.keyPress(pair);
+		}else if(pair.first == kKeySpecial && pair.second == "ArrowUp") {
+			printString("\e[A");
+			setCursor(xPosition, yPosition);
+		}else if(pair.first == kKeySpecial && pair.second == "ArrowDown") {
+			printString("\e[B");
+			setCursor(xPosition, yPosition);
+		}else if(pair.first == kKeySpecial && pair.second == "ArrowRight") {
+			printString("\e[C");
+			setCursor(xPosition, yPosition);
+		}else if(pair.first == kKeySpecial && pair.second == "ArrowLeft") {
+			printString("\e[D");
+			setCursor(xPosition, yPosition);
+		}else{ }
+	}
 
 	(*this)();
 }
@@ -492,7 +525,7 @@ void ReadMasterClosure::recvdResponse(HelError error,
 
 	managarm::posix::ServerResponse response;
 	response.ParseFromArray(buffer, length);
-	printString(response.buffer().data(), response.buffer().size());
+	printString(response.buffer());
 
 	doRead();
 }

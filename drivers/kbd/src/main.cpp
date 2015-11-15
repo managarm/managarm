@@ -30,187 +30,6 @@ Status escapeStatus = kStatusNormal;
 int firstScancode;
 std::vector<helx::Pipe> serverPipes;
 
-std::string translate(std::string code) {
-	if(shift) {
-		if(code == "KeyQ") return "Q";
-		if(code == "KeyW") return "W";
-		if(code == "KeyE") return "E";
-		if(code == "KeyR") return "R";
-		if(code == "KeyT") return "T";
-		if(code == "KeyY") return "Z";
-		if(code == "KeyU") return "U";
-		if(code == "KeyI") return "I";
-		if(code == "KeyO") return "O";
-		if(code == "KeyP") return "P";
-		if(code == "KeyA") return "A";
-		if(code == "KeyS") return "S";
-		if(code == "KeyD") return "D";
-		if(code == "KeyF") return "F";
-		if(code == "KeyG") return "G";
-		if(code == "KeyH") return "H";
-		if(code == "KeyJ") return "J";
-		if(code == "KeyK") return "K";
-		if(code == "KeyL") return "L";
-		if(code == "KeyZ") return "Y";
-		if(code == "KeyX") return "X";
-		if(code == "KeyC") return "C";
-		if(code == "KeyV") return "V";
-		if(code == "KeyB") return "B";
-		if(code == "KeyN") return "N";
-		if(code == "KeyM") return "M";
-
-		if(code == "Backquote") return "°";
-		if(code == "Digit1") return "!";
-		if(code == "Digit2") return "\"";
-		if(code == "Digit3") return "§";
-		if(code == "Digit4") return "$";
-		if(code == "Digit5") return "%";
-		if(code == "Digit6") return "&";
-		if(code == "Digit7") return "/";
-		if(code == "Digit8") return "(";
-		if(code == "Digit9") return ")";
-		if(code == "Digit0") return "=";
-		if(code == "Minus") return "?";
-		if(code == "Equal") return "`";
-
-		if(code == "BracketLeft") return "Ü";
-		if(code == "BracketRight") return "*";
-		if(code == "Semicolon") return "Ö";
-		if(code == "Quote") return "Ä";
-		if(code == "IntlHash") return "'";
-		if(code == "IntlBackslash") return ">";
-		if(code == "Comma") return ";";
-		if(code == "Period") return ":";
-		if(code == "Slash") return "_";
-	}else if(altGr){
-		if(code == "Digit2") return "²";
-		if(code == "Digit3") return "³";
-		if(code == "Digit7") return "{";
-		if(code == "Digit8") return "[";
-		if(code == "Digit9") return "]";
-		if(code == "Digit0") return "}";
-		if(code == "Minus") return "\\";
-		if(code == "KeyQ") return "@";
-		if(code == "KeyE") return "€";
-		if(code == "BracketRight") return "~";
-		if(code == "IntlBackslash") return "|";
-		if(code == "KeyM") return "µ";
-	}else{
-		if(code == "KeyQ") return "q";
-		if(code == "KeyW") return "w";
-		if(code == "KeyE") return "e";
-		if(code == "KeyR") return "r";
-		if(code == "KeyT") return "t";
-		if(code == "KeyY") return "z";
-		if(code == "KeyU") return "u";
-		if(code == "KeyI") return "i";
-		if(code == "KeyO") return "o";
-		if(code == "KeyP") return "p";
-		if(code == "KeyA") return "a";
-		if(code == "KeyS") return "s";
-		if(code == "KeyD") return "d";
-		if(code == "KeyF") return "f";
-		if(code == "KeyG") return "g";
-		if(code == "KeyH") return "h";
-		if(code == "KeyJ") return "j";
-		if(code == "KeyK") return "k";
-		if(code == "KeyL") return "l";
-		if(code == "KeyZ") return "y";
-		if(code == "KeyX") return "x";
-		if(code == "KeyC") return "c";
-		if(code == "KeyV") return "v";
-		if(code == "KeyB") return "b";
-		if(code == "KeyN") return "n";
-		if(code == "KeyM") return "m";
-
-		if(code == "Backquote") return "^";
-		if(code == "Digit1") return "1";
-		if(code == "Digit2") return "2";
-		if(code == "Digit3") return "3";
-		if(code == "Digit4") return "4";
-		if(code == "Digit5") return "5";
-		if(code == "Digit6") return "6";
-		if(code == "Digit7") return "7";
-		if(code == "Digit8") return "8";
-		if(code == "Digit9") return "9";
-		if(code == "Digit0") return "0";
-		if(code == "Minus") return "ß";
-		if(code == "Equal") return "´";
-
-		if(code == "BracketLeft") return "ü";
-		if(code == "BracketRight") return "+";
-		if(code == "Semicolon") return "ö";
-		if(code == "Quote") return "ä";
-		if(code == "IntlHash") return "#";
-		if(code == "IntlBackslash") return "<";
-		if(code == "Comma") return ",";
-		if(code == "Period") return ".";
-		if(code == "Slash") return "-";
-	}
-	
-	if(code == "Numpad0") return "0";
-	if(code == "Numpad1") return "1";
-	if(code == "Numpad2") return "2";
-	if(code == "Numpad3") return "3";
-	if(code == "Numpad4") return "4";
-	if(code == "Numpad5") return "5";
-	if(code == "Numpad6") return "6";
-	if(code == "Numpad7") return "7";
-	if(code == "Numpad8") return "8";
-	if(code == "Numpad9") return "9";
-	if(code == "NumpadDivide") return "/";
-	if(code == "NumpadMultiply") return "*";
-	if(code == "NumpadSubtract") return "-";
-	if(code == "NumpadAdd") return "+";
-	if(code == "NumpadDecimal") return ",";
-
-
-	if(code == "AltLeft") return "Alt";
-	if(code == "AltRight") return "AltGraph";
-	if(code == "CapsLock") return "CapsLock";
-	if(code == "ControlLeft") return "Contol";
-	if(code == "ControlRight") return "Contol";
-	if(code == "NumLock") return "NumLock";
-	if(code == "OSLeft") return "OS";
-	if(code == "OSRight") return "OS";
-	if(code == "ScrollLock") return "ScrollLock";
-	if(code == "ShiftLeft") return "Shift";
-	if(code == "ShiftRight") return "Shift";
-	if(code == "Enter") return "Enter";
-	if(code == "NumpadEnter") return "Enter";
-	if(code == "Tab") return "Tab";
-	if(code == "Space") return " ";
-	if(code == "ArrowLeft") return "ArrowLeft";
-	if(code == "ArrowDown") return "ArrowDown";
-	if(code == "ArrowRight") return "ArrowRight";
-	if(code == "ArrowUp") return "ArrowUp";
-	if(code == "End") return "End";
-	if(code == "Home") return "Home";
-	if(code == "PageDown") return "PageDown";
-	if(code == "PageUp") return "PageUp";
-	if(code == "Backspace") return "Backspace";
-	if(code == "Delete") return "Delete";
-	if(code == "Insert") return "Insert";
-	if(code == "ArrowUp") return "Shift";
-	if(code == "ContextMenu") return "ContextMenu";
-	if(code == "Escape") return "Escape";
-	if(code == "PrintScreen") return "PrintScreen";
-	if(code == "Pause") return "Pause";
-	if(code == "F1") return "F1";
-	if(code == "F2") return "F2";
-	if(code == "F3") return "F3";
-	if(code == "F4") return "F4";
-	if(code == "F5") return "F5";
-	if(code == "F6") return "F6";
-	if(code == "F7") return "F7";
-	if(code == "F8") return "F8";
-	if(code == "F9") return "F9";
-	if(code == "F10") return "F10";
-	if(code == "F11") return "F11";
-	if(code == "F12") return "F12";
-
-	return "Unidentified";
-}
 
 void onInterrupt(void * object, HelError error) {
 	HEL_CHECK(error);
@@ -242,6 +61,7 @@ void onInterrupt(void * object, HelError error) {
 			}else{
 				code = "Unknown";
 			}
+
 			escapeStatus = kStatusNormal;
 		}else if(escapeStatus == kStatusE0) {
 			switch(scan_code & 0x7F) {
@@ -373,13 +193,15 @@ void onInterrupt(void * object, HelError error) {
 				altGr = false;
 			}
 		}
-
-		std::string key = translate(code);
-		printf("%s\n", key.data());
-
+		
 		for(unsigned int i = 0; i < serverPipes.size(); i++) {
 			managarm::input::ServerRequest request;
-			request.set_request_type(managarm::input::RequestType::DOWN);		
+
+			if(pressed) {
+				request.set_request_type(managarm::input::RequestType::DOWN);
+			}else{
+				request.set_request_type(managarm::input::RequestType::UP);
+			}
 			request.set_code(code);
 			
 			std::string serialized;
