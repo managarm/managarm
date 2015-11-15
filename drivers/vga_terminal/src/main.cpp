@@ -90,6 +90,8 @@ std::vector<int> params;
 int currentTextColor = 0x0F;
 int currentBackgroundColor = 0x00;
 
+void setCursor(int x, int y);
+
 void handleControlSeq(char character) {
 	if(character == 'A') {
 		int n = 1;
@@ -103,6 +105,7 @@ void handleControlSeq(char character) {
 		}else{
 			yPosition = 0;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(character == 'B') {
 		int n = 1;
 		if(!params.empty())
@@ -115,6 +118,7 @@ void handleControlSeq(char character) {
 		}else{
 			yPosition = height;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(character == 'C') {
 		int n = 1;
 		if(!params.empty())
@@ -127,6 +131,7 @@ void handleControlSeq(char character) {
 		}else{
 			xPosition = width;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(character == 'D') {
 		int n = 1;
 		if(!params.empty())
@@ -139,6 +144,7 @@ void handleControlSeq(char character) {
 		}else{
 			xPosition = 0;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(character == 'E') {
 		int n = 1;
 		if(!params.empty())
@@ -150,6 +156,7 @@ void handleControlSeq(char character) {
 			yPosition = height;
 		}
 		xPosition = 0;
+		setCursor(xPosition, yPosition);
 	}else if(character == 'F') {
 		int n = 1;
 		if(!params.empty())
@@ -161,6 +168,7 @@ void handleControlSeq(char character) {
 			yPosition = 0;
 		}
 		xPosition = 0;
+		setCursor(xPosition, yPosition);
 	}else if(character == 'G') {
 		int n = 0;
 		if(!params.empty())
@@ -169,6 +177,7 @@ void handleControlSeq(char character) {
 		if(n >= 0 && n <= width){
 			xPosition = n;
 		}
+		setCursor(xPosition, yPosition);
 	}else if(character == 'J') {
 		int n = 0;
 		if(!params.empty())
@@ -420,21 +429,21 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 	std::pair<KeyType, std::string> pair = translate(request.code(), false, false);
 
 	if(request.request_type() == managarm::input::RequestType::DOWN) {
-		if(pair.first == kKeyChars) {
-			composeState.keyPress(pair);
-		}else if(pair.first == kKeySpecial && pair.second == "ArrowUp") {
+		composeState.keyPress(pair);
+		
+		if(pair.first == kKeySpecial && pair.second == "ArrowUp") {
 			printString("\e[A");
-			setCursor(xPosition, yPosition);
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowDown") {
 			printString("\e[B");
-			setCursor(xPosition, yPosition);
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowRight") {
 			printString("\e[C");
-			setCursor(xPosition, yPosition);
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowLeft") {
 			printString("\e[D");
-			setCursor(xPosition, yPosition);
-		}else{ }
+		}else if(pair.first == kKeySpecial && pair.second == "Backspace") {
+			printString("\e[D");
+			printString(" ");
+			printString("\e[D");
+		}
 	}
 
 	(*this)();
