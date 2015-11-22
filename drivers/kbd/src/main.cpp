@@ -30,6 +30,18 @@ std::vector<helx::Pipe> serverPipes;
 bool numState;
 bool capsState;
 
+void updateLed() {
+	uint8_t led = 0;
+	if(numState)
+		led |= 1;
+	if(capsState)
+		led |= 2;
+
+	frigg::arch_x86::ioOutByte(0x60, 0xED);
+	while(!(frigg::arch_x86::ioInByte(0x60) == 0xFA)) {	};
+	frigg::arch_x86::ioOutByte(0x60, led);
+}
+
 void onInterrupt(void * object, HelError error) {
 	HEL_CHECK(error);
 
@@ -224,6 +236,8 @@ void onInterrupt(void * object, HelError error) {
 					serialized.size() , 0, 0);
 		}
 	}
+
+	updateLed();
 
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 }
