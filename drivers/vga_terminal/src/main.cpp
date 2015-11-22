@@ -65,6 +65,7 @@ void VgaComposeHandler::input(std::string string) {
 
 VgaComposeHandler vgaComposeHandle;
 ComposeState composeState(&vgaComposeHandle);
+Translator translator;
 
 void setChar(char character, int x, int y, uint8_t color) {
 	int position = y * width + x;
@@ -426,9 +427,10 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 	managarm::input::ServerRequest request;
 	request.ParseFromArray(buffer, length);
 	
-	std::pair<KeyType, std::string> pair = translate(request.code(), false, false);
-
 	if(request.request_type() == managarm::input::RequestType::DOWN) {
+		translator.keyDown(request.code());
+		std::pair<KeyType, std::string> pair = translator.translate(request.code());
+		
 		composeState.keyPress(pair);
 		
 		if(pair.first == kKeySpecial && pair.second == "ArrowUp") {
@@ -444,6 +446,10 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 			printString(" ");
 			printString("\e[D");
 		}
+	}
+
+	if(request.request_type() == managarm::input::RequestType::UP) {
+		translator.keyUp(request.code());
 	}
 
 	(*this)();

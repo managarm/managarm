@@ -19,5 +19,13 @@ private:
 	ComposeHandler *handler;
 };
 
-std::pair<KeyType, std::string> translate(std::string code, bool shift, bool altgr);
+struct Translator {
+	std::pair<KeyType, std::string> translate(std::string code);
+	void keyUp(std::string code);
+	void keyDown(std::string code);
+
+private:
+	bool shift;
+	bool altgr;
+};
 

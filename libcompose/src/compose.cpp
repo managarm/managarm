@@ -4,7 +4,7 @@
 
 ComposeState::ComposeState(ComposeHandler *handler) : handler(handler) { }
 
-std::pair<KeyType, std::string> translate(std::string code, bool shift, bool altgr) {
+std::pair<KeyType, std::string> Translator::translate(std::string code) {
 	if(shift) {
 		if(code == "KeyQ") return { kKeyChars, "Q" };
 		if(code == "KeyW") return { kKeyChars, "W" };
@@ -184,6 +184,22 @@ std::pair<KeyType, std::string> translate(std::string code, bool shift, bool alt
 	if(code == "F12") return { kKeySpecial, "F12" };
 
 	return { kKeySpecial, "Unidentified" };
+}
+
+void Translator::keyUp(std::string code) {
+	if(code == "ShiftLeft" || code == "ShiftRight") {
+		shift = false;
+	}else if(code == "AltRight") {
+		altgr = false;
+	}	
+}
+
+void Translator::keyDown(std::string code) {
+	if(code == "ShiftLeft" || code == "ShiftRight") {
+		shift = true;
+	}else if(code == "AltRight") {
+		altgr = true;
+	}
 }
 
 void ComposeState::keyPress(std::pair<KeyType, std::string> value) {
