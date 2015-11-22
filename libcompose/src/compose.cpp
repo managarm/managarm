@@ -5,7 +5,7 @@
 ComposeState::ComposeState(ComposeHandler *handler) : handler(handler) { }
 
 std::pair<KeyType, std::string> Translator::translate(std::string code) {
-	if(shift) {
+	if(shift || capslock) {
 		if(code == "KeyQ") return { kKeyChars, "Q" };
 		if(code == "KeyW") return { kKeyChars, "W" };
 		if(code == "KeyE") return { kKeyChars, "E" };
@@ -121,23 +121,23 @@ std::pair<KeyType, std::string> Translator::translate(std::string code) {
 		if(code == "Period") return { kKeyChars, "." };
 		if(code == "Slash") return { kKeyChars, "-" };
 	}
-	
-	if(code == "Numpad0") return { kKeyChars, "0" };
-	if(code == "Numpad1") return { kKeyChars, "1" };
-	if(code == "Numpad2") return { kKeyChars, "2" };
-	if(code == "Numpad3") return { kKeyChars, "3" };
-	if(code == "Numpad4") return { kKeyChars, "4" };
-	if(code == "Numpad5") return { kKeyChars, "5" };
-	if(code == "Numpad6") return { kKeyChars, "6" };
-	if(code == "Numpad7") return { kKeyChars, "7" };
-	if(code == "Numpad8") return { kKeyChars, "8" };
-	if(code == "Numpad9") return { kKeyChars, "9" };
-	if(code == "NumpadDivide") return { kKeyChars, "/" };
-	if(code == "NumpadMultiply") return { kKeyChars, "*" };
-	if(code == "NumpadSubtract") return { kKeyChars, "-" };
-	if(code == "NumpadAdd") return { kKeyChars, "+" };
-	if(code == "NumpadDecimal") return { kKeyChars, "," };
-
+	if(numlock) {
+		if(code == "Numpad0") return { kKeyChars, "0" };
+		if(code == "Numpad1") return { kKeyChars, "1" };
+		if(code == "Numpad2") return { kKeyChars, "2" };
+		if(code == "Numpad3") return { kKeyChars, "3" };
+		if(code == "Numpad4") return { kKeyChars, "4" };
+		if(code == "Numpad5") return { kKeyChars, "5" };
+		if(code == "Numpad6") return { kKeyChars, "6" };
+		if(code == "Numpad7") return { kKeyChars, "7" };
+		if(code == "Numpad8") return { kKeyChars, "8" };
+		if(code == "Numpad9") return { kKeyChars, "9" };
+		if(code == "NumpadDivide") return { kKeyChars, "/" };
+		if(code == "NumpadMultiply") return { kKeyChars, "*" };
+		if(code == "NumpadSubtract") return { kKeyChars, "-" };
+		if(code == "NumpadAdd") return { kKeyChars, "+" };
+		if(code == "NumpadDecimal") return { kKeyChars, "," };
+	}
 
 	if(code == "AltLeft") return { kKeySpecial, "Alt" };
 	if(code == "AltRight") return { kKeySpecial, "AltGraph" };
@@ -199,6 +199,22 @@ void Translator::keyDown(std::string code) {
 		shift = true;
 	}else if(code == "AltRight") {
 		altgr = true;
+	}
+}
+
+void Translator::changeState(std::string code, bool state) {
+	if(state) {
+		if(code == "CapsLock") {
+			capslock = true;
+		}else if(code == "NumLock") {
+			numlock = true;
+		}
+	}else {		
+		if(code == "CapsLock") {
+			capslock = false;
+		}else if(code == "NumLock") {
+			numlock = false;
+		}
 	}
 }
 

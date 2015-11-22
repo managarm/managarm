@@ -23,9 +23,12 @@ struct Translator {
 	std::pair<KeyType, std::string> translate(std::string code);
 	void keyUp(std::string code);
 	void keyDown(std::string code);
+	void changeState(std::string code, bool state);
 
 private:
 	bool shift;
 	bool altgr;
+	bool capslock;
+	bool numlock;
 };
 

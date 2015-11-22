@@ -24,12 +24,11 @@ enum Status {
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 helx::Irq irq;
-bool shift;
-bool altGr;
 Status escapeStatus = kStatusNormal;
 int firstScancode;
 std::vector<helx::Pipe> serverPipes;
-
+bool numState;
+bool capsState;
 
 void onInterrupt(void * object, HelError error) {
 	HEL_CHECK(error);
@@ -178,28 +177,43 @@ void onInterrupt(void * object, HelError error) {
 				default: code = "Unknown"; break;
 			}
 		}
-
+		
 		bool pressed = !(scan_code & 0x80);
-		if(pressed) {
-			if(code == "ShiftLeft" || code == "ShiftRight") {
-				shift = true;
-			}else if(code == "AltRight") {
-				altGr = true;
+		
+		if(pressed && code == "NumLock") {
+			numState = !numState;
+
+			for(unsigned int i = 0; i < serverPipes.size(); i++) {
+				managarm::input::ServerRequest stateRequest;
+				stateRequest.set_request_type(managarm::input::RequestType::CHANGE_STATE);
+				stateRequest.set_state(numState);
+				stateRequest.set_code(code);
+			
+				std::string serialized;
+				stateRequest.SerializeToString(&serialized);
+				serverPipes[i].sendStringReq(serialized.data(), serialized.size() , 0, 0);
 			}
-		}else{
-			if(code == "ShiftLeft" || code == "ShiftRight") {
-				shift = false;
-			}else if(code == "AltRight") {
-				altGr = false;
+		}else if(pressed && code == "CapsLock") {
+			capsState = !capsState;
+
+			for(unsigned int i = 0; i < serverPipes.size(); i++) {
+				managarm::input::ServerRequest stateRequest;
+				stateRequest.set_request_type(managarm::input::RequestType::CHANGE_STATE);
+				stateRequest.set_state(capsState);
+				stateRequest.set_code(code);
+			
+				std::string serialized;
+				stateRequest.SerializeToString(&serialized);
+				serverPipes[i].sendStringReq(serialized.data(), serialized.size() , 0, 0);
 			}
 		}
 		
 		for(unsigned int i = 0; i < serverPipes.size(); i++) {
 			managarm::input::ServerRequest request;
-
+			
 			if(pressed) {
 				request.set_request_type(managarm::input::RequestType::DOWN);
-			}else{
+			}else{	
 				request.set_request_type(managarm::input::RequestType::UP);
 			}
 			request.set_code(code);
@@ -207,7 +221,7 @@ void onInterrupt(void * object, HelError error) {
 			std::string serialized;
 			request.SerializeToString(&serialized);
 			serverPipes[i].sendStringReq(serialized.data(), 
-					serialized.size() , 0, 0);		
+					serialized.size() , 0, 0);
 		}
 	}
 

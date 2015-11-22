@@ -7,9 +7,11 @@ enum RequestType {
 	DOWN = 0;
 	PRESSED = 1;
 	UP = 2;
+	CHANGE_STATE = 3;
 }
 
 message ServerRequest {
 	optional RequestType request_type = 1;
 	optional string code = 2;
+	optional bool state = 3;
 }

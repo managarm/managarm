@@ -426,8 +426,10 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 
 	managarm::input::ServerRequest request;
 	request.ParseFromArray(buffer, length);
-	
-	if(request.request_type() == managarm::input::RequestType::DOWN) {
+
+	if(request.request_type() == managarm::input::RequestType::CHANGE_STATE) {
+		translator.changeState(request.code(), request.state());
+	}else if(request.request_type() == managarm::input::RequestType::DOWN) {
 		translator.keyDown(request.code());
 		std::pair<KeyType, std::string> pair = translator.translate(request.code());
 		
@@ -446,9 +448,7 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 			printString(" ");
 			printString("\e[D");
 		}
-	}
-
-	if(request.request_type() == managarm::input::RequestType::UP) {
+	}else if(request.request_type() == managarm::input::RequestType::UP) {
 		translator.keyUp(request.code());
 	}
 
