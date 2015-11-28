@@ -14,10 +14,8 @@
 #include <bragi/mbus.hpp>
 #include <hw.pb.h>
 
-//#include "pci.hpp"
-
-//#include <ft2build.h>
-//#include FT_FREETYPE_H
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 enum {
 	kRegXres = 1,
@@ -126,28 +124,16 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	for(int y = 0; y < height; y++)
 		for(int x = 0; x < width; x++)
 			setPixel(x, y, 255, 255, 255);
-}
 
-// --------------------------------------------------------
-// main() function
-// --------------------------------------------------------
+//Freetype
 
-int main() {
-	printf("Starting Bochs VGA driver\n");
-
-	auto closure = new InitClosure();
-	(*closure)();
-
-	while(true)
-		eventHub.defaultProcessEvents();
-	
-/*	FT_Library library;
+	FT_Library library;
 	if(FT_Init_FreeType(&library) != 0) {
 		printf("FT_Init_FreeType() failed\n");
 		abort();
 	}
 	
-	const char *path = "initrd/DejaVuSansMono.ttf";
+	const char *path = "initrd/SourceCodePro-Regular.otf";
 
 	HelHandle image_handle;
 	size_t image_size;
@@ -187,8 +173,8 @@ int main() {
 			abort();
 		}
 
-		assert(face->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_GRAY);
 		FT_Bitmap &bitmap = face->glyph->bitmap;
+		assert(bitmap.pixel_mode == FT_PIXEL_MODE_GRAY);
 		for(unsigned int gy = 0; gy < bitmap.rows; gy++)
 			for(unsigned int gx = 0; gx < bitmap.width; gx++) {
 				uint8_t value = 255 - bitmap.buffer[gy * bitmap.pitch + gx];
@@ -199,6 +185,20 @@ int main() {
 		x += face->glyph->advance.x >> 6;
 	}
 
-	printf("FT Success!\n");*/
+	printf("FT Success!\n");
+}
+
+// --------------------------------------------------------
+// main() function
+// --------------------------------------------------------
+
+int main() {
+	printf("Starting Bochs VGA driver\n");
+
+	auto closure = new InitClosure();
+	(*closure)();
+
+	while(true)
+		eventHub.defaultProcessEvents();	
 }
 

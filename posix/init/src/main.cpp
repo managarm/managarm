@@ -26,8 +26,8 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-		execve("kbd", args.data(), envp);
-//		execve("bochs_vga", args.data(), envp);
+//		execve("kbd", args.data(), envp);
+		execve("bochs_vga", args.data(), envp);
 //		execve("vga_terminal", args.data(), envp);
 //		execve("ata", args.data(), envp);
 //		execve("zisa", args.data(), envp);

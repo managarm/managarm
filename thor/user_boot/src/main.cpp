@@ -202,6 +202,7 @@ void startPosixSubsystem() {
 	
 	auto directory = helx::Directory::create();
 	directory.mount(local_directory.getHandle(), "local");
+	directory.remount("initrd/#this", "initrd");
 	loadImage("initrd/posix-subsystem", directory.getHandle(), false);
 	
 	// receive a client handle from the child process

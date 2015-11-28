@@ -29,6 +29,8 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	
 	directory.mount(configDirectory.getHandle(), "config");
 	directory.mount(localDirectory.getHandle(), "local");
+	//FIXME: program should not be allowed to access the initrd
+	directory.remount("initrd/#this", "initrd");
 
 	configDirectory.publish(mbusConnect.getHandle(), "mbus");
 	configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
