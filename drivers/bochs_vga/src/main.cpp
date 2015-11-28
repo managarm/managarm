@@ -56,12 +56,19 @@ enum {
 	kSolarGreen = 0x859900
 };
 
+enum ChildLayout {
+	kChildNoLayout = 0,
+	kChildHorizontalBlocks = 1,
+	kChildVerticalBlocks = 2
+};
+
 struct Box {
 	int x;
 	int y;
 	int width;
 	int height;
 	uint32_t backgroundColor;
+	ChildLayout childLayout;
 	std::vector<std::shared_ptr<Box>> children;
 };
 
@@ -74,6 +81,36 @@ void drawBox(cairo_t *cr, Box *box) {
 	cairo_fill(cr);
 	for(unsigned int i = 0; i < box->children.size(); i++) {
 		drawBox(cr, box->children[i].get());
+	}
+}
+
+void layoutChildren(Box *box) {
+	if(box->childLayout == kChildNoLayout) {
+		// do nothing
+	}else if(box->childLayout == kChildVerticalBlocks) {
+		int accumulated_y = box->y;
+		for(unsigned int i = 0; i < box->children.size(); i++) {
+			auto child = box->children[i].get();
+			child->x = box->x;
+			child->y = accumulated_y;
+			child->width = box->width;
+			
+			accumulated_y += child->height;
+			layoutChildren(child);
+		}
+	}else if(box->childLayout == kChildHorizontalBlocks) {
+		int accumulated_x = box->x;
+		for(unsigned int i = 0; i < box->children.size(); i++) {
+			auto child = box->children[i].get();
+			child->y = box->y;
+			child->x = accumulated_x;
+			child->height = box->height;
+
+			accumulated_x += child->width;
+			layoutChildren(child);
+		}
+	}else{
+		assert(!"Illegal ChildLayout!");
 	}
 }
 
@@ -240,12 +277,32 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
 	cr = cairo_create(surface);
 
-	auto child = std::make_shared<Box>();
-	child->width = 30;
-	child->height = 20;
-	child->x = 128;
-	child->y = 43;
-	child->backgroundColor = kSolarMargenta;
+	auto child1 = std::make_shared<Box>();
+	child1->width = 50;
+	child1->backgroundColor = kSolarMargenta;
+	child1->childLayout = kChildNoLayout;
+	
+	auto child2 = std::make_shared<Box>();
+	child2->width = 100;
+	child2->backgroundColor = kSolarYellow;
+	child2->childLayout = kChildNoLayout;
+
+	auto childChild1 = std::make_shared<Box>();
+	childChild1->height = 25;
+	childChild1->backgroundColor = kSolarRed;
+	childChild1->childLayout = kChildNoLayout;
+
+	auto childChild2 = std::make_shared<Box>();
+	childChild2->height = 50;
+	childChild2->backgroundColor = kSolarOrange;
+	childChild2->childLayout = kChildNoLayout;
+
+	auto child3 = std::make_shared<Box>();
+	child3->width = 200;
+	child3->backgroundColor = kSolarBlue;
+	child3->childLayout = kChildVerticalBlocks;
+	child3->children.push_back(childChild1);
+	child3->children.push_back(childChild2);
 
 	Box box;
 	box.width = 321;
@@ -253,7 +310,13 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	box.x = 99;
 	box.y = 11;
 	box.backgroundColor = kSolarCyan;
-	box.children.push_back(child);
+	box.childLayout = kChildHorizontalBlocks;
+	
+	box.children.push_back(child1);
+	box.children.push_back(child2);
+	box.children.push_back(child3);
+
+	layoutChildren(&box);
 
 	drawBox(cr, &box);
 
