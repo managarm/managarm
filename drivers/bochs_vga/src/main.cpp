@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include <vector>
+#include <memory>
+
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
@@ -16,6 +19,8 @@
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+
+#include <cairo.h>
 
 enum {
 	kRegXres = 1,
@@ -31,6 +36,46 @@ enum {
 	kEnabled = 0x01,
 	kLinearFramebuffer = 0x40
 };
+
+enum {
+	kSolarBase03 = 0x002B36,
+	kSolarBase02 = 0x073642,
+	kSolarBase01 = 0x586E75,
+	kSolarBase00 = 0x657B83,
+	kSolarBase0 = 0x839496,
+	kSolarBase1 = 0x93A1A1,
+	kSolarBase2 = 0xEEE8D5,
+	kSolarBase3 = 0xFDF6E3,
+	kSolarYellow = 0xB58900,
+	kSolarOrange = 0xCB4B16,
+	kSolarRed = 0xDC322F,
+	kSolarMargenta = 0xD33682,
+	kSolarViolet = 0x6C71C4,
+	kSolarBlue = 0x268BD2,
+	kSolarCyan = 0x2AA198,
+	kSolarGreen = 0x859900
+};
+
+struct Box {
+	int x;
+	int y;
+	int width;
+	int height;
+	uint32_t backgroundColor;
+	std::vector<std::shared_ptr<Box>> children;
+};
+
+void drawBox(cairo_t *cr, Box *box) {
+	double r = ((box->backgroundColor >> 16) & 0xFF) / 255.0;
+	double g = ((box->backgroundColor >> 8) & 0xFF) / 255.0;
+	double b = (box->backgroundColor & 0xFF) / 255.0;
+	cairo_set_source_rgb(cr, r, g, b);
+	cairo_rectangle(cr, box->x, box->y, box->width, box->height);
+	cairo_fill(cr);
+	for(unsigned int i = 0; i < box->children.size(); i++) {
+		drawBox(cr, box->children[i].get());
+	}
+}
 
 void writeReg(uint16_t index, uint16_t value) {
 	asm volatile ( "outw %0, %1" : : "a" (index), "d" (uint16_t(0x1CE)) );
@@ -186,6 +231,43 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	}
 
 	printf("FT Success!\n");
+
+
+//cairo
+	cairo_surface_t *surface;
+	cairo_t *cr;
+
+	surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+	cr = cairo_create(surface);
+
+	auto child = std::make_shared<Box>();
+	child->width = 30;
+	child->height = 20;
+	child->x = 128;
+	child->y = 43;
+	child->backgroundColor = kSolarMargenta;
+
+	Box box;
+	box.width = 321;
+	box.height = 123;
+	box.x = 99;
+	box.y = 11;
+	box.backgroundColor = kSolarCyan;
+	box.children.push_back(child);
+
+	drawBox(cr, &box);
+
+	cairo_surface_flush(surface);
+	int stride = cairo_image_surface_get_stride(surface);
+	uint8_t *data = cairo_image_surface_get_data(surface);
+	assert(data);
+	for(int y = 0; y < height; y++)
+		for(int x = 0; x < width; x++) {
+			uint8_t b = data[y * stride + x * 4];
+			uint8_t g = data[y * stride + x * 4 + 1];
+			uint8_t r = data[y * stride + x * 4 + 2];
+			setPixel(x, y, r, g, b);
+		}
 }
 
 // --------------------------------------------------------
