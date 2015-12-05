@@ -62,23 +62,52 @@ enum ChildLayout {
 	kChildVerticalBlocks = 2
 };
 
+struct RgbColor {
+	float r;
+	float g;
+	float b;
+};
+
+RgbColor rgbFromInt(uint32_t color) {
+	RgbColor rgb;
+	rgb.r = ((color >> 16) & 0xFF) / 255.0;
+	rgb.g = ((color >> 8) & 0xFF) / 255.0;
+	rgb.b = (color & 0xFF) / 255.0;
+	return rgb;
+}
+
 struct Box {
+	Box();
 	int x;
 	int y;
 	int width;
 	int height;
 	uint32_t backgroundColor;
+	bool hasBorder;
+	int borderWidth;
+	uint32_t borderColor;
+	int padding;
 	ChildLayout childLayout;
 	std::vector<std::shared_ptr<Box>> children;
 };
+Box::Box() : hasBorder(false), borderWidth(0) { };
 
-void drawBox(cairo_t *cr, Box *box) {
-	double r = ((box->backgroundColor >> 16) & 0xFF) / 255.0;
-	double g = ((box->backgroundColor >> 8) & 0xFF) / 255.0;
-	double b = (box->backgroundColor & 0xFF) / 255.0;
-	cairo_set_source_rgb(cr, r, g, b);
+void drawBox(cairo_t *cr, Box *box) {	
+	// border
+	if(box->hasBorder) {
+		auto rgb = rgbFromInt(box->borderColor);
+		cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);	
+		cairo_rectangle(cr, box->x - box->borderWidth, box->y - box->borderWidth,
+				box->width + box->borderWidth * 2, box->height + box->borderWidth * 2);
+		cairo_fill(cr);
+	}
+
+	// box
+	auto rgb = rgbFromInt(box->backgroundColor);
+	cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);
 	cairo_rectangle(cr, box->x, box->y, box->width, box->height);
 	cairo_fill(cr);
+
 	for(unsigned int i = 0; i < box->children.size(); i++) {
 		drawBox(cr, box->children[i].get());
 	}
@@ -88,27 +117,31 @@ void layoutChildren(Box *box) {
 	if(box->childLayout == kChildNoLayout) {
 		// do nothing
 	}else if(box->childLayout == kChildVerticalBlocks) {
-		int accumulated_y = box->y;
+		int accumulated_y = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child->x = box->x;
-			child->y = accumulated_y;
-			child->width = box->width;
+			child->x = box->x + child->borderWidth;
+			child->y = box->y + accumulated_y + child->borderWidth;
+			child->width = box->width - child->borderWidth * 2;
 			
-			accumulated_y += child->height;
+			accumulated_y += child->height + child->borderWidth * 2;
 			layoutChildren(child);
 		}
+
+		box->height = accumulated_y;
 	}else if(box->childLayout == kChildHorizontalBlocks) {
-		int accumulated_x = box->x;
+		int accumulated_x = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child->y = box->y;
-			child->x = accumulated_x;
-			child->height = box->height;
+			child->y = box->y + child->borderWidth;
+			child->x = box->x + accumulated_x + child->borderWidth;
+			child->height = box->height - child->borderWidth * 2;
 
-			accumulated_x += child->width;
+			accumulated_x += child->width + child->borderWidth * 2;
 			layoutChildren(child);
 		}
+
+		box->width = accumulated_x;
 	}else{
 		assert(!"Illegal ChildLayout!");
 	}
@@ -281,11 +314,17 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	child1->width = 50;
 	child1->backgroundColor = kSolarMargenta;
 	child1->childLayout = kChildNoLayout;
+	child1->hasBorder = true;
+	child1->borderWidth = 15;
+	child1->borderColor = 0x3E3E3E;
 	
 	auto child2 = std::make_shared<Box>();
 	child2->width = 100;
 	child2->backgroundColor = kSolarYellow;
 	child2->childLayout = kChildNoLayout;
+	child2->hasBorder = true;
+	child2->borderWidth = 30;
+	child2->borderColor = kSolarGreen;
 
 	auto childChild1 = std::make_shared<Box>();
 	childChild1->height = 25;
@@ -296,6 +335,9 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	childChild2->height = 50;
 	childChild2->backgroundColor = kSolarOrange;
 	childChild2->childLayout = kChildNoLayout;
+	childChild2->hasBorder = true;
+	childChild2->borderWidth = 20;
+	childChild2->borderColor = 0xCECECE;
 
 	auto child3 = std::make_shared<Box>();
 	child3->width = 200;
@@ -311,6 +353,9 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	box.y = 11;
 	box.backgroundColor = kSolarCyan;
 	box.childLayout = kChildHorizontalBlocks;
+	box.hasBorder = true;
+	box.borderWidth = 20;
+	box.borderColor = 0xCECECE;
 	
 	box.children.push_back(child1);
 	box.children.push_back(child2);
