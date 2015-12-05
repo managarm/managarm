@@ -77,20 +77,42 @@ RgbColor rgbFromInt(uint32_t color) {
 }
 
 struct Box {
+	enum SizeType {
+		kSizeFixed,
+		kSizeFitToChildren,
+		kSizeFillParent
+	};
+
 	Box();
+	void appendChild(std::shared_ptr<Box> child);
+
 	int x;
 	int y;
-	int width;
-	int height;
+	
+	SizeType widthType;
+	SizeType heightType;
+	int fixedWidth;
+	int fixedHeight;
+	
+	int actualWidth;
+	int actualHeight;
 	uint32_t backgroundColor;
 	bool hasBorder;
 	int borderWidth;
 	uint32_t borderColor;
 	int padding;
 	ChildLayout childLayout;
+
+	Box *parent;
 	std::vector<std::shared_ptr<Box>> children;
 };
-Box::Box() : hasBorder(false), borderWidth(0) { };
+
+Box::Box() : hasBorder(false), borderWidth(0) { }
+
+void Box::appendChild(std::shared_ptr<Box> child) {
+	child->parent = this;
+	children.push_back(child);
+}
 
 void drawBox(cairo_t *cr, Box *box) {	
 	// border
@@ -98,14 +120,14 @@ void drawBox(cairo_t *cr, Box *box) {
 		auto rgb = rgbFromInt(box->borderColor);
 		cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);	
 		cairo_rectangle(cr, box->x - box->borderWidth, box->y - box->borderWidth,
-				box->width + box->borderWidth * 2, box->height + box->borderWidth * 2);
+				box->actualWidth + box->borderWidth * 2, box->actualHeight + box->borderWidth * 2);
 		cairo_fill(cr);
 	}
 
 	// box
 	auto rgb = rgbFromInt(box->backgroundColor);
 	cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);
-	cairo_rectangle(cr, box->x, box->y, box->width, box->height);
+	cairo_rectangle(cr, box->x, box->y, box->actualWidth, box->actualHeight);
 	cairo_fill(cr);
 
 	for(unsigned int i = 0; i < box->children.size(); i++) {
@@ -114,6 +136,27 @@ void drawBox(cairo_t *cr, Box *box) {
 }
 
 void layoutChildren(Box *box) {
+	// if the parent is kSizeFixed or kSizeFillParent its size is already computed at this point
+
+	if(box->widthType == Box::kSizeFixed) {
+		box->actualWidth = box->fixedWidth;
+	}else if(box->widthType == Box::kSizeFillParent) {
+		assert(box->parent->widthType == Box::kSizeFixed
+				|| box->parent->widthType == Box::kSizeFillParent);
+		box->actualWidth = box->parent->actualWidth - box->borderWidth * 2;
+	}
+
+	if(box->heightType == Box::kSizeFixed) {
+		box->actualHeight = box->fixedHeight;
+	}else if(box->heightType == Box::kSizeFillParent) {
+		assert(box->parent->heightType == Box::kSizeFixed
+				|| box->parent->heightType == Box::kSizeFillParent);
+			box->actualHeight = box->parent->actualHeight - box->borderWidth * 2;
+	}
+
+	// for kSizeFixed and kSizeFillParent the size is computed at this point
+	// kFitToChildren must be computed AFTER children are layouted
+
 	if(box->childLayout == kChildNoLayout) {
 		// do nothing
 	}else if(box->childLayout == kChildVerticalBlocks) {
@@ -122,28 +165,42 @@ void layoutChildren(Box *box) {
 			auto child = box->children[i].get();
 			child->x = box->x + child->borderWidth;
 			child->y = box->y + accumulated_y + child->borderWidth;
-			child->width = box->width - child->borderWidth * 2;
 			
-			accumulated_y += child->height + child->borderWidth * 2;
+			assert(child->heightType == Box::kSizeFixed);
 			layoutChildren(child);
+			accumulated_y += child->actualHeight + child->borderWidth * 2;
 		}
-
-		box->height = accumulated_y;
 	}else if(box->childLayout == kChildHorizontalBlocks) {
 		int accumulated_x = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
 			child->y = box->y + child->borderWidth;
 			child->x = box->x + accumulated_x + child->borderWidth;
-			child->height = box->height - child->borderWidth * 2;
 
-			accumulated_x += child->width + child->borderWidth * 2;
+			assert(child->widthType == Box::kSizeFixed);
 			layoutChildren(child);
+			accumulated_x += child->actualWidth + child->borderWidth * 2;
 		}
-
-		box->width = accumulated_x;
 	}else{
 		assert(!"Illegal ChildLayout!");
+	}
+
+	if(box->widthType == Box::kSizeFitToChildren) {
+		int child_width = 0;
+		for(unsigned int i = 0; i < box->children.size(); i++) {
+			auto child = box->children[i].get();
+			child_width += child->actualWidth + child->borderWidth * 2;
+		}
+		box->actualWidth = child_width;
+	}
+	
+	if(box->heightType == Box::kSizeFitToChildren) {
+		int child_height = 0;
+		for(unsigned int i = 0; i < box->children.size(); i++) {
+			auto child = box->children[i].get();
+			child_height += child->actualHeight + child->borderWidth * 2;
+		}
+		box->actualHeight = child_height;
 	}
 }
 
@@ -311,55 +368,54 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	cr = cairo_create(surface);
 
 	auto child1 = std::make_shared<Box>();
-	child1->width = 50;
+	child1->fixedWidth = 50;
 	child1->backgroundColor = kSolarMargenta;
 	child1->childLayout = kChildNoLayout;
+
+	child1->widthType = Box::kSizeFixed;
+	child1->heightType = Box::kSizeFillParent;
+
 	child1->hasBorder = true;
 	child1->borderWidth = 15;
 	child1->borderColor = 0x3E3E3E;
 	
 	auto child2 = std::make_shared<Box>();
-	child2->width = 100;
+	child2->fixedWidth = 100;
 	child2->backgroundColor = kSolarYellow;
 	child2->childLayout = kChildNoLayout;
+
+	child2->widthType = Box::kSizeFixed;
+	child2->heightType = Box::kSizeFillParent;
+
 	child2->hasBorder = true;
 	child2->borderWidth = 30;
 	child2->borderColor = kSolarGreen;
 
-	auto childChild1 = std::make_shared<Box>();
-	childChild1->height = 25;
-	childChild1->backgroundColor = kSolarRed;
-	childChild1->childLayout = kChildNoLayout;
-
-	auto childChild2 = std::make_shared<Box>();
-	childChild2->height = 50;
-	childChild2->backgroundColor = kSolarOrange;
-	childChild2->childLayout = kChildNoLayout;
-	childChild2->hasBorder = true;
-	childChild2->borderWidth = 20;
-	childChild2->borderColor = 0xCECECE;
-
 	auto child3 = std::make_shared<Box>();
-	child3->width = 200;
+	child3->fixedWidth = 200;
 	child3->backgroundColor = kSolarBlue;
-	child3->childLayout = kChildVerticalBlocks;
-	child3->children.push_back(childChild1);
-	child3->children.push_back(childChild2);
+	child3->childLayout = kChildNoLayout;
+
+	child3->widthType = Box::kSizeFixed;
+	child3->heightType = Box::kSizeFillParent;
 
 	Box box;
-	box.width = 321;
-	box.height = 123;
+	box.fixedHeight = 250;
 	box.x = 99;
 	box.y = 11;
 	box.backgroundColor = kSolarCyan;
 	box.childLayout = kChildHorizontalBlocks;
+
+	box.widthType = Box::kSizeFitToChildren;
+	box.heightType = Box::kSizeFixed;
+
 	box.hasBorder = true;
 	box.borderWidth = 20;
 	box.borderColor = 0xCECECE;
 	
-	box.children.push_back(child1);
-	box.children.push_back(child2);
-	box.children.push_back(child3);
+	box.appendChild(child1);
+	box.appendChild(child2);
+	box.appendChild(child3);
 
 	layoutChildren(&box);
 
