@@ -100,7 +100,10 @@ struct Box {
 	bool hasBorder;
 	int borderWidth;
 	uint32_t borderColor;
+	
 	int padding;
+	int margin;
+
 	ChildLayout childLayout;
 
 	Box *parent;
@@ -143,7 +146,7 @@ void layoutChildren(Box *box) {
 	}else if(box->widthType == Box::kSizeFillParent) {
 		assert(box->parent->widthType == Box::kSizeFixed
 				|| box->parent->widthType == Box::kSizeFillParent);
-		box->actualWidth = box->parent->actualWidth - box->borderWidth * 2;
+		box->actualWidth = box->parent->actualWidth - box->borderWidth * 2 - box->parent->padding * 2 - box->margin * 2;
 	}
 
 	if(box->heightType == Box::kSizeFixed) {
@@ -151,7 +154,7 @@ void layoutChildren(Box *box) {
 	}else if(box->heightType == Box::kSizeFillParent) {
 		assert(box->parent->heightType == Box::kSizeFixed
 				|| box->parent->heightType == Box::kSizeFillParent);
-			box->actualHeight = box->parent->actualHeight - box->borderWidth * 2;
+		box->actualHeight = box->parent->actualHeight - box->borderWidth * 2 - box->parent->padding * 2 - box->margin * 2;
 	}
 
 	// for kSizeFixed and kSizeFillParent the size is computed at this point
@@ -163,23 +166,23 @@ void layoutChildren(Box *box) {
 		int accumulated_y = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child->x = box->x + child->borderWidth;
-			child->y = box->y + accumulated_y + child->borderWidth;
+			child->x = box->x + box->padding + child->borderWidth + child->margin;
+			child->y = box->y + box->padding + accumulated_y + child->borderWidth + child->margin;
 			
 			assert(child->heightType == Box::kSizeFixed);
 			layoutChildren(child);
-			accumulated_y += child->actualHeight + child->borderWidth * 2;
+			accumulated_y += child->actualHeight + child->borderWidth * 2 + child->margin * 2;
 		}
 	}else if(box->childLayout == kChildHorizontalBlocks) {
 		int accumulated_x = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child->y = box->y + child->borderWidth;
-			child->x = box->x + accumulated_x + child->borderWidth;
+			child->y = box->y + box->padding + child->borderWidth + child->margin;
+			child->x = box->x + box->padding + accumulated_x + child->borderWidth + child->margin;
 
 			assert(child->widthType == Box::kSizeFixed);
 			layoutChildren(child);
-			accumulated_x += child->actualWidth + child->borderWidth * 2;
+			accumulated_x += child->actualWidth + child->borderWidth * 2 + child->margin * 2;
 		}
 	}else{
 		assert(!"Illegal ChildLayout!");
@@ -189,18 +192,18 @@ void layoutChildren(Box *box) {
 		int child_width = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child_width += child->actualWidth + child->borderWidth * 2;
+			child_width += child->actualWidth + child->borderWidth * 2 + child->margin * 2;
 		}
-		box->actualWidth = child_width;
+		box->actualWidth = child_width + box->padding * 2;
 	}
 	
 	if(box->heightType == Box::kSizeFitToChildren) {
 		int child_height = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
-			child_height += child->actualHeight + child->borderWidth * 2;
+			child_height += child->actualHeight + child->borderWidth * 2 + child->margin * 2;
 		}
-		box->actualHeight = child_height;
+		box->actualHeight = child_height + box->padding * 2;
 	}
 }
 
@@ -387,6 +390,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	child2->widthType = Box::kSizeFixed;
 	child2->heightType = Box::kSizeFillParent;
 
+	child2->margin = 15;
 	child2->hasBorder = true;
 	child2->borderWidth = 30;
 	child2->borderColor = kSolarGreen;
@@ -400,11 +404,12 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	child3->heightType = Box::kSizeFillParent;
 
 	Box box;
-	box.fixedHeight = 250;
-	box.x = 99;
-	box.y = 11;
+	box.fixedHeight = 400;
+	box.x = 100;
+	box.y = 50;
 	box.backgroundColor = kSolarCyan;
 	box.childLayout = kChildHorizontalBlocks;
+	box.padding = 20;
 
 	box.widthType = Box::kSizeFitToChildren;
 	box.heightType = Box::kSizeFixed;
