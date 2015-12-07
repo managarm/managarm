@@ -29,6 +29,11 @@ struct SharedObject {
 	uintptr_t lazyRelocTableOffset;
 	size_t lazyTableSize;
 	bool lazyExplicitAddend;
+
+	// vector of dependencies
+	frigg::Vector<SharedObject *, Allocator> dependencies;
+	bool onInitStack;
+	bool wasInitialized;
 };
 
 void processCopyRela(SharedObject *object, Elf64_Rela *reloc);

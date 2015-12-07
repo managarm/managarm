@@ -39,7 +39,8 @@ SharedObject::SharedObject(bool is_main_object)
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0),
-		lazyExplicitAddend(false) { }
+		lazyExplicitAddend(false),
+		dependencies(*allocator), onInitStack(false), wasInitialized(false) { }
 
 void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
@@ -95,6 +96,20 @@ void processCopyRelocations(SharedObject *object) {
 }
 
 void doInitialize(SharedObject *object) {
+	assert(!object->wasInitialized);
+	assert(!object->onInitStack);
+
+	// make sure we detect cyclic dependencies
+	object->onInitStack = true;
+
+	// if the object has dependencies we initialize them first
+	for(size_t i = 0; i < object->dependencies.size(); i++) {
+		if(!object->dependencies[i]->wasInitialized)
+			doInitialize(object->dependencies[i]);
+		assert(object->dependencies[i]->wasInitialized);
+	}
+	
+	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
 
 	InitFuncPtr init_ptr = nullptr;
@@ -125,6 +140,8 @@ void doInitialize(SharedObject *object) {
 	assert((array_size % sizeof(InitFuncPtr)) == 0);
 	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
 		init_array[i]();
+	
+	object->wasInitialized = true;
 }
 
 // --------------------------------------------------------
@@ -311,7 +328,8 @@ void Loader::process() {
 void Loader::initialize() {
 	while(!p_initQueue.empty()) {
 		SharedObject *object = p_initQueue.front();
-		doInitialize(object);
+		if(!object->wasInitialized)
+			doInitialize(object);
 
 		p_initQueue.removeFront();
 	}
@@ -384,11 +402,14 @@ void Loader::processDependencies(SharedObject *object) {
 		const char *library_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + dynamic->d_val);
 
+		// TODO: cache libraries
 		auto library = frigg::construct<SharedObject>(*allocator, false);
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library
 		loadFromFile(library, library_str);
+
+		object->dependencies.push(library);
 	}
 }
 
