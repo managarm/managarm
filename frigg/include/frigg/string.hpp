@@ -4,6 +4,7 @@
 
 #include <frigg/algorithm.hpp>
 #include <frigg/optional.hpp>
+#include <frigg/debug.hpp>
 
 namespace frigg {
 

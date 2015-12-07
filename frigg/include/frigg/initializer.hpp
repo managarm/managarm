@@ -3,6 +3,7 @@
 #define FRIGG_INITIALIZER_HPP
 
 #include <frigg/cxx-support.hpp>
+#include <frigg/traits.hpp>
 
 namespace frigg {
 
@@ -18,6 +19,10 @@ public:
 		assert(!p_initialized);
 		new(p_object) T(forward<Args>(args)...);
 		p_initialized = true;
+	}
+
+	void discard() {
+		p_initialized = false;
 	}
 
 	T *get() {

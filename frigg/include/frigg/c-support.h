@@ -22,7 +22,13 @@ void __assert_fail(const char *assertion,
 
 #elif defined(FRIGG_HAVE_LIBC)
 
+#pragma GCC visibility push(default)
+
+#include <stddef.h>
 #include <stdint.h>
+#include <assert.h>
+
+#pragma GCC visibility pop
 
 #else
 #error "Define either FRIGG_HAVE_LIBC or FRIGG_NO_LIBC"

@@ -52,7 +52,7 @@ uint8_t stack1[4096];
 uint8_t stack2[4096];
 
 #include <unistd.h>
-#include <sys/helfd.h>
+//#include <sys/helfd.h>
 
 extern "C" void testSignal() {
 	printf("In signal\n");

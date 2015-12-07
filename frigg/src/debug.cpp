@@ -48,6 +48,8 @@ void assertionFail(const char *message, const char *function,
 
 } // namespace frigg
 
+#ifdef FRIGG_NO_LIBC
+
 extern "C" void __assert_fail(const char *assertion, const char *file,
 		unsigned int line, const char *function) {
 	frigg::PanicLogger logger;
@@ -60,4 +62,6 @@ extern "C" void __cxa_pure_virtual() {
 	frigg::PanicLogger logger;
 	logger.log() << "Pure virtual call" << frigg::EndLog();
 }
+
+#endif // FRIGG_NO_LIBC
 
