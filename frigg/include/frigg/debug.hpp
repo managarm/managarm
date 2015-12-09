@@ -159,6 +159,21 @@ private:
 	Sink &p_sink;
 };
 
+class InfoLogger {
+public:
+	class Printer {
+	public:
+		struct IsPrinter { };
+
+		void print(char c);
+		void print(const char *str);
+
+		void finish();
+	};
+
+	Printer log();
+};
+
 class PanicLogger {
 public:
 	class Printer {
@@ -174,6 +189,7 @@ public:
 	Printer log();
 };
 
+extern InfoLogger infoLogger;
 extern PanicLogger panicLogger;
 
 } // namespace frigg

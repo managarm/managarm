@@ -7,7 +7,16 @@
 
 namespace frigg {
 
+InfoLogger infoLogger;
 PanicLogger panicLogger;
+
+// --------------------------------------------------------
+// InfoLogger
+// --------------------------------------------------------
+
+InfoLogger::Printer InfoLogger::log() {
+	return Printer();
+}
 
 // --------------------------------------------------------
 // PanicLogger
@@ -16,6 +25,21 @@ PanicLogger panicLogger;
 PanicLogger::Printer PanicLogger::log() {
 	friggPrintCritical("Panic!\n");
 	return Printer();
+}
+
+// --------------------------------------------------------
+// InfoLogger::Printer
+// --------------------------------------------------------
+
+void InfoLogger::Printer::print(char c) {
+	friggPrintCritical(c);
+}
+void InfoLogger::Printer::print(const char *str) {
+	friggPrintCritical(str);
+}
+
+void InfoLogger::Printer::finish() {
+	friggPrintCritical('\n');
 }
 
 // --------------------------------------------------------
