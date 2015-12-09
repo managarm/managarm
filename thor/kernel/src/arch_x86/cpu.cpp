@@ -180,7 +180,8 @@ void initializeThisProcessor() {
 	// set user mode rpl bits to work around a qemu bug
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
 			(uint64_t(0x1B) << 48) | (uint64_t(0x08) << 32));
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x200); // mask interrupts
+	// mask interrupt and trap flag
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
 
 	initLocalApicPerCpu();
 }

@@ -186,7 +186,10 @@ extern "C" void handleDivideByZeroFault() {
 }
 
 extern "C" void handleDebugFault() {
-	infoLogger->log() << "Debug fault" << frigg::EndLog();
+	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+	infoLogger->log() << "Debug fault at "
+			<< (void *)base_state->rip
+			<< ", rsp: " << (void *)base_state->rsp << frigg::EndLog();
 }
 
 extern "C" void handleOpcodeFault() {
