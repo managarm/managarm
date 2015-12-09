@@ -55,9 +55,9 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	const char *symbol_str = (const char *)(object->baseAddress
 			+ object->stringTableOffset + symbol->st_name);
 
-	void *pointer = globalScope->resolveSymbol(symbol_str, object, 0);
+	void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
 	if(pointer == nullptr)
-		frigg::panicLogger.log() << "Unresolved lazy symbol" << frigg::EndLog();
+		frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol" << frigg::EndLog();
 
 	//infoLogger->log() << "Lazy relocation to " << symbol_str
 	//		<< " resolved to " << pointer << frigg::EndLog();
@@ -75,7 +75,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	//infoLogger->log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
-	interpreter.initialize(false);
+	interpreter.initialize("(interpreter)", false);
 	interpreter->baseAddress = (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
 
@@ -121,7 +121,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	eventHub->waitForConnect(async_id, connect_error, *serverPipe);
 	HEL_CHECK(connect_error);
 
-	executable.initialize(true);
+	executable.initialize("(executable)", true);
 
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());

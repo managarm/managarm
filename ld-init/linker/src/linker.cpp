@@ -34,8 +34,8 @@ uintptr_t libraryBase = 0x41000000;
 // SharedObject
 // --------------------------------------------------------
 
-SharedObject::SharedObject(bool is_main_object)
-		: isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
+SharedObject::SharedObject(const char *name, bool is_main_object)
+		: name(name), isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0),
@@ -403,7 +403,7 @@ void Loader::processDependencies(SharedObject *object) {
 				+ object->stringTableOffset + dynamic->d_val);
 
 		// TODO: cache libraries
-		auto library = frigg::construct<SharedObject>(*allocator, false);
+		auto library = frigg::construct<SharedObject>(*allocator, library_str, false);
 		library->baseAddress = libraryBase;
 		// TODO: handle this dynamically
 		libraryBase += 0x1000000; // assume 16 MiB per library
@@ -496,6 +496,8 @@ void Loader::processStaticRelocations(SharedObject *object) {
 	}
 }
 
+bool eagerBinding = true;
+
 void Loader::processLazyRelocations(SharedObject *object) {
 	if(object->globalOffsetTable == nullptr) {
 		assert(object->lazyRelocTableOffset == 0);
@@ -510,11 +512,27 @@ void Loader::processLazyRelocations(SharedObject *object) {
 	for(size_t offset = 0; offset < object->lazyTableSize; offset += sizeof(Elf64_Rela)) {
 		auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset + offset);
 		Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
-
+		Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
 		uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 
 		assert(type == R_X86_64_JUMP_SLOT);
-		*((uint64_t *)rel_addr) += object->baseAddress;
+		if(eagerBinding) {
+			auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
+					+ symbol_index * sizeof(Elf64_Sym));
+			assert(symbol->st_name != 0);
+
+			const char *symbol_str = (const char *)(object->baseAddress
+					+ object->stringTableOffset + symbol->st_name);
+
+			void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
+			if(pointer == nullptr)
+				frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
+						<< symbol_str << " in object " << object->name << frigg::EndLog();
+
+			*((void **)rel_addr) = pointer;
+		}else{
+			*((uint64_t *)rel_addr) += object->baseAddress;
+		}
 	}
 }
 

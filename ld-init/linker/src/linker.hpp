@@ -6,8 +6,9 @@ struct Scope;
 // --------------------------------------------------------
 
 struct SharedObject {
-	SharedObject(bool is_main_object);
+	SharedObject(const char *name, bool is_main_object);
 
+	const char *name;
 	bool isMainObject;
 
 	// base address this shared object was loaded to
