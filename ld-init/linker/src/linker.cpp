@@ -30,6 +30,9 @@
 
 uintptr_t libraryBase = 0x41000000;
 
+bool verbose = false;
+bool eagerBinding = true;
+
 // --------------------------------------------------------
 // SharedObject
 // --------------------------------------------------------
@@ -109,7 +112,8 @@ void doInitialize(SharedObject *object) {
 		assert(object->dependencies[i]->wasInitialized);
 	}
 
-	infoLogger->log() << "Initialize " << object->name << frigg::EndLog();
+	if(verbose)
+		infoLogger->log() << "Initialize " << object->name << frigg::EndLog();
 	
 	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
@@ -178,8 +182,7 @@ uint32_t elf64Hash(const char *name) {
 
 bool symbolMatches(SharedObject *object, Elf64_Sym *symbol, const char *resolve_str) {
 	uint8_t bind = ELF64_ST_BIND(symbol->st_info);
-	if(bind != STB_GLOBAL)
-		return false; // TODO: support local and weak symbols
+	assert(bind == STB_GLOBAL || bind == STB_WEAK);
 	if(symbol->st_shndx == SHN_UNDEF)
 		return false;
 	assert(symbol->st_name != 0);
@@ -236,6 +239,9 @@ Loader::Loader(Scope *scope)
 
 void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
+	if(verbose)
+		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
+	
 	object->entry = entry_pointer;
 
 	// segments are already mapped, so we just have to find the dynamic section
@@ -259,7 +265,8 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
-	//infoLogger->log() << "Loading " << file << frigg::EndLog();
+	if(verbose)
+		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
 
 	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
 	request.set_identifier(frigg::String<Allocator>(*allocator, file));
@@ -342,9 +349,6 @@ void Loader::initialize() {
 
 void Loader::parseDynamic(SharedObject *object) {
 	assert(object->dynamic != nullptr);
-
-	infoLogger->log() << "Loading " << object->name
-			<< " at " << (void *)object->baseAddress << frigg::EndLog();
 
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &object->dynamic[i];
@@ -447,9 +451,16 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 				+ object->stringTableOffset + symbol->st_name);
 		//FIXME infoLogger->log() << "Looking up " << symbol_str << frigg::EndLog();
 		symbol_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str, object, 0);
-		if(symbol_addr == 0 && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-			frigg::panicLogger.log() << "Unresolved static symbol "
-					<< (const char *)symbol_str << frigg::EndLog();
+		if(symbol_addr == 0) {
+			if(ELF64_ST_BIND(symbol->st_info) == STB_WEAK) {
+				if(verbose)
+					frigg::infoLogger.log() << "Unresolved weak load-time symbol "
+							<< (const char *)symbol_str << frigg::EndLog();
+			}else{
+				frigg::panicLogger.log() << "Unresolved load-time symbol "
+						<< (const char *)symbol_str << frigg::EndLog();
+			}
+		}
 	}
 
 	switch(type) {
@@ -510,8 +521,6 @@ void Loader::processStaticRelocations(SharedObject *object) {
 	}
 }
 
-bool eagerBinding = true;
-
 void Loader::processLazyRelocations(SharedObject *object) {
 	if(object->globalOffsetTable == nullptr) {
 		assert(object->lazyRelocTableOffset == 0);
@@ -539,10 +548,16 @@ void Loader::processLazyRelocations(SharedObject *object) {
 					+ object->stringTableOffset + symbol->st_name);
 
 			void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
-			if(pointer == nullptr && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-				frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
-						<< symbol_str << " in object " << object->name << frigg::EndLog();
-
+			if(pointer == nullptr) {
+				if(ELF64_ST_BIND(symbol->st_info) == STB_WEAK) {
+					if(verbose)
+						frigg::infoLogger.log() << "Unresolved weak JUMP_SLOT symbol "
+								<< symbol_str << " in object " << object->name << frigg::EndLog();
+				}else{
+					frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
+							<< symbol_str << " in object " << object->name << frigg::EndLog();
+				}
+			}
 			*((void **)rel_addr) = pointer;
 		}else{
 			*((uint64_t *)rel_addr) += object->baseAddress;
