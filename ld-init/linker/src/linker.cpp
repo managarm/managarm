@@ -108,6 +108,8 @@ void doInitialize(SharedObject *object) {
 			doInitialize(object->dependencies[i]);
 		assert(object->dependencies[i]->wasInitialized);
 	}
+
+	infoLogger->log() << "Initialize " << object->name << frigg::EndLog();
 	
 	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
@@ -229,7 +231,8 @@ void *Scope::resolveSymbol(const char *resolve_str,
 // --------------------------------------------------------
 
 Loader::Loader(Scope *scope)
-: p_scope(scope), p_processQueue(*allocator), p_initQueue(*allocator) { }
+: p_scope(scope), p_processQueue(*allocator), p_initQueue(*allocator),
+		p_allObjects(frigg::DefaultHasher<frigg::String<Allocator>>(), *allocator) { }
 
 void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
@@ -248,6 +251,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		}
 	}
 	
+	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	parseDynamic(object);
 	p_processQueue.addBack(object);
 	p_initQueue.addBack(object);
@@ -306,6 +310,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 		HEL_CHECK(helCloseDescriptor(memory_handle));
 	}
 
+	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	parseDynamic(object);
 	p_processQueue.addBack(object);
 	p_initQueue.addBack(object);
@@ -337,6 +342,9 @@ void Loader::initialize() {
 
 void Loader::parseDynamic(SharedObject *object) {
 	assert(object->dynamic != nullptr);
+
+	infoLogger->log() << "Loading " << object->name
+			<< " at " << (void *)object->baseAddress << frigg::EndLog();
 
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &object->dynamic[i];
@@ -403,13 +411,19 @@ void Loader::processDependencies(SharedObject *object) {
 				+ object->stringTableOffset + dynamic->d_val);
 
 		// TODO: cache libraries
-		auto library = frigg::construct<SharedObject>(*allocator, library_str, false);
-		library->baseAddress = libraryBase;
-		// TODO: handle this dynamically
-		libraryBase += 0x1000000; // assume 16 MiB per library
-		loadFromFile(library, library_str);
+		SharedObject **existing
+				= p_allObjects.get(frigg::String<Allocator>(*allocator, library_str));
+		if(existing) {
+			object->dependencies.push(*existing);
+		}else{
+			auto library = frigg::construct<SharedObject>(*allocator, library_str, false);
+			library->baseAddress = libraryBase;
+			// TODO: handle this dynamically
+			libraryBase += 0x1000000; // assume 16 MiB per library
+			loadFromFile(library, library_str);
 
-		object->dependencies.push(library);
+			object->dependencies.push(library);
+		}
 	}
 }
 
@@ -525,7 +539,7 @@ void Loader::processLazyRelocations(SharedObject *object) {
 					+ object->stringTableOffset + symbol->st_name);
 
 			void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
-			if(pointer == nullptr)
+			if(pointer == nullptr && ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 				frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
 						<< symbol_str << " in object " << object->name << frigg::EndLog();
 

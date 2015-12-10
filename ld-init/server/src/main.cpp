@@ -170,6 +170,7 @@ Object *readObject(frigg::StringView path) {
 		}else if(phdr->p_type == PT_INTERP) {
 			// TODO: handle different interpreters
 		}else if(phdr->p_type == PT_GNU_EH_FRAME
+				|| phdr->p_type == PT_GNU_RELRO
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{

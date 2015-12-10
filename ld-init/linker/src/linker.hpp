@@ -1,4 +1,6 @@
 
+#include <frigg/string.hpp>
+
 struct Scope;
 
 // --------------------------------------------------------
@@ -84,6 +86,8 @@ private:
 	Scope *p_scope;
 	frigg::LinkedList<SharedObject *, Allocator> p_processQueue;
 	frigg::LinkedList<SharedObject *, Allocator> p_initQueue;
+	frigg::Hashmap<frigg::String<Allocator>, SharedObject *,
+			frigg::DefaultHasher<frigg::String<Allocator>>, Allocator> p_allObjects;
 };
 
 // --------------------------------------------------------

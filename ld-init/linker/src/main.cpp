@@ -35,10 +35,6 @@ frigg::LazyInitializer<SharedObject> executable;
 frigg::LazyInitializer<Scope> globalScope;
 frigg::LazyInitializer<Loader> globalLoader;
 
-typedef frigg::Hashmap<const char *, SharedObject *,
-		frigg::CStringHasher, Allocator> ObjectHashmap;
-frigg::LazyInitializer<ObjectHashmap> allObjects;
-
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	assert(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
@@ -134,7 +130,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	globalLoader->initialize();
 
-//	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
+	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 
