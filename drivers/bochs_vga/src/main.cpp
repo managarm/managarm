@@ -27,11 +27,14 @@ enum {
 	kRegXres = 1,
 	kRegYres = 2,
 	kRegBpp = 3,
-	kRegEnable = 4
+	kRegEnable = 4,
+	kRegOffsetX = 8,
+	kRegOffsetY = 9
 };
 
 enum {
 	kBpp24 = 0x18,
+	kBpp32 = 0x20,
 
 	// enable register bits
 	kEnabled = 0x01,
@@ -225,9 +228,9 @@ int width = 1024, height = 786;
 uint8_t *pixels;
 
 void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-	pixels[(y * width + x) * 3] = b;
-	pixels[(y * width + x) * 3 + 1] = g;
-	pixels[(y * width + x) * 3 + 2] = r;
+	pixels[(y * width + x) * 4] = b;
+	pixels[(y * width + x) * 4 + 1] = g;
+	pixels[(y * width + x) * 4 + 2] = r;
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
@@ -261,6 +264,106 @@ void InitClosure::enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects) {
 			CALLBACK_MEMBER(this, &InitClosure::queriedBochs));
 }
 
+FT_Library ftLibrary;
+FT_Face ftFace;
+
+struct Display {
+	struct Buffer {
+		cairo_surface_t *crSurface;
+		cairo_t *crContext;
+		int offsetY;
+
+		Buffer()
+		: crSurface(nullptr), crContext(nullptr), offsetY(0) { }
+	};
+
+	Display()
+	: pending(0) { }
+
+	cairo_t *getContext() {
+		return buffers[pending].crContext;
+	}
+
+	void flip() {
+		cairo_surface_flush(buffers[pending].crSurface);
+		writeReg(kRegOffsetY, buffers[pending].offsetY);
+		pending = (pending + 1) % 2;
+	}
+
+	Buffer buffers[2];
+	int pending;
+};
+
+Display display;
+
+cairo_font_face_t *crFont;
+	
+int fpsCurrent, fpsCounter;
+uint64_t fpsLastTick;
+
+void drawFrame(Display *display, int number) {
+	cairo_t *cr_context = display->getContext();
+	
+	// clear the screen
+	auto bgcolor = rgbFromInt(kSolarBase03);
+	cairo_set_source_rgb(cr_context, bgcolor.r, bgcolor.g, bgcolor.b);
+	cairo_paint(cr_context);
+
+	// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
+	// but allows fractional pixel values
+	double font_size = 40.0;
+	if(FT_Set_Char_Size(ftFace, font_size * 64.0, 0, 0, 0) != 0) {
+		printf("FT_Set_Char_Size() failed\n");
+		abort();
+	}
+	
+	char text[1024];
+	sprintf(text, "managarm + Bochs VGA %d", number);
+	int glyph_count = strlen(text);
+	cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
+
+	int x = 64, base_y = 64;
+	for(int i = 0; i < glyph_count; i++) {
+		FT_UInt glyph_index = FT_Get_Char_Index(ftFace, text[i]);
+		if(glyph_index == 0) {
+			printf("FT_Get_Char_Index() failed\n");
+			abort();
+		}
+
+		if(FT_Load_Glyph(ftFace, glyph_index, 0)) {
+			printf("FT_Load_Glyph() failed\n");
+			abort();
+		}
+
+		FT_Glyph_Metrics &metrics = ftFace->glyph->metrics;
+
+		cairo_glyphs[i].index = glyph_index;
+		cairo_glyphs[i].x = x;
+		cairo_glyphs[i].y = base_y;
+
+		x += metrics.horiAdvance >> 6;
+	}
+
+	auto fgcolor = rgbFromInt(kSolarBase2);
+	cairo_set_source_rgb(cr_context, fgcolor.r, fgcolor.g, fgcolor.b);
+	cairo_set_font_face(cr_context, crFont);
+	cairo_set_font_size(cr_context, font_size);
+	cairo_show_glyphs(cr_context, cairo_glyphs, glyph_count);
+	delete[] cairo_glyphs;
+
+	display->flip();
+
+	fpsCounter++;
+	uint64_t current_tick;
+	HEL_CHECK(helGetClock(&current_tick));
+	if(current_tick - fpsLastTick > 1000000000) {
+		fpsCurrent = fpsCounter;
+		printf("FPS %d\n", fpsCurrent);
+		fpsCounter = 0;
+		fpsLastTick = current_tick;
+	}
+}
+
 void InitClosure::queriedBochs(HelHandle handle) {
 	helx::Pipe device_pipe(handle);
 
@@ -289,7 +392,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	writeReg(kRegEnable, 0); // disable the device
 	writeReg(kRegXres, width);
 	writeReg(kRegYres, height);
-	writeReg(kRegBpp, kBpp24);
+	writeReg(kRegBpp, kBpp32);
 	writeReg(kRegEnable, kEnabled | kLinearFramebuffer);
 
 	void *framebuffer;
@@ -303,8 +406,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 
 //Freetype
 
-	FT_Library library;
-	if(FT_Init_FreeType(&library) != 0) {
+	if(FT_Init_FreeType(&ftLibrary) != 0) {
 		printf("FT_Init_FreeType() failed\n");
 		abort();
 	}
@@ -319,60 +421,27 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
 			kHelMapReadOnly, &image_ptr));
 
-
-// cairo
-
-	cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
-	cairo_t *cr = cairo_create(surface);
-
-	FT_Face ft_face;
-	if(FT_New_Memory_Face(library, (FT_Byte *)image_ptr, image_size, 0, &ft_face) != 0) {
+	if(FT_New_Memory_Face(ftLibrary, (FT_Byte *)image_ptr, image_size, 0, &ftFace) != 0) {
 		printf("FT_New_Memory_Face() failed\n");
 		abort();
 	}
-		
-	double font_size = 40.0;
 
-	// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
-	// but allows fractional pixel values
-	if(FT_Set_Char_Size(ft_face, font_size * 64.0, 0, 0, 0) != 0) {
-		printf("FT_Set_Char_Size() failed\n");
-		abort();
-	}
+// cairo
 	
-	const char *text = "managarm + Bochs VGA";
-	int glyph_count = strlen(text);
-	cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
+	int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, width);
+	assert(stride == width * 4);
 
-	int x = 64, base_y = 64;
-	for(int i = 0; i < glyph_count; i++) {
-		FT_UInt glyph_index = FT_Get_Char_Index(ft_face, text[i]);
-		if(glyph_index == 0) {
-			printf("FT_Get_Char_Index() failed\n");
-			abort();
-		}
-
-		if(FT_Load_Glyph(ft_face, glyph_index, 0)) {
-			printf("FT_Load_Glyph() failed\n");
-			abort();
-		}
-
-		FT_Glyph_Metrics &metrics = ft_face->glyph->metrics;
-
-		cairo_glyphs[i].index = glyph_index;
-		cairo_glyphs[i].x = x;
-		cairo_glyphs[i].y = base_y;
-
-		x += metrics.horiAdvance >> 6;
-	}
-
-	cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-	cairo_font_face_t *cairo_face = cairo_ft_font_face_create_for_ft_face(ft_face, 0);
-	cairo_set_font_face(cr, cairo_face);
-	cairo_set_font_size(cr, font_size);
-	cairo_show_glyphs(cr, cairo_glyphs, glyph_count);
-
-	printf("FT Success!\n");
+	display.buffers[0].crSurface = cairo_image_surface_create_for_data(pixels,
+			CAIRO_FORMAT_RGB24, width, height, stride);
+	display.buffers[0].crContext = cairo_create(display.buffers[0].crSurface);
+	display.buffers[1].offsetY = 0;
+	
+	display.buffers[1].crSurface = cairo_image_surface_create_for_data(pixels + height * stride,
+			CAIRO_FORMAT_RGB24, width, height, stride);
+	display.buffers[1].crContext = cairo_create(display.buffers[1].crSurface);
+	display.buffers[1].offsetY = height;
+	
+	crFont = cairo_ft_font_face_create_for_ft_face(ftFace, 0);
 
 	auto child1 = std::make_shared<Box>();
 	child1->fixedWidth = 50;
@@ -428,19 +497,10 @@ void InitClosure::queriedBochs(HelHandle handle) {
 
 	layoutChildren(&box);
 
-//	drawBox(cr, &box);
+//	drawBox(crContext, &box);
 
-	cairo_surface_flush(surface);
-	int stride = cairo_image_surface_get_stride(surface);
-	uint8_t *data = cairo_image_surface_get_data(surface);
-	assert(data);
-	for(int y = 0; y < height; y++)
-		for(int x = 0; x < width; x++) {
-			uint8_t b = data[y * stride + x * 4];
-			uint8_t g = data[y * stride + x * 4 + 1];
-			uint8_t r = data[y * stride + x * 4 + 2];
-			setPixel(x, y, r, g, b);
-		}
+	for(int i = 0; true; i++)
+		drawFrame(&display, i);
 }
 
 // --------------------------------------------------------
