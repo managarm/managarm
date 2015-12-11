@@ -19,7 +19,7 @@ void BochsSink::print(const char *str) {
 // ThorRtThreadState
 // --------------------------------------------------------
 
-ThorRtThreadState::ThorRtThreadState() {
+ThorRtThreadState::ThorRtThreadState() : fsBase(0) {
 	size_t general_size = sizeof(GeneralBaseState) + sizeof(FxSaveState);
 	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxSaveState);
 	generalState = kernelAlloc->allocate(general_size);
@@ -53,6 +53,9 @@ void ThorRtThreadState::activate() {
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&threadTss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+
+	// restore the fs segment limit
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, fsBase);
 }
 
 void ThorRtThreadState::deactivate() {
@@ -72,6 +75,10 @@ void ThorRtThreadState::deactivate() {
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
 			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+
+	// save the fs segment limit
+	fsBase = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, 0);
 }
 
 // --------------------------------------------------------
@@ -164,6 +171,18 @@ void initializeThisProcessor() {
 	idtr.limit = 256 * 16;
 	idtr.pointer = cpu_specific->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
+
+	// enable wrfsbase / wrgsbase instructions
+	// FIXME: does not seem to work under qemu
+//	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
+//			& frigg::arch_x86::kCpuFlagFsGsBase))
+//		frigg::panicLogger.log() << "CPU does not support wrfsbase / wrgsbase"
+//				<< frigg::EndLog();
+	
+//	uint64_t cr4;
+//	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
+//	cr4 |= 0x10000;
+//	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
 
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]

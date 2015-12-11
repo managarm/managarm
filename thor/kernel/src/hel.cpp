@@ -407,6 +407,11 @@ HelError helExitThisThread() {
 	callOnCpuStack(&dropCurrentThread);
 }
 
+HelError helWriteFsBase(void *pointer) {
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, (uintptr_t)pointer);
+	return kHelErrNone;
+}
+
 HelError helCreateSignal(void *entry, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

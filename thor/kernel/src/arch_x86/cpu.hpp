@@ -129,6 +129,7 @@ struct ThorRtThreadState {
 	void *generalState;
 	void *syscallState;
 	frigg::arch_x86::Tss64 threadTss;
+	Word fsBase;
 
 	alignas(kSyscallStackAlign) uint8_t syscallStack[kSyscallStackSize];
 };

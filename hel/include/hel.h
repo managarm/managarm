@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 41,
+	kHelNumCalls = 42,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -30,6 +30,7 @@ enum {
 	kHelCallYield = 34,
 	kHelCallSubmitJoin = 37,
 	kHelCallExitThisThread = 5,
+	kHelCallWriteFsBase = 41,
 
 	kHelCallCreateSignal = 38,
 	kHelCallRaiseSignal = 39,
@@ -182,6 +183,7 @@ HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helExitThisThread();
+HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 
 HEL_C_LINKAGE HelError helCreateSignal(void *entry, HelHandle *handle);
 HEL_C_LINKAGE HelError helRaiseSignal(HelHandle handle);

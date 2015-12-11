@@ -142,6 +142,7 @@ Object *readObject(frigg::StringView path) {
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			uintptr_t displacement = phdr->p_vaddr - virt_address;
+
 			if(can_share) {
 				HelHandle memory;
 				HEL_CHECK(helAllocateMemory(virt_length, 0, &memory));
@@ -156,15 +157,36 @@ Object *readObject(frigg::StringView path) {
 						phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, map_pointer, virt_length));
 				
-				object->segments.push(SharedSegment(phdr->p_type,
+				object->segments.push(SharedSegment(PT_LOAD,
 						phdr->p_flags, virt_address, virt_length, memory));
 			}else{
-				object->segments.push(UniqueSegment(phdr->p_type,
+				object->segments.push(UniqueSegment(PT_LOAD,
 						phdr->p_flags, virt_address, virt_length,
 						displacement, phdr->p_offset, phdr->p_filesz));
 			}
 		}else if(phdr->p_type == PT_TLS) {
-			// TODO: handle thread-local data
+//			FIXME: handle TLS segment
+/*			assert(phdr->p_memsz > 0);
+			
+			// length to page size
+			size_t map_length = phdr->p_memsz;
+			if((map_length % kPageSize) != 0)
+				map_length += kPageSize - map_length % kPageSize;
+			
+			// TLS segments can always be shared
+			HelHandle memory;
+			HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
+
+			void *map_pointer;
+			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+					map_length, kHelMapReadWrite, &map_pointer));
+
+			memset(map_pointer, 0, map_length);
+			memcpy(map_pointer, (void *)((uintptr_t)image_ptr + phdr->p_offset), phdr->p_filesz);
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, map_pointer, map_length));
+			
+			object->segments.push(SharedSegment(PT_TLS,
+					phdr->p_flags, 0, phdr->p_memsz, memory));*/
 		}else if(phdr->p_type == PT_DYNAMIC) {
 			object->dynamic = phdr->p_vaddr;
 		}else if(phdr->p_type == PT_INTERP) {

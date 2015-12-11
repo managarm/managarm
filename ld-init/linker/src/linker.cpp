@@ -233,12 +233,17 @@ void *Scope::resolveSymbol(const char *resolve_str,
 // Loader
 // --------------------------------------------------------
 
+struct Tcb {
+	Tcb *selfPointer;
+};
+
 Loader::Loader(Scope *scope)
 : p_scope(scope), p_processQueue(*allocator), p_initQueue(*allocator),
 		p_allObjects(frigg::DefaultHasher<frigg::String<Allocator>>(), *allocator) { }
 
 void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
+	assert(object->isMainObject);
 	if(verbose)
 		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
 	
@@ -251,6 +256,16 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		case PT_DYNAMIC:
 			object->dynamic = (Elf64_Dyn *)phdr->p_vaddr;
 			break;
+		case PT_TLS: {
+			size_t tls_size = phdr->p_memsz + sizeof(Tcb);
+			void *tls_buffer = allocator->allocate(tls_size);
+			memset(tls_buffer, 0, tls_size);
+			memcpy(tls_buffer, (void *)(object->baseAddress + phdr->p_vaddr), phdr->p_filesz);
+
+			auto tcb_ptr = (Tcb *)((uintptr_t)tls_buffer + phdr->p_memsz);
+			tcb_ptr->selfPointer = tcb_ptr;
+			HEL_CHECK(helWriteFsBase(tcb_ptr));
+		} break;
 		default:
 			//FIXME warn about unknown phdrs
 			break;
@@ -265,6 +280,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
+	assert(!object->isMainObject);
 	if(verbose)
 		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
 

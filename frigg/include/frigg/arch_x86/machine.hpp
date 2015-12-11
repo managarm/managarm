@@ -8,10 +8,14 @@ namespace frigg {
 namespace arch_x86 {
 
 enum {
+	kCpuIndexStructuredExtendedFeaturesEnum = 7,
 	kCpuIndexExtendedFeatures = 0x80000001
 };
 
 enum {
+	// Structured extended features enumeration, EBX register
+	kCpuFlagFsGsBase = 1,
+
 	// Extendend features, EDX register
 	kCpuFlagSyscall = 0x800,
 	kCpuFlagNx = 0x100000,
