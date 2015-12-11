@@ -21,6 +21,7 @@
 #include FT_FREETYPE_H
 
 #include <cairo.h>
+#include <cairo-ft.h>
 
 enum {
 	kRegXres = 1,
@@ -317,58 +318,61 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	HEL_CHECK(helMemoryInfo(image_handle, &image_size));
 	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
 			kHelMapReadOnly, &image_ptr));
-	
-	FT_Face face;
-	if(FT_New_Memory_Face(library, (FT_Byte *)image_ptr, image_size, 0, &face) != 0) {
+
+
+// cairo
+
+	cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+	cairo_t *cr = cairo_create(surface);
+
+	FT_Face ft_face;
+	if(FT_New_Memory_Face(library, (FT_Byte *)image_ptr, image_size, 0, &ft_face) != 0) {
 		printf("FT_New_Memory_Face() failed\n");
 		abort();
 	}
 		
-	if(FT_Set_Pixel_Sizes(face, 32, 0) != 0) {
-		printf("FT_Set_Pixel_Sizes() failed\n");
+	double font_size = 40.0;
+
+	// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
+	// but allows fractional pixel values
+	if(FT_Set_Char_Size(ft_face, font_size * 64.0, 0, 0, 0) != 0) {
+		printf("FT_Set_Char_Size() failed\n");
 		abort();
 	}
 	
 	const char *text = "managarm + Bochs VGA";
+	int glyph_count = strlen(text);
+	cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
+
 	int x = 64, base_y = 64;
-	for(size_t i = 0; i < strlen(text); i++) {
-		FT_UInt glyph_index = FT_Get_Char_Index(face, text[i]);
+	for(int i = 0; i < glyph_count; i++) {
+		FT_UInt glyph_index = FT_Get_Char_Index(ft_face, text[i]);
 		if(glyph_index == 0) {
 			printf("FT_Get_Char_Index() failed\n");
 			abort();
 		}
 
-		if(FT_Load_Glyph(face, glyph_index, FT_LOAD_DEFAULT) != 0) {
+		if(FT_Load_Glyph(ft_face, glyph_index, 0)) {
 			printf("FT_Load_Glyph() failed\n");
 			abort();
 		}
 
-		if(FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) != 0) {
-			printf("FT_Render_Glyph() failed\n");
-			abort();
-		}
+		FT_Glyph_Metrics &metrics = ft_face->glyph->metrics;
 
-		FT_Bitmap &bitmap = face->glyph->bitmap;
-		assert(bitmap.pixel_mode == FT_PIXEL_MODE_GRAY);
-		for(unsigned int gy = 0; gy < bitmap.rows; gy++)
-			for(unsigned int gx = 0; gx < bitmap.width; gx++) {
-				uint8_t value = 255 - bitmap.buffer[gy * bitmap.pitch + gx];
-				setPixel(x + face->glyph->bitmap_left + gx,
-						base_y - face->glyph->bitmap_top + gy, value, value, value);
-			}
+		cairo_glyphs[i].index = glyph_index;
+		cairo_glyphs[i].x = x;
+		cairo_glyphs[i].y = base_y;
 
-		x += face->glyph->advance.x >> 6;
+		x += metrics.horiAdvance >> 6;
 	}
 
+	cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+	cairo_font_face_t *cairo_face = cairo_ft_font_face_create_for_ft_face(ft_face, 0);
+	cairo_set_font_face(cr, cairo_face);
+	cairo_set_font_size(cr, font_size);
+	cairo_show_glyphs(cr, cairo_glyphs, glyph_count);
+
 	printf("FT Success!\n");
-
-
-//cairo
-	cairo_surface_t *surface;
-	cairo_t *cr;
-
-	surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
-	cr = cairo_create(surface);
 
 	auto child1 = std::make_shared<Box>();
 	child1->fixedWidth = 50;
@@ -424,7 +428,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 
 	layoutChildren(&box);
 
-	drawBox(cr, &box);
+//	drawBox(cr, &box);
 
 	cairo_surface_flush(surface);
 	int stride = cairo_image_surface_get_stride(surface);
