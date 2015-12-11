@@ -412,6 +412,11 @@ HelError helWriteFsBase(void *pointer) {
 	return kHelErrNone;
 }
 
+HelError helGetClock(uint64_t *counter) {
+	*counter = currentNanos();
+	return kHelErrNone;
+}
+
 HelError helCreateSignal(void *entry, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

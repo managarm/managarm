@@ -142,6 +142,11 @@ DEFINE_SYSCALL(WriteFsBase, void *pointer)
 	DO_SYSCALL(WriteFsBase)
 END_SYSCALL()
 
+DEFINE_SYSCALL(GetClock, uint64_t *counter)
+	DO_SYSCALL(GetClock)
+	OUT(0, uint64_t, counter)
+END_SYSCALL()
+
 DEFINE_SYSCALL(CreateSignal, void *entry, HelHandle *handle)
 	IN(0, entry);
 	DO_SYSCALL(CreateSignal)

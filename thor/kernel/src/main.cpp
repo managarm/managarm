@@ -363,6 +363,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helWriteFsBase((void *)arg0);
 		thorRtReturnSyscall1((Word)error);
 	} break;
+	case kHelCallGetClock: {
+		uint64_t counter;
+		HelError error = helGetClock(&counter);
+		thorRtReturnSyscall2((Word)error, (Word)counter);
+	} break;
 
 	case kHelCallCreateSignal: {
 		HelHandle handle;

@@ -32,7 +32,7 @@ enum : uint64_t {
 };
 
 uint64_t *hpetRegs;
-uint64_t hpetPeriod;
+uint64_t hpetFrequency;
 
 enum {
 	kPitChannel0 = 0x40,
@@ -58,8 +58,8 @@ void setupHpet(PhysicalAddr address) {
 	if((caps & kHpet64BitCounter) == 0)
 		infoLogger->log() << "HPET only has a 32-bit counter" << frigg::EndLog();
 
-	hpetPeriod = caps >> 32;
-	infoLogger->log() << "HPET period: " << hpetPeriod << frigg::EndLog();
+	hpetFrequency = caps >> 32;
+	infoLogger->log() << "HPET frequency: " << hpetFrequency << frigg::EndLog();
 	
 	uint64_t config = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenConfig]);
 	config |= kHpetEnable;
@@ -87,7 +87,7 @@ void setupHpet(PhysicalAddr address) {
 
 void pollSleepNano(uint64_t nanotime) {
 	uint64_t counter = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
-	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
+	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetFrequency;
 	while(frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]) < goal) {
 		frigg::pause();
 	}
@@ -97,12 +97,17 @@ uint64_t currentTicks() {
 	return frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
 }
 
+uint64_t currentNanos() {
+	assert(hpetFrequency > kFemtosPerNano);
+	return currentTicks() * (hpetFrequency / kFemtosPerNano);
+}
+
 uint64_t durationToTicks(uint64_t seconds,
 		uint64_t millis, uint64_t micros, uint64_t nanos) {
-	return (seconds * kFemtosPerSecond) / hpetPeriod
-			+ (millis * kFemtosPerMilli) / hpetPeriod
-			+ (micros * kFemtosPerMicro) / hpetPeriod
-			+ (nanos * kFemtosPerNano) / hpetPeriod;
+	return (seconds * kFemtosPerSecond) / hpetFrequency
+			+ (millis * kFemtosPerMilli) / hpetFrequency
+			+ (micros * kFemtosPerMicro) / hpetFrequency
+			+ (nanos * kFemtosPerNano) / hpetFrequency;
 }
 
 void installTimer(Timer &&timer) {
