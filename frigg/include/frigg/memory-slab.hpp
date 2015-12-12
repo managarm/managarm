@@ -18,6 +18,7 @@ public:
 	SlabAllocator(VirtualAlloc &virt_alloc);
 
 	void *allocate(size_t length);
+	void *realloc(void *pointer, size_t new_length);
 	void free(void *pointer);
 
 	size_t numUsedPages() {
@@ -113,6 +114,53 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 }
 
 template<typename VirtualAlloc, typename Mutex>
+void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_length) {
+	LockGuard<Mutex> guard(&p_mutex);
+
+	assert(pointer && new_length > 0);
+	uintptr_t address = (uintptr_t)pointer;
+
+	VirtualArea *current = p_root;
+	while(current != nullptr) {
+		if(address >= current->baseAddress
+				&& address < current->baseAddress + current->length) {
+			if(current->type == kTypeSlab) {
+				size_t item_size = size_t(1) << current->power;
+
+				if(new_length < item_size)
+					return pointer;
+
+				guard.unlock(); // TODO: this is inefficient
+				void *new_pointer = allocate(new_length);
+				if(!new_pointer)
+					return nullptr;
+				memcpy(new_pointer, pointer, item_size);
+				free(pointer);
+				return new_pointer;
+			}else{
+				assert(current->type == kTypeLarge);
+				assert(address == current->baseAddress);
+				
+				if(new_length < current->length)
+					return pointer;
+				
+				guard.unlock(); // TODO: this is inefficient
+				void *new_pointer = allocate(new_length);
+				if(!new_pointer)
+					return nullptr;
+				memcpy(new_pointer, pointer, current->length);
+				free(pointer);
+				return new_pointer;
+			}
+		}
+
+		current = current->right;
+	}
+
+	assert(!"Pointer is not part of any virtual area");
+}
+
+template<typename VirtualAlloc, typename Mutex>
 void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 	LockGuard<Mutex> guard(&p_mutex);
 	
@@ -128,7 +176,7 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 				&& address < current->baseAddress + current->length) {
 			if(current->type == kTypeSlab) {
 				int index = current->power - kMinPower;
-				int item_size = uintptr_t(1) << current->power;
+				size_t item_size = size_t(1) << current->power;
 				assert(((address - current->baseAddress) % item_size) == 0);
 
 				auto chunk = new (pointer) FreeChunk();
