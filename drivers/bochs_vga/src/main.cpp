@@ -160,7 +160,7 @@ void drawBox(cairo_t *cr, Box *box) {
 		cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
 
 		int x = box->x + box->padding;
-		int base_y = box->y - box->padding + box->fontSize;
+		int base_y = box->y + box->padding + box->fontSize;
 		for(int i = 0; i < glyph_count; i++) {
 			FT_UInt glyph_index = FT_Get_Char_Index(ftFace, box->text[i]);
 			if(glyph_index == 0) {
@@ -476,64 +476,78 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	display.buffers[1].offsetY = height;
 	
 	crFont = cairo_ft_font_face_create_for_ft_face(ftFace, 0);
-
-	auto child1 = std::make_shared<Box>();
-	child1->fixedWidth = 50;
-	child1->backgroundColor = kSolarMargenta;
-	child1->layout = kNoLayout;
-
-	child1->widthType = Box::kSizeFixed;
-	child1->heightType = Box::kSizeFillParent;
-
-	child1->hasBorder = true;
-	child1->borderWidth = 15;
-	child1->borderColor = 0x3E3E3E;
 	
-	auto child2 = std::make_shared<Box>();
-	child2->fixedWidth = 100;
-	child2->backgroundColor = kSolarYellow;
-	child2->layout = kNoLayout;
+	auto head = std::make_shared<Box>();
+	head->fixedHeight = 20;
+	head->backgroundColor = 0xCECECE;
+	head->layout = kVerticalBlocks;
 
-	child2->widthType = Box::kSizeFixed;
-	child2->heightType = Box::kSizeFillParent;
+	head->widthType = Box::kSizeFillParent;
+	head->heightType = Box::kSizeFixed;
 
-	child2->margin = 15;
-	child2->hasBorder = true;
-	child2->borderWidth = 30;
-	child2->borderColor = kSolarGreen;
-
-	auto child3 = std::make_shared<Box>();
-	child3->fixedWidth = 200;
-	child3->backgroundColor = kSolarBlue;
+	head->hasBorder = true;
+	head->borderWidth = 1;
+	head->borderColor = 0xAE3E17;
 	
-	child3->layout = kLayoutLine;
-	child3->hasText = true;
-	child3->text = "Das hier ist eine Textbox!";
-	child3->fontSize = 30.0;
-	child3->fontColor = 0xFF00FF;
+	auto headFont = std::make_shared<Box>();
+	headFont->fixedHeight = 20;
+	headFont->backgroundColor = 0xCECECE;
+	headFont->layout = kLayoutLine;
 
-	child3->widthType = Box::kSizeFixed;
-	child3->heightType = Box::kSizeFillParent;	
+	headFont->widthType = Box::kSizeFillParent;
+	headFont->heightType = Box::kSizeFixed;
 
+	headFont->hasText = true;
+	headFont->text = "Tasty window";
+	headFont->fontSize = 15.0;
+	headFont->fontColor = 0x000000;
+
+	head->appendChild(headFont);
+
+	auto body = std::make_shared<Box>();
+	body->fixedHeight = 580;
+	body->backgroundColor = 0xCECECE;
+	body->layout = kVerticalBlocks;
+	
+	body->widthType = Box::kSizeFillParent;
+	body->heightType = Box::kSizeFixed;	
+	
+	body->hasBorder = true;
+	body->borderWidth = 1;
+	body->borderColor = 0xAE3E17;
+
+	auto bodyFont = std::make_shared<Box>();
+	bodyFont->fixedHeight = 580;
+	bodyFont->backgroundColor = 0xCECECE;
+	bodyFont->layout = kLayoutLine;
+	
+	headFont->widthType = Box::kSizeFillParent;
+	headFont->heightType = Box::kSizeFixed;
+	
+	bodyFont->hasText = true;
+	bodyFont->text = "Pudding lemon drops caramels liquorice fruitcake.";
+	bodyFont->fontSize = 20.0;
+	bodyFont->fontColor = 0x000000;
+
+	body->appendChild(bodyFont);
 
 	rootBox = std::make_shared<Box>();
-	rootBox->fixedHeight = 400;
-	rootBox->x = 100;
-	rootBox->y = 50;
-	rootBox->backgroundColor = kSolarCyan;
-	rootBox->layout = kHorizontalBlocks;
-	rootBox->padding = 20;
+	rootBox->fixedHeight = 604;
+	rootBox->fixedWidth = 900;
+	rootBox->x = 20;
+	rootBox->y = 20;
+	rootBox->backgroundColor = 0xFFFFFF;
+	rootBox->layout = kVerticalBlocks;
 
-	rootBox->widthType = Box::kSizeFitToChildren;
+	rootBox->widthType = Box::kSizeFixed;
 	rootBox->heightType = Box::kSizeFixed;
 
 	rootBox->hasBorder = true;
-	rootBox->borderWidth = 20;
-	rootBox->borderColor = 0xCECECE;
+	rootBox->borderWidth = 2;
+	rootBox->borderColor = 0xAE3E17;
 	
-	rootBox->appendChild(child1);
-	rootBox->appendChild(child2);
-	rootBox->appendChild(child3);
+	rootBox->appendChild(head);
+	rootBox->appendChild(body);
 
 	layoutChildren(rootBox.get());
 
