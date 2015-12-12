@@ -60,10 +60,11 @@ enum {
 	kSolarGreen = 0x859900
 };
 
-enum ChildLayout {
-	kChildNoLayout = 0,
-	kChildHorizontalBlocks = 1,
-	kChildVerticalBlocks = 2
+enum Layout {
+	kNoLayout = 0,
+	kHorizontalBlocks = 1,
+	kVerticalBlocks = 2,
+	kLayoutLine = 3
 };
 
 struct RgbColor {
@@ -108,18 +109,27 @@ struct Box {
 	int padding;
 	int margin;
 
-	ChildLayout childLayout;
+	Layout layout;
+	
+	bool hasText;
+	std::string text;
+	double fontSize;
 
 	Box *parent;
 	std::vector<std::shared_ptr<Box>> children;
 };
 
-Box::Box() : hasBorder(false), borderWidth(0) { }
+Box::Box() : hasBorder(false), borderWidth(0), hasText(false) { }
 
 void Box::appendChild(std::shared_ptr<Box> child) {
 	child->parent = this;
 	children.push_back(child);
 }
+
+FT_Library ftLibrary;
+FT_Face ftFace;
+cairo_font_face_t *crFont;
+std::shared_ptr<Box> rootBox;
 
 void drawBox(cairo_t *cr, Box *box) {	
 	// border
@@ -136,6 +146,48 @@ void drawBox(cairo_t *cr, Box *box) {
 	cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);
 	cairo_rectangle(cr, box->x, box->y, box->actualWidth, box->actualHeight);
 	cairo_fill(cr);
+
+	if(box->hasText) {
+		// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
+		// but allows fractional pixel values
+		if(FT_Set_Char_Size(ftFace, box->fontSize * 64.0, 0, 0, 0) != 0) {
+			printf("FT_Set_Char_Size() failed\n");
+			abort();
+		}
+		
+		int glyph_count = box->text.length();
+		cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
+
+		int x = box->x + box->padding;
+		int base_y = box->y - box->padding + box->fontSize;
+		for(int i = 0; i < glyph_count; i++) {
+			FT_UInt glyph_index = FT_Get_Char_Index(ftFace, box->text[i]);
+			if(glyph_index == 0) {
+				printf("FT_Get_Char_Index() failed\n");
+				abort();
+			}
+
+			if(FT_Load_Glyph(ftFace, glyph_index, 0)) {
+				printf("FT_Load_Glyph() failed\n");
+				abort();
+			}
+
+			FT_Glyph_Metrics &metrics = ftFace->glyph->metrics;
+
+			cairo_glyphs[i].index = glyph_index;
+			cairo_glyphs[i].x = x;
+			cairo_glyphs[i].y = base_y;
+
+			x += metrics.horiAdvance >> 6;
+		}
+
+		auto fgcolor = rgbFromInt(kSolarBase2);
+		cairo_set_source_rgb(cr, fgcolor.r, fgcolor.g, fgcolor.b);
+		cairo_set_font_face(cr, crFont);
+		cairo_set_font_size(cr, box->fontSize);
+		cairo_show_glyphs(cr, cairo_glyphs, glyph_count);
+		delete[] cairo_glyphs;
+	}
 
 	for(unsigned int i = 0; i < box->children.size(); i++) {
 		drawBox(cr, box->children[i].get());
@@ -164,9 +216,36 @@ void layoutChildren(Box *box) {
 	// for kSizeFixed and kSizeFillParent the size is computed at this point
 	// kFitToChildren must be computed AFTER children are layouted
 
-	if(box->childLayout == kChildNoLayout) {
+	if(box->layout == kNoLayout) {
 		// do nothing
-	}else if(box->childLayout == kChildVerticalBlocks) {
+	}else if(box->layout == kLayoutLine) {
+		// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
+		// but allows fractional pixel values
+		if(FT_Set_Char_Size(ftFace, box->fontSize * 64.0, 0, 0, 0) != 0) {
+			printf("FT_Set_Char_Size() failed\n");
+			abort();
+		}
+
+		box->actualWidth = 0;
+		for(unsigned int i = 0; i < box->text.length(); i++) {
+			FT_UInt glyph_index = FT_Get_Char_Index(ftFace, box->text[i]);
+			if(glyph_index == 0) {
+				printf("FT_Get_Char_Index() failed\n");
+				abort();
+			}
+
+			if(FT_Load_Glyph(ftFace, glyph_index, 0)) {
+				printf("FT_Load_Glyph() failed\n");
+				abort();
+			}
+
+			FT_Glyph_Metrics &g_metrics = ftFace->glyph->metrics;
+			box->actualWidth += g_metrics.horiAdvance >> 6;
+		}
+
+		FT_Size_Metrics &s_metrics = ftFace->size->metrics;
+		box->actualHeight = s_metrics.height >> 6;
+	}else if(box->layout == kVerticalBlocks) {
 		int accumulated_y = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
@@ -177,7 +256,7 @@ void layoutChildren(Box *box) {
 			layoutChildren(child);
 			accumulated_y += child->actualHeight + child->borderWidth * 2 + child->margin * 2;
 		}
-	}else if(box->childLayout == kChildHorizontalBlocks) {
+	}else if(box->layout == kHorizontalBlocks) {
 		int accumulated_x = 0;
 		for(unsigned int i = 0; i < box->children.size(); i++) {
 			auto child = box->children[i].get();
@@ -189,7 +268,7 @@ void layoutChildren(Box *box) {
 			accumulated_x += child->actualWidth + child->borderWidth * 2 + child->margin * 2;
 		}
 	}else{
-		assert(!"Illegal ChildLayout!");
+		assert(!"Illegal Layout!");
 	}
 
 	if(box->widthType == Box::kSizeFitToChildren) {
@@ -264,9 +343,6 @@ void InitClosure::enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects) {
 			CALLBACK_MEMBER(this, &InitClosure::queriedBochs));
 }
 
-FT_Library ftLibrary;
-FT_Face ftFace;
-
 struct Display {
 	struct Buffer {
 		cairo_surface_t *crSurface;
@@ -294,10 +370,7 @@ struct Display {
 	int pending;
 };
 
-Display display;
-
-cairo_font_face_t *crFont;
-	
+Display display;	
 int fpsCurrent, fpsCounter;
 uint64_t fpsLastTick;
 
@@ -309,47 +382,7 @@ void drawFrame(Display *display, int number) {
 	cairo_set_source_rgb(cr_context, bgcolor.r, bgcolor.g, bgcolor.b);
 	cairo_paint(cr_context);
 
-	// FT_Set_Char_Size() with DPI = 0 is equivalent to FT_Set_Pixel_Sizes()
-	// but allows fractional pixel values
-	double font_size = 40.0;
-	if(FT_Set_Char_Size(ftFace, font_size * 64.0, 0, 0, 0) != 0) {
-		printf("FT_Set_Char_Size() failed\n");
-		abort();
-	}
-	
-	char text[1024];
-	sprintf(text, "managarm + Bochs VGA %d", number);
-	int glyph_count = strlen(text);
-	cairo_glyph_t *cairo_glyphs = new cairo_glyph_t[glyph_count];
-
-	int x = 64, base_y = 64;
-	for(int i = 0; i < glyph_count; i++) {
-		FT_UInt glyph_index = FT_Get_Char_Index(ftFace, text[i]);
-		if(glyph_index == 0) {
-			printf("FT_Get_Char_Index() failed\n");
-			abort();
-		}
-
-		if(FT_Load_Glyph(ftFace, glyph_index, 0)) {
-			printf("FT_Load_Glyph() failed\n");
-			abort();
-		}
-
-		FT_Glyph_Metrics &metrics = ftFace->glyph->metrics;
-
-		cairo_glyphs[i].index = glyph_index;
-		cairo_glyphs[i].x = x;
-		cairo_glyphs[i].y = base_y;
-
-		x += metrics.horiAdvance >> 6;
-	}
-
-	auto fgcolor = rgbFromInt(kSolarBase2);
-	cairo_set_source_rgb(cr_context, fgcolor.r, fgcolor.g, fgcolor.b);
-	cairo_set_font_face(cr_context, crFont);
-	cairo_set_font_size(cr_context, font_size);
-	cairo_show_glyphs(cr_context, cairo_glyphs, glyph_count);
-	delete[] cairo_glyphs;
+	drawBox(cr_context, rootBox.get());
 
 	display->flip();
 
@@ -446,7 +479,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	auto child1 = std::make_shared<Box>();
 	child1->fixedWidth = 50;
 	child1->backgroundColor = kSolarMargenta;
-	child1->childLayout = kChildNoLayout;
+	child1->layout = kNoLayout;
 
 	child1->widthType = Box::kSizeFixed;
 	child1->heightType = Box::kSizeFillParent;
@@ -458,7 +491,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	auto child2 = std::make_shared<Box>();
 	child2->fixedWidth = 100;
 	child2->backgroundColor = kSolarYellow;
-	child2->childLayout = kChildNoLayout;
+	child2->layout = kNoLayout;
 
 	child2->widthType = Box::kSizeFixed;
 	child2->heightType = Box::kSizeFillParent;
@@ -471,33 +504,36 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	auto child3 = std::make_shared<Box>();
 	child3->fixedWidth = 200;
 	child3->backgroundColor = kSolarBlue;
-	child3->childLayout = kChildNoLayout;
+	
+	child3->layout = kLayoutLine;
+	child3->hasText = true;
+	child3->text = "Das hier ist eine Textbox!";
+	child3->fontSize = 30.0;
 
 	child3->widthType = Box::kSizeFixed;
-	child3->heightType = Box::kSizeFillParent;
+	child3->heightType = Box::kSizeFillParent;	
 
-	Box box;
-	box.fixedHeight = 400;
-	box.x = 100;
-	box.y = 50;
-	box.backgroundColor = kSolarCyan;
-	box.childLayout = kChildHorizontalBlocks;
-	box.padding = 20;
 
-	box.widthType = Box::kSizeFitToChildren;
-	box.heightType = Box::kSizeFixed;
+	rootBox = std::make_shared<Box>();
+	rootBox->fixedHeight = 400;
+	rootBox->x = 100;
+	rootBox->y = 50;
+	rootBox->backgroundColor = kSolarCyan;
+	rootBox->layout = kHorizontalBlocks;
+	rootBox->padding = 20;
 
-	box.hasBorder = true;
-	box.borderWidth = 20;
-	box.borderColor = 0xCECECE;
+	rootBox->widthType = Box::kSizeFitToChildren;
+	rootBox->heightType = Box::kSizeFixed;
+
+	rootBox->hasBorder = true;
+	rootBox->borderWidth = 20;
+	rootBox->borderColor = 0xCECECE;
 	
-	box.appendChild(child1);
-	box.appendChild(child2);
-	box.appendChild(child3);
+	rootBox->appendChild(child1);
+	rootBox->appendChild(child2);
+	rootBox->appendChild(child3);
 
-	layoutChildren(&box);
-
-//	drawBox(crContext, &box);
+	layoutChildren(rootBox.get());
 
 	for(int i = 0; true; i++)
 		drawFrame(&display, i);
