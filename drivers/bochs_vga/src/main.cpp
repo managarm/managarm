@@ -114,6 +114,7 @@ struct Box {
 	bool hasText;
 	std::string text;
 	double fontSize;
+	uint32_t fontColor;
 
 	Box *parent;
 	std::vector<std::shared_ptr<Box>> children;
@@ -181,8 +182,8 @@ void drawBox(cairo_t *cr, Box *box) {
 			x += metrics.horiAdvance >> 6;
 		}
 
-		auto fgcolor = rgbFromInt(kSolarBase2);
-		cairo_set_source_rgb(cr, fgcolor.r, fgcolor.g, fgcolor.b);
+		auto fontColor = rgbFromInt(box->fontColor);
+		cairo_set_source_rgb(cr, fontColor.r, fontColor.g, fontColor.b);
 		cairo_set_font_face(cr, crFont);
 		cairo_set_font_size(cr, box->fontSize);
 		cairo_show_glyphs(cr, cairo_glyphs, glyph_count);
@@ -509,6 +510,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	child3->hasText = true;
 	child3->text = "Das hier ist eine Textbox!";
 	child3->fontSize = 30.0;
+	child3->fontColor = 0xFF00FF;
 
 	child3->widthType = Box::kSizeFixed;
 	child3->heightType = Box::kSizeFillParent;	
