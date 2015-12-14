@@ -474,8 +474,9 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.enumerate("keyboard",
-			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
+// FIXME: deactivate for now
+//	mbusConnection.enumerate("keyboard",
+//			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
 }
 
 void InitClosure::enumeratedKeyboards(std::vector<bragi_mbus::ObjectId> objects) {
@@ -564,7 +565,7 @@ int main() {
 		dup2(slave_fd, STDOUT_FILENO);
 		dup2(slave_fd, STDERR_FILENO);
 
-		execve("zisa", nullptr, nullptr);
+		execve("bash", nullptr, nullptr);
 	}
 
 	auto read_master = new ReadMasterClosure();

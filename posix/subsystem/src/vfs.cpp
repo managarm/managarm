@@ -39,7 +39,8 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
-	
+	assert(path[path.size() - 1] != '/');
+
 	// splits the path into a prefix that identifies the mount point
 	// and a suffix that specifies remaining path relative to this mount point
 	frigg::StringView prefix = path;
@@ -53,7 +54,7 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 		}
 		
 		// we failed to find a root mount point
-		if(prefix == "/") {
+		if(prefix == "") {
 			callback(StdSharedPtr<VfsOpenFile>());
 			return;
 		}

@@ -2,6 +2,7 @@
 #ifndef FRIGG_DEBUG_HPP
 #define FRIGG_DEBUG_HPP
 
+#include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 
 namespace frigg {

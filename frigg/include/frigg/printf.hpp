@@ -79,6 +79,9 @@ void printf(P &printer, const char *format, va_list args) {
 				printUInt(printer, number, 10);
 			}
 		} break;
+		case 's':
+			printer.print(va_arg(args, const char *));
+			break;
 		default:
 			assert(!"Illegal printf modifier");
 		}
