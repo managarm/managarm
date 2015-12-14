@@ -201,9 +201,9 @@ extern "C" void handleDoubleFault() {
 }
 
 extern "C" void handleProtectionFault(Word error) {
-//	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
 	frigg::panicLogger.log() << "General protection fault\n"
-//			<< "    Faulting IP: " << (void *)base_state->rip << "\n"
+			<< "    Faulting IP: " << (void *)base_state->rip << "\n"
 			<< "    Faulting segment: " << (void *)error << frigg::EndLog();
 }
 
