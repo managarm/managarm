@@ -61,7 +61,9 @@ enum {
 	R_X86_64_COPY = 5,
 	R_X86_64_GLOB_DAT = 6,
 	R_X86_64_JUMP_SLOT = 7,
-	R_X86_64_RELATIVE = 8
+	R_X86_64_RELATIVE = 8,
+	R_X86_64_DTPMOD64 = 16,
+	R_X86_64_DTPOFF64 = 17,
 };
 
 struct Elf64_Rela {
@@ -121,6 +123,7 @@ enum {
 	DT_INIT = 12,
 	DT_FINI = 13,
 	DT_SONAME = 14,
+	DT_RPATH = 15,
 	DT_REL = 17,
 	DT_INIT_ARRAY = 25,
 	DT_FINI_ARRAY = 26,
