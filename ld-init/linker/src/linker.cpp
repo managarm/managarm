@@ -403,7 +403,7 @@ void Loader::parseDynamic(SharedObject *object) {
 			}
 			break;
 		// ignore unimportant tags
-		case DT_SONAME: case DT_NEEDED: // we handle this later
+		case DT_SONAME: case DT_NEEDED: case DT_RPATH: // we handle this later
 		case DT_INIT: case DT_FINI:
 		case DT_INIT_ARRAY: case DT_INIT_ARRAYSZ:
 		case DT_FINI_ARRAY: case DT_FINI_ARRAYSZ:
@@ -471,10 +471,12 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 			if(ELF64_ST_BIND(symbol->st_info) == STB_WEAK) {
 				if(verbose)
 					frigg::infoLogger.log() << "Unresolved weak load-time symbol "
-							<< (const char *)symbol_str << frigg::EndLog();
+							<< (const char *)symbol_str
+							<< " in object " << object->name << frigg::EndLog();
 			}else{
 				frigg::panicLogger.log() << "Unresolved load-time symbol "
-						<< (const char *)symbol_str << frigg::EndLog();
+						<< (const char *)symbol_str
+						<< " in object " << object->name << frigg::EndLog();
 			}
 		}
 	}
@@ -497,6 +499,10 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 		//FIXME infoLogger->log() << "R_X86_64_RELATIVE at " << (void *)rel_addr
 		//		<< " resolved to " << (void *)(object->baseAddress + reloc->r_addend)
 		//		<< frigg::EndLog();
+		break;
+	case R_X86_64_DTPMOD64:
+	case R_X86_64_DTPOFF64:
+		// TODO: implement TLS
 		break;
 	default:
 		frigg::panicLogger.log() << "Unexpected relocation type "

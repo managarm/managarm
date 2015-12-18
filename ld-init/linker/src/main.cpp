@@ -130,7 +130,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	globalLoader->initialize();
 
-	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
+//	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 
