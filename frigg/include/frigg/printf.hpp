@@ -68,8 +68,21 @@ void printf(P &printer, const char *format, va_list args) {
 				assert(*format != 0);
 			}
 		}
+		
+		bool l_prefix = false;
+		if(*format == 'l') {
+			l_prefix = true;
+			++format;
+		}
 
 		switch(*format) {
+		case 'u': {
+			if(l_prefix) {
+				printUInt(printer, va_arg(args, unsigned long), 10);
+			}else{
+				printUInt(printer, va_arg(args, unsigned int), 10);
+			}
+		} break;
 		case 'd': {
 			int number = va_arg(args, int);
 			if(number < 0) {
