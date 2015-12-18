@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_PROTOBUF_HPP
+#define FRIGG_PROTOBUF_HPP
+
 namespace frigg {
 namespace protobuf {
 
@@ -223,4 +226,6 @@ uint64_t fetchUInt64(Reader &reader) {
 }
 
 } } // namespace frigg::protobuf
+
+#endif // FRIGG_PROTOBUF_HPP
 

@@ -616,6 +616,10 @@ bool FriggGenerator::Generate(const pb::FileDescriptor *file, const std::string 
 		printer.Print("// This file is auto-generated from $file$\n",
 				"file", file->name());
 		printer.Print("// Do not try to edit it manually!\n");
+
+		printer.Print("#include <frigg/string.hpp>\n");
+		printer.Print("#include <frigg/vector.hpp>\n");
+		printer.Print("#include <frigg/protobuf.hpp>\n");
 		
 		// print the namespace opening braces
 		int num_namespaces = 0;
