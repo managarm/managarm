@@ -77,7 +77,7 @@ Master::Master(frigg::SharedPtr<Terminal> terminal)
 : terminal(frigg::move(terminal)) { }
 
 void Master::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
-	terminal->master.writeToQueue(buffer, length); // implement the ECHO flag
+//	terminal->master.writeToQueue(buffer, length); // implement the ECHO flag
 	terminal->slave.writeToQueue(buffer, length);
 	callback();
 }

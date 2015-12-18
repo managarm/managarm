@@ -53,14 +53,23 @@ struct LibcAllocator {
 
 LibcAllocator allocator;
 
+int masterFd;
 
 void printString(std::string);
+
+void writeMaster(const char *string, size_t length) {
+	write(masterFd, string, length);
+}
+
+void writeMaster(const char *string) {
+	return writeMaster(string, strlen(string));
+}
 
 struct VgaComposeHandler : ComposeHandler {
 	void input(std::string string) override;
 };
 void VgaComposeHandler::input(std::string string) {
-	printString(string);
+	writeMaster(string.data(), string.length());
 };
 
 VgaComposeHandler vgaComposeHandle;
@@ -334,6 +343,11 @@ void printChar(char character) {
 		if(character == 27) { //ASCII for escape
 			status = kStatusEscape;
 			return;
+		}else if(character == '\a') {
+			// do nothing for now
+		}else if(character == '\b') {
+			if(xPosition > 0)
+				xPosition--;
 		}else if(character == '\n') {
 			yPosition++;
 			xPosition = 0;
@@ -369,8 +383,15 @@ void printChar(char character) {
 	}
 }
 
+bool logSequences = false;
+
 void printString(std::string string){
 	for(unsigned int i = 0; i < string.size(); i++) {
+		if(logSequences) {
+			char buffer[128];
+			sprintf(buffer, "U+%d", string[i]);
+			puts(buffer);
+		}
 		printChar(string[i]);
 	}
 }
@@ -398,11 +419,11 @@ bragi_mbus::Connection mbusConnection(eventHub);
 
 
 // --------------------------------------------------------
-// RecvStrClosure
+// RecvKbdClosure
 // --------------------------------------------------------
 
-struct RecvStrClosure {
-	RecvStrClosure(helx::Pipe pipe);
+struct RecvKbdClosure {
+	RecvKbdClosure(helx::Pipe pipe);
 	void operator() ();
 	
 private:
@@ -412,15 +433,15 @@ private:
 	helx::Pipe pipe;	
 };
 
-RecvStrClosure::RecvStrClosure(helx::Pipe pipe)
+RecvKbdClosure::RecvKbdClosure(helx::Pipe pipe)
 : pipe(std::move(pipe)) { }
 
-void RecvStrClosure::operator() () {	
+void RecvKbdClosure::operator() () {	
 	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, 0, 0,
-			CALLBACK_MEMBER(this, &RecvStrClosure::rcvdStringRequest)));
+			CALLBACK_MEMBER(this, &RecvKbdClosure::rcvdStringRequest)));
 }
 
-void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
+void RecvKbdClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 		int64_t msg_seq, size_t length) {
 	HEL_CHECK(error);
 
@@ -435,18 +456,17 @@ void RecvStrClosure::rcvdStringRequest(HelError error, int64_t msg_request,
 		
 		composeState.keyPress(pair);
 		
+		//TODO: repair this
 		if(pair.first == kKeySpecial && pair.second == "ArrowUp") {
-			printString("\e[A");
+			writeMaster("\e[A");
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowDown") {
-			printString("\e[B");
+			writeMaster("\e[B");
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowRight") {
-			printString("\e[C");
+			writeMaster("\e[C");
 		}else if(pair.first == kKeySpecial && pair.second == "ArrowLeft") {
-			printString("\e[D");
+			writeMaster("\e[D");
 		}else if(pair.first == kKeySpecial && pair.second == "Backspace") {
-			printString("\e[D");
-			printString(" ");
-			printString("\e[D");
+			writeMaster("\x08");
 		}
 	}else if(request.request_type() == managarm::input::RequestType::UP) {
 		translator.keyUp(request.code());
@@ -474,9 +494,8 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-// FIXME: deactivate for now
-//	mbusConnection.enumerate("keyboard",
-//			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
+	mbusConnection.enumerate("keyboard",
+			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
 }
 
 void InitClosure::enumeratedKeyboards(std::vector<bragi_mbus::ObjectId> objects) {
@@ -488,11 +507,9 @@ void InitClosure::enumeratedKeyboards(std::vector<bragi_mbus::ObjectId> objects)
 void InitClosure::queriedKeyboards(HelHandle handle) {
 	printf("queried keyboards\n");	
 	
-	auto closure = new RecvStrClosure(helx::Pipe(handle));
+	auto closure = new RecvKbdClosure(helx::Pipe(handle));
 	(*closure)();
 }
-
-int masterFd;
 
 struct ReadMasterClosure {
 	void operator() ();
