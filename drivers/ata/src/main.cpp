@@ -19,6 +19,7 @@
 #include <helx.hpp>
 
 #include <bragi/mbus.hpp>
+#include <fs.pb.h>
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
@@ -737,7 +738,7 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.registerObject("block-device",
+	mbusConnection.registerObject("file-system",
 			CALLBACK_MEMBER(this, &InitClosure::registered));
 }
 

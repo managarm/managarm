@@ -85,6 +85,7 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 			continue;
 
 		managarm::mbus::SvrRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::mbus::SvrReqType::BROADCAST);
 		request.set_object_id(object->objectId);
 		
 		for(size_t i = 0; i < object->caps.size(); i++) {

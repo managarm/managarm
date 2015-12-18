@@ -70,7 +70,7 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 # generate protobuf
 gen-$c: $($c_GENDIR)/mbus.frigg_pb.hpp $($c_GENDIR)/hw.frigg_pb.hpp
 
-$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 

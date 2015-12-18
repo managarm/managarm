@@ -29,6 +29,7 @@
 #include "dev_fs.hpp"
 #include "pts_fs.hpp"
 #include "sysfile_fs.hpp"
+#include "extern_fs.hpp"
 
 #include "posix.frigg_pb.hpp"
 #include "mbus.frigg_pb.hpp"
@@ -40,7 +41,10 @@ helx::Client mbusConnect;
 helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe mbusPipe;
-	
+
+// TODO: this is a ugly hack
+MountSpace *initMountSpace;
+
 void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &response,
 		int64_t msg_request) {
 	frigg::String<Allocator> serialized(*allocator);
@@ -241,6 +245,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		assert(!process);
 
 		process = Process::init();
+		initMountSpace = process->mountSpace;
 
 		auto device = frigg::makeShared<KernelOutDevice>(*allocator);
 
@@ -487,7 +492,10 @@ void QueryDeviceIfClosure::operator() () {
 
 void QueryDeviceIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msq_seq,
 		HelHandle handle) {
-	infoLogger->log() << "QueryIf complete" << frigg::EndLog();
+	auto fs = frigg::construct<extern_fs::MountPoint>(*allocator, helx::Pipe(handle));
+	auto path = frigg::String<Allocator>(*allocator, "");
+	initMountSpace->allMounts.insert(path, fs);
+
 }
 
 // --------------------------------------------------------
@@ -521,9 +529,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 	managarm::mbus::SvrRequest<Allocator> svr_request(*allocator);
 	svr_request.ParseFromArray(buffer, length);
 
-	if(hasCapability(svr_request, "block-device")) {
-		infoLogger->log() << "New block device!" << frigg::EndLog();
-
+	if(hasCapability(svr_request, "file-system")) {
 		managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
 		request.set_object_id(svr_request.object_id());

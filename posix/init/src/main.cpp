@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <spawn.h>
+#include <sched.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -26,19 +27,23 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-		execve("kbd", args.data(), envp);
+//		execve("kbd", args.data(), envp);
 //		execve("bochs_vga", args.data(), envp);
 //		execve("vga_terminal", args.data(), envp);
-//		execve("ata", args.data(), envp);
+		execve("ata", args.data(), envp);
 //		execve("zisa", args.data(), envp);
 	}
+	
+	// TODO: this is a very ugly hack to wait until the fs is ready
+	for(int i = 0; i < 10000; i++)
+		sched_yield();
 
-/*	printf("Second fork, here we go!\n");
+	printf("Second fork, here we go!\n");
 
-	pid_t child2 = fork();
-	assert(child2 != -1);
-	if(!child2) {
-		execve("vga_terminal", args.data(), envp);
-	}*/
+	pid_t terminal_child = fork();
+	assert(terminal_child != -1);
+	if(!terminal_child) {
+		execve("kbd", args.data(), envp);
+	}
 }
 

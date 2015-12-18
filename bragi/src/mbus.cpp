@@ -77,7 +77,9 @@ void Connection::ConnectClosure::recvdRequest(HelError error,
 	managarm::mbus::SvrRequest request;
 	request.ParseFromArray(buffer, length);
 
-	if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
+	if(request.req_type() == managarm::mbus::SvrReqType::BROADCAST) {
+		// do nothing for now
+	}else if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
 		auto closure = new RequireIfClosure(connection, msg_request, request.object_id());
 		(*closure)();
 	}else{
