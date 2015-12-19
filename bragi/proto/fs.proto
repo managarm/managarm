@@ -1,6 +1,6 @@
 
+syntax = "proto2";
 package managarm.fs;
-
 option optimize_for = LITE_RUNTIME;
 
 enum Errors {
@@ -8,15 +8,15 @@ enum Errors {
 	FILE_NOT_FOUND = 1;
 }
 
-enum RequestType {
+enum CntReqType {
 	OPEN = 1;
 	READ = 2;
 	WRITE = 3;
 	CLOSE = 4;
 }
 
-message ClientRequest {
-	optional RequestType request_type = 1;
+message CntRequest {
+	optional CntReqType req_type = 1;
 
 	// used by OPEN_ENTRY
 	optional string path = 2;
@@ -29,7 +29,7 @@ message ClientRequest {
 	optional bytes buffer = 6;
 }
 
-message ServerResponse {
+message SvrResponse {
 	optional int32 error = 3;
 
 	// return of OPEN

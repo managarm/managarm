@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <unordered_map>
+#include <experimental/optional>
 
 #include <frigg/traits.hpp>
 #include <frigg/algorithm.hpp>
@@ -312,41 +314,48 @@ void GptTable::ParseClosure::readTable() {
 }
 
 // --------------------------------------------------------
-// Ext2fs
+// FileSystem
 // --------------------------------------------------------
 
-struct Ext2fs {
-	struct Inode {
-		Inode(uint32_t number);
+struct FileSystem;
 
-		// ext2fs on-disk inode number
-		const uint32_t number;
-		
-		// true if this inode has already been loaded from disk
-		bool isReady;
-		
-		// called when the inode becomes ready
-		std::vector<frigg::CallbackPtr<void()>> readyQueue;
-		
-		// NOTE: The following fields are only meaningful if the isReady is true
+struct Inode : std::enable_shared_from_this<Inode> {
+	Inode(FileSystem &fs, uint32_t number);
 
-		// file size in bytes
-		uint64_t fileSize;
+	void findEntry(std::string name,
+			frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback);
 
-		// data block pointers
-		uint32_t directBlocks[12];
-	};
+	FileSystem &fs;
 
-	Ext2fs(GptTable::Partition &partition);
+	// ext2fs on-disk inode number
+	const uint32_t number;
+	
+	// true if this inode has already been loaded from disk
+	bool isReady;
+	
+	// called when the inode becomes ready
+	std::vector<frigg::CallbackPtr<void()>> readyQueue;
+	
+	// NOTE: The following fields are only meaningful if the isReady is true
+
+	// file size in bytes
+	uint64_t fileSize;
+
+	// data block pointers
+	uint32_t directBlocks[12];
+};
+
+struct FileSystem {
+	FileSystem(GptTable::Partition &partition);
 
 	void init(frigg::CallbackPtr<void()> callback);	
 
 	std::shared_ptr<Inode> accessRoot();
+	std::shared_ptr<Inode> accessInode(uint32_t number);
 
 	void readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback);
 
-private:
 	struct DiskSuperblock {
 		uint32_t inodesCount;
 		uint32_t blocksCount;
@@ -446,7 +455,7 @@ private:
 	};
 
 	struct InitClosure {
-		InitClosure(Ext2fs &ext2fs, frigg::CallbackPtr<void()> callback);
+		InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback);
 
 		void operator() ();
 	
@@ -454,26 +463,26 @@ private:
 		void readSuperblock();
 		void readBlockGroups();
 
-		Ext2fs &ext2fs;
+		FileSystem &ext2fs;
 		frigg::CallbackPtr<void()> callback;
 		uint8_t superblockBuffer[1024];
 	};
 
 	struct ReadInodeClosure {
-		ReadInodeClosure(Ext2fs &ext2fs, std::shared_ptr<Inode> inode);
+		ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode);
 
 		void operator() ();
 	
 	private:
 		void readSector();
 
-		Ext2fs &ext2fs;
+		FileSystem &ext2fs;
 		std::shared_ptr<Inode> inode;
 		uint8_t sectorBuffer[512];
 	};
 
 	struct ReadDataClosure {
-		ReadDataClosure(Ext2fs &ext2fs, std::shared_ptr<Inode> inode,
+		ReadDataClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode,
 				uint64_t block_offset, size_t num_blocks, void *buffer,
 				frigg::CallbackPtr<void()> callback);
 		
@@ -482,7 +491,7 @@ private:
 	private:
 		void readBlock();
 
-		Ext2fs &ext2fs;
+		FileSystem &ext2fs;
 		std::shared_ptr<Inode> inode;
 		uint64_t blockOffset;
 		size_t numBlocks;
@@ -500,32 +509,104 @@ private:
 	uint32_t inodesPerGroup;
 	void *blockGroupDescriptorBuffer;
 
-	std::weak_ptr<Inode> cachedRoot;
+	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
 
-Ext2fs::Ext2fs(GptTable::Partition &partition)
+// --------------------------------------------------------
+// Inode
+// --------------------------------------------------------
+
+Inode::Inode(FileSystem &fs, uint32_t number)
+: fs(fs), number(number), isReady(false) { }
+
+struct DiskDirEntry {
+	uint32_t inode;
+	uint16_t recordLength;
+	uint8_t nameLength;
+	uint8_t fileType;
+	char name[];
+};
+
+struct FindEntryClosure {
+	FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
+			frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback);
+
+	void operator() ();
+
+	void readBlocks();
+
+	std::shared_ptr<Inode> inode;
+	std::string name;
+	frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback;
+
+	uint8_t *blockBuffer;
+};
+
+FindEntryClosure::FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
+		frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback)
+: inode(std::move(inode)), name(name), callback(callback) { }
+
+void FindEntryClosure::operator() () {
+	blockBuffer = (uint8_t *)malloc(inode->fs.blockSize);
+	inode->fs.readData(inode, 0, 1, blockBuffer,
+			CALLBACK_MEMBER(this, &FindEntryClosure::readBlocks));
+}
+
+void FindEntryClosure::readBlocks() {
+	uintptr_t offset = 0;
+	while(offset < inode->fileSize) {
+		auto entry = (DiskDirEntry *)&blockBuffer[offset];
+		if(strncmp(entry->name, name.c_str(), entry->nameLength) == 0) {
+			callback(entry->inode);
+			return;
+		}
+
+		offset += entry->recordLength;
+	}
+	assert(offset == inode->fileSize);
+
+	callback(std::experimental::nullopt);
+}
+
+void Inode::findEntry(std::string name,
+		frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback) {
+	auto closure = new FindEntryClosure(shared_from_this(), std::move(name), callback);
+	(*closure)();
+}
+
+// --------------------------------------------------------
+// FileSystem
+// --------------------------------------------------------
+
+FileSystem::FileSystem(GptTable::Partition &partition)
 : partition(partition) { }
 
-void Ext2fs::init(frigg::CallbackPtr<void()> callback) {
+void FileSystem::init(frigg::CallbackPtr<void()> callback) {
 	auto closure = new InitClosure(*this, callback);
 	(*closure)();
 }
 
-auto Ext2fs::accessRoot() -> std::shared_ptr<Inode> {
-	std::shared_ptr<Inode> try_root = cachedRoot.lock();
-	if(try_root)
-		return std::move(try_root);
-	
-	auto new_root = std::make_shared<Inode>(EXT2_ROOT_INO);
-	cachedRoot = new_root;
-
-	auto closure = new ReadInodeClosure(*this, new_root);
-	(*closure)();
-
-	return std::move(new_root);
+auto FileSystem::accessRoot() -> std::shared_ptr<Inode> {
+	return accessInode(EXT2_ROOT_INO);
 }
 
-void Ext2fs::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
+auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
+	assert(number > 0);
+	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
+	std::shared_ptr<Inode> active_inode = inode_slot.lock();
+	if(active_inode)
+		return std::move(active_inode);
+	
+	auto new_inode = std::make_shared<Inode>(*this, number);
+	inode_slot = std::weak_ptr<Inode>(new_inode);
+
+	auto closure = new ReadInodeClosure(*this, new_inode);
+	(*closure)();
+
+	return std::move(new_inode);
+}
+
+void FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 		size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback) {
 	auto closure = new ReadDataClosure(*this, std::move(inode), block_offset,
 			num_blocks, buffer, callback);
@@ -533,25 +614,18 @@ void Ext2fs::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 }
 
 // --------------------------------------------------------
-// Ext2fs::Inode
+// FileSystem::InitClosure
 // --------------------------------------------------------
 
-Ext2fs::Inode::Inode(uint32_t number)
-: number(number), isReady(false) { }
-
-// --------------------------------------------------------
-// Ext2fs::InitClosure
-// --------------------------------------------------------
-
-Ext2fs::InitClosure::InitClosure(Ext2fs &ext2fs, frigg::CallbackPtr<void()> callback)
+FileSystem::InitClosure::InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback)
 : ext2fs(ext2fs), callback(callback) { }
 
-void Ext2fs::InitClosure::operator() () {
+void FileSystem::InitClosure::operator() () {
 	ext2fs.partition.readSectors(2, superblockBuffer, 2,
 			CALLBACK_MEMBER(this, &InitClosure::readSuperblock));
 }
 
-void Ext2fs::InitClosure::readSuperblock() {
+void FileSystem::InitClosure::readSuperblock() {
 	DiskSuperblock *sb = (DiskSuperblock *)superblockBuffer;
 	assert(sb->magic == 0xEF53);
 
@@ -575,7 +649,7 @@ void Ext2fs::InitClosure::readSuperblock() {
 			CALLBACK_MEMBER(this, &InitClosure::readBlockGroups));
 }
 
-void Ext2fs::InitClosure::readBlockGroups() {
+void FileSystem::InitClosure::readBlockGroups() {
 	DiskGroupDesc *bgdt = (DiskGroupDesc *)ext2fs.blockGroupDescriptorBuffer;
 	printf("bgBlockBitmap: %x \n", bgdt->blockBitmap);
 
@@ -584,13 +658,13 @@ void Ext2fs::InitClosure::readBlockGroups() {
 };
 
 // --------------------------------------------------------
-// Ext2fs::ReadInodeClosure
+// FileSystem::ReadInodeClosure
 // --------------------------------------------------------
 
-Ext2fs::ReadInodeClosure::ReadInodeClosure(Ext2fs &ext2fs, std::shared_ptr<Inode> inode)
+FileSystem::ReadInodeClosure::ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode)
 : ext2fs(ext2fs), inode(std::move(inode)) { }	
 
-void Ext2fs::ReadInodeClosure::operator() () {
+void FileSystem::ReadInodeClosure::operator() () {
 	uint32_t block_group = (inode->number - 1) / ext2fs.inodesPerGroup;
 	uint32_t index = (inode->number - 1) % ext2fs.inodesPerGroup;
 
@@ -603,7 +677,7 @@ void Ext2fs::ReadInodeClosure::operator() () {
 			CALLBACK_MEMBER(this, &ReadInodeClosure::readSector));
 }
 
-void Ext2fs::ReadInodeClosure::readSector() {
+void FileSystem::ReadInodeClosure::readSector() {
 	uint32_t index = (inode->number - 1) % ext2fs.inodesPerGroup;
 	uint32_t offset = index * ext2fs.inodeSize;
 
@@ -624,17 +698,18 @@ void Ext2fs::ReadInodeClosure::readSector() {
 }
 
 // --------------------------------------------------------
-// Ext2fs::ReadDataClosure
+// FileSystem::ReadDataClosure
 // --------------------------------------------------------
 
-Ext2fs::ReadDataClosure::ReadDataClosure(Ext2fs &ext2fs, std::shared_ptr<Inode> inode,
+FileSystem::ReadDataClosure::ReadDataClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode,
 		uint64_t block_offset, size_t num_blocks, void *buffer,
 		frigg::CallbackPtr<void()> callback)
 : ext2fs(ext2fs), inode(std::move(inode)), blockOffset(block_offset),
 		numBlocks(num_blocks), buffer(buffer), callback(callback),
 		blocksRead(0) { }
 
-void Ext2fs::ReadDataClosure::operator() () {
+void FileSystem::ReadDataClosure::operator() () {
+	assert(inode->isReady);
 	if(blocksRead < numBlocks) {
 		uint32_t direct_index = blockOffset + blocksRead;
 		uint32_t block = inode->directBlocks[direct_index];
@@ -649,7 +724,7 @@ void Ext2fs::ReadDataClosure::operator() () {
 	}
 }
 
-void Ext2fs::ReadDataClosure::readBlock() {
+void FileSystem::ReadDataClosure::readBlock() {
 	blocksRead++;
 	(*this)();
 }
@@ -660,8 +735,8 @@ void Ext2fs::ReadDataClosure::readBlock() {
 
 Driver ataDriver;
 GptTable gptTable(ataDriver);
-Ext2fs *fs;
-std::shared_ptr<Ext2fs::Inode> rootInode;
+FileSystem *theFs;
+std::shared_ptr<Inode> rootInode;
 uint8_t dataBuffer[1024];
 
 struct DirEntry {
@@ -684,21 +759,120 @@ void done4(void *object) {
 }
 
 void done3(void *object) {
-	fs->readData(rootInode, 0, 1, dataBuffer, CALLBACK_STATIC(nullptr, &done4));
+	theFs->readData(rootInode, 0, 1, dataBuffer, CALLBACK_STATIC(nullptr, &done4));
 }
 
 void done2(void *object) {
-	rootInode = fs->accessRoot();
+	rootInode = theFs->accessRoot();
 	rootInode->readyQueue.push_back(CALLBACK_STATIC(nullptr, &done3));
 }
 
 void done(void *object) {
-	fs = new Ext2fs(gptTable.getPartition(1));
-	fs->init(CALLBACK_STATIC(nullptr, &done2));
+	theFs = new FileSystem(gptTable.getPartition(1));
+	theFs->init(CALLBACK_STATIC(nullptr, &done2));
 }
 
 void initAta() {
 	gptTable.parse(CALLBACK_STATIC(nullptr, &done));
+}
+
+// --------------------------------------------------------
+
+struct Connection {
+	Connection(helx::Pipe pipe);
+
+	void operator() ();
+	
+	helx::Pipe &getPipe();
+
+private:
+	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+
+	helx::Pipe pipe;
+	uint8_t buffer[128];
+};
+
+struct OpenClosure {
+	OpenClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+	void operator() ();
+
+	void foundEntry(std::experimental::optional<uint32_t> number);
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest request;
+
+	std::shared_ptr<Inode> directory;
+};
+
+// --------------------------------------------------------
+// Connection
+// --------------------------------------------------------
+
+Connection::Connection(helx::Pipe pipe)
+: pipe(std::move(pipe)) { }
+
+void Connection::operator() () {
+	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
+			CALLBACK_MEMBER(this, &Connection::recvRequest)));
+}
+
+helx::Pipe &Connection::getPipe() {
+	return pipe;
+}
+
+void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::CntRequest request;
+	request.ParseFromArray(buffer, length);
+
+	if(request.req_type() == managarm::fs::CntReqType::OPEN) {
+		auto closure = new OpenClosure(*this, msg_request, std::move(request));
+		(*closure)();
+	}else{
+		fprintf(stderr, "Illegal request type\n");
+		abort();
+	}
+
+	(*this)();
+}
+
+// --------------------------------------------------------
+// OpenClosure
+// --------------------------------------------------------
+
+OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest request)
+: connection(connection), responseId(response_id), request(std::move(request)) { }
+
+void OpenClosure::operator() () {
+	printf("Ext2fs: open(%s)\n", request.path().c_str());
+
+	auto root_inode = theFs->accessRoot();
+	root_inode->findEntry(request.path(), CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
+}
+
+void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
+	if(number) {
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_fd(*number);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	}else{
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	}
 }
 
 // --------------------------------------------------------
@@ -717,6 +891,9 @@ void ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
 	helx::Pipe::createFullPipe(server_side, client_side);
 	callback(client_side.getHandle());
 	client_side.reset();
+
+	auto closure = new Connection(std::move(server_side));
+	(*closure)();
 }
 
 ObjectHandler objectHandler;
