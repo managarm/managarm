@@ -822,6 +822,23 @@ struct OpenClosure {
 	std::shared_ptr<Inode> directory;
 };
 
+struct ReadClosure {
+	ReadClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+	void operator() ();
+
+	void inodeReady();
+	void readBlocks();
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest request;
+
+	std::shared_ptr<Inode> file;
+	char *blockBuffer;
+};
+
 // --------------------------------------------------------
 // Connection
 // --------------------------------------------------------
@@ -850,6 +867,9 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 		(*closure)();
 	}else if(request.req_type() == managarm::fs::CntReqType::OPEN) {
 		auto closure = new OpenClosure(*this, msg_request, std::move(request));
+		(*closure)();
+	}else if(request.req_type() == managarm::fs::CntReqType::READ) {
+		auto closure = new ReadClosure(*this, msg_request, std::move(request));
 		(*closure)();
 	}else{
 		fprintf(stderr, "Illegal request type\n");
@@ -915,6 +935,42 @@ void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
 		response.SerializeToString(&serialized);
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 	}
+}
+
+// --------------------------------------------------------
+// ReadClosure
+// --------------------------------------------------------
+
+ReadClosure::ReadClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest request)
+: connection(connection), responseId(response_id), request(std::move(request)) { }
+
+void ReadClosure::operator() () {
+	file = theFs->accessInode(request.fd());
+	assert(file->isReady);
+	inodeReady();
+}
+
+void ReadClosure::inodeReady() {
+	blockBuffer = (char *)malloc(file->fs.blockSize);
+	file->fs.readData(file, 0, 1, blockBuffer,
+			CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
+}
+
+void ReadClosure::readBlocks() {
+	size_t size = request.size();
+	if(size > file->fs.blockSize)
+		size = file->fs.blockSize;
+	if(size > file->fileSize)
+		size = file->fileSize;
+
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
+	response.set_buffer(std::string(blockBuffer, size));
+
+	std::string serialized;
+	response.SerializeToString(&serialized);
+	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
 // --------------------------------------------------------
