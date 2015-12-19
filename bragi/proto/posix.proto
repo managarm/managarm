@@ -18,6 +18,7 @@ enum ClientRequestType {
 	INIT = 7;
 	FORK = 8;
 	EXEC = 1;
+	FSTAT = 12;
 	OPEN = 2;
 	READ = 3;
 	WRITE = 4;
@@ -64,8 +65,10 @@ message ClientRequest {
 }
 
 message ServerResponse {
-	// return of ALL
 	optional int32 error = 3;
+
+	// used by FSTAT
+	optional uint64 file_size = 4;
 
 	// return of OPEN
 	optional int32 fd = 1;

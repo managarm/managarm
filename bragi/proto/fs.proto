@@ -9,6 +9,7 @@ enum Errors {
 }
 
 enum CntReqType {
+	FSTAT = 5;
 	OPEN = 1;
 	READ = 2;
 	WRITE = 3;
@@ -21,7 +22,7 @@ message CntRequest {
 	// used by OPEN_ENTRY
 	optional string path = 2;
 
-	// used by READ and CLOSE
+	// used by FSTAT, READ, WRITE and CLOSE
 	optional int32 fd = 4;
 
 	// used by READ and WRITE
@@ -31,6 +32,9 @@ message CntRequest {
 
 message SvrResponse {
 	optional int32 error = 3;
+
+	// return of FSTAT
+	optional uint64 file_size = 4;
 
 	// return of OPEN
 	optional int32 fd = 1;

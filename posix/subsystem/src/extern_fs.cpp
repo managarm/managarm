@@ -10,8 +10,14 @@ namespace extern_fs {
 // OpenFile
 // --------------------------------------------------------
 
-OpenFile::OpenFile(int extern_fd)
-: externFd(extern_fd) { }
+OpenFile::OpenFile(MountPoint &connection, int extern_fd)
+: connection(connection), externFd(extern_fd) { }
+
+void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> callback) {
+	auto closure = frigg::construct<StatClosure>(*allocator,
+			connection, externFd, callback);
+	(*closure)();
+}
 
 void OpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
 	assert(!"Not implemented");
@@ -41,7 +47,44 @@ helx::Pipe &MountPoint::getPipe() {
 }
 
 // --------------------------------------------------------
-// Closures
+// StatClosure
+// --------------------------------------------------------
+
+StatClosure::StatClosure(MountPoint &connection, int extern_fd,
+		frigg::CallbackPtr<void(FileStats)> callback)
+: connection(connection), externFd(extern_fd), callback(callback) { }
+
+void StatClosure::operator() () {
+	managarm::fs::CntRequest<Allocator> request(*allocator);
+	request.set_req_type(managarm::fs::CntReqType::FSTAT);
+	request.set_fd(externFd);
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &StatClosure::recvResponse)));
+}
+
+void StatClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+
+	FileStats stats;
+	stats.fileSize = response.file_size();
+	callback(stats);
+
+	frigg::destruct(*allocator, this);
+}
+
+// --------------------------------------------------------
+// OpenClosure
 // --------------------------------------------------------
 
 OpenClosure::OpenClosure(MountPoint &connection, frigg::StringView path,
@@ -69,7 +112,7 @@ void OpenClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 	response.ParseFromArray(buffer, length);
 
 	if(response.error() == managarm::fs::Errors::SUCCESS) {
-		auto open_file = frigg::makeShared<OpenFile>(*allocator, response.fd());
+		auto open_file = frigg::makeShared<OpenFile>(*allocator, connection, response.fd());
 		callback(frigg::staticPtrCast<VfsOpenFile>(open_file));
 	}else{
 		assert(response.error() == managarm::fs::Errors::FILE_NOT_FOUND);

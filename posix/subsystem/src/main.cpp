@@ -53,6 +53,55 @@ void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &
 }
 
 // --------------------------------------------------------
+// StatClosure
+// --------------------------------------------------------
+
+struct StatClosure : frigg::BaseClosure<StatClosure> {
+	StatClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+
+	void operator() ();
+
+private:
+	void statComplete(FileStats stats);
+
+	StdSharedPtr<helx::Pipe> pipe;
+	StdSharedPtr<Process> process;
+	managarm::posix::ClientRequest<Allocator> request;
+	int64_t msgRequest;
+};
+
+StatClosure::StatClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
+: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
+		msgRequest(msg_request) { }
+
+void StatClosure::operator() () {
+	auto file = process->allOpenFiles.get(request.fd());
+	if(!file) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		sendResponse(*pipe, response, msgRequest);
+		suicide(*allocator);
+		return;
+	}
+	
+	(*file)->fstat(CALLBACK_MEMBER(this, &StatClosure::statComplete));
+}
+
+void StatClosure::statComplete(FileStats stats) {
+	if(traceRequests)
+		infoLogger->log() << "[" << process->pid << "] FSTAT response" << frigg::EndLog();
+
+	managarm::posix::ServerResponse<Allocator> response(*allocator);
+	response.set_error(managarm::posix::Errors::SUCCESS);
+	response.set_file_size(stats.fileSize);
+	sendResponse(*pipe, response, msgRequest);
+
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
 // OpenClosure
 // --------------------------------------------------------
 
@@ -302,6 +351,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::FSTAT) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] FSTAT" << frigg::EndLog();
+
+		frigg::runClosure<StatClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] OPEN" << frigg::EndLog();

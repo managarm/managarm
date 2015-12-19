@@ -11,6 +11,10 @@
 
 struct Process;
 
+struct FileStats {
+	uint64_t fileSize;
+};
+
 // --------------------------------------------------------
 // VfsOpenFile
 // --------------------------------------------------------
@@ -19,6 +23,8 @@ struct VfsOpenFile {
 	virtual void openAt(frigg::StringView path,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 	
+	virtual void fstat(frigg::CallbackPtr<void(FileStats)> callback);
+
 	virtual void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback);
 	virtual void read(void *buffer, size_t max_length,

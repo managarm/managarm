@@ -792,6 +792,21 @@ private:
 	uint8_t buffer[128];
 };
 
+struct StatClosure {
+	StatClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+	void operator() ();
+
+	void inodeReady();
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest request;
+
+	std::shared_ptr<Inode> file;
+};
+
 struct OpenClosure {
 	OpenClosure(Connection &connection, int64_t response_id,
 			managarm::fs::CntRequest request);
@@ -830,7 +845,10 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	managarm::fs::CntRequest request;
 	request.ParseFromArray(buffer, length);
 
-	if(request.req_type() == managarm::fs::CntReqType::OPEN) {
+	if(request.req_type() == managarm::fs::CntReqType::FSTAT) {
+		auto closure = new StatClosure(*this, msg_request, std::move(request));
+		(*closure)();
+	}else if(request.req_type() == managarm::fs::CntReqType::OPEN) {
 		auto closure = new OpenClosure(*this, msg_request, std::move(request));
 		(*closure)();
 	}else{
@@ -839,6 +857,30 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	}
 
 	(*this)();
+}
+
+// --------------------------------------------------------
+// StatClosure
+// --------------------------------------------------------
+
+StatClosure::StatClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest request)
+: connection(connection), responseId(response_id), request(std::move(request)) { }
+
+void StatClosure::operator() () {
+	file = theFs->accessInode(request.fd());
+	assert(!file->isReady);
+	file->readyQueue.push_back(CALLBACK_MEMBER(this, &StatClosure::inodeReady));
+}
+
+void StatClosure::inodeReady() {
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
+	response.set_file_size(file->fileSize);
+
+	std::string serialized;
+	response.SerializeToString(&serialized);
+	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
 // --------------------------------------------------------
@@ -852,8 +894,8 @@ OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
 void OpenClosure::operator() () {
 	printf("Ext2fs: open(%s)\n", request.path().c_str());
 
-	auto root_inode = theFs->accessRoot();
-	root_inode->findEntry(request.path(), CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
+	directory = theFs->accessRoot();
+	directory->findEntry(request.path(), CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
 }
 
 void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
