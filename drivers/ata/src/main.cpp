@@ -777,6 +777,20 @@ void initAta() {
 }
 
 // --------------------------------------------------------
+// OpenFile
+// --------------------------------------------------------
+
+struct OpenFile {
+	OpenFile(std::shared_ptr<Inode> inode);
+
+	std::shared_ptr<Inode> inode;
+	uint64_t offset;
+};
+
+OpenFile::OpenFile(std::shared_ptr<Inode> inode)
+: inode(inode), offset(0) { }
+
+// --------------------------------------------------------
 
 struct Connection {
 	Connection(helx::Pipe pipe);
@@ -785,10 +799,16 @@ struct Connection {
 	
 	helx::Pipe &getPipe();
 
+	int attachOpenFile(OpenFile *handle);
+	OpenFile *getOpenFile(int handle);
+
 private:
 	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 	helx::Pipe pipe;
+
+	std::unordered_map<int, OpenFile *> fileHandles;
+	int nextHandle;
 	uint8_t buffer[128];
 };
 
@@ -804,7 +824,7 @@ struct StatClosure {
 	int64_t responseId;
 	managarm::fs::CntRequest request;
 
-	std::shared_ptr<Inode> file;
+	OpenFile *openFile;
 };
 
 struct OpenClosure {
@@ -835,7 +855,7 @@ struct ReadClosure {
 	int64_t responseId;
 	managarm::fs::CntRequest request;
 
-	std::shared_ptr<Inode> file;
+	OpenFile *openFile;
 	char *blockBuffer;
 };
 
@@ -844,7 +864,7 @@ struct ReadClosure {
 // --------------------------------------------------------
 
 Connection::Connection(helx::Pipe pipe)
-: pipe(std::move(pipe)) { }
+: pipe(std::move(pipe)), nextHandle(1) { }
 
 void Connection::operator() () {
 	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
@@ -853,6 +873,16 @@ void Connection::operator() () {
 
 helx::Pipe &Connection::getPipe() {
 	return pipe;
+}
+
+int Connection::attachOpenFile(OpenFile *file) {
+	int handle = nextHandle++;
+	fileHandles.insert(std::make_pair(handle, file));
+	return handle;
+}
+
+OpenFile *Connection::getOpenFile(int handle) {
+	return fileHandles.at(handle);
 }
 
 void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
@@ -888,15 +918,16 @@ StatClosure::StatClosure(Connection &connection, int64_t response_id,
 : connection(connection), responseId(response_id), request(std::move(request)) { }
 
 void StatClosure::operator() () {
-	file = theFs->accessInode(request.fd());
-	assert(!file->isReady);
-	file->readyQueue.push_back(CALLBACK_MEMBER(this, &StatClosure::inodeReady));
+	openFile = connection.getOpenFile(request.fd());
+	assert(openFile->inode->isReady);
+	inodeReady();
+//	openFile->inode->readyQueue.push_back(CALLBACK_MEMBER(this, &StatClosure::inodeReady));
 }
 
 void StatClosure::inodeReady() {
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
-	response.set_file_size(file->fileSize);
+	response.set_file_size(openFile->inode->fileSize);
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
@@ -920,9 +951,11 @@ void OpenClosure::operator() () {
 
 void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
 	if(number) {
+		int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
+
 		managarm::fs::SvrResponse response;
 		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_fd(*number);
+		response.set_fd(handle);
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
@@ -946,27 +979,39 @@ ReadClosure::ReadClosure(Connection &connection, int64_t response_id,
 : connection(connection), responseId(response_id), request(std::move(request)) { }
 
 void ReadClosure::operator() () {
-	file = theFs->accessInode(request.fd());
-	assert(file->isReady);
+	openFile = connection.getOpenFile(request.fd());
+	assert(openFile->inode->isReady);
 	inodeReady();
 }
 
 void ReadClosure::inodeReady() {
-	blockBuffer = (char *)malloc(file->fs.blockSize);
-	file->fs.readData(file, 0, 1, blockBuffer,
+	blockBuffer = (char *)malloc(openFile->inode->fs.blockSize);
+	openFile->inode->fs.readData(openFile->inode, 0, 1, blockBuffer,
 			CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
 }
 
 void ReadClosure::readBlocks() {
-	size_t size = request.size();
-	if(size > file->fs.blockSize)
-		size = file->fs.blockSize;
-	if(size > file->fileSize)
-		size = file->fileSize;
+	if(openFile->offset >= openFile->inode->fileSize) {
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::END_OF_FILE);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+		return;
+	}
+
+	size_t read_size = request.size();
+	if(read_size > openFile->inode->fs.blockSize)
+		read_size = openFile->inode->fs.blockSize;
+	if(read_size > openFile->inode->fileSize)
+		read_size = openFile->inode->fileSize;
+
+	openFile->offset += read_size;
 
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
-	response.set_buffer(std::string(blockBuffer, size));
+	response.set_buffer(std::string(blockBuffer, read_size));
 
 	std::string serialized;
 	response.SerializeToString(&serialized);

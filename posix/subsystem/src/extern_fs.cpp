@@ -24,7 +24,7 @@ void OpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void(
 }
 
 void OpenFile::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	auto closure = frigg::construct<ReadClosure>(*allocator,
 			connection, externFd, buffer, max_length, callback);
 	(*closure)();
@@ -130,7 +130,7 @@ void OpenClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 
 ReadClosure::ReadClosure(MountPoint &connection,
 		int extern_fd, void *read_buffer, size_t max_size,
-		frigg::CallbackPtr<void(size_t)> callback)
+		frigg::CallbackPtr<void(VfsError, size_t)> callback)
 : connection(connection), externFd(extern_fd), readBuffer(read_buffer), maxSize(max_size),
 		callback(callback) { }
 
@@ -155,10 +155,14 @@ void ReadClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.ParseFromArray(buffer, length);
 
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	assert(response.buffer().size() < maxSize);
-	memcpy(readBuffer, response.buffer().data(), response.buffer().size());
-	callback(response.buffer().size());
+	if(response.error() == managarm::fs::Errors::END_OF_FILE) {
+		callback(kVfsEndOfFile, 0);
+	}else{
+		assert(response.error() == managarm::fs::Errors::SUCCESS);
+		assert(response.buffer().size() < maxSize);
+		memcpy(readBuffer, response.buffer().data(), response.buffer().size());
+		callback(kVfsSuccess, response.buffer().size());
+	}
 
 	frigg::destruct(*allocator, this);
 }

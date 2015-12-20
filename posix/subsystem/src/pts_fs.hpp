@@ -17,18 +17,19 @@ struct Endpoint {
 	};
 	
 	struct ReadRequest {
-		ReadRequest(void *buffer, size_t max_length, frigg::CallbackPtr<void(size_t)> callback);
+		ReadRequest(void *buffer, size_t max_length,
+				frigg::CallbackPtr<void(VfsError, size_t)> callback);
 		
 		void *buffer;
 		size_t maxLength;
-		frigg::CallbackPtr<void(size_t)> callback;
+		frigg::CallbackPtr<void(VfsError, size_t)> callback;
 	};
 
 	Endpoint();
 
 	void writeToQueue(const void *buffer, size_t length);
 	void readFromQueue(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(size_t)> callback);
+			frigg::CallbackPtr<void(VfsError, size_t)> callback);
 
 	frigg::LinkedList<Chunk, Allocator> chunkQueue;
 	frigg::LinkedList<ReadRequest, Allocator> readQueue;
@@ -45,7 +46,7 @@ struct Master : public VfsOpenFile {
 	void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback) override;
 	void read(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(size_t)> callback) override;
+			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
 
 	const frigg::SharedPtr<Terminal> terminal;
 };
@@ -57,7 +58,7 @@ struct Slave : public VfsOpenFile {
 	void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback) override;
 	void read(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(size_t)> callback) override;
+			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
 
 	const frigg::SharedPtr<Terminal> terminal;
 

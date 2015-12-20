@@ -32,7 +32,7 @@ public:
 		void write(const void *buffer, size_t length,
 				frigg::CallbackPtr<void()> callback) override;
 		void read(void *buffer, size_t max_length,
-				frigg::CallbackPtr<void(size_t)> callback) override;
+				frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
 	
 	private:
 		StdSharedPtr<Device> p_device;

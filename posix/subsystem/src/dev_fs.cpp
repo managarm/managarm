@@ -30,10 +30,10 @@ void CharDeviceNode::OpenFile::write(const void *buffer, size_t length,
 }
 
 void CharDeviceNode::OpenFile::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	size_t actual_length;
 	p_device->read(buffer, max_length, actual_length);
-	callback(actual_length);
+	callback(kVfsSuccess, actual_length);
 }
 
 // --------------------------------------------------------

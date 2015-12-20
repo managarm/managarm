@@ -16,7 +16,7 @@ struct OpenFile : public VfsOpenFile {
 	void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback) override;
 	void read(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(size_t)> callback) override;
+			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
 	
 	MountPoint &connection;
 	int externFd;
@@ -77,7 +77,7 @@ private:
 
 struct ReadClosure {
 	ReadClosure(MountPoint &connection, int extern_fd, void *read_buffer, size_t max_size,
-			frigg::CallbackPtr<void(size_t)> callback);
+			frigg::CallbackPtr<void(VfsError, size_t)> callback);
 
 	void operator() ();
 
@@ -88,7 +88,7 @@ private:
 	int externFd;
 	void *readBuffer;
 	size_t maxSize;
-	frigg::CallbackPtr<void(size_t)> callback;
+	frigg::CallbackPtr<void(VfsError, size_t)> callback;
 	uint8_t buffer[128];
 };
 

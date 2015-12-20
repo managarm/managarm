@@ -11,6 +11,11 @@
 
 struct Process;
 
+enum VfsError {
+	kVfsSuccess = 0,
+	kVfsEndOfFile = 1
+};
+
 struct FileStats {
 	uint64_t fileSize;
 };
@@ -28,7 +33,7 @@ struct VfsOpenFile {
 	virtual void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback);
 	virtual void read(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(size_t)> callback);
+			frigg::CallbackPtr<void(VfsError, size_t)> callback);
 
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();

@@ -20,7 +20,7 @@ void Endpoint::writeToQueue(const void *buffer, size_t length) {
 
 		size_t read_length = frigg::min(length - transfered, request.maxLength);
 		memcpy(request.buffer, (uint8_t *)buffer + transfered, read_length);
-		request.callback(read_length);
+		request.callback(kVfsSuccess, read_length);
 		
 		transfered += read_length;
 		if(transfered == length)
@@ -36,7 +36,7 @@ void Endpoint::writeToQueue(const void *buffer, size_t length) {
 }
 
 void Endpoint::readFromQueue(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	if(chunkQueue.empty()) {
 		readQueue.addBack(ReadRequest(buffer, max_length, callback));
 	}else{
@@ -50,7 +50,7 @@ void Endpoint::readFromQueue(void *buffer, size_t max_length,
 		if(chunk.consumed == chunk.buffer.size())
 			chunkQueue.removeFront();
 
-		callback(length);
+		callback(kVfsSuccess, length);
 	}
 }
 
@@ -66,7 +66,7 @@ Endpoint::Chunk::Chunk()
 // --------------------------------------------------------
 
 Endpoint::ReadRequest::ReadRequest(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback)
+		frigg::CallbackPtr<void(VfsError, size_t)> callback)
 : buffer(buffer), maxLength(max_length), callback(callback) { }
 
 // --------------------------------------------------------
@@ -83,7 +83,7 @@ void Master::write(const void *buffer, size_t length, frigg::CallbackPtr<void()>
 }
 
 void Master::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	terminal->master.readFromQueue(buffer, max_length, callback);
 }
 
@@ -100,7 +100,7 @@ void Slave::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> 
 }
 
 void Slave::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	terminal->slave.readFromQueue(buffer, max_length, callback);
 }
 

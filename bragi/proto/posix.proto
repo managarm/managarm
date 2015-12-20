@@ -12,6 +12,7 @@ enum Errors {
 	ACCESS_DENIED = 2;
 	ALREADY_EXISTS = 3;
 	NO_SUCH_FD = 5;
+	END_OF_FILE = 7;
 }
 
 enum ClientRequestType {

@@ -218,7 +218,7 @@ struct ReadClosure : frigg::BaseClosure<ReadClosure> {
 	void operator() ();
 
 private:
-	void readComplete(size_t actual_size);
+	void readComplete(VfsError error, size_t actual_size);
 
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
@@ -248,14 +248,22 @@ void ReadClosure::operator() () {
 			CALLBACK_MEMBER(this, &ReadClosure::readComplete));
 }
 
-void ReadClosure::readComplete(size_t actual_size) {
-	// TODO: make request.size() unsigned
-	frigg::String<Allocator> actual_buffer(*allocator,
-			frigg::StringView(buffer).subString(0, actual_size));
-	managarm::posix::ServerResponse<Allocator> response(*allocator);
-	response.set_buffer(frigg::move(actual_buffer));
-	response.set_error(managarm::posix::Errors::SUCCESS);
-	sendResponse(*pipe, response, msgRequest);
+void ReadClosure::readComplete(VfsError error, size_t actual_size) {
+	if(error == kVfsEndOfFile) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::END_OF_FILE);
+		sendResponse(*pipe, response, msgRequest);
+	}else{
+		assert(error == kVfsSuccess);
+		// TODO: make request.size() unsigned
+		frigg::String<Allocator> actual_buffer(*allocator,
+				frigg::StringView(buffer).subString(0, actual_size));
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		response.set_buffer(frigg::move(actual_buffer));
+		sendResponse(*pipe, response, msgRequest);
+	}
+
 	suicide(*allocator);
 }
 

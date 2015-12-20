@@ -20,7 +20,7 @@ void VfsOpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<vo
 	assert(!"Illegal operation for this file");
 }
 void VfsOpenFile::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(size_t)> callback) {
+		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	assert(!"Illegal operation for this file");
 }
 
