@@ -40,6 +40,10 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
+$($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
+	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
+	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+
 # generate protobuf
 $c_TARGETS += $($c_GENDIR)/%
 gen-$c:  $($c_GENDIR)/ld-server.frigg_pb.hpp $($c_GENDIR)/posix.frigg_pb.hpp
