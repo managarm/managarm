@@ -57,6 +57,12 @@ enum {
 };
 
 enum {
+	STT_OBJECT = 1,
+	STT_FUNC = 2,
+	STT_TLS = 6
+};
+
+enum {
 	R_X86_64_64 = 1,
 	R_X86_64_COPY = 5,
 	R_X86_64_GLOB_DAT = 6,

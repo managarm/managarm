@@ -1,5 +1,6 @@
 
 #include <frigg/string.hpp>
+#include <frigg/optional.hpp>
 
 struct Scope;
 
@@ -43,6 +44,21 @@ void processCopyRela(SharedObject *object, Elf64_Rela *reloc);
 void processCopyRelocations(SharedObject *object);
 
 // --------------------------------------------------------
+// SymbolRef
+// --------------------------------------------------------
+
+struct SymbolRef {
+	SymbolRef(SharedObject *object, Elf64_Sym &symbol);
+
+	const char *getString();
+	
+	uintptr_t virtualAddress();
+
+	SharedObject *const object;
+	Elf64_Sym &symbol;
+};
+
+// --------------------------------------------------------
 // Scope
 // --------------------------------------------------------
 
@@ -52,9 +68,12 @@ struct Scope {
 	};
 
 	Scope();
+	
+	void appendObject(SharedObject *object);
 
-	void *resolveSymbol(const char *resolve_str,
-			SharedObject *from_object, uint32_t flags);
+	void buildScope(SharedObject *object);
+
+	frigg::Optional<SymbolRef> resolveSymbol(SymbolRef r, uint32_t flags);
 
 	frigg::Vector<SharedObject *, Allocator> objects;
 };
@@ -71,9 +90,9 @@ public:
 			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
 	void loadFromFile(SharedObject *object, const char *file);
 	
-	void process();
+	void linkObjects();
 
-	void initialize();
+	void initObjects();
 
 private:
 	void parseDynamic(SharedObject *object);
@@ -84,8 +103,11 @@ private:
 	void processRela(SharedObject *object, Elf64_Rela *reloc);
 
 	Scope *p_scope;
-	frigg::LinkedList<SharedObject *, Allocator> p_processQueue;
+	frigg::LinkedList<SharedObject *, Allocator> p_linkQueue;
 	frigg::LinkedList<SharedObject *, Allocator> p_initQueue;
+
+	// FIXME: move this to an own class
+public:
 	frigg::Hashmap<frigg::String<Allocator>, SharedObject *,
 			frigg::DefaultHasher<frigg::String<Allocator>>, Allocator> p_allObjects;
 };

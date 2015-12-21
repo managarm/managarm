@@ -46,20 +46,16 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 			+ symbol_index * sizeof(Elf64_Sym));
-	assert(symbol->st_name != 0);
-
-	const char *symbol_str = (const char *)(object->baseAddress
-			+ object->stringTableOffset + symbol->st_name);
-
-	void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
-	if(pointer == nullptr)
+	SymbolRef r(object, *symbol);
+	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
+	if(!p)
 		frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol" << frigg::EndLog();
 
 	//infoLogger->log() << "Lazy relocation to " << symbol_str
 	//		<< " resolved to " << pointer << frigg::EndLog();
-
-	*(void **)(object->baseAddress + reloc->r_offset) = pointer;
-	return pointer;
+	
+	*(uint64_t *)(object->baseAddress + reloc->r_offset) = p->virtualAddress();
+	return (void *)p->virtualAddress();
 }
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
@@ -71,9 +67,11 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	//infoLogger->log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
-	interpreter.initialize("(interpreter)", false);
+	// FIXME: read own SONAME
+	interpreter.initialize("ld-init.so", false);
 	interpreter->baseAddress = (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
+	interpreter->dynamic = _DYNAMIC;
 
 	_GLOBAL_OFFSET_TABLE_[1] = interpreter.get();
 	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
@@ -116,21 +114,29 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	HelError connect_error;
 	eventHub->waitForConnect(async_id, connect_error, *serverPipe);
 	HEL_CHECK(connect_error);
-
-	executable.initialize("(executable)", true);
-
+	
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
+	globalLoader->p_allObjects.insert(frigg::String<Allocator>(*allocator, interpreter->name),
+			interpreter.get());
+
+	executable.initialize("(executable)", true);
 	// TODO: support non-zero base addresses?
 	globalLoader->loadFromPhdr(executable.get(), phdr_pointer,
 			phdr_entry_size, phdr_count, entry_pointer);
-	globalLoader->process();
 	
+	globalScope->buildScope(executable.get());
+
+	globalLoader->linkObjects();
 	processCopyRelocations(executable.get());
 
-	globalLoader->initialize();
+	globalLoader->initObjects();
 
 //	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
+}
+
+extern "C" __attribute__ (( visibility("default") )) void __tls_get_addr() {
+	assert(!"Resolved to linker");
 }
 

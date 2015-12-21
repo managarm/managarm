@@ -10,7 +10,6 @@
 #include <frigg/libc.hpp>
 #include <frigg/elf.hpp>
 
-#include <frigg/optional.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
@@ -30,7 +29,7 @@
 
 uintptr_t libraryBase = 0x41000000;
 
-bool verbose = false;
+bool verbose = true;
 bool eagerBinding = true;
 
 // --------------------------------------------------------
@@ -54,15 +53,11 @@ void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 			+ symbol_index * sizeof(Elf64_Sym));
-	assert(symbol->st_name != 0);
+	SymbolRef r(object, *symbol);
+	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, Scope::kResolveCopy);
+	assert(p);
 
-	const char *symbol_str = (const char *)(object->baseAddress
-			+ object->stringTableOffset + symbol->st_name);
-	uintptr_t copy_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str,
-			object, Scope::kResolveCopy);
-	assert(copy_addr != 0);
-
-	memcpy((void *)rel_addr, (void *)copy_addr, symbol->st_size);
+	memcpy((void *)rel_addr, (void *)p->virtualAddress(), symbol->st_size);
 }
 
 void processCopyRelocations(SharedObject *object) {
@@ -151,6 +146,25 @@ void doInitialize(SharedObject *object) {
 }
 
 // --------------------------------------------------------
+// SymbolRef
+// --------------------------------------------------------
+SymbolRef::SymbolRef(SharedObject *object, Elf64_Sym &symbol)
+: object(object), symbol(symbol) { }
+
+const char *SymbolRef::getString() {
+	assert(symbol.st_name != 0);
+	return (const char *)(object->baseAddress
+			+ object->stringTableOffset + symbol.st_name);
+}
+
+uintptr_t SymbolRef::virtualAddress() {
+	auto bind = ELF64_ST_BIND(symbol.st_info);
+	assert(bind == STB_GLOBAL || bind == STB_WEAK);
+	assert(symbol.st_shndx != SHN_UNDEF);
+	return object->baseAddress + symbol.st_value;
+}
+
+// --------------------------------------------------------
 // Scope
 // --------------------------------------------------------
 
@@ -180,52 +194,67 @@ uint32_t elf64Hash(const char *name) {
 	return h;
 }
 
-bool symbolMatches(SharedObject *object, Elf64_Sym *symbol, const char *resolve_str) {
-	uint8_t bind = ELF64_ST_BIND(symbol->st_info);
-	assert(bind == STB_GLOBAL || bind == STB_WEAK);
-	if(symbol->st_shndx == SHN_UNDEF)
+// Checks if the symbol p and be used to satisfy the dependency r
+bool symbolSatisfies(SymbolRef p, SymbolRef r) {
+	if(p.symbol.st_shndx == SHN_UNDEF)
 		return false;
-	assert(symbol->st_name != 0);
 
-	const char *symbol_str = (const char *)(object->baseAddress
-			+ object->stringTableOffset + symbol->st_name);
-	return strEquals(symbol_str, resolve_str);
+	auto p_bind = ELF64_ST_BIND(p.symbol.st_info);
+	if(p_bind != STB_GLOBAL && p_bind != STB_WEAK)
+		return false;
+	
+	return strEquals(p.getString(), r.getString());
 }
 
 // TODO: move this to some namespace or class?
-void *resolveInObject(SharedObject *object, const char *resolve_str) {
-	auto hash_table = (Elf64_Word *)(object->baseAddress + object->hashTableOffset);
-	
+frigg::Optional<SymbolRef> resolveInObject(SharedObject *p_object, SymbolRef r) {
+	const char *r_string = (const char *)(r.object->baseAddress
+			+ r.object->stringTableOffset + r.symbol.st_name);
+
+	auto hash_table = (Elf64_Word *)(p_object->baseAddress + p_object->hashTableOffset);
 	Elf64_Word num_buckets = hash_table[0];
-	auto bucket = elf64Hash(resolve_str) % num_buckets;
+	auto bucket = elf64Hash(r_string) % num_buckets;
 
 	auto index = hash_table[2 + bucket];
 	while(index != 0) {
-		auto *symbol = (Elf64_Sym *)(object->baseAddress
-				+ object->symbolTableOffset + index * sizeof(Elf64_Sym));
-		
-		if(symbolMatches(object, symbol, resolve_str))
-			return (void *)(object->baseAddress + symbol->st_value);
+		auto p_symbol = (Elf64_Sym *)(p_object->baseAddress
+				+ p_object->symbolTableOffset + index * sizeof(Elf64_Sym));
+		SymbolRef p(p_object, *p_symbol);
+		if(symbolSatisfies(p, r))
+			return p;
 
 		index = hash_table[2 + num_buckets + index];
 	}
 
-	return nullptr;
+	return frigg::Optional<SymbolRef>();
+}	
+
+void Scope::appendObject(SharedObject *object) {
+	for(size_t i = 0; i < objects.size(); i++)
+		if(objects[i] == object)
+			return;
+	objects.push(object);
+}
+
+void Scope::buildScope(SharedObject *object) {
+	appendObject(object);
+
+	for(size_t i = 0; i < object->dependencies.size(); i++)
+		buildScope(object->dependencies[i]);
 }
 
 // TODO: let this return uintptr_t
-void *Scope::resolveSymbol(const char *resolve_str,
-		SharedObject *from_object, uint32_t flags) {
+frigg::Optional<SymbolRef> Scope::resolveSymbol(SymbolRef r, uint32_t flags) {
 	for(size_t i = 0; i < objects.size(); i++) {
-		if((flags & kResolveCopy) != 0 && objects[i] == from_object)
+		if((flags & kResolveCopy) != 0 && objects[i] == r.object)
 			continue;
 
-		void *resolved = resolveInObject(objects[i], resolve_str);
-		if(resolved != nullptr)
-			return resolved;
+		frigg::Optional<SymbolRef> p = resolveInObject(objects[i], r);
+		if(p)
+			return p;
 	}
 
-	return nullptr;
+	return frigg::Optional<SymbolRef>();
 }
 
 
@@ -238,7 +267,7 @@ struct Tcb {
 };
 
 Loader::Loader(Scope *scope)
-: p_scope(scope), p_processQueue(*allocator), p_initQueue(*allocator),
+: p_scope(scope), p_linkQueue(*allocator), p_initQueue(*allocator),
 		p_allObjects(frigg::DefaultHasher<frigg::String<Allocator>>(), *allocator) { }
 
 void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
@@ -274,9 +303,9 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	parseDynamic(object);
-	p_processQueue.addBack(object);
+	processDependencies(object);
+	p_linkQueue.addBack(object);
 	p_initQueue.addBack(object);
-	p_scope->objects.push(object);
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
@@ -335,25 +364,24 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	parseDynamic(object);
-	p_processQueue.addBack(object);
+	processDependencies(object);
+	p_linkQueue.addBack(object);
 	p_initQueue.addBack(object);
-	p_scope->objects.push(object);
 }
 
-void Loader::process() {
-	while(!p_processQueue.empty()) {
-		SharedObject *object = p_processQueue.front();
+void Loader::linkObjects() {
+	while(!p_linkQueue.empty()) {
+		SharedObject *object = p_linkQueue.front();
 		object->loadScope = p_scope;
 
-		processDependencies(object);
 		processStaticRelocations(object);
 		processLazyRelocations(object);
 
-		p_processQueue.removeFront();
+		p_linkQueue.removeFront();
 	}
 }
 
-void Loader::initialize() {
+void Loader::initObjects() {
 	while(!p_initQueue.empty()) {
 		SharedObject *object = p_initQueue.front();
 		if(!object->wasInitialized)
@@ -461,23 +489,18 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	if(symbol_index != 0) {
 		auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 				+ symbol_index * sizeof(Elf64_Sym));
-		assert(symbol->st_name != 0);
-
-		const char *symbol_str = (const char *)(object->baseAddress
-				+ object->stringTableOffset + symbol->st_name);
-		//FIXME infoLogger->log() << "Looking up " << symbol_str << frigg::EndLog();
-		symbol_addr = (uintptr_t)object->loadScope->resolveSymbol(symbol_str, object, 0);
-		if(symbol_addr == 0) {
-			if(ELF64_ST_BIND(symbol->st_info) == STB_WEAK) {
-				if(verbose)
-					frigg::infoLogger.log() << "Unresolved weak load-time symbol "
-							<< (const char *)symbol_str
-							<< " in object " << object->name << frigg::EndLog();
-			}else{
+		SymbolRef r(object, *symbol);
+		frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
+		if(!p) {
+			if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 				frigg::panicLogger.log() << "Unresolved load-time symbol "
-						<< (const char *)symbol_str
-						<< " in object " << object->name << frigg::EndLog();
-			}
+						<< r.getString() << " in object " << object->name << frigg::EndLog();
+			
+			if(verbose)
+				frigg::infoLogger.log() << "Unresolved weak load-time symbol "
+						<< r.getString() << " in object " << object->name << frigg::EndLog();
+		}else{
+			symbol_addr = p->virtualAddress();
 		}
 	}
 
@@ -564,23 +587,20 @@ void Loader::processLazyRelocations(SharedObject *object) {
 		if(eagerBinding) {
 			auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 					+ symbol_index * sizeof(Elf64_Sym));
-			assert(symbol->st_name != 0);
-
-			const char *symbol_str = (const char *)(object->baseAddress
-					+ object->stringTableOffset + symbol->st_name);
-
-			void *pointer = object->loadScope->resolveSymbol(symbol_str, object, 0);
-			if(pointer == nullptr) {
-				if(ELF64_ST_BIND(symbol->st_info) == STB_WEAK) {
-					if(verbose)
-						frigg::infoLogger.log() << "Unresolved weak JUMP_SLOT symbol "
-								<< symbol_str << " in object " << object->name << frigg::EndLog();
-				}else{
+			SymbolRef r(object, *symbol);
+			frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
+			if(!p) {
+				if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 					frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
-							<< symbol_str << " in object " << object->name << frigg::EndLog();
-				}
+							<< r.getString() << " in object " << object->name << frigg::EndLog();
+				
+				if(verbose)
+					frigg::infoLogger.log() << "Unresolved weak JUMP_SLOT symbol "
+							<< r.getString() << " in object " << object->name << frigg::EndLog();
+				*((uint64_t *)rel_addr) = 0;
+			}else{
+				*((uint64_t *)rel_addr) = p->virtualAddress();
 			}
-			*((void **)rel_addr) = pointer;
 		}else{
 			*((uint64_t *)rel_addr) += object->baseAddress;
 		}
