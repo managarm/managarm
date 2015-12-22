@@ -29,7 +29,7 @@
 
 uintptr_t libraryBase = 0x41000000;
 
-bool verbose = true;
+bool verbose = false;
 bool eagerBinding = true;
 
 // --------------------------------------------------------
@@ -152,11 +152,29 @@ void doInitialize(SharedObject *object) {
 // --------------------------------------------------------
 
 RuntimeTlsMap::RuntimeTlsMap()
-: initialSize(0) { }
+: initialSize(0), initialObjects(*allocator) { }
 
-// --------------------------------------------------------
-// DynamicTlsVector
-// --------------------------------------------------------
+struct Tcb {
+	Tcb *selfPointer;
+};
+
+void allocateTcb() {
+	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
+	char *fs_buffer = (char *)allocator->allocate(fs_size);
+	memset(fs_buffer, 0, fs_size);
+
+	for(size_t i = 0; i < runtimeTlsMap->initialObjects.size(); i++) {
+		SharedObject *object = runtimeTlsMap->initialObjects[i];
+		if(object->tlsModel != SharedObject::kTlsInitial)
+			continue;
+		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
+		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
+	}
+
+	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
+	tcb_ptr->selfPointer = tcb_ptr;
+	HEL_CHECK(helWriteFsBase(tcb_ptr));
+}
 
 // --------------------------------------------------------
 // SymbolRef
@@ -274,10 +292,6 @@ frigg::Optional<SymbolRef> Scope::resolveSymbol(SymbolRef r, uint32_t flags) {
 // --------------------------------------------------------
 // Loader
 // --------------------------------------------------------
-
-struct Tcb {
-	Tcb *selfPointer;
-};
 
 Loader::Loader(Scope *scope)
 : p_scope(scope), p_linkQueue(*allocator), p_initQueue(*allocator),
@@ -403,35 +417,14 @@ void Loader::buildInitialTls() {
 			runtimeTlsMap->initialSize += object->tlsAlignment - misalign;
 		object->tlsModel = SharedObject::kTlsInitial;
 		object->tlsOffset = -runtimeTlsMap->initialSize;
-
-		infoLogger->log() << "TLS of " << object->name
-				<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
-				<< ", size: " << object->tlsSegmentSize
-				<< ", alignment: " << object->tlsAlignment << frigg::EndLog();
+		runtimeTlsMap->initialObjects.push(object);
+		
+		if(verbose)
+			infoLogger->log() << "TLS of " << object->name
+					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
+					<< ", size: " << object->tlsSegmentSize
+					<< ", alignment: " << object->tlsAlignment << frigg::EndLog();
 	}
-	
-	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
-	char *fs_buffer = (char *)allocator->allocate(fs_size);
-	infoLogger->log() << "fs_buffer at " << (void *)fs_buffer << frigg::EndLog();
-	memset(fs_buffer, 0, fs_size);
-
-	for(auto it = p_linkQueue.frontIter(); it.okay(); ++it) {
-		SharedObject *object = *it;
-		if(object->tlsModel != SharedObject::kTlsInitial)
-			continue;
-		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
-		infoLogger->log() << "Copy " << object->tlsImageSize
-				<< " bytes from " << object->tlsImagePtr
-				<< " to " << tls_ptr
-				<< " in " << object->name << " TLS" << frigg::EndLog();
-		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
-	}
-
-	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
-	tcb_ptr->selfPointer = tcb_ptr;
-	HEL_CHECK(helWriteFsBase(tcb_ptr));
-
-	infoLogger->log() << "TLS okay!" << frigg::EndLog();
 }
 
 void Loader::linkObjects() {
@@ -592,16 +585,12 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	case R_X86_64_DTPOFF64: {
 		assert(p);
 		assert(!reloc->r_addend);
-		infoLogger->log() << "st_value: " << p->symbol.st_value
-				<< " in object " << object->name << frigg::EndLog();
 		*((uint64_t *)rel_addr) = p->symbol.st_value;
 	} break;
 	case R_X86_64_TPOFF64: {
 		assert(p);
 		assert(!reloc->r_addend);
 		assert(p->object->tlsModel == SharedObject::kTlsInitial);
-		infoLogger->log() << "TPOFF64 to " << p->getString()
-				<< " in object " << object->name << frigg::EndLog();
 		*((uint64_t *)rel_addr) = p->object->tlsOffset + p->symbol.st_value;
 	} break;
 	default:

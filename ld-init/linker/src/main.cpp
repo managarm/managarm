@@ -130,9 +130,10 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	globalLoader->buildInitialTls();
 	globalScope->buildScope(executable.get());
-
 	globalLoader->linkObjects();
+
 	processCopyRelocations(executable.get());
+	allocateTcb();
 	globalLoader->initObjects();
 
 //	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
@@ -151,8 +152,8 @@ extern "C" __attribute__ (( visibility("default") ))
 void *__tls_get_addr(TlsEntry *entry) {
 	assert(entry->object->tlsModel == SharedObject::kTlsInitial);
 	
-	frigg::infoLogger.log() << "__tls_get_addr(" << entry->object->name
-			<< ", " << entry->offset << ")" << frigg::EndLog();
+//	frigg::infoLogger.log() << "__tls_get_addr(" << entry->object->name
+//			<< ", " << entry->offset << ")" << frigg::EndLog();
 	
 	char *tp;
 	asm ( "mov %%fs:(0), %0" : "=r" (tp) );

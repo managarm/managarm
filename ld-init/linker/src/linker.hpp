@@ -64,17 +64,12 @@ struct RuntimeTlsMap {
 	RuntimeTlsMap();
 
 	size_t initialSize;
+	frigg::Vector<SharedObject *, Allocator> initialObjects;
 };
 
 extern frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
 
-// --------------------------------------------------------
-// DynamicTlsVector
-// --------------------------------------------------------
-
-struct DynamicTlsVector {
-	frigg::Vector<void *, Allocator> vector;
-};
+void allocateTcb();
 
 // --------------------------------------------------------
 // SymbolRef
