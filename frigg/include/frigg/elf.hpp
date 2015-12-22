@@ -70,6 +70,7 @@ enum {
 	R_X86_64_RELATIVE = 8,
 	R_X86_64_DTPMOD64 = 16,
 	R_X86_64_DTPOFF64 = 17,
+	R_X86_64_TPOFF64 = 18,
 };
 
 struct Elf64_Rela {

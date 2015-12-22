@@ -9,6 +9,12 @@ struct Scope;
 // --------------------------------------------------------
 
 struct SharedObject {
+	enum TlsModel {
+		kTlsNone,
+		kTlsInitial,
+		kTlsDynamic
+	};
+
 	SharedObject(const char *name, bool is_main_object);
 
 	const char *name;
@@ -23,6 +29,10 @@ struct SharedObject {
 	Elf64_Dyn *dynamic;
 	void **globalOffsetTable;
 	void *entry;
+
+	// TODO: read this from the PHDR
+	size_t tlsSegmentSize, tlsAlignment, tlsImageSize;
+	void *tlsImagePtr;
 	
 	// symbol and string table of this shared object
 	uintptr_t hashTableOffset;
@@ -36,12 +46,35 @@ struct SharedObject {
 
 	// vector of dependencies
 	frigg::Vector<SharedObject *, Allocator> dependencies;
+	
+	TlsModel tlsModel;
+	size_t tlsOffset;
+
 	bool onInitStack;
 	bool wasInitialized;
 };
 
-void processCopyRela(SharedObject *object, Elf64_Rela *reloc);
 void processCopyRelocations(SharedObject *object);
+
+// --------------------------------------------------------
+// RuntimeTlsMap
+// --------------------------------------------------------
+
+struct RuntimeTlsMap {
+	RuntimeTlsMap();
+
+	size_t initialSize;
+};
+
+extern frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
+
+// --------------------------------------------------------
+// DynamicTlsVector
+// --------------------------------------------------------
+
+struct DynamicTlsVector {
+	frigg::Vector<void *, Allocator> vector;
+};
 
 // --------------------------------------------------------
 // SymbolRef
@@ -54,8 +87,8 @@ struct SymbolRef {
 	
 	uintptr_t virtualAddress();
 
-	SharedObject *const object;
-	Elf64_Sym &symbol;
+	SharedObject *object;
+	Elf64_Sym symbol;
 };
 
 // --------------------------------------------------------
@@ -89,7 +122,9 @@ public:
 	void loadFromPhdr(SharedObject *object, void *phdr_pointer,
 			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
 	void loadFromFile(SharedObject *object, const char *file);
-	
+
+	void buildInitialTls();
+
 	void linkObjects();
 
 	void initObjects();

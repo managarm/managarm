@@ -38,8 +38,10 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -fpic
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
+$c_LIBS := -lprotobuf-lite
+
 $($c_BINDIR)/libbragi_mbus.so: $($c_OBJECT_PATHS) | $($c_BINDIR)
-	$($d_CXX) -shared -o $@ $($d_OBJECT_PATHS)
+	$($d_CXX) -shared -o $@ $($d_OBJECT_PATHS) $($d_LIBS)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<

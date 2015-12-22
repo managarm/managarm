@@ -1,5 +1,8 @@
 // This file is auto-generated from ld-server.proto
 // Do not try to edit it manually!
+#include <frigg/string.hpp>
+#include <frigg/vector.hpp>
+#include <frigg/protobuf.hpp>
 
 namespace managarm {
 namespace ld_server {
@@ -199,6 +202,10 @@ public:
     m_phdr_pointer(0),
     m_phdr_entry_size(0),
     m_phdr_count(0),
+    m_tls_segment_size(0),
+    m_tls_alignment(0),
+    m_tls_image_size(0),
+    m_tls_image_ptr(0),
     m_entry(0),
     m_dynamic(0),
     m_segments(allocator) { }
@@ -222,6 +229,34 @@ public:
   }
   inline void set_phdr_count(uint64_t value) {
     m_phdr_count = value;
+  }
+
+  inline uint64_t tls_segment_size() const {
+    return m_tls_segment_size;
+  }
+  inline void set_tls_segment_size(uint64_t value) {
+    m_tls_segment_size = value;
+  }
+
+  inline uint64_t tls_alignment() const {
+    return m_tls_alignment;
+  }
+  inline void set_tls_alignment(uint64_t value) {
+    m_tls_alignment = value;
+  }
+
+  inline uint64_t tls_image_size() const {
+    return m_tls_image_size;
+  }
+  inline void set_tls_image_size(uint64_t value) {
+    m_tls_image_size = value;
+  }
+
+  inline uint64_t tls_image_ptr() const {
+    return m_tls_image_ptr;
+  }
+  inline void set_tls_image_ptr(uint64_t value) {
+    m_tls_image_ptr = value;
   }
 
   inline uint64_t entry() const {
@@ -256,6 +291,14 @@ public:
     p_cachedSize += frigg::protobuf::varintSize(m_phdr_entry_size);
     p_cachedSize += frigg::protobuf::varintSize(3 << 3);
     p_cachedSize += frigg::protobuf::varintSize(m_phdr_count);
+    p_cachedSize += frigg::protobuf::varintSize(7 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_tls_segment_size);
+    p_cachedSize += frigg::protobuf::varintSize(10 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_tls_alignment);
+    p_cachedSize += frigg::protobuf::varintSize(8 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_tls_image_size);
+    p_cachedSize += frigg::protobuf::varintSize(9 << 3);
+    p_cachedSize += frigg::protobuf::varintSize(m_tls_image_ptr);
     p_cachedSize += frigg::protobuf::varintSize(4 << 3);
     p_cachedSize += frigg::protobuf::varintSize(m_entry);
     p_cachedSize += frigg::protobuf::varintSize(5 << 3);
@@ -277,6 +320,10 @@ public:
     frigg::protobuf::emitUInt64(writer, 1, m_phdr_pointer);
     frigg::protobuf::emitUInt64(writer, 2, m_phdr_entry_size);
     frigg::protobuf::emitUInt64(writer, 3, m_phdr_count);
+    frigg::protobuf::emitUInt64(writer, 7, m_tls_segment_size);
+    frigg::protobuf::emitUInt64(writer, 10, m_tls_alignment);
+    frigg::protobuf::emitUInt64(writer, 8, m_tls_image_size);
+    frigg::protobuf::emitUInt64(writer, 9, m_tls_image_ptr);
     frigg::protobuf::emitUInt64(writer, 4, m_entry);
     frigg::protobuf::emitUInt64(writer, 5, m_dynamic);
     for(size_t i = 0; i < m_segments.size(); i++) {
@@ -310,6 +357,22 @@ public:
         assert(header.wire == frigg::protobuf::kWireVarint);
         m_phdr_count = fetchUInt64(reader);
         break;
+      case 7:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_tls_segment_size = fetchUInt64(reader);
+        break;
+      case 10:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_tls_alignment = fetchUInt64(reader);
+        break;
+      case 8:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_tls_image_size = fetchUInt64(reader);
+        break;
+      case 9:
+        assert(header.wire == frigg::protobuf::kWireVarint);
+        m_tls_image_ptr = fetchUInt64(reader);
+        break;
       case 4:
         assert(header.wire == frigg::protobuf::kWireVarint);
         m_entry = fetchUInt64(reader);
@@ -338,6 +401,10 @@ private:
   uint64_t m_phdr_pointer;
   uint64_t m_phdr_entry_size;
   uint64_t m_phdr_count;
+  uint64_t m_tls_segment_size;
+  uint64_t m_tls_alignment;
+  uint64_t m_tls_image_size;
+  uint64_t m_tls_image_ptr;
   uint64_t m_entry;
   uint64_t m_dynamic;
   Vector<::managarm::ld_server::Segment<Allocator>> m_segments;

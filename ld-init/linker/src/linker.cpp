@@ -39,15 +39,17 @@ bool eagerBinding = true;
 SharedObject::SharedObject(const char *name, bool is_main_object)
 		: name(name), isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
+		tlsSegmentSize(0), tlsAlignment(0), tlsImageSize(0), tlsImagePtr(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0),
-		lazyExplicitAddend(false),
-		dependencies(*allocator), onInitStack(false), wasInitialized(false) { }
+		lazyExplicitAddend(false), dependencies(*allocator),
+		tlsModel(kTlsNone), tlsOffset(0), onInitStack(false), wasInitialized(false) { }
 
 void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
-	assert(type == R_X86_64_COPY);
+	if(type != R_X86_64_COPY)
+		return;
 	
 	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
 	
@@ -144,6 +146,17 @@ void doInitialize(SharedObject *object) {
 	
 	object->wasInitialized = true;
 }
+
+// --------------------------------------------------------
+// RuntimeTlsMap
+// --------------------------------------------------------
+
+RuntimeTlsMap::RuntimeTlsMap()
+: initialSize(0) { }
+
+// --------------------------------------------------------
+// DynamicTlsVector
+// --------------------------------------------------------
 
 // --------------------------------------------------------
 // SymbolRef
@@ -286,26 +299,22 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 			object->dynamic = (Elf64_Dyn *)phdr->p_vaddr;
 			break;
 		case PT_TLS: {
-			size_t tls_size = phdr->p_memsz + sizeof(Tcb);
-			void *tls_buffer = allocator->allocate(tls_size);
-			memset(tls_buffer, 0, tls_size);
-			memcpy(tls_buffer, (void *)(object->baseAddress + phdr->p_vaddr), phdr->p_filesz);
-
-			auto tcb_ptr = (Tcb *)((uintptr_t)tls_buffer + phdr->p_memsz);
-			tcb_ptr->selfPointer = tcb_ptr;
-			HEL_CHECK(helWriteFsBase(tcb_ptr));
+			object->tlsSegmentSize = phdr->p_memsz;
+			object->tlsAlignment = phdr->p_align;
+			object->tlsImageSize = phdr->p_filesz;
+			object->tlsImagePtr = (void *)(object->baseAddress + phdr->p_vaddr);
 		} break;
 		default:
 			//FIXME warn about unknown phdrs
 			break;
 		}
 	}
-	
+
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
-	parseDynamic(object);
-	processDependencies(object);
 	p_linkQueue.addBack(object);
 	p_initQueue.addBack(object);
+	parseDynamic(object);
+	processDependencies(object);
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
@@ -333,6 +342,11 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	managarm::ld_server::ServerResponse<Allocator> response(*allocator);
 	response.ParseFromArray(buffer, length);
+
+	object->tlsSegmentSize = response.tls_segment_size();
+	object->tlsAlignment = response.tls_alignment();
+	object->tlsImageSize = response.tls_image_size();
+	object->tlsImagePtr = (void *)response.tls_image_ptr();
 
 	object->entry = (void *)response.entry();
 	object->dynamic = (Elf64_Dyn *)response.dynamic();
@@ -363,10 +377,61 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	}
 
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
-	parseDynamic(object);
-	processDependencies(object);
 	p_linkQueue.addBack(object);
 	p_initQueue.addBack(object);
+	parseDynamic(object);
+	processDependencies(object);
+}
+
+void Loader::buildInitialTls() {
+	assert(runtimeTlsMap->initialSize == 0);
+
+	assert(!p_linkQueue.empty());
+	assert(p_linkQueue.front()->isMainObject);
+
+	for(auto it = p_linkQueue.frontIter(); it.okay(); ++it) {
+		SharedObject *object = *it;
+		assert(object->tlsModel == SharedObject::kTlsNone);
+		
+		if(object->tlsSegmentSize == 0)
+			continue;
+		
+		runtimeTlsMap->initialSize += object->tlsSegmentSize;
+		assert(16 % object->tlsAlignment == 0);
+		size_t misalign = runtimeTlsMap->initialSize % object->tlsAlignment;
+		if(misalign)
+			runtimeTlsMap->initialSize += object->tlsAlignment - misalign;
+		object->tlsModel = SharedObject::kTlsInitial;
+		object->tlsOffset = -runtimeTlsMap->initialSize;
+
+		infoLogger->log() << "TLS of " << object->name
+				<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
+				<< ", size: " << object->tlsSegmentSize
+				<< ", alignment: " << object->tlsAlignment << frigg::EndLog();
+	}
+	
+	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
+	char *fs_buffer = (char *)allocator->allocate(fs_size);
+	infoLogger->log() << "fs_buffer at " << (void *)fs_buffer << frigg::EndLog();
+	memset(fs_buffer, 0, fs_size);
+
+	for(auto it = p_linkQueue.frontIter(); it.okay(); ++it) {
+		SharedObject *object = *it;
+		if(object->tlsModel != SharedObject::kTlsInitial)
+			continue;
+		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
+		infoLogger->log() << "Copy " << object->tlsImageSize
+				<< " bytes from " << object->tlsImagePtr
+				<< " to " << tls_ptr
+				<< " in " << object->name << " TLS" << frigg::EndLog();
+		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
+	}
+
+	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
+	tcb_ptr->selfPointer = tcb_ptr;
+	HEL_CHECK(helWriteFsBase(tcb_ptr));
+
+	infoLogger->log() << "TLS okay!" << frigg::EndLog();
 }
 
 void Loader::linkObjects() {
@@ -478,19 +543,18 @@ void Loader::processDependencies(SharedObject *object) {
 void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
 	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
-	
-	if(type == R_X86_64_COPY)
-		return; // TODO: make sure this only occurs in executables
 
-	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+	// copy relocations have to be performed after all other relocations
+	if(type == R_X86_64_COPY)
+		return;
 	
 	// resolve the symbol if there is a symbol
-	uintptr_t symbol_addr = 0;
-	if(symbol_index != 0) {
+	frigg::Optional<SymbolRef> p;
+	if(symbol_index) {
 		auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 				+ symbol_index * sizeof(Elf64_Sym));
 		SymbolRef r(object, *symbol);
-		frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
+		p = object->loadScope->resolveSymbol(r, 0);
 		if(!p) {
 			if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
 				frigg::panicLogger.log() << "Unresolved load-time symbol "
@@ -499,34 +563,47 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 			if(verbose)
 				frigg::infoLogger.log() << "Unresolved weak load-time symbol "
 						<< r.getString() << " in object " << object->name << frigg::EndLog();
-		}else{
-			symbol_addr = p->virtualAddress();
 		}
 	}
 
+	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+	
 	switch(type) {
-	case R_X86_64_64:
+	case R_X86_64_64: {
+		assert(symbol_index);
+		uint64_t symbol_addr = p ? p->virtualAddress() : 0;
 		*((uint64_t *)rel_addr) = symbol_addr + reloc->r_addend;
-		//FIXME infoLogger->log() << "R_X86_64_64 at " << (void *)rel_addr
-		//		<< " resolved to " << (void *)(symbol_addr + reloc->r_addend)
-		//		<< frigg::EndLog();
-		break;
-	case R_X86_64_GLOB_DAT:
+	} break;
+	case R_X86_64_GLOB_DAT: {
+		assert(symbol_index);
+		assert(!reloc->r_addend);
+		uint64_t symbol_addr = p ? p->virtualAddress() : 0;
 		*((uint64_t *)rel_addr) = symbol_addr;
-		//FIXME infoLogger->log() << "R_X86_64_GLOB_DAT at " << (void *)rel_addr
-		//		<< " resolved to " << (void *)(symbol_addr)
-		//		<< frigg::EndLog();
-		break;
-	case R_X86_64_RELATIVE:
+	} break;
+	case R_X86_64_RELATIVE: {
+		assert(!symbol_index);
 		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
-		//FIXME infoLogger->log() << "R_X86_64_RELATIVE at " << (void *)rel_addr
-		//		<< " resolved to " << (void *)(object->baseAddress + reloc->r_addend)
-		//		<< frigg::EndLog();
-		break;
-	case R_X86_64_DTPMOD64:
-	case R_X86_64_DTPOFF64:
-		// TODO: implement TLS
-		break;
+	} break;
+	case R_X86_64_DTPMOD64: {
+		assert(p);
+		assert(!reloc->r_addend);
+		*((uint64_t *)rel_addr) = (uint64_t)object;
+	} break;
+	case R_X86_64_DTPOFF64: {
+		assert(p);
+		assert(!reloc->r_addend);
+		infoLogger->log() << "st_value: " << p->symbol.st_value
+				<< " in object " << object->name << frigg::EndLog();
+		*((uint64_t *)rel_addr) = p->symbol.st_value;
+	} break;
+	case R_X86_64_TPOFF64: {
+		assert(p);
+		assert(!reloc->r_addend);
+		assert(p->object->tlsModel == SharedObject::kTlsInitial);
+		infoLogger->log() << "TPOFF64 to " << p->getString()
+				<< " in object " << object->name << frigg::EndLog();
+		*((uint64_t *)rel_addr) = p->object->tlsOffset + p->symbol.st_value;
+	} break;
 	default:
 		frigg::panicLogger.log() << "Unexpected relocation type "
 				<< (void *)type << frigg::EndLog();

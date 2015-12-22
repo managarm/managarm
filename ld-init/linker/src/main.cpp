@@ -35,6 +35,8 @@ frigg::LazyInitializer<SharedObject> executable;
 frigg::LazyInitializer<Scope> globalScope;
 frigg::LazyInitializer<Loader> globalLoader;
 
+frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
+
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	assert(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
@@ -66,7 +68,8 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	infoLogger.initialize(infoSink);
 	//infoLogger->log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
-	
+	runtimeTlsMap.initialize();
+
 	// FIXME: read own SONAME
 	interpreter.initialize("ld-init.so", false);
 	interpreter->baseAddress = (uintptr_t)_DYNAMIC
@@ -124,19 +127,35 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	// TODO: support non-zero base addresses?
 	globalLoader->loadFromPhdr(executable.get(), phdr_pointer,
 			phdr_entry_size, phdr_count, entry_pointer);
-	
+
+	globalLoader->buildInitialTls();
 	globalScope->buildScope(executable.get());
 
 	globalLoader->linkObjects();
 	processCopyRelocations(executable.get());
-
 	globalLoader->initObjects();
 
 //	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 
-extern "C" __attribute__ (( visibility("default") )) void __tls_get_addr() {
-	assert(!"Resolved to linker");
+// the layout of this structure is dictated by the ABI
+struct TlsEntry {
+	SharedObject *object;
+	uint64_t offset;
+};
+
+static_assert(sizeof(TlsEntry) == 16, "Bad TlsEntry size");
+
+extern "C" __attribute__ (( visibility("default") ))
+void *__tls_get_addr(TlsEntry *entry) {
+	assert(entry->object->tlsModel == SharedObject::kTlsInitial);
+	
+	frigg::infoLogger.log() << "__tls_get_addr(" << entry->object->name
+			<< ", " << entry->offset << ")" << frigg::EndLog();
+	
+	char *tp;
+	asm ( "mov %%fs:(0), %0" : "=r" (tp) );
+	return tp + entry->object->tlsOffset + entry->offset;
 }
 

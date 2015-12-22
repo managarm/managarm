@@ -22,6 +22,10 @@ message ServerResponse {
 	optional uint64 phdr_pointer = 1;
 	optional uint64 phdr_entry_size = 2;
 	optional uint64 phdr_count = 3;
+	optional uint64 tls_segment_size = 7;
+	optional uint64 tls_alignment = 10;
+	optional uint64 tls_image_size = 8;
+	optional uint64 tls_image_ptr = 9;
 	optional uint64 entry = 4;
 	optional uint64 dynamic = 5;
 	repeated Segment segments = 6;
