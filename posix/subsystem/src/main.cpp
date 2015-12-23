@@ -42,6 +42,9 @@ helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe mbusPipe;
 
+// TODO: this could be handled better
+helx::Pipe initrdPipe;
+
 // TODO: this is a ugly hack
 MountSpace *initMountSpace;
 
@@ -310,6 +313,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		DeviceAllocator &char_devices = process->mountSpace->charDevices;
 		char_devices.allocateDevice("misc",
 				frigg::staticPtrCast<Device>(frigg::move(device)), major, minor);
+	
+		auto initrd_fs = frigg::construct<extern_fs::MountPoint>(*allocator,
+				frigg::move(initrdPipe));
+		auto initrd_path = frigg::String<Allocator>(*allocator, "/initrd");
+		initMountSpace->allMounts.insert(initrd_path, initrd_fs);
 
 		auto dev_fs = frigg::construct<dev_fs::MountPoint>(*allocator);
 		auto inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
@@ -647,6 +655,42 @@ int main() {
 	HelError mbus_connect_error;
 	mbusConnect.connectSync(eventHub, mbus_connect_error, mbusPipe);
 	HEL_CHECK(mbus_connect_error);
+
+	// enumerate the initrd object
+	managarm::mbus::CntRequest<Allocator> enum_request(*allocator);
+	enum_request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
+	
+	managarm::mbus::Capability<Allocator> cap(*allocator);
+	cap.set_name(frigg::String<Allocator>(*allocator, "initrd"));
+	enum_request.add_caps(frigg::move(cap));
+
+	frigg::String<Allocator> enum_serialized(*allocator);
+	enum_request.SerializeToString(&enum_serialized);
+	mbusPipe.sendStringReq(enum_serialized.data(), enum_serialized.size(), 0, 0);
+
+	uint8_t enum_buffer[128];
+	HelError enum_error;
+	size_t enum_length;
+	mbusPipe.recvStringRespSync(enum_buffer, 128, eventHub, 0, 0, enum_error, enum_length);
+	HEL_CHECK(enum_error);
+	
+	managarm::mbus::SvrResponse<Allocator> enum_response(*allocator);
+	enum_response.ParseFromArray(enum_buffer, enum_length);
+	
+	// query the initrd object
+	managarm::mbus::CntRequest<Allocator> query_request(*allocator);
+	query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+	query_request.set_object_id(enum_response.object_id());
+
+	frigg::String<Allocator> query_serialized(*allocator);
+	query_request.SerializeToString(&query_serialized);
+	mbusPipe.sendStringReq(query_serialized.data(), query_serialized.size(), 0, 0);
+	
+	HelError query_error;
+	HelHandle query_handle;
+	mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, query_error, query_handle);
+	HEL_CHECK(query_error);
+	initrdPipe = helx::Pipe(query_handle);
 
 	frigg::runClosure<MbusClosure>(*allocator);
 

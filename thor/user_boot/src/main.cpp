@@ -166,6 +166,26 @@ void startAcpi() {
 	acpiConnect = helx::Client(connect_handle);
 }
 
+void startInitrd() {
+	helx::Pipe parent_pipe, child_pipe;
+	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
+
+	auto local_directory = helx::Directory::create();
+	local_directory.publish(child_pipe.getHandle(), "parent");
+	local_directory.publish(mbusConnect.getHandle(), "mbus");
+	
+	auto directory = helx::Directory::create();
+	directory.mount(local_directory.getHandle(), "local");
+	directory.remount("initrd/#this", "initrd");
+	loadImage("initrd/initrd", directory.getHandle(), true);
+	
+	// wait until the initrd driver is ready
+	HelError error;
+	size_t length;
+	parent_pipe.recvStringReqSync(nullptr, 0, eventHub, 0, 0, error, length);
+	HEL_CHECK(error);
+}
+
 void startLdServer() {
 	helx::Pipe parent_pipe, child_pipe;
 	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
@@ -294,6 +314,7 @@ int main() {
 	
 	startMbus();
 	startAcpi();
+	startInitrd();
 	startLdServer();
 	startPosixSubsystem();
 	runPosixInit();
