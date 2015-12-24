@@ -34,6 +34,8 @@ struct VfsOpenFile {
 			frigg::CallbackPtr<void()> callback);
 	virtual void read(void *buffer, size_t max_length,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback);
+	
+	virtual void seek(int64_t rel_offset, frigg::CallbackPtr<void()> callback);
 
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();

@@ -23,6 +23,7 @@ enum ClientRequestType {
 	OPEN = 2;
 	READ = 3;
 	WRITE = 4;
+	SEEK = 13;
 	CLOSE = 5;
 	DUP2 = 6;
 	HELFD_ATTACH = 10;
@@ -59,6 +60,9 @@ message ClientRequest {
 
 	// used by WRITE
 	optional bytes buffer = 6;
+
+	// used by SEEK
+	optional int64 rel_offset = 11;
 
 	// used by FORK
 	optional uint64 child_sp = 8;

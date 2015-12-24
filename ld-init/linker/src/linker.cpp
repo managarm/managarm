@@ -332,6 +332,60 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	processDependencies(object);
 }
 
+void posixSeek(int fd, int64_t offset) {
+	managarm::posix::ClientRequest<Allocator> seek_request(*allocator);
+	seek_request.set_request_type(managarm::posix::ClientRequestType::SEEK);
+	seek_request.set_fd(fd);
+	seek_request.set_rel_offset(offset);
+	
+	frigg::String<Allocator> seek_serialized(*allocator);
+	seek_request.SerializeToString(&seek_serialized);
+	posixPipe->sendStringReq(seek_serialized.data(), seek_serialized.size(), 0, 0);
+
+	uint8_t seek_buffer[128];
+	HelError seek_error;
+	size_t seek_length;
+	posixPipe->recvStringRespSync(seek_buffer, 128, *eventHub, 0, 0, seek_error, seek_length);
+	HEL_CHECK(seek_error);
+	
+	managarm::posix::ServerResponse<Allocator> seek_response(*allocator);
+	seek_response.ParseFromArray(seek_buffer, seek_length);
+	assert(seek_response.error() == managarm::posix::Errors::SUCCESS);
+}
+
+void posixRead(int fd, void *buffer, size_t length) {
+	size_t offset = 0;
+	while(offset < length) {
+		size_t chunk_size = 3968;
+		if(chunk_size > length - offset)
+			chunk_size = length - offset;
+
+		managarm::posix::ClientRequest<Allocator> read_request(*allocator);
+		read_request.set_request_type(managarm::posix::ClientRequestType::READ);
+		read_request.set_fd(fd);
+		read_request.set_size(chunk_size);
+
+		frigg::String<Allocator> read_serialized(*allocator);
+		read_request.SerializeToString(&read_serialized);
+		posixPipe->sendStringReq(read_serialized.data(), read_serialized.size(), 0, 0);
+
+		uint8_t read_buffer[chunk_size + 128];
+		HelError read_error;
+		size_t read_length;
+		posixPipe->recvStringRespSync(read_buffer, chunk_size + 128,
+				*eventHub, 0, 0, read_error, read_length);
+		HEL_CHECK(read_error);
+		
+		managarm::posix::ServerResponse<Allocator> read_response(*allocator);
+		read_response.ParseFromArray(read_buffer, read_length);
+		assert(read_response.error() == managarm::posix::Errors::SUCCESS);
+		memcpy((char *)buffer + offset,
+				read_response.buffer().data(), read_response.buffer().size());
+		offset += read_response.buffer().size();
+	}
+	assert(offset == length);
+}
+
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
@@ -378,50 +432,25 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	stat_response.ParseFromArray(stat_buffer, stat_length);
 	assert(stat_response.error() == managarm::posix::Errors::SUCCESS);
 
-	// read the whole object file into memory
-	auto image = (char *)allocator->allocate(stat_response.file_size());
-	size_t offset = 0;
-	while(true) {
-		size_t chunk_size = 3968;
+	// read the elf file header
+	Elf64_Ehdr ehdr;
+	posixRead(open_response.fd(), &ehdr, sizeof(Elf64_Ehdr));
 
-		managarm::posix::ClientRequest<Allocator> read_request(*allocator);
-		read_request.set_request_type(managarm::posix::ClientRequestType::READ);
-		read_request.set_fd(open_response.fd());
-		read_request.set_size(chunk_size);
+	assert(ehdr.e_ident[0] == 0x7F
+			&& ehdr.e_ident[1] == 'E'
+			&& ehdr.e_ident[2] == 'L'
+			&& ehdr.e_ident[3] == 'F');
+	assert(ehdr.e_type == ET_EXEC || ehdr.e_type == ET_DYN);
 
-		frigg::String<Allocator> read_serialized(*allocator);
-		read_request.SerializeToString(&read_serialized);
-		posixPipe->sendStringReq(read_serialized.data(), read_serialized.size(), 0, 0);
-
-		uint8_t read_buffer[chunk_size + 128];
-		HelError read_error;
-		size_t read_length;
-		posixPipe->recvStringRespSync(read_buffer, chunk_size + 128,
-				*eventHub, 0, 0, read_error, read_length);
-		HEL_CHECK(read_error);
-		
-		managarm::posix::ServerResponse<Allocator> read_response(*allocator);
-		read_response.ParseFromArray(read_buffer, read_length);
-		if(read_response.error() == managarm::posix::Errors::END_OF_FILE)
-			break;
-		assert(read_response.error() == managarm::posix::Errors::SUCCESS);
-		memcpy(image + offset, read_response.buffer().data(), read_response.buffer().size());
-		offset += read_response.buffer().size();
-	}
+	// read the elf program headers
+	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(open_response.fd(), ehdr.e_phoff);
+	posixRead(open_response.fd(), phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	constexpr size_t kPageSize = 0x1000;
 	
-	// parse the ELf file format
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
-	assert(ehdr->e_ident[0] == 0x7F
-			&& ehdr->e_ident[1] == 'E'
-			&& ehdr->e_ident[2] == 'L'
-			&& ehdr->e_ident[3] == 'F');
-	assert(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
-
-	for(int i = 0; i < ehdr->e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
-				+ i * ehdr->e_phentsize);
+	for(int i = 0; i < ehdr.e_phnum; i++) {
+		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
 		
 		if(phdr->p_type == PT_LOAD) {
 			assert(phdr->p_memsz > 0);
@@ -442,7 +471,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 					map_length, kHelMapReadWrite, &write_ptr));
 
 			memset(write_ptr, 0, map_length);
-			memcpy((char *)write_ptr + misalign, image + phdr->p_offset, phdr->p_filesz);
+			posixSeek(open_response.fd(), phdr->p_offset);
+			posixRead(open_response.fd(), (char *)write_ptr + misalign, phdr->p_filesz);
 			HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 			// map the segment with correct permissions

@@ -87,6 +87,17 @@ struct ReadClosure {
 	managarm::fs::CntRequest<Allocator> request;
 };
 
+struct SeekClosure {
+	SeekClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest<Allocator> request);
+
+	void operator() ();
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest<Allocator> request;
+};
+
 // --------------------------------------------------------
 // Connection
 // --------------------------------------------------------
@@ -132,6 +143,10 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 		(*closure)();
 	}else if(request.req_type() == managarm::fs::CntReqType::READ) {
 		auto closure = frigg::construct<ReadClosure>(*allocator,
+				*this, msg_request, frigg::move(request));
+		(*closure)();
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK) {
+		auto closure = frigg::construct<SeekClosure>(*allocator,
 				*this, msg_request, frigg::move(request));
 		(*closure)();
 	}else{
@@ -240,6 +255,26 @@ void ReadClosure::operator() () {
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 
 	open_file->offset += read_size;
+}
+
+// --------------------------------------------------------
+// SeekClosure
+// --------------------------------------------------------
+
+SeekClosure::SeekClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest<Allocator> request)
+: connection(connection), responseId(response_id), request(frigg::move(request)) { }
+
+void SeekClosure::operator() () {
+	auto open_file = connection.getOpenFile(request.fd());
+	open_file->offset = request.rel_offset();
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.set_error(managarm::fs::Errors::SUCCESS);
+
+	frigg::String<Allocator> serialized(*allocator);
+	response.SerializeToString(&serialized);
+	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
 // --------------------------------------------------------

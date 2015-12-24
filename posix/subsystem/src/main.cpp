@@ -271,6 +271,50 @@ void ReadClosure::readComplete(VfsError error, size_t actual_size) {
 }
 
 // --------------------------------------------------------
+// SeekClosure
+// --------------------------------------------------------
+
+struct SeekClosure : frigg::BaseClosure<SeekClosure> {
+	SeekClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+
+	void operator() ();
+
+private:
+	void seekComplete();
+
+	StdSharedPtr<helx::Pipe> pipe;
+	StdSharedPtr<Process> process;
+	managarm::posix::ClientRequest<Allocator> request;
+	int64_t msgRequest;
+};
+
+SeekClosure::SeekClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
+: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
+		msgRequest(msg_request) { }
+
+void SeekClosure::operator() () {
+	auto file = process->allOpenFiles.get(request.fd());
+	if(!file) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		sendResponse(*pipe, response, msgRequest);
+		suicide(*allocator);
+		return;
+	}
+
+	(*file)->seek(request.rel_offset(), CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
+}
+
+void SeekClosure::seekComplete() {
+	managarm::posix::ServerResponse<Allocator> response(*allocator);
+	response.set_error(managarm::posix::Errors::SUCCESS);
+	sendResponse(*pipe, response, msgRequest);
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -390,6 +434,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			infoLogger->log() << "[" << process->pid << "] READ" << frigg::EndLog();
 
 		frigg::runClosure<ReadClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] SEEK" << frigg::EndLog();
+
+		frigg::runClosure<SeekClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
 		if(traceRequests)

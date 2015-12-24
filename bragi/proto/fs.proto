@@ -14,6 +14,7 @@ enum CntReqType {
 	OPEN = 1;
 	READ = 2;
 	WRITE = 3;
+	SEEK = 6;
 	CLOSE = 4;
 }
 
@@ -23,12 +24,15 @@ message CntRequest {
 	// used by OPEN_ENTRY
 	optional string path = 2;
 
-	// used by FSTAT, READ, WRITE and CLOSE
+	// used by FSTAT, READ, WRITE, SEEK and CLOSE
 	optional int32 fd = 4;
 
 	// used by READ and WRITE
 	optional int32 size = 5;
 	optional bytes buffer = 6;
+
+	// used by SEEK
+	optional int64 rel_offset = 7;
 }
 
 message SvrResponse {
