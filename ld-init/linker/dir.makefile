@@ -22,7 +22,7 @@ $($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
 
 $c_CXX = x86_64-managarm-g++
 
-$c_INCLUDES := -I$(TREE_PATH)/frigg/include
+$c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$($c_GENDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
@@ -50,6 +50,14 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.s | $($c_SRCDIR)
 	$($d_AS) -o $@ $<
+
+# build protobuf files
+gen-$c: $($c_GENDIR)/ld-server.frigg_pb.hpp $($c_GENDIR)/posix.frigg_pb.hpp
+
+$c_TARGETS += $($c_GENDIR)/%.frigg_pb.hpp
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
+	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 
 -include $($c_OBJECT_PATHS:%.o=%.d)
 

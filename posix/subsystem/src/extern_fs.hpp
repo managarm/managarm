@@ -89,7 +89,7 @@ private:
 	void *readBuffer;
 	size_t maxSize;
 	frigg::CallbackPtr<void(VfsError, size_t)> callback;
-	uint8_t buffer[128];
+	uint8_t buffer[4096];
 };
 
 } // namespace extern_fs

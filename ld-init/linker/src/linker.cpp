@@ -23,13 +23,14 @@
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
 
-#include "ld-server.frigg_pb.hpp"
+#include <ld-server.frigg_pb.hpp>
+#include <posix.frigg_pb.hpp>
 
 #include "linker.hpp"
 
 uintptr_t libraryBase = 0x41000000;
 
-bool verbose = false;
+bool verbose = true;
 bool eagerBinding = true;
 
 // --------------------------------------------------------
@@ -335,59 +336,146 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
 		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
-
-	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-	request.set_identifier(frigg::String<Allocator>(*allocator, file));
-	request.set_base_address(object->baseAddress);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	serverPipe->sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
-	uint8_t buffer[128];
-	int64_t async_id;
-	HEL_CHECK(helSubmitRecvString(serverPipe->getHandle(), eventHub->getHandle(),
-			buffer, 128, 1, 0, kHelNoFunction, kHelNoObject,
-			kHelResponse, &async_id));
-	HelError response_error;
-	size_t length;
-	eventHub->waitForRecvString(async_id, response_error, length);
-	HEL_CHECK(response_error);
+	frigg::String<Allocator> full_path(*allocator, "/initrd/");
+	full_path += file;
 
-	managarm::ld_server::ServerResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
+	// open the object file
+	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
+	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
+	open_request.set_path(full_path);
+	
+	frigg::String<Allocator> open_serialized(*allocator);
+	open_request.SerializeToString(&open_serialized);
+	posixPipe->sendStringReq(open_serialized.data(), open_serialized.size(), 0, 0);
 
-	object->tlsSegmentSize = response.tls_segment_size();
-	object->tlsAlignment = response.tls_alignment();
-	object->tlsImageSize = response.tls_image_size();
-	object->tlsImagePtr = (void *)response.tls_image_ptr();
+	uint8_t open_buffer[128];
+	HelError open_error;
+	size_t open_length;
+	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, open_error, open_length);
+	HEL_CHECK(open_error);
+	
+	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
+	open_response.ParseFromArray(open_buffer, open_length);
+	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
 
-	object->entry = (void *)response.entry();
-	object->dynamic = (Elf64_Dyn *)response.dynamic();
+	// determine the object file's size
+	managarm::posix::ClientRequest<Allocator> stat_request(*allocator);
+	stat_request.set_request_type(managarm::posix::ClientRequestType::FSTAT);
+	stat_request.set_fd(open_response.fd());
+	
+	frigg::String<Allocator> stat_serialized(*allocator);
+	stat_request.SerializeToString(&stat_serialized);
+	posixPipe->sendStringReq(stat_serialized.data(), stat_serialized.size(), 0, 0);
 
-	for(size_t i = 0; i < response.segments_size(); i++) {
-		auto &segment = response.segments(i);
+	uint8_t stat_buffer[128];
+	HelError stat_error;
+	size_t stat_length;
+	posixPipe->recvStringRespSync(stat_buffer, 128, *eventHub, 0, 0, stat_error, stat_length);
+	HEL_CHECK(stat_error);
+	
+	managarm::posix::ServerResponse<Allocator> stat_response(*allocator);
+	stat_response.ParseFromArray(stat_buffer, stat_length);
+	assert(stat_response.error() == managarm::posix::Errors::SUCCESS);
 
-		uint32_t map_flags = 0;
-		if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
-			map_flags |= kHelMapReadWrite;
-		}else{
-			assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
-			map_flags |= kHelMapReadExecute;
-		}
+	// read the whole object file into memory
+	auto image = (char *)allocator->allocate(stat_response.file_size());
+	size_t offset = 0;
+	while(true) {
+		size_t chunk_size = 3968;
+
+		managarm::posix::ClientRequest<Allocator> read_request(*allocator);
+		read_request.set_request_type(managarm::posix::ClientRequestType::READ);
+		read_request.set_fd(open_response.fd());
+		read_request.set_size(chunk_size);
+
+		frigg::String<Allocator> read_serialized(*allocator);
+		read_request.SerializeToString(&read_serialized);
+		posixPipe->sendStringReq(read_serialized.data(), read_serialized.size(), 0, 0);
+
+		uint8_t read_buffer[chunk_size + 128];
+		HelError read_error;
+		size_t read_length;
+		posixPipe->recvStringRespSync(read_buffer, chunk_size + 128,
+				*eventHub, 0, 0, read_error, read_length);
+		HEL_CHECK(read_error);
 		
-		int64_t async_id;
-		HEL_CHECK(helSubmitRecvDescriptor(serverPipe->getHandle(), eventHub->getHandle(),
-				1, 1 + i, kHelNoFunction, kHelNoObject, kHelResponse, &async_id));
-		HelError memory_error;
-		HelHandle memory_handle;
-		eventHub->waitForRecvDescriptor(async_id, memory_error, memory_handle);
-		HEL_CHECK(memory_error);
+		managarm::posix::ServerResponse<Allocator> read_response(*allocator);
+		read_response.ParseFromArray(read_buffer, read_length);
+		if(read_response.error() == managarm::posix::Errors::END_OF_FILE)
+			break;
+		assert(read_response.error() == managarm::posix::Errors::SUCCESS);
+		memcpy(image + offset, read_response.buffer().data(), read_response.buffer().size());
+		offset += read_response.buffer().size();
+	}
 
-		void *actual_pointer;
-		HEL_CHECK(helMapMemory(memory_handle, kHelNullHandle, (void *)segment.virt_address(),
-				segment.virt_length(), map_flags, &actual_pointer));
-		HEL_CHECK(helCloseDescriptor(memory_handle));
+	constexpr size_t kPageSize = 0x1000;
+	
+	// parse the ELf file format
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image;
+	assert(ehdr->e_ident[0] == 0x7F
+			&& ehdr->e_ident[1] == 'E'
+			&& ehdr->e_ident[2] == 'L'
+			&& ehdr->e_ident[3] == 'F');
+	assert(ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN);
+
+	for(int i = 0; i < ehdr->e_phnum; i++) {
+		auto phdr = (Elf64_Phdr *)((uintptr_t)image + ehdr->e_phoff
+				+ i * ehdr->e_phentsize);
+		
+		if(phdr->p_type == PT_LOAD) {
+			assert(phdr->p_memsz > 0);
+			
+			assert(object->baseAddress % kPageSize == 0);
+			size_t misalign = phdr->p_vaddr % kPageSize;
+
+			size_t map_length = phdr->p_memsz + misalign;
+			if((map_length % kPageSize) != 0)
+				map_length += kPageSize - (map_length % kPageSize);
+			
+			// setup the segment with write permission and copy data
+			HelHandle memory;
+			HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
+
+			void *write_ptr;
+			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+					map_length, kHelMapReadWrite, &write_ptr));
+
+			memset(write_ptr, 0, map_length);
+			memcpy((char *)write_ptr + misalign, image + phdr->p_offset, phdr->p_filesz);
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
+
+			// map the segment with correct permissions
+			uintptr_t map_address = object->baseAddress + phdr->p_vaddr - misalign;
+			
+			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+				void *map_pointer;
+				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
+						map_length, kHelMapReadWrite, &map_pointer));
+			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				void *map_pointer;
+				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
+						map_length, kHelMapReadExecute, &map_pointer));
+			}else{
+				frigg::panicLogger.log() << "Illegal combination of segment permissions"
+						<< frigg::EndLog();
+			}
+		}else if(phdr->p_type == PT_TLS) {
+			object->tlsSegmentSize = phdr->p_memsz;
+			object->tlsAlignment = phdr->p_align;
+			object->tlsImageSize = phdr->p_filesz;
+			object->tlsImagePtr = (void *)(object->baseAddress + phdr->p_vaddr);
+		}else if(phdr->p_type == PT_DYNAMIC) {
+			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
+		}else if(phdr->p_type == PT_INTERP
+				|| phdr->p_type == PT_PHDR
+				|| phdr->p_type == PT_GNU_EH_FRAME
+				|| phdr->p_type == PT_GNU_RELRO
+				|| phdr->p_type == PT_GNU_STACK) {
+			// ignore the phdr
+		}else{
+			assert(!"Unexpected PHDR");
+		}
 	}
 
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);

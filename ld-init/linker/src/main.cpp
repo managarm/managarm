@@ -62,6 +62,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
 frigg::LazyInitializer<helx::Pipe> serverPipe;
+frigg::LazyInitializer<helx::Pipe> posixPipe;
 
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
@@ -104,20 +105,37 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 
 	eventHub.initialize(helx::EventHub::create());
 	serverPipe.initialize();
+	posixPipe.initialize();
 	
-	const char *path = "config/rtdl-server";
+	// connect to ld-server
+	const char *server_path = "config/rtdl-server";
 	HelHandle server_handle;
-	HEL_CHECK(helRdOpen(path, strlen(path), &server_handle));
+	HEL_CHECK(helRdOpen(server_path, strlen(server_path), &server_handle));
 	
-	int64_t async_id;
+	int64_t server_async_id;
 	HEL_CHECK(helSubmitConnect(server_handle, eventHub->getHandle(),
-			kHelNoFunction, kHelNoObject, &async_id));
+			kHelNoFunction, kHelNoObject, &server_async_id));
 	HEL_CHECK(helCloseDescriptor(server_handle));
 
-	HelError connect_error;
-	eventHub->waitForConnect(async_id, connect_error, *serverPipe);
-	HEL_CHECK(connect_error);
+	HelError server_error;
+	eventHub->waitForConnect(server_async_id, server_error, *serverPipe);
+	HEL_CHECK(server_error);
 	
+	// connect to ld-server
+	const char *posix_path = "local/posix";
+	HelHandle posix_handle;
+	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
+	
+	int64_t posix_async_id;
+	HEL_CHECK(helSubmitConnect(posix_handle, eventHub->getHandle(),
+			kHelNoFunction, kHelNoObject, &posix_async_id));
+	HEL_CHECK(helCloseDescriptor(posix_handle));
+
+	HelError posix_error;
+	eventHub->waitForConnect(posix_async_id, posix_error, *posixPipe);
+	HEL_CHECK(posix_error);
+	
+	// perform the initial dynamic linking
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
 	globalLoader->p_allObjects.insert(frigg::String<Allocator>(*allocator, interpreter->name),

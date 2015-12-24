@@ -230,8 +230,6 @@ void ReadClosure::operator() () {
 	if(read_size > open_file->size - open_file->offset)
 		read_size = open_file->size - open_file->offset;
 
-	open_file->offset += read_size;
-
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.set_error(managarm::fs::Errors::SUCCESS);
 	response.set_buffer(frigg::String<Allocator>(*allocator,
@@ -240,6 +238,8 @@ void ReadClosure::operator() () {
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+
+	open_file->offset += read_size;
 }
 
 // --------------------------------------------------------

@@ -144,7 +144,7 @@ void ReadClosure::operator() () {
 	request.SerializeToString(&serialized);
 	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 4096, eventHub, 1, 0,
 			CALLBACK_MEMBER(this, &ReadClosure::recvResponse)));
 }
 
@@ -159,7 +159,7 @@ void ReadClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 		callback(kVfsEndOfFile, 0);
 	}else{
 		assert(response.error() == managarm::fs::Errors::SUCCESS);
-		assert(response.buffer().size() < maxSize);
+		assert(response.buffer().size() <= maxSize);
 		memcpy(readBuffer, response.buffer().data(), response.buffer().size());
 		callback(kVfsSuccess, response.buffer().size());
 	}
