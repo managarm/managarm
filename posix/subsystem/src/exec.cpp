@@ -9,6 +9,7 @@
 #include <frigg/callback.hpp>
 #include <frigg/protobuf.hpp>
 #include <frigg/glue-hel.hpp>
+#include <frigg/elf.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -16,92 +17,175 @@
 
 #include "common.hpp"
 #include "exec.hpp"
+#include "vfs.hpp"
 
 #include "ld-server.frigg_pb.hpp"
+
+constexpr size_t kPageSize = 0x1000;
 
 // --------------------------------------------------------
 // LoadClosure
 // --------------------------------------------------------
 
 struct LoadClosure {
-	LoadClosure(HelHandle space, frigg::String<Allocator> path, uintptr_t base_address,
+	LoadClosure(frigg::SharedPtr<Process> process,
+			frigg::String<Allocator> path, uintptr_t base_address,
 			frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback);
 
 	void operator() ();
 
 private:
-	void recvdResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-	void processSegment();
-	void recvdSegment(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle);
+	void openedFile(frigg::SharedPtr<VfsOpenFile> open_file);
+	void readEhdr(VfsError error, size_t length);
+	void seekPhdrs();
+	void readPhdrs(VfsError error, size_t length);
 
-	HelHandle space;
+	void processPhdr();
+	void seekSegment();
+	void readSegment(VfsError error, size_t length);
+
+	frigg::SharedPtr<Process> process;
 	frigg::String<Allocator> path;
 	uintptr_t baseAddress;
 	frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback;
 
-	uint8_t buffer[128];
-	managarm::ld_server::ServerResponse<Allocator> response;
-	size_t currentSegment;
+	frigg::SharedPtr<VfsOpenFile> openFile;
+	Elf64_Ehdr ehdr;
+	char *phdrBuffer;
+	size_t currentPhdr;
+	void *segmentWindow;
+
+	uintptr_t phdrPointer;
 };
 
-LoadClosure::LoadClosure(HelHandle space, frigg::String<Allocator> path, uintptr_t base_address,
+LoadClosure::LoadClosure(frigg::SharedPtr<Process> process,
+		frigg::String<Allocator> path, uintptr_t base_address,
 		frigg::CallbackPtr<void(uintptr_t, uintptr_t, size_t, size_t)> callback)
-: space(space), path(frigg::move(path)), baseAddress(base_address), callback(callback),
-		response(*allocator), currentSegment(0) { }
+: process(process), path(frigg::move(path)), baseAddress(base_address), callback(callback),
+		currentPhdr(0) { }
 
 void LoadClosure::operator() () {
-	managarm::ld_server::ClientRequest<Allocator> request(*allocator);
-	request.set_identifier(frigg::move(path));
-	request.set_base_address(baseAddress);
-	
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	ldServerPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	HEL_CHECK(ldServerPipe.recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &LoadClosure::recvdResponse)));
+	process->mountSpace->openAbsolute(process, path, 0, 0,
+			CALLBACK_MEMBER(this, &LoadClosure::openedFile));
 }
 
-void LoadClosure::recvdResponse(HelError error,
-		int64_t msg_request, int64_t msg_seq, size_t length) {
-	HEL_CHECK(error);
-
-	response.ParseFromArray(buffer, length);
-	processSegment();
+void LoadClosure::openedFile(frigg::SharedPtr<VfsOpenFile> open_file) {
+	assert(open_file);
+	openFile = frigg::move(open_file);
+	openFile->read(&ehdr, sizeof(Elf64_Ehdr),
+			CALLBACK_MEMBER(this, &LoadClosure::readEhdr));
 }
 
-void LoadClosure::processSegment() {
-	if(currentSegment < response.segments_size()) {
-		ldServerPipe.recvDescriptorResp(eventHub, 1, 1 + currentSegment,
-				CALLBACK_MEMBER(this, &LoadClosure::recvdSegment));
+void LoadClosure::readEhdr(VfsError error, size_t length) {
+	assert(error == kVfsSuccess);
+	assert(length == sizeof(Elf64_Ehdr));
+	
+	assert(ehdr.e_ident[0] == 0x7F
+			&& ehdr.e_ident[1] == 'E'
+			&& ehdr.e_ident[2] == 'L'
+			&& ehdr.e_ident[3] == 'F');
+	assert(ehdr.e_type == ET_EXEC || ehdr.e_type == ET_DYN);
+
+	// read the elf program headers
+	phdrBuffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
+	openFile->seek(ehdr.e_phoff, CALLBACK_MEMBER(this, &LoadClosure::seekPhdrs));
+}
+
+void LoadClosure::seekPhdrs() {
+	openFile->read(phdrBuffer, ehdr.e_phnum * ehdr.e_phentsize,
+			CALLBACK_MEMBER(this, &LoadClosure::readPhdrs));
+}
+
+void LoadClosure::readPhdrs(VfsError error, size_t length) {
+	assert(error == kVfsSuccess);
+	assert(length == size_t(ehdr.e_phnum * ehdr.e_phentsize));
+
+	processPhdr();
+}
+
+void LoadClosure::processPhdr() {
+	if(currentPhdr >= ehdr.e_phnum) {
+		callback(baseAddress + ehdr.e_entry, phdrPointer, ehdr.e_phentsize, ehdr.e_phnum);
+		return;
+	}
+
+	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
+	
+	if(phdr->p_type == PT_LOAD) {
+		assert(phdr->p_memsz > 0);
+		
+		// align segment address and length to page size
+		assert(baseAddress % kPageSize == 0);
+		size_t misalign = phdr->p_vaddr % kPageSize;
+
+		size_t map_length = phdr->p_memsz + misalign;
+		if((map_length % kPageSize) != 0)
+			map_length += kPageSize - (map_length % kPageSize);
+		
+		uintptr_t map_address = baseAddress + phdr->p_vaddr - misalign;
+		
+		// map the segment with write permission into this address space
+		HelHandle memory;
+		HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
+
+		HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+				map_length, kHelMapReadWrite, &segmentWindow));
+		
+		// map the segment with correct permissions into the process
+		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+			void *map_pointer;
+			HEL_CHECK(helMapMemory(memory, process->vmSpace, (void *)map_address,
+					map_length, kHelMapReadWrite, &map_pointer));
+		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+			void *map_pointer;
+			HEL_CHECK(helMapMemory(memory, process->vmSpace, (void *)map_address,
+					map_length, kHelMapReadExecute, &map_pointer));
+		}else{
+			frigg::panicLogger.log() << "Illegal combination of segment permissions"
+					<< frigg::EndLog();
+		}
+		
+		// read the segment contents from the file
+		memset(segmentWindow, 0, map_length);
+		openFile->seek(phdr->p_offset, CALLBACK_MEMBER(this, &LoadClosure::seekSegment));
+	}else if(phdr->p_type == PT_PHDR) {
+		phdrPointer = baseAddress + phdr->p_vaddr;
+		
+		currentPhdr++;
+		processPhdr();
+	}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
+			|| phdr->p_type == PT_TLS
+			|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK) {
+		currentPhdr++;
+		processPhdr();
 	}else{
-		callback(response.entry(), response.phdr_pointer(), response.phdr_entry_size(),
-				response.phdr_count());
-		frigg::destruct(*allocator, this);
+		assert(!"Unexpected PHDR type");
 	}
 }
 
-void LoadClosure::recvdSegment(HelError error,
-		int64_t msg_request, int64_t msg_seq, HelHandle handle) {
-	HEL_CHECK(error);
-
-	auto &segment = response.segments(currentSegment);
-
-	uint32_t map_flags = 0;
-	if(segment.access() == managarm::ld_server::Access::READ_WRITE) {
-		map_flags |= kHelMapReadWrite;
-	}else{
-		assert(segment.access() == managarm::ld_server::Access::READ_EXECUTE);
-		map_flags |= kHelMapReadExecute | kHelMapShareOnFork;
-	}
+void LoadClosure::seekSegment() {
+	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
 	
-	void *actual_ptr;
-	HEL_CHECK(helMapMemory(handle, space, (void *)segment.virt_address(),
-			segment.virt_length(), map_flags, &actual_ptr));
-	HEL_CHECK(helCloseDescriptor(handle));
-	currentSegment++;
+	size_t misalign = phdr->p_vaddr % kPageSize;
+	openFile->read((char *)segmentWindow + misalign, phdr->p_filesz,
+			CALLBACK_MEMBER(this, &LoadClosure::readSegment));
+}
 
-	processSegment();
+void LoadClosure::readSegment(VfsError error, size_t length) {
+	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
+
+	assert(error == kVfsSuccess);
+	assert(length == phdr->p_filesz);
+	
+	// unmap the segment from this address space
+	size_t misalign = phdr->p_vaddr % kPageSize;
+	size_t map_length = phdr->p_memsz + misalign;
+	if((map_length % kPageSize) != 0)
+		map_length += kPageSize - (map_length % kPageSize);
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, segmentWindow, map_length));
+
+	currentPhdr++;
+	processPhdr();
 }
 
 // --------------------------------------------------------
@@ -137,19 +221,21 @@ void ExecuteClosure::operator() () {
 	HEL_CHECK(helCreateSpace(&process->vmSpace));
 	process->iteration++;
 
-	frigg::runClosure<LoadClosure>(*allocator, process->vmSpace, path, 0,
+	frigg::runClosure<LoadClosure>(*allocator, process, path, 0,
 			CALLBACK_MEMBER(this, &ExecuteClosure::loadedExecutable));
 }
 
 void ExecuteClosure::loadedExecutable(uintptr_t entry, uintptr_t phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count) {
+	assert(entry && phdr_pointer);
+
 	programEntry = entry;
 	phdrPointer = phdr_pointer;
 	phdrEntrySize = phdr_entry_size;
 	phdrCount = phdr_count;
 
-	frigg::runClosure<LoadClosure>(*allocator, process->vmSpace,
-			frigg::String<Allocator>(*allocator, "ld-init.so"), 0x40000000,
+	frigg::runClosure<LoadClosure>(*allocator, process,
+			frigg::String<Allocator>(*allocator, "/initrd/ld-init.so"), 0x40000000,
 			CALLBACK_MEMBER(this, &ExecuteClosure::loadedInterpreter));
 }
 

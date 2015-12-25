@@ -306,7 +306,7 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-		execve("vga_terminal", nullptr, nullptr);
+		execve("/initrd/vga_terminal", nullptr, nullptr);
 	}
 	
 	while(true) {

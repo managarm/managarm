@@ -415,25 +415,6 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	open_response.ParseFromArray(open_buffer, open_length);
 	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
 
-	// determine the object file's size
-	managarm::posix::ClientRequest<Allocator> stat_request(*allocator);
-	stat_request.set_request_type(managarm::posix::ClientRequestType::FSTAT);
-	stat_request.set_fd(open_response.fd());
-	
-	frigg::String<Allocator> stat_serialized(*allocator);
-	stat_request.SerializeToString(&stat_serialized);
-	posixPipe->sendStringReq(stat_serialized.data(), stat_serialized.size(), 0, 0);
-
-	uint8_t stat_buffer[128];
-	HelError stat_error;
-	size_t stat_length;
-	posixPipe->recvStringRespSync(stat_buffer, 128, *eventHub, 0, 0, stat_error, stat_length);
-	HEL_CHECK(stat_error);
-	
-	managarm::posix::ServerResponse<Allocator> stat_response(*allocator);
-	stat_response.ParseFromArray(stat_buffer, stat_length);
-	assert(stat_response.error() == managarm::posix::Errors::SUCCESS);
-
 	// read the elf file header
 	Elf64_Ehdr ehdr;
 	posixRead(open_response.fd(), &ehdr, sizeof(Elf64_Ehdr));

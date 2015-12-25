@@ -287,7 +287,7 @@ void runPosixInit() {
 	// after that we EXEC the actual init program
 	managarm::posix::ClientRequest<Allocator> exec_request(*allocator);
 	exec_request.set_request_type(managarm::posix::ClientRequestType::EXEC);
-	exec_request.set_path(frigg::String<Allocator>(*allocator, "posix-init"));
+	exec_request.set_path(frigg::String<Allocator>(*allocator, "/initrd/posix-init"));
 	
 	managarm::posix::ServerResponse<Allocator> exec_response(*allocator);
 	posixDoRequest(exec_request, exec_response, 4);
