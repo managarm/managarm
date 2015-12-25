@@ -518,9 +518,11 @@ private:
 	void connected(HelError error, HelHandle handle);
 	void doRead();
 	void recvdResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvdData(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 	
 	helx::Pipe pipe;
 	char buffer[128];
+	char data[128];
 };
 
 void ReadMasterClosure::operator() () {
@@ -542,7 +544,7 @@ void ReadMasterClosure::doRead() {
 	managarm::posix::ClientRequest request;
 	request.set_request_type(managarm::posix::ClientRequestType::READ);
 	request.set_fd(masterFd);
-	request.set_size(64);
+	request.set_size(128);
 
 	std::string serialized;
 	request.SerializeToString(&serialized);
@@ -555,10 +557,20 @@ void ReadMasterClosure::doRead() {
 void ReadMasterClosure::recvdResponse(HelError error,
 		int64_t msg_request, int64_t msg_seq, size_t length) {
 	HEL_CHECK(error);
-
+	
 	managarm::posix::ServerResponse response;
 	response.ParseFromArray(buffer, length);
-	printString(response.buffer());
+	assert(response.error() == managarm::posix::Errors::SUCCESS);
+	
+	HEL_CHECK(pipe.recvStringResp(data, 128, eventHub, 0, 1,
+			CALLBACK_MEMBER(this, &ReadMasterClosure::recvdData)));
+}
+
+void ReadMasterClosure::recvdData(HelError error,
+		int64_t msg_request, int64_t msg_seq, size_t length) {
+	HEL_CHECK(error);
+
+	printString(std::string(data, length));
 
 	doRead();
 }

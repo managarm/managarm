@@ -356,9 +356,7 @@ void posixSeek(int fd, int64_t offset) {
 void posixRead(int fd, void *buffer, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		size_t chunk_size = 3968;
-		if(chunk_size > length - offset)
-			chunk_size = length - offset;
+		size_t chunk_size = length - offset;
 
 		managarm::posix::ClientRequest<Allocator> read_request(*allocator);
 		read_request.set_request_type(managarm::posix::ClientRequestType::READ);
@@ -369,19 +367,23 @@ void posixRead(int fd, void *buffer, size_t length) {
 		read_request.SerializeToString(&read_serialized);
 		posixPipe->sendStringReq(read_serialized.data(), read_serialized.size(), 0, 0);
 
-		uint8_t read_buffer[chunk_size + 128];
+		uint8_t read_buffer[128];
 		HelError read_error;
 		size_t read_length;
-		posixPipe->recvStringRespSync(read_buffer, chunk_size + 128,
+		posixPipe->recvStringRespSync(read_buffer, 128,
 				*eventHub, 0, 0, read_error, read_length);
 		HEL_CHECK(read_error);
 		
 		managarm::posix::ServerResponse<Allocator> read_response(*allocator);
 		read_response.ParseFromArray(read_buffer, read_length);
 		assert(read_response.error() == managarm::posix::Errors::SUCCESS);
-		memcpy((char *)buffer + offset,
-				read_response.buffer().data(), read_response.buffer().size());
-		offset += read_response.buffer().size();
+
+		HelError data_error;
+		size_t data_length;
+		posixPipe->recvStringRespSync((char *)buffer + offset, chunk_size,
+				*eventHub, 0, 1, data_error, data_length);
+		HEL_CHECK(data_error);
+		offset += data_length;
 	}
 	assert(offset == length);
 }

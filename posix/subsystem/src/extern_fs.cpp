@@ -153,7 +153,7 @@ void ReadClosure::operator() () {
 	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
 	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 4096, eventHub, 1, 0,
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
 			CALLBACK_MEMBER(this, &ReadClosure::recvResponse)));
 }
 
@@ -166,13 +166,21 @@ void ReadClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 
 	if(response.error() == managarm::fs::Errors::END_OF_FILE) {
 		callback(kVfsEndOfFile, 0);
-	}else{
-		assert(response.error() == managarm::fs::Errors::SUCCESS);
-		assert(response.buffer().size() <= maxSize);
-		memcpy(readBuffer, response.buffer().data(), response.buffer().size());
-		callback(kVfsSuccess, response.buffer().size());
+		frigg::destruct(*allocator, this);
+		return;
 	}
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+	
+	// FIXME: fix request id
+	HEL_CHECK(connection.getPipe().recvStringResp(readBuffer, maxSize, eventHub, 1, 1,
+			CALLBACK_MEMBER(this, &ReadClosure::recvData)));
+}
 
+void ReadClosure::recvData(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	callback(kVfsSuccess, length);
 	frigg::destruct(*allocator, this);
 }
 

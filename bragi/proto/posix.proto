@@ -56,7 +56,7 @@ message ClientRequest {
 	optional int32 newfd = 7;
 
 	// used by READ
-	optional int32 size = 5;
+	optional uint32 size = 5;
 
 	// used by WRITE
 	optional bytes buffer = 6;
@@ -77,8 +77,5 @@ message ServerResponse {
 
 	// return of OPEN
 	optional int32 fd = 1;
-
-	// return of READ
-	optional bytes buffer = 2;
 }
 

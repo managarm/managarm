@@ -247,12 +247,13 @@ void ReadClosure::operator() () {
 
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.set_error(managarm::fs::Errors::SUCCESS);
-	response.set_buffer(frigg::String<Allocator>(*allocator,
-			open_file->image + open_file->offset, read_size));
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+
+	char *ptr = open_file->image + open_file->offset;
+	connection.getPipe().sendStringResp(ptr, read_size, responseId, 1);
 
 	open_file->offset += read_size;
 }

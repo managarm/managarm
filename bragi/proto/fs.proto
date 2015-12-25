@@ -43,7 +43,4 @@ message SvrResponse {
 
 	// return of OPEN
 	optional int32 fd = 1;
-
-	// return of READ
-	optional bytes buffer = 2;
 }

@@ -1011,11 +1011,12 @@ void ReadClosure::readBlocks() {
 
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
-	response.set_buffer(std::string(blockBuffer, read_size));
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	
+	connection.getPipe().sendStringResp(blockBuffer, read_size, responseId, 1);
 }
 
 // --------------------------------------------------------

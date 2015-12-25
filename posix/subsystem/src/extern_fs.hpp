@@ -85,13 +85,14 @@ struct ReadClosure {
 
 private:
 	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvData(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 	MountPoint &connection;
 	int externFd;
 	void *readBuffer;
 	size_t maxSize;
 	frigg::CallbackPtr<void(VfsError, size_t)> callback;
-	uint8_t buffer[4096];
+	uint8_t buffer[128];
 };
 
 struct SeekClosure {

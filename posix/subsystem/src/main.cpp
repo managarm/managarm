@@ -263,8 +263,9 @@ void ReadClosure::readComplete(VfsError error, size_t actual_size) {
 				frigg::StringView(buffer).subString(0, actual_size));
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
-		response.set_buffer(frigg::move(actual_buffer));
 		sendResponse(*pipe, response, msgRequest);
+
+		pipe->sendStringResp(actual_buffer.data(), actual_buffer.size(), msgRequest, 1);
 	}
 
 	suicide(*allocator);
