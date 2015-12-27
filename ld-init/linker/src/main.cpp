@@ -61,7 +61,6 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 }
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Pipe> serverPipe;
 frigg::LazyInitializer<helx::Pipe> posixPipe;
 
 extern "C" void *interpreterMain(void *phdr_pointer,
@@ -104,22 +103,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	}
 
 	eventHub.initialize(helx::EventHub::create());
-	serverPipe.initialize();
 	posixPipe.initialize();
-	
-	// connect to ld-server
-	const char *server_path = "config/rtdl-server";
-	HelHandle server_handle;
-	HEL_CHECK(helRdOpen(server_path, strlen(server_path), &server_handle));
-	
-	int64_t server_async_id;
-	HEL_CHECK(helSubmitConnect(server_handle, eventHub->getHandle(),
-			kHelNoFunction, kHelNoObject, &server_async_id));
-	HEL_CHECK(helCloseDescriptor(server_handle));
-
-	HelError server_error;
-	eventHub->waitForConnect(server_async_id, server_error, *serverPipe);
-	HEL_CHECK(server_error);
 	
 	// connect to ld-server
 	const char *posix_path = "local/posix";

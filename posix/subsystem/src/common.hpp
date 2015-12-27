@@ -12,6 +12,4 @@ using StdUnsafePtr = frigg::UnsafePtr<T>;
 
 extern helx::EventHub eventHub;
 extern helx::Client mbusConnect;
-extern helx::Client ldServerConnect;
-extern helx::Pipe ldServerPipe;
 

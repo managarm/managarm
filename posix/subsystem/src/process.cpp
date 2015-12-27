@@ -33,7 +33,6 @@ helx::Directory Process::runServer(StdSharedPtr<Process> process) {
 	directory.remount("initrd/#this", "initrd");
 
 	configDirectory.publish(mbusConnect.getHandle(), "mbus");
-	configDirectory.publish(ldServerConnect.getHandle(), "rtdl-server");
 	
 	helx::Server server;
 	helx::Client client;

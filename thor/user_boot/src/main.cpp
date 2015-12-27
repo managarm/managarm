@@ -121,8 +121,6 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 helx::EventHub eventHub = helx::EventHub::create();
 helx::Client mbusConnect;
 helx::Client acpiConnect;
-helx::Client ldServerConnect;
-helx::Pipe ldServerPipe;
 helx::Pipe posixPipe;
 
 void startMbus() {
@@ -186,31 +184,6 @@ void startInitrd() {
 	HEL_CHECK(error);
 }
 
-void startLdServer() {
-	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
-
-	auto local_directory = helx::Directory::create();
-	local_directory.publish(child_pipe.getHandle(), "parent");
-	
-	auto directory = helx::Directory::create();
-	directory.mount(local_directory.getHandle(), "local");
-	directory.remount("initrd/#this", "initrd");
-	loadImage("initrd/ld-server", directory.getHandle(), false);
-	
-	// receive a client handle from the child process
-	HelError recv_error;
-	HelHandle connect_handle;
-	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
-			recv_error, connect_handle);
-	HEL_CHECK(recv_error);
-	ldServerConnect = helx::Client(connect_handle);
-
-	HelError error;
-	ldServerConnect.connectSync(eventHub, error, ldServerPipe);
-	HEL_CHECK(error);
-}
-
 void startPosixSubsystem() {
 	helx::Pipe parent_pipe, child_pipe;
 	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
@@ -218,7 +191,6 @@ void startPosixSubsystem() {
 	auto local_directory = helx::Directory::create();
 	local_directory.publish(child_pipe.getHandle(), "parent");
 	local_directory.publish(mbusConnect.getHandle(), "mbus");
-	local_directory.publish(ldServerConnect.getHandle(), "rtdl-server");
 	
 	auto directory = helx::Directory::create();
 	directory.mount(local_directory.getHandle(), "local");
@@ -315,7 +287,6 @@ int main() {
 	startMbus();
 	startAcpi();
 	startInitrd();
-	startLdServer();
 	startPosixSubsystem();
 	runPosixInit();
 	

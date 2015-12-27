@@ -38,7 +38,6 @@ bool traceRequests = false;
 
 helx::EventHub eventHub = helx::EventHub::create();
 helx::Client mbusConnect;
-helx::Client ldServerConnect;
 helx::Pipe ldServerPipe;
 helx::Pipe mbusPipe;
 
@@ -683,19 +682,6 @@ int main() {
 	size_t init_count = __init_array_end - __init_array_start;
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
-	
-	// connect to the ld-server
-	const char *ld_path = "local/rtdl-server";
-	HelHandle ld_handle;
-	HEL_CHECK(helRdOpen(ld_path, strlen(ld_path), &ld_handle));
-	ldServerConnect = helx::Client(ld_handle);
-
-	int64_t ld_connect_id;
-	HEL_CHECK(helSubmitConnect(ldServerConnect.getHandle(), eventHub.getHandle(),
-			0, 0, &ld_connect_id));
-	HelError ld_connect_error;
-	eventHub.waitForConnect(ld_connect_id, ld_connect_error, ldServerPipe);
-	HEL_CHECK(ld_connect_error);
 
 	// connect to mbus
 	const char *mbus_path = "local/mbus";
