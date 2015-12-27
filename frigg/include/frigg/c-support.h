@@ -27,6 +27,7 @@ void __assert_fail(const char *assertion,
 #include <stddef.h>
 #include <stdint.h>
 #include <assert.h>
+#include <string.h>
 
 #pragma GCC visibility pop
 
