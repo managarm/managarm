@@ -571,6 +571,8 @@ void FindEntryClosure::readBlocks() {
 
 void Inode::findEntry(std::string name,
 		frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback) {
+	assert(!name.empty() && name != "." && name != "..");
+
 	auto closure = new FindEntryClosure(shared_from_this(), std::move(name), callback);
 	(*closure)();
 }
@@ -834,6 +836,7 @@ struct OpenClosure {
 
 	void operator() ();
 
+	void processSegment();
 	void foundEntry(std::experimental::optional<uint32_t> number);
 
 	Connection &connection;
@@ -841,6 +844,7 @@ struct OpenClosure {
 	managarm::fs::CntRequest request;
 
 	std::shared_ptr<Inode> directory;
+	std::string tailPath;
 };
 
 struct ReadClosure {
@@ -962,30 +966,50 @@ OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
 : connection(connection), responseId(response_id), request(std::move(request)) { }
 
 void OpenClosure::operator() () {
-	printf("Ext2fs: open(%s)\n", request.path().c_str());
-
+	tailPath = request.path();
 	directory = theFs->accessRoot();
-	directory->findEntry(request.path(), CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
+	processSegment();
+}
+
+void OpenClosure::processSegment() {
+	assert(!tailPath.empty());
+
+	size_t slash = tailPath.find('/');
+	if(slash == std::string::npos) {
+		directory->findEntry(tailPath,
+				CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
+		tailPath.clear();
+	}else{
+		directory->findEntry(tailPath.substr(0, slash),
+				CALLBACK_MEMBER(this, &OpenClosure::foundEntry));
+		tailPath = tailPath.substr(slash + 1);
+	}
 }
 
 void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
-	if(number) {
-		int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
+	if(tailPath.empty()) {
+		if(number) {
+			int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
 
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_fd(handle);
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::SUCCESS);
+			response.set_fd(handle);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+			std::string serialized;
+			response.SerializeToString(&serialized);
+			connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+					responseId, 0);
+		}else{
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+			std::string serialized;
+			response.SerializeToString(&serialized);
+			connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+					responseId, 0);
+		}
 	}else{
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+		processSegment();
 	}
 }
 

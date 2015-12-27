@@ -43,7 +43,7 @@ int main() {
 	pid_t terminal_child = fork();
 	assert(terminal_child != -1);
 	if(!terminal_child) {
-		execve("/hello", args.data(), envp);
+		execve("/bin/hello", args.data(), envp);
 	}
 }
 
