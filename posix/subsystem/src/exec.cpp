@@ -54,6 +54,7 @@ private:
 	char *phdrBuffer;
 	size_t currentPhdr;
 	void *segmentWindow;
+	size_t bytesRead;
 
 	uintptr_t phdrPointer;
 };
@@ -167,25 +168,32 @@ void LoadClosure::seekSegment() {
 	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
 	
 	size_t misalign = phdr->p_vaddr % kPageSize;
+	bytesRead = 0;
 	openFile->read((char *)segmentWindow + misalign, phdr->p_filesz,
 			CALLBACK_MEMBER(this, &LoadClosure::readSegment));
 }
 
 void LoadClosure::readSegment(VfsError error, size_t length) {
-	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
-
 	assert(error == kVfsSuccess);
-	assert(length == phdr->p_filesz);
-	
-	// unmap the segment from this address space
-	size_t misalign = phdr->p_vaddr % kPageSize;
-	size_t map_length = phdr->p_memsz + misalign;
-	if((map_length % kPageSize) != 0)
-		map_length += kPageSize - (map_length % kPageSize);
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, segmentWindow, map_length));
+	bytesRead += length;
 
-	currentPhdr++;
-	processPhdr();
+	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
+	size_t misalign = phdr->p_vaddr % kPageSize;
+
+	assert(bytesRead <= phdr->p_filesz);
+	if(bytesRead < phdr->p_filesz) {
+		openFile->read((char *)segmentWindow + misalign + bytesRead, phdr->p_filesz - bytesRead,
+				CALLBACK_MEMBER(this, &LoadClosure::readSegment));
+	}else{
+		// unmap the segment from this address space
+		size_t map_length = phdr->p_memsz + misalign;
+		if((map_length % kPageSize) != 0)
+			map_length += kPageSize - (map_length % kPageSize);
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, segmentWindow, map_length));
+
+		currentPhdr++;
+		processPhdr();
+	}
 }
 
 // --------------------------------------------------------
