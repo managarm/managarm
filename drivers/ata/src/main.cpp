@@ -344,6 +344,9 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	// data block pointers
 	uint32_t directBlocks[12];
+	uint32_t singleIndirect;
+	uint32_t doubleIndirect;
+	uint32_t tripleIndirect;
 };
 
 struct FileSystem {
@@ -440,9 +443,9 @@ struct FileSystem {
 		uint32_t flags;
 		uint32_t osdl;
 		uint32_t directBlocks[12];
-		uint32_t indirectBlock;
-		uint32_t indirect2Block;
-		uint32_t indirect3Block;
+		uint32_t singleIndirect;
+		uint32_t doubleIndirect;
+		uint32_t tripleIndirect;
 		uint32_t generation;
 		uint32_t fileAcl;
 		uint32_t dirAcl;
@@ -490,6 +493,9 @@ struct FileSystem {
 		void operator() ();
 
 	private:
+		void inodeReady();
+		void readLevel1();
+		void readLevel0();
 		void readBlock();
 
 		FileSystem &ext2fs;
@@ -498,8 +504,12 @@ struct FileSystem {
 		size_t numBlocks;
 		void *buffer;
 		frigg::CallbackPtr<void()> callback;
-
+		
 		size_t blocksRead;
+		size_t indexLevel1;
+		size_t indexLevel0;
+		uint32_t *bufferLevel1;
+		uint32_t *bufferLevel0;
 	};
 	
 	GptTable::Partition &partition;
@@ -691,6 +701,9 @@ void FileSystem::ReadInodeClosure::readSector() {
 	inode->fileSize = disk_inode->size;
 	for(int i = 0; i < 12; i++)
 		inode->directBlocks[i] = disk_inode->directBlocks[i];
+	inode->singleIndirect = disk_inode->singleIndirect;
+	inode->doubleIndirect = disk_inode->doubleIndirect;
+	inode->tripleIndirect = disk_inode->tripleIndirect;
 	
 	inode->isReady = true;
 	for(auto it = inode->readyQueue.begin(); it != inode->readyQueue.end(); ++it)
@@ -709,22 +722,83 @@ FileSystem::ReadDataClosure::ReadDataClosure(FileSystem &ext2fs, std::shared_ptr
 		frigg::CallbackPtr<void()> callback)
 : ext2fs(ext2fs), inode(std::move(inode)), blockOffset(block_offset),
 		numBlocks(num_blocks), buffer(buffer), callback(callback),
-		blocksRead(0) { }
+		blocksRead(0), bufferLevel0(nullptr) { }
 
 void FileSystem::ReadDataClosure::operator() () {
-	assert(inode->isReady);
-	if(blocksRead < numBlocks) {
-		uint32_t direct_index = blockOffset + blocksRead;
-		uint32_t block = inode->directBlocks[direct_index];
+	if(inode->isReady) {
+		inodeReady();
+	}else{
+		inode->readyQueue.push_back(CALLBACK_MEMBER(this, &ReadDataClosure::inodeReady));
+	}
+}
 
-		printf("reading block %u, %lu of %lu complete!\n", block, blocksRead, numBlocks);
-		ext2fs.partition.readSectors(block * ext2fs.sectorsPerBlock,
-				(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
-				CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
+void FileSystem::ReadDataClosure::inodeReady() {
+	if(blocksRead < numBlocks) {
+		size_t block_index = blockOffset + blocksRead;
+		printf("Reading block %lu\n", block_index);
+
+		size_t per_single = ext2fs.blockSize / 4;
+		size_t per_double = per_single * per_single;
+
+		size_t single_offset = 12;
+		size_t double_offset = single_offset + per_single;
+		size_t triple_offset = double_offset + per_double;
+
+		if(block_index < single_offset) {
+			uint32_t block = inode->directBlocks[block_index];
+			ext2fs.partition.readSectors(block * ext2fs.sectorsPerBlock,
+					(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
+					CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
+
+		}else if(block_index < double_offset) {
+			indexLevel0 = block_index - single_offset;
+
+			if(!bufferLevel0)
+				bufferLevel0 = (uint32_t *)malloc(ext2fs.blockSize);
+			assert(bufferLevel0);
+
+			ext2fs.partition.readSectors(inode->singleIndirect * ext2fs.sectorsPerBlock,
+					bufferLevel0, ext2fs.sectorsPerBlock,
+					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+		}else{
+			assert(block_index < triple_offset);
+			indexLevel1 = (block_index - double_offset) / per_single;
+			indexLevel0 = (block_index - double_offset) % per_single;
+
+			if(!bufferLevel1)
+				bufferLevel1 = (uint32_t *)malloc(ext2fs.blockSize);
+			assert(bufferLevel1);
+
+			ext2fs.partition.readSectors(inode->doubleIndirect * ext2fs.sectorsPerBlock,
+					bufferLevel1, ext2fs.sectorsPerBlock,
+					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
+		}
 	}else{
 		callback();
+		if(bufferLevel1)
+			free(bufferLevel1);
+		if(bufferLevel0)
+			free(bufferLevel0);
 		delete this;
 	}
+}
+
+void FileSystem::ReadDataClosure::readLevel1() {
+	if(!bufferLevel0)
+		bufferLevel0 = (uint32_t *)malloc(ext2fs.blockSize);
+	assert(bufferLevel0);
+
+	uint32_t indirect = bufferLevel1[indexLevel1];
+	ext2fs.partition.readSectors(indirect * ext2fs.sectorsPerBlock,
+			bufferLevel0, ext2fs.sectorsPerBlock,
+			CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+}
+
+void FileSystem::ReadDataClosure::readLevel0() {
+	uint32_t block = bufferLevel0[indexLevel0];
+	ext2fs.partition.readSectors(block * ext2fs.sectorsPerBlock,
+			(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
+			CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
 }
 
 void FileSystem::ReadDataClosure::readBlock() {
@@ -987,28 +1061,29 @@ void OpenClosure::processSegment() {
 }
 
 void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
+	if(!number) {
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				responseId, 0);
+	}
+
 	if(tailPath.empty()) {
-		if(number) {
-			int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
+		int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
 
-			managarm::fs::SvrResponse response;
-			response.set_error(managarm::fs::Errors::SUCCESS);
-			response.set_fd(handle);
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_fd(handle);
 
-			std::string serialized;
-			response.SerializeToString(&serialized);
-			connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-					responseId, 0);
-		}else{
-			managarm::fs::SvrResponse response;
-			response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-
-			std::string serialized;
-			response.SerializeToString(&serialized);
-			connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-					responseId, 0);
-		}
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				responseId, 0);
 	}else{
+		directory = theFs->accessInode(*number);
 		processSegment();
 	}
 }

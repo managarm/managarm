@@ -71,7 +71,9 @@ void LoadClosure::operator() () {
 }
 
 void LoadClosure::openedFile(frigg::SharedPtr<VfsOpenFile> open_file) {
-	assert(open_file);
+	// FIXME: return an error
+	if(!open_file)
+		frigg::panicLogger.log() << "Could not open " << path << frigg::EndLog();
 	openFile = frigg::move(open_file);
 	openFile->read(&ehdr, sizeof(Elf64_Ehdr),
 			CALLBACK_MEMBER(this, &LoadClosure::readEhdr));

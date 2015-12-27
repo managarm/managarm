@@ -249,6 +249,14 @@ String<Allocator> uintToString(Allocator &allocator, T number, int radix) {
 	return move(string);
 }
 
+template<typename P, typename Allocator>
+struct Print<P, String<Allocator>> {
+	static void print(P &printer, String<Allocator> string) {
+		for(size_t i = 0; i < string.size(); i++)
+			printer.print(string.data()[i]);
+	}
+};
+
 template<typename P>
 struct Print<P, StringView> {
 	static void print(P &printer, StringView string) {

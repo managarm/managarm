@@ -7,14 +7,17 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 $c_OBJECTS := main.o posix.pb.o mbus.pb.o input.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c $($c_BINDIR)/vga_terminal $($c_BINDIR)
+$c_TARGETS := all-$c clean-$c install-$c $($c_BINDIR)/vga_terminal $($c_BINDIR)
 
-.PHONY: all-$c clean-$c gen-$c
+.PHONY: all-$c clean-$c install-$c gen-$c
 
 all-$c: $($c_BINDIR)/vga_terminal
 
 clean-$c:
 	rm -f $($d_BINDIR)/vga_terminal $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
+
+install-$c: $($c_BINDIR)/vga_terminal
+	install $($d_BINDIR)/vga_terminal $(SYSROOT_PATH)/usr/bin
 
 gen: gen-$c
 
