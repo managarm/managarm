@@ -214,6 +214,7 @@ void OpenClosure::operator() () {
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.set_error(managarm::fs::Errors::SUCCESS);
 	response.set_fd(handle);
+	response.set_file_type(managarm::fs::FileType::REGULAR);
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);

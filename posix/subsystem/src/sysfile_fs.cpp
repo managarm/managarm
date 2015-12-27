@@ -37,9 +37,9 @@ HelHandle HelfdNode::OpenFile::getHelfd() {
 MountPoint::MountPoint() { }
 
 void MountPoint::openMounted(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
-	size_t seperator = path.findFirst('/');
+	size_t seperator = frigg::StringView(path).findFirst('/');
 	assert(seperator == size_t(-1));
 	assert((flags & MountSpace::kOpenCreat) != 0);
 	

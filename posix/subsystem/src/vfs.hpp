@@ -25,7 +25,7 @@ struct FileStats {
 // --------------------------------------------------------
 
 struct VfsOpenFile {
-	virtual void openAt(frigg::StringView path,
+	virtual void openAt(frigg::String<Allocator> path,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 	
 	virtual void fstat(frigg::CallbackPtr<void(FileStats)> callback);
@@ -47,7 +47,7 @@ struct VfsOpenFile {
 
 struct VfsMountPoint {
 	virtual void openMounted(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) = 0;
 };
 
@@ -67,7 +67,7 @@ struct MountSpace {
 	MountSpace();
 
 	void openAbsolute(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 
 	frigg::Hashmap<frigg::String<Allocator>, VfsMountPoint *,

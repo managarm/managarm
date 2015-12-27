@@ -332,6 +332,30 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	processDependencies(object);
 }
 
+frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
+	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
+	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
+	open_request.set_path(path);
+	
+	frigg::String<Allocator> open_serialized(*allocator);
+	open_request.SerializeToString(&open_serialized);
+	posixPipe->sendStringReq(open_serialized.data(), open_serialized.size(), 0, 0);
+
+	uint8_t open_buffer[128];
+	HelError open_error;
+	size_t open_length;
+	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, open_error, open_length);
+	HEL_CHECK(open_error);
+	
+	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
+	open_response.ParseFromArray(open_buffer, open_length);
+
+	if(open_response.error() == managarm::posix::Errors::FILE_NOT_FOUND)
+		return frigg::Optional<int>();
+	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
+	return open_response.fd();
+}
+
 void posixSeek(int fd, int64_t offset) {
 	managarm::posix::ClientRequest<Allocator> seek_request(*allocator);
 	seek_request.set_request_type(managarm::posix::ClientRequestType::SEEK);
@@ -393,31 +417,19 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	if(verbose)
 		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
 	
-	frigg::String<Allocator> full_path(*allocator, "/initrd/");
-	full_path += file;
+	frigg::String<Allocator> initrd_prefix(*allocator, "/initrd/");
+	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
 
 	// open the object file
-	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
-	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
-	open_request.set_path(full_path);
-	
-	frigg::String<Allocator> open_serialized(*allocator);
-	open_request.SerializeToString(&open_serialized);
-	posixPipe->sendStringReq(open_serialized.data(), open_serialized.size(), 0, 0);
-
-	uint8_t open_buffer[128];
-	HelError open_error;
-	size_t open_length;
-	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, open_error, open_length);
-	HEL_CHECK(open_error);
-	
-	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
-	open_response.ParseFromArray(open_buffer, open_length);
-	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
+	frigg::Optional<int> fd = posixOpen(initrd_prefix + file);
+	if(!fd)
+		fd = posixOpen(lib_prefix + file);
+	if(!fd)
+		frigg::panicLogger.log() << "Could not find library " << file << frigg::EndLog();
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
-	posixRead(open_response.fd(), &ehdr, sizeof(Elf64_Ehdr));
+	posixRead(*fd, &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -427,8 +439,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	// read the elf program headers
 	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	posixSeek(open_response.fd(), ehdr.e_phoff);
-	posixRead(open_response.fd(), phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(*fd, ehdr.e_phoff);
+	posixRead(*fd, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -454,8 +466,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 					map_length, kHelMapReadWrite, &write_ptr));
 
 			memset(write_ptr, 0, map_length);
-			posixSeek(open_response.fd(), phdr->p_offset);
-			posixRead(open_response.fd(), (char *)write_ptr + misalign, phdr->p_filesz);
+			posixSeek(*fd, phdr->p_offset);
+			posixRead(*fd, (char *)write_ptr + misalign, phdr->p_filesz);
 			HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 			// map the segment with correct permissions
@@ -679,9 +691,14 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
 	} break;
 	case R_X86_64_DTPMOD64: {
-		assert(p);
 		assert(!reloc->r_addend);
-		*((uint64_t *)rel_addr) = (uint64_t)object;
+		if(symbol_index) {
+			assert(p);
+			*((uint64_t *)rel_addr) = (uint64_t)p->object;
+		}else{
+			// TODO: is this behaviour actually documented anywhere?
+			*((uint64_t *)rel_addr) = (uint64_t)object;
+		}
 	} break;
 	case R_X86_64_DTPOFF64: {
 		assert(p);

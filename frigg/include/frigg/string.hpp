@@ -136,6 +136,15 @@ public:
 		p_buffer = new_buffer;
 	}
 	
+	BasicString operator+ (const BasicStringView<Char> &other) {
+		size_t new_length = p_length + other.size();
+		Char *new_buffer = (Char *)p_allocator->allocate(sizeof(Char) * new_length);
+		memcpy(new_buffer, p_buffer, sizeof(Char) * p_length);
+		memcpy(new_buffer + p_length, other.data(), sizeof(Char) * other.size());
+		
+		return BasicString(*p_allocator, new_buffer, new_length);
+	}
+
 	BasicString &operator+= (const BasicStringView<Char> &other) {
 		size_t new_length = p_length + other.size();
 		Char *new_buffer = (Char *)p_allocator->allocate(sizeof(Char) * new_length);

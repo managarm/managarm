@@ -34,7 +34,7 @@ public:
 	
 	// inherited from VfsMountPoint
 	void openMounted(StdUnsafePtr<Process> process,
-			frigg::StringView path, uint32_t flags, uint32_t mode,
+			frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) override;
 
 	helx::Pipe &getPipe();
@@ -63,18 +63,24 @@ private:
 };
 
 struct OpenClosure {
-	OpenClosure(MountPoint &connection, frigg::StringView path,
+	OpenClosure(MountPoint &connection, frigg::String<Allocator> path,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 
 	void operator() ();
 
 private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvOpenResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvReadResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvReadData(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 	MountPoint &connection;
-	frigg::StringView path;
+	frigg::String<Allocator> path;
 	frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback;
+
 	uint8_t buffer[128];
+	int externFd;
+	char dataBuffer[128];
+	frigg::String<Allocator> linkTarget;
 };
 
 struct ReadClosure {

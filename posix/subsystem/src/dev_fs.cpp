@@ -50,11 +50,11 @@ void DirectoryNode::openSelf(StdUnsafePtr<Process> process,
 }
 
 void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	frigg::StringView segment;
 	
-	size_t seperator = path.findFirst('/');
+	size_t seperator = frigg::StringView(path).findFirst('/');
 	if(seperator == size_t(-1)) {
 		auto entry = entries.get(path);
 		if(entry) {
@@ -76,8 +76,9 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 		}
 	}else{
 		assert(!"Not tested");
-		frigg::StringView segment = path.subString(0, seperator);
-		frigg::StringView tail = path.subString(seperator + 1, path.size() - (seperator + 1));
+		frigg::StringView segment = frigg::StringView(path).subString(0, seperator);
+		frigg::StringView tail = frigg::StringView(path).subString(seperator + 1,
+				path.size() - (seperator + 1));
 		
 		auto entry = entries.get(segment);
 		if(!entry) {
@@ -85,7 +86,8 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 			return;
 		}
 		auto directory = frigg::staticPtrCast<DirectoryNode>(*entry);
-		directory->openEntry(process, tail, flags, mode, callback);
+		directory->openEntry(process, frigg::String<Allocator>(*allocator, tail),
+				flags, mode, callback);
 	}
 }
 
@@ -96,9 +98,9 @@ void DirectoryNode::openEntry(StdUnsafePtr<Process> process,
 MountPoint::MountPoint() { }
 
 void MountPoint::openMounted(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
-	rootDirectory.openEntry(process, path, flags, mode, callback);
+	rootDirectory.openEntry(process, frigg::move(path), flags, mode, callback);
 }
 
 } // namespace dev_fs

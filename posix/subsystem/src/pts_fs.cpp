@@ -112,7 +112,7 @@ MountPoint::MountPoint()
 : openTerminals(frigg::DefaultHasher<int>(), *allocator), nextTerminalNumber(1) { }
 
 void MountPoint::openMounted(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	if(path == "ptmx") {
 		int number = nextTerminalNumber++;
@@ -122,7 +122,7 @@ void MountPoint::openMounted(StdUnsafePtr<Process> process,
 		auto master = frigg::makeShared<Master>(*allocator, frigg::move(terminal));
 		callback(frigg::staticPtrCast<VfsOpenFile>(master));
 	}else{
-		frigg::Optional<int> number = path.toNumber<int>();
+		frigg::Optional<int> number = frigg::StringView(path).toNumber<int>();
 		assert(number);
 
 		frigg::WeakPtr<Terminal> *entry = openTerminals.get(*number);

@@ -7,14 +7,17 @@ $c_BINDIR := $(BUILD_PATH)/$c/bin
 $c_OBJECTS := main.o mbus.pb.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c gen-$c
+$c_TARGETS := all-$c clean-$c install-$c gen-$c
 
-.PHONY: all-$c clean-$c
+.PHONY: all-$c clean-$c install-$c
 
 all-$c: $($c_BINDIR)/bochs_vga
 
 clean-$c:
 	rm -f $($d_BINDIR)/bochs_vga $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
+
+install-$c: $($c_BINDIR)/bochs_vga
+	install $($d_BINDIR)/bochs_vga $(SYSROOT_PATH)/usr/bin
 
 gen: gen-$c
 

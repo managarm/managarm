@@ -9,6 +9,12 @@ enum Errors {
 	END_OF_FILE = 2;
 }
 
+enum FileType {
+	REGULAR = 1;
+	DIRECTORY = 2;
+	SYMLINK = 3;
+}
+
 enum CntReqType {
 	FSTAT = 5;
 	OPEN = 1;
@@ -38,9 +44,12 @@ message CntRequest {
 message SvrResponse {
 	optional int32 error = 3;
 
-	// return of FSTAT
+	// returned by FSTAT
 	optional uint64 file_size = 4;
 
-	// return of OPEN
+	// returned by OPEN
 	optional int32 fd = 1;
+	
+	// returned by OPEN
+	optional FileType file_type = 5;
 }

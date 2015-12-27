@@ -44,9 +44,9 @@ MountPoint::MountPoint(helx::Pipe pipe)
 : p_pipe(frigg::move(pipe)) { }
 
 void MountPoint::openMounted(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
-	auto closure = frigg::construct<OpenClosure>(*allocator, *this, path, callback);
+	auto closure = frigg::construct<OpenClosure>(*allocator, *this, frigg::move(path), callback);
 	(*closure)();
 }
 
@@ -96,9 +96,10 @@ void StatClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 // OpenClosure
 // --------------------------------------------------------
 
-OpenClosure::OpenClosure(MountPoint &connection, frigg::StringView path,
+OpenClosure::OpenClosure(MountPoint &connection, frigg::String<Allocator> path,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback)
-: connection(connection), path(path), callback(callback) { }
+: connection(connection), path(frigg::move(path)), callback(callback),
+		linkTarget(*allocator) { }
 
 void OpenClosure::operator() () {
 	managarm::fs::CntRequest<Allocator> request(*allocator);
@@ -111,25 +112,94 @@ void OpenClosure::operator() () {
 	
 	// FIXME: fix request id
 	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &OpenClosure::recvResponse)));
+			CALLBACK_MEMBER(this, &OpenClosure::recvOpenResponse)));
 }
 
-void OpenClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+void OpenClosure::recvOpenResponse(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
 	HEL_CHECK(error);
 
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.ParseFromArray(buffer, length);
 
-	if(response.error() == managarm::fs::Errors::SUCCESS) {
+	if(response.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
+		callback(StdSharedPtr<VfsOpenFile>());
+		frigg::destruct(*allocator, this);
+		return;
+	}
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+	
+	if(response.file_type() == managarm::fs::FileType::REGULAR) {
 		auto open_file = frigg::makeShared<OpenFile>(*allocator, connection, response.fd());
 		callback(frigg::staticPtrCast<VfsOpenFile>(open_file));
+		frigg::destruct(*allocator, this);
 	}else{
-		assert(response.error() == managarm::fs::Errors::FILE_NOT_FOUND);
-		callback(StdSharedPtr<VfsOpenFile>());
-	}
+		assert(response.file_type() == managarm::fs::FileType::SYMLINK);
+		externFd = response.fd();
+		infoLogger->log() << "Reading link" << frigg::EndLog();
 
-	frigg::destruct(*allocator, this);
+		// read the symlink target
+		managarm::fs::CntRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::fs::CntReqType::READ);
+		request.set_fd(externFd);
+		request.set_size(128);
+
+		frigg::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+		
+		// FIXME: fix request id
+		HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+				CALLBACK_MEMBER(this, &OpenClosure::recvReadResponse)));
+	}
+}
+
+void OpenClosure::recvReadResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+	
+	if(response.error() == managarm::fs::Errors::END_OF_FILE) {
+		frigg::StringView path_view = path;
+		size_t slash = path_view.findLast('/');
+		assert(slash != size_t(-1));
+
+		frigg::String<Allocator> target(*allocator, path_view.subString(0, slash + 1));
+		target += linkTarget;
+	
+		auto closure = frigg::construct<OpenClosure>(*allocator, connection,
+				frigg::move(target), callback);
+		(*closure)();
+		
+		frigg::destruct(*allocator, this);
+		return;
+	}
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+
+	HEL_CHECK(connection.getPipe().recvStringResp(dataBuffer, 128, eventHub, 1, 1,
+			CALLBACK_MEMBER(this, &OpenClosure::recvReadData)));
+}
+
+void OpenClosure::recvReadData(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+	linkTarget += frigg::StringView(dataBuffer, length);
+
+	// continue reading the symlink target
+	managarm::fs::CntRequest<Allocator> request(*allocator);
+	request.set_req_type(managarm::fs::CntReqType::READ);
+	request.set_fd(externFd);
+	request.set_size(128);
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	// FIXME: fix request id
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &OpenClosure::recvReadResponse)));
 }
 
 // --------------------------------------------------------

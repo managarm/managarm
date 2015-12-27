@@ -320,11 +320,37 @@ void GptTable::ParseClosure::readTable() {
 
 struct FileSystem;
 
+enum FileType {
+	kTypeNone,
+	kTypeRegular,
+	kTypeDirectory,
+	kTypeSymlink
+};
+
+struct DirEntry {
+	uint32_t inode;
+	FileType fileType;
+};
+
+union FileData {
+	struct Blocks {
+		uint32_t direct[12];
+		uint32_t singleIndirect;
+		uint32_t doubleIndirect;
+		uint32_t tripleIndirect;
+	};
+
+	Blocks blocks;
+	uint8_t embedded[60];
+};
+
+static_assert(sizeof(FileData) == 60, "Bad FileData struct size");
+
 struct Inode : std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
 	void findEntry(std::string name,
-			frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback);
+			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
 
 	FileSystem &fs;
 
@@ -339,14 +365,9 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	
 	// NOTE: The following fields are only meaningful if the isReady is true
 
-	// file size in bytes
-	uint64_t fileSize;
-
-	// data block pointers
-	uint32_t directBlocks[12];
-	uint32_t singleIndirect;
-	uint32_t doubleIndirect;
-	uint32_t tripleIndirect;
+	FileType fileType;
+	uint64_t fileSize; // file size in bytes
+	FileData fileData; // block references / small symlink data
 };
 
 struct FileSystem {
@@ -442,10 +463,7 @@ struct FileSystem {
 		uint32_t blocks;
 		uint32_t flags;
 		uint32_t osdl;
-		uint32_t directBlocks[12];
-		uint32_t singleIndirect;
-		uint32_t doubleIndirect;
-		uint32_t tripleIndirect;
+		FileData data;
 		uint32_t generation;
 		uint32_t fileAcl;
 		uint32_t dirAcl;
@@ -456,6 +474,19 @@ struct FileSystem {
 
 	enum {
 		EXT2_ROOT_INO = 2
+	};
+
+	enum {
+		EXT2_S_IFMT = 0xF000,
+		EXT2_S_IFLNK = 0xA000,
+		EXT2_S_IFREG = 0x8000,
+		EXT2_S_IFDIR = 0x4000
+	};
+
+	enum {
+		EXT2_FT_REG_FILE = 1,
+		EXT2_FT_DIR = 2,
+		EXT2_FT_SYMLINK = 7
 	};
 
 	struct InitClosure {
@@ -540,7 +571,7 @@ struct DiskDirEntry {
 
 struct FindEntryClosure {
 	FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
-			frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback);
+			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
 
 	void operator() ();
 
@@ -548,13 +579,13 @@ struct FindEntryClosure {
 
 	std::shared_ptr<Inode> inode;
 	std::string name;
-	frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback;
+	frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback;
 
 	uint8_t *blockBuffer;
 };
 
 FindEntryClosure::FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
-		frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback)
+		frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback)
 : inode(std::move(inode)), name(name), callback(callback) { }
 
 void FindEntryClosure::operator() () {
@@ -566,13 +597,27 @@ void FindEntryClosure::operator() () {
 void FindEntryClosure::readBlocks() {
 	uintptr_t offset = 0;
 	while(offset < inode->fileSize) {
-		auto entry = (DiskDirEntry *)&blockBuffer[offset];
-		if(strncmp(entry->name, name.c_str(), entry->nameLength) == 0) {
-			callback(entry->inode);
+		auto disk_entry = (DiskDirEntry *)&blockBuffer[offset];
+		if(strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
+			DirEntry entry;
+			entry.inode = disk_entry->inode;
+
+			switch(disk_entry->fileType) {
+			case FileSystem::EXT2_FT_REG_FILE:
+				entry.fileType = kTypeRegular; break;
+			case FileSystem::EXT2_FT_DIR:
+				entry.fileType = kTypeDirectory; break;
+			case FileSystem::EXT2_FT_SYMLINK:
+				entry.fileType = kTypeSymlink; break;
+			default:
+				entry.fileType = kTypeNone;
+			}
+
+			callback(entry);
 			return;
 		}
 
-		offset += entry->recordLength;
+		offset += disk_entry->recordLength;
 	}
 	assert(offset == inode->fileSize);
 
@@ -580,7 +625,7 @@ void FindEntryClosure::readBlocks() {
 }
 
 void Inode::findEntry(std::string name,
-		frigg::CallbackPtr<void(std::experimental::optional<uint32_t>)> callback) {
+		frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	auto closure = new FindEntryClosure(shared_from_this(), std::move(name), callback);
@@ -695,15 +740,20 @@ void FileSystem::ReadInodeClosure::readSector() {
 	uint32_t offset = index * ext2fs.inodeSize;
 
 	DiskInode *disk_inode = (DiskInode *)(sectorBuffer + (offset % 512));
-	printf("mode: %x , offset: %d , inodesize: %d \n", disk_inode->mode, offset, ext2fs.inodeSize);
+	printf("Inode %u: file size: %u\n", inode->number, disk_inode->size);
+
+	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
+		inode->fileType = kTypeRegular;
+	}else if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFLNK) {
+		inode->fileType = kTypeSymlink;
+	}else{
+		assert((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFDIR);
+		inode->fileType = kTypeDirectory;
+	}
 
 	// TODO: support large files
 	inode->fileSize = disk_inode->size;
-	for(int i = 0; i < 12; i++)
-		inode->directBlocks[i] = disk_inode->directBlocks[i];
-	inode->singleIndirect = disk_inode->singleIndirect;
-	inode->doubleIndirect = disk_inode->doubleIndirect;
-	inode->tripleIndirect = disk_inode->tripleIndirect;
+	inode->fileData = disk_inode->data;
 	
 	inode->isReady = true;
 	for(auto it = inode->readyQueue.begin(); it != inode->readyQueue.end(); ++it)
@@ -735,7 +785,7 @@ void FileSystem::ReadDataClosure::operator() () {
 void FileSystem::ReadDataClosure::inodeReady() {
 	if(blocksRead < numBlocks) {
 		size_t block_index = blockOffset + blocksRead;
-		printf("Reading block %lu\n", block_index);
+		printf("Reading block %lu of inode %u\n", block_index, inode->number);
 
 		size_t per_single = ext2fs.blockSize / 4;
 		size_t per_double = per_single * per_single;
@@ -745,7 +795,8 @@ void FileSystem::ReadDataClosure::inodeReady() {
 		size_t triple_offset = double_offset + per_double;
 
 		if(block_index < single_offset) {
-			uint32_t block = inode->directBlocks[block_index];
+			uint32_t block = inode->fileData.blocks.direct[block_index];
+			assert(block != 0);
 			ext2fs.partition.readSectors(block * ext2fs.sectorsPerBlock,
 					(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
 					CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
@@ -757,8 +808,8 @@ void FileSystem::ReadDataClosure::inodeReady() {
 				bufferLevel0 = (uint32_t *)malloc(ext2fs.blockSize);
 			assert(bufferLevel0);
 
-			ext2fs.partition.readSectors(inode->singleIndirect * ext2fs.sectorsPerBlock,
-					bufferLevel0, ext2fs.sectorsPerBlock,
+			ext2fs.partition.readSectors(inode->fileData.blocks.singleIndirect
+					* ext2fs.sectorsPerBlock, bufferLevel0, ext2fs.sectorsPerBlock,
 					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
 		}else{
 			assert(block_index < triple_offset);
@@ -769,8 +820,8 @@ void FileSystem::ReadDataClosure::inodeReady() {
 				bufferLevel1 = (uint32_t *)malloc(ext2fs.blockSize);
 			assert(bufferLevel1);
 
-			ext2fs.partition.readSectors(inode->doubleIndirect * ext2fs.sectorsPerBlock,
-					bufferLevel1, ext2fs.sectorsPerBlock,
+			ext2fs.partition.readSectors(inode->fileData.blocks.doubleIndirect
+					* ext2fs.sectorsPerBlock, bufferLevel1, ext2fs.sectorsPerBlock,
 					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
 		}
 	}else{
@@ -796,6 +847,7 @@ void FileSystem::ReadDataClosure::readLevel1() {
 
 void FileSystem::ReadDataClosure::readLevel0() {
 	uint32_t block = bufferLevel0[indexLevel0];
+	assert(block != 0);
 	ext2fs.partition.readSectors(block * ext2fs.sectorsPerBlock,
 			(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
 			CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
@@ -813,35 +865,9 @@ void FileSystem::ReadDataClosure::readBlock() {
 Driver ataDriver;
 GptTable gptTable(ataDriver);
 FileSystem *theFs;
-std::shared_ptr<Inode> rootInode;
-uint8_t dataBuffer[1024];
-
-struct DirEntry {
-	uint32_t inode;
-	uint16_t recordLength;
-	uint8_t nameLength;
-	uint8_t fileType;
-	char name[];
-};
-
-void done4(void *object) {
-	uintptr_t offset = 0;
-	while(offset < rootInode->fileSize) {
-		DirEntry *entry = (DirEntry *)&dataBuffer[offset];
-
-		printf("File: %.*s\n", entry->nameLength, entry->name);
-
-		offset += entry->recordLength;
-	}
-}
-
-void done3(void *object) {
-	theFs->readData(rootInode, 0, 1, dataBuffer, CALLBACK_STATIC(nullptr, &done4));
-}
 
 void done2(void *object) {
-	rootInode = theFs->accessRoot();
-	rootInode->readyQueue.push_back(CALLBACK_STATIC(nullptr, &done3));
+	printf("Initialized ext2fs\n");
 }
 
 void done(void *object) {
@@ -911,7 +937,7 @@ struct OpenClosure {
 	void operator() ();
 
 	void processSegment();
-	void foundEntry(std::experimental::optional<uint32_t> number);
+	void foundEntry(std::experimental::optional<DirEntry> number);
 
 	Connection &connection;
 	int64_t responseId;
@@ -1060,8 +1086,8 @@ void OpenClosure::processSegment() {
 	}
 }
 
-void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
-	if(!number) {
+void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
+	if(!entry) {
 		managarm::fs::SvrResponse response;
 		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
@@ -1072,18 +1098,28 @@ void OpenClosure::foundEntry(std::experimental::optional<uint32_t> number) {
 	}
 
 	if(tailPath.empty()) {
-		int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(*number)));
+		int handle = connection.attachOpenFile(new OpenFile(theFs->accessInode(entry->inode)));
 
 		managarm::fs::SvrResponse response;
 		response.set_error(managarm::fs::Errors::SUCCESS);
 		response.set_fd(handle);
+
+		switch(entry->fileType) {
+		case kTypeRegular:
+			response.set_file_type(managarm::fs::FileType::REGULAR); break;
+		case kTypeSymlink:
+			response.set_file_type(managarm::fs::FileType::SYMLINK); break;
+		default:
+			assert(!"Unexpected file type");
+		}
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
 				responseId, 0);
 	}else{
-		directory = theFs->accessInode(*number);
+		assert(entry->fileType == kTypeDirectory);
+		directory = theFs->accessInode(entry->inode);
 		processSegment();
 	}
 }
@@ -1106,13 +1142,6 @@ void ReadClosure::operator() () {
 }
 
 void ReadClosure::inodeReady() {
-	size_t block_offset = openFile->offset / openFile->inode->fs.blockSize;
-	blockBuffer = (char *)malloc(openFile->inode->fs.blockSize);
-	openFile->inode->fs.readData(openFile->inode, block_offset, 1, blockBuffer,
-			CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
-}
-
-void ReadClosure::readBlocks() {
 	if(openFile->offset >= openFile->inode->fileSize) {
 		managarm::fs::SvrResponse response;
 		response.set_error(managarm::fs::Errors::END_OF_FILE);
@@ -1120,9 +1149,37 @@ void ReadClosure::readBlocks() {
 		std::string serialized;
 		response.SerializeToString(&serialized);
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+		
+		delete this;
 		return;
 	}
 	
+	if(openFile->inode->fileType == kTypeSymlink && openFile->inode->fileSize <= 60) {
+		size_t read_size = std::min({ size_t(request.size()),
+				size_t(openFile->inode->fileSize - openFile->offset) });
+
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+		connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
+				read_size, responseId, 1);
+
+		openFile->offset += read_size;
+
+		delete this;
+	}else{
+		size_t block_offset = openFile->offset / openFile->inode->fs.blockSize;
+		blockBuffer = (char *)malloc(openFile->inode->fs.blockSize);
+		assert(blockBuffer);
+		openFile->inode->fs.readData(openFile->inode, block_offset, 1, blockBuffer,
+				CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
+	}
+}
+
+void ReadClosure::readBlocks() {
 	size_t block_size = openFile->inode->fs.blockSize;
 	size_t read_offset = openFile->offset % block_size;
 	size_t read_size = std::min({ size_t(request.size()),
@@ -1138,6 +1195,9 @@ void ReadClosure::readBlocks() {
 	connection.getPipe().sendStringResp(blockBuffer + read_offset, read_size, responseId, 1);
 
 	openFile->offset += read_size;
+	
+	free(blockBuffer);
+	delete this;
 }
 
 // --------------------------------------------------------

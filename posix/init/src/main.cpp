@@ -27,11 +27,7 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-//		execve("/initrd/kbd", args.data(), envp);
-//		execve("/initrd/bochs_vga", args.data(), envp);
-//		execve("/initrd/vga_terminal", args.data(), envp);
 		execve("/initrd/ata", args.data(), envp);
-//		execve("/initrd/zisa", args.data(), envp);
 	}
 	
 	// TODO: this is a very ugly hack to wait until the fs is ready
@@ -43,7 +39,8 @@ int main() {
 	pid_t terminal_child = fork();
 	assert(terminal_child != -1);
 	if(!terminal_child) {
-		execve("/usr/bin/kbd", args.data(), envp);
+//		execve("/usr/bin/kbd", args.data(), envp);
+		execve("/usr/bin/bochs_vga", args.data(), envp);
 	}
 }
 

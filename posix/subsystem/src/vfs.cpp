@@ -6,7 +6,7 @@
 // VfsOpenFile
 // --------------------------------------------------------
 
-void VfsOpenFile::openAt(frigg::StringView path,
+void VfsOpenFile::openAt(frigg::String<Allocator> path,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
@@ -44,7 +44,7 @@ MountSpace::MountSpace()
 : allMounts(frigg::DefaultHasher<frigg::StringView>(), *allocator) { }
 
 void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
-		frigg::StringView path, uint32_t flags, uint32_t mode,
+		frigg::String<Allocator> path, uint32_t flags, uint32_t mode,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(path.size() > 0);
 	assert(path[0] == '/');
@@ -58,7 +58,8 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 	while(true) {
 		auto mount = allMounts.get(prefix);
 		if(mount) {
-			(*mount)->openMounted(process, suffix, flags, mode, callback);
+			(*mount)->openMounted(process, frigg::String<Allocator>(*allocator, suffix),
+					flags, mode, callback);
 			return;
 		}
 		
@@ -70,8 +71,8 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 
 		size_t seperator = prefix.findLast('/');
 		assert(seperator != size_t(-1));
-		prefix = path.subString(0, seperator);
-		suffix = path.subString(seperator + 1, path.size() - (seperator + 1));
+		prefix = frigg::StringView(path).subString(0, seperator);
+		suffix = frigg::StringView(path).subString(seperator + 1, path.size() - (seperator + 1));
 	}
 };
 
