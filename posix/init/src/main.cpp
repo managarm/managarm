@@ -28,9 +28,9 @@ int main() {
 	assert(child != -1);
 	if(!child) {
 //		execve("/initrd/kbd", args.data(), envp);
-//		execve("/initrd/bochs_vga", args.data(), envp);
+		execve("/initrd/bochs_vga", args.data(), envp);
 //		execve("/initrd/vga_terminal", args.data(), envp);
-		execve("/initrd/ata", args.data(), envp);
+//		execve("/initrd/ata", args.data(), envp);
 //		execve("/initrd/zisa", args.data(), envp);
 	}
 	
