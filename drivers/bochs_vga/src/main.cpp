@@ -291,6 +291,72 @@ void layoutChildren(Box *box) {
 	}
 }
 
+struct TerminalWidget {
+	TerminalWidget(int width, int height, double font);
+
+	int width;
+	int height;
+	double fontSize;
+	std::shared_ptr<Box> mainBox;
+
+	std::shared_ptr<Box> getBox();
+	void setChar(int x, int y, char c);
+};
+TerminalWidget::TerminalWidget(int width, int height, double font) {
+	this->width = width;
+	this->height = height;
+	this->fontSize = font;
+
+	mainBox = std::make_shared<Box>();
+	mainBox->layout = kVerticalBlocks;
+
+	mainBox->widthType = Box::kSizeFillParent;
+	mainBox->heightType = Box::kSizeFixed;
+
+	mainBox->fixedWidth = font * width;
+	mainBox->fixedHeight = font * height;	
+
+	for(int i = 0; i < height; i++) {
+		auto box = std::make_shared<Box>();
+		box->layout = kHorizontalBlocks;
+
+		box->widthType = Box::kSizeFillParent;
+		box->fixedHeight = font;
+		box->heightType = Box::kSizeFixed;
+		box->backgroundColor = 0xFFFFFF;
+
+		mainBox->appendChild(box);
+		for(int j = 0; j < width; j++) {
+			auto child_box = std::make_shared<Box>();
+			child_box->layout = kLayoutLine;
+
+			child_box->fixedWidth = font;
+			child_box->widthType = Box::kSizeFixed;
+			child_box->heightType = Box::kSizeFillParent;
+			child_box->backgroundColor = 0xFFFFFF;
+
+			child_box->hasText = true;
+			child_box->text = " ";
+			child_box->fontSize = font;
+			child_box->fontColor = 0x000000;
+
+			mainBox->children[i]->appendChild(child_box);
+		}
+	}
+}
+
+std::shared_ptr<Box> TerminalWidget::getBox() {
+	return mainBox;
+}
+
+void TerminalWidget::setChar(int x, int y, char c) {
+	//assert(y > (int)mainBox->children.size());
+	//assert(x > (int)mainBox->children[y]->children.size());
+
+	auto box = mainBox->children[y]->children[x];
+	box->text = std::string(1, c);
+}
+
 void writeReg(uint16_t index, uint16_t value) {
 	asm volatile ( "outw %0, %1" : : "a" (index), "d" (uint16_t(0x1CE)) );
 
@@ -437,7 +503,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	for(int y = 0; y < height; y++)
 		for(int x = 0; x < width; x++)
 			setPixel(x, y, 255, 255, 255);
-
+	
 //Freetype
 
 	if(FT_Init_FreeType(&ftLibrary) != 0) {
@@ -450,24 +516,24 @@ void InitClosure::queriedBochs(HelHandle handle) {
 		printf("FT_New_Face() failed\n");
 		abort();
 	}
-
+	
 // cairo
 	
 	int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, width);
 	assert(stride == width * 4);
-
 	display.buffers[0].crSurface = cairo_image_surface_create_for_data(pixels,
 			CAIRO_FORMAT_RGB24, width, height, stride);
+	
 	display.buffers[0].crContext = cairo_create(display.buffers[0].crSurface);
 	display.buffers[1].offsetY = 0;
-	
 	display.buffers[1].crSurface = cairo_image_surface_create_for_data(pixels + height * stride,
 			CAIRO_FORMAT_RGB24, width, height, stride);
 	display.buffers[1].crContext = cairo_create(display.buffers[1].crSurface);
 	display.buffers[1].offsetY = height;
 	
 	crFont = cairo_ft_font_face_create_for_ft_face(ftFace, 0);
-	
+
+/*
 	auto head = std::make_shared<Box>();
 	head->fixedHeight = 20;
 	head->backgroundColor = 0xCECECE;
@@ -522,26 +588,38 @@ void InitClosure::queriedBochs(HelHandle handle) {
 
 	body->appendChild(bodyFont);
 
+*/
+
 	rootBox = std::make_shared<Box>();
 	rootBox->fixedHeight = 604;
 	rootBox->fixedWidth = 900;
 	rootBox->x = 20;
 	rootBox->y = 20;
 	rootBox->backgroundColor = 0xFFFFFF;
-	rootBox->layout = kVerticalBlocks;
-
+	rootBox->layout = kVerticalBlocks;	
 	rootBox->widthType = Box::kSizeFixed;
 	rootBox->heightType = Box::kSizeFixed;
-
+	
 	rootBox->hasBorder = true;
 	rootBox->borderWidth = 2;
 	rootBox->borderColor = 0xAE3E17;
 	
-	rootBox->appendChild(head);
-	rootBox->appendChild(body);
-
+	TerminalWidget widget(50, 10, 30.0);
+	
+	widget.setChar(0, 0, 'H');
+	widget.setChar(1, 0, 'e');
+	widget.setChar(2, 0, 'l');
+	widget.setChar(3, 0, 'l');
+	widget.setChar(4, 0, 'o');
+	widget.setChar(0, 1, 'W');
+	widget.setChar(1, 1, 'o');
+	widget.setChar(2, 1, 'r');
+	widget.setChar(3, 1, 'l');
+	widget.setChar(4, 1, 'd');
+	
+	rootBox->appendChild(widget.getBox());
 	layoutChildren(rootBox.get());
-
+	
 	for(int i = 0; true; i++)
 		drawFrame(&display, i);
 }
