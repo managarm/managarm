@@ -218,7 +218,7 @@ FileSystem::ReadDataClosure::ReadDataClosure(FileSystem &ext2fs, std::shared_ptr
 		frigg::CallbackPtr<void()> callback)
 : ext2fs(ext2fs), inode(std::move(inode)), blockOffset(block_offset),
 		numBlocks(num_blocks), buffer(buffer), callback(callback),
-		blocksRead(0), bufferLevel0(nullptr) { }
+		blocksRead(0), bufferLevel1(nullptr), bufferLevel0(nullptr) { }
 
 void FileSystem::ReadDataClosure::operator() () {
 	if(inode->isReady) {
@@ -231,7 +231,8 @@ void FileSystem::ReadDataClosure::operator() () {
 void FileSystem::ReadDataClosure::inodeReady() {
 	if(blocksRead < numBlocks) {
 		size_t block_index = blockOffset + blocksRead;
-		printf("Reading block %lu of inode %u\n", block_index, inode->number);
+		if(block_index % 100 == 0)
+			printf("Reading block %lu of inode %u\n", block_index, inode->number);
 
 		size_t per_single = ext2fs.blockSize / 4;
 		size_t per_double = per_single * per_single;

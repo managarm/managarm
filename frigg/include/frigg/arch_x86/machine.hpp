@@ -86,4 +86,59 @@ inline void ioOutByte(uint16_t port, uint8_t value) {
 
 } } // namespace frigg::arch_x86
 
+namespace frigg {
+
+template<typename T>
+T readIo(uint16_t port);
+
+template<typename T>
+void writeIo(uint16_t port, T value);
+
+template<>
+inline uint8_t readIo<uint8_t>(uint16_t port) {
+	register uint16_t in_port asm("dx") = port;
+	register uint8_t out_value asm("al");
+	asm volatile ( "in %%dx, %%al" : "=r" (out_value) : "r" (in_port) );
+	return out_value;
+}
+
+template<>
+inline uint16_t readIo<uint16_t>(uint16_t port) {
+	register uint16_t in_port asm("dx") = port;
+	register uint16_t out_value asm("ax");
+	asm volatile ( "in %%dx, %%ax" : "=r" (out_value) : "r" (in_port) );
+	return out_value;
+}
+
+template<>
+inline uint32_t readIo<uint32_t>(uint16_t port) {
+	register uint16_t in_port asm("dx") = port;
+	register uint32_t out_value asm("eax");
+	asm volatile ( "in %%dx, %%eax" : "=r" (out_value) : "r" (in_port) );
+	return out_value;
+}
+
+template<>
+inline void writeIo<uint8_t>(uint16_t port, uint8_t value) {
+	register uint16_t in_port asm("dx") = port;
+	register uint8_t in_value asm("al") = value;
+	asm volatile ( "out %%al, %%dx" : : "r" (in_port), "r" (in_value) );
+}
+
+template<>
+inline void writeIo<uint16_t>(uint16_t port, uint16_t value) {
+	register uint16_t in_port asm("dx") = port;
+	register uint16_t in_value asm("ax") = value;
+	asm volatile ( "out %%ax, %%dx" : : "r" (in_port), "r" (in_value) );
+}
+
+template<>
+inline void writeIo<uint32_t>(uint16_t port, uint32_t value) {
+	register uint16_t in_port asm("dx") = port;
+	register uint32_t in_value asm("eax") = value;
+	asm volatile ( "out %%eax, %%dx" : : "r" (in_port), "r" (in_value) );
+}
+
+} // namespace frigg
+
 #endif // FRIGG_MACHINE_HPP

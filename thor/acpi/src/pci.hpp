@@ -48,6 +48,7 @@ enum {
 	// general PCI header fields
 	kPciVendor = 0,
 	kPciDevice = 2,
+	kPciStatus = 6,
 	kPciRevision = 0x08,
 	kPciInterface = 0x09,
 	kPciSubClass = 0x0A,
@@ -55,10 +56,13 @@ enum {
 	kPciHeaderType = 0x0E,
 
 	// usual device header fields
-	kPciBar0 = 0x10,
+	kPciRegularBar0 = 0x10,
+	kPciRegularSubsystemVendor = 0x2C,
+	kPciRegularSubsystemDevice = 0x2E,
+	kPciRegularCapabilities = 0x34,
 
 	// PCI-to-PCI bridge header fields
-	kPciSecondaryBus = 0x19
+	kPciBridgeSecondary = 0x19
 };
 
 // read from pci configuration space

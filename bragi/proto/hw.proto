@@ -4,6 +4,7 @@ package managarm.hw;
 option optimize_for = LITE_RUNTIME;
 
 enum IoType {
+	NONE = 0;
 	PORT = 1;
 	MEMORY = 2;
 }

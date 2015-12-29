@@ -53,6 +53,12 @@ void DeviceClosure::operator() () {
 			response.add_bars(frigg::move(bar_response));
 
 			pipe.sendDescriptorResp(device->bars[k].handle, 1, 1 + k);
+		}else{
+			assert(device->bars[k].type == PciDevice::kBarNone);
+
+			managarm::hw::PciBar<Allocator> bar_response(*allocator);
+			bar_response.set_io_type(managarm::hw::IoType::NONE);
+			response.add_bars(frigg::move(bar_response));
 		}
 	}
 
@@ -85,7 +91,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	if((header_type & 0x7F) == 0) {
 		infoLogger->log() << "    Function " << function << ": Device" << frigg::EndLog();
 	}else if((header_type & 0x7F) == 1) {
-		uint8_t secondary = readPciByte(bus, slot, function, kPciSecondaryBus);
+		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
 		infoLogger->log() << "    Function " << function
 				<< ": PCI-to-PCI bridge to bus " << secondary << frigg::EndLog();
 	}else{
@@ -106,12 +112,44 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			<< ", subclass: " << sub_class << ", interface: " << interface << frigg::EndLog();
 	
 	if((header_type & 0x7F) == 0) {
+		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
+		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
+		infoLogger->log() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
+				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::EndLog();
+
+		if(readPciHalf(bus, slot, function, kPciStatus) & 0x10) {
+			// NOTE: the bottom two bits of each capability offset must be masked
+			uint8_t offset = readPciByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
+			while(offset != 0) {
+				uint8_t capability = readPciByte(bus, slot, function, offset);
+				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
+				
+				auto dump = infoLogger->log() << "        Capability 0x"
+						<< frigg::logHex(capability) << frigg::EndLog();
+				
+				if(capability == 0x09) {
+					uint8_t size = readPciByte(bus, slot, function, offset + 2);
+
+					auto dump = infoLogger->log() << "            Bytes: ";
+					for(size_t i = 2; i < size; i++) {
+						if(i > 2)
+							dump << ", ";
+						dump << frigg::logHex(readPciByte(bus, slot, function, offset + i));
+					}
+					dump << frigg::EndLog();
+				}
+
+				offset = successor & 0xFC;
+			}
+		}
+
+
 		auto device = frigg::construct<PciDevice>(*allocator, bus, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
 		
 		// determine the BARs
 		for(int i = 0; i < 6; i++) {
-			uint32_t offset = kPciBar0 + i * 4;
+			uint32_t offset = kPciRegularBar0 + i * 4;
 			uint32_t bar = readPciWord(bus, slot, function, offset);
 			if(bar == 0)
 				continue;

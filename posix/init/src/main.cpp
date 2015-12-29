@@ -27,7 +27,7 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-		execve("/initrd/ata", args.data(), envp);
+		execve("/initrd/virtio", args.data(), envp);
 	}
 	
 	// TODO: this is a very ugly hack to wait until the fs is ready

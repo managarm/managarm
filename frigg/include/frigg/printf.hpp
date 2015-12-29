@@ -129,7 +129,7 @@ void printf(P &printer, const char *format, va_list args) {
 			// TODO: Implement this correctly
 			assert(!l_prefix);
 			assert(precision == 0);
-			printUInt(printer, va_arg(args, unsigned long), 10);
+			printUInt(printer, va_arg(args, unsigned int), 16);
 			break;
 		case 'X':
 			assert(!l_prefix);
@@ -144,6 +144,10 @@ void printf(P &printer, const char *format, va_list args) {
 				printUInt(printer, va_arg(args, unsigned int), 10);
 			}
 		} break;
+		case 'p':
+			printer.print("0x");
+			printUInt(printer, (uintptr_t)va_arg(args, void *), 16);
+			break;
 		default:
 			assert(!"Illegal printf modifier");
 		}
