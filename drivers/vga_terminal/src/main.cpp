@@ -28,18 +28,7 @@
 #include <posix.pb.h>
 #include <input.pb.h>
 
-uint8_t *videoMemoryPointer;
-int xPosition = 0;
-int yPosition = 0;
-int width = 80;
-int height = 25;
 HelHandle ioHandle;
-
-enum Status {
-	kStatusNormal,
-	kStatusEscape,
-	kStatusCsi
-};
 
 struct LibcAllocator {
 	void *allocate(size_t length) {
@@ -55,7 +44,21 @@ LibcAllocator allocator;
 
 int masterFd;
 
-void printString(std::string);
+enum Color {
+	kColorBlack,
+	kColorRed,
+	kColorGreen,
+	kColorYellow,
+	kColorBlue,
+	kColorMagenta,
+	kColorCyan,
+	kColorWhite
+};
+
+struct Attribute {
+	Color fgColor = kColorWhite;
+	Color bgColor = kColorBlack;
+};
 
 void writeMaster(const char *string, size_t length) {
 	write(masterFd, string, length);
@@ -68,41 +71,140 @@ void writeMaster(const char *string) {
 struct VgaComposeHandler : ComposeHandler {
 	void input(std::string string) override;
 };
+
 void VgaComposeHandler::input(std::string string) {
 	writeMaster(string.data(), string.length());
+}
+
+struct Display {
+	virtual void setChar(int x, int y, char c, Attribute attribute) = 0;
+	virtual void setCursor(int x, int y) = 0;
 };
 
-VgaComposeHandler vgaComposeHandle;
-ComposeState composeState(&vgaComposeHandle);
-Translator translator;
+struct VgaDisplay : Display {
+	void setChar(int x, int y, char c, Attribute attribute) override;
+	void setCursor(int x, int y) override;
+	void initializeScreen();
 
-void setChar(char character, int x, int y, uint8_t color) {
+	uint8_t *videoMemoryPointer;
+	int width = 80;
+	int height = 25;
+};
+
+void VgaDisplay::setChar(int x, int y, char c, Attribute attribute) {
+	int color = 0x00;
+
+	switch(attribute.fgColor) {
+		case kColorBlack: color += 0x00; break;
+		case kColorRed: color += 0x04; break;
+		case kColorGreen: color += 0x0A; break;
+		case kColorYellow: color += 0x0E; break;
+		case kColorBlue: color += 0x01; break;
+		case kColorMagenta: color += 0x0D; break;
+		case kColorCyan: color += 0x0B; break;
+		case kColorWhite: color += 0x0F; break;
+		default: 
+			printf("No valid fgColor!\n"); 
+			abort();
+	}
+
+	switch(attribute.bgColor) {
+		case kColorBlack: color += 0x00; break;
+		case kColorRed: color += 0x40; break;
+		case kColorGreen: color += 0xA0; break;
+		case kColorYellow: color += 0xE0; break;
+		case kColorBlue: color += 0x10; break;
+		case kColorMagenta: color += 0xD0; break;
+		case kColorCyan: color += 0xB0; break;
+		case kColorWhite: color += 0xF0; break;
+		default: 
+			printf("No valid bgColor!\n"); 
+			abort();
+	}
+
 	int position = y * width + x;
-	videoMemoryPointer[position * 2] = character;
-	videoMemoryPointer[position * 2 + 1] = color;
-}
-void setChar(char character, int x, int y) {
-	setChar(character, x, y, 0x0F); 
+	videoMemoryPointer[position * 2] = c;
+	videoMemoryPointer[position * 2 + 1] = color;	
 }
 
-char getChar(int x, int y) {
-	int position = y * width + x;
-	return videoMemoryPointer[position * 2];
-}
-uint8_t getColor(int x, int y) {
-	int position = y * width + x;
-	return videoMemoryPointer[position * 2 + 1];
+void VgaDisplay::setCursor(int x, int y) {
+	int position = x + width * y;
+
+	uintptr_t ports[] = { 0x3D4, 0x3D5 };
+	HEL_CHECK(helAccessIo(ports, 2, &ioHandle));
+	HEL_CHECK(helEnableIo(ioHandle));
+
+    frigg::arch_x86::ioOutByte(0x3D4, 0x0F);
+    frigg::arch_x86::ioOutByte(0x3D5, position & 0xFF);
+    frigg::arch_x86::ioOutByte(0x3D4, 0x0E);
+    frigg::arch_x86::ioOutByte(0x3D5, (position >> 8) & 0xFF);
 }
 
+void VgaDisplay::initializeScreen() {
+	// note: the vga test mode memory is actually 4000 bytes long
+	HelHandle screen_memory;
+	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
+
+	// TODO: replace with drop-on-fork?
+	void *actual_pointer;
+	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
+			kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
+	videoMemoryPointer = (uint8_t *)actual_pointer;
+	
+	for(int y = 0; y < height; y++) {
+		for(int x = 0; x < width; x++) {
+			Attribute attribute;
+			attribute.fgColor = kColorWhite;
+			attribute.bgColor = kColorBlack;
+			setChar(x, y, ' ', attribute);
+		}
+	}
+}
+
+
+struct Emulator {
+	Emulator(VgaDisplay *display);
+
+	enum Status {
+		kStatusNormal,
+		kStatusEscape,
+		kStatusCsi
+	};
+
+	void setChar(int x, int y, char c, Attribute attribute);
+	void handleControlSeq(char character);
+	void handleCsi(char character);
+	void printChar(char character);
+	void printString(std::string string);
+
+	Display *display;
 Status status = kStatusNormal;
-std::experimental::optional<int> currentNumber;
-std::vector<int> params;
-int currentTextColor = 0x0F;
-int currentBackgroundColor = 0x00;
+	std::vector<int> params;
+	int cursorX = 0;
+	int cursorY = 0;
+	int width;
+	int height;
+	Attribute attribute;
+	std::experimental::optional<int> currentNumber;
+	Attribute *attributes;
+	char *chars;
+};
+Emulator::Emulator(VgaDisplay *display) {
+	this->display = display;
+	this->height = display->height;
+	this->width = display->width;
 
-void setCursor(int x, int y);
+	chars = new char[width * height];
+	attributes = new Attribute[width * height];
+}
 
-void handleControlSeq(char character) {
+void Emulator::setChar(int x, int y, char c, Attribute attribute) {
+	attributes[y * x + x] = attribute;
+	chars[y * x + x] = c;
+	display->setChar(x, y, c, attribute);
+}
+
+void Emulator::handleControlSeq(char character) {
 	if(character == 'A') {
 		int n = 1;
 		if(!params.empty())
@@ -110,12 +212,12 @@ void handleControlSeq(char character) {
 		if(n == 0)
 			n = 1;
 
-		if(yPosition - n >= 0) {
-			yPosition -= n;
+		if(cursorY - n >= 0) {
+			cursorY -= n;
 		}else{
-			yPosition = 0;
+			cursorY = 0;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'B') {
 		int n = 1;
 		if(!params.empty())
@@ -123,12 +225,12 @@ void handleControlSeq(char character) {
 		if(n == 0)
 			n = 1;
 		
-		if(yPosition + n <= height) {
-			yPosition += n;
+		if(cursorY + n <= height) {
+			cursorY += n;
 		}else{
-			yPosition = height;
+			cursorY = height;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'C') {
 		int n = 1;
 		if(!params.empty())
@@ -136,12 +238,12 @@ void handleControlSeq(char character) {
 		if(n == 0)
 			n = 1;
 		
-		if(xPosition + n <= width) {
-			xPosition += n;
+		if(cursorX + n <= width) {
+			cursorX += n;
 		}else{
-			xPosition = width;
+			cursorX = width;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'D') {
 		int n = 1;
 		if(!params.empty())
@@ -149,73 +251,73 @@ void handleControlSeq(char character) {
 		if(n == 0)
 			n = 1;
 		
-		if(xPosition - n >= 0) {
-			xPosition -= n;
+		if(cursorX - n >= 0) {
+			cursorX -= n;
 		}else{
-			xPosition = 0;
+			cursorX = 0;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'E') {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
 		
-		if(yPosition + n <= height) {
-			yPosition += n;
+		if(cursorY + n <= height) {
+			cursorY += n;
 		}else{
-			yPosition = height;
+			cursorY = height;
 		}
-		xPosition = 0;
-		setCursor(xPosition, yPosition);
+		cursorX = 0;
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'F') {
 		int n = 1;
 		if(!params.empty())
 			n = params[0];
 		
-		if(yPosition - n >= 0) {
-			yPosition -= n;
+		if(cursorY - n >= 0) {
+			cursorY -= n;
 		}else{
-			yPosition = 0;
+			cursorY = 0;
 		}
-		xPosition = 0;
-		setCursor(xPosition, yPosition);
+		cursorX = 0;
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'G') {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
 		
 		if(n >= 0 && n <= width){
-			xPosition = n;
+			cursorX = n;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(character == 'J') {
 		int n = 0;
 		if(!params.empty())
 			n = params[0];
 		
-		int color = currentTextColor | currentBackgroundColor;
+		Attribute attribute;
 		if(n == 0) {
-			for(int i = xPosition; i <= width; i++) {
-				setChar(' ', i, yPosition, color);
+			for(int i = cursorX; i <= width; i++) {
+				setChar(i, cursorY, ' ', attribute);
 			}
-			for(int i = yPosition + 1; i <= height; i++) {
+			for(int i = cursorY + 1; i <= height; i++) {
 				for(int j = 0; j < width; j++) {
-					setChar(' ', i, j, color);
+					setChar(i, cursorY, ' ', attribute);
 				}
 			}
 		}else if(n == 1) {
-			for(int i = xPosition; i >= 0; i--) {
-				setChar(' ', i, yPosition, color);
+			for(int i = cursorX; i >= 0; i--) {
+					setChar(i, cursorY, ' ', attribute);
 			}
-			for(int i = yPosition - 1; i >= 0; i--) {
+			for(int i = cursorY - 1; i >= 0; i--) {
 				for(int j = 0; j < width; j++) {
-					setChar(' ', i, j, color);
+					setChar(i, cursorY, ' ', attribute);
 				}
 			}
 		}else if(n == 2) {
 			for(int i = 0; i <= height; i++) {
 				for(int j = 0; j <= width; j++) {
-					setChar(' ', i, j, color);
+					setChar(i, cursorY, ' ', attribute);
 				}
 			}
 		}
@@ -224,18 +326,18 @@ void handleControlSeq(char character) {
 		if(!params.empty())
 			n = params[0];
 
-		int color = currentTextColor | currentBackgroundColor;
+		Attribute attribute;
 		if(n == 0) {
-			for(int i = xPosition; i < width; i++) {
-				setChar(' ', i, yPosition, color);
+			for(int i = cursorX; i < width; i++) {
+				setChar(i, cursorY, ' ', attribute);
 			}
 		}else if(n == 1) {
-			for(int i = xPosition; i >= 0; i--) {
-				setChar(' ', i, yPosition, color);
+			for(int i = cursorX; i >= 0; i--) {
+				setChar(i, cursorY, ' ', attribute);
 			}
 		}else if(n == 2) {
 			for(int i = 0; i <= width; i++) {
-				setChar(' ', i, yPosition, color);
+				setChar(i, cursorY, ' ', attribute);
 			}
 		}
 	}else if(character == 'm') {
@@ -246,59 +348,59 @@ void handleControlSeq(char character) {
 			int n = params[i];
 			switch(n) {
 				case 30: 
-					currentTextColor = 0x00;
+					attribute.fgColor = kColorBlack;
 					break;
 				case 31:
-					currentTextColor = 0x04;
+					attribute.fgColor = kColorRed;
 					break;
 				case 32:
-					currentTextColor = 0x0A;
+					attribute.fgColor = kColorGreen;
 					break;
 				case 33:
-					currentTextColor = 0x0E;
+					attribute.fgColor = kColorYellow;
 					break;
 				case 34:
-					currentTextColor = 0x01;
+					attribute.fgColor = kColorBlue;
 					break;
 				case 35:
-					currentTextColor = 0x0D;
+					attribute.fgColor = kColorMagenta;
 					break;
 				case 36:
-					currentTextColor = 0x0B;
+					attribute.fgColor = kColorCyan;
 					break;
 				case 37:
-					currentTextColor = 0x0F;
+					attribute.fgColor = kColorWhite;
 					break;
 				case 40: 
-					currentBackgroundColor = 0x00;
+					attribute.bgColor = kColorBlack;
 					break;
 				case 41:
-					currentBackgroundColor = 0x40;
+					attribute.bgColor = kColorRed;
 					break;
 				case 42:
-					currentBackgroundColor = 0xA0;
+					attribute.bgColor = kColorGreen;
 					break;
 				case 43:
-					currentBackgroundColor = 0xE0;
+					attribute.bgColor = kColorYellow;
 					break;
 				case 44:
-					currentBackgroundColor = 0x10;
+					attribute.bgColor = kColorBlue;
 					break;
 				case 45:
-					currentBackgroundColor = 0xD0;
+					attribute.bgColor = kColorMagenta;
 					break;
 				case 46:
-					currentBackgroundColor = 0xB0;
+					attribute.bgColor = kColorCyan;
 					break;
 				case 47:
-					currentBackgroundColor = 0xF0;
+					attribute.bgColor = kColorWhite;
 					break;
 			}
 		}
 	}
 }
 
-void handleCsi(char character) {
+void Emulator::handleCsi(char character) {
 	if(character >= '0' && character <= '9') {
 		if(currentNumber) {
 			currentNumber = *currentNumber * 10 + (character - '0');
@@ -325,20 +427,7 @@ void handleCsi(char character) {
 	}
 }
 
-void setCursor(int x, int y) {
-	int position = x + width * y;
-
-	uintptr_t ports[] = { 0x3D4, 0x3D5};
-	HEL_CHECK(helAccessIo(ports, 2, &ioHandle));
-	HEL_CHECK(helEnableIo(ioHandle));
-
-    frigg::arch_x86::ioOutByte(0x3D4, 0x0F);
-    frigg::arch_x86::ioOutByte(0x3D5, position & 0xFF);
-    frigg::arch_x86::ioOutByte(0x3D4, 0x0E);
-    frigg::arch_x86::ioOutByte(0x3D5, (position >> 8) & 0xFF);
-}
-
-void printChar(char character) {
+void Emulator::printChar(char character) {
 	if(status == kStatusNormal) {
 		if(character == 27) { //ASCII for escape
 			status = kStatusEscape;
@@ -346,34 +435,36 @@ void printChar(char character) {
 		}else if(character == '\a') {
 			// do nothing for now
 		}else if(character == '\b') {
-			if(xPosition > 0)
-				xPosition--;
+			if(cursorX > 0)
+				cursorX--;
 		}else if(character == '\n') {
-			yPosition++;
-			xPosition = 0;
+			cursorY++;
+			cursorX = 0;
 		}else{
-			int color = currentTextColor + currentBackgroundColor;
-			setChar(character, xPosition, yPosition, color);
-			xPosition++;
-			if(xPosition >= width) {
-				xPosition = 0;
-				yPosition++;
+			Attribute attribute;
+			setChar(cursorX, cursorY, character, attribute);
+			cursorX++;
+			if(cursorX >= width) {
+				cursorX = 0;
+				cursorY++;
 			}
 		}
-		if(yPosition >= height) {
+		if(cursorY >= height) {
 			for(int i = 1; i < height; i++) {
 				for(int j = 0; j < width; j++) {
-					char moved_char = getChar(j, i);
-					uint8_t moved_color = getColor(j, i);
-					setChar(moved_char, j, i - 1, moved_color);
+					char moved_char = chars[j * width + width];
+					Attribute moved_attribute = attributes[j * width + width];
+					setChar(j, i - 1, moved_char, moved_attribute);
 				}
 			}
 			for(int j = 0; j < width; j++) {
-				setChar(' ', j, height - 1, 0x0F);
+				Attribute attribute;
+				attribute.fgColor = kColorWhite;
+				setChar(j, height - 1, ' ', attribute);
 			}
-			yPosition = height - 1;
+			cursorY = height - 1;
 		}
-		setCursor(xPosition, yPosition);
+		display->setCursor(cursorX, cursorY);
 	}else if(status == kStatusEscape) {
 		if(character == '[') {
 			status = kStatusCsi;
@@ -385,7 +476,7 @@ void printChar(char character) {
 
 bool logSequences = false;
 
-void printString(std::string string){
+void Emulator::printString(std::string string){
 	for(unsigned int i = 0; i < string.size(); i++) {
 		if(logSequences) {
 			char buffer[128];
@@ -396,26 +487,14 @@ void printString(std::string string){
 	}
 }
 
-void initializeScreen() {
-	// note: the vga test mode memory is actually 4000 bytes long
-	HelHandle screen_memory;
-	HEL_CHECK(helAccessPhysical(0xB8000, 0x1000, &screen_memory));
-
-	// TODO: replace with drop-on-fork?
-	void *actual_pointer;
-	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
-			kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
-	
-	videoMemoryPointer = (uint8_t *)actual_pointer;
-	
-	int color = currentTextColor + currentBackgroundColor;
-	for(int i = 0; i <= height; i++)
-		for(int j = 0; j <= width; j++)
-			setChar(' ', i, j, color);
-}
-
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
+VgaDisplay display;
+Emulator emulator(&display);
+
+VgaComposeHandler vgaComposeHandle;
+ComposeState composeState(&vgaComposeHandle);
+Translator translator;
 
 
 // --------------------------------------------------------
@@ -570,14 +649,15 @@ void ReadMasterClosure::recvdData(HelError error,
 		int64_t msg_request, int64_t msg_seq, size_t length) {
 	HEL_CHECK(error);
 
-	printString(std::string(data, length));
+	emulator.printString(std::string(data, length));
 
 	doRead();
 }
 
 int main() {
 	printf("Starting vga_terminal\n");
-	initializeScreen();
+
+	display.initializeScreen();
 
 	masterFd = open("/dev/pts/ptmx", O_RDWR);
 	assert(masterFd != -1);
@@ -594,7 +674,7 @@ int main() {
 		dup2(slave_fd, STDOUT_FILENO);
 		dup2(slave_fd, STDERR_FILENO);
 
-		execve("/usr/bin/bash", nullptr, nullptr);
+		execve("/usr/bin/hello", nullptr, nullptr);
 	}
 
 	auto read_master = new ReadMasterClosure();
