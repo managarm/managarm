@@ -279,7 +279,9 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		Word arg2, Word arg3, Word arg4, Word arg5,
 		Word arg6, Word arg7, Word arg8) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-//	infoLogger->log() << "syscall #" << index << frigg::EndLog();
+//	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+//	if(index != kHelCallLog)
+//		infoLogger->log() << "syscall #" << index << frigg::EndLog();
 
 	switch(index) {
 	case kHelCallLog: {
@@ -345,6 +347,9 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	} break;
 
 	case kHelCallCreateThread: {
+//		infoLogger->log() << "[" << this_thread->globalThreadId << "]"
+//				<< " helCreateThread()"
+//				<< frigg::EndLog();
 		HelHandle handle;
 		HelError error = helCreateThread((HelHandle)arg0,
 				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);

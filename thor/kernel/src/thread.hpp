@@ -40,6 +40,8 @@ public:
 	void deactivate();
 
 	ThorRtThreadState &accessSaveState();
+
+	const uint64_t globalThreadId;
 	
 	uint32_t flags;
 

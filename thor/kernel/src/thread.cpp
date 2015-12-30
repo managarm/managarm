@@ -7,11 +7,17 @@ namespace thor {
 // Thread
 // --------------------------------------------------------
 
+// FIXME: atomicity
+uint64_t nextGlobalThreadId = 1;
+
 Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<AddressSpace> &&address_space,
 		KernelSharedPtr<RdFolder> &&directory)
-: flags(0), p_universe(universe), p_addressSpace(address_space),
-		p_directory(directory), p_pendingSignals(*kernelAlloc), p_joined(*kernelAlloc) { }
+: globalThreadId(nextGlobalThreadId++), flags(0),
+		p_universe(universe), p_addressSpace(address_space), p_directory(directory),
+		p_pendingSignals(*kernelAlloc), p_joined(*kernelAlloc) {
+//	infoLogger->log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
+}
 
 Thread::~Thread() {
 	while(!p_joined.empty()) {
