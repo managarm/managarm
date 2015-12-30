@@ -445,18 +445,9 @@ void InitClosure::queriedBochs(HelHandle handle) {
 		abort();
 	}
 	
-	const char *path = "initrd/SourceCodePro-Regular.otf";
-
-	HelHandle image_handle;
-	size_t image_size;
-	void *image_ptr;
-	HEL_CHECK(helRdOpen(path, strlen(path), &image_handle));
-	HEL_CHECK(helMemoryInfo(image_handle, &image_size));
-	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
-			kHelMapReadOnly, &image_ptr));
-
-	if(FT_New_Memory_Face(ftLibrary, (FT_Byte *)image_ptr, image_size, 0, &ftFace) != 0) {
-		printf("FT_New_Memory_Face() failed\n");
+	const char *path = "/usr/share/fonts/SourceCodePro-Regular.otf";
+	if(FT_New_Face(ftLibrary, path, 0, &ftFace) != 0) {
+		printf("FT_New_Face() failed\n");
 		abort();
 	}
 
