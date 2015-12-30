@@ -212,7 +212,7 @@ struct FileSystem {
 
 		FileSystem &ext2fs;
 		frigg::CallbackPtr<void()> callback;
-		uint8_t superblockBuffer[1024];
+		char *superblockBuffer;
 	};
 
 	struct ReadInodeClosure {
@@ -225,7 +225,7 @@ struct FileSystem {
 
 		FileSystem &ext2fs;
 		std::shared_ptr<Inode> inode;
-		uint8_t sectorBuffer[512];
+		char *sectorBuffer;
 	};
 
 	struct ReadDataClosure {

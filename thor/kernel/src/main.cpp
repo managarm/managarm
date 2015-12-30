@@ -333,6 +333,11 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
 		thorRtReturnSyscall1((Word)error);
 	} break;
+	case kHelCallPointerPhysical: {
+		uintptr_t physical;
+		HelError error = helPointerPhysical((void *)arg0, &physical);
+		thorRtReturnSyscall2((Word)error, (Word)physical);
+	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
 		HelError error = helMemoryInfo((HelHandle)arg0, &size);

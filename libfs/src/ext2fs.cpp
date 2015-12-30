@@ -122,7 +122,9 @@ void FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 // --------------------------------------------------------
 
 FileSystem::InitClosure::InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback)
-: ext2fs(ext2fs), callback(callback) { }
+: ext2fs(ext2fs), callback(callback) {
+	superblockBuffer = (char *)malloc(1024);
+}
 
 void FileSystem::InitClosure::operator() () {
 	ext2fs.device->readSectors(2, superblockBuffer, 2,
@@ -166,7 +168,9 @@ void FileSystem::InitClosure::readBlockGroups() {
 // --------------------------------------------------------
 
 FileSystem::ReadInodeClosure::ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode)
-: ext2fs(ext2fs), inode(std::move(inode)) { }	
+: ext2fs(ext2fs), inode(std::move(inode)) {
+	sectorBuffer = (char *)malloc(512);
+}
 
 void FileSystem::ReadInodeClosure::operator() () {
 	uint32_t block_group = (inode->number - 1) / ext2fs.inodesPerGroup;

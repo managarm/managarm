@@ -304,8 +304,8 @@ void Queue::process() {
 		auto user_request = slot->userRequest;
 
 		//FIXME assert(virt_request->status == 0);
-		memcpy((char *)user_request->buffer + slot->part * 512,
-				requestSpace + 0x10 + slot->bufferIndex * 0x400, 512);
+		//memcpy((char *)user_request->buffer + slot->part * 512,
+		//		requestSpace + 0x10 + slot->bufferIndex * 0x400, 512);
 		bufferStack.push_back(slot->bufferIndex);
 		
 		// reset the request type (for debugging purposes)
@@ -347,7 +347,7 @@ Device::Device()
 
 void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 			frigg::CallbackPtr<void()> callback) {
-//	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
+	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
 	UserRequest *user_request = new UserRequest;
 	user_request->buffer = buffer;
@@ -360,6 +360,10 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 		size_t buffer_index = bufferStack.back();
 		bufferStack.pop_back();
 
+		assert((uintptr_t)buffer % 512 == 0);
+		uintptr_t physical;
+		HEL_CHECK(helPointerPhysical((char *)buffer + i * 512, &physical));
+
 		auto virt_request = (VirtRequest *)(requestSpace + buffer_index * 0x400);
 		virt_request->type = VIRTIO_BLK_T_IN;
 		virt_request->reserved = 0;
@@ -370,7 +374,7 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 		pseudo[0].length = 16;
 		pseudo[0].flags = 0;
 
-		pseudo[1].address = 0xA010 + buffer_index * 0x400;
+		pseudo[1].address = physical;
 		pseudo[1].length = 512;
 		pseudo[1].flags = VIRTQ_DESC_F_WRITE;
 		

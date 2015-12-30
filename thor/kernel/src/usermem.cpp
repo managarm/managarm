@@ -324,6 +324,19 @@ KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 
 	return frigg::move(forked);
 }
+	
+PhysicalAddr AddressSpace::getPhysical(Guard &guard, VirtualAddr address) {
+	assert(guard.protects(&lock));
+	assert((address % kPageSize) == 0);
+
+	Mapping *mapping = getMapping(address);
+	assert(mapping);
+	assert(mapping->type == Mapping::kTypeMemory);
+	assert(mapping->memoryRegion->getType() == Memory::kTypeAllocated);
+
+	auto index = (address - mapping->baseAddress) / kPageSize;
+	return mapping->memoryRegion->getPage(index);
+}
 
 void AddressSpace::activate() {
 	p_pageSpace.activate();

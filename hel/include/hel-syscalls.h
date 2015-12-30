@@ -109,6 +109,12 @@ DEFINE_SYSCALL(UnmapMemory, HelHandle space, void *pointer, size_t size)
 	DO_SYSCALL(UnmapMemory)
 END_SYSCALL()
 
+DEFINE_SYSCALL(PointerPhysical, void *pointer, uintptr_t *physical)
+	IN(0, pointer)
+	DO_SYSCALL(PointerPhysical)
+	OUT(0, uintptr_t, physical)
+END_SYSCALL()
+
 DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
 	IN(0, handle)
 	DO_SYSCALL(MemoryInfo)

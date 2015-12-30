@@ -243,6 +243,24 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	return kHelErrNone;
 }
 
+HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	
+	KernelSharedPtr<AddressSpace> space
+		= KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+
+	auto address = (VirtualAddr)pointer;
+	auto misalign = address % kPageSize;
+
+	AddressSpace::Guard space_guard(&space->lock);
+	PhysicalAddr page_physical = space->getPhysical(space_guard, address - misalign);
+	space_guard.unlock();
+
+	*physical = page_physical + misalign;
+
+	return kHelErrNone;
+}
+
 HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

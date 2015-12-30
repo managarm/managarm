@@ -121,6 +121,8 @@ public:
 	
 	KernelSharedPtr<AddressSpace> fork(Guard &guard);
 	
+	PhysicalAddr getPhysical(Guard &guard, VirtualAddr address);
+	
 	void activate();
 
 	Lock lock;
