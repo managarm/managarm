@@ -103,7 +103,6 @@ struct VirtRequest {
 // --------------------------------------------------------
 
 struct UserRequest {
-	void *buffer;
 	frigg::CallbackPtr<void()> callback;
 	size_t countdown;
 };
@@ -117,7 +116,6 @@ struct RequestSlot {
 	SlotType slotType;
 	UserRequest *userRequest;
 	size_t bufferIndex;
-	size_t part;
 };
 
 struct PseudoDescriptor {
@@ -347,49 +345,57 @@ Device::Device()
 
 void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 			frigg::CallbackPtr<void()> callback) {
-	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
+//	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
+	assert((uintptr_t)buffer % 512 == 0);
 
 	UserRequest *user_request = new UserRequest;
-	user_request->buffer = buffer;
 	user_request->callback = callback;
-	user_request->countdown = num_sectors;
+	user_request->countdown = 0;
 
-	for(size_t i = 0; i < num_sectors; i++) {
-		// send a single request
+	size_t submitted = 0;
+	while(submitted < num_sectors) {
+		user_request->countdown++;
+
 		assert(!bufferStack.empty());
 		size_t buffer_index = bufferStack.back();
 		bufferStack.pop_back();
 
-		assert((uintptr_t)buffer % 512 == 0);
-		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical((char *)buffer + i * 512, &physical));
-
 		auto virt_request = (VirtRequest *)(requestSpace + buffer_index * 0x400);
 		virt_request->type = VIRTIO_BLK_T_IN;
 		virt_request->reserved = 0;
-		virt_request->sector = sector + i;
+		virt_request->sector = sector + submitted;
 
-		PseudoDescriptor pseudo[3];
+		constexpr size_t kMaxPseudos = 32;
+		PseudoDescriptor pseudo[kMaxPseudos];
 		pseudo[0].address = 0xA000 + buffer_index * 0x400;
 		pseudo[0].length = 16;
 		pseudo[0].flags = 0;
 
-		pseudo[1].address = physical;
-		pseudo[1].length = 512;
-		pseudo[1].flags = VIRTQ_DESC_F_WRITE;
-		
-		pseudo[2].address = 0xA210 + buffer_index * 0x400;
-		pseudo[2].length = 1;
-		pseudo[2].flags = VIRTQ_DESC_F_WRITE;
+		size_t n;
+		for(n = 1; n < kMaxPseudos - 1 && submitted < num_sectors; n++) {
+			uintptr_t physical;
+			HEL_CHECK(helPointerPhysical((char *)buffer + submitted * 512, &physical));
+
+			pseudo[n].address = physical;
+			pseudo[n].length = 512;
+			pseudo[n].flags = VIRTQ_DESC_F_WRITE;
+
+			submitted++;
+		}
+		assert(n > 1);
+
+		pseudo[n].address = 0xA210 + buffer_index * 0x400;
+		pseudo[n].length = 1;
+		pseudo[n].flags = VIRTQ_DESC_F_WRITE;
 		
 		RequestSlot slot;
 		slot.slotType = RequestSlot::kSlotRead;
 		slot.userRequest = user_request;
 		slot.bufferIndex = buffer_index;
-		slot.part = i;
 		
-		queue0.postRequest(pseudo, 3, slot);
+		queue0.postRequest(pseudo, n + 1, slot);
 	}
+	assert(submitted == num_sectors);
 
 	queue0.notifyDevice();
 }
