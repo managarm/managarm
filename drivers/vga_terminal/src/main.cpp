@@ -25,6 +25,7 @@
 
 #include <bragi/mbus.hpp>
 #include <libcompose.hpp>
+#include <libterminal.hpp>
 #include <posix.pb.h>
 #include <input.pb.h>
 
@@ -42,47 +43,8 @@ struct LibcAllocator {
 
 LibcAllocator allocator;
 
-int masterFd;
-
-enum Color {
-	kColorBlack,
-	kColorRed,
-	kColorGreen,
-	kColorYellow,
-	kColorBlue,
-	kColorMagenta,
-	kColorCyan,
-	kColorWhite
-};
-
-struct Attribute {
-	Color fgColor = kColorWhite;
-	Color bgColor = kColorBlack;
-};
-
-void writeMaster(const char *string, size_t length) {
-	write(masterFd, string, length);
-}
-
-void writeMaster(const char *string) {
-	return writeMaster(string, strlen(string));
-}
-
-struct VgaComposeHandler : ComposeHandler {
-	void input(std::string string) override;
-};
-
-void VgaComposeHandler::input(std::string string) {
-	writeMaster(string.data(), string.length());
-}
-
-struct Display {
-	virtual void setChar(int x, int y, char c, Attribute attribute) = 0;
-	virtual void setCursor(int x, int y) = 0;
-};
-
-struct VgaDisplay : Display {
-	void setChar(int x, int y, char c, Attribute attribute) override;
+struct VgaDisplay : libterminal::Display {
+	void setChar(int x, int y, char c, libterminal::Attribute attribute) override;
 	void setCursor(int x, int y) override;
 	void initializeScreen();
 
@@ -91,32 +53,32 @@ struct VgaDisplay : Display {
 	int height = 25;
 };
 
-void VgaDisplay::setChar(int x, int y, char c, Attribute attribute) {
+void VgaDisplay::setChar(int x, int y, char c, libterminal::Attribute attribute) {
 	int color = 0x00;
 
 	switch(attribute.fgColor) {
-		case kColorBlack: color += 0x00; break;
-		case kColorRed: color += 0x04; break;
-		case kColorGreen: color += 0x0A; break;
-		case kColorYellow: color += 0x0E; break;
-		case kColorBlue: color += 0x01; break;
-		case kColorMagenta: color += 0x0D; break;
-		case kColorCyan: color += 0x0B; break;
-		case kColorWhite: color += 0x0F; break;
+		case libterminal::kColorBlack: color += 0x00; break;
+		case libterminal::kColorRed: color += 0x04; break;
+		case libterminal::kColorGreen: color += 0x0A; break;
+		case libterminal::kColorYellow: color += 0x0E; break;
+		case libterminal::kColorBlue: color += 0x01; break;
+		case libterminal::kColorMagenta: color += 0x0D; break;
+		case libterminal::kColorCyan: color += 0x0B; break;
+		case libterminal::kColorWhite: color += 0x0F; break;
 		default: 
 			printf("No valid fgColor!\n"); 
 			abort();
 	}
 
 	switch(attribute.bgColor) {
-		case kColorBlack: color += 0x00; break;
-		case kColorRed: color += 0x40; break;
-		case kColorGreen: color += 0xA0; break;
-		case kColorYellow: color += 0xE0; break;
-		case kColorBlue: color += 0x10; break;
-		case kColorMagenta: color += 0xD0; break;
-		case kColorCyan: color += 0xB0; break;
-		case kColorWhite: color += 0xF0; break;
+		case libterminal::kColorBlack: color += 0x00; break;
+		case libterminal::kColorRed: color += 0x40; break;
+		case libterminal::kColorGreen: color += 0xA0; break;
+		case libterminal::kColorYellow: color += 0xE0; break;
+		case libterminal::kColorBlue: color += 0x10; break;
+		case libterminal::kColorMagenta: color += 0xD0; break;
+		case libterminal::kColorCyan: color += 0xB0; break;
+		case libterminal::kColorWhite: color += 0xF0; break;
 		default: 
 			printf("No valid bgColor!\n"); 
 			abort();
@@ -153,344 +115,36 @@ void VgaDisplay::initializeScreen() {
 	
 	for(int y = 0; y < height; y++) {
 		for(int x = 0; x < width; x++) {
-			Attribute attribute;
-			attribute.fgColor = kColorWhite;
-			attribute.bgColor = kColorBlack;
+			libterminal::Attribute attribute;
+			attribute.fgColor = libterminal::kColorWhite;
+			attribute.bgColor = libterminal::kColorBlack;
 			setChar(x, y, ' ', attribute);
 		}
 	}
 }
 
+int masterFd;
 
-struct Emulator {
-	Emulator(VgaDisplay *display);
+void writeMaster(const char *string, size_t length) {
+	write(masterFd, string, length);
+}
 
-	enum Status {
-		kStatusNormal,
-		kStatusEscape,
-		kStatusCsi
-	};
+void writeMaster(const char *string) {
+	return writeMaster(string, strlen(string));
+}
 
-	void setChar(int x, int y, char c, Attribute attribute);
-	void handleControlSeq(char character);
-	void handleCsi(char character);
-	void printChar(char character);
-	void printString(std::string string);
-
-	Display *display;
-Status status = kStatusNormal;
-	std::vector<int> params;
-	int cursorX = 0;
-	int cursorY = 0;
-	int width;
-	int height;
-	Attribute attribute;
-	std::experimental::optional<int> currentNumber;
-	Attribute *attributes;
-	char *chars;
+struct VgaComposeHandler : ComposeHandler {
+	void input(std::string string) override;
 };
-Emulator::Emulator(VgaDisplay *display) {
-	this->display = display;
-	this->height = display->height;
-	this->width = display->width;
 
-	chars = new char[width * height];
-	attributes = new Attribute[width * height];
-}
-
-void Emulator::setChar(int x, int y, char c, Attribute attribute) {
-	attributes[y * x + x] = attribute;
-	chars[y * x + x] = c;
-	display->setChar(x, y, c, attribute);
-}
-
-void Emulator::handleControlSeq(char character) {
-	if(character == 'A') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		if(n == 0)
-			n = 1;
-
-		if(cursorY - n >= 0) {
-			cursorY -= n;
-		}else{
-			cursorY = 0;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'B') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		if(n == 0)
-			n = 1;
-		
-		if(cursorY + n <= height) {
-			cursorY += n;
-		}else{
-			cursorY = height;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'C') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		if(n == 0)
-			n = 1;
-		
-		if(cursorX + n <= width) {
-			cursorX += n;
-		}else{
-			cursorX = width;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'D') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		if(n == 0)
-			n = 1;
-		
-		if(cursorX - n >= 0) {
-			cursorX -= n;
-		}else{
-			cursorX = 0;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'E') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		
-		if(cursorY + n <= height) {
-			cursorY += n;
-		}else{
-			cursorY = height;
-		}
-		cursorX = 0;
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'F') {
-		int n = 1;
-		if(!params.empty())
-			n = params[0];
-		
-		if(cursorY - n >= 0) {
-			cursorY -= n;
-		}else{
-			cursorY = 0;
-		}
-		cursorX = 0;
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'G') {
-		int n = 0;
-		if(!params.empty())
-			n = params[0];
-		
-		if(n >= 0 && n <= width){
-			cursorX = n;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(character == 'J') {
-		int n = 0;
-		if(!params.empty())
-			n = params[0];
-		
-		Attribute attribute;
-		if(n == 0) {
-			for(int i = cursorX; i <= width; i++) {
-				setChar(i, cursorY, ' ', attribute);
-			}
-			for(int i = cursorY + 1; i <= height; i++) {
-				for(int j = 0; j < width; j++) {
-					setChar(i, cursorY, ' ', attribute);
-				}
-			}
-		}else if(n == 1) {
-			for(int i = cursorX; i >= 0; i--) {
-					setChar(i, cursorY, ' ', attribute);
-			}
-			for(int i = cursorY - 1; i >= 0; i--) {
-				for(int j = 0; j < width; j++) {
-					setChar(i, cursorY, ' ', attribute);
-				}
-			}
-		}else if(n == 2) {
-			for(int i = 0; i <= height; i++) {
-				for(int j = 0; j <= width; j++) {
-					setChar(i, cursorY, ' ', attribute);
-				}
-			}
-		}
-	}else if(character == 'K') {
-		int n = 0;
-		if(!params.empty())
-			n = params[0];
-
-		Attribute attribute;
-		if(n == 0) {
-			for(int i = cursorX; i < width; i++) {
-				setChar(i, cursorY, ' ', attribute);
-			}
-		}else if(n == 1) {
-			for(int i = cursorX; i >= 0; i--) {
-				setChar(i, cursorY, ' ', attribute);
-			}
-		}else if(n == 2) {
-			for(int i = 0; i <= width; i++) {
-				setChar(i, cursorY, ' ', attribute);
-			}
-		}
-	}else if(character == 'm') {
-		if(!params.empty())
-			params.push_back(0);
-
-		for(size_t i = 0; i < params.size(); i++) {
-			int n = params[i];
-			switch(n) {
-				case 30: 
-					attribute.fgColor = kColorBlack;
-					break;
-				case 31:
-					attribute.fgColor = kColorRed;
-					break;
-				case 32:
-					attribute.fgColor = kColorGreen;
-					break;
-				case 33:
-					attribute.fgColor = kColorYellow;
-					break;
-				case 34:
-					attribute.fgColor = kColorBlue;
-					break;
-				case 35:
-					attribute.fgColor = kColorMagenta;
-					break;
-				case 36:
-					attribute.fgColor = kColorCyan;
-					break;
-				case 37:
-					attribute.fgColor = kColorWhite;
-					break;
-				case 40: 
-					attribute.bgColor = kColorBlack;
-					break;
-				case 41:
-					attribute.bgColor = kColorRed;
-					break;
-				case 42:
-					attribute.bgColor = kColorGreen;
-					break;
-				case 43:
-					attribute.bgColor = kColorYellow;
-					break;
-				case 44:
-					attribute.bgColor = kColorBlue;
-					break;
-				case 45:
-					attribute.bgColor = kColorMagenta;
-					break;
-				case 46:
-					attribute.bgColor = kColorCyan;
-					break;
-				case 47:
-					attribute.bgColor = kColorWhite;
-					break;
-			}
-		}
-	}
-}
-
-void Emulator::handleCsi(char character) {
-	if(character >= '0' && character <= '9') {
-		if(currentNumber) {
-			currentNumber = *currentNumber * 10 + (character - '0');
-		}else{
-			currentNumber = character - '0';
-		}
-	}else if(character == ';') {
-		if(currentNumber) {
-			params.push_back(*currentNumber);
-			currentNumber = std::experimental::nullopt;
-		}else{
-			params.push_back(0);
-		}
-	}else if(character >= 64 && character <= 126) {
-		if(currentNumber) {
-			params.push_back(*currentNumber);
-			currentNumber = std::experimental::nullopt;
-		}
-
-		handleControlSeq(character);
-		
-		params.clear();
-		status = kStatusNormal;
-	}
-}
-
-void Emulator::printChar(char character) {
-	if(status == kStatusNormal) {
-		if(character == 27) { //ASCII for escape
-			status = kStatusEscape;
-			return;
-		}else if(character == '\a') {
-			// do nothing for now
-		}else if(character == '\b') {
-			if(cursorX > 0)
-				cursorX--;
-		}else if(character == '\n') {
-			cursorY++;
-			cursorX = 0;
-		}else{
-			Attribute attribute;
-			setChar(cursorX, cursorY, character, attribute);
-			cursorX++;
-			if(cursorX >= width) {
-				cursorX = 0;
-				cursorY++;
-			}
-		}
-		if(cursorY >= height) {
-			for(int i = 1; i < height; i++) {
-				for(int j = 0; j < width; j++) {
-					char moved_char = chars[j * width + width];
-					Attribute moved_attribute = attributes[j * width + width];
-					setChar(j, i - 1, moved_char, moved_attribute);
-				}
-			}
-			for(int j = 0; j < width; j++) {
-				Attribute attribute;
-				attribute.fgColor = kColorWhite;
-				setChar(j, height - 1, ' ', attribute);
-			}
-			cursorY = height - 1;
-		}
-		display->setCursor(cursorX, cursorY);
-	}else if(status == kStatusEscape) {
-		if(character == '[') {
-			status = kStatusCsi;
-		}
-	}else if(status == kStatusCsi) {
-		handleCsi(character);
-	}
-}
-
-bool logSequences = false;
-
-void Emulator::printString(std::string string){
-	for(unsigned int i = 0; i < string.size(); i++) {
-		if(logSequences) {
-			char buffer[128];
-			sprintf(buffer, "U+%d", string[i]);
-			puts(buffer);
-		}
-		printChar(string[i]);
-	}
+void VgaComposeHandler::input(std::string string) {
+	writeMaster(string.data(), string.length());
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 VgaDisplay display;
-Emulator emulator(&display);
+libterminal::Emulator emulator(&display);
 
 VgaComposeHandler vgaComposeHandle;
 ComposeState composeState(&vgaComposeHandle);
