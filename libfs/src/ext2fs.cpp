@@ -141,10 +141,6 @@ void FileSystem::InitClosure::readSuperblock() {
 	ext2fs.numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
 	ext2fs.inodesPerGroup = sb->inodesPerGroup;
 
-	printf("magic: %x \n", sb->magic);
-	printf("numBlockGroups: %d \n", ext2fs.numBlockGroups);
-	printf("blockSize: %d \n", ext2fs.blockSize);
-
 	size_t bgdt_size = ext2fs.numBlockGroups * sizeof(DiskGroupDesc);
 	if(bgdt_size % 512)
 		bgdt_size += 512 - (bgdt_size % 512);
@@ -156,9 +152,6 @@ void FileSystem::InitClosure::readSuperblock() {
 }
 
 void FileSystem::InitClosure::readBlockGroups() {
-	DiskGroupDesc *bgdt = (DiskGroupDesc *)ext2fs.blockGroupDescriptorBuffer;
-	printf("bgBlockBitmap: %x \n", bgdt->blockBitmap);
-
 	callback();
 	delete this;
 };
@@ -235,8 +228,7 @@ void FileSystem::ReadDataClosure::operator() () {
 void FileSystem::ReadDataClosure::inodeReady() {
 	if(blocksRead < numBlocks) {
 		size_t block_index = blockOffset + blocksRead;
-		if(block_index % 100 == 0)
-			printf("Reading block %lu of inode %u\n", block_index, inode->number);
+		printf("Reading block %lu of inode %u\n", block_index, inode->number);
 
 		size_t per_single = ext2fs.blockSize / 4;
 		size_t per_double = per_single * per_single;
@@ -248,10 +240,18 @@ void FileSystem::ReadDataClosure::inodeReady() {
 		if(block_index < single_offset) {
 			uint32_t block = inode->fileData.blocks.direct[block_index];
 			assert(block != 0);
-			ext2fs.device->readSectors(block * ext2fs.sectorsPerBlock,
-					(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
-					CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
 
+			chunkSize = 1;
+			while(block_index + chunkSize < single_offset && blocksRead + chunkSize < numBlocks) {
+				if(inode->fileData.blocks.direct[block_index + chunkSize] != block + chunkSize)
+					break;
+				chunkSize++;
+			}
+
+			ext2fs.device->readSectors(block * ext2fs.sectorsPerBlock,
+					(uint8_t *)buffer + blocksRead * ext2fs.blockSize,
+					chunkSize * ext2fs.sectorsPerBlock,
+					CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
 		}else if(block_index < double_offset) {
 			indexLevel0 = block_index - single_offset;
 
@@ -276,6 +276,8 @@ void FileSystem::ReadDataClosure::inodeReady() {
 					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
 		}
 	}else{
+		assert(blocksRead == numBlocks);
+
 		callback();
 		if(bufferLevel1)
 			free(bufferLevel1);
@@ -297,15 +299,28 @@ void FileSystem::ReadDataClosure::readLevel1() {
 }
 
 void FileSystem::ReadDataClosure::readLevel0() {
+	size_t per_single = ext2fs.blockSize / 4;
+
 	uint32_t block = bufferLevel0[indexLevel0];
 	assert(block != 0);
+
+	chunkSize = 1;
+	while(indexLevel0 + chunkSize < per_single && blocksRead + chunkSize < numBlocks) {
+		// TODO: artifical limit because the virtio driver cannot handle large blocks
+		if(chunkSize == 14)
+			break;
+		if(bufferLevel0[indexLevel0 + chunkSize] != block + chunkSize)
+			break;
+		chunkSize++;
+	}
+
 	ext2fs.device->readSectors(block * ext2fs.sectorsPerBlock,
-			(uint8_t *)buffer + blocksRead * ext2fs.blockSize, ext2fs.sectorsPerBlock,
+			(uint8_t *)buffer + blocksRead * ext2fs.blockSize, chunkSize * ext2fs.sectorsPerBlock,
 			CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
 }
 
 void FileSystem::ReadDataClosure::readBlock() {
-	blocksRead++;
+	blocksRead += chunkSize;
 	(*this)();
 }
 
@@ -567,20 +582,28 @@ void ReadClosure::inodeReady() {
 
 		delete this;
 	}else{
-		size_t block_offset = openFile->offset / openFile->inode->fs.blockSize;
-		blockBuffer = (char *)malloc(openFile->inode->fs.blockSize);
+		size_t read_size = std::min(size_t(request.size()),
+				openFile->inode->fileSize - openFile->offset);
+		assert(read_size > 0);
+		
+		size_t block_size = openFile->inode->fs.blockSize;
+		auto first_block = openFile->offset / block_size;
+		auto last_block = (openFile->offset + read_size) / block_size;
+		numBlocks = last_block - first_block + 1;
+
+		blockBuffer = (char *)malloc(numBlocks * openFile->inode->fs.blockSize);
 		assert(blockBuffer);
-		openFile->inode->fs.readData(openFile->inode, block_offset, 1, blockBuffer,
+		openFile->inode->fs.readData(openFile->inode, first_block, numBlocks, blockBuffer,
 				CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
 	}
 }
 
 void ReadClosure::readBlocks() {
+	size_t read_size = std::min(size_t(request.size()),
+			openFile->inode->fileSize - openFile->offset);
+
 	size_t block_size = openFile->inode->fs.blockSize;
 	size_t read_offset = openFile->offset % block_size;
-	size_t read_size = std::min({ size_t(request.size()),
-			size_t(openFile->inode->fileSize - openFile->offset),
-			size_t(block_size - read_offset) });
 
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
@@ -591,7 +614,7 @@ void ReadClosure::readBlocks() {
 	connection.getPipe().sendStringResp(blockBuffer + read_offset, read_size, responseId, 1);
 
 	openFile->offset += read_size;
-	
+
 	free(blockBuffer);
 	delete this;
 }

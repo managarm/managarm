@@ -346,7 +346,7 @@ Device::Device()
 void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 			frigg::CallbackPtr<void()> callback) {
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
-	assert((uintptr_t)buffer % 512 == 0);
+	assert(((uintptr_t)buffer % 512) == 0);
 
 	UserRequest *user_request = new UserRequest;
 	user_request->callback = callback;

@@ -136,7 +136,6 @@ void OpenClosure::recvOpenResponse(HelError error, int64_t msg_request, int64_t 
 	}else{
 		assert(response.file_type() == managarm::fs::FileType::SYMLINK);
 		externFd = response.fd();
-		infoLogger->log() << "Reading link" << frigg::EndLog();
 
 		// read the symlink target
 		managarm::fs::CntRequest<Allocator> request(*allocator);

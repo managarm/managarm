@@ -27,6 +27,7 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
+//		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio", args.data(), envp);
 	}
 	

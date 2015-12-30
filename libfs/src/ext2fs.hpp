@@ -249,6 +249,7 @@ struct FileSystem {
 		frigg::CallbackPtr<void()> callback;
 		
 		size_t blocksRead;
+		size_t chunkSize;
 		size_t indexLevel1;
 		size_t indexLevel0;
 		uint32_t *bufferLevel1;
@@ -381,6 +382,7 @@ struct ReadClosure {
 	managarm::fs::CntRequest request;
 
 	OpenFile *openFile;
+	size_t numBlocks;
 	char *blockBuffer;
 };
 
