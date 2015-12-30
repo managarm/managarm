@@ -358,7 +358,7 @@ frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
 
 void posixSeek(int fd, int64_t offset) {
 	managarm::posix::ClientRequest<Allocator> seek_request(*allocator);
-	seek_request.set_request_type(managarm::posix::ClientRequestType::SEEK);
+	seek_request.set_request_type(managarm::posix::ClientRequestType::SEEK_ABS);
 	seek_request.set_fd(fd);
 	seek_request.set_rel_offset(offset);
 	

@@ -429,7 +429,9 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	}else if(request.req_type() == managarm::fs::CntReqType::READ) {
 		auto closure = new ReadClosure(*this, msg_request, std::move(request));
 		(*closure)();
-	}else if(request.req_type() == managarm::fs::CntReqType::SEEK) {
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS
+			|| request.req_type() == managarm::fs::CntReqType::SEEK_REL
+			|| request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
 		auto closure = new SeekClosure(*this, msg_request, std::move(request));
 		(*closure)();
 	}else{
@@ -629,10 +631,22 @@ SeekClosure::SeekClosure(Connection &connection, int64_t response_id,
 
 void SeekClosure::operator() () {
 	openFile = connection.getOpenFile(request.fd());
-	openFile->offset = request.rel_offset();
+	assert(openFile->inode->isReady);
+
+	if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+		openFile->offset = request.rel_offset();
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+		openFile->offset += request.rel_offset();
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+		openFile->offset = openFile->inode->fileSize;
+	}else{
+		printf("Illegal SEEK request");
+		abort();
+	}
 	
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
+	response.set_offset(openFile->offset);
 
 	std::string serialized;
 	response.SerializeToString(&serialized);

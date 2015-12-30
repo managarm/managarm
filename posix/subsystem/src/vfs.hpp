@@ -16,6 +16,10 @@ enum VfsError {
 	kVfsEndOfFile = 1
 };
 
+enum VfsSeek {
+	kSeekAbs, kSeekRel, kSeekEof
+};
+
 struct FileStats {
 	uint64_t fileSize;
 };
@@ -35,7 +39,8 @@ struct VfsOpenFile {
 	virtual void read(void *buffer, size_t max_length,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback);
 	
-	virtual void seek(int64_t rel_offset, frigg::CallbackPtr<void()> callback);
+	virtual void seek(int64_t rel_offset, VfsSeek whence,
+			frigg::CallbackPtr<void(uint64_t)> callback);
 
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();

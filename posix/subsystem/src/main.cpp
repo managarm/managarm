@@ -281,7 +281,7 @@ struct SeekClosure : frigg::BaseClosure<SeekClosure> {
 	void operator() ();
 
 private:
-	void seekComplete();
+	void seekComplete(uint64_t offset);
 
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
@@ -304,12 +304,24 @@ void SeekClosure::operator() () {
 		return;
 	}
 
-	(*file)->seek(request.rel_offset(), CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
+	if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
+		(*file)->seek(request.rel_offset(), kSeekAbs,
+				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
+	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_REL) {
+		(*file)->seek(request.rel_offset(), kSeekRel,
+				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
+	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
+		(*file)->seek(request.rel_offset(), kSeekEof,
+				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
+	}else{
+		frigg::panicLogger.log() << "Illegal SEEK request" << frigg::EndLog();
+	}
 }
 
-void SeekClosure::seekComplete() {
+void SeekClosure::seekComplete(uint64_t offset) {
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
 	response.set_error(managarm::posix::Errors::SUCCESS);
+	response.set_offset(offset);
 	sendResponse(*pipe, response, msgRequest);
 	suicide(*allocator);
 }
@@ -435,7 +447,9 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 		frigg::runClosure<ReadClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
-	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK) {
+	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS
+			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_REL
+			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] SEEK" << frigg::EndLog();
 

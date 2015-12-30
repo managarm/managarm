@@ -23,7 +23,9 @@ enum ClientRequestType {
 	OPEN = 2;
 	READ = 3;
 	WRITE = 4;
-	SEEK = 13;
+	SEEK_ABS = 13;
+	SEEK_REL = 14;
+	SEEK_EOF = 15;
 	CLOSE = 5;
 	DUP2 = 6;
 	HELFD_ATTACH = 10;
@@ -61,7 +63,7 @@ message ClientRequest {
 	// used by WRITE
 	optional bytes buffer = 6;
 
-	// used by SEEK
+	// used by SEEK_ABS, SEEK_REL
 	optional int64 rel_offset = 11;
 
 	// used by FORK
@@ -77,5 +79,8 @@ message ServerResponse {
 
 	// return of OPEN
 	optional int32 fd = 1;
+
+	// returned by SEEK_ABS, SEEK_REL
+	optional uint64 offset = 6;
 }
 

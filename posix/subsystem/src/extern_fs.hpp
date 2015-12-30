@@ -18,7 +18,8 @@ struct OpenFile : public VfsOpenFile {
 	void read(void *buffer, size_t max_length,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
 
-	void seek(int64_t rel_offset, frigg::CallbackPtr<void()> callback) override;
+	void seek(int64_t rel_offset, VfsSeek whence,
+			frigg::CallbackPtr<void(uint64_t)> callback) override;
 	
 	MountPoint &connection;
 	int externFd;
@@ -102,8 +103,8 @@ private:
 };
 
 struct SeekClosure {
-	SeekClosure(MountPoint &connection, int extern_fd, int64_t rel_offset,
-			frigg::CallbackPtr<void()> callback);
+	SeekClosure(MountPoint &connection, int extern_fd, int64_t rel_offset, VfsSeek whence,
+			frigg::CallbackPtr<void(uint64_t)> callback);
 
 	void operator() ();
 
@@ -113,7 +114,8 @@ private:
 	MountPoint &connection;
 	int externFd;
 	int64_t relOffset;
-	frigg::CallbackPtr<void()> callback;
+	VfsSeek whence;
+	frigg::CallbackPtr<void(uint64_t)> callback;
 	uint8_t buffer[128];
 };
 

@@ -37,11 +37,11 @@ struct LoadClosure {
 private:
 	void openedFile(frigg::SharedPtr<VfsOpenFile> open_file);
 	void readEhdr(VfsError error, size_t length);
-	void seekPhdrs();
+	void seekPhdrs(uint64_t seek_offset);
 	void readPhdrs(VfsError error, size_t length);
 
 	void processPhdr();
-	void seekSegment();
+	void seekSegment(uint64_t seek_offset);
 	void readSegment(VfsError error, size_t length);
 
 	frigg::SharedPtr<Process> process;
@@ -91,10 +91,11 @@ void LoadClosure::readEhdr(VfsError error, size_t length) {
 
 	// read the elf program headers
 	phdrBuffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	openFile->seek(ehdr.e_phoff, CALLBACK_MEMBER(this, &LoadClosure::seekPhdrs));
+	openFile->seek(ehdr.e_phoff, kSeekAbs,
+			CALLBACK_MEMBER(this, &LoadClosure::seekPhdrs));
 }
 
-void LoadClosure::seekPhdrs() {
+void LoadClosure::seekPhdrs(uint64_t seek_offset) {
 	openFile->read(phdrBuffer, ehdr.e_phnum * ehdr.e_phentsize,
 			CALLBACK_MEMBER(this, &LoadClosure::readPhdrs));
 }
@@ -150,7 +151,8 @@ void LoadClosure::processPhdr() {
 		
 		// read the segment contents from the file
 		memset(segmentWindow, 0, map_length);
-		openFile->seek(phdr->p_offset, CALLBACK_MEMBER(this, &LoadClosure::seekSegment));
+		openFile->seek(phdr->p_offset, kSeekAbs,
+				CALLBACK_MEMBER(this, &LoadClosure::seekSegment));
 	}else if(phdr->p_type == PT_PHDR) {
 		phdrPointer = baseAddress + phdr->p_vaddr;
 		
@@ -166,7 +168,7 @@ void LoadClosure::processPhdr() {
 	}
 }
 
-void LoadClosure::seekSegment() {
+void LoadClosure::seekSegment(uint64_t seek_offset) {
 	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
 	
 	size_t misalign = phdr->p_vaddr % kPageSize;

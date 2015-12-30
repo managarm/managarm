@@ -145,7 +145,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 		auto closure = frigg::construct<ReadClosure>(*allocator,
 				*this, msg_request, frigg::move(request));
 		(*closure)();
-	}else if(request.req_type() == managarm::fs::CntReqType::SEEK) {
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 		auto closure = frigg::construct<SeekClosure>(*allocator,
 				*this, msg_request, frigg::move(request));
 		(*closure)();
@@ -273,6 +273,7 @@ void SeekClosure::operator() () {
 
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
 	response.set_error(managarm::fs::Errors::SUCCESS);
+	response.set_offset(open_file->offset);
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);

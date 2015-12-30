@@ -24,7 +24,8 @@ void VfsOpenFile::read(void *buffer, size_t max_length,
 	assert(!"Illegal operation for this file");
 }
 
-void VfsOpenFile::seek(int64_t rel_offset, frigg::CallbackPtr<void()> callback) {
+void VfsOpenFile::seek(int64_t rel_offset, VfsSeek whence,
+		frigg::CallbackPtr<void(uint64_t offset)> callback) {
 	assert(!"Illegal operation for this file");
 }
 

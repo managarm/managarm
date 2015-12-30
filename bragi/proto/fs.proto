@@ -20,7 +20,9 @@ enum CntReqType {
 	OPEN = 1;
 	READ = 2;
 	WRITE = 3;
-	SEEK = 6;
+	SEEK_ABS = 6;
+	SEEK_REL = 7;
+	SEEK_EOF = 8;
 	CLOSE = 4;
 }
 
@@ -30,14 +32,14 @@ message CntRequest {
 	// used by OPEN_ENTRY
 	optional string path = 2;
 
-	// used by FSTAT, READ, WRITE, SEEK and CLOSE
+	// used by FSTAT, READ, WRITE, SEEK_ABS, SEEK_REL, SEEK_EOF and CLOSE
 	optional int32 fd = 4;
 
 	// used by READ and WRITE
 	optional int32 size = 5;
 	optional bytes buffer = 6;
 
-	// used by SEEK
+	// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional int64 rel_offset = 7;
 }
 
@@ -52,4 +54,7 @@ message SvrResponse {
 	
 	// returned by OPEN
 	optional FileType file_type = 5;
+
+	// returned by SEEK_ABS, SEEK_REL and SEEK_EOF
+	optional uint64 offset = 6;
 }

@@ -30,9 +30,10 @@ void OpenFile::read(void *buffer, size_t max_length,
 	(*closure)();
 }
 
-void OpenFile::seek(int64_t rel_offset, frigg::CallbackPtr<void()> callback) {
+void OpenFile::seek(int64_t rel_offset, VfsSeek whence,
+		frigg::CallbackPtr<void(uint64_t)> callback) {
 	auto closure = frigg::construct<SeekClosure>(*allocator,
-			connection, externFd, rel_offset, callback);
+			connection, externFd, rel_offset, whence, callback);
 	(*closure)();
 }
 
@@ -257,15 +258,26 @@ void ReadClosure::recvData(HelError error, int64_t msg_request, int64_t msg_seq,
 // SeekClosure
 // --------------------------------------------------------
 
-SeekClosure::SeekClosure(MountPoint &connection, int extern_fd, int64_t rel_offset,
-		frigg::CallbackPtr<void()> callback)
-: connection(connection), externFd(extern_fd), relOffset(rel_offset), callback(callback) { }
+SeekClosure::SeekClosure(MountPoint &connection,
+		int extern_fd, int64_t rel_offset, VfsSeek whence,
+		frigg::CallbackPtr<void(uint64_t)> callback)
+: connection(connection), externFd(extern_fd), relOffset(rel_offset), whence(whence),
+		callback(callback) { }
 
 void SeekClosure::operator() () {
 	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::SEEK);
 	request.set_fd(externFd);
 	request.set_rel_offset(relOffset);
+	
+	if(whence == kSeekAbs) {
+		request.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
+	}else if(whence == kSeekRel) {
+		request.set_req_type(managarm::fs::CntReqType::SEEK_REL);
+	}else if(whence == kSeekEof) {
+		request.set_req_type(managarm::fs::CntReqType::SEEK_EOF);
+	}else{
+		frigg::panicLogger.log() << "Illegal whence argument" << frigg::EndLog();
+	}
 
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
@@ -284,7 +296,7 @@ void SeekClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 	response.ParseFromArray(buffer, length);
 
 	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	callback();
+	callback(response.offset());
 
 	frigg::destruct(*allocator, this);
 }
