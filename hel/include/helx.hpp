@@ -238,9 +238,13 @@ public:
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error, size_t &length) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitRecvString(p_handle, event_hub.getHandle(),
+		HelError submit_error = helSubmitRecvString(p_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				0, 0, flags, &async_id));
+				0, 0, flags, &async_id);
+		if(submit_error != kHelErrNone) {
+			error = submit_error;
+			return;
+		}
 		event_hub.waitForRecvString(async_id, error, length);
 	}
 	inline void recvStringReqSync(void *buffer, size_t max_length,
