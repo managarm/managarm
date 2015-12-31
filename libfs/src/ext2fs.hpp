@@ -9,6 +9,7 @@
 
 #include <libfs.hpp>
 #include "common.hpp"
+#include "cache.hpp"
 #include <fs.pb.h>
 
 namespace libfs {
@@ -201,6 +202,22 @@ struct FileSystem {
 	void readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback);
 
+	struct BlockCacheEntry {
+		BlockCacheEntry(void *buffer);
+
+		bool loading, ready;
+		void *buffer;
+	};
+	
+	struct BlockCache : util::Cache<uint64_t, BlockCacheEntry> {
+		Element *allocate() override;
+		void initEntry(BlockCacheEntry *entry) override;
+		void finishEntry(BlockCacheEntry *entry) override;
+	};
+	
+	// caches ext2fs meta data blocks
+	BlockCache blockCache;
+
 	struct InitClosure {
 		InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback);
 
@@ -252,8 +269,8 @@ struct FileSystem {
 		size_t chunkSize;
 		size_t indexLevel1;
 		size_t indexLevel0;
-		uint32_t *bufferLevel1;
-		uint32_t *bufferLevel0;
+		BlockCache::Ref refLevel1;
+		BlockCache::Ref refLevel0;
 	};
 	
 	BlockDevice *device;

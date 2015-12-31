@@ -83,7 +83,9 @@ void Inode::findEntry(std::string name,
 // --------------------------------------------------------
 
 FileSystem::FileSystem(BlockDevice *device)
-: device(device) { }
+: device(device) {
+	blockCache.preallocate(32);
+}
 
 void FileSystem::init(frigg::CallbackPtr<void()> callback) {
 	auto closure = new InitClosure(*this, callback);
@@ -215,7 +217,7 @@ FileSystem::ReadDataClosure::ReadDataClosure(FileSystem &ext2fs, std::shared_ptr
 		frigg::CallbackPtr<void()> callback)
 : ext2fs(ext2fs), inode(std::move(inode)), blockOffset(block_offset),
 		numBlocks(num_blocks), buffer(buffer), callback(callback),
-		blocksRead(0), bufferLevel1(nullptr), bufferLevel0(nullptr) { }
+		blocksRead(0) { }
 
 void FileSystem::ReadDataClosure::operator() () {
 	if(inode->isReady) {
@@ -255,61 +257,76 @@ void FileSystem::ReadDataClosure::inodeReady() {
 		}else if(block_index < double_offset) {
 			indexLevel0 = block_index - single_offset;
 
-			if(!bufferLevel0)
-				bufferLevel0 = (uint32_t *)malloc(ext2fs.blockSize);
-			assert(bufferLevel0);
-
-			ext2fs.device->readSectors(inode->fileData.blocks.singleIndirect
-					* ext2fs.sectorsPerBlock, bufferLevel0, ext2fs.sectorsPerBlock,
-					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+			refLevel0.reset();
+			refLevel0 = ext2fs.blockCache.lock(inode->fileData.blocks.singleIndirect);
+			if(!refLevel0->ready) {
+				assert(!refLevel0->loading);
+				refLevel0->loading = true;
+				ext2fs.device->readSectors(inode->fileData.blocks.singleIndirect
+						* ext2fs.sectorsPerBlock, refLevel0->buffer, ext2fs.sectorsPerBlock,
+						CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+			}else{
+				readLevel0();
+			}
 		}else{
 			assert(block_index < triple_offset);
 			indexLevel1 = (block_index - double_offset) / per_single;
 			indexLevel0 = (block_index - double_offset) % per_single;
 
-			if(!bufferLevel1)
-				bufferLevel1 = (uint32_t *)malloc(ext2fs.blockSize);
-			assert(bufferLevel1);
-
-			ext2fs.device->readSectors(inode->fileData.blocks.doubleIndirect
-					* ext2fs.sectorsPerBlock, bufferLevel1, ext2fs.sectorsPerBlock,
-					CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
+			refLevel1.reset();
+			refLevel1 = ext2fs.blockCache.lock(inode->fileData.blocks.doubleIndirect);
+			if(!refLevel1->ready) {
+				assert(!refLevel1->loading);
+				refLevel1->loading = true;
+				ext2fs.device->readSectors(inode->fileData.blocks.doubleIndirect
+						* ext2fs.sectorsPerBlock, refLevel1->buffer, ext2fs.sectorsPerBlock,
+						CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
+			}else{
+				readLevel1();
+			}
 		}
 	}else{
 		assert(blocksRead == numBlocks);
 
 		callback();
-		if(bufferLevel1)
-			free(bufferLevel1);
-		if(bufferLevel0)
-			free(bufferLevel0);
 		delete this;
 	}
 }
 
 void FileSystem::ReadDataClosure::readLevel1() {
-	if(!bufferLevel0)
-		bufferLevel0 = (uint32_t *)malloc(ext2fs.blockSize);
-	assert(bufferLevel0);
+	refLevel1->ready = true;
 
-	uint32_t indirect = bufferLevel1[indexLevel1];
-	ext2fs.device->readSectors(indirect * ext2fs.sectorsPerBlock,
-			bufferLevel0, ext2fs.sectorsPerBlock,
-			CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+	auto array_level1 = (uint32_t *)refLevel1->buffer;
+	uint32_t indirect = array_level1[indexLevel1];
+	assert(indirect != 0);
+
+	refLevel0.reset();
+	refLevel0 = ext2fs.blockCache.lock(indirect);
+	if(!refLevel0->ready) {
+		assert(!refLevel0->loading);
+		refLevel0->loading = true;
+		ext2fs.device->readSectors(indirect * ext2fs.sectorsPerBlock,
+				refLevel0->buffer, ext2fs.sectorsPerBlock,
+				CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
+	}else{
+		readLevel0();
+	}
 }
 
 void FileSystem::ReadDataClosure::readLevel0() {
-	size_t per_single = ext2fs.blockSize / 4;
+	refLevel0->ready = true;
 
-	uint32_t block = bufferLevel0[indexLevel0];
+	auto array_level0 = (uint32_t *)refLevel0->buffer;
+	uint32_t block = array_level0[indexLevel0];
 	assert(block != 0);
 
+	size_t per_single = ext2fs.blockSize / 4;
 	chunkSize = 1;
 	while(indexLevel0 + chunkSize < per_single && blocksRead + chunkSize < numBlocks) {
 		// TODO: artifical limit because the virtio driver cannot handle large blocks
 		if(chunkSize == 14)
 			break;
-		if(bufferLevel0[indexLevel0 + chunkSize] != block + chunkSize)
+		if(array_level0[indexLevel0 + chunkSize] != block + chunkSize)
 			break;
 		chunkSize++;
 	}
@@ -322,6 +339,33 @@ void FileSystem::ReadDataClosure::readLevel0() {
 void FileSystem::ReadDataClosure::readBlock() {
 	blocksRead += chunkSize;
 	(*this)();
+}
+
+// --------------------------------------------------------
+// FileSystem::BlockCacheEntry
+// --------------------------------------------------------
+
+FileSystem::BlockCacheEntry::BlockCacheEntry(void *buffer)
+: loading(false), ready(false), buffer(buffer) { }
+
+// --------------------------------------------------------
+// FileSystem::BlockCache
+// --------------------------------------------------------
+
+auto FileSystem::BlockCache::allocate() -> Element * {
+	// FIXME: magic number
+	void *buffer = malloc(1024);
+	return new Element(BlockCacheEntry(buffer));
+}
+
+void FileSystem::BlockCache::initEntry(BlockCacheEntry *entry) {
+	assert(!entry->loading && !entry->ready);
+}
+
+void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
+	assert(entry->ready);
+	entry->loading = false;
+	entry->ready = false;
 }
 
 // --------------------------------------------------------
