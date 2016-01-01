@@ -6,6 +6,7 @@
 #include <assert.h>
 
 #include <vector>
+#include <queue>
 #include <memory>
 
 #include <hel.h>
@@ -88,6 +89,8 @@ uint16_t basePort = 0xC040; // FIXME: read from PCI device
 
 struct GenericDevice {
 	virtual void retrieveDescriptor(size_t queue_index, size_t desc_index) = 0;
+
+	virtual void afterRetrieve() = 0;
 };
 
 struct Queue {
@@ -274,6 +277,8 @@ void Queue::processInterrupt() {
 
 		progressHead++;
 	}
+
+	device.afterRetrieve();
 }
 
 // --------------------------------------------------------
@@ -323,6 +328,8 @@ struct Device : public GenericDevice, public libfs::BlockDevice {
 
 	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
 
+	void afterRetrieve() override;
+
 	void onInterrupt(HelError error);
 
 private:
@@ -340,12 +347,18 @@ private:
 
 	// these two buffer store virtio-block request header and status bytes
 	// they are indexed by the index of the request's first descriptor
-	VirtRequest *requestBuffer;
+	VirtRequest *virtRequestBuffer;
 	uint8_t *statusBuffer;
 
-	// memorizes UserRequest objects to have been posted to the queue
+	// memorizes UserRequest objects that have been submitted to the queue
 	// indexed by the index of the request's first descriptor
-	std::vector<UserRequest *> activeRequests;
+	std::vector<UserRequest *> userRequestPtrs;
+
+	// stores UserRequest objects that have not been submitted yet
+	std::queue<UserRequest *> pendingRequests;
+	
+	// stores UserRequest objects that were retrieved and completed
+	std::vector<UserRequest *> completeStack;
 };
 
 Device::Device()
@@ -371,12 +384,12 @@ void Device::initialize() {
 
 	// perform device specific setup
 	requestQueue.setupQueue(0x8000);
-	activeRequests.resize(requestQueue.getSize());
-	requestBuffer = (VirtRequest *)malloc(requestQueue.getSize() * sizeof(VirtRequest));
+	userRequestPtrs.resize(requestQueue.getSize());
+	virtRequestBuffer = (VirtRequest *)malloc(requestQueue.getSize() * sizeof(VirtRequest));
 	statusBuffer = (uint8_t *)malloc(requestQueue.getSize());
 
 	// natural alignment makes sure that request headers do not cross page boundaries
-	assert((uintptr_t)requestBuffer % sizeof(VirtRequest) == 0);
+	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
 	
 	// setup an interrupt for the device
 	irq = helx::Irq::access(11);
@@ -397,6 +410,7 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
 	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors, callback);
+	assert(pendingRequests.empty());
 	assert(requestIsReady(user_request));
 	submitRequest(user_request);
 }
@@ -404,9 +418,9 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {
 	assert(queue_index == 0);
 
-	UserRequest *user_request = activeRequests[desc_index];
+	UserRequest *user_request = userRequestPtrs[desc_index];
 	assert(user_request);
-	activeRequests[desc_index] = nullptr;
+	userRequestPtrs[desc_index] = nullptr;
 
 	// check the status byte
 	assert(user_request->numSubmitted > 0);
@@ -417,11 +431,26 @@ void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {
 
 	// re-submit the request if it is not complete yet
 	if(user_request->sectorsRead < user_request->numSectors) {
-		assert(requestIsReady(user_request));
-		submitRequest(user_request);
+		pendingRequests.push(user_request);
 	}else{
+		completeStack.push_back(user_request);
+	}
+}
+
+void Device::afterRetrieve() {
+	while(!pendingRequests.empty()) {
+		UserRequest *user_request = pendingRequests.front();
+		if(!requestIsReady(user_request))
+			break;
+		submitRequest(user_request);
+		pendingRequests.pop();
+	}
+
+	while(!completeStack.empty()) {
+		UserRequest *user_request = completeStack.back();
 		user_request->callback();
 		delete user_request;
+		completeStack.pop_back();
 	}
 }
 
@@ -445,7 +474,7 @@ void Device::submitRequest(UserRequest *user_request) {
 	// setup the actual request header
 	size_t header_index = requestQueue.lockDescriptor();
 
-	VirtRequest *header = &requestBuffer[header_index];
+	VirtRequest *header = &virtRequestBuffer[header_index];
 	header->type = VIRTIO_BLK_T_IN;
 	header->reserved = 0;
 	header->sector = user_request->sector + user_request->sectorsRead;
@@ -503,8 +532,8 @@ void Device::submitRequest(UserRequest *user_request) {
 	chain_desc->next = status_index;
 
 	// submit the request to the device
-	assert(!activeRequests[header_index]);
-	activeRequests[header_index] = user_request;
+	assert(!userRequestPtrs[header_index]);
+	userRequestPtrs[header_index] = user_request;
 	requestQueue.postDescriptor(header_index);
 	requestQueue.notifyDevice();
 }
