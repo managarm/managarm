@@ -83,71 +83,43 @@ struct VirtUsedFooter {
 uint16_t basePort = 0xC040; // FIXME: read from PCI device
 
 // --------------------------------------------------------
-
-// values for the VirtRequest::type field
-enum {
-	VIRTIO_BLK_T_IN = 0,
-	VIRTIO_BLK_T_OUT = 1
-};
-
-constexpr int DATA_SIZE = 512;
-
-struct VirtRequest {
-	uint32_t type;
-	uint32_t reserved;
-	uint64_t sector;
-	uint8_t data[DATA_SIZE];
-	uint8_t status;
-};
-
-// --------------------------------------------------------
-
-struct UserRequest {
-	frigg::CallbackPtr<void()> callback;
-	size_t countdown;
-};
-
-struct RequestSlot {
-	enum SlotType {
-		kSlotNone,
-		kSlotRead
-	};
-
-	SlotType slotType;
-	UserRequest *userRequest;
-	size_t bufferIndex;
-};
-
-struct PseudoDescriptor {
-	uintptr_t address;
-	size_t length;
-	uint16_t flags;
-};
-
-// --------------------------------------------------------
 // Queue
 // --------------------------------------------------------
 
-char *requestSpace;
-std::vector<size_t> bufferStack;
+struct GenericDevice {
+	virtual void retrieveDescriptor(size_t queue_index, size_t desc_index) = 0;
+};
 
 struct Queue {
-	Queue(size_t queue_index);
+	Queue(GenericDevice &device, size_t queue_index);
 
+	VirtDescriptor *accessDescriptor(size_t index);
+
+	// initializes the virtqueue. called during driver initialization
 	void setupQueue(uintptr_t physical);
 
-	void postRequest(PseudoDescriptor *pseudo, size_t count, RequestSlot slot);
+	// returns the number of descriptors in this virtqueue
+	size_t getSize();
 
+	// returns the number of unused descriptors
+	size_t numLockable();
+
+	// allocates a single descriptor
+	// the descriptor is freed when the device returns via the virtqueue's used ring
+	size_t lockDescriptor();
+
+	// posts a descriptor to the virtqueue's available ring
+	void postDescriptor(size_t desc_index);
+
+	// notifies the device that new descriptors have been posted to the available ring
 	void notifyDevice();
 
-	void process();
+	// processes interrupts for this virtqueue
+	// calls retrieveDescriptor() to complete individual requests
+	void processInterrupt();
 
 private:
 	static constexpr size_t kQueueAlign = 0x1000;
-
-	auto accessDesc(size_t index) {
-		return reinterpret_cast<VirtDescriptor *>(descPtr + index * sizeof(VirtDescriptor));
-	}
 
 	auto accessAvailHeader() {
 		return reinterpret_cast<VirtAvailHeader *>(availPtr);
@@ -173,6 +145,8 @@ private:
 				+ queueSize * sizeof(VirtUsedRing));
 	}
 
+	GenericDevice &device;
+
 	// index of this queue relativate to its owning device
 	size_t queueIndex;
 	
@@ -180,22 +154,23 @@ private:
 	size_t queueSize;
 	
 	// pointers to different data structures of this queue
-	char *descPtr, *availPtr, *usedPtr;
+	char *descriptorPtr, *availPtr, *usedPtr;
 
 	// keeps track of unused descriptor indices
 	std::vector<uint16_t> descriptorStack;
-	
-	// associates queue descriptors with RequestSlot objects
-	std::vector<RequestSlot> slots;
 
 	// keeps track of which entries in the used ring have already been processed
 	uint16_t progressHead;
 };
 
-Queue::Queue(size_t queue_index)
-: queueIndex(queue_index), queueSize(0),
-		descPtr(nullptr), availPtr(nullptr), usedPtr(nullptr),
+Queue::Queue(GenericDevice &device, size_t queue_index)
+: device(device), queueIndex(queue_index), queueSize(0),
+		descriptorPtr(nullptr), availPtr(nullptr), usedPtr(nullptr),
 		progressHead(0) { }
+
+VirtDescriptor *Queue::accessDescriptor(size_t index) {
+	return reinterpret_cast<VirtDescriptor *>(descriptorPtr + index * sizeof(VirtDescriptor));
+}
 
 void Queue::setupQueue(uintptr_t physical) {
 	assert(!queueSize);
@@ -207,7 +182,6 @@ void Queue::setupQueue(uintptr_t physical) {
 
 	for(size_t i = 0; i < queueSize; i++)
 		descriptorStack.push_back(i);
-	slots.resize(queueSize);
 
 	// determine the queue size in bytes
 	size_t avail_offset = queueSize * sizeof(VirtDescriptor);
@@ -230,7 +204,7 @@ void Queue::setupQueue(uintptr_t physical) {
 			memory_size, kHelMapReadWrite, &pointer));
 	HEL_CHECK(helCloseDescriptor(memory));
 
-	descPtr = (char *)pointer;
+	descriptorPtr = (char *)pointer;
 	availPtr = (char *)pointer + avail_offset;
 	usedPtr = (char *)pointer + used_offset;
 
@@ -247,36 +221,25 @@ void Queue::setupQueue(uintptr_t physical) {
 	frigg::writeIo<uint32_t>(basePort + PCI_L_QUEUE_ADDRESS, physical / 0x1000);
 }
 
-void Queue::postRequest(PseudoDescriptor *pseudo, size_t count, RequestSlot slot) {
-	assert(count > 0);
+size_t Queue::getSize() {
+	return queueSize;
+}
 
+size_t Queue::numLockable() {
+	return descriptorStack.size();
+}
+
+size_t Queue::lockDescriptor() {
 	assert(!descriptorStack.empty());
-	uint16_t first_index = descriptorStack.back();
+	size_t index = descriptorStack.back();
 	descriptorStack.pop_back();
+	return index;
+}
 
-	uint16_t current_index = first_index;
-	for(size_t i = 0; i < count; i++) {
-		assert(!(pseudo[i].flags & VIRTQ_DESC_F_NEXT));
-		accessDesc(current_index)->address = pseudo[i].address;
-		accessDesc(current_index)->length = pseudo[i].length;
-		accessDesc(current_index)->flags = pseudo[i].flags;
-		
-		// if this is not the last descriptor we have to chain another one
-		if(i + 1 < count) {
-			assert(!descriptorStack.empty());
-			uint16_t chain_index = descriptorStack.back();
-			descriptorStack.pop_back();
-			
-			accessDesc(current_index)->flags |= VIRTQ_DESC_F_NEXT;
-			accessDesc(current_index)->next = chain_index;
-			current_index = chain_index;
-		}
-	}
-
-	slots[first_index] = slot;
-	
+void Queue::postDescriptor(size_t desc_index) {
 	size_t head = accessAvailHeader()->headIndex;
-	accessAvailRing(head % queueSize)->descIndex = first_index;
+	accessAvailRing(head % queueSize)->descIndex = desc_index;
+
 	asm volatile ( "" : : : "memory" );
 	accessAvailHeader()->headIndex++;
 }
@@ -286,7 +249,7 @@ void Queue::notifyDevice() {
 	frigg::writeIo<uint16_t>(basePort + PCI_L_QUEUE_NOTIFY, queueIndex);
 }
 
-void Queue::process() {
+void Queue::processInterrupt() {
 	while(true) {
 		auto used_head = accessUsedHeader()->headIndex;
 		assert(progressHead <= used_head);
@@ -295,114 +258,100 @@ void Queue::process() {
 		
 		asm volatile ( "" : : : "memory" );
 		
+		// call the GenericDevice to complete the request
 		auto desc_index = accessUsedRing(progressHead % queueSize)->descIndex;
 		assert(desc_index < queueSize);
-		auto slot = &slots[desc_index];
-		assert(slot->slotType == RequestSlot::kSlotRead);
-		auto user_request = slot->userRequest;
-
-		//FIXME assert(virt_request->status == 0);
-		//memcpy((char *)user_request->buffer + slot->part * 512,
-		//		requestSpace + 0x10 + slot->bufferIndex * 0x400, 512);
-		bufferStack.push_back(slot->bufferIndex);
-		
-		// reset the request type (for debugging purposes)
-		slot->slotType = RequestSlot::kSlotNone;
-
-		// invoke the user callback if all partial requests are completed
-		assert(user_request->countdown > 0);
-		user_request->countdown--;
-		if(!user_request->countdown) {
-			user_request->callback();
-			delete user_request;
-		}
+		device.retrieveDescriptor(queueIndex, desc_index);
 
 		// free all descriptors in the descriptor chain
 		auto chain = desc_index;
-		while(accessDesc(chain)->flags & VIRTQ_DESC_F_NEXT) {
-			auto successor = accessDesc(chain)->next;
+		while(accessDescriptor(chain)->flags & VIRTQ_DESC_F_NEXT) {
+			auto successor = accessDescriptor(chain)->next;
 			descriptorStack.push_back(chain);
 			chain = successor;
 		}
 		descriptorStack.push_back(chain);
+
 		progressHead++;
 	}
 }
 
-Queue queue0(0);
+// --------------------------------------------------------
+
+// values for the VirtRequest::type field
+enum {
+	VIRTIO_BLK_T_IN = 0,
+	VIRTIO_BLK_T_OUT = 1
+};
+
+constexpr int DATA_SIZE = 512;
+
+struct VirtRequest {
+	uint32_t type;
+	uint32_t reserved;
+	uint64_t sector;
+};
+static_assert(sizeof(VirtRequest) == 16, "Bad sizeof(VirtRequest)");
 
 // --------------------------------------------------------
 
-struct Device : public libfs::BlockDevice {
+struct UserRequest {
+	UserRequest(uint64_t sector, void *buffer, size_t num_sectors,
+			frigg::CallbackPtr<void()> callback);
+
+	uint64_t sector;
+	void *buffer;
+	size_t numSectors;
+	frigg::CallbackPtr<void()> callback;
+
+	size_t numSubmitted;
+	size_t sectorsRead;
+};
+
+UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors,
+		frigg::CallbackPtr<void()> callback)
+: sector(sector), buffer(buffer), numSectors(num_sectors), callback(callback),
+		numSubmitted(0), sectorsRead(0) { }
+
+struct Device : public GenericDevice, public libfs::BlockDevice {
 	Device();
+
+	void initialize();
 
 	void readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 			frigg::CallbackPtr<void()> callback) override;
+
+	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
+
+	void onInterrupt(HelError error);
+
+private:
+	// returns true iff the request can be submitted to the device
+	bool requestIsReady(UserRequest *user_request);
+	
+	// submits a single request to the device
+	void submitRequest(UserRequest *user_request);
+
+	// the single virtqueue of this virtio-block device
+	Queue requestQueue;
+
+	// IRQ of this device
+	helx::Irq irq;
+
+	// these two buffer store virtio-block request header and status bytes
+	// they are indexed by the index of the request's first descriptor
+	VirtRequest *requestBuffer;
+	uint8_t *statusBuffer;
+
+	// memorizes UserRequest objects to have been posted to the queue
+	// indexed by the index of the request's first descriptor
+	std::vector<UserRequest *> activeRequests;
 };
 
 Device::Device()
-: libfs::BlockDevice(512) { }
+: libfs::BlockDevice(512), requestQueue(*this, 0) { }
 
-void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
-			frigg::CallbackPtr<void()> callback) {
-//	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
-	assert(((uintptr_t)buffer % 512) == 0);
-
-	UserRequest *user_request = new UserRequest;
-	user_request->callback = callback;
-	user_request->countdown = 0;
-
-	size_t submitted = 0;
-	while(submitted < num_sectors) {
-		user_request->countdown++;
-
-		assert(!bufferStack.empty());
-		size_t buffer_index = bufferStack.back();
-		bufferStack.pop_back();
-
-		auto virt_request = (VirtRequest *)(requestSpace + buffer_index * 0x400);
-		virt_request->type = VIRTIO_BLK_T_IN;
-		virt_request->reserved = 0;
-		virt_request->sector = sector + submitted;
-
-		constexpr size_t kMaxPseudos = 32;
-		PseudoDescriptor pseudo[kMaxPseudos];
-		pseudo[0].address = 0xA000 + buffer_index * 0x400;
-		pseudo[0].length = 16;
-		pseudo[0].flags = 0;
-
-		size_t n;
-		for(n = 1; n < kMaxPseudos - 1 && submitted < num_sectors; n++) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical((char *)buffer + submitted * 512, &physical));
-
-			pseudo[n].address = physical;
-			pseudo[n].length = 512;
-			pseudo[n].flags = VIRTQ_DESC_F_WRITE;
-
-			submitted++;
-		}
-		assert(n > 1);
-
-		pseudo[n].address = 0xA210 + buffer_index * 0x400;
-		pseudo[n].length = 1;
-		pseudo[n].flags = VIRTQ_DESC_F_WRITE;
-		
-		RequestSlot slot;
-		slot.slotType = RequestSlot::kSlotRead;
-		slot.userRequest = user_request;
-		slot.bufferIndex = buffer_index;
-		
-		queue0.postRequest(pseudo, n + 1, slot);
-	}
-	assert(submitted == num_sectors);
-
-	queue0.notifyDevice();
-}
-
-Device device;
-
-void initLegacyDevice() {
+void Device::initialize() {
 	// reset the device
 	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS, 0);
 	
@@ -421,25 +370,146 @@ void initLegacyDevice() {
 	frigg::writeIo<uint32_t>(basePort + PCI_L_DRIVER_FEATURES, negotiated);
 
 	// perform device specific setup
-	queue0.setupQueue(0x8000);
+	requestQueue.setupQueue(0x8000);
+	activeRequests.resize(requestQueue.getSize());
+	requestBuffer = (VirtRequest *)malloc(requestQueue.getSize() * sizeof(VirtRequest));
+	statusBuffer = (uint8_t *)malloc(requestQueue.getSize());
+
+	// natural alignment makes sure that request headers do not cross page boundaries
+	assert((uintptr_t)requestBuffer % sizeof(VirtRequest) == 0);
+	
+	// setup an interrupt for the device
+	irq = helx::Irq::access(11);
+	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 
 	// finally set the DRIVER_OK bit to finish the configuration
 	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS,
 			frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS) | DRIVER_OK);
 	
-	libfs::runDevice(eventHub, &device);
+	libfs::runDevice(eventHub, this);
 }
 
-helx::Irq irq;
+void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
+			frigg::CallbackPtr<void()> callback) {
+	// natural alignment makes sure a sector does not cross a page boundary
+	assert(((uintptr_t)buffer % 512) == 0);
 
-void onInterrupt(void *unused, HelError error) {
+//	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
+
+	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors, callback);
+	assert(requestIsReady(user_request));
+	submitRequest(user_request);
+}
+
+void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {
+	assert(queue_index == 0);
+
+	UserRequest *user_request = activeRequests[desc_index];
+	assert(user_request);
+	activeRequests[desc_index] = nullptr;
+
+	// check the status byte
+	assert(user_request->numSubmitted > 0);
+	assert(statusBuffer[desc_index] == 0);
+
+	user_request->sectorsRead += user_request->numSubmitted;
+	user_request->numSubmitted = 0;
+
+	// re-submit the request if it is not complete yet
+	if(user_request->sectorsRead < user_request->numSectors) {
+		assert(requestIsReady(user_request));
+		submitRequest(user_request);
+	}else{
+		user_request->callback();
+		delete user_request;
+	}
+}
+
+void Device::onInterrupt(HelError error) {
 	HEL_CHECK(error);
 
 	frigg::readIo<uint16_t>(basePort + PCI_L_ISR_STATUS);
-	queue0.process();
+	requestQueue.processInterrupt();
 
-	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
+	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 }
+
+bool Device::requestIsReady(UserRequest *user_request) {
+	return requestQueue.numLockable() > 2;
+}
+
+void Device::submitRequest(UserRequest *user_request) {
+	assert(user_request->numSubmitted == 0);
+	assert(user_request->sectorsRead < user_request->numSectors);
+
+	// setup the actual request header
+	size_t header_index = requestQueue.lockDescriptor();
+
+	VirtRequest *header = &requestBuffer[header_index];
+	header->type = VIRTIO_BLK_T_IN;
+	header->reserved = 0;
+	header->sector = user_request->sector + user_request->sectorsRead;
+
+	// setup a descriptor for the request header
+	uintptr_t header_physical;
+	HEL_CHECK(helPointerPhysical(header, &header_physical));
+	
+	VirtDescriptor *header_desc = requestQueue.accessDescriptor(header_index);
+	header_desc->address = header_physical;
+	header_desc->length = sizeof(VirtRequest);
+	header_desc->flags = 0;
+
+	size_t num_lockable = requestQueue.numLockable();
+	assert(num_lockable > 2);
+	size_t max_data_chain = num_lockable - 2;
+
+	// setup descriptors for the transfered data
+	VirtDescriptor *chain_desc = header_desc;
+	for(size_t i = 0; i < max_data_chain; i++) {
+		size_t offset = user_request->sectorsRead + user_request->numSubmitted;
+		if(offset == user_request->numSectors)
+			break;
+		assert(offset < user_request->numSectors);
+		
+		uintptr_t data_physical;
+		HEL_CHECK(helPointerPhysical((char *)user_request->buffer + offset * 512,
+				&data_physical));
+
+		size_t data_index = requestQueue.lockDescriptor();
+		VirtDescriptor *data_desc = requestQueue.accessDescriptor(data_index);
+		data_desc->address = data_physical;
+		data_desc->length = 512;
+		data_desc->flags = VIRTQ_DESC_F_WRITE;
+
+		chain_desc->flags |= VIRTQ_DESC_F_NEXT;
+		chain_desc->next = data_index;
+
+		user_request->numSubmitted++;
+		chain_desc = data_desc;
+	}
+//	printf("Submitting %lu data descriptors\n", user_request->numSubmitted);
+
+	// setup a descriptor for the status byte	
+	uintptr_t status_physical;
+	HEL_CHECK(helPointerPhysical(&statusBuffer[header_index], &status_physical));
+	
+	size_t status_index = requestQueue.lockDescriptor();
+	VirtDescriptor *status_desc = requestQueue.accessDescriptor(status_index);
+	status_desc->address = status_physical;
+	status_desc->length = 1;
+	status_desc->flags = VIRTQ_DESC_F_WRITE;
+
+	chain_desc->flags |= VIRTQ_DESC_F_NEXT;
+	chain_desc->next = status_index;
+
+	// submit the request to the device
+	assert(!activeRequests[header_index]);
+	activeRequests[header_index] = user_request;
+	requestQueue.postDescriptor(header_index);
+	requestQueue.notifyDevice();
+}
+
+Device device;
 
 // --------------------------------------------------------
 // InitClosure
@@ -497,10 +567,7 @@ void InitClosure::queriredDevice(HelHandle handle) {
 			acquire_response.bars(1).length(), kHelMapReadWrite, &ptr));
 	config = (VirtCommonCfg *)ptr;*/
 	
-	irq = helx::Irq::access(11);
-	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
-	
-	initLegacyDevice();
+	device.initialize();
 }
 
 // --------------------------------------------------------
@@ -509,18 +576,6 @@ void InitClosure::queriredDevice(HelHandle handle) {
 
 int main() {
 	printf("Starting virtio driver\n");
-
-	// allocate memory to hold the requests
-	// FIXME: use a different memory region
-	HelHandle memory;
-	void *pointer;
-	HEL_CHECK(helAccessPhysical(0xA000, 0x40000, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0x40000, kHelMapReadWrite, &pointer));
-	requestSpace = (char *)pointer;
-
-	for(size_t i = 0; i < 256; i++)
-		bufferStack.push_back(i);
 
 	auto closure = new InitClosure();
 	(*closure)();

@@ -230,7 +230,7 @@ void FileSystem::ReadDataClosure::operator() () {
 void FileSystem::ReadDataClosure::inodeReady() {
 	if(blocksRead < numBlocks) {
 		size_t block_index = blockOffset + blocksRead;
-		printf("Reading block %lu of inode %u\n", block_index, inode->number);
+//		printf("Reading block %lu of inode %u\n", block_index, inode->number);
 
 		size_t per_single = ext2fs.blockSize / 4;
 		size_t per_double = per_single * per_single;
@@ -324,8 +324,6 @@ void FileSystem::ReadDataClosure::readLevel0() {
 	chunkSize = 1;
 	while(indexLevel0 + chunkSize < per_single && blocksRead + chunkSize < numBlocks) {
 		// TODO: artifical limit because the virtio driver cannot handle large blocks
-		if(chunkSize == 14)
-			break;
 		if(array_level0[indexLevel0 + chunkSize] != block + chunkSize)
 			break;
 		chunkSize++;
