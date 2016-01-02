@@ -8,6 +8,7 @@ public:
 		kTypePhysical,
 		kTypeAllocated,
 		kTypeOnDemand,
+		kTypeBacked,
 		kTypeCopyOnWrite
 	};
 

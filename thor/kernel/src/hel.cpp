@@ -67,6 +67,9 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	if(flags & kHelAllocOnDemand) {
 		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
 		memory->resize(size / kPageSize);
+	}else if(flags & kHelAllocBacked) {
+		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeBacked);
+		memory->resize(size / kPageSize);
 	}else{
 		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 		memory->resize(size / kPageSize);

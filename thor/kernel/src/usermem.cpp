@@ -282,6 +282,8 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 		physical_guard.unlock();
 
 		return true;
+	}else if(memory->getType() == Memory::kTypeBacked) {
+		infoLogger->log() << "Backed memory fault" << frigg::EndLog();
 	}else if(memory->getType() == Memory::kTypeCopyOnWrite) {
 		assert(memory->getPage(page_index) == PhysicalAddr(-1));
 

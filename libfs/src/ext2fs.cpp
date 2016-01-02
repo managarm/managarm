@@ -199,6 +199,12 @@ void FileSystem::ReadInodeClosure::readSector() {
 	// TODO: support large files
 	inode->fileSize = disk_inode->size;
 	inode->fileData = disk_inode->data;
+
+	// allocate a page cache for the file
+	size_t cache_size = inode->fileSize;
+	if(cache_size % 0x1000)
+		cache_size += 0x1000 - cache_size % 0x1000;
+	HEL_CHECK(helAllocateMemory(cache_size, kHelAllocBacked, &inode->fileMemory));
 	
 	inode->isReady = true;
 	for(auto it = inode->readyQueue.begin(); it != inode->readyQueue.end(); ++it)
@@ -476,6 +482,9 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 			|| request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
 		auto closure = new SeekClosure(*this, msg_request, std::move(request));
 		(*closure)();
+	}else if(request.req_type() == managarm::fs::CntReqType::MMAP) {
+		auto closure = new MapClosure(*this, msg_request, std::move(request));
+		(*closure)();
 	}else{
 		fprintf(stderr, "Illegal request type\n");
 		abort();
@@ -693,6 +702,35 @@ void SeekClosure::operator() () {
 	std::string serialized;
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+}
+
+// --------------------------------------------------------
+// MapClosure
+// --------------------------------------------------------
+
+MapClosure::MapClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest request)
+: connection(connection), responseId(response_id), request(std::move(request)) { }
+
+void MapClosure::operator() () {
+	openFile = connection.getOpenFile(request.fd());
+	if(openFile->inode->isReady) {
+		inodeReady();
+	}else{
+		openFile->inode->readyQueue.push_back(CALLBACK_MEMBER(this, &MapClosure::inodeReady));
+	}
+}
+
+void MapClosure::inodeReady() {
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
+
+	std::string serialized;
+	response.SerializeToString(&serialized);
+	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory, responseId, 1);
+	
+	delete this;
 }
 
 

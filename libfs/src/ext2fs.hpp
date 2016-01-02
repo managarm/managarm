@@ -179,6 +179,9 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	
 	// called when the inode becomes ready
 	std::vector<frigg::CallbackPtr<void()>> readyQueue;
+
+	// page cache that stores the contents of this file
+	HelHandle fileMemory;
 	
 	// NOTE: The following fields are only meaningful if the isReady is true
 
@@ -408,6 +411,21 @@ struct SeekClosure {
 			managarm::fs::CntRequest request);
 
 	void operator() ();
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest request;
+
+	OpenFile *openFile;
+};
+
+struct MapClosure {
+	MapClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+	void operator() ();
+
+	void inodeReady();
 
 	Connection &connection;
 	int64_t responseId;
