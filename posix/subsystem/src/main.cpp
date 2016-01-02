@@ -327,6 +327,57 @@ void SeekClosure::seekComplete(uint64_t offset) {
 }
 
 // --------------------------------------------------------
+// MapClosure
+// --------------------------------------------------------
+
+struct MapClosure : frigg::BaseClosure<MapClosure> {
+	MapClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+
+	void operator() ();
+
+private:
+	void mmapComplete(HelHandle handle);
+
+	StdSharedPtr<helx::Pipe> pipe;
+	StdSharedPtr<Process> process;
+	managarm::posix::ClientRequest<Allocator> request;
+	int64_t msgRequest;
+	
+	frigg::String<Allocator> buffer;
+};
+
+MapClosure::MapClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
+: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
+		msgRequest(msg_request), buffer(*allocator) { }
+
+void MapClosure::operator() () {
+	auto file = process->allOpenFiles.get(request.fd());
+	if(!file) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		sendResponse(*pipe, response, msgRequest);
+		suicide(*allocator);
+		return;
+	}
+	
+	buffer.resize(request.size());
+	(*file)->mmap(CALLBACK_MEMBER(this, &MapClosure::mmapComplete));
+}
+
+void MapClosure::mmapComplete(HelHandle handle) {
+	managarm::posix::ServerResponse<Allocator> response(*allocator);
+	response.set_error(managarm::posix::Errors::SUCCESS);
+	
+	sendResponse(*pipe, response, msgRequest);
+	pipe->sendDescriptorResp(handle, msgRequest, 1);
+	HEL_CHECK(helCloseDescriptor(handle));
+
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -454,6 +505,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			infoLogger->log() << "[" << process->pid << "] SEEK" << frigg::EndLog();
 
 		frigg::runClosure<SeekClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::MMAP) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] MMAP" << frigg::EndLog();
+
+		frigg::runClosure<MapClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
 				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
 		if(traceRequests)

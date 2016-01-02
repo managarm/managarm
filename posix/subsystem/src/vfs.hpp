@@ -41,6 +41,8 @@ struct VfsOpenFile {
 	
 	virtual void seek(int64_t rel_offset, VfsSeek whence,
 			frigg::CallbackPtr<void(uint64_t)> callback);
+	
+	virtual void mmap(frigg::CallbackPtr<void(HelHandle)> callback);
 
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();

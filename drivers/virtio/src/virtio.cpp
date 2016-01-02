@@ -89,7 +89,7 @@ void Queue::setupQueue(uintptr_t physical) {
 	void *pointer;
 	HEL_CHECK(helAccessPhysical(physical, memory_size, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			memory_size, kHelMapReadWrite, &pointer));
+			0, memory_size, kHelMapReadWrite, &pointer));
 	HEL_CHECK(helCloseDescriptor(memory));
 
 	descriptorPtr = (char *)pointer;

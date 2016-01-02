@@ -41,6 +41,7 @@ private:
 	void readPhdrs(VfsError error, size_t length);
 
 	void processPhdr();
+	void mmapSegment(HelHandle file_memory);
 	void seekSegment(uint64_t seek_offset);
 	void readSegment(VfsError error, size_t length);
 
@@ -53,6 +54,7 @@ private:
 	Elf64_Ehdr ehdr;
 	char *phdrBuffer;
 	size_t currentPhdr;
+	HelHandle segmentMemory;
 	void *segmentWindow;
 	size_t bytesRead;
 
@@ -117,42 +119,31 @@ void LoadClosure::processPhdr() {
 	
 	if(phdr->p_type == PT_LOAD) {
 		assert(phdr->p_memsz > 0);
-		
-		// align segment address and length to page size
 		assert(baseAddress % kPageSize == 0);
+		
 		size_t misalign = phdr->p_vaddr % kPageSize;
 
-		size_t map_length = phdr->p_memsz + misalign;
-		if((map_length % kPageSize) != 0)
-			map_length += kPageSize - (map_length % kPageSize);
-		
-		uintptr_t map_address = baseAddress + phdr->p_vaddr - misalign;
-		
-		// map the segment with write permission into this address space
-		HelHandle memory;
-		HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
-
-		HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-				map_length, kHelMapReadWrite, &segmentWindow));
-		
-		// map the segment with correct permissions into the process
-		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-			void *map_pointer;
-			HEL_CHECK(helMapMemory(memory, process->vmSpace, (void *)map_address,
-					map_length, kHelMapReadWrite, &map_pointer));
-		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-			void *map_pointer;
-			HEL_CHECK(helMapMemory(memory, process->vmSpace, (void *)map_address,
-					map_length, kHelMapReadExecute, &map_pointer));
+		// check if we can share the segment
+		if(!(phdr->p_flags & PF_W)) {
+			assert(misalign == 0);
+			assert(phdr->p_offset % kPageSize == 0);
+			openFile->mmap(CALLBACK_MEMBER(this, &LoadClosure::mmapSegment));
 		}else{
-			frigg::panicLogger.log() << "Illegal combination of segment permissions"
-					<< frigg::EndLog();
+			// map the segment with write permission into this address space
+			size_t map_length = phdr->p_memsz + misalign;
+			if((map_length % kPageSize) != 0)
+				map_length += kPageSize - (map_length % kPageSize);
+			
+			HEL_CHECK(helAllocateMemory(map_length, 0, &segmentMemory));
+
+			HEL_CHECK(helMapMemory(segmentMemory, kHelNullHandle, nullptr,
+					0, map_length, kHelMapReadWrite, &segmentWindow));
+			
+			// read the segment contents from the file
+			memset(segmentWindow, 0, map_length);
+			openFile->seek(phdr->p_offset, kSeekAbs,
+					CALLBACK_MEMBER(this, &LoadClosure::seekSegment));
 		}
-		
-		// read the segment contents from the file
-		memset(segmentWindow, 0, map_length);
-		openFile->seek(phdr->p_offset, kSeekAbs,
-				CALLBACK_MEMBER(this, &LoadClosure::seekSegment));
 	}else if(phdr->p_type == PT_PHDR) {
 		phdrPointer = baseAddress + phdr->p_vaddr;
 		
@@ -168,10 +159,34 @@ void LoadClosure::processPhdr() {
 	}
 }
 
-void LoadClosure::seekSegment(uint64_t seek_offset) {
+void LoadClosure::mmapSegment(HelHandle file_memory) {
 	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);
-	
+
+	// map the segment with correct permissions into the process
+	size_t map_length = phdr->p_memsz;
+	if((map_length % kPageSize) != 0)
+		map_length += kPageSize - (map_length % kPageSize);
+
+	uintptr_t map_address = baseAddress + phdr->p_vaddr;
+	if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+		void *map_pointer;
+		HEL_CHECK(helMapMemory(file_memory, process->vmSpace,
+				(void *)map_address, phdr->p_offset, map_length,
+				kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
+	}else{
+		frigg::panicLogger.log() << "Illegal combination of segment permissions"
+				<< frigg::EndLog();
+	}
+	HEL_CHECK(helCloseDescriptor(file_memory));
+
+	currentPhdr++;
+	processPhdr();
+}
+
+void LoadClosure::seekSegment(uint64_t seek_offset) {
+	auto phdr = (Elf64_Phdr *)(phdrBuffer + currentPhdr * ehdr.e_phentsize);	
 	size_t misalign = phdr->p_vaddr % kPageSize;
+
 	bytesRead = 0;
 	openFile->read((char *)segmentWindow + misalign, phdr->p_filesz,
 			CALLBACK_MEMBER(this, &LoadClosure::readSegment));
@@ -193,7 +208,20 @@ void LoadClosure::readSegment(VfsError error, size_t length) {
 		size_t map_length = phdr->p_memsz + misalign;
 		if((map_length % kPageSize) != 0)
 			map_length += kPageSize - (map_length % kPageSize);
+
 		HEL_CHECK(helUnmapMemory(kHelNullHandle, segmentWindow, map_length));
+		
+		// map the segment with correct permissions into the process
+		uintptr_t map_address = baseAddress + phdr->p_vaddr - misalign;
+		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+			void *map_pointer;
+			HEL_CHECK(helMapMemory(segmentMemory, process->vmSpace, (void *)map_address,
+					0, map_length, kHelMapReadWrite, &map_pointer));
+		}else{
+			frigg::panicLogger.log() << "Illegal combination of segment permissions"
+					<< frigg::EndLog();
+		}
+		HEL_CHECK(helCloseDescriptor(segmentMemory));
 
 		currentPhdr++;
 		processPhdr();
@@ -262,7 +290,7 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, process->vmSpace, nullptr,
-			stack_size, kHelMapReadWrite, &stack_base));
+			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
 	HelThreadState state;

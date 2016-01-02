@@ -98,8 +98,8 @@ DEFINE_SYSCALL(ForkSpace, HelHandle handle, HelHandle *forked)
 END_SYSCALL()
 
 DEFINE_SYSCALL(MapMemory, HelHandle handle, HelHandle space,
-		void *pointer, size_t size, uint32_t flags, void **actual_pointer)
-	IN(0, handle) IN(1, space) IN(2, pointer) IN(3, size) IN(4, flags)
+		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer)
+	IN(0, handle) IN(1, space) IN(2, pointer) IN(3, offset) IN(4, size) IN(5, flags)
 	DO_SYSCALL(MapMemory)
 	OUT(0, void *, actual_pointer)
 END_SYSCALL()

@@ -155,7 +155,8 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 }
 
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
-		void *pointer, size_t length, uint32_t flags, void **actual_pointer) {
+		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actual_pointer) {
+	assert(offset == 0);
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	

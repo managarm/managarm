@@ -29,7 +29,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	size_t size;
 	void *image_ptr;
 	HEL_CHECK(helMemoryInfo(image_handle, &size));
-	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, size,
+	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, 0, size,
 			kHelMapReadOnly, &image_ptr));
 	HEL_CHECK(helCloseDescriptor(image_handle));
 	
@@ -63,7 +63,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			HEL_CHECK(helAllocateMemory(virt_length, 0, &memory));
 			
 			void *write_ptr;
-			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, virt_length,
+			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, virt_length,
 					kHelMapReadWrite, &write_ptr));
 
 			memset(write_ptr, 0, virt_length);
@@ -83,7 +83,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 			}
 
 			void *actual_ptr;
-			HEL_CHECK(helMapMemory(memory, space, (void *)virt_address, virt_length,
+			HEL_CHECK(helMapMemory(memory, space, (void *)virt_address, 0, virt_length,
 					map_flags, &actual_ptr));
 			HEL_CHECK(helCloseDescriptor(memory));
 		}else if(phdr->p_type == PT_GNU_EH_FRAME
@@ -101,7 +101,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
-			stack_size, kHelMapReadWrite, &stack_base));
+			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
 	HelThreadState state;

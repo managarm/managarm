@@ -29,6 +29,10 @@ void VfsOpenFile::seek(int64_t rel_offset, VfsSeek whence,
 	assert(!"Illegal operation for this file");
 }
 
+void VfsOpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> callback) {
+	assert(!"Illegal operation for this file");
+}
+
 void VfsOpenFile::setHelfd(HelHandle handle) {
 	assert(!"Illegal operation for this file");
 }

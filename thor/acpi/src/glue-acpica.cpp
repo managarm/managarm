@@ -199,7 +199,7 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
 	HEL_CHECK(helAccessPhysical(physical, length, &memory));
 
 	void *actual_pointer;
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, NULL, length,
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, NULL, 0, length,
 			kHelMapReadWrite, &actual_pointer));
 	HEL_CHECK(helCloseDescriptor(memory));
 

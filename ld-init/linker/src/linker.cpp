@@ -463,7 +463,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 			void *write_ptr;
 			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-					map_length, kHelMapReadWrite, &write_ptr));
+					0, map_length, kHelMapReadWrite, &write_ptr));
 
 			memset(write_ptr, 0, map_length);
 			posixSeek(*fd, phdr->p_offset);
@@ -476,11 +476,11 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-						map_length, kHelMapReadWrite, &map_pointer));
+						0, map_length, kHelMapReadWrite, &map_pointer));
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-						map_length, kHelMapReadExecute, &map_pointer));
+						0, map_length, kHelMapReadExecute, &map_pointer));
 			}else{
 				frigg::panicLogger.log() << "Illegal combination of segment permissions"
 						<< frigg::EndLog();

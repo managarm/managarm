@@ -21,15 +21,16 @@ helx::Pipe mbusPipe;
 // --------------------------------------------------------
 
 struct OpenFile {
-	OpenFile(char *image, size_t size);
+	OpenFile(HelHandle file_memory, char *image, size_t size);
 
+	HelHandle fileMemory;
 	char *image;
 	size_t size;
 	uint64_t offset;
 };
 
-OpenFile::OpenFile(char *image, size_t size)
-: image(image), size(size), offset(0) { }
+OpenFile::OpenFile(HelHandle file_memory, char *image, size_t size)
+: fileMemory(file_memory), image(image), size(size), offset(0) { }
 
 // --------------------------------------------------------
 
@@ -98,6 +99,17 @@ struct SeekClosure {
 	managarm::fs::CntRequest<Allocator> request;
 };
 
+struct MapClosure {
+	MapClosure(Connection &connection, int64_t response_id,
+			managarm::fs::CntRequest<Allocator> request);
+
+	void operator() ();
+
+	Connection &connection;
+	int64_t responseId;
+	managarm::fs::CntRequest<Allocator> request;
+};
+
 // --------------------------------------------------------
 // Connection
 // --------------------------------------------------------
@@ -149,6 +161,10 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 		auto closure = frigg::construct<SeekClosure>(*allocator,
 				*this, msg_request, frigg::move(request));
 		(*closure)();
+	}else if(request.req_type() == managarm::fs::CntReqType::MMAP) {
+		auto closure = frigg::construct<MapClosure>(*allocator,
+				*this, msg_request, frigg::move(request));
+		(*closure)();
 	}else{
 		frigg::panicLogger.log() << "Illegal request type" << frigg::EndLog();
 	}
@@ -187,8 +203,8 @@ void OpenClosure::operator() () {
 	frigg::String<Allocator> full_path(*allocator, "initrd/");
 	full_path += request.path();
 
-	HelHandle image_handle;
-	HelError image_error = helRdOpen(full_path.data(), full_path.size(), &image_handle);
+	HelHandle image_memory;
+	HelError image_error = helRdOpen(full_path.data(), full_path.size(), &image_memory);
 
 	if(image_error == kHelErrNoSuchPath) {
 		managarm::fs::SvrResponse<Allocator> response(*allocator);
@@ -203,12 +219,12 @@ void OpenClosure::operator() () {
 
 	size_t image_size;
 	void *image_ptr;
-	HEL_CHECK(helMemoryInfo(image_handle, &image_size));
-	HEL_CHECK(helMapMemory(image_handle, kHelNullHandle, nullptr, image_size,
+	HEL_CHECK(helMemoryInfo(image_memory, &image_size));
+	HEL_CHECK(helMapMemory(image_memory, kHelNullHandle, nullptr, 0, image_size,
 			kHelMapReadOnly, &image_ptr));
-	HEL_CHECK(helCloseDescriptor(image_handle));
 
-	auto file = frigg::construct<OpenFile>(*allocator, (char *)image_ptr, image_size);
+	auto file = frigg::construct<OpenFile>(*allocator,
+			image_memory, (char *)image_ptr, image_size);
 	int handle = connection.attachOpenFile(file);
 
 	managarm::fs::SvrResponse<Allocator> response(*allocator);
@@ -279,6 +295,27 @@ void SeekClosure::operator() () {
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
+
+// --------------------------------------------------------
+// MapClosure
+// --------------------------------------------------------
+
+MapClosure::MapClosure(Connection &connection, int64_t response_id,
+		managarm::fs::CntRequest<Allocator> request)
+: connection(connection), responseId(response_id), request(frigg::move(request)) { }
+
+void MapClosure::operator() () {
+	auto open_file = connection.getOpenFile(request.fd());
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.set_error(managarm::fs::Errors::SUCCESS);
+
+	frigg::String<Allocator> serialized(*allocator);
+	response.SerializeToString(&serialized);
+	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	connection.getPipe().sendDescriptorResp(open_file->fileMemory, responseId, 1);
+}
+
 
 // --------------------------------------------------------
 // MbusClosure

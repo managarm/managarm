@@ -20,6 +20,8 @@ struct OpenFile : public VfsOpenFile {
 
 	void seek(int64_t rel_offset, VfsSeek whence,
 			frigg::CallbackPtr<void(uint64_t)> callback) override;
+
+	void mmap(frigg::CallbackPtr<void(HelHandle)> callback) override;
 	
 	MountPoint &connection;
 	int externFd;
@@ -116,6 +118,22 @@ private:
 	int64_t relOffset;
 	VfsSeek whence;
 	frigg::CallbackPtr<void(uint64_t)> callback;
+	uint8_t buffer[128];
+};
+
+struct MapClosure {
+	MapClosure(MountPoint &connection, int extern_fd,
+			frigg::CallbackPtr<void(HelHandle)> callback);
+
+	void operator() ();
+
+private:
+	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvHandle(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle file_memory);
+
+	MountPoint &connection;
+	int externFd;
+	frigg::CallbackPtr<void(HelHandle)> callback;
 	uint8_t buffer[128];
 };
 

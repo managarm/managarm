@@ -497,7 +497,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 
 	void *framebuffer;
 	HEL_CHECK(helMapMemory(bar_handle, kHelNullHandle, nullptr,
-			acquire_response.bars(0).length(), kHelMapReadWrite, &framebuffer));
+			0, acquire_response.bars(0).length(), kHelMapReadWrite, &framebuffer));
 	pixels = (uint8_t *)framebuffer;
 	
 	for(int y = 0; y < height; y++)

@@ -325,10 +325,16 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helForkSpace((HelHandle)arg0, &forked);
 		thorRtReturnSyscall2((Word)error, (Word)forked);
 	} break;
+	case kHelCallOldMapMemory: {
+		void *actual_pointer;
+		HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
+				(void *)arg2, 0, (size_t)arg3, (uint32_t)arg4, &actual_pointer);
+		thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
+	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
 		HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
-				(void *)arg2, (size_t)arg3, (uint32_t)arg4, &actual_pointer);
+				(void *)arg2, (uintptr_t)arg3, (size_t)arg4, (uint32_t)arg5, &actual_pointer);
 		thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
 	} break;
 	case kHelCallUnmapMemory: {

@@ -110,7 +110,7 @@ void VgaDisplay::initializeScreen() {
 	// TODO: replace with drop-on-fork?
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(screen_memory, kHelNullHandle, nullptr, 0x1000,
-			kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
+			0, kHelMapReadWrite | kHelMapShareOnFork, &actual_pointer));
 	videoMemoryPointer = (uint8_t *)actual_pointer;
 	
 	for(int y = 0; y < height; y++) {

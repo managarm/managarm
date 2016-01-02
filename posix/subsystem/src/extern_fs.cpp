@@ -30,6 +30,12 @@ void OpenFile::read(void *buffer, size_t max_length,
 	(*closure)();
 }
 
+void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> callback) {
+	auto closure = frigg::construct<MapClosure>(*allocator,
+			connection, externFd, callback);
+	(*closure)();
+}
+
 void OpenFile::seek(int64_t rel_offset, VfsSeek whence,
 		frigg::CallbackPtr<void(uint64_t)> callback) {
 	auto closure = frigg::construct<SeekClosure>(*allocator,
@@ -301,6 +307,48 @@ void SeekClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 	frigg::destruct(*allocator, this);
 }
 
+// --------------------------------------------------------
+// MapClosure
+// --------------------------------------------------------
+
+MapClosure::MapClosure(MountPoint &connection, int extern_fd,
+		frigg::CallbackPtr<void(HelHandle)> callback)
+: connection(connection), externFd(extern_fd), callback(callback) { }
+
+void MapClosure::operator() () {
+	managarm::fs::CntRequest<Allocator> request(*allocator);
+	request.set_req_type(managarm::fs::CntReqType::MMAP);
+	request.set_fd(externFd);
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	// FIXME: fix request id
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &MapClosure::recvResponse)));
+}
+
+void MapClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+	
+	// FIXME: fix request id
+	connection.getPipe().recvDescriptorResp(eventHub, 1, 1,
+			CALLBACK_MEMBER(this, &MapClosure::recvHandle));
+}
+
+void MapClosure::recvHandle(HelError error, int64_t msg_request, int64_t msg_seq,
+		HelHandle file_memory) {
+	HEL_CHECK(error);
+
+	callback(file_memory);
+	frigg::destruct(*allocator, this);
+}
 
 } // namespace extern_fs
 
