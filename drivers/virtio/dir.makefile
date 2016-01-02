@@ -4,7 +4,7 @@ $c_GENDIR := $(BUILD_PATH)/$c/gen
 $c_OBJDIR := $(BUILD_PATH)/$c/obj
 $c_BINDIR := $(BUILD_PATH)/$c/bin
 
-$c_OBJECTS := main.o hw.pb.o
+$c_OBJECTS := main.o block.o virtio.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_TARGETS := all-$c clean-$c install-$c gen-$c

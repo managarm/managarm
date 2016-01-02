@@ -2,6 +2,7 @@
 #ifndef FRIGG_MACHINE_HPP
 #define FRIGG_MACHINE_HPP
 
+#include <frigg/cxx-support.hpp>
 #include <frigg/array.hpp>
 
 namespace frigg {

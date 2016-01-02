@@ -8,10 +8,11 @@ struct PciDevice {
 
 	struct Bar {
 		Bar()
-		: type(kBarNone), handle(kHelNullHandle), length(0) { }
+		: type(kBarNone), handle(kHelNullHandle), address(0), length(0) { }
 
 		BarType type;
 		HelHandle handle;
+		uintptr_t address;
 		size_t length;
 	};
 

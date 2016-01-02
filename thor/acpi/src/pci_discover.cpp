@@ -42,6 +42,7 @@ void DeviceClosure::operator() () {
 		if(device->bars[k].type == PciDevice::kBarIo) {
 			managarm::hw::PciBar<Allocator> bar_response(*allocator);
 			bar_response.set_io_type(managarm::hw::IoType::PORT);
+			bar_response.set_address(device->bars[k].address);
 			bar_response.set_length(device->bars[k].length);
 			response.add_bars(frigg::move(bar_response));
 
@@ -49,6 +50,7 @@ void DeviceClosure::operator() () {
 		}else if(device->bars[k].type == PciDevice::kBarMemory) {
 			managarm::hw::PciBar<Allocator> bar_response(*allocator);
 			bar_response.set_io_type(managarm::hw::IoType::MEMORY);
+			bar_response.set_address(device->bars[k].address);
 			bar_response.set_length(device->bars[k].length);
 			response.add_bars(frigg::move(bar_response));
 
@@ -168,6 +170,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 					ports.push(address + offset);
 
 				device->bars[i].type = PciDevice::kBarIo;
+				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
@@ -184,6 +187,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint32_t length = ~(mask & 0xFFFFFFF0) + 1;
 				
 				device->bars[i].type = PciDevice::kBarMemory;
+				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
 
