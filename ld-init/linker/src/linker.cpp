@@ -412,6 +412,35 @@ void posixRead(int fd, void *buffer, size_t length) {
 	assert(offset == length);
 }
 
+HelHandle posixMmap(int fd) {
+	managarm::posix::ClientRequest<Allocator> mmap_request(*allocator);
+	mmap_request.set_request_type(managarm::posix::ClientRequestType::MMAP);
+	mmap_request.set_fd(fd);
+	
+	frigg::String<Allocator> mmap_serialized(*allocator);
+	mmap_request.SerializeToString(&mmap_serialized);
+	posixPipe->sendStringReq(mmap_serialized.data(), mmap_serialized.size(), 0, 0);
+
+	uint8_t mmap_buffer[128];
+	HelError mmap_error;
+	size_t mmap_length;
+	posixPipe->recvStringRespSync(mmap_buffer, 128, *eventHub, 0, 0, mmap_error, mmap_length);
+	HEL_CHECK(mmap_error);
+	
+	managarm::posix::ServerResponse<Allocator> mmap_response(*allocator);
+	mmap_response.ParseFromArray(mmap_buffer, mmap_length);
+
+	if(mmap_response.error() == managarm::posix::Errors::FILE_NOT_FOUND)
+		return frigg::Optional<int>();
+	assert(mmap_response.error() == managarm::posix::Errors::SUCCESS);
+
+	HelError handle_error;
+	HelHandle memory_handle;
+	posixPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, memory_handle);
+	HEL_CHECK(handle_error);
+	return memory_handle;
+}
+
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
@@ -442,6 +471,9 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	posixSeek(*fd, ehdr.e_phoff);
 	posixRead(*fd, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
+	// mmap the file so we can map read-only segments instead of copying them
+	HelHandle file_memory = posixMmap(*fd);
+
 	constexpr size_t kPageSize = 0x1000;
 	
 	for(int i = 0; i < ehdr.e_phnum; i++) {
@@ -453,37 +485,47 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 			assert(object->baseAddress % kPageSize == 0);
 			size_t misalign = phdr->p_vaddr % kPageSize;
 
+			uintptr_t map_address = object->baseAddress + phdr->p_vaddr - misalign;
 			size_t map_length = phdr->p_memsz + misalign;
 			if((map_length % kPageSize) != 0)
 				map_length += kPageSize - (map_length % kPageSize);
 			
-			// setup the segment with write permission and copy data
-			HelHandle memory;
-			HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
+			if(!(phdr->p_flags & PF_W)) {
+				assert((phdr->p_offset % kPageSize) == 0);
 
-			void *write_ptr;
-			HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-					0, map_length, kHelMapReadWrite, &write_ptr));
-
-			memset(write_ptr, 0, map_length);
-			posixSeek(*fd, phdr->p_offset);
-			posixRead(*fd, (char *)write_ptr + misalign, phdr->p_filesz);
-			HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
-
-			// map the segment with correct permissions
-			uintptr_t map_address = object->baseAddress + phdr->p_vaddr - misalign;
-			
-			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				void *map_pointer;
-				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-						0, map_length, kHelMapReadWrite, &map_pointer));
-			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				void *map_pointer;
-				HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-						0, map_length, kHelMapReadExecute, &map_pointer));
+				// map the segment with correct permissions
+				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+					void *map_pointer;
+					HEL_CHECK(helMapMemory(file_memory, kHelNullHandle,
+							(void *)map_address, phdr->p_offset, map_length,
+							kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
+				}else{
+					frigg::panicLogger.log() << "Illegal combination of segment permissions"
+							<< frigg::EndLog();
+				}
 			}else{
-				frigg::panicLogger.log() << "Illegal combination of segment permissions"
-						<< frigg::EndLog();
+				// setup the segment with write permission and copy data
+				HelHandle memory;
+				HEL_CHECK(helAllocateMemory(map_length, 0, &memory));
+
+				void *write_ptr;
+				HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+						0, map_length, kHelMapReadWrite, &write_ptr));
+
+				memset(write_ptr, 0, map_length);
+				posixSeek(*fd, phdr->p_offset);
+				posixRead(*fd, (char *)write_ptr + misalign, phdr->p_filesz);
+				HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
+
+				// map the segment with correct permissions
+				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+					void *map_pointer;
+					HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
+							0, map_length, kHelMapReadWrite, &map_pointer));
+				}else{
+					frigg::panicLogger.log() << "Illegal combination of segment permissions"
+							<< frigg::EndLog();
+				}
 			}
 		}else if(phdr->p_type == PT_TLS) {
 			object->tlsSegmentSize = phdr->p_memsz;
@@ -502,6 +544,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 			assert(!"Unexpected PHDR");
 		}
 	}
+
+	HEL_CHECK(helCloseDescriptor(file_memory));
 
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	p_linkQueue.addBack(object);

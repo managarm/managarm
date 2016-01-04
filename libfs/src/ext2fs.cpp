@@ -95,6 +95,8 @@ PageClosure::PageClosure(std::shared_ptr<Inode> inode, size_t offset)
 : inode(std::move(inode)), offset(offset) { }
 
 void PageClosure::operator() () {
+//	printf("Page in %lu\n", offset);
+
 	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
 		nullptr, offset, 0x1000, kHelMapReadWrite, &mapping));
 
@@ -107,6 +109,10 @@ void PageClosure::operator() () {
 
 void PageClosure::readComplete() {
 	HEL_CHECK(helCompleteLoad(inode->fileMemory, offset));
+
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping, 0x1000));
+
+	delete this;
 }
 
 void Inode::onLoadRequest(HelError error, size_t offset) {
