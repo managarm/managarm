@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 46,
+	kHelNumCalls = 48,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -26,6 +26,8 @@ enum {
 	kHelCallUnmapMemory = 36,
 	kHelCallPointerPhysical = 43,
 	kHelCallMemoryInfo = 26,
+	kHelCallSubmitProcessLoad = 46,
+	kHelCallCompleteLoad = 47,
 	
 	kHelCallCreateThread = 3,
 	kHelCallYield = 34,
@@ -99,6 +101,7 @@ struct HelThreadState {
 };
 
 enum {
+	kHelEventMemoryLoad = 7,
 	kHelEventJoin = 6,
 	kHelEventRecvString = 1,
 	kHelEventRecvDescriptor = 5,
@@ -115,7 +118,7 @@ struct HelEvent {
 	int64_t msgSequence;
 	size_t length;
 	HelHandle handle;
-	int64_t id;
+	size_t offset;
 
 	int64_t asyncId;
 	uintptr_t submitFunction;
@@ -180,9 +183,9 @@ HEL_C_LINKAGE HelError helUnmapMemory(HelHandle space, void *pointer, size_t siz
 HEL_C_LINKAGE HelError helPointerPhysical(void *pointer, uintptr_t *physical);
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
-HEL_C_LINKAGE HelError helSubmitProcessLoad(HelHandle handle,
+HEL_C_LINKAGE HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
-HEL_C_LINKAGE HelError helCompleteLoad(HelHandle handle, int64_t lock_id);
+HEL_C_LINKAGE HelError helCompleteLoad(HelHandle handle, size_t offset);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
 		HelHandle directory, struct HelThreadState *state,

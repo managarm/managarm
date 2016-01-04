@@ -25,7 +25,7 @@ void haveFs(void *object) {
 }
 
 void havePartitions(void *object) {
-	fs = new ext2fs::FileSystem(&table->getPartition(1));
+	fs = new ext2fs::FileSystem(*theEventHub, &table->getPartition(1));
 	fs->init(CALLBACK_STATIC(nullptr, &haveFs));
 }
 

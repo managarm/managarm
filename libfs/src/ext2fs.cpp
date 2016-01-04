@@ -78,12 +78,55 @@ void Inode::findEntry(std::string name,
 	(*closure)();
 }
 
+struct PageClosure {
+	PageClosure(std::shared_ptr<Inode> inode, size_t offset);
+
+	void operator() ();
+
+	void readComplete();
+
+	std::shared_ptr<Inode> inode;
+	size_t offset;
+
+	void *mapping;
+};
+
+PageClosure::PageClosure(std::shared_ptr<Inode> inode, size_t offset)
+: inode(std::move(inode)), offset(offset) { }
+
+void PageClosure::operator() () {
+	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
+		nullptr, offset, 0x1000, kHelMapReadWrite, &mapping));
+
+	// FIXME: don't hard code block size
+	// FIXME: make sure there are 4 more blocks
+	assert(offset % 0x1000 == 0);
+	inode->fs.readData(inode, (offset / 0x1000) * 4, 4, (char *)mapping,
+			CALLBACK_MEMBER(this, &PageClosure::readComplete));
+}
+
+void PageClosure::readComplete() {
+	HEL_CHECK(helCompleteLoad(inode->fileMemory, offset));
+}
+
+void Inode::onLoadRequest(HelError error, size_t offset) {
+	HEL_CHECK(error);
+
+	auto closure = new PageClosure(shared_from_this(), offset);
+	(*closure)();
+	
+	auto cb = CALLBACK_MEMBER(this, &Inode::onLoadRequest);
+	int64_t async_id;
+	HEL_CHECK(helSubmitProcessLoad(fileMemory, fs.eventHub.getHandle(),
+			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
+}
+
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
 
-FileSystem::FileSystem(BlockDevice *device)
-: device(device) {
+FileSystem::FileSystem(helx::EventHub &event_hub, BlockDevice *device)
+: eventHub(event_hub), device(device) {
 	blockCache.preallocate(32);
 }
 
@@ -205,6 +248,11 @@ void FileSystem::ReadInodeClosure::readSector() {
 	if(cache_size % 0x1000)
 		cache_size += 0x1000 - cache_size % 0x1000;
 	HEL_CHECK(helAllocateMemory(cache_size, kHelAllocBacked, &inode->fileMemory));
+
+	auto cb = CALLBACK_MEMBER(inode.get(), &Inode::onLoadRequest);
+	int64_t async_id;
+	HEL_CHECK(helSubmitProcessLoad(inode->fileMemory, ext2fs.eventHub.getHandle(),
+			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 	
 	inode->isReady = true;
 	for(auto it = inode->readyQueue.begin(); it != inode->readyQueue.end(); ++it)

@@ -354,6 +354,16 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helMemoryInfo((HelHandle)arg0, &size);
 		thorRtReturnSyscall2((Word)error, (Word)size);
 	} break;
+	case kHelCallSubmitProcessLoad: {
+		int64_t async_id;
+		HelError error = helSubmitProcessLoad((HelHandle)arg0, (HelHandle)arg1,
+				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
+	} break;
+	case kHelCallCompleteLoad: {
+		HelError error = helCompleteLoad((HelHandle)arg0, (int64_t)arg1);
+		thorRtReturnSyscall1((Word)error);
+	} break;
 
 	case kHelCallCreateThread: {
 //		infoLogger->log() << "[" << this_thread->globalThreadId << "]"

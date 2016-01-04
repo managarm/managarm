@@ -169,6 +169,8 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	void findEntry(std::string name,
 			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
 
+	void onLoadRequest(HelError error, size_t offset);
+
 	FileSystem &fs;
 
 	// ext2fs on-disk inode number
@@ -195,7 +197,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 // --------------------------------------------------------
 
 struct FileSystem {
-	FileSystem(BlockDevice *device);
+	FileSystem(helx::EventHub &event_hub, BlockDevice *device);
 
 	void init(frigg::CallbackPtr<void()> callback);	
 
@@ -275,7 +277,8 @@ struct FileSystem {
 		BlockCache::Ref refLevel1;
 		BlockCache::Ref refLevel0;
 	};
-	
+
+	helx::EventHub &eventHub;
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockSize;

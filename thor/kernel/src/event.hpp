@@ -5,6 +5,7 @@ struct UserEvent {
 	enum Type {
 		kTypeNone,
 		kTypeError,
+		kTypeMemoryLoad,
 		kTypeJoin,
 		kTypeRecvStringTransfer,
 		kTypeRecvDescriptor,
@@ -28,6 +29,7 @@ struct UserEvent {
 	// used by kTypeRecvStringTransfer
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 	void *userBuffer;
+	size_t offset;
 	size_t length;
 
 	// used by kTypeAccept, kTypeConnect

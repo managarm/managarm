@@ -15,6 +15,20 @@ public:
 	enum Flags : uint32_t {
 	
 	};
+	
+	// page state for kTypeBacked regions
+	enum LoadState {
+		kStateMissing,
+		kStateLoading,
+		kStateLoaded
+	};
+
+	struct ProcessRequest {
+		ProcessRequest(frigg::SharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+		
+		frigg::SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+	};
 
 	Memory(Type type);
 	~Memory();
@@ -36,6 +50,14 @@ public:
 	uint32_t flags;
 
 	KernelSharedPtr<Memory> master;
+
+	// TODO: make this private?
+	frigg::Vector<LoadState, KernelAlloc> loadState;
+	
+	frigg::LinkedList<ProcessRequest, KernelAlloc> processQueue;
+
+	// threads blocking until a load request is finished
+	frigg::LinkedList<frigg::SharedPtr<Thread>, KernelAlloc> waitQueue;
 
 private:
 	Type p_type;

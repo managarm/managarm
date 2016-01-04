@@ -70,6 +70,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	}else if(flags & kHelAllocBacked) {
 		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeBacked);
 		memory->resize(size / kPageSize);
+		memory->loadState.resize(size / kPageSize);
 	}else{
 		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 		memory->resize(size / kPageSize);
@@ -280,6 +281,64 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	*size = memory->numPages() * kPageSize;
 	universe_guard.unlock();
 
+	return kHelErrNone;
+}
+
+HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto memory_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!memory_wrapper)
+		return kHelErrNoDescriptor;
+	if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &memory_descriptor = memory_wrapper->get<MemoryAccessDescriptor>();
+	KernelSharedPtr<Memory> memory(memory_descriptor.getMemory());
+	
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
+	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
+	universe_guard.unlock();
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	memory->processQueue.addBack(Memory::ProcessRequest(frigg::move(event_hub), submit_info));
+
+	return kHelErrNone;
+}
+
+HelError helCompleteLoad(HelHandle handle, size_t offset) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto memory_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!memory_wrapper)
+		return kHelErrNoDescriptor;
+	if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &memory_descriptor = memory_wrapper->get<MemoryAccessDescriptor>();
+	KernelSharedPtr<Memory> memory(memory_descriptor.getMemory());
+	universe_guard.unlock();
+
+	// mark the page as loaded
+	memory->loadState[offset / kPageSize] = Memory::kStateLoaded;
+
+	// resume all waiting threads
+	while(!memory->waitQueue.empty()) {
+		KernelSharedPtr<Thread> waiting = memory->waitQueue.removeFront();
+
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, waiting);
+		schedule_guard.unlock();
+	}
+	
 	return kHelErrNone;
 }
 
@@ -554,6 +613,11 @@ HelError helWaitForEvents(HelHandle handle,
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
+		case UserEvent::kTypeMemoryLoad: {
+			user_evt->type = kHelEventMemoryLoad;
+			user_evt->error = kHelErrNone;
+			user_evt->offset = event.offset;
+		} break;
 		case UserEvent::kTypeJoin: {
 			user_evt->type = kHelEventJoin;
 			user_evt->error = kHelErrNone;
