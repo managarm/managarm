@@ -259,7 +259,7 @@ extern "C" void handlePageFault(void *state, Word error) {
 	msg << frigg::EndLog();
 }
 
-extern "C" void thorIrq(int irq) {
+extern "C" void thorIrq(void *state, int irq) {
 	assert(!intsAreEnabled());
 
 //	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
@@ -271,6 +271,8 @@ extern "C" void thorIrq(int irq) {
 	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);
 	irqRelays[irq]->fire(irq_guard);
 	irq_guard.unlock();
+	
+	restoreStateFrame(state);
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

@@ -1,6 +1,37 @@
 
+.set .L_kRflagsIf, 0x200
+
 .set .L_kEferLme, 0x100
 .set .L_kEferNx, 0x800
+
+.set .L_userCode64Selector, 0x2B
+.set .L_userDataSelector, 0x23
+
+.global thorRtEntry
+thorRtEntry:
+	# enable SSE support
+	mov %cr0, %rax
+	and $0xFFFFFFFFFFFFFFFB, %rax # disable EM
+	or $2, %rax # enable MP
+	mov %rax, %cr0
+
+	mov %cr4, %rax
+	or $0x200, %rax # enable OSFXSR
+	or $0x400, %rax # enable OSXMMEXCPT
+	mov %rax, %cr4
+
+	call thorMain
+	ud2
+
+# enter user mode for the first time
+.global enterUserMode
+enterUserMode:
+	pushq $.L_userDataSelector
+	pushq %rdi # rsp
+	pushq $.L_kRflagsIf # rflags, enable interrupts
+	pushq $.L_userCode64Selector
+	pushq %rsi # rip
+	iretq
 
 .section .trampoline, "a"
 .code16

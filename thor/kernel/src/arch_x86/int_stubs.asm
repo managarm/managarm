@@ -1,7 +1,4 @@
 
-.set kRflagsBase, 0x1
-.set .L_kRflagsIf, 0x200
-
 .set .L_generalRax, 0x0
 .set .L_generalRbx, 0x8
 .set .L_generalRcx, 0x10
@@ -62,22 +59,6 @@
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-.global thorRtEntry
-thorRtEntry:
-	# enable SSE support
-	mov %cr0, %rax
-	and $0xFFFFFFFFFFFFFFFB, %rax # disable EM
-	or $2, %rax # enable MP
-	mov %rax, %cr0
-
-	mov %cr4, %rax
-	or $0x200, %rax # enable OSFXSR
-	or $0x400, %rax # enable OSXMMEXCPT
-	mov %rax, %cr4
-
-	call thorMain
-	ud2
-
 # saves the registers in the thread structure
 # expects the thread general save state in %rbx
 .macro SAVE_REGISTERS
@@ -115,11 +96,15 @@ thorRtEntry:
 	setzb .L_generalKernel(%rbx)
 .endm
 
-.macro MAKE_FAULT_HANDLER name, has_code
-.global faultStub\name
-faultStub\name:
+.set .L_typeFaultNoCode, 1
+.set .L_typeFaultWithCode, 2
+.set .L_typeIrq, 3
+
+.macro MAKE_HANDLER type, name, func, number=0
+.global \name
+\name:
 	# if there is no error code we push a random word to keep the stack aligned
-.ifeq \has_code
+.if \type != .L_typeFaultWithCode
 	sub $8, %rsp
 .endif
 	# classical prologue
@@ -170,60 +155,38 @@ faultStub\name:
 	
 	# call the handler function
 	mov %rsp, %rdi
-.if \has_code
+.if \type == .L_typeFaultWithCode
 	mov 8(%rbp), %rsi
+.elseif \type == .L_typeIrq
+	mov $\number, %rsi
 .endif
-	call handle\name\()Fault
+	call \func
 	ud2
-
-#----------------------------------------------
-#	pushq %rbx
-#	mov %gs:.L_kGsGeneralState, %rbx
-#	SAVE_REGISTERS
-#	popq .L_generalRbx(%rbx)
-#	SAVE_FRAME
-
-#	push $restoreThisThread
-#	jmp handle\name\()Fault
 .endm
 
-MAKE_FAULT_HANDLER DivideByZero, 0
-MAKE_FAULT_HANDLER Debug, 0
-MAKE_FAULT_HANDLER Opcode, 0
-MAKE_FAULT_HANDLER Double, 1
-MAKE_FAULT_HANDLER Protection, 1
-MAKE_FAULT_HANDLER Page, 1
+MAKE_HANDLER .L_typeFaultNoCode, faultStubDivideByZero, handleDivideByZeroFault
+MAKE_HANDLER .L_typeFaultNoCode, faultStubDebug, handleDebugFault
+MAKE_HANDLER .L_typeFaultNoCode, faultStubOpcode, handleOpcodeFault
+MAKE_HANDLER .L_typeFaultWithCode, faultStubDouble, handleDoubleFault
+MAKE_HANDLER .L_typeFaultWithCode, faultStubProtection, handleProtectionFault
+MAKE_HANDLER .L_typeFaultWithCode, faultStubPage, handlePageFault
 
-.macro MAKE_IRQ_HANDLER irq
-.global thorRtIsrIrq\irq
-thorRtIsrIrq\irq:
-	pushq %rbx
-	mov %gs:.L_kGsGeneralState, %rbx
-	SAVE_REGISTERS
-	popq .L_generalRbx(%rbx)
-	SAVE_FRAME
-
-	mov $\irq, %rdi
-	push $restoreThisThread
-	jmp thorIrq
-.endm
-
-MAKE_IRQ_HANDLER 0
-MAKE_IRQ_HANDLER 1
-MAKE_IRQ_HANDLER 2
-MAKE_IRQ_HANDLER 3
-MAKE_IRQ_HANDLER 4
-MAKE_IRQ_HANDLER 5
-MAKE_IRQ_HANDLER 6
-MAKE_IRQ_HANDLER 7
-MAKE_IRQ_HANDLER 8
-MAKE_IRQ_HANDLER 9
-MAKE_IRQ_HANDLER 10
-MAKE_IRQ_HANDLER 11
-MAKE_IRQ_HANDLER 12
-MAKE_IRQ_HANDLER 13
-MAKE_IRQ_HANDLER 14
-MAKE_IRQ_HANDLER 15
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq0, thorIrq, number=0
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq1, thorIrq, number=1
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq2, thorIrq, number=2
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq3, thorIrq, number=3
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq4, thorIrq, number=4
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq5, thorIrq, number=5
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq6, thorIrq, number=6
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq7, thorIrq, number=7
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq8, thorIrq, number=8
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq9, thorIrq, number=9
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq10, thorIrq, number=10
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq11, thorIrq, number=11
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq12, thorIrq, number=12
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq13, thorIrq, number=13
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq14, thorIrq, number=14
+MAKE_HANDLER .L_typeIrq, thorRtIsrIrq15, thorIrq, number=15
 
 .global thorRtIsrPreempted
 thorRtIsrPreempted:
@@ -360,16 +323,5 @@ restoreStateFrame:
 	pushq .L_frameRip(%rdi)
 	
 	mov .L_frameRdi(%rdi), %rdi
-	iretq
-
-
-# enter user mode for the first time
-.global enterUserMode
-enterUserMode:
-	pushq $.L_userDataSelector
-	pushq %rdi # rsp
-	pushq $.L_kRflagsIf # rflags, enable interrupts
-	pushq $.L_userCode64Selector
-	pushq %rsi # rip
 	iretq
 
