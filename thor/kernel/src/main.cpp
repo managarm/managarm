@@ -181,33 +181,33 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	enterThread(thread_ptr);
 }
 
-extern "C" void handleDivideByZeroFault() {
+extern "C" void handleDivideByZeroFault(void *state) {
 	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
 
-extern "C" void handleDebugFault() {
-	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+extern "C" void handleDebugFault(void *state) {
+	auto gpr_state = (GprState *)accessGprState(state);
 	infoLogger->log() << "Debug fault at "
-			<< (void *)base_state->rip
-			<< ", rsp: " << (void *)base_state->rsp << frigg::EndLog();
+			<< (void *)gpr_state->rip
+			<< ", rsp: " << (void *)gpr_state->rsp << frigg::EndLog();
 }
 
-extern "C" void handleOpcodeFault() {
+extern "C" void handleOpcodeFault(void *state) {
 	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
 }
 
-extern "C" void handleDoubleFault() {
+extern "C" void handleDoubleFault(void *state) {
 	frigg::panicLogger.log() << "Double fault" << frigg::EndLog();
 }
 
-extern "C" void handleProtectionFault(Word error) {
-	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
+extern "C" void handleProtectionFault(void *state, Word error) {
+	auto gpr_state = (GprState *)accessGprState(state);
 	frigg::panicLogger.log() << "General protection fault\n"
-			<< "    Faulting IP: " << (void *)base_state->rip << "\n"
+			<< "    Faulting IP: " << (void *)gpr_state->rip << "\n"
 			<< "    Faulting segment: " << (void *)error << frigg::EndLog();
 }
 
-extern "C" void handlePageFault(Word error) {
+extern "C" void handlePageFault(void *state, Word error) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
@@ -226,16 +226,18 @@ extern "C" void handlePageFault(Word error) {
 		flags |= AddressSpace::kFaultWrite;
 
 	AddressSpace::Guard space_guard(&address_space->lock);
-	if(address_space->handleFault(space_guard, address, flags))
-		return;
+	bool handled = address_space->handleFault(space_guard, address, flags);
 	space_guard.unlock();
-
-	auto base_state = this_thread->accessSaveState().accessGeneralBaseState();
+	
+	if(handled)
+		restoreStateFrame(state);
+	
+	auto gpr_state = (GprState *)accessGprState(state);
 
 	auto msg = frigg::panicLogger.log();
 	msg << "Page fault"
 			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)base_state->rip << "\n";
+			<< ", faulting ip: " << (void *)gpr_state->rip << "\n";
 	msg << "Errors:";
 	if(error & kPfUser) {
 		msg << " (User)";

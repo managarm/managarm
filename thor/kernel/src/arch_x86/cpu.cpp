@@ -20,13 +20,14 @@ void BochsSink::print(const char *str) {
 // --------------------------------------------------------
 
 ThorRtThreadState::ThorRtThreadState() : fsBase(0) {
-	size_t general_size = sizeof(GeneralBaseState) + sizeof(FxSaveState);
-	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxSaveState);
+	size_t general_size = sizeof(GeneralBaseState) + sizeof(FxState);
+	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxState);
 	generalState = kernelAlloc->allocate(general_size);
 	syscallState = kernelAlloc->allocate(syscall_size);
 
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
+	threadTss.rsp0 = uintptr_t(syscallStack + kSyscallStackSize);
 }
 
 ThorRtThreadState::~ThorRtThreadState() {
@@ -123,9 +124,10 @@ void initializeThisProcessor() {
 	
 	// set up the kernel gs segment
 	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
+	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
+	kernel_gs->stateSize = sizeof(GprState) + sizeof(FxState);
 	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
-	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
 
 	// setup the gdt

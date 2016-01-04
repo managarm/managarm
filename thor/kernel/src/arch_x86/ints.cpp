@@ -96,16 +96,16 @@ void initializeProcessorEarly() {
 
 void setupIdt(uint32_t *table) {
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
-			0x8, (void *)&faultStubDivideByZero, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 1);
+			0x8, (void *)&faultStubDivideByZero, 0);
+	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
-			0x8, (void *)&faultStubOpcode, 1);
+			0x8, (void *)&faultStubOpcode, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
-			0x8, (void *)&faultStubDouble, 1);
+			0x8, (void *)&faultStubDouble, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
-			0x8, (void *)&faultStubProtection, 1);
+			0x8, (void *)&faultStubProtection, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 14,
-			0x8, (void *)&faultStubPage, 1);
+			0x8, (void *)&faultStubPage, 0);
 
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 64,
 			0x8, (void *)&thorRtIsrIrq0, 1);
