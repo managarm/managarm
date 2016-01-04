@@ -76,7 +76,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < memory->numPages(); i++)
-			memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
+			memory->setPageAt(i * kPageSize, physicalAllocator->allocate(physical_guard, 1));
 		physical_guard.unlock();
 
 		memory->zeroPages();
@@ -100,7 +100,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
 	memory->resize(size / kPageSize);
 	for(size_t i = 0; i < memory->numPages(); i++)
-		memory->setPage(i, physical + i * kPageSize);
+		memory->setPageAt(i * kPageSize, physical + i * kPageSize);
 	
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
@@ -159,7 +159,6 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actual_pointer) {
-	assert(offset == 0);
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -210,7 +209,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	
 	VirtualAddr actual_address;
 	AddressSpace::Guard space_guard(&space->lock);
-	space->map(space_guard, memory, (VirtualAddr)pointer, length,
+	space->map(space_guard, memory, (VirtualAddr)pointer, offset, length,
 			map_flags, &actual_address);
 	space_guard.unlock();
 	

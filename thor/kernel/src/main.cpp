@@ -44,7 +44,8 @@ void enterImage(PhysicalAddr image_paddr) {
 
 			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 			for(size_t i = 0; i < memory->numPages(); i++)
-				memory->setPage(i, physicalAllocator->allocate(physical_guard, 1));
+				memory->setPageAt(i * kPageSize,
+						physicalAllocator->allocate(physical_guard, 1));
 			physical_guard.unlock();
 			
 			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
@@ -55,11 +56,11 @@ void enterImage(PhysicalAddr image_paddr) {
 			VirtualAddr actual_address;
 			space_guard.lock();
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				space->map(space_guard, memory, virt_address, virt_length,
+				space->map(space_guard, memory, virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				space->map(space_guard, memory, virt_address, virt_length,
+				space->map(space_guard, memory, virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
@@ -83,7 +84,7 @@ void enterImage(PhysicalAddr image_paddr) {
 
 	VirtualAddr stack_base;
 	space_guard.lock();
-	space->map(space_guard, stack_memory, 0, stack_size,
+	space->map(space_guard, stack_memory, 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
 	space_guard.unlock();
 	thorRtInvalidateSpace();
@@ -140,7 +141,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
 		mod_memory->resize(virt_length / kPageSize);
 		for(size_t j = 0; j < mod_memory->numPages(); j++)
-			mod_memory->setPage(j, modules[i].physicalBase + j * kPageSize);
+			mod_memory->setPageAt(j * kPageSize, modules[i].physicalBase + j * kPageSize);
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);

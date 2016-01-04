@@ -34,26 +34,27 @@ void Memory::resize(size_t num_pages) {
 	p_physicalPages.resize(num_pages, -1);
 }
 
-void Memory::setPage(size_t index, PhysicalAddr page) {
-	p_physicalPages[index] = page;
+void Memory::setPageAt(size_t offset, PhysicalAddr page) {
+	p_physicalPages[offset / kPageSize] = page;
 }
 
-PhysicalAddr Memory::getPage(size_t index) {
-	return p_physicalPages[index];
+PhysicalAddr Memory::getPageAt(size_t offset) {
+	assert(offset % kPageSize == 0);
+	return p_physicalPages[offset / kPageSize];
 }
 
-PhysicalAddr Memory::resolveOriginal(size_t index) {
+PhysicalAddr Memory::resolveOriginalAt(size_t offset) {
 	if(p_type == Memory::kTypeAllocated) {
-		PhysicalAddr page = p_physicalPages[index];
+		PhysicalAddr page = p_physicalPages[offset / kPageSize];
 		assert(page != PhysicalAddr(-1));
 		return page;
 	}else if(p_type == Memory::kTypeOnDemand) {
-		return p_physicalPages[index];
+		return p_physicalPages[offset / kPageSize];
 	}else if(p_type == Memory::kTypeCopyOnWrite) {
-		PhysicalAddr page = p_physicalPages[index];
+		PhysicalAddr page = p_physicalPages[offset / kPageSize];
 		if(page != PhysicalAddr(-1))
 			return page;
-		return master->resolveOriginal(index);
+		return master->resolveOriginalAt(offset);
 	}else{
 		assert(!"Unexpected memory type");
 		__builtin_unreachable();
@@ -144,7 +145,7 @@ void AddressSpace::setupDefaultMappings() {
 
 void AddressSpace::map(Guard &guard,
 		KernelUnsafePtr<Memory> memory, VirtualAddr address,
-		size_t length, uint32_t flags, VirtualAddr *actual_address) {
+		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
 	assert((length % kPageSize) == 0);
 
@@ -159,6 +160,7 @@ void AddressSpace::map(Guard &guard,
 
 	mapping->type = Mapping::kTypeMemory;
 	mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
+	mapping->memoryOffset = offset;
 
 	uint32_t page_flags = 0;
 
@@ -177,11 +179,11 @@ void AddressSpace::map(Guard &guard,
 		mapping->flags |= Mapping::kFlagShareOnFork;
 
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-	for(size_t i = 0; i < length / kPageSize; i++) {
-		PhysicalAddr physical = memory->getPage(i);
+	for(size_t page = 0; page < length; page += kPageSize) {
+		PhysicalAddr physical = memory->getPageAt(offset + page);
 		if(physical == PhysicalAddr(-1))
 			continue;
-		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+		VirtualAddr vaddr = mapping->baseAddress + page;
 		p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 	}
 	if(physical_guard.isLocked())
@@ -256,20 +258,19 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	if(mapping->type != Mapping::kTypeMemory)
 		return false;
 	
-	VirtualAddr offset = address - mapping->baseAddress;
 	VirtualAddr page_vaddr = address - (address % kPageSize);
-	size_t page_index = offset / kPageSize;	
+	VirtualAddr page_offset = page_vaddr - mapping->baseAddress;
 
 	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 	if(memory->getType() == Memory::kTypeOnDemand) {
-		assert(memory->getPage(page_index) == PhysicalAddr(-1));
+		assert(memory->getPageAt(mapping->memoryOffset + page_offset) == PhysicalAddr(-1));
 
 		// allocate a new page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
 		memset(physicalToVirtual(physical), 0, kPageSize);
 
-		memory->setPage(page_index, physical);
+		memory->setPageAt(mapping->memoryOffset + page_offset, physical);
 		
 		// map the new page into the address space
 		uint32_t page_flags = 0;
@@ -285,17 +286,18 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	}else if(memory->getType() == Memory::kTypeBacked) {
 		infoLogger->log() << "Backed memory fault" << frigg::EndLog();
 	}else if(memory->getType() == Memory::kTypeCopyOnWrite) {
-		assert(memory->getPage(page_index) == PhysicalAddr(-1));
+		assert(memory->getPageAt(mapping->memoryOffset + page_offset) == PhysicalAddr(-1));
 
 		// allocate a new page and copy content from the master page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
 		physical_guard.unlock();
 		
-		PhysicalAddr origin = memory->master->resolveOriginal(page_index);
+		PhysicalAddr origin = memory->master->resolveOriginalAt(mapping->memoryOffset
+				+ page_offset);
 		assert(origin != PhysicalAddr(-1)); // TODO: implement copy-on-write of on-demand pages
 		memcpy(physicalToVirtual(physical), physicalToVirtual(origin), kPageSize);
-		memory->setPage(page_index, physical);
+		memory->setPageAt(mapping->memoryOffset + page_offset, physical);
 
 		// map the new page into the address space
 		uint32_t page_flags = 0;
@@ -336,8 +338,8 @@ PhysicalAddr AddressSpace::getPhysical(Guard &guard, VirtualAddr address) {
 	assert(mapping->type == Mapping::kTypeMemory);
 	assert(mapping->memoryRegion->getType() == Memory::kTypeAllocated);
 
-	auto index = (address - mapping->baseAddress) / kPageSize;
-	return mapping->memoryRegion->getPage(index);
+	auto page = address - mapping->baseAddress;
+	return mapping->memoryRegion->getPageAt(mapping->memoryOffset + page);
 }
 
 void AddressSpace::activate() {
@@ -427,17 +429,18 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			page_flags |= PageSpace::kAccessExecute;
 
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-		for(size_t i = 0; i < dest_mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = memory->getPage(i);
+		for(size_t page = 0; page < dest_mapping->length; page += kPageSize) {
+			PhysicalAddr physical = memory->getPageAt(mapping->memoryOffset + page);
 			if(physical == PhysicalAddr(-1))
 				continue;
-			VirtualAddr vaddr = dest_mapping->baseAddress + i * kPageSize;
+			VirtualAddr vaddr = dest_mapping->baseAddress + page;
 			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
 		
 		dest_mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
+		dest_mapping->memoryOffset = mapping->memoryOffset;
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
 	}else if(mapping->type == Mapping::kTypeMemory) {
@@ -458,11 +461,11 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		mapping->memoryRegion = frigg::move(src_memory);
 		
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = memory->resolveOriginal(i);
+		for(size_t page = 0; page < mapping->length; page += kPageSize) {
+			PhysicalAddr physical = memory->resolveOriginalAt(mapping->memoryOffset + page);
 			if(physical == PhysicalAddr(-1))
 				continue;
-			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+			VirtualAddr vaddr = mapping->baseAddress + page;
 			p_pageSpace.unmapSingle4k(vaddr);
 			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
@@ -476,11 +479,11 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_memory->master = KernelSharedPtr<Memory>(memory);
 		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		
-		for(size_t i = 0; i < mapping->length / kPageSize; i++) {
-			PhysicalAddr physical = memory->resolveOriginal(i);
+		for(size_t page = 0; page < mapping->length; page += kPageSize) {
+			PhysicalAddr physical = memory->resolveOriginalAt(mapping->memoryOffset + page);
 			if(physical == PhysicalAddr(-1))
 				continue;
-			VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
+			VirtualAddr vaddr = mapping->baseAddress + page;
 			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
 		if(physical_guard.isLocked())
@@ -488,6 +491,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
+		dest_mapping->memoryOffset = mapping->memoryOffset;
 	}else{
 		assert(!"Illegal mapping type");
 	}

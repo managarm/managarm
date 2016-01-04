@@ -23,10 +23,10 @@ public:
 
 	void resize(size_t length);
 
-	void setPage(size_t index, PhysicalAddr page);
-	PhysicalAddr getPage(size_t index);
+	void setPageAt(size_t offset, PhysicalAddr page);
+	PhysicalAddr getPageAt(size_t offset);
 
-	PhysicalAddr resolveOriginal(size_t index);
+	PhysicalAddr resolveOriginalAt(size_t offset);
 
 	size_t numPages();
 	
@@ -113,7 +113,7 @@ public:
 	void setupDefaultMappings();
 
 	void map(Guard &guard, KernelUnsafePtr<Memory> memory,
-			VirtualAddr address, size_t length,
+			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	
 	void unmap(Guard &guard, VirtualAddr address, size_t length);
