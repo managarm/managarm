@@ -141,7 +141,7 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq15, 1);
 	
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
-			0x8, (void *)&thorRtIsrPreempted, 1);
+			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
 bool intsAreEnabled() {

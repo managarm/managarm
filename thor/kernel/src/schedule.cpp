@@ -11,10 +11,13 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 	return getCpuContext()->currentThread;
 }
 
-void resetCurrentThread() {
+void resetCurrentThread(void *restore_state) {
 	assert(!intsAreEnabled());
 	auto cpu_context = getCpuContext();
 	assert(cpu_context->currentThread);
+	
+	assert(!cpu_context->currentThread->accessSaveState().restoreState);
+	cpu_context->currentThread->accessSaveState().restoreState = restore_state;
 
 	cpu_context->currentThread->deactivate();
 	cpu_context->currentThread = KernelUnsafePtr<Thread>();
@@ -23,7 +26,7 @@ void resetCurrentThread() {
 void dropCurrentThread() {
 	assert(!intsAreEnabled());
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	resetCurrentThread();
+	resetCurrentThread(nullptr);
 	activeList->remove(this_thread);
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
@@ -41,7 +44,10 @@ void enterThread(KernelUnsafePtr<Thread> thread) {
 
 	thread->activate();
 	cpu_context->currentThread = thread;
-	restoreThisThread();
+	void *restore_state = thread->accessSaveState().restoreState;
+	assert(restore_state);
+	thread->accessSaveState().restoreState = nullptr;
+	restoreStateFrame(restore_state);
 }
 
 void doSchedule(ScheduleGuard &&guard) {
@@ -60,11 +66,11 @@ void doSchedule(ScheduleGuard &&guard) {
 	}
 }
 
-extern "C" void onPreemption() {
+extern "C" void onPreemption(void *state) {
 	acknowledgePreemption();
 	
 	KernelUnsafePtr<Thread> thread = getCurrentThread();
-	resetCurrentThread();
+	resetCurrentThread(state);
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	if((thread->flags & Thread::kFlagNotScheduled) == 0)

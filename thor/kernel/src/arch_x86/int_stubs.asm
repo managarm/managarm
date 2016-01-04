@@ -1,29 +1,5 @@
 
-.set .L_generalRax, 0x0
-.set .L_generalRbx, 0x8
-.set .L_generalRcx, 0x10
-.set .L_generalRdx, 0x18
-.set .L_generalRsi, 0x20
-.set .L_generalRdi, 0x28
-.set .L_generalRbp, 0x30
-
-.set .L_generalR8, 0x38
-.set .L_generalR9, 0x40
-.set .L_generalR10, 0x48
-.set .L_generalR11, 0x50
-.set .L_generalR12, 0x58
-.set .L_generalR13, 0x60
-.set .L_generalR14, 0x68
-.set .L_generalR15, 0x70
-
-.set .L_generalRsp, 0x78
-.set .L_generalRip, 0x80
-.set .L_generalRflags, 0x88
-.set .L_generalKernel, 0x90
-
-.set .L_generalFxSave, 0xA0
-
-# fields of the thor::StateFrame struct
+# fields of the state structs
 
 .set .L_frameRax, 0x0
 .set .L_frameRbx, 0x8
@@ -51,54 +27,18 @@
 
 # kernel gs segment fields
 .set .L_kGsStateSize, 0x08
-.set .L_kGsGeneralState, 0x10
-.set .L_kGsFlags, 0x28
+.set .L_kGsFlags, 0x20
 
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-# saves the registers in the thread structure
-# expects the thread general save state in %rbx
-.macro SAVE_REGISTERS
-	mov %rax, .L_generalRax(%rbx)
-	mov %rcx, .L_generalRcx(%rbx)
-	mov %rdx, .L_generalRdx(%rbx)
-	mov %rsi, .L_generalRsi(%rbx)
-	mov %rdi, .L_generalRdi(%rbx)
-	mov %rbp, .L_generalRbp(%rbx)
-
-	mov %r8, .L_generalR8(%rbx)
-	mov %r9, .L_generalR9(%rbx)
-	mov %r10, .L_generalR10(%rbx)
-	mov %r11, .L_generalR11(%rbx)
-	mov %r12, .L_generalR12(%rbx)
-	mov %r13, .L_generalR13(%rbx)
-	mov %r14, .L_generalR14(%rbx)
-	mov %r15, .L_generalR15(%rbx)
-
-	# save the cpu's extended state
-	fxsaveq .L_generalFxSave(%rbx)
-.endm
-
-# saves the interrupt stack frame in the thread structure
-# expects the thread general save state in %rbx
-.macro SAVE_FRAME
-	popq .L_generalRip(%rbx)
-	popq %rax # cs
-	popq .L_generalRflags(%rbx)
-	popq .L_generalRsp(%rbx)
-	add $8, %rsp # skip ss
-
-	# determine if we interrupted the kernel or userspace
-	test $3, %rax
-	setzb .L_generalKernel(%rbx)
-.endm
-
+# macro to construct an interrupt handler
 .set .L_typeFaultNoCode, 1
 .set .L_typeFaultWithCode, 2
 .set .L_typeIrq, 3
+.set .L_typeCall, 4
 
 .macro MAKE_HANDLER type, name, func, number=0
 .global \name
@@ -151,7 +91,7 @@
 
 	# determine if we interrupted the kernel or userspace
 	test $3, %rdx
-	setzb .L_generalKernel(%rsp)
+	setzb .L_frameKernel(%rsp)
 	
 	# call the handler function
 	mov %rsp, %rdi
@@ -188,97 +128,35 @@ MAKE_HANDLER .L_typeIrq, thorRtIsrIrq13, thorIrq, number=13
 MAKE_HANDLER .L_typeIrq, thorRtIsrIrq14, thorIrq, number=14
 MAKE_HANDLER .L_typeIrq, thorRtIsrIrq15, thorIrq, number=15
 
-.global thorRtIsrPreempted
-thorRtIsrPreempted:
-	pushq %rbx
-	mov %gs:.L_kGsGeneralState, %rbx
-	SAVE_REGISTERS
-	popq .L_generalRbx(%rbx)
-	SAVE_FRAME
+MAKE_HANDLER .L_typeCall, thorRtIsrPreempted, onPreemption
 
-	push $restoreThisThread
-	jmp onPreemption
-
-# blocks the current thread. returns twice (like fork)
-# returns 1 when the thread is blocked
-# and 0 when the thread is continues execution
-.global saveThisThread
-saveThisThread:
-	# system v abi says we can clobber rax
-	mov %gs:.L_kGsGeneralState, %rax
-	
+# saves the current state to a buffer. returns twice (like fork)
+# returns 1 when the state is saved and 0 when it is restored
+.global forkState
+forkState:
 	# only save the registers that are callee-saved by system v
-	mov %rbx, .L_generalRbx(%rax)
-	mov %rbp, .L_generalRbp(%rax)
-	mov %r12, .L_generalR12(%rax)
-	mov %r13, .L_generalR13(%rax)
-	mov %r14, .L_generalR14(%rax)
-	mov %r15, .L_generalR15(%rax)
+	mov %rbx, .L_frameRbx(%rdi)
+	mov %rbp, .L_frameRbp(%rdi)
+	mov %r12, .L_frameR12(%rdi)
+	mov %r13, .L_frameR13(%rdi)
+	mov %r14, .L_frameR14(%rdi)
+	mov %r15, .L_frameR15(%rdi)
 
 	# save the cpu's extended state
-	fxsaveq .L_generalFxSave(%rax)
+	fxsaveq .L_frameFxSave(%rdi)
 	
 	# setup the state for the second return
 	pushfq
-	popq .L_generalRflags(%rax)
+	popq .L_frameRflags(%rdi)
 	mov (%rsp), %rdx
-	mov %rdx, .L_generalRip(%rax)
+	mov %rdx, .L_frameRip(%rdi)
 	leaq 8(%rsp), %rcx
-	mov %rcx, .L_generalRsp(%rax)
-	movb $1, .L_generalKernel(%rax)
-	movq $0, .L_generalRax(%rax)
+	mov %rcx, .L_frameRsp(%rdi)
+	movb $1, .L_frameKernel(%rdi)
+	movq $0, .L_frameRax(%rdi)
 
 	mov $1, %rax
 	ret
-
-# restores a thread's state after an interrupt
-# or after it has been blocked
-.global restoreThisThread
-restoreThisThread:
-	mov %gs:.L_kGsGeneralState, %rbx
-	
-	mov .L_generalRcx(%rbx), %rcx
-	mov .L_generalRdx(%rbx), %rdx
-	mov .L_generalRsi(%rbx), %rsi
-	mov .L_generalRdi(%rbx), %rdi
-	mov .L_generalRbp(%rbx), %rbp
-
-	mov .L_generalR8(%rbx), %r8
-	mov .L_generalR9(%rbx), %r9
-	mov .L_generalR10(%rbx), %r10
-	mov .L_generalR11(%rbx), %r11
-	mov .L_generalR12(%rbx), %r12
-	mov .L_generalR13(%rbx), %r13
-	mov .L_generalR14(%rbx), %r14
-	mov .L_generalR15(%rbx), %r15
-	
-	# restore the cpu's extended state
-	fxrstorq .L_generalFxSave(%rbx)
-
-	# check if we return to kernel mode
-	testb $1, .L_generalKernel(%rbx)
-	jnz .L_restore_kernel
-
-	pushq $.L_userDataSelector
-	pushq .L_generalRsp(%rbx)
-	pushq .L_generalRflags(%rbx)
-	pushq $.L_userCode64Selector
-	pushq .L_generalRip(%rbx)
-	
-	mov .L_generalRax(%rbx), %rax
-	mov .L_generalRbx(%rbx), %rbx
-	iretq
-
-.L_restore_kernel:
-	pushq $.L_kernelDataSelector
-	pushq .L_generalRsp(%rbx)
-	pushq .L_generalRflags(%rbx)
-	pushq $.L_kernelCodeSelector
-	pushq .L_generalRip(%rbx)
-	
-	mov .L_generalRax(%rbx), %rax
-	mov .L_generalRbx(%rbx), %rbx
-	iretq
 
 .global restoreStateFrame
 restoreStateFrame:

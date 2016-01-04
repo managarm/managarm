@@ -74,14 +74,16 @@ CpuContext::CpuContext() {
 			frigg::move(address_space), KernelSharedPtr<RdFolder>());
 	thread->flags |= Thread::kFlagNotScheduled;
 
-	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
+	// FIXME: do not heap-allocate the state structs
+	void *state = kernelAlloc->allocate(getStateSize());
+	auto gpr_state = accessGprState(state);
+	gpr_state->rsp = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
-	auto base_state = thread->accessSaveState().accessGeneralBaseState();
-	base_state->rsp = stack_ptr;
-	base_state->rflags = 0x200; // enable interrupts
-	base_state->rip = (Word)&idleRoutine;
-	base_state->kernel = 1;
-	
+	gpr_state->rflags = 0x200; // enable interrupts
+	gpr_state->rip = (Word)&idleRoutine;
+	gpr_state->kernel = 1;
+	thread->accessSaveState().restoreState = state;
+
 	idleThread = thread;
 	activeList->addBack(frigg::move(thread));
 }

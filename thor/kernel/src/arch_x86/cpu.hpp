@@ -11,35 +11,6 @@ namespace thor {
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct GeneralBaseState {
-	Word rax;			// offset 0x00
-	Word rbx;			// offset 0x08
-	Word rcx;			// offset 0x10
-	Word rdx;			// offset 0x18
-	Word rsi;			// offset 0x20
-	Word rdi;			// offset 0x28
-	Word rbp;			// offset 0x30
-
-	Word r8;			// offset 0x38
-	Word r9;			// offset 0x40
-	Word r10;			// offset 0x48
-	Word r11;			// offset 0x50
-	Word r12;			// offset 0x58
-	Word r13;			// offset 0x60
-	Word r14;			// offset 0x68
-	Word r15;			// offset 0x70
-	
-	Word rsp;			// offset 0x78
-	Word rip;			// offset 0x80
-	Word rflags;		// offset 0x88
-	// 0 = thread saved in user mode
-	// 1 = thread saved in kernel mode
-	uint8_t kernel;		// offset 0x90
-	uint8_t padding[15];
-};
-
-static_assert(sizeof(GeneralBaseState) == 0xA0, "Bad sizeof(GeneralBaseState)");
-
 struct GprState {
 	Word rax;			// offset 0x00
 	Word rbx;			// offset 0x08
@@ -119,6 +90,10 @@ inline GprState *accessGprState(void *state) {
 	return reinterpret_cast<GprState *>(state);
 }
 
+size_t getStateSize();
+
+extern "C" __attribute__ (( returns_twice )) bool forkState(void *state);
+
 extern "C" __attribute__ (( noreturn )) void restoreStateFrame(void *state);
 
 // note: this struct is accessed from assembly.
@@ -152,15 +127,12 @@ struct ThorRtThreadState {
 	void activate();
 	void deactivate();
 
-	inline GeneralBaseState *accessGeneralBaseState() {
-		return (GeneralBaseState *)generalState;
-	}
 	inline SyscallBaseState *accessSyscallBaseState() {
 		return (SyscallBaseState *)syscallState;
 	}
 	
-	void *generalState;
 	void *syscallState;
+	void *restoreState;
 	frigg::arch_x86::Tss64 threadTss;
 	Word fsBase;
 
@@ -188,11 +160,10 @@ struct ThorRtKernelGs {
 	enum {
 		kOffCpuContext = 0x00,
 		kOffStateSize = 0x08,
-		kOffGeneralState = 0x10,
-		kOffSyscallState = 0x18,
-		kOffSyscallStackPtr = 0x20,
-		kOffFlags = 0x28,
-		kOffCpuSpecific = 0x30
+		kOffSyscallState = 0x10,
+		kOffSyscallStackPtr = 0x18,
+		kOffFlags = 0x20,
+		kOffCpuSpecific = 0x28
 	};
 
 	enum {
@@ -203,12 +174,11 @@ struct ThorRtKernelGs {
 
 	CpuContext *cpuContext;				// offset 0x00
 	size_t stateSize;					// offset 0x08
-	void *generalState;					// offset 0x10
-	void *syscallState;					// offset 0x18
-	void *syscallStackPtr;				// offset 0x20
-	uint32_t flags;						// offset 0x28
+	void *syscallState;					// offset 0x10
+	void *syscallStackPtr;				// offset 0x18
+	uint32_t flags;						// offset 0x20
 	uint32_t padding;
-	ThorRtCpuSpecific *cpuSpecific;		// offset 0x30
+	ThorRtCpuSpecific *cpuSpecific;		// offset 0x28
 };
 
 CpuContext *getCpuContext();

@@ -28,9 +28,9 @@
 .set .L_kAdditionalR14, 0x68
 .set .L_kAdditionalR15, 0x70
 
-.set .L_kGsSyscallState, 0x18
-.set .L_kGsSyscallStackPtr, 0x20
-.set .L_kGsFlags, 0x28
+.set .L_kGsSyscallState, 0x10
+.set .L_kGsSyscallStackPtr, 0x18
+.set .L_kGsFlags, 0x20
 
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23

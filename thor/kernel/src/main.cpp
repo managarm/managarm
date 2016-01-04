@@ -122,7 +122,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	scheduleLock.initialize();
 
 	initializeTheSystem();
+	infoLogger->log() << "before" << frigg::EndLog();
 	initializeThisProcessor();
+	infoLogger->log() << "after" << frigg::EndLog();
 	
 	// create a directory and load the memory regions of all modules into it
 	assert(info->numModules >= 1);
@@ -166,14 +168,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
 	ThreadGroup::addThreadToGroup(frigg::move(group), KernelWeakPtr<Thread>(thread));
-	
-	uintptr_t stack_ptr = (uintptr_t)thread->accessSaveState().syscallStack
+
+	// FIXME: do not heap-allocate the state structs
+	void *state = kernelAlloc->allocate(getStateSize());
+	auto gpr_state = accessGprState(state);
+	gpr_state->rdi = modules[0].physicalBase;
+	gpr_state->rsp = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
-	auto base_state = thread->accessSaveState().accessGeneralBaseState();
-	base_state->rdi = modules[0].physicalBase;
-	base_state->rsp = stack_ptr;
-	base_state->rip = (Word)&enterImage;
-	base_state->kernel = 1;
+	gpr_state->rip = (Word)&enterImage;
+	gpr_state->kernel = 1;
+	thread->accessSaveState().restoreState = state;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
 	activeList->addBack(frigg::move(thread));

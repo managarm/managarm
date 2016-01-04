@@ -340,28 +340,31 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	ThreadGroup::addThreadToGroup(frigg::move(group),
 			KernelWeakPtr<Thread>(new_thread));
 	
-	auto base_state = new_thread->accessSaveState().accessGeneralBaseState();
-	base_state->rax = user_state->rax;
-	base_state->rbx = user_state->rbx;
-	base_state->rcx = user_state->rcx;
-	base_state->rdx = user_state->rdx;
-	base_state->rsi = user_state->rsi;
-	base_state->rdi = user_state->rdi;
-	base_state->rbp = user_state->rbp;
+	// FIXME: do not heap-allocate the state structs
+	void *state = kernelAlloc->allocate(getStateSize());
+	auto gpr_state = accessGprState(state);
+	gpr_state->rax = user_state->rax;
+	gpr_state->rbx = user_state->rbx;
+	gpr_state->rcx = user_state->rcx;
+	gpr_state->rdx = user_state->rdx;
+	gpr_state->rsi = user_state->rsi;
+	gpr_state->rdi = user_state->rdi;
+	gpr_state->rbp = user_state->rbp;
 
-	base_state->r8 = user_state->r8;
-	base_state->r9 = user_state->r9;
-	base_state->r10 = user_state->r10;
-	base_state->r11 = user_state->r11;
-	base_state->r12 = user_state->r12;
-	base_state->r13 = user_state->r13;
-	base_state->r14 = user_state->r14;
-	base_state->r15 = user_state->r15;
+	gpr_state->r8 = user_state->r8;
+	gpr_state->r9 = user_state->r9;
+	gpr_state->r10 = user_state->r10;
+	gpr_state->r11 = user_state->r11;
+	gpr_state->r12 = user_state->r12;
+	gpr_state->r13 = user_state->r13;
+	gpr_state->r14 = user_state->r14;
+	gpr_state->r15 = user_state->r15;
 
-	base_state->rip = user_state->rip;
-	base_state->rsp = user_state->rsp;
-	base_state->rflags = 0x200; // set the interrupt flag
-	base_state->kernel = 0;
+	gpr_state->rip = user_state->rip;
+	gpr_state->rsp = user_state->rsp;
+	gpr_state->rflags = 0x200; // set the interrupt flag
+	gpr_state->kernel = 0;
+	new_thread->accessSaveState().restoreState = state;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
 	activeList->addBack(KernelSharedPtr<Thread>(new_thread));
@@ -379,11 +382,13 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 }
 
 HelError helYield() {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	
 	assert(!intsAreEnabled());
-	if(saveThisThread()) {
-		resetCurrentThread();
+
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+
+	void *state = __builtin_alloca(getStateSize());
+	if(forkState(state)) {
+		resetCurrentThread(state);
 	
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		if(!(this_thread->flags & Thread::kFlagNotScheduled))

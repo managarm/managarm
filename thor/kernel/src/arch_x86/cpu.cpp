@@ -19,10 +19,8 @@ void BochsSink::print(const char *str) {
 // ThorRtThreadState
 // --------------------------------------------------------
 
-ThorRtThreadState::ThorRtThreadState() : fsBase(0) {
-	size_t general_size = sizeof(GeneralBaseState) + sizeof(FxState);
+ThorRtThreadState::ThorRtThreadState() : restoreState(0), fsBase(0) {
 	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxState);
-	generalState = kernelAlloc->allocate(general_size);
 	syscallState = kernelAlloc->allocate(syscall_size);
 
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
@@ -31,14 +29,11 @@ ThorRtThreadState::ThorRtThreadState() : fsBase(0) {
 }
 
 ThorRtThreadState::~ThorRtThreadState() {
-	kernelAlloc->free(generalState);
 	kernelAlloc->free(syscallState);
 }
 
 void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (generalState),
-			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (syscallState),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
@@ -61,8 +56,6 @@ void ThorRtThreadState::activate() {
 
 void ThorRtThreadState::deactivate() {
 	// reset the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffGeneralState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
@@ -87,12 +80,19 @@ void ThorRtThreadState::deactivate() {
 // --------------------------------------------------------
 
 ThorRtKernelGs::ThorRtKernelGs()
-: cpuContext(nullptr), generalState(nullptr), syscallStackPtr(nullptr),
+: cpuContext(nullptr), stateSize(0), syscallStackPtr(nullptr),
 		cpuSpecific(nullptr) { }
 
 // --------------------------------------------------------
 // Namespace scope functions
 // --------------------------------------------------------
+
+size_t getStateSize() {
+	size_t result;
+	asm volatile ( "mov %%gs:%c1, %0" : "=r" (result)
+			: "i" (ThorRtKernelGs::kOffStateSize) );
+	return result;
+}
 
 CpuContext *getCpuContext() {
 	CpuContext *context;
@@ -124,11 +124,14 @@ void initializeThisProcessor() {
 	
 	// set up the kernel gs segment
 	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
-	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
 	kernel_gs->stateSize = sizeof(GprState) + sizeof(FxState);
 	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
+	
+	// set up the cpu context. we do this after setting up gs because
+	// the CpuContext constructor calls getStateSize()
+	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
 
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
