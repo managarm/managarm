@@ -45,7 +45,7 @@ void enterImage(PhysicalAddr image_paddr) {
 			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 			for(size_t i = 0; i < memory->numPages(); i++)
 				memory->setPageAt(i * kPageSize,
-						physicalAllocator->allocate(physical_guard, 1));
+						physicalAllocator->allocate(physical_guard, 0x1000));
 			physical_guard.unlock();
 			
 			uintptr_t virt_disp = phdr->p_vaddr - virt_address;

@@ -143,6 +143,7 @@ struct HelDescriptorInfo {
 };
 
 enum HelAllocFlags {
+	kHelAllocContinuous = 4,
 	kHelAllocOnDemand = 1,
 	kHelAllocBacked = 2
 };

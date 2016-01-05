@@ -282,7 +282,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 
 		// allocate a new page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
 		memset(physicalToVirtual(physical), 0, kPageSize);
 
 		memory->setPageAt(mapping->memoryOffset + page_offset, physical);
@@ -299,7 +299,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 		
 			// allocate a new page
 			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-			PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+			PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
 			physical_guard.unlock();
 
 			memset(physicalToVirtual(physical), 0, kPageSize);
@@ -349,7 +349,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 
 		// allocate a new page and copy content from the master page
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
 		physical_guard.unlock();
 		
 		PhysicalAddr origin = memory->master->resolveOriginalAt(mapping->memoryOffset

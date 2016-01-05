@@ -7,27 +7,27 @@ namespace thor {
 // Chunk
 // --------------------------------------------------------
 
-size_t Chunk::numBytesInLevel(int level) {
+size_t Chunk::sizeOfLevel(int level) {
 	if(level == 0)
 		return kBytesInRoot;
-	return numBytesInLevel(level - 1) * kGranularity;
+	return sizeOfLevel(level - 1) * kGranularity;
 }
 size_t Chunk::numEntriesInLevel(int level) {
-	return kEntriesPerByte * numBytesInLevel(level);
+	return kEntriesPerByte * sizeOfLevel(level);
 }
 size_t Chunk::offsetOfLevel(int level) {
 	if(level == 0)
 		return 0;
-	return offsetOfLevel(level - 1) + numBytesInLevel(level - 1);
+	return offsetOfLevel(level - 1) + sizeOfLevel(level - 1);
 }
 
-size_t Chunk::pagesPerEntry(int level) {
+size_t Chunk::representedPages(int level) {
 	if(level == treeHeight)
 		return 1;
-	return pagesPerEntry(level + 1) * kGranularity;
+	return representedPages(level + 1) * kGranularity;
 }
-size_t Chunk::spacePerEntry(int level) {
-	return pageSize * pagesPerEntry(level);
+size_t Chunk::representedBytes(int level) {
+	return pageSize * representedPages(level);
 }
 
 Chunk::Chunk(PhysicalAddr base_addr, size_t page_size, size_t num_pages)
@@ -41,7 +41,7 @@ Chunk::Chunk(PhysicalAddr base_addr, size_t page_size, size_t num_pages)
 size_t Chunk::calcBitmapTreeSize() {
 	size_t size = 0;
 	for(int k = 0; k <= treeHeight; k++)
-		size += numBytesInLevel(k);
+		size += sizeOfLevel(k);
 	return size;
 }
 
@@ -57,10 +57,10 @@ void Chunk::setupBitmapTree(uint8_t *bitmap_tree) {
 	// mark trailing entries as black
 	size_t num_entries = numEntriesInLevel(treeHeight);
 	for(size_t entry = numPages; entry < num_entries; entry++)
-		markBlackRecursive(treeHeight, entry);
+		colorParentsBlack(treeHeight, entry);
 }
 
-void Chunk::markColor(int level, int entry_in_level, uint8_t color) {
+void Chunk::assignColor(int level, int entry_in_level, uint8_t color) {
 	int byte_in_level = entry_in_level / kEntriesPerByte;
 	int entry_in_byte = entry_in_level % kEntriesPerByte;
 	
@@ -113,17 +113,17 @@ void Chunk::checkNeighbors(int level, int entry_in_level,
 	}
 }
 
-void Chunk::markGrayRecursive(int level, int entry_in_level) {
-	markColor(level, entry_in_level, kColorGray);
+void Chunk::colorParentsGray(int level, int entry_in_level) {
+	assignColor(level, entry_in_level, kColorGray);
 	
 	if(level == 0)
 		return;
 	
-	markGrayRecursive(level - 1, entry_in_level / kGranularity);
+	colorParentsGray(level - 1, entry_in_level / kGranularity);
 }
 
-void Chunk::markBlackRecursive(int level, int entry_in_level) {
-	markColor(level, entry_in_level, kColorBlack);
+void Chunk::colorParentsBlack(int level, int entry_in_level) {
+	assignColor(level, entry_in_level, kColorBlack);
 	
 	if(level == 0)
 		return;
@@ -134,14 +134,14 @@ void Chunk::markBlackRecursive(int level, int entry_in_level) {
 	assert(!all_white && !all_red);
 
 	if(all_black_or_red) {
-		markBlackRecursive(level - 1, entry_in_level / kGranularity);
+		colorParentsBlack(level - 1, entry_in_level / kGranularity);
 	}else{
-		markGrayRecursive(level - 1, entry_in_level / kGranularity);
+		colorParentsGray(level - 1, entry_in_level / kGranularity);
 	}
 }
 
-void Chunk::markWhiteRecursive(int level, int entry_in_level) {
-	markColor(level, entry_in_level, kColorWhite);
+void Chunk::colorParentsWhite(int level, int entry_in_level) {
+	assignColor(level, entry_in_level, kColorWhite);
 	
 	if(level == 0)
 		return;
@@ -152,13 +152,13 @@ void Chunk::markWhiteRecursive(int level, int entry_in_level) {
 	assert(!all_black_or_red && !all_red);
 
 	if(all_white) {
-		markWhiteRecursive(level - 1, entry_in_level / kGranularity);
+		colorParentsWhite(level - 1, entry_in_level / kGranularity);
 	}else{
-		markGrayRecursive(level - 1, entry_in_level / kGranularity);
+		colorParentsGray(level - 1, entry_in_level / kGranularity);
 	}
 }
 
-PhysicalAddr allocateInLevel(Chunk *chunk, int level,
+PhysicalAddr allocateInLevel(Chunk *chunk, size_t size, int level,
 		size_t start_entry_in_level, size_t limit_entry_in_level) {
 	size_t offset = Chunk::offsetOfLevel(level);
 	
@@ -168,6 +168,11 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 
 	size_t start_byte_in_level = start_entry_in_level / Chunk::kEntriesPerByte;
 	size_t limit_byte_in_level = limit_entry_in_level / Chunk::kEntriesPerByte;
+
+	size_t space_per_entry = chunk->representedBytes(level);
+	assert(space_per_entry >= size);
+	if(level == chunk->treeHeight)
+		assert(space_per_entry == size);
 	
 	for(size_t i = start_byte_in_level; i < limit_byte_in_level; i++) {
 		for(int j = 0; j < Chunk::kEntriesPerByte; j++) {
@@ -176,24 +181,22 @@ PhysicalAddr allocateInLevel(Chunk *chunk, int level,
 			uint8_t byte = chunk->bitmapTree[offset + i];
 			uint8_t entry = (byte >> (j * Chunk::kEntryShift)) & Chunk::kEntryMask;
 			
-			if(level == chunk->treeHeight) {
-				if(entry == Chunk::kColorWhite) {
-					chunk->markBlackRecursive(level, entry_in_level);
+			if(level == chunk->treeHeight)
+				assert(entry != Chunk::kColorGray);
+			
+			if(space_per_entry == size) {
+				if(entry != Chunk::kColorWhite)
+					continue;
 
-					return chunk->baseAddress + entry_in_level * chunk->spacePerEntry(level);
-				}else{
-					assert(entry == Chunk::kColorBlack || entry == Chunk::kColorRed);
-					// just continue searching
-				}
+				chunk->colorParentsBlack(level, entry_in_level);
+				return chunk->baseAddress + entry_in_level * space_per_entry;
 			}else{
-				if(entry == Chunk::kColorWhite || entry == Chunk::kColorGray) {
-					return allocateInLevel(chunk, level + 1,
-							entry_in_level * Chunk::kGranularity,
-							(entry_in_level + 1) * Chunk::kGranularity);
-				}else{
-					assert(entry == Chunk::kColorBlack || entry == Chunk::kColorRed);
-					// just continue searching
-				}
+				if(entry != Chunk::kColorWhite && entry != Chunk::kColorGray)
+					continue;
+
+				return allocateInLevel(chunk, size, level + 1,
+						entry_in_level * Chunk::kGranularity,
+						(entry_in_level + 1) * Chunk::kGranularity);
 			}
 		}
 	}
@@ -238,15 +241,15 @@ void PhysicalChunkAllocator::bootstrap() {
 	
 	size_t num_pages = (p_bootstrapPtr - p_bootstrapBase) / 0x1000;
 	for(size_t i = 0; i < num_pages; i++)
-		p_root->markBlackRecursive(p_root->treeHeight,
+		p_root->colorParentsBlack(p_root->treeHeight,
 				(p_bootstrapBase - p_root->baseAddress) / 0x1000 + i);
 }
 
-PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t num_pages) {
+PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	assert(guard.protects(&lock));
-	assert(num_pages == 1);
 
-	PhysicalAddr result = allocateInLevel(p_root, 0, 0, Chunk::numEntriesInLevel(0));
+	PhysicalAddr result = allocateInLevel(p_root, size, 0,
+			0, Chunk::numEntriesInLevel(0));
 	assert(result != 0);
 	assert(p_freePages > 0);
 	p_usedPages++;
@@ -260,7 +263,7 @@ void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
 	assert(address < p_root->baseAddress
 			+ p_root->pageSize * p_root->numPages);
 	
-	p_root->markWhiteRecursive(p_root->treeHeight, (address - p_root->baseAddress) / 0x1000);
+	p_root->colorParentsWhite(p_root->treeHeight, (address - p_root->baseAddress) / 0x1000);
 	assert(p_usedPages > 0);
 	p_usedPages--;
 	p_freePages++;

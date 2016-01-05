@@ -60,7 +60,7 @@ VirtDescriptor *Queue::accessDescriptor(size_t index) {
 	return reinterpret_cast<VirtDescriptor *>(descriptorPtr + index * sizeof(VirtDescriptor));
 }
 
-void Queue::setupQueue(uintptr_t physical) {
+void Queue::setupQueue() {
 	assert(!queueSize);
 
 	// select the queue and determine it's size
@@ -80,16 +80,13 @@ void Queue::setupQueue(uintptr_t physical) {
 	size_t byte_size = used_offset + sizeof(VirtUsedHeader)
 			+ queueSize * sizeof(VirtUsedRing) + sizeof(VirtUsedFooter);
 
-	size_t memory_size = byte_size;
-	if(memory_size % 0x1000)
-		memory_size += 0x1000 - (memory_size % 0x1000);
-	
-	// FIXME: allocate memory instead of using a fixed address
+	// allocate physical memory for the virtqueue structs
+	assert(byte_size < 0x4000); // FIXME: do not hardcode 0x4000
 	HelHandle memory;
 	void *pointer;
-	HEL_CHECK(helAccessPhysical(physical, memory_size, &memory));
+	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, memory_size, kHelMapReadWrite, &pointer));
+			0, 0x4000, kHelMapReadWrite, &pointer));
 	HEL_CHECK(helCloseDescriptor(memory));
 
 	descriptorPtr = (char *)pointer;
@@ -106,6 +103,9 @@ void Queue::setupQueue(uintptr_t physical) {
 	accessUsedFooter()->eventIndex = 0;
 	
 	// hand the queue to the device
+	uintptr_t physical;
+	HEL_CHECK(helPointerPhysical(pointer, &physical));
+
 	frigg::writeIo<uint32_t>(device.basePort + PCI_L_QUEUE_ADDRESS, physical / 0x1000);
 }
 

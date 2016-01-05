@@ -25,7 +25,7 @@ Device::Device()
 
 void Device::doInitialize() {
 	// perform device specific setup
-	requestQueue.setupQueue(0x8000);
+	requestQueue.setupQueue();
 	userRequestPtrs.resize(requestQueue.getSize());
 	virtRequestBuffer = (VirtRequest *)malloc(requestQueue.getSize() * sizeof(VirtRequest));
 	statusBuffer = (uint8_t *)malloc(requestQueue.getSize());

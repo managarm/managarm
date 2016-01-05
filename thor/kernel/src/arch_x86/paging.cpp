@@ -29,7 +29,7 @@ void PageSpace::activate() {
 
 PageSpace PageSpace::cloneFromKernelSpace() {
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-	PhysicalAddr new_pml4_page = physicalAllocator->allocate(physical_guard, 1);
+	PhysicalAddr new_pml4_page = physicalAllocator->allocate(physical_guard, 0x1000);
 	physical_guard.unlock();
 
 	uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
@@ -66,7 +66,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
-		PhysicalAddr pdpt_page = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr pdpt_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
 		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
 		for(int i = 0; i < 512; i++)
@@ -88,7 +88,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
-		PhysicalAddr pd_page = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr pd_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
 		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
 		for(int i = 0; i < 512; i++)
@@ -110,7 +110,7 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
-		PhysicalAddr pt_page = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr pt_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
 		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
 		for(int i = 0; i < 512; i++)

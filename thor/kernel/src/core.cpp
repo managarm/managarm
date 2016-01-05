@@ -32,7 +32,7 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 1);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 0x1000);
 		kernelSpace->mapSingle4k(physical_guard, address + offset, physical, false,
 				PageSpace::kAccessWrite);
 	}

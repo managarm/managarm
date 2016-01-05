@@ -27,12 +27,20 @@ struct Chunk {
 		kBytesInRoot = 2
 	};
 	
-	static size_t numBytesInLevel(int level);
+	// returns the number of bytes a single level of the map uses
+	static size_t sizeOfLevel(int level);
+
+	// returns the number of entries a level has
 	static size_t numEntriesInLevel(int level);
+
+	// returns the offset of a level from the beginning of the map
 	static size_t offsetOfLevel(int level);
 	
-	size_t pagesPerEntry(int level);
-	size_t spacePerEntry(int level);
+	// returns the number of pages represented by an entry
+	size_t representedPages(int level);
+
+	// returns the number of bytes represented by an entry
+	size_t representedBytes(int level);
 
 	PhysicalAddr baseAddress;
 	size_t pageSize;
@@ -46,12 +54,18 @@ struct Chunk {
 	size_t calcBitmapTreeSize();
 	void setupBitmapTree(uint8_t *bitmap_tree);
 	
-	void markColor(int level, int entry_in_level, uint8_t color);
+	void assignColor(int level, int entry_in_level, uint8_t color);
 	void checkNeighbors(int level, int entry_in_level,
 			bool &all_white, bool &all_black_or_red, bool &all_red);
-	void markGrayRecursive(int level, int entry_in_level);
-	void markBlackRecursive(int level, int entry_in_level);
-	void markWhiteRecursive(int level, int entry_in_level);
+	
+	// colors an entry and all parents on lower levels gray
+	void colorParentsGray(int level, int entry_in_level);
+	
+	// colors an entry black. parents on lower levels are colored black or gray
+	void colorParentsBlack(int level, int entry_in_level);
+
+	// colors an entry white. parents on lower levels are colored white or gray
+	void colorParentsWhite(int level, int entry_in_level);
 };
 
 class PhysicalChunkAllocator {
@@ -65,7 +79,7 @@ public:
 	void addChunk(PhysicalAddr chunk_base, size_t chunk_length);
 	void bootstrap();
 
-	PhysicalAddr allocate(Guard &guard, size_t num_pages);
+	PhysicalAddr allocate(Guard &guard, size_t size);
 	void free(Guard &guard, PhysicalAddr address);
 
 	size_t numUsedPages();

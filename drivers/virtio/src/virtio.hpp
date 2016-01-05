@@ -99,7 +99,7 @@ struct Queue {
 	VirtDescriptor *accessDescriptor(size_t index);
 
 	// initializes the virtqueue. called during driver initialization
-	void setupQueue(uintptr_t physical);
+	void setupQueue();
 
 	// returns the number of descriptors in this virtqueue
 	size_t getSize();

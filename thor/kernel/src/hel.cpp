@@ -64,7 +64,18 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Memory> memory;
-	if(flags & kHelAllocOnDemand) {
+	if(flags & kHelAllocContinuous) {
+		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
+		memory->resize(size / kPageSize);
+
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		PhysicalAddr address = physicalAllocator->allocate(physical_guard, size);
+		physical_guard.unlock();
+		
+		for(size_t i = 0; i < memory->numPages(); i++)
+			memory->setPageAt(i * kPageSize, address + i * kPageSize);
+		memory->zeroPages();
+	}else if(flags & kHelAllocOnDemand) {
 		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
 		memory->resize(size / kPageSize);
 	}else if(flags & kHelAllocBacked) {
@@ -77,7 +88,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < memory->numPages(); i++)
-			memory->setPageAt(i * kPageSize, physicalAllocator->allocate(physical_guard, 1));
+			memory->setPageAt(i * kPageSize,
+					physicalAllocator->allocate(physical_guard, kPageSize));
 		physical_guard.unlock();
 
 		memory->zeroPages();
