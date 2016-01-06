@@ -41,10 +41,14 @@ void Memory::setPageAt(size_t offset, PhysicalAddr page) {
 
 PhysicalAddr Memory::getPageAt(size_t offset) {
 	assert(offset % kPageSize == 0);
+	assert(offset / kPageSize < p_physicalPages.size());
+
 	return p_physicalPages[offset / kPageSize];
 }
 
 PhysicalAddr Memory::resolveOriginalAt(size_t offset) {
+	assert(offset % kPageSize == 0);
+
 	if(p_type == Memory::kTypeAllocated) {
 		PhysicalAddr page = p_physicalPages[offset / kPageSize];
 		assert(page != PhysicalAddr(-1));
@@ -421,7 +425,10 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 }
 
 Mapping *AddressSpace::allocate(size_t length, MapFlags flags) {
+	assert(length > 0);
 	assert((length % kPageSize) == 0);
+//	infoLogger->log() << "Allocate virtual memory area"
+//			<< ", size: 0x" << frigg::logHex(length) << frigg::EndLog();
 
 	if(p_root->largestHole < length)
 		return nullptr;
@@ -476,7 +483,8 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			&& (mapping->flags & Mapping::kFlagShareOnFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 		assert(memory->getType() == Memory::kTypeAllocated
-				|| memory->getType() == Memory::kTypePhysical);
+				|| memory->getType() == Memory::kTypePhysical
+				|| memory->getType() == Memory::kTypeBacked);
 
 		uint32_t page_flags = 0;
 		if(mapping->writePermission)

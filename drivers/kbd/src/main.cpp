@@ -237,7 +237,7 @@ void onInterrupt(void * object, HelError error) {
 		}
 	}
 
-	updateLed();
+	//updateLed();
 
 	irq.wait(eventHub, CALLBACK_STATIC(nullptr, &onInterrupt));
 }

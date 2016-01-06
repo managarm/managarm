@@ -58,7 +58,8 @@ HelError helCloseDescriptor(HelHandle handle) {
 
 
 HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
-	assert((size % kPageSize) == 0);
+	assert(size > 0);
+	assert(size % kPageSize == 0);
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -172,6 +173,15 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 
 HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		void *pointer, uintptr_t offset, size_t length, uint32_t flags, void **actual_pointer) {
+	if(length == 0)
+		return kHelErrIllegalArgs;
+	if((uintptr_t)pointer % kPageSize != 0)
+		return kHelErrIllegalArgs;
+	if(offset % kPageSize != 0)
+		return kHelErrIllegalArgs;
+	if(length % kPageSize != 0)
+		return kHelErrIllegalArgs;
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	

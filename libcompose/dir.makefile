@@ -9,20 +9,20 @@ $c_HEADERS := libcompose.hpp
 $c_OBJECTS := compose.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c install-$c $($c_BINDIR)/libcompose.a $($c_BINDIR)
+$c_TARGETS := all-$c clean-$c install-$c $($c_BINDIR)/libcompose.so $($c_BINDIR)
 
 .PHONY: all-$c clean-$c gen-$c install-$c
 
-all-$c: $($c_BINDIR)/libcompose.a
+all-$c: $($c_BINDIR)/libcompose.so
 
 clean-$c:
-	rm -f $($d_BINDIR)/libcompose.a $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
+	rm -f $($d_BINDIR)/* $($d_OBJDIR)/*
 
 install-$c:
 	mkdir -p  $(SYSROOT_PATH)/usr/include/bragi
 	for f in $($d_HEADERS); do \
 		install $($d_HEADERDIR)/$$f $(SYSROOT_PATH)/usr/include/$$f; done
-	install $($d_BINDIR)/libcompose.a $(SYSROOT_PATH)/usr/lib
+	install $($d_BINDIR)/libcompose.so $(SYSROOT_PATH)/usr/lib
 
 $($c_OBJDIR) $($c_BINDIR):
 	mkdir -p $@
@@ -35,8 +35,8 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -fpic
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$($c_BINDIR)/libcompose.a: $($c_OBJECT_PATHS) | $($c_BINDIR)
-	ar rcs $@ $($d_OBJECT_PATHS)
+$($c_BINDIR)/libcompose.so: $($c_OBJECT_PATHS) | $($c_BINDIR)
+	$($d_CXX) -shared -o $@ $($d_OBJECT_PATHS)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
