@@ -304,11 +304,32 @@ void AddressSpace::map(Guard &guard,
 		}
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
-	}else if(memory->getType() == Memory::kTypeBacked) {
-		// map the pages inside the page fault handler
+	}else if(memory->getType() == Memory::kTypeBacked
+			&& (flags & kMapBacking)) {
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 		for(size_t page = 0; page < length; page += kPageSize) {
 			VirtualAddr vaddr = mapping->baseAddress + page;
 			assert(!p_pageSpace.isMapped(vaddr));
+
+			PhysicalAddr physical = memory->getPageAt(offset + page);
+			assert(physical != PhysicalAddr(-1));
+			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		}
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+	}else if(memory->getType() == Memory::kTypeBacked) {
+		// map non-loaded pages inside the page fault handler
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
+		for(size_t page = 0; page < length; page += kPageSize) {
+			VirtualAddr vaddr = mapping->baseAddress + page;
+			assert(!p_pageSpace.isMapped(vaddr));
+			
+			if(memory->loadState[(offset + page) / kPageSize] != Memory::kStateLoaded)
+				continue;
+
+			PhysicalAddr physical = memory->getPageAt(offset + page);
+			assert(physical != PhysicalAddr(-1));
+			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
 	}else{
 		frigg::panicLogger.log() << "Illegal memory type" << frigg::EndLog();

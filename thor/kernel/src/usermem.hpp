@@ -153,7 +153,8 @@ public:
 		kMapReadOnly = 0x08,
 		kMapReadWrite = 0x10,
 		kMapReadExecute = 0x20,
-		kMapShareOnFork = 0x40
+		kMapShareOnFork = 0x40,
+		kMapBacking = 0x80
 	};
 
 	enum FaultFlags : uint32_t {

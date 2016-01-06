@@ -155,7 +155,8 @@ enum HelMapFlags {
 	kHelMapReadOnly = 1,
 	kHelMapReadWrite = 2,
 	kHelMapReadExecute = 4,
-	kHelMapShareOnFork = 8
+	kHelMapShareOnFork = 8,
+	kHelMapBacking = 16
 };
 
 enum HelThreadFlags {

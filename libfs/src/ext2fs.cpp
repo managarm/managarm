@@ -99,7 +99,7 @@ void PageClosure::operator() () {
 //	printf("Page in (%lu, %lu)\n", offset, length);
 
 	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
-		nullptr, offset, length, kHelMapReadWrite, &mapping));
+		nullptr, offset, length, kHelMapReadWrite | kHelMapBacking, &mapping));
 
 	// FIXME: don't hard code block size
 	// FIXME: make sure there are 4 more blocks
@@ -724,7 +724,7 @@ void ReadClosure::lockedMemory() {
 
 	void *cache_ptr;
 	HEL_CHECK(helMapMemory(openFile->inode->fileMemory, kHelNullHandle,
-		nullptr, map_offset, map_size, kHelMapReadWrite, &cache_ptr));
+		nullptr, map_offset, map_size, kHelMapReadWrite | kHelMapBacking, &cache_ptr));
 
 	// send cached data to the client
 	managarm::fs::SvrResponse response;

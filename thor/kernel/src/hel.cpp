@@ -229,6 +229,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	if(flags & kHelMapShareOnFork)
 		map_flags |= AddressSpace::kMapShareOnFork;
+	if(flags & kHelMapBacking)
+		map_flags |= AddressSpace::kMapBacking;
 	
 	VirtualAddr actual_address;
 	AddressSpace::Guard space_guard(&space->lock);
