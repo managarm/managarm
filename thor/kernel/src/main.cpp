@@ -361,8 +361,15 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
 	case kHelCallCompleteLoad: {
-		HelError error = helCompleteLoad((HelHandle)arg0, (int64_t)arg1);
+		HelError error = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 		thorRtReturnSyscall1((Word)error);
+	} break;
+	case kHelCallSubmitLockMemory: {
+		int64_t async_id;
+		HelError error = helSubmitLockMemory((HelHandle)arg0, (HelHandle)arg1,
+				(uintptr_t)arg2, (size_t)arg3,
+				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
 
 	case kHelCallCreateThread: {

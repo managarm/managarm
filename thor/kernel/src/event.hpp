@@ -6,6 +6,7 @@ struct UserEvent {
 		kTypeNone,
 		kTypeError,
 		kTypeMemoryLoad,
+		kTypeMemoryLock,
 		kTypeJoin,
 		kTypeRecvStringTransfer,
 		kTypeRecvDescriptor,

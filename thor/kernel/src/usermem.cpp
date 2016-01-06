@@ -8,7 +8,8 @@ namespace thor {
 // --------------------------------------------------------
 
 Memory::Memory(Type type)
-: flags(0), loadState(*kernelAlloc), processQueue(*kernelAlloc), waitQueue(*kernelAlloc),
+: flags(0), loadState(*kernelAlloc), processQueue(*kernelAlloc), loadQueue(*kernelAlloc),
+		lockQueue(*kernelAlloc), waitQueue(*kernelAlloc),
 		p_type(type), p_physicalPages(*kernelAlloc) { }
 
 Memory::~Memory() {
@@ -112,6 +113,88 @@ void Memory::copyTo(size_t offset, void *source, size_t length) {
 	}
 }
 
+void Memory::loadMemory(uintptr_t offset, size_t size) {
+	assert(size > 0);
+	assert(offset % kPageSize == 0);
+	assert(size % kPageSize == 0);
+
+	uintptr_t chunk_offset = 0;
+	while(chunk_offset < size) {
+		if(loadState[(offset + chunk_offset) / kPageSize] == kStateMissing) {
+			size_t chunk_size;
+			for(chunk_size = 0; chunk_offset + chunk_size < size; chunk_size += kPageSize) {
+				uintptr_t page_offset = offset + chunk_offset + chunk_size;
+				uintptr_t page_index = page_offset / kPageSize;
+				if(loadState[page_index] != kStateMissing)
+					break;
+
+				// allocate a new page
+				assert(p_physicalPages[page_index] == PhysicalAddr(-1));
+
+				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+				PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
+				physical_guard.unlock();
+
+				memset(physicalToVirtual(physical), 0, kPageSize);
+				p_physicalPages[page_index] = physical;
+
+				// mark the page as loading
+				loadState[page_index] = kStateLoading;
+			}
+			
+			// submit a load request for the page
+//			infoLogger->log() << "LoadOrder(" << (offset + chunk_offset) << ", " << chunk_size
+//					<< ")" << frigg::EndLog();
+			LoadOrder load_order(offset + chunk_offset, chunk_size);
+			if(!processQueue.empty()) {
+				ProcessRequest process_request = processQueue.removeFront();
+				performLoad(&process_request, &load_order);
+			}else{
+				loadQueue.addBack(load_order);
+			}
+
+			chunk_offset += chunk_size;
+		}else if(loadState[(offset + chunk_offset) / kPageSize] == kStateLoading
+				|| loadState[(offset + chunk_offset) / kPageSize] == kStateLoaded) {
+			chunk_offset += kPageSize;
+		}else{
+			frigg::panicLogger.log() << "Illegal LoadState" << frigg::EndLog();
+		}
+	}
+}
+
+void Memory::performLoad(ProcessRequest *process_request, LoadOrder *load_order) {
+	UserEvent user_event(UserEvent::kTypeMemoryLoad, process_request->submitInfo);
+	user_event.offset = load_order->offset;
+	user_event.length = load_order->size;
+
+	EventHub::Guard hub_guard(&process_request->eventHub->lock);
+	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	hub_guard.unlock();
+}
+
+bool Memory::checkLock(LockRequest *lock_request) {
+	assert(lock_request->size > 0);
+	assert(lock_request->offset % kPageSize == 0);
+	assert(lock_request->size % kPageSize == 0);
+	
+	for(uintptr_t page = 0; page < lock_request->size; page += kPageSize) {
+		uintptr_t page_index = (lock_request->offset + page) / kPageSize;
+		if(loadState[page_index] != kStateLoaded)
+			return false;
+	}
+
+	return true;
+}
+
+void Memory::performLock(LockRequest *lock_request) {
+	UserEvent user_event(UserEvent::kTypeMemoryLock, lock_request->submitInfo);
+
+	EventHub::Guard hub_guard(&lock_request->eventHub->lock);
+	lock_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	hub_guard.unlock();
+}
+
 // --------------------------------------------------------
 // Memory::ProcessRequest
 // --------------------------------------------------------
@@ -119,6 +202,21 @@ void Memory::copyTo(size_t offset, void *source, size_t length) {
 Memory::ProcessRequest::ProcessRequest(frigg::SharedPtr<EventHub> event_hub,
 		SubmitInfo submit_info)
 : eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
+
+// --------------------------------------------------------
+// Memory::LoadOrder
+// --------------------------------------------------------
+
+Memory::LoadOrder::LoadOrder(uintptr_t offset, size_t size)
+: offset(offset), size(size) { }
+
+// --------------------------------------------------------
+// Memory::LockRequest
+// --------------------------------------------------------
+
+Memory::LockRequest::LockRequest(uintptr_t offset, size_t size,
+		frigg::SharedPtr<EventHub> event_hub, SubmitInfo submit_info)
+: offset(offset), size(size), eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 // --------------------------------------------------------
 // Mapping
@@ -299,28 +397,8 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	}else if(memory->getType() == Memory::kTypeBacked) {
 		size_t page_index = (mapping->memoryOffset + page_offset) / kPageSize;
 		if(memory->loadState[page_index] == Memory::kStateMissing) {
-			assert(memory->getPageAt(mapping->memoryOffset + page_offset) == PhysicalAddr(-1));
-		
-			// allocate a new page
-			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-			PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
-			physical_guard.unlock();
-
-			memset(physicalToVirtual(physical), 0, kPageSize);
-			memory->setPageAt(mapping->memoryOffset + page_offset, physical);
-			
 			// submit a load request for the page
-			memory->loadState[page_index] = Memory::kStateLoading;
-			
-			assert(!memory->processQueue.empty());
-			Memory::ProcessRequest process_request = memory->processQueue.removeFront();
-
-			UserEvent user_event(UserEvent::kTypeMemoryLoad, process_request.submitInfo);
-			user_event.offset = page_offset;
-
-			EventHub::Guard hub_guard(&process_request.eventHub->lock);
-			process_request.eventHub->raiseEvent(hub_guard, frigg::move(user_event));
-			hub_guard.unlock();
+			memory->loadMemory(mapping->memoryOffset + page_offset, kPageSize);
 
 			// wait until the page is loaded
 			while(memory->loadState[page_index] == Memory::kStateLoading) {
@@ -340,6 +418,10 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 			assert(memory->loadState[page_index] == Memory::kStateLoaded);
 			
 			// map the page into the address space
+			PhysicalAddr physical = memory->getPageAt(mapping->memoryOffset + page_offset);
+			assert(physical != PhysicalAddr(-1));
+
+			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 			p_pageSpace.mapSingle4k(physical_guard, page_vaddr, physical, true, page_flags);
 			if(physical_guard.isLocked())
 				physical_guard.unlock();

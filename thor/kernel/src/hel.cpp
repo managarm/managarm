@@ -330,12 +330,21 @@ HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 	universe_guard.unlock();
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	memory->processQueue.addBack(Memory::ProcessRequest(frigg::move(event_hub), submit_info));
+	Memory::ProcessRequest process_request(frigg::move(event_hub), submit_info);
+
+	if(!memory->loadQueue.empty()) {
+		Memory::LoadOrder load_order = memory->loadQueue.removeFront();
+		memory->performLoad(&process_request, &load_order);
+	}else{
+		memory->processQueue.addBack(frigg::move(process_request));
+	}
 
 	return kHelErrNone;
 }
 
-HelError helCompleteLoad(HelHandle handle, size_t offset) {
+HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
+	assert(offset % kPageSize == 0 && length % kPageSize == 0);
+
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
@@ -350,7 +359,18 @@ HelError helCompleteLoad(HelHandle handle, size_t offset) {
 	universe_guard.unlock();
 
 	// mark the page as loaded
-	memory->loadState[offset / kPageSize] = Memory::kStateLoaded;
+	for(uintptr_t page = 0; page < length; page += kPageSize)
+		memory->loadState[(offset + page) / kPageSize] = Memory::kStateLoaded;
+
+	// complete all memory locks
+	for(auto it = memory->lockQueue.frontIter(); it.okay(); ++it) {
+		Memory::LockRequest *lock_request = &(*it);
+		if(!memory->checkLock(lock_request))
+			continue;
+		
+		memory->performLock(lock_request);
+		memory->lockQueue.remove(it);
+	}
 
 	// resume all waiting threads
 	while(!memory->waitQueue.empty()) {
@@ -364,6 +384,41 @@ HelError helCompleteLoad(HelHandle handle, size_t offset) {
 	return kHelErrNone;
 }
 
+HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
+		uintptr_t offset, size_t size,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto memory_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!memory_wrapper)
+		return kHelErrNoDescriptor;
+	if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &memory_descriptor = memory_wrapper->get<MemoryAccessDescriptor>();
+	KernelSharedPtr<Memory> memory(memory_descriptor.getMemory());
+	
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
+	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
+	universe_guard.unlock();
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	Memory::LockRequest lock_request(offset, size, frigg::move(event_hub), submit_info);
+	if(memory->checkLock(&lock_request)) {
+		memory->performLock(&lock_request);
+	}else{
+		memory->loadMemory(offset, size);
+		memory->lockQueue.addBack(frigg::move(lock_request));
+	}
+
+	return kHelErrNone;
+}
 
 HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		HelThreadState *user_state, uint32_t flags, HelHandle *handle) {
@@ -636,9 +691,14 @@ HelError helWaitForEvents(HelHandle handle,
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
 		case UserEvent::kTypeMemoryLoad: {
-			user_evt->type = kHelEventMemoryLoad;
+			user_evt->type = kHelEventLoadMemory;
 			user_evt->error = kHelErrNone;
 			user_evt->offset = event.offset;
+			user_evt->length = event.length;
+		} break;
+		case UserEvent::kTypeMemoryLock: {
+			user_evt->type = kHelEventLockMemory;
+			user_evt->error = kHelErrNone;
 		} break;
 		case UserEvent::kTypeJoin: {
 			user_evt->type = kHelEventJoin;

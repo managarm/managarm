@@ -169,7 +169,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	void findEntry(std::string name,
 			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
 
-	void onLoadRequest(HelError error, size_t offset);
+	void onLoadRequest(HelError error, uintptr_t offset, size_t length);
 
 	FileSystem &fs;
 
@@ -398,15 +398,13 @@ struct ReadClosure {
 	void operator() ();
 
 	void inodeReady();
-	void readBlocks();
+	void lockedMemory();
 
 	Connection &connection;
 	int64_t responseId;
 	managarm::fs::CntRequest request;
 
 	OpenFile *openFile;
-	size_t numBlocks;
-	char *blockBuffer;
 };
 
 struct SeekClosure {

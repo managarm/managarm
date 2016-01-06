@@ -30,6 +30,23 @@ public:
 		SubmitInfo submitInfo;
 	};
 
+	struct LoadOrder {
+		LoadOrder(uintptr_t offset, size_t size);
+		
+		uintptr_t offset;
+		size_t size;
+	};
+
+	struct LockRequest {
+		LockRequest(uintptr_t offset, size_t size,
+				frigg::SharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+		
+		uintptr_t offset;
+		size_t size;
+		frigg::SharedPtr<EventHub> eventHub;
+		SubmitInfo submitInfo;
+	};
+
 	Memory(Type type);
 	~Memory();
 
@@ -47,6 +64,17 @@ public:
 	void zeroPages();
 	void copyTo(size_t offset, void *source, size_t length);
 
+	// submits a load request for a certain chunk of memory
+	void loadMemory(uintptr_t offset, size_t size);
+
+	// raises an event for the ProcessRequest
+	void performLoad(ProcessRequest *process_request, LoadOrder *load_order);
+
+	bool checkLock(LockRequest *lock_request);
+
+	// raises an event for the LockRequest
+	void performLock(LockRequest *lock_request);
+
 	uint32_t flags;
 
 	KernelSharedPtr<Memory> master;
@@ -55,6 +83,10 @@ public:
 	frigg::Vector<LoadState, KernelAlloc> loadState;
 	
 	frigg::LinkedList<ProcessRequest, KernelAlloc> processQueue;
+	
+	frigg::LinkedList<LoadOrder, KernelAlloc> loadQueue;
+	
+	frigg::LinkedList<LockRequest, KernelAlloc> lockQueue;
 
 	// threads blocking until a load request is finished
 	frigg::LinkedList<frigg::SharedPtr<Thread>, KernelAlloc> waitQueue;

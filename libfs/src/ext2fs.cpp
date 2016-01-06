@@ -79,46 +79,47 @@ void Inode::findEntry(std::string name,
 }
 
 struct PageClosure {
-	PageClosure(std::shared_ptr<Inode> inode, size_t offset);
+	PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t length);
 
 	void operator() ();
 
 	void readComplete();
 
 	std::shared_ptr<Inode> inode;
-	size_t offset;
+	uintptr_t offset;
+	size_t length;
 
 	void *mapping;
 };
 
-PageClosure::PageClosure(std::shared_ptr<Inode> inode, size_t offset)
-: inode(std::move(inode)), offset(offset) { }
+PageClosure::PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t length)
+: inode(std::move(inode)), offset(offset), length(length) { }
 
 void PageClosure::operator() () {
-//	printf("Page in %lu\n", offset);
+//	printf("Page in (%lu, %lu)\n", offset, length);
 
 	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
-		nullptr, offset, 0x1000, kHelMapReadWrite, &mapping));
+		nullptr, offset, length, kHelMapReadWrite, &mapping));
 
 	// FIXME: don't hard code block size
 	// FIXME: make sure there are 4 more blocks
-	assert(offset % 0x1000 == 0);
-	inode->fs.readData(inode, (offset / 0x1000) * 4, 4, (char *)mapping,
+	assert(offset + length <= inode->fileSize);
+	inode->fs.readData(inode, (offset / 0x1000) * 4, (length / 0x1000) * 4, (char *)mapping,
 			CALLBACK_MEMBER(this, &PageClosure::readComplete));
 }
 
 void PageClosure::readComplete() {
-	HEL_CHECK(helCompleteLoad(inode->fileMemory, offset));
+	HEL_CHECK(helCompleteLoad(inode->fileMemory, offset, length));
 
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping, 0x1000));
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping, length));
 
 	delete this;
 }
 
-void Inode::onLoadRequest(HelError error, size_t offset) {
+void Inode::onLoadRequest(HelError error, uintptr_t offset, size_t length) {
 	HEL_CHECK(error);
 
-	auto closure = new PageClosure(shared_from_this(), offset);
+	auto closure = new PageClosure(shared_from_this(), offset, length);
 	(*closure)();
 	
 	auto cb = CALLBACK_MEMBER(this, &Inode::onLoadRequest);
@@ -693,36 +694,52 @@ void ReadClosure::inodeReady() {
 				openFile->inode->fileSize - openFile->offset);
 		assert(read_size > 0);
 		
-		size_t block_size = openFile->inode->fs.blockSize;
-		auto first_block = openFile->offset / block_size;
-		auto last_block = (openFile->offset + read_size) / block_size;
-		numBlocks = last_block - first_block + 1;
+		// lock the requested region of the page cache
+		size_t misalign = openFile->offset % 0x1000;
+		size_t map_offset = openFile->offset - misalign;
 
-		blockBuffer = (char *)malloc(numBlocks * openFile->inode->fs.blockSize);
-		assert(blockBuffer);
-		openFile->inode->fs.readData(openFile->inode, first_block, numBlocks, blockBuffer,
-				CALLBACK_MEMBER(this, &ReadClosure::readBlocks));
+		size_t map_size = read_size;
+		if(map_size % 0x1000 != 0)
+			map_size += 0x1000 - map_size % 0x1000;
+
+		auto cb = CALLBACK_MEMBER(this, &ReadClosure::lockedMemory);
+		int64_t async_id;
+		HEL_CHECK(helSubmitLockMemory(openFile->inode->fileMemory,
+				connection.getFs().eventHub.getHandle(), map_offset, map_size,
+				(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 	}
 }
 
-void ReadClosure::readBlocks() {
+void ReadClosure::lockedMemory() {
 	size_t read_size = std::min(size_t(request.size()),
 			openFile->inode->fileSize - openFile->offset);
 
-	size_t block_size = openFile->inode->fs.blockSize;
-	size_t read_offset = openFile->offset % block_size;
+	// map the page cache into memory
+	size_t misalign = openFile->offset % 0x1000;
+	size_t map_offset = openFile->offset - misalign;
 
+	size_t map_size = read_size;
+	if(map_size % 0x1000 != 0)
+		map_size += 0x1000 - map_size % 0x1000;
+
+	void *cache_ptr;
+	HEL_CHECK(helMapMemory(openFile->inode->fileMemory, kHelNullHandle,
+		nullptr, map_offset, map_size, kHelMapReadWrite, &cache_ptr));
+
+	// send cached data to the client
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-	connection.getPipe().sendStringResp(blockBuffer + read_offset, read_size, responseId, 1);
+	connection.getPipe().sendStringResp((char *)cache_ptr + misalign, read_size, responseId, 1);
 
 	openFile->offset += read_size;
 
-	free(blockBuffer);
+	// unmap the page cache
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, cache_ptr, map_size));
+
 	delete this;
 }
 
