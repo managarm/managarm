@@ -698,7 +698,7 @@ void ReadClosure::inodeReady() {
 		size_t misalign = openFile->offset % 0x1000;
 		size_t map_offset = openFile->offset - misalign;
 
-		size_t map_size = read_size;
+		size_t map_size = read_size + misalign;
 		if(map_size % 0x1000 != 0)
 			map_size += 0x1000 - map_size % 0x1000;
 
@@ -718,7 +718,7 @@ void ReadClosure::lockedMemory() {
 	size_t misalign = openFile->offset % 0x1000;
 	size_t map_offset = openFile->offset - misalign;
 
-	size_t map_size = read_size;
+	size_t map_size = read_size + misalign;
 	if(map_size % 0x1000 != 0)
 		map_size += 0x1000 - map_size % 0x1000;
 
