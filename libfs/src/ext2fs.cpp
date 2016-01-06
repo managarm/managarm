@@ -19,31 +19,60 @@ struct FindEntryClosure {
 	FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
 			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
 
+	~FindEntryClosure();
+
 	void operator() ();
 
-	void readBlocks();
+	void inodeReady();
+	void lockedMemory();
 
 	std::shared_ptr<Inode> inode;
 	std::string name;
 	frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback;
 
-	uint8_t *blockBuffer;
+	size_t mapSize;
+	void *cachePtr;
 };
 
 FindEntryClosure::FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
 		frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback)
-: inode(std::move(inode)), name(name), callback(callback) { }
+: inode(std::move(inode)), name(name), callback(callback), cachePtr(nullptr) { }
 
-void FindEntryClosure::operator() () {
-	blockBuffer = (uint8_t *)malloc(inode->fs.blockSize);
-	inode->fs.readData(inode, 0, 1, blockBuffer,
-			CALLBACK_MEMBER(this, &FindEntryClosure::readBlocks));
+FindEntryClosure::~FindEntryClosure() {
+	// unmap the page cache
+	if(cachePtr)
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, cachePtr, mapSize));
 }
 
-void FindEntryClosure::readBlocks() {
+void FindEntryClosure::operator() () {
+	if(inode->isReady) {
+		inodeReady();
+	}else{
+		inode->readyQueue.push_back(CALLBACK_MEMBER(this, &FindEntryClosure::inodeReady));
+	}
+}
+
+void FindEntryClosure::inodeReady() {
+	mapSize = inode->fileSize;
+	if(mapSize % 0x1000 != 0)
+		mapSize += 0x1000 - mapSize % 0x1000;
+
+	auto cb = CALLBACK_MEMBER(this, &FindEntryClosure::lockedMemory);
+	int64_t async_id;
+	HEL_CHECK(helSubmitLockMemory(inode->fileMemory,
+			inode->fs.eventHub.getHandle(), 0, mapSize,
+			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
+}
+
+void FindEntryClosure::lockedMemory() {
+	// map the page cache into the address space
+	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
+		nullptr, 0, mapSize, kHelMapReadWrite | kHelMapBacking, &cachePtr));
+
+	// read the directory structure
 	uintptr_t offset = 0;
 	while(offset < inode->fileSize) {
-		auto disk_entry = (DiskDirEntry *)&blockBuffer[offset];
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)cachePtr + offset);
 		if(strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
 			DirEntry entry;
 			entry.inode = disk_entry->inode;
@@ -60,6 +89,7 @@ void FindEntryClosure::readBlocks() {
 			}
 
 			callback(entry);
+			delete this;
 			return;
 		}
 
@@ -68,6 +98,7 @@ void FindEntryClosure::readBlocks() {
 	assert(offset == inode->fileSize);
 
 	callback(std::experimental::nullopt);
+	delete this;
 }
 
 void Inode::findEntry(std::string name,
@@ -101,10 +132,14 @@ void PageClosure::operator() () {
 	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
 		nullptr, offset, length, kHelMapReadWrite | kHelMapBacking, &mapping));
 
-	// FIXME: don't hard code block size
-	// FIXME: make sure there are 4 more blocks
-	assert(offset + length <= inode->fileSize);
-	inode->fs.readData(inode, (offset / 0x1000) * 4, (length / 0x1000) * 4, (char *)mapping,
+	assert(offset < inode->fileSize);
+	size_t read_size = std::min(length, inode->fileSize - offset);
+	size_t num_blocks = read_size / inode->fs.blockSize;
+	if(read_size % inode->fs.blockSize != 0)
+		num_blocks++;
+
+	assert(offset % inode->fs.blockSize == 0);
+	inode->fs.readData(inode, offset / inode->fs.blockSize, num_blocks, (char *)mapping,
 			CALLBACK_MEMBER(this, &PageClosure::readComplete));
 }
 
