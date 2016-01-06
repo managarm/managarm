@@ -420,6 +420,28 @@ HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
 	return kHelErrNone;
 }
 
+HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
+	assert(offset % kPageSize == 0 && length % kPageSize == 0);
+
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto memory_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!memory_wrapper)
+		return kHelErrNoDescriptor;
+	if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &memory_descriptor = memory_wrapper->get<MemoryAccessDescriptor>();
+	KernelSharedPtr<Memory> memory(memory_descriptor.getMemory());
+	universe_guard.unlock();
+
+	if(memory->getType() == Memory::kTypeBacked)
+		memory->loadMemory(offset, length);
+	
+	return kHelErrNone;
+}
+
 HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		HelThreadState *user_state, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();

@@ -289,16 +289,30 @@ void AddressSpace::map(Guard &guard,
 	if(flags & kMapShareOnFork)
 		mapping->flags |= Mapping::kFlagShareOnFork;
 
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-	for(size_t page = 0; page < length; page += kPageSize) {
-		PhysicalAddr physical = memory->getPageAt(offset + page);
-		if(physical == PhysicalAddr(-1))
-			continue;
-		VirtualAddr vaddr = mapping->baseAddress + page;
-		p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+	if(memory->getType() == Memory::kTypeAllocated
+			|| memory->getType() == Memory::kTypePhysical
+			|| memory->getType() == Memory::kTypeOnDemand) {
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
+		for(size_t page = 0; page < length; page += kPageSize) {
+			VirtualAddr vaddr = mapping->baseAddress + page;
+			assert(!p_pageSpace.isMapped(vaddr));
+
+			PhysicalAddr physical = memory->getPageAt(offset + page);
+			if(physical == PhysicalAddr(-1))
+				continue;
+			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		}
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+	}else if(memory->getType() == Memory::kTypeBacked) {
+		// map the pages inside the page fault handler
+		for(size_t page = 0; page < length; page += kPageSize) {
+			VirtualAddr vaddr = mapping->baseAddress + page;
+			assert(!p_pageSpace.isMapped(vaddr));
+		}
+	}else{
+		frigg::panicLogger.log() << "Illegal memory type" << frigg::EndLog();
 	}
-	if(physical_guard.isLocked())
-		physical_guard.unlock();
 
 	*actual_address = mapping->baseAddress;
 }
@@ -314,7 +328,8 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	
 	for(size_t i = 0; i < mapping->length / kPageSize; i++) {
 		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
-		p_pageSpace.unmapSingle4k(vaddr);
+		if(p_pageSpace.isMapped(vaddr))
+			p_pageSpace.unmapSingle4k(vaddr);
 	}
 
 	mapping->memoryRegion.reset();
@@ -395,41 +410,39 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 
 		return true;
 	}else if(memory->getType() == Memory::kTypeBacked) {
+		// submit a load request for the page
 		size_t page_index = (mapping->memoryOffset + page_offset) / kPageSize;
-		if(memory->loadState[page_index] == Memory::kStateMissing) {
-			// submit a load request for the page
+		if(memory->loadState[page_index] == Memory::kStateMissing)
 			memory->loadMemory(mapping->memoryOffset + page_offset, kPageSize);
 
-			// wait until the page is loaded
-			while(memory->loadState[page_index] == Memory::kStateLoading) {
-				assert(!intsAreEnabled());
+		// wait until the page is loaded
+		while(memory->loadState[page_index] == Memory::kStateLoading) {
+			assert(!intsAreEnabled());
 
-				void *restore_state = __builtin_alloca(getStateSize());
-				if(forkState(restore_state)) {
-					KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-					memory->waitQueue.addBack(frigg::SharedPtr<Thread>(this_thread));
-					
-					resetCurrentThread(restore_state);
-					ScheduleGuard schedule_guard(scheduleLock.get());
-					doSchedule(frigg::move(schedule_guard));
-					// note: doSchedule() takes care of the schedule_guard lock
-				}
+			void *restore_state = __builtin_alloca(getStateSize());
+			if(forkState(restore_state)) {
+				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+				memory->waitQueue.addBack(frigg::SharedPtr<Thread>(this_thread));
+				
+				resetCurrentThread(restore_state);
+				ScheduleGuard schedule_guard(scheduleLock.get());
+				doSchedule(frigg::move(schedule_guard));
+				// note: doSchedule() takes care of the schedule_guard lock
 			}
-			assert(memory->loadState[page_index] == Memory::kStateLoaded);
-			
-			// map the page into the address space
-			PhysicalAddr physical = memory->getPageAt(mapping->memoryOffset + page_offset);
-			assert(physical != PhysicalAddr(-1));
-
-			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-			p_pageSpace.mapSingle4k(physical_guard, page_vaddr, physical, true, page_flags);
-			if(physical_guard.isLocked())
-				physical_guard.unlock();
-
-			return true;
-		}else{
-			infoLogger->log() << "Illegal LoadState" << frigg::EndLog();
 		}
+	
+		// map the page into the address space
+		assert(memory->loadState[page_index] == Memory::kStateLoaded);
+
+		PhysicalAddr physical = memory->getPageAt(mapping->memoryOffset + page_offset);
+		assert(physical != PhysicalAddr(-1));
+
+		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
+		p_pageSpace.mapSingle4k(physical_guard, page_vaddr, physical, true, page_flags);
+		if(physical_guard.isLocked())
+			physical_guard.unlock();
+		
+		return true;
 	}else if(memory->getType() == Memory::kTypeCopyOnWrite) {
 		assert(memory->getPageAt(mapping->memoryOffset + page_offset) == PhysicalAddr(-1));
 

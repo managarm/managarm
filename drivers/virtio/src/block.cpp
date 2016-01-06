@@ -49,8 +49,11 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 
 	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors, callback);
 	assert(pendingRequests.empty());
-	assert(requestIsReady(user_request));
-	submitRequest(user_request);
+	if(!requestIsReady(user_request)) {
+		pendingRequests.push(user_request);
+	}else{
+		submitRequest(user_request);
+	}
 }
 
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {

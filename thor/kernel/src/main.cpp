@@ -371,6 +371,10 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
+	case kHelCallLoadahead: {
+		HelError error = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
+		thorRtReturnSyscall1((Word)error);
+	} break;
 
 	case kHelCallCreateThread: {
 //		infoLogger->log() << "[" << this_thread->globalThreadId << "]"

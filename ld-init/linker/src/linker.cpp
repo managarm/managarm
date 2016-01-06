@@ -495,6 +495,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 				// map the segment with correct permissions
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+					HEL_CHECK(helLoadahead(file_memory, phdr->p_offset, map_length));
+
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(file_memory, kHelNullHandle,
 							(void *)map_address, phdr->p_offset, map_length,

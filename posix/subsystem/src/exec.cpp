@@ -141,6 +141,8 @@ void LoadClosure::processPhdr() {
 		
 			// map the segment with correct permissions into the process
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				HEL_CHECK(helLoadahead(fileMemory, phdr->p_offset, map_length));
+
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(fileMemory, process->vmSpace,
 						(void *)map_address, phdr->p_offset, map_length,
