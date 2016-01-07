@@ -1,4 +1,5 @@
 
+#include <time.h>
 #include <memory>
 #include <vector>
 #include <unordered_map>
@@ -190,6 +191,11 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	FileType fileType;
 	uint64_t fileSize; // file size in bytes
 	FileData fileData; // block references / small symlink data
+
+	uint32_t mode; // POSIX file mode
+	int numLinks; // number of links to this file
+	int uid, gid;
+	struct timespec atime, mtime, ctime;
 };
 
 // --------------------------------------------------------

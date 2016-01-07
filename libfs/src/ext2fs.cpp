@@ -285,6 +285,21 @@ void FileSystem::ReadInodeClosure::readSector() {
 	inode->fileSize = disk_inode->size;
 	inode->fileData = disk_inode->data;
 
+	// filter out the file type from the mode
+	// TODO: ext2fs stores a 32-bit mode
+	inode->mode = disk_inode->mode & 0x0FFF;
+
+	inode->numLinks = disk_inode->linksCount;
+	// TODO: support large uid / gids
+	inode->uid = disk_inode->uid;
+	inode->gid = disk_inode->gid;
+	inode->atime.tv_sec = disk_inode->atime;
+	inode->atime.tv_nsec = 0;
+	inode->mtime.tv_sec = disk_inode->mtime;
+	inode->mtime.tv_nsec = 0;
+	inode->ctime.tv_sec = disk_inode->ctime;
+	inode->ctime.tv_nsec = 0;
+
 	// allocate a page cache for the file
 	size_t cache_size = inode->fileSize;
 	if(cache_size % 0x1000)
@@ -603,7 +618,29 @@ void StatClosure::operator() () {
 void StatClosure::inodeReady() {
 	managarm::fs::SvrResponse response;
 	response.set_error(managarm::fs::Errors::SUCCESS);
+	
+	switch(openFile->inode->fileType) {
+	case kTypeRegular:
+		response.set_file_type(managarm::fs::FileType::REGULAR); break;
+	case kTypeSymlink:
+		response.set_file_type(managarm::fs::FileType::SYMLINK); break;
+	default:
+		assert(!"Unexpected file type");
+	}
+	
+	response.set_inode_num(openFile->inode->number);
+	response.set_mode(openFile->inode->mode);
+	response.set_num_links(openFile->inode->numLinks);
+	response.set_uid(openFile->inode->uid);
+	response.set_gid(openFile->inode->gid);
 	response.set_file_size(openFile->inode->fileSize);
+
+	response.set_atime_secs(openFile->inode->atime.tv_sec);
+	response.set_atime_nanos(openFile->inode->atime.tv_nsec);
+	response.set_mtime_secs(openFile->inode->mtime.tv_sec);
+	response.set_mtime_nanos(openFile->inode->mtime.tv_nsec);
+	response.set_ctime_secs(openFile->inode->ctime.tv_sec);
+	response.set_ctime_nanos(openFile->inode->ctime.tv_nsec);
 
 	std::string serialized;
 	response.SerializeToString(&serialized);

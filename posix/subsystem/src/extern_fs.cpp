@@ -93,7 +93,18 @@ void StatClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 	assert(response.error() == managarm::fs::Errors::SUCCESS);
 
 	FileStats stats;
+	stats.inodeNumber = response.inode_num();
+	stats.mode = response.mode();
+	stats.numLinks = response.num_links();
+	stats.uid = response.uid();
+	stats.gid = response.gid();
 	stats.fileSize = response.file_size();
+	stats.atimeSecs = response.atime_secs();
+	stats.atimeNanos = response.atime_nanos();
+	stats.mtimeSecs = response.mtime_secs();
+	stats.mtimeNanos = response.mtime_nanos();
+	stats.ctimeSecs = response.ctime_secs();
+	stats.ctimeNanos = response.ctime_nanos();
 	callback(stats);
 
 	frigg::destruct(*allocator, this);

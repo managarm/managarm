@@ -76,8 +76,32 @@ message ClientRequest {
 message ServerResponse {
 	optional int32 error = 3;
 
-	// used by FSTAT
+	// returned by FSTAT
+//	optional FileType file_type = 5;
+
+	// returned by FSTAT
 	optional uint64 file_size = 4;
+	
+	// returned by FSTAT
+	optional int32 mode = 13;
+	
+	// returned by FSTAT
+	optional uint64 inode_num = 14;
+	
+	// returned by FSTAT
+	optional uint64 num_links = 17;
+	
+	// returned by FSTAT
+	optional int64 uid = 15;
+	optional int64 gid = 16;
+
+	// returned by FSTAT
+	optional int64 atime_secs = 7;
+	optional int64 atime_nanos = 8;
+	optional int64 mtime_secs = 9;
+	optional int64 mtime_nanos = 10;
+	optional int64 ctime_secs = 11;
+	optional int64 ctime_nanos = 12;
 
 	// return of OPEN
 	optional int32 fd = 1;

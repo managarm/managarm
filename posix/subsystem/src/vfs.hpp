@@ -21,7 +21,14 @@ enum VfsSeek {
 };
 
 struct FileStats {
+	uint64_t inodeNumber;
+	uint32_t mode;
+	int numLinks;
+	int uid, gid;
 	uint64_t fileSize;
+	uint64_t atimeSecs, atimeNanos;
+	uint64_t mtimeSecs, mtimeNanos;
+	uint64_t ctimeSecs, ctimeNanos;
 };
 
 // --------------------------------------------------------

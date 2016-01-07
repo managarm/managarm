@@ -97,7 +97,18 @@ void StatClosure::statComplete(FileStats stats) {
 
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
 	response.set_error(managarm::posix::Errors::SUCCESS);
+	response.set_inode_num(stats.inodeNumber);
+	response.set_mode(stats.mode);
+	response.set_num_links(stats.numLinks);
+	response.set_uid(stats.uid);
+	response.set_gid(stats.gid);
 	response.set_file_size(stats.fileSize);
+	response.set_atime_secs(stats.atimeSecs);
+	response.set_atime_nanos(stats.atimeNanos);
+	response.set_mtime_secs(stats.mtimeSecs);
+	response.set_mtime_nanos(stats.mtimeNanos);
+	response.set_ctime_secs(stats.ctimeSecs);
+	response.set_ctime_nanos(stats.ctimeNanos);
 	sendResponse(*pipe, response, msgRequest);
 
 	suicide(*allocator);
