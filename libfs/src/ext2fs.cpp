@@ -648,6 +648,9 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 		response.SerializeToString(&serialized);
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
 				responseId, 0);
+
+		delete this;
+		return;
 	}
 	
 	auto inode = connection.getFs().accessInode(entry->inode);
@@ -671,6 +674,8 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 		response.SerializeToString(&serialized);
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
 				responseId, 0);
+
+		delete this;
 	}else{
 		assert(entry->fileType == kTypeDirectory);
 		directory = inode;

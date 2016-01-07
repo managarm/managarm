@@ -328,7 +328,7 @@ int main() {
 		dup2(slave_fd, STDOUT_FILENO);
 		dup2(slave_fd, STDERR_FILENO);
 
-		execve("/usr/bin/hello", nullptr, nullptr);
+		execve("/usr/bin/bash", nullptr, nullptr);
 	}
 
 	auto read_master = new ReadMasterClosure();
