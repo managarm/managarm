@@ -16,6 +16,7 @@
 
 #include <bragi/mbus.hpp>
 #include <hw.pb.h>
+#include <input.pb.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -66,6 +67,11 @@ enum Layout {
 	kVerticalBlocks = 2,
 	kLayoutLine = 3
 };
+
+int width = 1024, height = 786;
+uint8_t *pixels;
+int mousePosX = 0;
+int mousePosY = 0;
 
 struct RgbColor {
 	float r;
@@ -131,6 +137,14 @@ FT_Library ftLibrary;
 FT_Face ftFace;
 cairo_font_face_t *crFont;
 std::shared_ptr<Box> rootBox;
+
+void drawMouse(cairo_t *cr) {
+	int size = 15;
+	auto rgb = rgbFromInt(kSolarYellow);
+	cairo_set_source_rgb(cr, rgb.r, rgb.g, rgb.b);
+	cairo_rectangle(cr, mousePosX, mousePosY, size, size);
+	cairo_fill(cr);
+}
 
 void drawBox(cairo_t *cr, Box *box) {	
 	// border
@@ -370,9 +384,6 @@ uint16_t readReg(uint16_t index, uint16_t value) {
 	return result;
 }
 
-int width = 1024, height = 786;
-uint8_t *pixels;
-
 void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 	pixels[(y * width + x) * 4] = b;
 	pixels[(y * width + x) * 4 + 1] = g;
@@ -381,6 +392,54 @@ void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
+
+// --------------------------------------------------------
+// RecvMouseClosure
+// --------------------------------------------------------
+
+struct RecvMouseClosure {
+	RecvMouseClosure(helx::Pipe pipe);
+	void operator() ();
+	
+private:
+	void rcvdStringRequest(HelError error, int64_t msg_request,
+		int64_t msg_seq, size_t length);
+	char buffer[128];
+	helx::Pipe pipe;	
+};
+
+RecvMouseClosure::RecvMouseClosure(helx::Pipe pipe)
+: pipe(std::move(pipe)) { }
+
+void RecvMouseClosure::operator() () {	
+	HEL_CHECK(pipe.recvStringReq(buffer, 128, eventHub, 0, 0,
+			CALLBACK_MEMBER(this, &RecvMouseClosure::rcvdStringRequest)));
+}
+
+void RecvMouseClosure::rcvdStringRequest(HelError error, int64_t msg_request,
+		int64_t msg_seq, size_t length) {
+	HEL_CHECK(error);
+
+	managarm::input::ServerRequest request;
+	request.ParseFromArray(buffer, length);
+
+	float speed = 0.4;
+
+	if(request.request_type() == managarm::input::RequestType::MOVE) {
+		mousePosX += speed * request.x();
+		mousePosY += speed * request.y();
+		if(mousePosX >= width)
+			mousePosX = width - 1;
+		if(mousePosX < 0)
+			mousePosX = 0;
+		if(mousePosY >= height)
+			mousePosY = height - 1;
+		if(mousePosY < 0)
+			mousePosY = 0;
+	}
+
+	(*this)();
+}
 
 // --------------------------------------------------------
 // InitClosure
@@ -392,7 +451,9 @@ struct InitClosure {
 private:
 	void connected();
 	void enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects);
+	void enumeratedMouse(std::vector<bragi_mbus::ObjectId> objects);
 	void queriedBochs(HelHandle handle);
+	void queriedMouse(HelHandle handle);
 };
 
 void InitClosure::operator() () {
@@ -402,12 +463,26 @@ void InitClosure::operator() () {
 void InitClosure::connected() {
 	mbusConnection.enumerate({ "pci-vendor:0x1234" },
 			CALLBACK_MEMBER(this, &InitClosure::enumeratedBochs));
+	mbusConnection.enumerate({ "mouse" },
+			CALLBACK_MEMBER(this, &InitClosure::enumeratedMouse));
 }
 
 void InitClosure::enumeratedBochs(std::vector<bragi_mbus::ObjectId> objects) {
 	assert(objects.size() == 1);
 	mbusConnection.queryIf(objects[0],
 			CALLBACK_MEMBER(this, &InitClosure::queriedBochs));
+}
+
+void InitClosure::enumeratedMouse(std::vector<bragi_mbus::ObjectId> objects) {
+	assert(objects.size() == 1);
+	mbusConnection.queryIf(objects[0],
+			CALLBACK_MEMBER(this, &InitClosure::queriedMouse));
+	printf("enumerated mouse done\n");
+}
+
+void InitClosure::queriedMouse(HelHandle handle) {
+	auto closure = new RecvMouseClosure(helx::Pipe(handle));
+	(*closure)();
 }
 
 struct Display {
@@ -449,7 +524,8 @@ void drawFrame(Display *display, int number) {
 	cairo_set_source_rgb(cr_context, bgcolor.r, bgcolor.g, bgcolor.b);
 	cairo_paint(cr_context);
 
-	drawBox(cr_context, rootBox.get());
+	//drawBox(cr_context, rootBox.get());
+	drawMouse(cr_context);
 
 	display->flip();
 
@@ -463,6 +539,8 @@ void drawFrame(Display *display, int number) {
 		fpsLastTick = current_tick;
 	}
 }
+
+bool initialized = false;
 
 void InitClosure::queriedBochs(HelHandle handle) {
 	helx::Pipe device_pipe(handle);
@@ -620,8 +698,7 @@ void InitClosure::queriedBochs(HelHandle handle) {
 	rootBox->appendChild(widget.getBox());
 	layoutChildren(rootBox.get());
 	
-	for(int i = 0; true; i++)
-		drawFrame(&display, i);
+	initialized = true;
 }
 
 // --------------------------------------------------------
@@ -634,7 +711,10 @@ int main() {
 	auto closure = new InitClosure();
 	(*closure)();
 
-	while(true)
-		eventHub.defaultProcessEvents();	
+	while(true) {
+		eventHub.defaultProcessEvents(0);
+		if(initialized)
+			drawFrame(&display, 0);
+	}
 }
 

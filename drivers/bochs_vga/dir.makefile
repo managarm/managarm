@@ -1,7 +1,7 @@
 
 $(call standard_dirs)
 
-$c_OBJECTS := main.o mbus.pb.o hw.pb.o
+$c_OBJECTS := main.o mbus.pb.o hw.pb.o input.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 all-$c: $($c_BINDIR)/bochs_vga
@@ -32,7 +32,7 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # compile protobuf files
-gen-$c: $($c_GENDIR)/mbus.pb.tag $($c_GENDIR)/hw.pb.tag
+gen-$c: $($c_GENDIR)/mbus.pb.tag $($c_GENDIR)/hw.pb.tag $($c_GENDIR)/input.pb.tag
 
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	true
