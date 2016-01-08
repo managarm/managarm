@@ -109,7 +109,7 @@ $(eval
   install-$c: install-$$c-$1
 
   .PHONY: install-$$c-$1
-  install-$$c-$1:
+  install-$$c-$1: $$($$c_BINDIR)/$1
 	install $$($$d_BINDIR)/$1 $(SYSROOT_PATH)/usr/bin
 
   $$($$c_BINDIR)/$1: $$(addprefix $$($$c_OBJDIR)/,$2) | $$($$c_BINDIR)
