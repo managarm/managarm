@@ -73,7 +73,9 @@ void FindEntryClosure::lockedMemory() {
 	uintptr_t offset = 0;
 	while(offset < inode->fileSize) {
 		auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)cachePtr + offset);
-		if(strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
+		// TODO: use memcmp?
+		if(name.length() == disk_entry->nameLength
+				&& strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
 			DirEntry entry;
 			entry.inode = disk_entry->inode;
 
