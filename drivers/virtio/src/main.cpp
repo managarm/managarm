@@ -42,7 +42,7 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.enumerate("pci-vendor:0x1af4",
+	mbusConnection.enumerate({ "pci-vendor:0x1af4", "pci-device:0x1001" },
 			CALLBACK_MEMBER(this, &InitClosure::enumeratedDevice));
 }
 

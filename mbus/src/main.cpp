@@ -200,10 +200,15 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 	case managarm::mbus::CntReqType::ENUMERATE: {
 		for(auto it = allObjects.iterator(); it; ++it) {
 			frigg::UnsafePtr<Object> object = it->get<1>();
-			assert(request.caps_size() == 1);
-			if(!object->hasCapability(request.caps(0).name()))
-				continue;
 			
+			bool matching = true;
+			for(size_t i = 0; i < request.caps_size(); i++) {
+				if(!object->hasCapability(request.caps(i).name()))
+					matching = false;
+			}
+			if(!matching)
+				continue;
+
 			managarm::mbus::SvrResponse<Allocator> response(*allocator);
 			response.set_object_id(object->objectId);
 
@@ -216,7 +221,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 			return;
 		}
 
-		assert(!"Not matching object");
+		assert(!"No matching object");
 	} break;
 	case managarm::mbus::CntReqType::QUERY_IF: {
 		frigg::SharedPtr<Object> *object = allObjects.get(request.object_id());

@@ -227,7 +227,7 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.enumerate("keyboard",
+	mbusConnection.enumerate({ "keyboard" },
 			CALLBACK_MEMBER(this, &InitClosure::enumeratedKeyboards));
 }
 

@@ -30,9 +30,14 @@ void Connection::registerObject(std::string capability,
 	(*closure)();
 }
 
-void Connection::enumerate(std::string capability,
+void Connection::enumerate(std::initializer_list<std::string> capabilities,
 		frigg::CallbackPtr<void(std::vector<ObjectId>)> callback) {
-	auto closure = new EnumerateClosure(*this, capability, callback);
+	enumerate(std::vector<std::string>(capabilities), callback);
+}
+
+void Connection::enumerate(std::vector<std::string> capabilities,
+		frigg::CallbackPtr<void(std::vector<ObjectId>)> callback) {
+	auto closure = new EnumerateClosure(*this, std::move(capabilities), callback);
 	(*closure)();
 }
 
@@ -127,16 +132,19 @@ void Connection::RegisterClosure::recvdResponse(HelError error,
 // Connection::EnumerateClosure
 // --------------------------------------------------------
 
-Connection::EnumerateClosure::EnumerateClosure(Connection &connection, std::string capability,
+Connection::EnumerateClosure::EnumerateClosure(Connection &connection,
+		std::vector<std::string> capabilities,
 		frigg::CallbackPtr<void(std::vector<ObjectId>)> callback)
-: connection(connection), capability(capability), callback(callback) { }
+: connection(connection), capabilities(std::move(capabilities)), callback(callback) { }
 
 void Connection::EnumerateClosure::operator() () {
 	managarm::mbus::CntRequest request;
 	request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
 
-	managarm::mbus::Capability *cap = request.add_caps();
-	cap->set_name(capability);
+	for(auto it = capabilities.begin(); it != capabilities.end(); ++it) {
+		managarm::mbus::Capability *cap = request.add_caps();
+		cap->set_name(*it);
+	}
 
 	std::string serialized;
 	request.SerializeToString(&serialized);

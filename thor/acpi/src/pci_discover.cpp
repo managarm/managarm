@@ -210,6 +210,12 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		vendor_cap.set_name(frigg::move(vendor_str));
 		request.add_caps(frigg::move(vendor_cap));
 		
+		frigg::String<Allocator> device_str(*allocator, "pci-device:0x");
+		device_str += frigg::uintToString(*allocator, device_id, 16);
+		managarm::mbus::Capability<Allocator> device_cap(*allocator);
+		device_cap.set_name(frigg::move(device_str));
+		request.add_caps(frigg::move(device_cap));
+		
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
 		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 123, 0);

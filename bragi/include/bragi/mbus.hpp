@@ -27,7 +27,10 @@ struct Connection {
 	void registerObject(std::string capability,
 			frigg::CallbackPtr<void(ObjectId)> callback);
 
-	void enumerate(std::string capability,
+	void enumerate(std::initializer_list<std::string> capabilities,
+			frigg::CallbackPtr<void(std::vector<ObjectId>)> callback);
+	
+	void enumerate(std::vector<std::string> capabilities,
 			frigg::CallbackPtr<void(std::vector<ObjectId>)> callback);
 	
 	void queryIf(ObjectId object_id,
@@ -67,7 +70,7 @@ private:
 	};
 	
 	struct EnumerateClosure {
-		EnumerateClosure(Connection &connection, std::string capability,
+		EnumerateClosure(Connection &connection, std::vector<std::string> capabilities,
 				frigg::CallbackPtr<void(std::vector<ObjectId>)> callback);
 	
 		void operator() ();
@@ -76,7 +79,7 @@ private:
 		void recvdResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
 
 		Connection &connection;
-		std::string capability;
+		std::vector<std::string> capabilities;
 		frigg::CallbackPtr<void(std::vector<ObjectId>)> callback;
 
 		uint8_t buffer[128];

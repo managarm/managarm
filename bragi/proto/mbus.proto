@@ -27,7 +27,7 @@ message CntRequest {
 	// used by REGISTER
 	repeated Interface ifs = 3;
 	
-	// used by INTERFACE
+	// used by QUERY_IF
 	optional int64 object_id = 4;
 }
 

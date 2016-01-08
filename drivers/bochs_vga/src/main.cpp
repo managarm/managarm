@@ -400,7 +400,7 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.enumerate("pci-vendor:0x1234",
+	mbusConnection.enumerate({ "pci-vendor:0x1234" },
 			CALLBACK_MEMBER(this, &InitClosure::enumeratedBochs));
 }
 
