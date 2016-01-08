@@ -1,9 +1,6 @@
 
-# configure the driver's paths and tools
-$c_SRCDIR := $(TREE_PATH)/$c/src
-$c_GENDIR := $(BUILD_PATH)/$c/gen
-$c_OBJDIR := $(BUILD_PATH)/$c/obj
-$c_BINDIR := $(BUILD_PATH)/$c/bin
+$(call standard_dirs)
+$(call define_objdir,ACPICA_OBJ,$(BUILD_PATH)/$c/acpica-obj)
 
 $c_CC := x86_64-managarm-gcc
 $c_INCLUDE := -I$($c_GENDIR)
@@ -22,7 +19,6 @@ $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths
 $c_ACPICA_SRCDIR = $(TREE_PATH)/$c/acpica/source/components
-$c_ACPICA_OBJDIR := $(BUILD_PATH)/$c/acpica-obj
 $c_find_acpica = $(patsubst $($c_ACPICA_SRCDIR)/%.c,%.o,$(wildcard $($c_ACPICA_SRCDIR)/$x/*))
 
 ACPICA_SUBDIRS := events namespace tables hardware utilities \
@@ -32,23 +28,15 @@ $c_ACPICA_SUBDIR_PATHS := $(addprefix $($c_ACPICA_OBJDIR)/,$(ACPICA_SUBDIRS))
 $c_ACPICA_OBJECTS := $(foreach x,$(ACPICA_SUBDIRS),$($c_find_acpica))
 $c_ACPICA_OBJECT_PATHS := $(addprefix $($c_ACPICA_OBJDIR)/,$($c_ACPICA_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c gen-$c
-$c_TARGETS += $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS)
-
-.PHONY: all-$c clean-$c
+$(call decl_targets,$c_ACPICA_OBJDIR/%)
 
 all-$c: $($c_BINDIR)/acpi
 
-clean-$c:
-	rm -f $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
-
-gen: gen-$c
-
-$($c_GENDIR) $($c_OBJDIR) $($c_BINDIR) $($c_ACPICA_SUBDIR_PATHS):
-	mkdir -p $@
-
 $($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
 	install $< $@
+
+$($c_ACPICA_SUBDIR_PATHS):
+	mkdir -p $@
 
 $($c_BINDIR)/acpi: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
@@ -73,6 +61,4 @@ gen-$c: $($c_GENDIR)/mbus.frigg_pb.hpp $($c_GENDIR)/hw.frigg_pb.hpp
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
-
-#-include $(OBJDIR_OBJECTS:%.o=%.d)
 

@@ -1,22 +1,10 @@
 
-$c_SRCDIR := $(TREE_PATH)/$c/src
-$c_OBJDIR := $(BUILD_PATH)/$c/obj
-$c_BINDIR := $(BUILD_PATH)/$c/bin
+$(call standard_dirs)
 
 $c_OBJECTS = main.o fs.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c $($c_BINDIR)/zisa $($c_BINDIR)
-
-.PHONY: all-$c clean-$c
-
 all-$c: $($c_BINDIR)/zisa
-
-clean-$c:
-	rm -f $($d_BINDIR)/zisa $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
-
-$($c_OBJDIR) $($c_BINDIR):
-	mkdir -p $@
 
 $c_CXX = x86_64-managarm-g++
 
@@ -39,6 +27,4 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cc | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
-
--include $($c_OBJECT_PATHS:%.o=%.d)
 

@@ -1,9 +1,6 @@
 
-$c_SRCDIR := $(TREE_PATH)/$c/src
-$c_HEADERDIR := $(TREE_PATH)/$c/include
-$c_GENDIR := $(BUILD_PATH)/$c/gen
-$c_OBJDIR := $(BUILD_PATH)/$c/obj
-$c_BINDIR := $(BUILD_PATH)/$c/bin
+$(call standard_dirs)
+$(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch_x86)
 
 $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
@@ -19,20 +16,10 @@ $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 $c_HEADERS := thor.h
 $c_HEADER_PATHS := $(addprefix $($c_HEADERDIR)/,$($c_HEADERS))
 
-$c_TARGETS := all-$c clean-$c install-$c-headers $($c_BINDIR)/thor $($c_BINDIR)
-
-.PHONY: all-$c clean-$c install-$c-headers
-
 all-$c: $($c_BINDIR)/thor
-
-clean-$c:
-	rm -f $($d_BINDIR)/thor $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
 
 install-$c-headers:
 	install $($d_HEADER_PATHS) $(SYSROOT_PATH)/usr/include
-
-$($c_GENDIR) $($c_OBJDIR) $($c_OBJDIR)/arch_x86 $($c_BINDIR):
-	mkdir -p $@
 
 $c_CXX = x86_64-managarm-g++
 
@@ -60,7 +47,7 @@ $($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
 $($c_GENDIR)/frigg-arch-%.cpp: $(TREE_PATH)/frigg/src/arch_x86/%.cpp | $($c_GENDIR)
 	install $< $@
 
-$($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR) $($c_OBJDIR)/arch_x86
+$($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR) $($c_ARCH_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
@@ -70,6 +57,4 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm | $($c_OBJDIR) $($c_OBJDIR)/arch_x86
 	$($d_AS) -o $@ $($d_ASFLAGS) $<
-
--include $($c_OBJECT_PATHS:%.o=%.d)
 

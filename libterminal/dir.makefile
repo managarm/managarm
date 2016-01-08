@@ -1,28 +1,14 @@
 
-$c_SRCDIR := $(TREE_PATH)/$c/src
-$c_HEADERDIR := $(TREE_PATH)/$c/include
-$c_GENDIR := $(BUILD_PATH)/$c/gen
-$c_OBJDIR := $(BUILD_PATH)/$c/obj
-$c_BINDIR := $(BUILD_PATH)/$c/bin
+$(call standard_dirs)
 
 $c_OBJECTS := libterminal.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c install-$c $($c_BINDIR)/libterminal.so $($c_BINDIR)
-
-.PHONY: all-$c clean-$c install-$c gen-$c
-
 all-$c: $($c_BINDIR)/libterminal.so
-
-clean-$c:
-	rm -f $($d_BINDIR)/libterminal.so $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
 
 install-$c:
 	install $($d_HEADERDIR)/libterminal.hpp $(SYSROOT_PATH)/usr/include
 	install $($d_BINDIR)/libterminal.so $(SYSROOT_PATH)/usr/lib
-
-$($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
-	mkdir -p $@
 
 $c_CXX = x86_64-managarm-g++
 
@@ -48,7 +34,6 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # compile protobuf files
-$c_TARGETS += $($c_GENDIR)/%
 gen-$c:
 
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
@@ -58,6 +43,4 @@ $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
-
--include $($c_OBJECT_PATHS:%.o=%.d)
 

@@ -28,7 +28,3 @@ $(call include_dir,hel)
 
 .PHONY: all clean gen
 
-all: $(addprefix all-,$(DIRECTORIES))
-
-clean: $(addprefix clean-,$(DIRECTORIES))
-

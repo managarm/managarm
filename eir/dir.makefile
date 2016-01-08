@@ -1,24 +1,11 @@
 
-$c_SRCDIR := $(TREE_PATH)/$c/src
-$c_GENDIR := $(BUILD_PATH)/$c/gen
-$c_OBJDIR := $(BUILD_PATH)/$c/obj
-$c_BINDIR := $(BUILD_PATH)/$c/bin
+$(call standard_dirs)
 
 $c_OBJECTS = frigg-arch-gdt.o \
 	frigg-libc.o frigg-debug.o main.o multiboot.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
-$c_TARGETS := all-$c clean-$c $($c_BINDIR)/eir $($c_BINDIR)
-
-.PHONY: all-$c clean-$c
-
 all-$c: $($c_BINDIR)/eir
-
-clean-$c:
-	rm -f $($d_BINDIR)/eir $($d_OBJECT_PATHS) $($d_OBJECT_PATHS:%.o=%.d)
-
-$($c_GENDIR) $($c_OBJDIR) $($c_BINDIR):
-	mkdir -p $@
 
 $c_CXX = x86_64-elf-g++
 
@@ -56,6 +43,4 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm
 	$($d_AS) -o $@ $($d_ASFLAGS) $<
-
--include $($c_OBJECT_PATHS:%.o=%.d)
 
