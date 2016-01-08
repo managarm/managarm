@@ -102,3 +102,38 @@ $(eval
 )
 endef
 
+define make_exec
+$(eval
+  all-$$c: $$($$c_BINDIR)/$1
+
+  install-$c: install-$$c-$1
+
+  .PHONY: install-$$c-$1
+  install-$$c-$1:
+	install $$($$d_BINDIR)/$1 $(SYSROOT_PATH)/usr/bin
+
+  $$($$c_BINDIR)/$1: $$(addprefix $$($$c_OBJDIR)/,$2) | $$($$c_BINDIR)
+	$$($$d_CXX) -o $$@ $($$d_LDFLAGS) $$(addprefix $$($$d_OBJDIR)/,$2) $$($$d_LIBS)
+)
+endef
+
+define gen_protobuf_cpp
+$(eval
+  $2/%.pb.tag: $1/%.proto | $2
+	$(PROTOC) --cpp_out=$2 --proto_path=$1 $$<
+	touch $$@
+)
+endef
+
+define compile_cxx
+$(eval
+  $2/%.o: $1/%.cpp | $2
+	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) $$<
+	$$($$d_CXX) $$($$d_CXXFLAGS) -MM -MP -MF $$(@:%.o=%.d) -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+
+  $2/%.o: $1/%.cc | $2
+	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) $$<
+	$$($$d_CXX) $$($$d_CXXFLAGS) -MM -MP -MF $$(@:%.o=%.d) -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+)
+endef
+

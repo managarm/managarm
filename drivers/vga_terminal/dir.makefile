@@ -1,14 +1,6 @@
 
 $(call standard_dirs)
 
-$c_OBJECTS := main.o posix.pb.o mbus.pb.o input.pb.o
-$c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
-
-all-$c: $($c_BINDIR)/vga_terminal
-
-install-$c: $($c_BINDIR)/vga_terminal
-	install $($d_BINDIR)/vga_terminal $(SYSROOT_PATH)/usr/bin
-
 $c_CXX = x86_64-managarm-g++
 
 $c_PKGCONF := PKG_CONFIG_SYSROOT_DIR=$(SYSROOT_PATH) \
@@ -24,21 +16,13 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lbragi_mbus -lcompose -lterminal \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$($c_BINDIR)/vga_terminal: $($c_OBJECT_PATHS) | $($c_BINDIR)
-	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_LIBS)
-
-$($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
-	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+$(call make_exec,vga_terminal,main.o posix.pb.o input.pb.o)
+$(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files
-gen-$c: $($c_GENDIR)/posix.pb.tag $($c_GENDIR)/mbus.pb.tag $($c_GENDIR)/input.pb.tag
+gen-$c: $($c_GENDIR)/posix.pb.tag $($c_GENDIR)/input.pb.tag
 
-$($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
-	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
-	touch $@
+$(call gen_protobuf_cpp,$(TREE_PATH)/bragi/proto,$($c_GENDIR))
+$(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))
 
-$($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
-	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
