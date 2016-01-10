@@ -168,7 +168,7 @@ void Inode::onLoadRequest(HelError error, uintptr_t offset, size_t length) {
 // --------------------------------------------------------
 
 FileSystem::FileSystem(helx::EventHub &event_hub, BlockDevice *device)
-: eventHub(event_hub), device(device) {
+: eventHub(event_hub), device(device), blockCache(*this) {
 	blockCache.preallocate(32);
 }
 
@@ -370,15 +370,7 @@ void FileSystem::ReadDataClosure::inodeReady() {
 
 			refLevel0.reset();
 			refLevel0 = ext2fs.blockCache.lock(inode->fileData.blocks.singleIndirect);
-			if(!refLevel0->ready) {
-				assert(!refLevel0->loading);
-				refLevel0->loading = true;
-				ext2fs.device->readSectors(inode->fileData.blocks.singleIndirect
-						* ext2fs.sectorsPerBlock, refLevel0->buffer, ext2fs.sectorsPerBlock,
-						CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
-			}else{
-				readLevel0();
-			}
+			refLevel0->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
 		}else{
 			assert(block_index < triple_offset);
 			indexLevel1 = (block_index - double_offset) / per_single;
@@ -386,15 +378,7 @@ void FileSystem::ReadDataClosure::inodeReady() {
 
 			refLevel1.reset();
 			refLevel1 = ext2fs.blockCache.lock(inode->fileData.blocks.doubleIndirect);
-			if(!refLevel1->ready) {
-				assert(!refLevel1->loading);
-				refLevel1->loading = true;
-				ext2fs.device->readSectors(inode->fileData.blocks.doubleIndirect
-						* ext2fs.sectorsPerBlock, refLevel1->buffer, ext2fs.sectorsPerBlock,
-						CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
-			}else{
-				readLevel1();
-			}
+			refLevel1->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
 		}
 	}else{
 		assert(blocksRead == numBlocks);
@@ -405,28 +389,16 @@ void FileSystem::ReadDataClosure::inodeReady() {
 }
 
 void FileSystem::ReadDataClosure::readLevel1() {
-	refLevel1->ready = true;
-
 	auto array_level1 = (uint32_t *)refLevel1->buffer;
 	uint32_t indirect = array_level1[indexLevel1];
 	assert(indirect != 0);
 
 	refLevel0.reset();
 	refLevel0 = ext2fs.blockCache.lock(indirect);
-	if(!refLevel0->ready) {
-		assert(!refLevel0->loading);
-		refLevel0->loading = true;
-		ext2fs.device->readSectors(indirect * ext2fs.sectorsPerBlock,
-				refLevel0->buffer, ext2fs.sectorsPerBlock,
-				CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
-	}else{
-		readLevel0();
-	}
+	refLevel0->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
 }
 
 void FileSystem::ReadDataClosure::readLevel0() {
-	refLevel0->ready = true;
-
 	auto array_level0 = (uint32_t *)refLevel0->buffer;
 	uint32_t block = array_level0[indexLevel0];
 	assert(block != 0);
@@ -455,26 +427,49 @@ void FileSystem::ReadDataClosure::readBlock() {
 // --------------------------------------------------------
 
 FileSystem::BlockCacheEntry::BlockCacheEntry(void *buffer)
-: loading(false), ready(false), buffer(buffer) { }
+: buffer(buffer), state(kStateInitial) { }
+
+void FileSystem::BlockCacheEntry::waitUntilReady(frigg::CallbackPtr<void()> callback) {
+	if(state == kStateReady) {
+		callback();
+	}else{
+		assert(state == kStateLoading);
+		readyQueue.push_back(callback);
+	}
+}
+
+void FileSystem::BlockCacheEntry::loadComplete() {
+	assert(state == kStateLoading);
+	state = kStateReady;
+
+	for(auto it = readyQueue.begin(); it != readyQueue.end(); ++it)
+		(*it)();
+	readyQueue.clear();
+}
 
 // --------------------------------------------------------
 // FileSystem::BlockCache
 // --------------------------------------------------------
 
+FileSystem::BlockCache::BlockCache(FileSystem &fs)
+: fs(fs) { }
+
 auto FileSystem::BlockCache::allocate() -> Element * {
-	// FIXME: magic number
-	void *buffer = malloc(1024);
+	void *buffer = malloc(fs.blockSize);
 	return new Element(BlockCacheEntry(buffer));
 }
 
-void FileSystem::BlockCache::initEntry(BlockCacheEntry *entry) {
-	assert(!entry->loading && !entry->ready);
+void FileSystem::BlockCache::initEntry(uint64_t block, BlockCacheEntry *entry) {
+	assert(entry->state == BlockCacheEntry::kStateInitial);
+	
+	entry->state = BlockCacheEntry::kStateLoading;
+	fs.device->readSectors(block * fs.sectorsPerBlock, entry->buffer, fs.sectorsPerBlock,
+			CALLBACK_MEMBER(entry, &BlockCacheEntry::loadComplete));
 }
 
 void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
-	assert(entry->ready);
-	entry->loading = false;
-	entry->ready = false;
+	assert(entry->state == BlockCacheEntry::kStateReady);
+	entry->state = BlockCacheEntry::kStateInitial;
 }
 
 // --------------------------------------------------------

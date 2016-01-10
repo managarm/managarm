@@ -213,21 +213,41 @@ struct FileSystem {
 	void readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback);
 
+	struct BlockCache;
+
 	struct BlockCacheEntry {
+	friend class BlockCache;
+		enum State {
+			kStateInitial,
+			kStateLoading,
+			kStateReady
+		};
+
 		BlockCacheEntry(void *buffer);
 
-		bool loading, ready;
+		void waitUntilReady(frigg::CallbackPtr<void()> callback);
+
 		void *buffer;
+	
+	private:
+		void loadComplete();
+
+		// current state of the cached content
+		State state;
+	
+		// called when the cache entry becomes ready
+		std::vector<frigg::CallbackPtr<void()>> readyQueue;
 	};
 	
 	struct BlockCache : util::Cache<uint64_t, BlockCacheEntry> {
+		BlockCache(FileSystem &fs);
+
 		Element *allocate() override;
-		void initEntry(BlockCacheEntry *entry) override;
+		void initEntry(uint64_t block, BlockCacheEntry *entry) override;
 		void finishEntry(BlockCacheEntry *entry) override;
+
+		FileSystem &fs;
 	};
-	
-	// caches ext2fs meta data blocks
-	BlockCache blockCache;
 
 	struct InitClosure {
 		InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback);
@@ -292,6 +312,9 @@ struct FileSystem {
 	uint32_t numBlockGroups;
 	uint32_t inodesPerGroup;
 	void *blockGroupDescriptorBuffer;
+	
+	// caches ext2fs meta data blocks
+	BlockCache blockCache;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };

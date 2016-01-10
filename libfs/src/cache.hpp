@@ -62,7 +62,7 @@ struct Cache {
 protected:
 	virtual Element *allocate() = 0;
 
-	virtual void initEntry(Entry *entry) = 0;
+	virtual void initEntry(Ident identifier, Entry *entry) = 0;
 	virtual void finishEntry(Entry *entry) = 0;
 
 private:
@@ -114,10 +114,10 @@ auto Cache<Ident, Entry>::lock(Ident identifier) -> Ref {
 		swap(reuseQueue.front(), reuseQueue.back());
 		reuseQueue.pop_back();
 
+		// repair the heap property
 		if(!reuseQueue.empty()) {
 			reuseQueue.front()->reuseIndex = 0;
 
-			// repair the heap property
 			size_t index = 0;
 			while(true) {
 				assert(reuseQueue[index]->reuseIndex == index);
@@ -152,6 +152,10 @@ auto Cache<Ident, Entry>::lock(Ident identifier) -> Ref {
 			assert(mp != cacheMap.end());
 			cacheMap.erase(mp);
 		}
+
+		if(element->identifier)
+			finishEntry(&element->entry);
+		initEntry(identifier, &element->entry);
 
 		// insert the new identifier into cacheMap
 		element->identifier = identifier;
