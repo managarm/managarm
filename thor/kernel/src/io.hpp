@@ -7,6 +7,11 @@ namespace thor {
 
 class IrqRelay {
 public:
+	enum {
+		kFlagExclusive = 1,
+		kFlagManualAcknowledge = 2
+	};
+
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
 
@@ -14,11 +19,17 @@ public:
 
 	void addLine(Guard &guard, frigg::WeakPtr<IrqLine> line);
 
+	void setup(Guard &guard, uint32_t flags);
+
 	void fire(Guard &guard);
+
+	void manualAcknowledge(Guard &guard);
 
 	Lock lock;
 
 private:
+	uint32_t p_flags;
+
 	uint64_t p_sequence;
 	
 	frigg::Vector<frigg::WeakPtr<IrqLine>, KernelAlloc> p_lines;
@@ -38,6 +49,9 @@ public:
 	void submitWait(Guard &guard, KernelSharedPtr<EventHub> event_hub,
 			SubmitInfo submit_info);
 	
+	void subscribe(Guard &guard, KernelSharedPtr<EventHub> event_hub,
+			SubmitInfo submit_info);
+	
 	void fire(Guard &guard, uint64_t sequence);
 
 	Lock lock;
@@ -55,6 +69,7 @@ private:
 	uint64_t p_notifiedSequence;
 	
 	frigg::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::LinkedList<Request, KernelAlloc> p_subscriptions;
 };
 
 class IoSpace {

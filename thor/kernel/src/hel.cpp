@@ -1256,6 +1256,50 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	return kHelErrNone;
 }
+HelError helSetupIrq(HelHandle handle, uint32_t flags) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!irq_wrapper)
+		return kHelErrNoDescriptor;
+	if(!irq_wrapper->is<IrqDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &irq_descriptor = irq_wrapper->get<IrqDescriptor>();
+	int number = irq_descriptor.getIrqLine()->getNumber();
+	universe_guard.unlock();
+
+	uint32_t relay_flags = 0;
+	if(flags & kHelIrqManualAcknowledge)
+		relay_flags |= IrqRelay::kFlagManualAcknowledge;
+	
+	IrqRelay::Guard relay_guard(&irqRelays[number]->lock);
+	irqRelays[number]->setup(relay_guard, relay_flags);
+	relay_guard.unlock();
+
+	return kHelErrNone;
+}
+HelError helAcknowledgeIrq(HelHandle handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!irq_wrapper)
+		return kHelErrNoDescriptor;
+	if(!irq_wrapper->is<IrqDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &irq_descriptor = irq_wrapper->get<IrqDescriptor>();
+	int number = irq_descriptor.getIrqLine()->getNumber();
+	universe_guard.unlock();
+	
+	IrqRelay::Guard relay_guard(&irqRelays[number]->lock);
+	irqRelays[number]->manualAcknowledge(relay_guard);
+	relay_guard.unlock();
+
+	return kHelErrNone;
+}
 HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
@@ -1281,8 +1325,40 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 
-	IrqRelay::Guard line_guard(&line->lock);
+	IrqLine::Guard line_guard(&line->lock);
 	line->submitWait(line_guard, frigg::move(event_hub), submit_info);
+	line_guard.unlock();
+
+	*async_id = submit_info.asyncId;
+	return kHelErrNone;
+}
+HelError helSubscribeIrq(HelHandle handle, HelHandle hub_handle,
+		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!irq_wrapper)
+		return kHelErrNoDescriptor;
+	if(!irq_wrapper->is<IrqDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &irq_descriptor = irq_wrapper->get<IrqDescriptor>();
+	frigg::SharedPtr<IrqLine> line(irq_descriptor.getIrqLine());
+	
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
+	KernelSharedPtr<EventHub> event_hub(hub_descriptor.getEventHub());
+	universe_guard.unlock();
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+
+	IrqLine::Guard line_guard(&line->lock);
+	line->subscribe(line_guard, frigg::move(event_hub), submit_info);
 	line_guard.unlock();
 
 	*async_id = submit_info.asyncId;

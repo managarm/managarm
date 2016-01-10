@@ -14,12 +14,13 @@
 #include <bragi/mbus.hpp>
 #include <input.pb.h>
 
-enum Status {
-	kStatusNormal,
-	kStatusE0,
-	kStatusE1First,
-	kStatusE1Second
-};
+helx::EventHub eventHub = helx::EventHub::create();
+bragi_mbus::Connection mbusConnection(eventHub);
+helx::Irq kbdIrq, mouseIrq;
+
+// --------------------------------------------------------
+// Mouse
+// --------------------------------------------------------
 
 enum MouseState {
 	kMouseData,
@@ -32,47 +33,14 @@ enum MouseByte {
 	kMouseByte2
 };
 
-helx::EventHub eventHub = helx::EventHub::create();
-bragi_mbus::Connection mbusConnection(eventHub);
-helx::Irq kbdIrq, mouseIrq;
-Status escapeStatus = kStatusNormal;
-
 MouseState mouseState = kMouseData;
 MouseByte mouseByte = kMouseByte0;
-
-int firstScancode;
-std::vector<helx::Pipe> kbdServerPipes;
-std::vector<helx::Pipe> mouseServerPipes;
-bool numState;
-bool capsState;
-
-void updateLed() {
-	uint8_t led = 0;
-	if(numState)
-		led |= 1;
-	if(capsState)
-		led |= 2;
-
-	frigg::arch_x86::ioOutByte(0x60, 0xED);
-	while(!(frigg::arch_x86::ioInByte(0x60) == 0xFA)) {	};
-	frigg::arch_x86::ioOutByte(0x60, led);
-}
-
-void sendByte(uint8_t data) {
-	frigg::arch_x86::ioOutByte(0x64, 0xD4);
-	while(frigg::arch_x86::ioInByte(0x64) & 0x02) { };
-	frigg::arch_x86::ioOutByte(0x60, data);
-}
-
 uint8_t byte0 = 0;
 uint8_t byte1 = 0;
 
-void onMouseInterrupt(void * object, HelError error) {
-	HEL_CHECK(error);
-	
-	//assert(frigg::arch_x86::ioInByte(0x64) & 0x01);
-	uint8_t data = frigg::arch_x86::ioInByte(0x60);
+std::vector<helx::Pipe> mouseServerPipes;
 
+void handleMouseData(uint8_t data) {
 	if(mouseState == kMouseWaitForAck) {
 		assert(data == 0xFA);
 		mouseState = kMouseData;
@@ -80,7 +48,6 @@ void onMouseInterrupt(void * object, HelError error) {
 		assert(mouseState == kMouseData);
 
 		if(mouseByte == kMouseByte0) {
-			printf("mouse 0\n");
 			if(data == 0xFA) { // acknowledge
 				// do nothing for now
 			}else{
@@ -89,11 +56,9 @@ void onMouseInterrupt(void * object, HelError error) {
 				mouseByte = kMouseByte1;
 			}
 		}else if(mouseByte == kMouseByte1) {
-			printf("mouse 1\n");
 			byte1 = data;
 			mouseByte = kMouseByte2;
 		}else{
-			printf("mouse 2\n");
 			assert(mouseByte == kMouseByte2);
 			uint8_t byte2 = data;
 			if(byte0 & 4) {
@@ -123,158 +88,164 @@ void onMouseInterrupt(void * object, HelError error) {
 			mouseByte = kMouseByte0;
 		}
 	}
-
-	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
 }
 
-void onKbdInterrupt(void * object, HelError error) {
-	HEL_CHECK(error);
-	
-	printf("kbd\n");
+// --------------------------------------------------------
+// Keyboard
+// --------------------------------------------------------
 
-	std::string code;
+enum KeyboardStatus {
+	kStatusNormal,
+	kStatusE0,
+	kStatusE1First,
+	kStatusE1Second
+};
 
-	//assert(frigg::arch_x86::ioInByte(0x64) & 0x01);
-	uint8_t scan_code = frigg::arch_x86::ioInByte(0x60);
+KeyboardStatus escapeStatus = kStatusNormal;
+uint8_t e1Buffer;
 
-	if(scan_code == 0xE0) {
-		escapeStatus = kStatusE0;
-		return;
-	}else if(scan_code == 0xE1) {
-		escapeStatus = kStatusE1First;
-		return;
+// numlock and capslock state
+bool numState, capsState;
+
+std::vector<helx::Pipe> kbdServerPipes;
+
+void updateLed() {
+	uint8_t led = 0;
+	if(numState)
+		led |= 1;
+	if(capsState)
+		led |= 2;
+
+	frigg::arch_x86::ioOutByte(0x60, 0xED);
+	while(!(frigg::arch_x86::ioInByte(0x60) == 0xFA)) {	};
+	frigg::arch_x86::ioOutByte(0x60, led);
+}
+
+std::string scanNormal(uint8_t data) {
+	switch(data) {
+		case 0x01: return "Escape";
+		case 0x02: return "Digit1";
+		case 0x03: return "Digit2";
+		case 0x04: return "Digit3";
+		case 0x05: return "Digit4";
+		case 0x06: return "Digit5";
+		case 0x07: return "Digit6";
+		case 0x08: return "Digit7";
+		case 0x09: return "Digit8";
+		case 0x0A: return "Digit9";
+		case 0x0B: return "Digit0";
+		case 0x0C: return "Minus";
+		case 0x0D: return "Equal";
+		case 0x0E: return "Backspace";
+		case 0x0F: return "Tab";
+		case 0x10: return "KeyQ";
+		case 0x11: return "KeyW";
+		case 0x12: return "KeyE";
+		case 0x13: return "KeyR";
+		case 0x14: return "KeyT";
+		case 0x15: return "KeyY";
+		case 0x16: return "KeyU";
+		case 0x17: return "KeyI";
+		case 0x18: return "KeyO";
+		case 0x19: return "KeyP";
+		case 0x1A: return "BracketLeft";
+		case 0x1B: return "BracketRight";
+		case 0x1C: return "Enter";
+		case 0x1D: return "ControlLeft";
+		case 0x1E: return "KeyA";
+		case 0x1F: return "KeyS";
+		case 0x20: return "KeyD";
+		case 0x21: return "KeyF";
+		case 0x22: return "KeyG";
+		case 0x23: return "KeyH";
+		case 0x24: return "KeyJ";
+		case 0x25: return "KeyK";
+		case 0x26: return "KeyL";
+		case 0x27: return "Semicolon";
+		case 0x28: return "Quote";
+		case 0x29: return "Backquote";
+		case 0x2A: return "ShiftLeft";
+		case 0x2B: return "IntlHash";
+		case 0x2C: return "KeyZ";
+		case 0x2D: return "KeyX";
+		case 0x2E: return "KeyC";
+		case 0x2F: return "KeyV";
+		case 0x30: return "KeyB";
+		case 0x31: return "KeyN";
+		case 0x32: return "KeyM";
+		case 0x33: return "Comma";
+		case 0x34: return "Period";
+		case 0x35: return "Slash";
+		case 0x36: return "ShiftRight";
+		case 0x37: return "NumpadMultiply";
+		case 0x38: return "AltLeft";
+		case 0x39: return "Space";
+		case 0x3A: return "CapsLock";
+		case 0x3B: return "F1";
+		case 0x3C: return "F2";
+		case 0x3D: return "F3";
+		case 0x3E: return "F4";
+		case 0x3F: return "F5";
+		case 0x40: return "F6";
+		case 0x41: return "F7";
+		case 0x42: return "F8";
+		case 0x43: return "F9";
+		case 0x44: return "F10";
+		case 0x45: return "NumLock";
+		case 0x46: return "ScrollLock";
+		case 0x47: return "Numpad7";
+		case 0x48: return "Numpad8";
+		case 0x49: return "Numpad9";
+		case 0x4A: return "NumpadSubtract";
+		case 0x4B: return "Numpad4";
+		case 0x4C: return "Numpad5";
+		case 0x4D: return "Numpad6";
+		case 0x4E: return "NumpadAdd";
+		case 0x4F: return "Numpad1";
+		case 0x50: return "Numpad2";
+		case 0x51: return "Numpad3";
+		case 0x52: return "Numpad0";
+		case 0x53: return "NumpadDecimal";
+		case 0x56: return "IntlBackslash";
+		case 0x57: return "F11";
+		case 0x58: return "F12";
+		default: return "Unknown";
 	}
+}
 
-	if(escapeStatus == kStatusE1First) {
-		firstScancode = scan_code;
-		escapeStatus = kStatusE1Second;
-		return;
-	}else if(escapeStatus == kStatusE1Second) {
-		if((firstScancode & 0x7F) == 0x1D && (scan_code & 0X7F) == 0x45){
-			code = "Pause";
-		}else{
-			code = "Unknown";
-		}
+std::string scanE0(uint8_t data) {
+	switch(data) {
+	case 0x1C: return "NumpadEnter";
+	case 0x1D: return "ControlRight";
+	case 0x35: return "NumpadDivide";
+	case 0x37: return "PrintScreen";
+	case 0x38: return "AltRight";
+	case 0x47: return "Home";
+	case 0x48: return "ArrowUp";
+	case 0x49: return "PageUp";
+	case 0x4B: return "ArrowLeft";
+	case 0x4D: return "ArrowRight";
+	case 0x4F: return "End";
+	case 0x50: return "ArrowDown";
+	case 0x51: return "PageDown";
+	case 0x52: return "Insert";
+	case 0x53: return "Delete";
+	case 0x5B: return "OSLeft";
+	case 0x5C: return "OSRight";
+	case 0x5D: return "ContextMenu";
+	default: return "Unknown";
+	}
+}
 
-		escapeStatus = kStatusNormal;
-	}else if(escapeStatus == kStatusE0) {
-		switch(scan_code & 0x7F) {
-			case 0x1C: code = "NumpadEnter"; break;
-			case 0x1D: code = "ControlRight"; break;
-			case 0x35: code = "NumpadDivide"; break;
-			case 0x37: code = "PrintScreen"; break;
-			case 0x38: code = "AltRight"; break;
-			case 0x47: code = "Home"; break;
-			case 0x48: code = "ArrowUp"; break;
-			case 0x49: code = "PageUp"; break;
-			case 0x4B: code = "ArrowLeft"; break;
-			case 0x4D: code = "ArrowRight"; break;
-			case 0x4F: code = "End"; break;
-			case 0x50: code = "ArrowDown"; break;
-			case 0x51: code = "PageDown"; break;
-			case 0x52: code = "Insert"; break;
-			case 0x53: code = "Delete"; break;
-			case 0x5B: code = "OSLeft"; break;
-			case 0x5C: code = "OSRight"; break;
-			case 0x5D: code = "ContextMenu"; break;
-			default: code = "Unknown"; break;
-		}
-
-		escapeStatus = kStatusNormal;
+std::string scanE1(uint8_t data1, uint8_t data2) {
+	if((data1 & 0x7F) == 0x1D && (data2 & 0X7F) == 0x45){
+		return "Pause";
 	}else{
-		switch(scan_code & 0x7F) {
-			case 0x01: code = "Escape"; break;
-			case 0x02: code = "Digit1"; break;
-			case 0x03: code = "Digit2"; break;
-			case 0x04: code = "Digit3"; break;
-			case 0x05: code = "Digit4"; break;
-			case 0x06: code = "Digit5"; break;
-			case 0x07: code = "Digit6"; break;
-			case 0x08: code = "Digit7"; break;
-			case 0x09: code = "Digit8"; break;
-			case 0x0A: code = "Digit9"; break;
-			case 0x0B: code = "Digit0"; break;
-			case 0x0C: code = "Minus"; break;
-			case 0x0D: code = "Equal"; break;
-			case 0x0E: code = "Backspace"; break;
-			case 0x0F: code = "Tab"; break;
-			case 0x10: code = "KeyQ"; break;
-			case 0x11: code = "KeyW"; break;
-			case 0x12: code = "KeyE"; break;
-			case 0x13: code = "KeyR"; break;
-			case 0x14: code = "KeyT"; break;
-			case 0x15: code = "KeyY"; break;
-			case 0x16: code = "KeyU"; break;
-			case 0x17: code = "KeyI"; break;
-			case 0x18: code = "KeyO"; break;
-			case 0x19: code = "KeyP"; break;
-			case 0x1A: code = "BracketLeft"; break;
-			case 0x1B: code = "BracketRight"; break;
-			case 0x1C: code = "Enter"; break;
-			case 0x1D: code = "ControlLeft"; break;
-			case 0x1E: code = "KeyA"; break;
-			case 0x1F: code = "KeyS"; break;
-			case 0x20: code = "KeyD"; break;
-			case 0x21: code = "KeyF"; break;
-			case 0x22: code = "KeyG"; break;
-			case 0x23: code = "KeyH"; break;
-			case 0x24: code = "KeyJ"; break;
-			case 0x25: code = "KeyK"; break;
-			case 0x26: code = "KeyL"; break;
-			case 0x27: code = "Semicolon"; break;
-			case 0x28: code = "Quote"; break;
-			case 0x29: code = "Backquote"; break;
-			case 0x2A: code = "ShiftLeft"; break;
-			case 0x2B: code = "IntlHash"; break;
-			case 0x2C: code = "KeyZ"; break;
-			case 0x2D: code = "KeyX"; break;
-			case 0x2E: code = "KeyC"; break;
-			case 0x2F: code = "KeyV"; break;
-			case 0x30: code = "KeyB"; break;
-			case 0x31: code = "KeyN"; break;
-			case 0x32: code = "KeyM"; break;
-			case 0x33: code = "Comma"; break;
-			case 0x34: code = "Period"; break;
-			case 0x35: code = "Slash"; break;
-			case 0x36: code = "ShiftRight"; break;
-			case 0x37: code = "NumpadMultiply"; break;
-			case 0x38: code = "AltLeft"; break;
-			case 0x39: code = "Space"; break;
-			case 0x3A: code = "CapsLock"; break;
-			case 0x3B: code = "F1"; break;
-			case 0x3C: code = "F2"; break;
-			case 0x3D: code = "F3"; break;
-			case 0x3E: code = "F4"; break;
-			case 0x3F: code = "F5"; break;
-			case 0x40: code = "F6"; break;
-			case 0x41: code = "F7"; break;
-			case 0x42: code = "F8"; break;
-			case 0x43: code = "F9"; break;
-			case 0x44: code = "F10"; break;
-			case 0x45: code = "NumLock"; break;
-			case 0x46: code = "ScrollLock"; break;
-			case 0x47: code = "Numpad7"; break;
-			case 0x48: code = "Numpad8"; break;
-			case 0x49: code = "Numpad9"; break;
-			case 0x4A: code = "NumpadSubtract"; break;
-			case 0x4B: code = "Numpad4"; break;
-			case 0x4C: code = "Numpad5"; break;
-			case 0x4D: code = "Numpad6"; break;
-			case 0x4E: code = "NumpadAdd"; break;
-			case 0x4F: code = "Numpad1"; break;
-			case 0x50: code = "Numpad2"; break;
-			case 0x51: code = "Numpad3"; break;
-			case 0x52: code = "Numpad0"; break;
-			case 0x53: code = "NumpadDecimal"; break;
-			case 0x56: code = "IntlBackslash"; break;
-			case 0x57: code = "F11"; break;
-			case 0x58: code = "F12"; break;
-			default: code = "Unknown"; break;
-		}
+		return "Unknown";
 	}
-	
-	bool pressed = !(scan_code & 0x80);
-	
+}
+
+void keyAction(std::string code, bool pressed) {
 	if(pressed && code == "NumLock") {
 		numState = !numState;
 
@@ -320,8 +291,78 @@ void onKbdInterrupt(void * object, HelError error) {
 	}
 
 	//updateLed();
+}
 
-	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
+void handleKeyboardData(uint8_t data) {
+	std::string code;
+	if(escapeStatus == kStatusE1First) {
+		e1Buffer = data;
+
+		escapeStatus = kStatusE1Second;
+	}else if(escapeStatus == kStatusE1Second) {
+		assert((e1Buffer & 0x80) == (data & 0x80));
+		keyAction(scanE1(e1Buffer & 0x7F, data & 0x7F), !(data & 0x80));
+
+		escapeStatus = kStatusNormal;
+	}else if(escapeStatus == kStatusE0) {
+		keyAction(scanE0(data & 0x7F), !(data & 0x80));
+
+		escapeStatus = kStatusNormal;
+	}else{
+		assert(escapeStatus == kStatusNormal);
+	
+		if(data == 0xE0) {
+			escapeStatus = kStatusE0;
+			return;
+		}else if(data == 0xE1) {
+			escapeStatus = kStatusE1First;
+			return;
+		}
+		
+		keyAction(scanNormal(data & 0x7F), !(data & 0x80));
+	}
+	
+}
+
+// --------------------------------------------------------
+// Controller
+// --------------------------------------------------------
+
+void sendByte(uint8_t data) {
+	frigg::arch_x86::ioOutByte(0x64, 0xD4);
+	while(frigg::arch_x86::ioInByte(0x64) & 0x02) { };
+	frigg::arch_x86::ioOutByte(0x60, data);
+}
+
+void readDeviceData() {
+	uint8_t status = frigg::arch_x86::ioInByte(0x64);
+	if(!(status & 0x01))
+		return;
+	
+	uint8_t data = frigg::arch_x86::ioInByte(0x60);
+	if(status & 0x20) {
+		handleMouseData(data);
+	}else{
+		handleKeyboardData(data);
+	}
+}
+
+void onMouseInterrupt(void * object, HelError error) {
+	HEL_CHECK(error);
+
+	readDeviceData();
+
+//	HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle()));
+//	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
+}
+
+void onKbdInterrupt(void * object, HelError error) {
+	HEL_CHECK(error);
+
+	readDeviceData();
+
+//	HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle()));
+//	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
 }
 
 // --------------------------------------------------------
@@ -391,15 +432,17 @@ int main() {
 	printf("Starting ps/2\n");
 	kbdIrq = helx::Irq::access(1);
 	mouseIrq = helx::Irq::access(12);
+
+//	HEL_CHECK(helSetupIrq(kbdIrq.getHandle(), kHelIrqExclusive | kHelIrqManualAcknowledge));
+//	HEL_CHECK(helSetupIrq(mouseIrq.getHandle(), kHelIrqExclusive | kHelIrqManualAcknowledge));
 	
 	uintptr_t ports[] = { 0x60, 0x64 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
-	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
-	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
-
+	kbdIrq.subscribe(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
+	mouseIrq.subscribe(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
 
 	// disable both devices
 	frigg::arch_x86::ioOutByte(0x64, 0xAD);

@@ -271,7 +271,6 @@ extern "C" void thorIrq(void *state, int irq) {
 	
 	if(irq == 2)
 		timerInterrupt();
-	acknowledgeIrq(irq);
 	
 	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);
 	irqRelays[irq]->fire(irq_guard);
@@ -522,9 +521,23 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helAccessIrq((int)arg0, &handle);
 		thorRtReturnSyscall2((Word)error, (Word)handle);
 	} break;
+	case kHelCallSetupIrq: {
+		HelError error = helSetupIrq((HelHandle)arg0, (uint32_t)arg1);
+		thorRtReturnSyscall1((Word)error);
+	} break;
+	case kHelCallAcknowledgeIrq: {
+		HelError error = helAcknowledgeIrq((HelHandle)arg0);
+		thorRtReturnSyscall1((Word)error);
+	} break;
 	case kHelCallSubmitWaitForIrq: {
 		int64_t async_id;
 		HelError error = helSubmitWaitForIrq((HelHandle)arg0,
+				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
+	} break;
+	case kHelCallSubscribeIrq: {
+		int64_t async_id;
+		HelError error = helSubscribeIrq((HelHandle)arg0,
 				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
