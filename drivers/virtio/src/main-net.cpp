@@ -1,28 +1,19 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
 #include <assert.h>
 
 #include <vector>
-#include <queue>
-#include <memory>
-
-#include <hel.h>
-#include <hel-syscalls.h>
 #include <helx.hpp>
-
-#include <frigg/atomic.hpp>
-#include <frigg/arch_x86/machine.hpp>
 
 #include <bragi/mbus.hpp>
 #include <hw.pb.h>
-#include "block.hpp"
+#include "net.hpp"
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
-virtio::block::Device device;
+virtio::net::Device device;
 
 // --------------------------------------------------------
 // InitClosure
@@ -42,7 +33,7 @@ void InitClosure::operator() () {
 }
 
 void InitClosure::connected() {
-	mbusConnection.enumerate({ "pci-vendor:0x1af4", "pci-device:0x1001" },
+	mbusConnection.enumerate({ "pci-vendor:0x1af4", "pci-device:0x1000" },
 			CALLBACK_MEMBER(this, &InitClosure::enumeratedDevice));
 }
 
@@ -74,6 +65,7 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	assert(acquire_response.bars(0).io_type() == managarm::hw::IoType::PORT);
 	HEL_CHECK(helEnableIo(bar_handle));
 	device.setupDevice(acquire_response.bars(0).address());
+	device.testDevice();
 }
 
 // --------------------------------------------------------
@@ -81,7 +73,7 @@ void InitClosure::queriredDevice(HelHandle handle) {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting virtio driver\n");
+	printf("Starting virtio-net driver\n");
 
 	auto closure = new InitClosure();
 	(*closure)();
@@ -89,4 +81,3 @@ int main() {
 	while(true)
 		eventHub.defaultProcessEvents();	
 }
-

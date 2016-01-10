@@ -28,7 +28,7 @@ int main() {
 	assert(child != -1);
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
-		execve("/initrd/virtio", args.data(), envp);
+		execve("/initrd/virtio-block", args.data(), envp);
 	}
 	
 	// TODO: this is a very ugly hack to wait until the fs is ready
@@ -40,7 +40,8 @@ int main() {
 	pid_t terminal_child = fork();
 	assert(terminal_child != -1);
 	if(!terminal_child) {
-		execve("/usr/bin/kbd", args.data(), envp);
+//		execve("/usr/bin/kbd", args.data(), envp);
+		execve("/usr/bin/virtio-net", args.data(), envp);
 //		execve("/usr/bin/bochs_vga", args.data(), envp);
 	}
 }

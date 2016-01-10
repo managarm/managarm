@@ -20,6 +20,10 @@ uint16_t GenericDevice::readIsr() {
 	return frigg::readIo<uint16_t>(basePort + PCI_L_ISR_STATUS);
 }
 
+uint8_t GenericDevice::readConfig8(size_t offset) {
+	return frigg::readIo<uint16_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
+}
+
 void GenericDevice::setupDevice(uint16_t base_port) {
 	basePort = base_port;
 
@@ -64,7 +68,7 @@ void Queue::setupQueue() {
 	assert(!queueSize);
 
 	// select the queue and determine it's size
-	frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_SELECT, 0);
+	frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_SELECT, queueIndex);
 	queueSize = frigg::readIo<uint16_t>(device.basePort + PCI_L_QUEUE_SIZE);
 	assert(queueSize > 0);
 

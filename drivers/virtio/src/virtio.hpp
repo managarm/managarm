@@ -17,7 +17,8 @@ enum {
 	PCI_L_QUEUE_SELECT = 14,
 	PCI_L_QUEUE_NOTIFY = 16,
 	PCI_L_DEVICE_STATUS = 18,
-	PCI_L_ISR_STATUS = 19
+	PCI_L_ISR_STATUS = 19,
+	PCI_L_DEVICE_SPECIFIC = 20
 };
 
 // bits of the device status register
@@ -76,6 +77,8 @@ struct GenericDevice {
 	void setupDevice(uint16_t base_port);
 
 	uint16_t readIsr();
+
+	uint8_t readConfig8(size_t offset);
 
 	// performs device specific initialization
 	// this is called after features are negotiated

@@ -16,7 +16,8 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lbragi_mbus -lfs \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_exec,virtio,main.o block.o virtio.o hw.pb.o)
+$(call make_exec,virtio-block,main-block.o block.o virtio.o hw.pb.o)
+$(call make_exec,virtio-net,main-net.o net.o virtio.o hw.pb.o)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files
