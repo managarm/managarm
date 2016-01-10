@@ -102,6 +102,7 @@ $(eval
 )
 endef
 
+# adds rules to compile and install an executable
 define make_exec
 $(eval
   all-$$c: $$($$c_BINDIR)/$1
@@ -114,6 +115,32 @@ $(eval
 
   $$($$c_BINDIR)/$1: $$(addprefix $$($$c_OBJDIR)/,$2) | $$($$c_BINDIR)
 	$$($$d_CXX) -o $$@ $($$d_LDFLAGS) $$(addprefix $$($$d_OBJDIR)/,$2) $$($$d_LIBS)
+)
+endef
+
+# adds rules to compile and install a shared library
+define make_so
+$(eval
+  all-$$c: $$($$c_BINDIR)/$1
+
+  install-$c: install-$$c-$1
+
+  .PHONY: install-$$c-$1
+  install-$$c-$1: $$($$c_BINDIR)/$1
+	install $$($$d_BINDIR)/$1 $(SYSROOT_PATH)/usr/lib
+
+  $$($$c_BINDIR)/$1: $$(addprefix $$($$c_OBJDIR)/,$2) | $$($$c_BINDIR)
+	$$($$d_CXX) -shared -o $$@ $($$d_LDFLAGS) $$(addprefix $$($$d_OBJDIR)/,$2) $$($$d_LIBS)
+)
+endef
+
+define install_header
+$(eval
+  install-$c: install-$$c-$1
+
+  .PHONY: install-$$c-$1
+  install-$$c-$1:
+	install $$($$d_HEADERDIR)/$1 $(SYSROOT_PATH)/usr/include
 )
 endef
 
