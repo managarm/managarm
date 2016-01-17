@@ -42,9 +42,12 @@ public:
 				return false;
 		return true;
 	}
+	bool operator!= (BasicStringView other) {
+		return !(*this == other);
+	}
 
-	size_t findFirst(Char c) {
-		for(size_t i = 0; i < p_length; i++)
+	size_t findFirst(Char c, size_t start_from = 0) {
+		for(size_t i = start_from; i < p_length; i++)
 			if(p_pointer[i] == c)
 				return i;
 

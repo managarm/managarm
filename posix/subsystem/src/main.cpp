@@ -146,9 +146,12 @@ void OpenClosure::operator() () {
 	uint32_t open_mode = 0;
 	if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
 		open_mode |= MountSpace::kOpenHelfd;
+	
+	frigg::String<Allocator> path = concatenatePath("/", request.path());
+	frigg::String<Allocator> normalized = normalizePath(path);
 
 	MountSpace *mount_space = process->mountSpace;
-	mount_space->openAbsolute(process, request.path(), open_flags, open_mode,
+	mount_space->openAbsolute(process, frigg::move(normalized), open_flags, open_mode,
 			CALLBACK_MEMBER(this, &OpenClosure::openComplete));
 }
 

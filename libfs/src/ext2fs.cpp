@@ -617,6 +617,8 @@ void StatClosure::inodeReady() {
 	switch(openFile->inode->fileType) {
 	case kTypeRegular:
 		response.set_file_type(managarm::fs::FileType::REGULAR); break;
+	case kTypeDirectory:
+		response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
 	case kTypeSymlink:
 		response.set_file_type(managarm::fs::FileType::SYMLINK); break;
 	default:
@@ -653,7 +655,24 @@ OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
 void OpenClosure::operator() () {
 	tailPath = request.path();
 	directory = connection.getFs().accessRoot();
-	processSegment();
+
+	if(tailPath.empty()) {
+		int handle = connection.attachOpenFile(new OpenFile(directory));
+
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_fd(handle);
+		response.set_file_type(managarm::fs::FileType::DIRECTORY);
+
+		std::string serialized;
+		response.SerializeToString(&serialized);
+		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				responseId, 0);
+
+		delete this;
+	}else{
+		processSegment();
+	}
 }
 
 void OpenClosure::processSegment() {

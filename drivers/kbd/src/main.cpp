@@ -474,7 +474,8 @@ int main() {
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
-		execve("/usr/bin/bochs_vga", nullptr, nullptr);
+//		execve("/usr/bin/bochs_vga", nullptr, nullptr);
+		execve("/usr/bin/vga_terminal", nullptr, nullptr);
 	}
 	
 	while(true) {

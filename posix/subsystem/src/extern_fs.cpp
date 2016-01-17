@@ -147,7 +147,8 @@ void OpenClosure::recvOpenResponse(HelError error, int64_t msg_request, int64_t 
 	}
 	assert(response.error() == managarm::fs::Errors::SUCCESS);
 	
-	if(response.file_type() == managarm::fs::FileType::REGULAR) {
+	if(response.file_type() == managarm::fs::FileType::REGULAR
+			|| response.file_type() == managarm::fs::FileType::DIRECTORY) {
 		auto open_file = frigg::makeShared<OpenFile>(*allocator, connection, response.fd());
 		callback(frigg::staticPtrCast<VfsOpenFile>(open_file));
 		frigg::destruct(*allocator, this);

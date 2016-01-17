@@ -31,6 +31,11 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
+frigg::String<Allocator> normalizePath(frigg::StringView path);
+
+frigg::String<Allocator> concatenatePath(frigg::StringView prefix,
+		frigg::StringView path);
+
 // --------------------------------------------------------
 // VfsOpenFile
 // --------------------------------------------------------
