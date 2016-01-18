@@ -194,9 +194,11 @@ PhysicalAddr allocateInLevel(Chunk *chunk, size_t size, int level,
 				if(entry != Chunk::kColorWhite && entry != Chunk::kColorGray)
 					continue;
 
-				return allocateInLevel(chunk, size, level + 1,
+				PhysicalAddr result = allocateInLevel(chunk, size, level + 1,
 						entry_in_level * Chunk::kGranularity,
 						(entry_in_level + 1) * Chunk::kGranularity);
+				if(result)
+					return result;
 			}
 		}
 	}
@@ -250,10 +252,17 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 
 	PhysicalAddr result = allocateInLevel(p_root, size, 0,
 			0, Chunk::numEntriesInLevel(0));
+	if(result == 0) {
+		infoLogger->log() << "Physical allocation failed!\n"
+				<< "    Requested size: 0x" << frigg::logHex(size) << "\n"
+				<< "    Used pages: " << p_usedPages
+					<< ",  free pages: " << p_freePages << frigg::EndLog();
+	}
 	assert(result != 0);
+
 	assert(p_freePages > 0);
-	p_usedPages++;
-	p_freePages--;
+	p_usedPages += size / kPageSize;
+	p_freePages -= size / kPageSize;
 	return result;
 }
 
