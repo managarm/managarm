@@ -1,5 +1,6 @@
 
 #include <queue>
+#include <string>
 #include <helx.hpp>
 #include <libfs.hpp>
 
@@ -43,6 +44,7 @@ struct Device : public GenericDevice {
 	void doInitialize() override;
 	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
 	void afterRetrieve() override;
+	void sendPacket(std::string packet);
 
 	void testDevice();
 	void onInterrupt(HelError error);
