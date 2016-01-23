@@ -2,6 +2,8 @@
 #ifndef FRIGG_OPTIONAL_HPP
 #define FRIGG_OPTIONAL_HPP
 
+#include <frigg/cxx-support.hpp>
+
 namespace frigg {
 
 namespace expected_impl {

@@ -37,13 +37,11 @@ int main() {
 
 	printf("Second fork, here we go!\n");
 
-	open("usr/bin/kbd", O_RDONLY);
-
 	pid_t terminal_child = fork();
 	assert(terminal_child != -1);
 	if(!terminal_child) {
-//		execve("/usr/bin/kbd", args.data(), envp);
-		execve("/usr/bin/virtio-net", args.data(), envp);
+		execve("/usr/bin/kbd", args.data(), envp);
+//		execve("/usr/bin/virtio-net", args.data(), envp);
 //		execve("/usr/bin/bochs_vga", args.data(), envp);
 	}
 }
