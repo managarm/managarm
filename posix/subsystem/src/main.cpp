@@ -392,6 +392,42 @@ void MapClosure::mmapComplete(HelHandle handle) {
 }
 
 // --------------------------------------------------------
+// GetPidClosure
+// --------------------------------------------------------
+
+struct GetPidClosure : frigg::BaseClosure<GetPidClosure> {
+	GetPidClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+
+	void operator() ();
+
+private:
+	void mmapComplete(HelHandle handle);
+
+	StdSharedPtr<helx::Pipe> pipe;
+	StdSharedPtr<Process> process;
+	managarm::posix::ClientRequest<Allocator> request;
+	int64_t msgRequest;
+	
+	frigg::String<Allocator> buffer;
+};
+
+GetPidClosure::GetPidClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
+: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
+		msgRequest(msg_request), buffer(*allocator) { }
+
+void GetPidClosure::operator() () {
+	managarm::posix::ServerResponse<Allocator> response(*allocator);
+	response.set_error(managarm::posix::Errors::SUCCESS);
+	response.set_pid(process->pid);
+	
+	sendResponse(*pipe, response, msgRequest);
+
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -458,6 +494,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
 		sendResponse(*pipe, response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::GET_PID) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] GET_PID" << frigg::EndLog();
+
+		frigg::runClosure<GetPidClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] FORK" << frigg::EndLog();
@@ -478,6 +520,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 		managarm::posix::ServerResponse<Allocator> response(*allocator);
 		response.set_error(managarm::posix::Errors::SUCCESS);
+		response.set_pid(new_process->pid);
 		sendResponse(*pipe, response, msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
 		if(traceRequests)

@@ -17,6 +17,7 @@ enum Errors {
 
 enum ClientRequestType {
 	INIT = 7;
+	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
 	FSTAT = 12;
@@ -75,6 +76,9 @@ message ClientRequest {
 
 message ServerResponse {
 	optional int32 error = 3;
+
+	// returned by GET_PID
+	optional int64 pid = 18;
 
 	// returned by FSTAT
 //	optional FileType file_type = 5;
