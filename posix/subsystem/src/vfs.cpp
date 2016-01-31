@@ -64,8 +64,6 @@ frigg::String<Allocator> concatenatePath(frigg::StringView prefix,
 		++iterator;
 	}
 	
-	infoLogger->log() << "Concatenate to " << result << frigg::EndLog();
-
 	return frigg::move(result);
 }
 
@@ -98,6 +96,10 @@ void VfsOpenFile::seek(int64_t rel_offset, VfsSeek whence,
 
 void VfsOpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> callback) {
 	assert(!"Illegal operation for this file");
+}
+
+frigg::Optional<frigg::String<Allocator>> VfsOpenFile::ttyName() {
+	return frigg::Optional<frigg::String<Allocator>>();
 }
 
 void VfsOpenFile::setHelfd(HelHandle handle) {

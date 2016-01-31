@@ -56,6 +56,8 @@ struct VfsOpenFile {
 	
 	virtual void mmap(frigg::CallbackPtr<void(HelHandle)> callback);
 
+	virtual frigg::Optional<frigg::String<Allocator>> ttyName();
+
 	virtual void setHelfd(HelHandle handle);
 	virtual HelHandle getHelfd();
 };

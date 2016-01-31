@@ -272,7 +272,7 @@ void FileSystem::ReadInodeClosure::readSector() {
 	uint32_t offset = index * ext2fs.inodeSize;
 
 	DiskInode *disk_inode = (DiskInode *)(sectorBuffer + (offset % 512));
-	printf("Inode %u: file size: %u\n", inode->number, disk_inode->size);
+//	printf("Inode %u: file size: %u\n", inode->number, disk_inode->size);
 
 	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
 		inode->fileType = kTypeRegular;

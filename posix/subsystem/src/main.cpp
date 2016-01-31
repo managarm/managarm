@@ -357,14 +357,12 @@ private:
 	StdSharedPtr<Process> process;
 	managarm::posix::ClientRequest<Allocator> request;
 	int64_t msgRequest;
-	
-	frigg::String<Allocator> buffer;
 };
 
 MapClosure::MapClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
 		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
 : pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
-		msgRequest(msg_request), buffer(*allocator) { }
+		msgRequest(msg_request) { }
 
 void MapClosure::operator() () {
 	auto file = process->allOpenFiles.get(request.fd());
@@ -376,7 +374,6 @@ void MapClosure::operator() () {
 		return;
 	}
 	
-	buffer.resize(request.size());
 	(*file)->mmap(CALLBACK_MEMBER(this, &MapClosure::mmapComplete));
 }
 
@@ -408,19 +405,64 @@ private:
 	StdSharedPtr<Process> process;
 	managarm::posix::ClientRequest<Allocator> request;
 	int64_t msgRequest;
-	
-	frigg::String<Allocator> buffer;
 };
 
 GetPidClosure::GetPidClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
 		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
 : pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
-		msgRequest(msg_request), buffer(*allocator) { }
+		msgRequest(msg_request) { }
 
 void GetPidClosure::operator() () {
 	managarm::posix::ServerResponse<Allocator> response(*allocator);
 	response.set_error(managarm::posix::Errors::SUCCESS);
 	response.set_pid(process->pid);
+	
+	sendResponse(*pipe, response, msgRequest);
+
+	suicide(*allocator);
+}
+
+// --------------------------------------------------------
+// TtyNameClosure
+// --------------------------------------------------------
+
+struct TtyNameClosure : frigg::BaseClosure<TtyNameClosure> {
+	TtyNameClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
+
+	void operator() ();
+
+private:
+	StdSharedPtr<helx::Pipe> pipe;
+	StdSharedPtr<Process> process;
+	managarm::posix::ClientRequest<Allocator> request;
+	int64_t msgRequest;
+};
+
+TtyNameClosure::TtyNameClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
+		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
+: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
+		msgRequest(msg_request) { }
+
+void TtyNameClosure::operator() () {
+	auto file = process->allOpenFiles.get(request.fd());
+	if(!file) {
+		managarm::posix::ServerResponse<Allocator> response(*allocator);
+		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+		sendResponse(*pipe, response, msgRequest);
+		suicide(*allocator);
+		return;
+	}
+	
+	frigg::Optional<frigg::String<Allocator>> result = (*file)->ttyName();
+	
+	managarm::posix::ServerResponse<Allocator> response(*allocator);
+	if(result) {
+		response.set_error(managarm::posix::Errors::SUCCESS);
+		response.set_path(*result);
+	}else{
+		response.set_error(managarm::posix::Errors::BAD_FD);
+	}
 	
 	sendResponse(*pipe, response, msgRequest);
 
@@ -604,6 +646,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}
 
 		sendResponse(*pipe, response, msg_request);
+	}else if(request.request_type() == managarm::posix::ClientRequestType::TTY_NAME) {
+		if(traceRequests)
+			infoLogger->log() << "[" << process->pid << "] TTY_NAME" << frigg::EndLog();
+
+		frigg::runClosure<TtyNameClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
+				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] HELFD_ATTACH" << frigg::EndLog();

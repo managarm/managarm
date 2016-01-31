@@ -70,6 +70,13 @@ Endpoint::ReadRequest::ReadRequest(void *buffer, size_t max_length,
 : buffer(buffer), maxLength(max_length), callback(callback) { }
 
 // --------------------------------------------------------
+// Terminal
+// --------------------------------------------------------
+
+Terminal::Terminal(int number)
+: number(number) { }
+
+// --------------------------------------------------------
 // Master
 // --------------------------------------------------------
 
@@ -85,6 +92,11 @@ void Master::write(const void *buffer, size_t length, frigg::CallbackPtr<void()>
 void Master::read(void *buffer, size_t max_length,
 		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	terminal->master.readFromQueue(buffer, max_length, callback);
+}
+
+frigg::Optional<frigg::String<Allocator>> Master::ttyName() {
+	assert(!"ttyName() called on PTS master fd");
+	__builtin_unreachable();
 }
 
 // --------------------------------------------------------
@@ -104,6 +116,11 @@ void Slave::read(void *buffer, size_t max_length,
 	terminal->slave.readFromQueue(buffer, max_length, callback);
 }
 
+frigg::Optional<frigg::String<Allocator>> Slave::ttyName() {
+	return frigg::String<Allocator>(*allocator, "/dev/pts/")
+				+ frigg::uintToString(*allocator, terminal->number);
+}
+
 // --------------------------------------------------------
 // MountPoint
 // --------------------------------------------------------
@@ -116,7 +133,7 @@ void MountPoint::openMounted(StdUnsafePtr<Process> process,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	if(path == "ptmx") {
 		int number = nextTerminalNumber++;
-		auto terminal = frigg::makeShared<Terminal>(*allocator);
+		auto terminal = frigg::makeShared<Terminal>(*allocator, number);
 		openTerminals.insert(number, frigg::WeakPtr<Terminal>(terminal));
 
 		auto master = frigg::makeShared<Master>(*allocator, frigg::move(terminal));

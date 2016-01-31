@@ -13,6 +13,7 @@ enum Errors {
 	ALREADY_EXISTS = 3;
 	NO_SUCH_FD = 5;
 	END_OF_FILE = 7;
+	BAD_FD = 8;
 }
 
 enum ClientRequestType {
@@ -30,6 +31,7 @@ enum ClientRequestType {
 	MMAP = 16;
 	CLOSE = 5;
 	DUP2 = 6;
+	TTY_NAME = 18;
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
 };
@@ -112,5 +114,8 @@ message ServerResponse {
 
 	// returned by SEEK_ABS, SEEK_REL
 	optional uint64 offset = 6;
+
+	// returned by TTY_NAME
+	optional string path = 19;
 }
 

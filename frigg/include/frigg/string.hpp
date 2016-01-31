@@ -239,7 +239,7 @@ template<typename Allocator>
 using String = BasicString<char, Allocator>;
 
 template<typename Allocator, typename T>
-String<Allocator> uintToString(Allocator &allocator, T number, int radix) {
+String<Allocator> uintToString(Allocator &allocator, T number, int radix = 10) {
 	if(number == 0)
 		return String<Allocator>(allocator, "0");
 	

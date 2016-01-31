@@ -36,7 +36,11 @@ struct Endpoint {
 };
 
 struct Terminal {
+	Terminal(int number);
+
 	Endpoint master, slave;
+
+	int number;
 };
 
 struct Master : public VfsOpenFile {
@@ -47,6 +51,8 @@ struct Master : public VfsOpenFile {
 			frigg::CallbackPtr<void()> callback) override;
 	void read(void *buffer, size_t max_length,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
+
+	frigg::Optional<frigg::String<Allocator>> ttyName() override;
 
 	const frigg::SharedPtr<Terminal> terminal;
 };
@@ -59,6 +65,8 @@ struct Slave : public VfsOpenFile {
 			frigg::CallbackPtr<void()> callback) override;
 	void read(void *buffer, size_t max_length,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback) override;
+
+	frigg::Optional<frigg::String<Allocator>> ttyName() override;
 
 	const frigg::SharedPtr<Terminal> terminal;
 
