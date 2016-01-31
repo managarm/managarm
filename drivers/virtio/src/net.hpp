@@ -2,7 +2,7 @@
 #include <queue>
 #include <string>
 #include <helx.hpp>
-#include <libfs.hpp>
+#include <libnet.hpp>
 
 #include "virtio.hpp"
 
@@ -38,13 +38,14 @@ struct VirtHeader {
 // NetDevice
 // --------------------------------------------------------
 
-struct Device : public GenericDevice {
+struct Device : public GenericDevice, public libnet::NetDevice {
 	Device();
 
 	void doInitialize() override;
 	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
 	void afterRetrieve() override;
-	void sendPacket(std::string packet);
+
+	void sendPacket(std::string packet) override;
 
 	void testDevice();
 	void onInterrupt(HelError error);
