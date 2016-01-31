@@ -1,4 +1,5 @@
 
+#include <stdio.h>
 #include <libnet.hpp>
 #include "udp.hpp"
 
@@ -71,6 +72,18 @@ void testDevice(NetDevice &device) {
 	udp_info.destPort = 67;
 	
 	sendUdpPacket(device, ethernet_info, ip_info, udp_info, packet);
+}
+
+void onReceive(void *buffer, size_t length) {
+	auto header = (EthernetHeader *)buffer;
+
+	printf("Sender MAC: %x:%x:%x:%x:%x:%x\n", header->sourceAddress[0], header->sourceAddress[1],
+			header->sourceAddress[2], header->sourceAddress[3],
+			header->sourceAddress[4], header->sourceAddress[5]);
+	printf("Destination MAC: %x:%x:%x:%x:%x:%x\n", header->destAddress[0], header->destAddress[1],
+			header->destAddress[2], header->destAddress[3],
+			header->destAddress[4], header->destAddress[5]);
+	printf("Ethertype: %d\n", netToHost<uint16_t>(header->etherType));
 }
 
 } // namespace libnet

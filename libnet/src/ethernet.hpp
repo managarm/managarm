@@ -6,6 +6,10 @@
 
 namespace libnet {
 
+enum {
+	kEtherIp4 = 0x0800
+};
+
 struct MacAddress {
 	static MacAddress broadcast() {
 		return MacAddress(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF);

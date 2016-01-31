@@ -13,10 +13,6 @@ enum {
 	kUdpProtocol = 17
 };
 
-enum {
-	kEtherIp4 = 0x0800
-};
-
 struct Ip4Address {
 	Ip4Address() : octets{ 0, 0, 0, 0 } { }
 

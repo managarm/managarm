@@ -35,6 +35,8 @@ struct NetDevice {
 
 void testDevice(NetDevice &device);
 
+void onReceive(void *buffer, size_t length);
+
 } // namespace libnet
 
 #endif // LIBNET_HPP
