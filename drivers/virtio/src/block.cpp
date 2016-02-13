@@ -56,7 +56,7 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 	}
 }
 
-void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {
+void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
 	assert(queue_index == 0);
 
 	UserRequest *user_request = userRequestPtrs[desc_index];

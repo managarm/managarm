@@ -52,7 +52,7 @@ struct Device : public GenericDevice, public libfs::BlockDevice {
 			frigg::CallbackPtr<void()> callback) override;
 
 	void doInitialize() override;
-	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
+	void retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) override;
 	void afterRetrieve() override;
 
 	void onInterrupt(HelError error);

@@ -113,12 +113,13 @@ void Device::doInitialize() {
 	assert((uintptr_t)transmitBuffer % 2048 == 0);	
 }
 
-void Device::retrieveDescriptor(size_t queue_index, size_t desc_index) {
+void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
 	printf("retrieve(%lu, %lu)\n", queue_index, desc_index);
 
 	if(queue_index == 0) {
-		// FIXME: fill in the correct length
-		libnet::onReceive((char *)receiveBuffer + sizeof(VirtHeader), 0);
+		assert(bytes_written >= sizeof(VirtHeader));
+		libnet::onReceive((char *)receiveBuffer + sizeof(VirtHeader),
+				bytes_written - sizeof(VirtHeader));
 	}
 }
 

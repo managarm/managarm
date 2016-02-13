@@ -42,7 +42,7 @@ struct Device : public GenericDevice, public libnet::NetDevice {
 	Device();
 
 	void doInitialize() override;
-	void retrieveDescriptor(size_t queue_index, size_t desc_index) override;
+	void retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) override;
 	void afterRetrieve() override;
 
 	void sendPacket(std::string packet) override;

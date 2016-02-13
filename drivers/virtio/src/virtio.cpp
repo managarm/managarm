@@ -154,7 +154,8 @@ void Queue::processInterrupt() {
 		// call the GenericDevice to complete the request
 		auto desc_index = accessUsedRing(progressHead % queueSize)->descIndex;
 		assert(desc_index < queueSize);
-		device.retrieveDescriptor(queueIndex, desc_index);
+		device.retrieveDescriptor(queueIndex, desc_index,
+				accessUsedRing(progressHead % queueSize)->written);
 
 		// free all descriptors in the descriptor chain
 		auto chain = desc_index;

@@ -84,7 +84,8 @@ struct GenericDevice {
 	// this is called after features are negotiated
 	virtual void doInitialize() = 0;
 
-	virtual void retrieveDescriptor(size_t queue_index, size_t desc_index) = 0;
+	virtual void retrieveDescriptor(size_t queue_index,
+			size_t desc_index, size_t bytes_written) = 0;
 
 	virtual void afterRetrieve() = 0;
 
