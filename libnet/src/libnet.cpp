@@ -5,6 +5,19 @@
 
 namespace libnet {
 
+enum {
+	kUdp = 17,
+	kIpVersion4 = 4,
+	kIpVersion6 = 6
+};
+
+enum {
+	kFragmentReserved = 0x8000,
+	kFragmentDF = 0x4000,
+	kFragmentMF = 0x2000,
+	kFragmentOffsetMask = 0x1FFF
+};
+
 struct DhcpDiscover {
 	uint8_t op;
 	uint8_t htype;
@@ -75,15 +88,104 @@ void testDevice(NetDevice &device) {
 }
 
 void onReceive(void *buffer, size_t length) {
-	auto header = (EthernetHeader *)buffer;
+	if(length < sizeof(EthernetHeader)) {
+		printf("Ethernet packet is too short!\n");
+		return;
+	}
 
-	printf("Sender MAC: %x:%x:%x:%x:%x:%x\n", header->sourceAddress[0], header->sourceAddress[1],
-			header->sourceAddress[2], header->sourceAddress[3],
-			header->sourceAddress[4], header->sourceAddress[5]);
-	printf("Destination MAC: %x:%x:%x:%x:%x:%x\n", header->destAddress[0], header->destAddress[1],
-			header->destAddress[2], header->destAddress[3],
-			header->destAddress[4], header->destAddress[5]);
-	printf("Ethertype: %d\n", netToHost<uint16_t>(header->etherType));
+	auto ethernet_header = (EthernetHeader *)buffer;
+
+	printf("Sender MAC: %x:%x:%x:%x:%x:%x\n", ethernet_header->sourceAddress[0], ethernet_header->sourceAddress[1],
+			ethernet_header->sourceAddress[2], ethernet_header->sourceAddress[3],
+			ethernet_header->sourceAddress[4], ethernet_header->sourceAddress[5]);
+	printf("Destination MAC: %x:%x:%x:%x:%x:%x\n", ethernet_header->destAddress[0], ethernet_header->destAddress[1],
+			ethernet_header->destAddress[2], ethernet_header->destAddress[3],
+			ethernet_header->destAddress[4], ethernet_header->destAddress[5]);
+	printf("Ethertype: %d\n", netToHost<uint16_t>(ethernet_header->etherType));
+	
+	if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherIp4) {
+		void *ip4_buffer = (char *)buffer + sizeof(EthernetHeader);
+		size_t buffer_length = length - sizeof(EthernetHeader);
+		receiveIp4Packet(ip4_buffer, buffer_length);
+	} else {
+		printf("Invalid ether type!\n");
+	}
+}
+
+void receiveIp4Packet(void *buffer, size_t length) {
+	if(length < sizeof(Ip4Header)) {
+		printf("Ip packet is too short!\n");
+		return;
+	}
+	
+	auto ip_header = (Ip4Header *)buffer;
+
+	assert((ip_header->flags_offset & kFragmentReserved) == 0);
+	if((ip_header->version_headerLength >> 4) != kIpVersion4) {
+		printf("Ip version not supported!\n");
+		return;
+	}
+
+	auto header_length = (ip_header->version_headerLength & 0x0F) * 4;
+	printf("Ip4 Length: %d\n", header_length);
+		
+	if(header_length < (int)sizeof(Ip4Header)) {
+		printf("Invalid Ip4->IHL!\n");
+		return;
+	}
+	
+	if((int)length < header_length) {
+		printf("Ip4 packet is too short!\n");
+		return;
+	}
+
+	if((ip_header->flags_offset & kFragmentOffsetMask) != 0) {
+		printf("Invalid Ip4 offset!\n");
+		return;
+	}
+
+	if(netToHost<uint16_t>(ip_header->length) < header_length) {
+		printf("Invalid Ip4 length!\n");
+		return;
+	}
+
+	if(ip_header->flags_offset & kFragmentMF) {
+		printf("More Fragments not implemented!\n");	
+	} else {
+		if(ip_header->protocol == kUdp) {
+			void *udp_buffer = (char *)buffer + header_length;
+			size_t buffer_length = length - header_length;
+			receiveUdpPacket(udp_buffer, buffer_length);
+		} else {
+			printf("Invalid Ip4 protocol type!\n");
+		}
+	}
+}
+
+void receiveUdpPacket(void *buffer, size_t length) {
+	if(length < sizeof(UdpHeader)) {
+		printf("Udp packet is too short!\n");
+		return;
+	}
+
+	auto udp_header = (UdpHeader *)buffer;
+	
+	printf("SrcPort: %d\n", netToHost<uint16_t>(udp_header->source));
+	printf("DestPort: %d\n", netToHost<uint16_t>(udp_header->destination));
+
+	if(netToHost<uint16_t>(udp_header->length) != length) {
+		printf("udp_header->length: %d , length: %lu\n", netToHost<uint16_t>(udp_header->length), length);
+		printf("Invalid Udp length!\n");
+		return;
+	}
+
+	void *packet_buffer = (char *)buffer + sizeof(UdpHeader);
+	size_t buffer_length = length - sizeof(UdpHeader);
+	receivePacket(packet_buffer, buffer_length);
+}
+
+void receivePacket(void *buffer, size_t length) {
+	printf("received packet\n");
 }
 
 } // namespace libnet
