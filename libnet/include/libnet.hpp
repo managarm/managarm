@@ -28,6 +28,10 @@ template<>
 inline uint16_t netToHost(uint16_t value) {
 	return __builtin_bswap16(value);
 }
+template<>
+inline uint32_t netToHost(uint32_t value) {
+	return __builtin_bswap32(value);
+}
 
 struct NetDevice {
 	virtual void sendPacket(std::string packet) = 0;

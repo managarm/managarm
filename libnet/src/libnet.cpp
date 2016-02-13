@@ -18,7 +18,18 @@ enum {
 	kFragmentOffsetMask = 0x1FFF
 };
 
-struct DhcpDiscover {
+enum {
+	kTagNull = 0,
+	kTagSubnetMask = 1,
+	kTagRouters = 3,
+	kTagDns = 6,
+	kTagIpLeaseTime = 51,
+	kTagDhcpMessageType = 53,
+	kTagServerIdentifier = 54,
+	kTagEnd = 255
+};
+
+struct DhcpHeader {
 	uint8_t op;
 	uint8_t htype;
 	uint8_t hlen;
@@ -43,28 +54,28 @@ void testDevice(NetDevice &device) {
 	//FIXME
 
 	std::string packet;
-	packet.resize(sizeof(DhcpDiscover) + 4);
+	packet.resize(sizeof(DhcpHeader) + 4);
 
-	DhcpDiscover dhcp_discover;
-	dhcp_discover.op = 1;
-	dhcp_discover.htype = 1;
-	dhcp_discover.hlen = 6;
-	dhcp_discover.hops = 0;
-	dhcp_discover.xid = hostToNet<uint32_t>(3);
-	dhcp_discover.secs = hostToNet<uint16_t>(0);
-	dhcp_discover.flags = hostToNet<uint16_t>(0x8000);
-	dhcp_discover.ciaddr = 0;
-	dhcp_discover.yiaddr = 0;
-	dhcp_discover.siaddr = 0;
-	dhcp_discover.giaddr = 0;
-	memset(dhcp_discover.chaddr, 0, 16);
-	memcpy(dhcp_discover.chaddr, local_mac.octets, 6);
-	memset(dhcp_discover.sname, 0, 64);
-	memset(dhcp_discover.file, 0, 128);
-	dhcp_discover.magic = hostToNet<uint32_t>(0x63825363);
-	memcpy(&packet[0], &dhcp_discover, sizeof(DhcpDiscover));
+	DhcpHeader dhcp_header;
+	dhcp_header.op = 1;
+	dhcp_header.htype = 1;
+	dhcp_header.hlen = 6;
+	dhcp_header.hops = 0;
+	dhcp_header.xid = hostToNet<uint32_t>(3);
+	dhcp_header.secs = hostToNet<uint16_t>(0);
+	dhcp_header.flags = hostToNet<uint16_t>(0x8000);
+	dhcp_header.ciaddr = 0;
+	dhcp_header.yiaddr = 0;
+	dhcp_header.siaddr = 0;
+	dhcp_header.giaddr = 0;
+	memset(dhcp_header.chaddr, 0, 16);
+	memcpy(dhcp_header.chaddr, local_mac.octets, 6);
+	memset(dhcp_header.sname, 0, 64);
+	memset(dhcp_header.file, 0, 128);
+	dhcp_header.magic = hostToNet<uint32_t>(0x63825363);
+	memcpy(&packet[0], &dhcp_header, sizeof(DhcpHeader));
 
-	auto dhcp_options = &packet[sizeof(DhcpDiscover)];
+	auto dhcp_options = &packet[sizeof(DhcpHeader)];
 	dhcp_options[0] = 53;
 	dhcp_options[1] = 1;
 	dhcp_options[2] = 1;
@@ -185,7 +196,60 @@ void receiveUdpPacket(void *buffer, size_t length) {
 }
 
 void receivePacket(void *buffer, size_t length) {
-	printf("received packet\n");
+	auto dhcp_header = (DhcpHeader *)buffer;
+	
+	printf("Dhcp operation: %d\n", dhcp_header->op);
+	auto src_ip = Ip4Address(netToHost<uint32_t>(dhcp_header->yiaddr));
+	auto dest_ip = Ip4Address(netToHost<uint32_t>(dhcp_header->siaddr));
+	printf("Dhcp yiaddr: %d.%d.%d.%d\n", src_ip.octets[0], src_ip.octets[1], src_ip.octets[2], src_ip.octets[3]);
+	printf("Dhcp siaddr: %d.%d.%d.%d\n", dest_ip.octets[0], dest_ip.octets[1], dest_ip.octets[2], dest_ip.octets[3]);
+
+	auto options = (uint8_t *)buffer + sizeof(DhcpHeader);
+	Ip4Address subnet_mask;
+	Ip4Address router;
+	Ip4Address dns;
+
+	int offset = 0;
+	while(offset < int(length - sizeof(DhcpHeader))) {
+		uint8_t tag = options[offset];
+		uint8_t opt_size = options[offset + 1];
+		uint8_t *opt_data = &options[offset + 2];
+
+		if(tag == kTagNull) {
+			// do nothing
+		} else if(tag == kTagSubnetMask) {
+			assert(opt_size == 4);
+			subnet_mask.octets[0] = opt_data[0];
+			subnet_mask.octets[1] = opt_data[1];
+			subnet_mask.octets[2] = opt_data[2];
+			subnet_mask.octets[3] = opt_data[3];
+		} else if(tag == kTagRouters) {
+			assert(opt_size == 4);
+			router.octets[0] = opt_data[0];
+			router.octets[1] = opt_data[1];
+			router.octets[2] = opt_data[2];
+			router.octets[3] = opt_data[3];	
+		} else if(tag == kTagDns) {
+			assert(opt_size == 4);
+			dns.octets[0] = opt_data[0];
+			dns.octets[1] = opt_data[1];
+			dns.octets[2] = opt_data[2];
+			dns.octets[3] = opt_data[3];	
+		} else if(tag == kTagIpLeaseTime) {
+		
+		} else if(tag == kTagDhcpMessageType) {
+			assert(opt_size == 1);
+			assert(*opt_data == 2);
+		} else if(tag == kTagServerIdentifier) {
+			
+		} else if(tag == kTagEnd) {
+			break;
+		} else {
+			printf("Invalid option: %d !\n", tag);
+		}
+
+		offset += 2 + opt_size;
+	}
 }
 
 } // namespace libnet

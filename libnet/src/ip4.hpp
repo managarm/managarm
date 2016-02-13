@@ -20,6 +20,10 @@ struct Ip4Address {
 			uint8_t octet3)
 	: octets{ octet0, octet1, octet2, octet3 } { }
 	
+	Ip4Address(uint32_t word)
+	: octets{ uint8_t(word >> 24), uint8_t((word >> 16) & 0xFF),
+			uint8_t((word >> 8) & 0xFF), uint8_t(word & 0xFF) } { }
+
 	uint8_t octets[4];
 };
 
