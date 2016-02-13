@@ -114,7 +114,7 @@ $(eval
 	install $$($$d_BINDIR)/$1 $(SYSROOT_PATH)/usr/bin
 
   $$($$c_BINDIR)/$1: $$(addprefix $$($$c_OBJDIR)/,$2) | $$($$c_BINDIR)
-	$$($$d_CXX) -o $$@ $($$d_LDFLAGS) $$(addprefix $$($$d_OBJDIR)/,$2) $$($$d_LIBS)
+	$$($$d_CXX) -o $$@ $($$d_LDFLAGS) $$(addprefix $$($$d_OBJDIR)/,$2) $$($$d_$3LIBS)
 )
 endef
 

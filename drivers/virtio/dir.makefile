@@ -13,11 +13,14 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -O3
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -lbragi_mbus -lfs -lnet \
+$c_block_LIBS := -lbragi_mbus -lfs \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_exec,virtio-block,main-block.o block.o virtio.o hw.pb.o)
-$(call make_exec,virtio-net,main-net.o net.o virtio.o hw.pb.o)
+$c_net_LIBS := -lbragi_mbus -lnet \
+	$(shell $($c_PKGCONF) --libs protobuf-lite)
+
+$(call make_exec,virtio-block,main-block.o block.o virtio.o hw.pb.o,block_)
+$(call make_exec,virtio-net,main-net.o net.o virtio.o hw.pb.o,net_)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files
