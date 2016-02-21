@@ -7,7 +7,8 @@
 namespace libnet {
 
 enum {
-	kEtherIp4 = 0x0800
+	kEtherIp4 = 0x0800,
+	kEtherArp = 0x0806
 };
 
 struct MacAddress {

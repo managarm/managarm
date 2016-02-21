@@ -39,7 +39,11 @@ struct NetDevice {
 
 void testDevice(NetDevice &device);
 
+void sendArpRequest();
+
 void onReceive(void *buffer, size_t length);
+
+void receiveArpPacket(void *buffer, size_t length);
 
 void receiveIp4Packet(void *buffer, size_t length);
 

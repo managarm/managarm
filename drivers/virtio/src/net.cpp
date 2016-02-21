@@ -7,21 +7,6 @@
 
 extern helx::EventHub eventHub;
 
-enum {
-	kEtherIp4 = 0x0800,
-	kEtherArp = 0x0806
-};
-
-struct ArpPacket {
-	uint16_t hwType;
-	uint16_t protoType;
-	uint8_t hwLength, protoLength;
-	uint16_t operation;
-	uint8_t senderHw[6];
-	uint8_t senderProto[4];
-	uint8_t targetHw[6];
-	uint8_t targetProto[4];
-};
 
 namespace virtio {
 namespace net {
@@ -73,26 +58,28 @@ void Device::testDevice() {
 
 	// -----------------------------------------------------------------------------------------
 
-	size_t rx_header_index = receiveQueue.lockDescriptor();
-	size_t rx_packet_index = receiveQueue.lockDescriptor();
+	for(int i = 0; i < 10; i++) {
+		size_t rx_header_index = receiveQueue.lockDescriptor();
+		size_t rx_packet_index = receiveQueue.lockDescriptor();
 
-	// setup a descriptor for the header
-	uintptr_t rx_header_physical;
-	HEL_CHECK(helPointerPhysical((char *)receiveBuffer, &rx_header_physical));
-	
-	VirtDescriptor *rx_header_desc = receiveQueue.accessDescriptor(rx_header_index);
-	rx_header_desc->address = rx_header_physical;
-	rx_header_desc->length = sizeof(VirtHeader);
-	rx_header_desc->flags = VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT;
-	rx_header_desc->next = rx_packet_index;
+		// setup a descriptor for the header
+		uintptr_t rx_header_physical;
+		HEL_CHECK(helPointerPhysical((char *)receiveBuffer, &rx_header_physical));
+		
+		VirtDescriptor *rx_header_desc = receiveQueue.accessDescriptor(rx_header_index);
+		rx_header_desc->address = rx_header_physical;
+		rx_header_desc->length = sizeof(VirtHeader);
+		rx_header_desc->flags = VIRTQ_DESC_F_WRITE | VIRTQ_DESC_F_NEXT;
+		rx_header_desc->next = rx_packet_index;
 
-	// setup a descriptor for the packet
-	VirtDescriptor *rx_packet_desc = receiveQueue.accessDescriptor(rx_packet_index);
-	rx_packet_desc->address = rx_header_physical + sizeof(VirtHeader);
-	rx_packet_desc->length = 1514;
-	rx_packet_desc->flags = VIRTQ_DESC_F_WRITE;
+		// setup a descriptor for the packet
+		VirtDescriptor *rx_packet_desc = receiveQueue.accessDescriptor(rx_packet_index);
+		rx_packet_desc->address = rx_header_physical + sizeof(VirtHeader);
+		rx_packet_desc->length = 1514;
+		rx_packet_desc->flags = VIRTQ_DESC_F_WRITE;
 
-	receiveQueue.postDescriptor(rx_header_index);
+		receiveQueue.postDescriptor(rx_header_index);
+	}
 	receiveQueue.notifyDevice();
 
 	while(true) {
