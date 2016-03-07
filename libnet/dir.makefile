@@ -17,7 +17,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lbragi_mbus \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libnet.so,libnet.o ethernet.o ip4.o udp.o)
+$(call make_so,libnet.so,libnet.o ethernet.o ip4.o udp.o tcp.o)
 $(call install_header,libnet.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 

@@ -10,7 +10,8 @@ namespace libnet {
 enum {
 	kIp4Version = 4,
 	kTtl = 64,
-	kUdpProtocol = 17
+	kUdpProtocol = 17,
+	kTcpProtocol = 6
 };
 
 struct Ip4Address {
@@ -62,6 +63,9 @@ struct Checksum {
 
 	void update(const void *buffer, size_t size) {
 		auto bytes = reinterpret_cast<const unsigned char *>(buffer);
+
+		if(size == 0)
+			return;
 
 		size_t i;
 		for(i = 0; i < size - 1; i += 2) {

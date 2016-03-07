@@ -3,11 +3,13 @@
 #include <stdlib.h>
 #include <libnet.hpp>
 #include "udp.hpp"
+#include "tcp.hpp"
 
 namespace libnet {
 
 enum {
 	kUdp = 17,
+	kTcp = 6,
 	kIpVersion4 = 4,
 	kIpVersion6 = 6
 };
@@ -59,6 +61,31 @@ struct ArpPacket {
 	Ip4Address targetProto;
 };
 
+struct TcpSocket {
+	enum State {
+		kStateNone,
+		kStateSynSent,
+		kStateEstablished
+	};
+
+	TcpSocket();
+
+	void connect();
+
+	State state;
+
+	// number of the latest byte the remote end has ACKed
+	uint32_t ackedLocalSequence;
+
+	// number of byte we expect to receive next
+	uint32_t expectedRemoteSequence;
+
+	//std::queue<std::string> resendQueue;
+};
+
+TcpSocket::TcpSocket()
+: state(kStateNone), ackedLocalSequence(1000) { }
+
 enum {
 	kTypeDiscover = 1,
 	kTypeOffer = 2,
@@ -80,12 +107,40 @@ enum DhcpState {
 DhcpState dhcpState = kDefaultState;
 NetDevice *globalDevice;
 Ip4Address localIp;
-MacAddress localAddress;
+MacAddress localMac;
 Ip4Address routerIp;
-MacAddress routerAddress;
+MacAddress routerMac;
 Ip4Address dns;
 Ip4Address subnetMask;
 
+TcpSocket tcpSocket;
+
+void TcpSocket::connect() {
+	state = kStateSynSent;
+
+	EthernetInfo ethernet_info;
+	ethernet_info.sourceMac = localMac;
+	ethernet_info.destMac = routerMac;
+	ethernet_info.etherType = kEtherIp4;
+
+	Ip4Info ip_info;
+	ip_info.sourceIp = localIp;
+	ip_info.destIp = Ip4Address(173, 194, 116, 210); //www.google.com
+	ip_info.protocol = kTcpProtocol;
+
+	TcpInfo tcp_info;
+	tcp_info.srcPort = 49152;
+	tcp_info.destPort = 80;
+	tcp_info.seqNumber = ackedLocalSequence;
+	tcp_info.ackNumber = 0;
+	tcp_info.ackFlag = false;
+	tcp_info.rstFlag = false;
+	tcp_info.synFlag = true;
+	tcp_info.finFlag = false;
+
+	std::string packet;
+	sendTcpPacket(*globalDevice, ethernet_info, ip_info, tcp_info, packet);
+}
 
 void sendArpRequest() {
 	std::string packet;
@@ -184,34 +239,45 @@ void onReceive(void *buffer, size_t length) {
 			ethernet_header->destAddress[4], ethernet_header->destAddress[5]);
 	printf("Ethertype: %d\n", netToHost<uint16_t>(ethernet_header->etherType));
 	
+	void *payload_buffer = (char *)buffer + sizeof(EthernetHeader);
+	size_t payload_length = length - sizeof(EthernetHeader);
+	
 	if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherIp4) {
-		void *ip4_buffer = (char *)buffer + sizeof(EthernetHeader);
-		size_t buffer_length = length - sizeof(EthernetHeader);
-		receiveIp4Packet(ip4_buffer, buffer_length);
+		receiveIp4Packet(payload_buffer, payload_length);
 	} else if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherArp) {
-		void *arp_buffer = (char *)buffer + sizeof(EthernetHeader);
-		size_t buffer_length = length - sizeof(EthernetHeader);
-		receiveArpPacket(arp_buffer, buffer_length);
+		receiveArpPacket(payload_buffer, payload_length);
 	} else {
 		printf("Invalid ether type!\n");
 	}
 }
 
 void receiveArpPacket(void *buffer, size_t length) {
+	printf("sizeof(ArpPacket): %lu\n", length);
 	if(length != sizeof(ArpPacket)) {
-		printf("ArpPacket is too short!\n");
-		return;
+		printf("Length is not the actual ArpPacket length!\n");
+// 		return;
 	}
 	
 	auto arp_packet = (ArpPacket *)buffer;
-	routerAddress = arp_packet->senderHw;
-	printf("routerAddress: %d:%d:%d:%d:%d:%d\n", routerAddress.octets[0], routerAddress.octets[1],
-	routerAddress.octets[2], routerAddress.octets[3], routerAddress.octets[4], routerAddress.octets[5]);
+	localMac = arp_packet->targetHw;
+	printf("localMac: %d:%d:%d:%d:%d:%d\n", localMac.octets[0], localMac.octets[1],
+			localMac.octets[2], localMac.octets[3], localMac.octets[4], localMac.octets[5]);		
+	routerMac = arp_packet->senderHw;
+	printf("routerMac: %d:%d:%d:%d:%d:%d\n", routerMac.octets[0], routerMac.octets[1],
+			routerMac.octets[2], routerMac.octets[3], routerMac.octets[4], routerMac.octets[5]);
+	
+	printf("hwtype: %i\n", netToHost<uint16_t>(arp_packet->hwType));
+	printf("prototype: %i\n", netToHost<uint16_t>(arp_packet->protoType));
+	printf("hwlength: %i\n", arp_packet->hwLength);
+	printf("protolength: %i\n", arp_packet->protoLength);
+	printf("operation: %i\n", netToHost<uint16_t>(arp_packet->operation));
+
+	tcpSocket.connect();
 }
 
 void receiveIp4Packet(void *buffer, size_t length) {
 	if(length < sizeof(Ip4Header)) {
-		printf("Ip packet is too short!\n");
+		printf("    Ip packet is too short!\n");
 		return;
 	}
 	
@@ -219,43 +285,48 @@ void receiveIp4Packet(void *buffer, size_t length) {
 
 	assert((ip_header->flags_offset & kFragmentReserved) == 0);
 	if((ip_header->version_headerLength >> 4) != kIpVersion4) {
-		printf("Ip version not supported!\n");
+		printf("    Ip version not supported!\n");
 		return;
 	}
 
 	auto header_length = (ip_header->version_headerLength & 0x0F) * 4;
-	printf("Ip4 Length: %d\n", header_length);
+	printf("    Ip4 headerLength: %d\n", header_length);
 		
 	if(header_length < (int)sizeof(Ip4Header)) {
-		printf("Invalid Ip4->IHL!\n");
+		printf("    Invalid Ip4->IHL!\n");
 		return;
 	}
 	
 	if((int)length < header_length) {
-		printf("Ip4 packet is too short!\n");
+		printf("    Ip4 packet is too short!\n");
 		return;
 	}
 
 	if((ip_header->flags_offset & kFragmentOffsetMask) != 0) {
-		printf("Invalid Ip4 offset!\n");
+		printf("    Invalid Ip4 offset!\n");
 		return;
 	}
 
 	if(netToHost<uint16_t>(ip_header->length) < header_length) {
-		printf("Invalid Ip4 length!\n");
+		printf("    Invalid Ip4 length!\n");
 		return;
 	}
 
 	if(ip_header->flags_offset & kFragmentMF) {
-		printf("More Fragments not implemented!\n");	
+		printf("    More Fragments not implemented!\n");
+		return;
+	}
+	
+	void *payload_buffer = (char *)buffer + header_length;
+	size_t payload_length = length - header_length;
+	printf("    PayloadLength: %lu\n", payload_length);
+
+	if(ip_header->protocol == kUdp) {
+		receiveUdpPacket(payload_buffer, payload_length);
+	} else if(ip_header->protocol == kTcp) {
+		receiveTcpPacket(payload_buffer, payload_length);
 	} else {
-		if(ip_header->protocol == kUdp) {
-			void *udp_buffer = (char *)buffer + header_length;
-			size_t buffer_length = length - header_length;
-			receiveUdpPacket(udp_buffer, buffer_length);
-		} else {
-			printf("Invalid Ip4 protocol type!\n");
-		}
+		printf("    Invalid Ip4 protocol type!\n");
 	}
 }
 
@@ -279,6 +350,138 @@ void receiveUdpPacket(void *buffer, size_t length) {
 	void *packet_buffer = (char *)buffer + sizeof(UdpHeader);
 	size_t buffer_length = length - sizeof(UdpHeader);
 	receivePacket(packet_buffer, buffer_length);
+}
+
+void receiveTcpPacket(void *buffer, size_t length) {
+	if(length < sizeof(TcpHeader)) {
+		printf("        Tcp packet is too short!\n");
+		return;
+	}
+
+	auto tcp_header = (TcpHeader *)buffer;
+
+	printf("        srcPort: %d\n", netToHost<uint16_t>(tcp_header->srcPort));
+	printf("        destPort: %d\n", netToHost<uint16_t>(tcp_header->destPort));
+	printf("        seqNumber: %d\n", netToHost<uint32_t>(tcp_header->seqNumber));
+	printf("        ackNumber: %d\n", netToHost<uint32_t>(tcp_header->ackNumber));
+
+	printf("        flags:");
+	uint16_t flags = netToHost<uint16_t>(tcp_header->flags);
+	if(flags & TcpFlags::kTcpFin)
+		printf(" FIN");
+	if(flags & TcpFlags::kTcpSyn)
+		printf(" SYN");
+	if(flags & TcpFlags::kTcpAck)
+		printf(" ACK");
+	if(flags & TcpFlags::kTcpRst)
+		printf(" RST");
+	printf("\n");
+
+	printf("        dataOffset: %d\n", flags >> 12);
+
+	void *payload_buffer = (char *)buffer + (flags >> 12) * 4;
+	size_t payload_length = length - (flags >> 12) * 4;
+		
+	if(flags & TcpFlags::kTcpRst) {
+		printf("        TCP socket is reset\n");
+		return;
+	}
+
+	if(tcpSocket.state == TcpSocket::kStateSynSent) {
+		if(!(flags & TcpFlags::kTcpSyn) || !(flags & TcpFlags::kTcpAck)) {
+			printf("        Expected SYN-ACK in SYN-SENT state\n");
+			return;
+		}else if(flags & TcpFlags::kTcpFin) {
+			printf("        FIN set in SYN-SENT state\n");
+			return;
+		}
+
+		if(payload_length != 0) {
+			printf("        SYN-ACK carries payload!\n");
+			return;
+		}
+
+		if(netToHost<uint32_t>(tcp_header->ackNumber) != tcpSocket.ackedLocalSequence + 1) {
+			printf("        Bad ackNumber in SYN-ACK packet!\n");
+			return;
+		}
+		tcpSocket.ackedLocalSequence = netToHost<uint32_t>(tcp_header->ackNumber);
+		tcpSocket.expectedRemoteSequence = netToHost<uint32_t>(tcp_header->seqNumber) + 1;
+		tcpSocket.state = TcpSocket::kStateEstablished;
+
+		EthernetInfo ethernet_info;
+		ethernet_info.sourceMac = localMac;
+		ethernet_info.destMac = routerMac;
+		ethernet_info.etherType = kEtherIp4;
+
+		Ip4Info ip_info;
+		ip_info.sourceIp = localIp;
+		ip_info.destIp = Ip4Address(173, 194, 116, 210); //www.google.com
+		ip_info.protocol = kTcpProtocol;
+
+		TcpInfo tcp_info;
+		tcp_info.srcPort = 49152;
+		tcp_info.destPort = 80;
+		tcp_info.seqNumber = tcpSocket.ackedLocalSequence;
+		tcp_info.ackNumber = tcpSocket.expectedRemoteSequence;
+		tcp_info.ackFlag = true;
+		tcp_info.rstFlag = false;
+		tcp_info.synFlag = false;
+		tcp_info.finFlag = false;
+
+		std::string packet("GET /\n");
+		sendTcpPacket(*globalDevice, ethernet_info, ip_info, tcp_info, packet);
+	}else if(tcpSocket.state == TcpSocket::kStateEstablished) {
+		if(flags & TcpFlags::kTcpSyn) {
+			printf("        SYN set in ESTABLISHED state\n");
+			return;
+		}
+
+		if(netToHost<uint32_t>(tcp_header->seqNumber) != tcpSocket.expectedRemoteSequence) {
+			printf("        Packet out-of-order!\n");
+			return;
+		}
+		
+		if(flags & TcpFlags::kTcpAck) {
+			tcpSocket.ackedLocalSequence = netToHost<uint32_t>(tcp_header->ackNumber);
+		}
+
+		size_t virtual_length = payload_length;
+		if(flags & TcpFlags::kTcpFin)
+			virtual_length++;
+
+		tcpSocket.expectedRemoteSequence = netToHost<uint32_t>(tcp_header->seqNumber) + virtual_length;
+		printf("        expectedRemoteSequence: %d\n", tcpSocket.expectedRemoteSequence);
+
+		if(virtual_length > 0) {
+			EthernetInfo ethernet_info;
+			ethernet_info.sourceMac = localMac;
+			ethernet_info.destMac = routerMac;
+			ethernet_info.etherType = kEtherIp4;
+
+			Ip4Info ip_info;
+			ip_info.sourceIp = localIp;
+			ip_info.destIp = Ip4Address(173, 194, 116, 210); //www.google.com
+			ip_info.protocol = kTcpProtocol;
+
+			TcpInfo tcp_info;
+			tcp_info.srcPort = 49152;
+			tcp_info.destPort = 80;
+			tcp_info.seqNumber = tcpSocket.ackedLocalSequence;
+			tcp_info.ackNumber = tcpSocket.expectedRemoteSequence;
+			tcp_info.ackFlag = true;
+			tcp_info.rstFlag = false;
+			tcp_info.synFlag = false;
+			tcp_info.finFlag = false;
+
+			sendTcpPacket(*globalDevice, ethernet_info, ip_info, tcp_info, std::string());
+		}
+	}else{
+		printf("        TCP socket in illegal state\n");
+		return;
+	}
+
+	fwrite(payload_buffer, 1, payload_length, stdout);
 }
 
 void receivePacket(void *buffer, size_t length) {
