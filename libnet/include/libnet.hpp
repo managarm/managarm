@@ -37,7 +37,7 @@ struct NetDevice {
 	virtual void sendPacket(std::string packet) = 0;
 };
 
-void testDevice(NetDevice &device);
+void testDevice(NetDevice &device, uint8_t mac_octets[6]);
 
 void sendArpRequest();
 

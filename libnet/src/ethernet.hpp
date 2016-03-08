@@ -22,6 +22,13 @@ struct MacAddress {
 			uint8_t octet3, uint8_t octet4, uint8_t octet5)
 	: octets{ octet0, octet1, octet2, octet3, octet4, octet5 } { }
 
+	bool operator== (const MacAddress &other) {
+		return memcmp(octets, other.octets, 6) == 0;
+	}
+	bool operator!= (const MacAddress &other) {
+		return !(*this == other);
+	}
+
 	uint8_t octets[6];
 };
 
@@ -32,8 +39,8 @@ struct EthernetInfo {
 };
 
 struct EthernetHeader {
-	uint8_t destAddress[6];
-	uint8_t sourceAddress[6];
+	MacAddress destAddress;
+	MacAddress sourceAddress;
 	uint16_t etherType;
 };
 

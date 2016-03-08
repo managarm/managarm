@@ -152,8 +152,7 @@ void sendArpRequest() {
 	arp_packet.hwLength = 6;
 	arp_packet.protoLength = 4;
 	arp_packet.operation = hostToNet<uint16_t>(1);
-	MacAddress local_mac;
-	arp_packet.senderHw = local_mac;
+	arp_packet.senderHw = localMac;
 	arp_packet.senderProto = localIp;
 	arp_packet.targetHw = MacAddress::broadcast();
 	arp_packet.targetProto = routerIp;
@@ -161,7 +160,7 @@ void sendArpRequest() {
 	memcpy(&packet[0], &arp_packet, sizeof(ArpPacket));
 	
 	EthernetInfo ethernet_info;
-	ethernet_info.sourceMac = local_mac;
+	ethernet_info.sourceMac = localMac;
 	ethernet_info.destMac = MacAddress::broadcast();
 	ethernet_info.etherType = kEtherArp;
 
@@ -169,13 +168,9 @@ void sendArpRequest() {
 }
 
 
-void testDevice(NetDevice &device) {
-	MacAddress local_mac;
-//	for(size_t i = 0; i < 6; i++)
-//		local_mac.octets[i] = readConfig8(i);
-	//FIXME
-	
+void testDevice(NetDevice &device, uint8_t mac_octets[6]) {
 	globalDevice = &device;
+	memcpy(localMac.octets, mac_octets, 6);
 
 	std::string packet;
 	packet.resize(sizeof(DhcpHeader) + 4);
@@ -193,7 +188,7 @@ void testDevice(NetDevice &device) {
 	dhcp_header.siaddr = 0;
 	dhcp_header.giaddr = 0;
 	memset(dhcp_header.chaddr, 0, 16);
-	memcpy(dhcp_header.chaddr, local_mac.octets, 6);
+	memcpy(dhcp_header.chaddr, localMac.octets, 6);
 	memset(dhcp_header.sname, 0, 64);
 	memset(dhcp_header.file, 0, 128);
 	dhcp_header.magic = hostToNet<uint32_t>(0x63825363);
@@ -206,7 +201,7 @@ void testDevice(NetDevice &device) {
 	dhcp_options[3] = 0xFF;
 	
 	EthernetInfo ethernet_info;
-	ethernet_info.sourceMac = local_mac;
+	ethernet_info.sourceMac = localMac;
 	ethernet_info.destMac = MacAddress::broadcast();
 	ethernet_info.etherType = kEtherIp4;
 
@@ -231,13 +226,19 @@ void onReceive(void *buffer, size_t length) {
 
 	auto ethernet_header = (EthernetHeader *)buffer;
 
-	printf("Sender MAC: %x:%x:%x:%x:%x:%x\n", ethernet_header->sourceAddress[0], ethernet_header->sourceAddress[1],
-			ethernet_header->sourceAddress[2], ethernet_header->sourceAddress[3],
-			ethernet_header->sourceAddress[4], ethernet_header->sourceAddress[5]);
-	printf("Destination MAC: %x:%x:%x:%x:%x:%x\n", ethernet_header->destAddress[0], ethernet_header->destAddress[1],
-			ethernet_header->destAddress[2], ethernet_header->destAddress[3],
-			ethernet_header->destAddress[4], ethernet_header->destAddress[5]);
-	printf("Ethertype: %d\n", netToHost<uint16_t>(ethernet_header->etherType));
+	if(ethernet_header->destAddress != localMac
+			&& ethernet_header->destAddress != MacAddress::broadcast()) {
+//		printf("Destination mismatch\n");
+		return;
+	}
+	
+	printf("Ethernet frame. srcMac: %x:%x:%x:%x:%x:%x, destMac: %x:%x:%x:%x:%x:%x\n",
+			ethernet_header->sourceAddress.octets[0], ethernet_header->sourceAddress.octets[1],
+			ethernet_header->sourceAddress.octets[2], ethernet_header->sourceAddress.octets[3],
+			ethernet_header->sourceAddress.octets[4], ethernet_header->sourceAddress.octets[5],
+			ethernet_header->destAddress.octets[0], ethernet_header->destAddress.octets[1],
+			ethernet_header->destAddress.octets[2], ethernet_header->destAddress.octets[3],
+			ethernet_header->destAddress.octets[4], ethernet_header->destAddress.octets[5]);
 	
 	void *payload_buffer = (char *)buffer + sizeof(EthernetHeader);
 	size_t payload_length = length - sizeof(EthernetHeader);
@@ -247,7 +248,8 @@ void onReceive(void *buffer, size_t length) {
 	} else if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherArp) {
 		receiveArpPacket(payload_buffer, payload_length);
 	} else {
-		printf("Invalid ether type!\n");
+		printf("    Unexpected etherType 0x%X!\n",
+				netToHost<uint16_t>(ethernet_header->etherType));
 	}
 }
 
@@ -349,7 +351,10 @@ void receiveUdpPacket(void *buffer, size_t length) {
 
 	void *packet_buffer = (char *)buffer + sizeof(UdpHeader);
 	size_t buffer_length = length - sizeof(UdpHeader);
-	receivePacket(packet_buffer, buffer_length);
+
+	if(netToHost<uint16_t>(udp_header->source) == 67
+			&& netToHost<uint16_t>(udp_header->destination) == 68)
+		receivePacket(packet_buffer, buffer_length);
 }
 
 void receiveTcpPacket(void *buffer, size_t length) {
@@ -543,8 +548,6 @@ void receivePacket(void *buffer, size_t length) {
 	if(dhcpState == kDiscoverySent) {
 		assert(dhcp_type == kTypeOffer);	
 	
-		MacAddress local_mac;
-
 		std::string packet;
 		packet.resize(sizeof(DhcpHeader) + 4);
 
@@ -562,7 +565,7 @@ void receivePacket(void *buffer, size_t length) {
 				+ (si_addr.octets[2] >> 8) + (si_addr.octets[3]));
 		new_dhcp_header.giaddr = 0;
 		memset(new_dhcp_header.chaddr, 0, 16);
-		memcpy(new_dhcp_header.chaddr, local_mac.octets, 6);
+		memcpy(new_dhcp_header.chaddr, localMac.octets, 6);
 		memset(new_dhcp_header.sname, 0, 64);
 		memset(new_dhcp_header.file, 0, 128);
 		new_dhcp_header.magic = hostToNet<uint32_t>(0x63825363);
@@ -575,7 +578,7 @@ void receivePacket(void *buffer, size_t length) {
 		dhcp_options[3] = 0xFF;
 
 		EthernetInfo ethernet_info;
-		ethernet_info.sourceMac = local_mac;
+		ethernet_info.sourceMac = localMac;
 		ethernet_info.destMac = MacAddress::broadcast();
 		ethernet_info.etherType = kEtherIp4;
 
