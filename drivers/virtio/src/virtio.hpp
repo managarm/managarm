@@ -35,10 +35,13 @@ struct VirtDescriptor {
 	uint16_t next;
 };
 
-// bits of the VirtDescriptor::flags field
 enum {
+	// bits of the VirtDescriptor::flags field
 	VIRTQ_DESC_F_NEXT = 1, // descriptor is part of a chain
-	VIRTQ_DESC_F_WRITE = 2 // buffer is written by device
+	VIRTQ_DESC_F_WRITE = 2, // buffer is written by device
+
+	// bits of the VirtUsedHeader::flags field
+	VIRTQ_USED_F_NO_NOTIFY = 1 // no need to notify the device
 };
 
 struct VirtAvailHeader {

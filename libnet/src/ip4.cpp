@@ -15,8 +15,8 @@ void sendIp4Packet(NetDevice &device, EthernetInfo link_info,
 	header.ttl = kTtl;
 	header.protocol = network_info.protocol;
 	header.checksum = 0;
-	memcpy(header.sourceIp, network_info.sourceIp.octets, 4);
-	memcpy(header.targetIp, network_info.destIp.octets, 4);
+	header.sourceIp = network_info.sourceIp;
+	header.targetIp = network_info.destIp;
 
 	Checksum checksum;
 	checksum.update(&header, sizeof(Ip4Header));

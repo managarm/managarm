@@ -15,21 +15,24 @@ enum {
 };
 
 enum {
-	kFragmentReserved = 0x8000,
-	kFragmentDF = 0x4000,
-	kFragmentMF = 0x2000,
+	kFlagReserved = 0x8000,
+	kFlagDF = 0x4000,
+	kFlagMF = 0x2000,
 	kFragmentOffsetMask = 0x1FFF
 };
 
 enum {
-	kTagNull = 0,
-	kTagSubnetMask = 1,
-	kTagRouters = 3,
-	kTagDns = 6,
-	kTagIpLeaseTime = 51,
-	kTagDhcpMessageType = 53,
-	kTagServerIdentifier = 54,
-	kTagEnd = 255
+	kBootpNull = 0,
+	kBootpEnd = 255,
+
+	kBootpSubnet = 1,
+	kBootpRouters = 3,
+	kBootpDns = 6,
+
+	kDhcpRequestedIp = 50,
+	kDhcpLeaseTime = 51,
+	kDhcpMessageType = 53,
+	kDhcpServer = 54
 };
 
 struct DhcpHeader {
@@ -37,17 +40,25 @@ struct DhcpHeader {
 	uint8_t htype;
 	uint8_t hlen;
 	uint8_t hops;
-	uint32_t xid;
-	uint16_t secs;
+	uint32_t transaction;
+	uint16_t secondsSinceBoot;
 	uint16_t flags;
-	uint32_t ciaddr;
-	uint32_t yiaddr;
-	uint32_t siaddr;
-	uint32_t giaddr;
-	uint8_t chaddr[16];
-	uint8_t sname[64];
+	Ip4Address clientIp;
+	Ip4Address assignedIp;
+	Ip4Address serverIp;
+	Ip4Address gatewayIp;
+	uint8_t clientHardware[16];
+	uint8_t serverHost[64];
 	uint8_t file[128];
-	uint32_t magic;
+	uint32_t magic; // move this out of DhcpHeader
+};
+
+enum {
+	// bits of the BOOTP flags field
+	kDhcpBroadcast = 0x8000,
+
+	// dhcp magic option
+	kDhcpMagic = 0x63825363
 };
 
 struct ArpPacket {
@@ -104,7 +115,9 @@ enum DhcpState {
 	kAckReceived
 };
 
+uint32_t dhcpTransaction = 0xD61FF088; // some random integer
 DhcpState dhcpState = kDefaultState;
+
 NetDevice *globalDevice;
 Ip4Address localIp;
 MacAddress localMac;
@@ -114,6 +127,16 @@ Ip4Address dns;
 Ip4Address subnetMask;
 
 TcpSocket tcpSocket;
+
+void receiveArpPacket(void *buffer, size_t length);
+
+void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length);
+
+void receiveUdpPacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length);
+
+void receiveTcpPacket(void *buffer, size_t length);
+
+void receivePacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length);
 
 void TcpSocket::connect() {
 	state = kStateSynSent;
@@ -180,25 +203,25 @@ void testDevice(NetDevice &device, uint8_t mac_octets[6]) {
 	dhcp_header.htype = 1;
 	dhcp_header.hlen = 6;
 	dhcp_header.hops = 0;
-	dhcp_header.xid = hostToNet<uint32_t>(3);
-	dhcp_header.secs = hostToNet<uint16_t>(0);
-	dhcp_header.flags = hostToNet<uint16_t>(0x8000);
-	dhcp_header.ciaddr = 0;
-	dhcp_header.yiaddr = 0;
-	dhcp_header.siaddr = 0;
-	dhcp_header.giaddr = 0;
-	memset(dhcp_header.chaddr, 0, 16);
-	memcpy(dhcp_header.chaddr, localMac.octets, 6);
-	memset(dhcp_header.sname, 0, 64);
+	dhcp_header.transaction = hostToNet<uint32_t>(dhcpTransaction);
+	dhcp_header.secondsSinceBoot = 0;
+	dhcp_header.flags = hostToNet<uint16_t>(kDhcpBroadcast);
+	dhcp_header.clientIp = Ip4Address();
+	dhcp_header.assignedIp = Ip4Address();
+	dhcp_header.serverIp = Ip4Address();
+	dhcp_header.gatewayIp = Ip4Address();
+	memset(dhcp_header.clientHardware, 0, 16);
+	memcpy(dhcp_header.clientHardware, localMac.octets, 6);
+	memset(dhcp_header.serverHost, 0, 64);
 	memset(dhcp_header.file, 0, 128);
-	dhcp_header.magic = hostToNet<uint32_t>(0x63825363);
+	dhcp_header.magic = hostToNet<uint32_t>(kDhcpMagic);
 	memcpy(&packet[0], &dhcp_header, sizeof(DhcpHeader));
 
 	auto dhcp_options = &packet[sizeof(DhcpHeader)];
-	dhcp_options[0] = 53;
+	dhcp_options[0] = kDhcpMessageType;
 	dhcp_options[1] = 1;
 	dhcp_options[2] = kTypeDiscover;
-	dhcp_options[3] = 0xFF;
+	dhcp_options[3] = kBootpEnd;
 	
 	EthernetInfo ethernet_info;
 	ethernet_info.sourceMac = localMac;
@@ -206,8 +229,8 @@ void testDevice(NetDevice &device, uint8_t mac_octets[6]) {
 	ethernet_info.etherType = kEtherIp4;
 
 	Ip4Info ip_info;
-	ip_info.sourceIp = Ip4Address(0, 0, 0, 0);
-	ip_info.destIp = Ip4Address(0xFF, 0xFF, 0xFF, 0xFF);
+	ip_info.sourceIp = Ip4Address();
+	ip_info.destIp = Ip4Address::broadcast();
 	ip_info.protocol = kUdpProtocol;
 
 	UdpInfo udp_info;
@@ -220,36 +243,40 @@ void testDevice(NetDevice &device, uint8_t mac_octets[6]) {
 
 void onReceive(void *buffer, size_t length) {
 	if(length < sizeof(EthernetHeader)) {
-		printf("Ethernet packet is too short!\n");
+		printf("Ethernet: Packet is too short!\n");
 		return;
 	}
 
 	auto ethernet_header = (EthernetHeader *)buffer;
 
-	if(ethernet_header->destAddress != localMac
-			&& ethernet_header->destAddress != MacAddress::broadcast()) {
+	EthernetInfo link_info;
+	link_info.sourceMac = ethernet_header->sourceAddress;
+	link_info.destMac = ethernet_header->destAddress;
+	link_info.etherType = netToHost<uint16_t>(ethernet_header->etherType);
+	
+	void *payload_buffer = (char *)buffer + sizeof(EthernetHeader);
+	size_t payload_length = length - sizeof(EthernetHeader);
+
+	if(link_info.destMac != localMac && link_info.destMac != MacAddress::broadcast()) {
 //		printf("Destination mismatch\n");
 		return;
 	}
 	
-	printf("Ethernet frame. srcMac: %x:%x:%x:%x:%x:%x, destMac: %x:%x:%x:%x:%x:%x\n",
-			ethernet_header->sourceAddress.octets[0], ethernet_header->sourceAddress.octets[1],
-			ethernet_header->sourceAddress.octets[2], ethernet_header->sourceAddress.octets[3],
-			ethernet_header->sourceAddress.octets[4], ethernet_header->sourceAddress.octets[5],
-			ethernet_header->destAddress.octets[0], ethernet_header->destAddress.octets[1],
-			ethernet_header->destAddress.octets[2], ethernet_header->destAddress.octets[3],
-			ethernet_header->destAddress.octets[4], ethernet_header->destAddress.octets[5]);
+	printf("Ethernet frame. srcMac: %x:%x:%x:%x:%x:%x, destMac: %x:%x:%x:%x:%x:%x, etherType: 0x%x\n",
+			link_info.sourceMac.octets[0], link_info.sourceMac.octets[1],
+			link_info.sourceMac.octets[2], link_info.sourceMac.octets[3],
+			link_info.sourceMac.octets[4], link_info.sourceMac.octets[5],
+			link_info.destMac.octets[0], link_info.destMac.octets[1],
+			link_info.destMac.octets[2], link_info.destMac.octets[3],
+			link_info.destMac.octets[4], link_info.destMac.octets[5],
+			link_info.etherType);
 	
-	void *payload_buffer = (char *)buffer + sizeof(EthernetHeader);
-	size_t payload_length = length - sizeof(EthernetHeader);
-	
-	if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherIp4) {
-		receiveIp4Packet(payload_buffer, payload_length);
-	} else if(netToHost<uint16_t>(ethernet_header->etherType) == kEtherArp) {
+	if(link_info.etherType == kEtherIp4) {
+		receiveIp4Packet(link_info, payload_buffer, payload_length);
+	} else if(link_info.etherType == kEtherArp) {
 		receiveArpPacket(payload_buffer, payload_length);
 	} else {
-		printf("    Unexpected etherType 0x%X!\n",
-				netToHost<uint16_t>(ethernet_header->etherType));
+		printf("    Ethernet: Unexpected etherType 0x%X!\n", link_info.etherType);
 	}
 }
 
@@ -277,62 +304,76 @@ void receiveArpPacket(void *buffer, size_t length) {
 	tcpSocket.connect();
 }
 
-void receiveIp4Packet(void *buffer, size_t length) {
+void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length) {
 	if(length < sizeof(Ip4Header)) {
-		printf("    Ip packet is too short!\n");
+		printf("    Ip4: Packet is too short!\n");
 		return;
 	}
 	
 	auto ip_header = (Ip4Header *)buffer;
 
-	assert((ip_header->flags_offset & kFragmentReserved) == 0);
 	if((ip_header->version_headerLength >> 4) != kIpVersion4) {
-		printf("    Ip version not supported!\n");
+		printf("    Ip4: Version not supported!\n");
 		return;
 	}
 
-	auto header_length = (ip_header->version_headerLength & 0x0F) * 4;
-	printf("    Ip4 headerLength: %d\n", header_length);
-		
-	if(header_length < (int)sizeof(Ip4Header)) {
-		printf("    Invalid Ip4->IHL!\n");
+	size_t header_length = (ip_header->version_headerLength & 0x0F) * 4;
+	if(header_length < sizeof(Ip4Header)) {
+		printf("    Ip4: headerLength is too small!\n");
 		return;
-	}
-	
-	if((int)length < header_length) {
-		printf("    Ip4 packet is too short!\n");
+	}else if(netToHost<uint16_t>(ip_header->length) < header_length) {
+		printf("    Ip4: totalLength < headerLength!\n");
 		return;
-	}
-
-	if((ip_header->flags_offset & kFragmentOffsetMask) != 0) {
-		printf("    Invalid Ip4 offset!\n");
+	}else if(netToHost<uint16_t>(ip_header->length) != length) {
+		printf("    Ip4: totalLength does not match packet length!\n");
 		return;
 	}
 
-	if(netToHost<uint16_t>(ip_header->length) < header_length) {
-		printf("    Invalid Ip4 length!\n");
-		return;
-	}
-
-	if(ip_header->flags_offset & kFragmentMF) {
-		printf("    More Fragments not implemented!\n");
-		return;
-	}
+	Ip4Info network_info;
+	network_info.sourceIp = ip_header->sourceIp;
+	network_info.destIp = ip_header->targetIp;
+	network_info.protocol = ip_header->protocol;
 	
 	void *payload_buffer = (char *)buffer + header_length;
 	size_t payload_length = length - header_length;
-	printf("    PayloadLength: %lu\n", payload_length);
+	
+	printf("    Ip4 header. srcIp: %d.%d.%d.%d, destIp: %d.%d.%d.%d, protocol: %d\n",
+			network_info.sourceIp.octets[0], network_info.sourceIp.octets[1],
+			network_info.sourceIp.octets[2], network_info.sourceIp.octets[3],
+			network_info.destIp.octets[0], network_info.destIp.octets[1],
+			network_info.destIp.octets[2], network_info.destIp.octets[3],
+			network_info.protocol);
+	printf("    headerLength: %lu, payloadLength: %lu\n", header_length, payload_length);
+	
+	auto flags = netToHost<uint16_t>(ip_header->flags_offset);
+	auto fragment_offset = flags & kFragmentOffsetMask;
+	
+	assert(!(flags & kFlagReserved));
+	if(fragment_offset != 0) {
+		printf("    Ip4: Non-zero fragment offset %d not implemented!\n", fragment_offset);
+		return;
+	}else if(flags & kFlagMF) {
+		printf("    Ip4: MF flag not implemented\n");
+		return;
+	}
 
-	if(ip_header->protocol == kUdp) {
-		receiveUdpPacket(payload_buffer, payload_length);
-	} else if(ip_header->protocol == kTcp) {
+	printf("    flags:");
+	if(flags & kFlagDF)
+		printf(" DF");
+	if(flags & kFlagMF)
+		printf(" MF");
+	printf("\n");
+
+	if(network_info.protocol == kUdp) {
+		receiveUdpPacket(link_info, network_info, payload_buffer, payload_length);
+	} else if(network_info.protocol == kTcp) {
 		receiveTcpPacket(payload_buffer, payload_length);
 	} else {
 		printf("    Invalid Ip4 protocol type!\n");
 	}
 }
 
-void receiveUdpPacket(void *buffer, size_t length) {
+void receiveUdpPacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length) {
 	if(length < sizeof(UdpHeader)) {
 		printf("Udp packet is too short!\n");
 		return;
@@ -340,12 +381,11 @@ void receiveUdpPacket(void *buffer, size_t length) {
 
 	auto udp_header = (UdpHeader *)buffer;
 	
-	printf("SrcPort: %d\n", netToHost<uint16_t>(udp_header->source));
-	printf("DestPort: %d\n", netToHost<uint16_t>(udp_header->destination));
+	printf("        UDP header. srcPort: %d, destPort: %d\n", netToHost<uint16_t>(udp_header->source),
+			netToHost<uint16_t>(udp_header->destination));
 
 	if(netToHost<uint16_t>(udp_header->length) != length) {
-		printf("udp_header->length: %d , length: %lu\n", netToHost<uint16_t>(udp_header->length), length);
-		printf("Invalid Udp length!\n");
+		printf("        UDP: Invalid length!\n");
 		return;
 	}
 
@@ -354,7 +394,7 @@ void receiveUdpPacket(void *buffer, size_t length) {
 
 	if(netToHost<uint16_t>(udp_header->source) == 67
 			&& netToHost<uint16_t>(udp_header->destination) == 68)
-		receivePacket(packet_buffer, buffer_length);
+		receivePacket(link_info, network_info, packet_buffer, buffer_length);
 }
 
 void receiveTcpPacket(void *buffer, size_t length) {
@@ -489,108 +529,132 @@ void receiveTcpPacket(void *buffer, size_t length) {
 	fwrite(payload_buffer, 1, payload_length, stdout);
 }
 
-void receivePacket(void *buffer, size_t length) {
+void receivePacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length) {
 	auto dhcp_header = (DhcpHeader *)buffer;
 	
-	printf("Dhcp operation: %d\n", dhcp_header->op);
-	localIp = Ip4Address(netToHost<uint32_t>(dhcp_header->yiaddr));
-	auto si_addr = Ip4Address(netToHost<uint32_t>(dhcp_header->siaddr));
-	printf("Dhcp yiaddr: %d.%d.%d.%d\n", localIp.octets[0], localIp.octets[1], localIp.octets[2], localIp.octets[3]);
-	printf("Dhcp siaddr: %d.%d.%d.%d\n", si_addr.octets[0], si_addr.octets[1], si_addr.octets[2], si_addr.octets[3]);
+	// TODO: verify dhcp packet size
 
+	printf("            BOOTP operation: %d\n", dhcp_header->op);
+	auto client_ip = dhcp_header->clientIp;
+	auto assigned_ip = dhcp_header->assignedIp;
+	auto server_ip = dhcp_header->serverIp;
+	auto gateway_ip = dhcp_header->gatewayIp;
+	printf("            BOOTP clientIp: %d.%d.%d.%d, assignedIp: %d.%d.%d.%d\n",
+			client_ip.octets[0], client_ip.octets[1], client_ip.octets[2], client_ip.octets[3],
+			assigned_ip.octets[0], assigned_ip.octets[1], assigned_ip.octets[2], assigned_ip.octets[3]);
+	printf("            BOOTP serverIp: %d.%d.%d.%d, gatewayIp: %d.%d.%d.%d\n",
+			server_ip.octets[0], server_ip.octets[1], server_ip.octets[2], server_ip.octets[3],
+			gateway_ip.octets[0], gateway_ip.octets[1], gateway_ip.octets[2], gateway_ip.octets[3]);
 
-	auto options = (uint8_t *)buffer + sizeof(DhcpHeader);
 	int dhcp_type;
+	Ip4Address dhcp_server;
 
-	int offset = 0;
-	while(offset < int(length - sizeof(DhcpHeader))) {
+	size_t offset = 0;
+	auto options = (uint8_t *)buffer + sizeof(DhcpHeader);
+	while(offset < length - sizeof(DhcpHeader)) {
 		uint8_t tag = options[offset];
+		if(tag == kBootpNull) {
+			continue;
+		}else if(tag == kBootpEnd) {
+			break;
+		}
+
 		uint8_t opt_size = options[offset + 1];
 		uint8_t *opt_data = &options[offset + 2];
-
-		if(tag == kTagNull) {
-			// do nothing
-		} else if(tag == kTagSubnetMask) {
+		if(tag == kBootpSubnet) {
 			assert(opt_size == 4);
 			subnetMask.octets[0] = opt_data[0];
 			subnetMask.octets[1] = opt_data[1];
 			subnetMask.octets[2] = opt_data[2];
 			subnetMask.octets[3] = opt_data[3];
-		} else if(tag == kTagRouters) {
+		}else if(tag == kBootpRouters) {
 			assert(opt_size == 4);
 			routerIp.octets[0] = opt_data[0];
 			routerIp.octets[1] = opt_data[1];
 			routerIp.octets[2] = opt_data[2];
 			routerIp.octets[3] = opt_data[3];	
-		} else if(tag == kTagDns) {
+		}else if(tag == kBootpDns) {
 			assert(opt_size == 4);
 			dns.octets[0] = opt_data[0];
 			dns.octets[1] = opt_data[1];
 			dns.octets[2] = opt_data[2];
 			dns.octets[3] = opt_data[3];	
-		} else if(tag == kTagIpLeaseTime) {
+		}else if(tag == kDhcpLeaseTime) {
 		
-		} else if(tag == kTagDhcpMessageType) {
+		}else if(tag == kDhcpMessageType) {
 			assert(opt_size == 1);
 			dhcp_type = *opt_data;
-			printf("dhcp_type: %d\n", dhcp_type);
-		} else if(tag == kTagServerIdentifier) {
-			
-		} else if(tag == kTagEnd) {
-			break;
-		} else {
-			printf("Invalid option: %d !\n", tag);
+			printf("            DHCP messageType: %d\n", dhcp_type);
+		}else if(tag == kDhcpServer) {
+			assert(opt_size == 4);
+			dhcp_server = Ip4Address(opt_data[0], opt_data[1], opt_data[2], opt_data[3]);
+		}else{
+			printf("            BOOTP Invalid option: %d !\n", tag);
 		}
 
 		offset += 2 + opt_size;
 	}
-	
+
+	assert(dhcp_server == network_info.sourceIp);
+
 	if(dhcpState == kDiscoverySent) {
 		assert(dhcp_type == kTypeOffer);	
 	
 		std::string packet;
-		packet.resize(sizeof(DhcpHeader) + 4);
+		packet.resize(sizeof(DhcpHeader) + 16);
 
 		DhcpHeader new_dhcp_header;
 		new_dhcp_header.op = 1;
 		new_dhcp_header.htype = 1;
 		new_dhcp_header.hlen = 6;
 		new_dhcp_header.hops = 0;
-		new_dhcp_header.xid = hostToNet<uint32_t>(3);
-		new_dhcp_header.secs = hostToNet<uint16_t>(0);
-		new_dhcp_header.flags = hostToNet<uint16_t>(0x0000);
-		new_dhcp_header.ciaddr = 0;
-		new_dhcp_header.yiaddr = 0;
-		new_dhcp_header.siaddr = hostToNet<uint32_t>((si_addr.octets[0] >> 24) + (si_addr.octets[1] >> 16) 
-				+ (si_addr.octets[2] >> 8) + (si_addr.octets[3]));
-		new_dhcp_header.giaddr = 0;
-		memset(new_dhcp_header.chaddr, 0, 16);
-		memcpy(new_dhcp_header.chaddr, localMac.octets, 6);
-		memset(new_dhcp_header.sname, 0, 64);
+		new_dhcp_header.transaction = hostToNet<uint32_t>(dhcpTransaction);
+		new_dhcp_header.secondsSinceBoot = 0;
+		new_dhcp_header.flags = 0;
+		new_dhcp_header.clientIp = Ip4Address();
+		new_dhcp_header.assignedIp = Ip4Address();
+		new_dhcp_header.serverIp = dhcp_header->serverIp;
+		new_dhcp_header.gatewayIp = Ip4Address();
+		memset(new_dhcp_header.clientHardware, 0, 16);
+		memcpy(new_dhcp_header.clientHardware, localMac.octets, 6);
+		memset(new_dhcp_header.serverHost, 0, 64);
 		memset(new_dhcp_header.file, 0, 128);
-		new_dhcp_header.magic = hostToNet<uint32_t>(0x63825363);
+		new_dhcp_header.magic = hostToNet<uint32_t>(kDhcpMagic);
 		memcpy(&packet[0], &new_dhcp_header, sizeof(DhcpHeader));
 
 		auto dhcp_options = &packet[sizeof(DhcpHeader)];
-		dhcp_options[0] = 53;
+		dhcp_options[0] = kDhcpMessageType;
 		dhcp_options[1] = 1;
 		dhcp_options[2] = kTypeRequest;
-		dhcp_options[3] = 0xFF;
+		dhcp_options[3] = kDhcpServer;
+		dhcp_options[4] = 4;
+		dhcp_options[5] = dhcp_server.octets[0];
+		dhcp_options[6] = dhcp_server.octets[1];
+		dhcp_options[7] = dhcp_server.octets[2];
+		dhcp_options[8] = dhcp_server.octets[3];
+		dhcp_options[9] = kDhcpRequestedIp;
+		dhcp_options[10] = 4;
+		dhcp_options[11] = assigned_ip.octets[0];
+		dhcp_options[12] = assigned_ip.octets[1];
+		dhcp_options[13] = assigned_ip.octets[2];
+		dhcp_options[14] = assigned_ip.octets[3];
+		dhcp_options[15] = kBootpEnd;
 
 		EthernetInfo ethernet_info;
 		ethernet_info.sourceMac = localMac;
-		ethernet_info.destMac = MacAddress::broadcast();
+		ethernet_info.destMac = link_info.sourceMac;
 		ethernet_info.etherType = kEtherIp4;
 
 		Ip4Info ip_info;
-		ip_info.sourceIp = Ip4Address(0, 0, 0, 0);
-		ip_info.destIp = Ip4Address(0xFF, 0xFF, 0xFF, 0xFF);
+		ip_info.sourceIp = Ip4Address();
+		ip_info.destIp = dhcp_server;
 		ip_info.protocol = kUdpProtocol;
 
 		UdpInfo udp_info;
 		udp_info.sourcePort = 68;
 		udp_info.destPort = 67;
 
+		localIp = assigned_ip;
 		dhcpState = kRequestSent;
 		printf("kRequestSent!\n");
 		sendUdpPacket(*globalDevice, ethernet_info, ip_info, udp_info, packet);

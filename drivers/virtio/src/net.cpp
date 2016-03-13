@@ -12,7 +12,6 @@ namespace virtio {
 namespace net {
 
 void *receiveBuffer;
-void *transmitBuffer;
 
 Device::Device()
 		: receiveQueue(*this, 0), transmitQueue(*this, 1) { }
@@ -20,8 +19,12 @@ Device::Device()
 void Device::sendPacket(std::string packet) {
 	size_t tx_header_index = transmitQueue.lockDescriptor();
 	size_t tx_packet_index = transmitQueue.lockDescriptor();
+	
+	// natural alignment to make sure we do not cross page boundaries
+	void *transmit_buffer = malloc(2048);
+	assert((uintptr_t)transmit_buffer % 2048 == 0);	
 
-	auto header = (VirtHeader *)transmitBuffer;
+	auto header = (VirtHeader *)transmit_buffer;
 	header->flags = 0;
 	header->gsoType = 0;
 	header->hdrLen = 0;
@@ -29,11 +32,11 @@ void Device::sendPacket(std::string packet) {
 	header->csumStart = 0;
 	header->csumOffset = 0;
 	
-	memcpy((char *)transmitBuffer + sizeof(VirtHeader), packet.data(), packet.length());
+	memcpy((char *)transmit_buffer + sizeof(VirtHeader), packet.data(), packet.length());
 	
 	// setup a descriptor for the virtio header
 	uintptr_t tx_header_physical;
-	HEL_CHECK(helPointerPhysical(transmitBuffer, &tx_header_physical));
+	HEL_CHECK(helPointerPhysical(transmit_buffer, &tx_header_physical));
 	
 	VirtDescriptor *tx_header_desc = transmitQueue.accessDescriptor(tx_header_index);
 	tx_header_desc->address = tx_header_physical;
@@ -97,12 +100,9 @@ void Device::doInitialize() {
 	receiveQueue.setupQueue();
 	transmitQueue.setupQueue();
 
-	receiveBuffer = malloc(2048);
-	transmitBuffer = malloc(2048);
-
 	// natural alignment to make sure we do not cross page boundaries
+	receiveBuffer = malloc(2048);
 	assert((uintptr_t)receiveBuffer % 2048 == 0);
-	assert((uintptr_t)transmitBuffer % 2048 == 0);	
 }
 
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {

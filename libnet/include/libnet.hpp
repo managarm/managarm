@@ -43,16 +43,6 @@ void sendArpRequest();
 
 void onReceive(void *buffer, size_t length);
 
-void receiveArpPacket(void *buffer, size_t length);
-
-void receiveIp4Packet(void *buffer, size_t length);
-
-void receiveUdpPacket(void *buffer, size_t length);
-
-void receiveTcpPacket(void *buffer, size_t length);
-
-void receivePacket(void *buffer, size_t length);
-
 } // namespace libnet
 
 #endif // LIBNET_HPP

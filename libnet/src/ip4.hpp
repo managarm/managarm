@@ -15,6 +15,10 @@ enum {
 };
 
 struct Ip4Address {
+	static Ip4Address broadcast() {
+		return Ip4Address(0xFF, 0xFF, 0xFF, 0xFF);
+	}
+
 	Ip4Address() : octets{ 0, 0, 0, 0 } { }
 
 	Ip4Address(uint8_t octet0, uint8_t octet1, uint8_t octet2, 
@@ -24,6 +28,13 @@ struct Ip4Address {
 	Ip4Address(uint32_t word)
 	: octets{ uint8_t(word >> 24), uint8_t((word >> 16) & 0xFF),
 			uint8_t((word >> 8) & 0xFF), uint8_t(word & 0xFF) } { }
+	
+	bool operator== (const Ip4Address &other) {
+		return memcmp(octets, other.octets, 4) == 0;
+	}
+	bool operator!= (const Ip4Address &other) {
+		return !(*this == other);
+	}
 
 	uint8_t octets[4];
 };
@@ -43,8 +54,8 @@ struct Ip4Header {
 	uint8_t ttl;
 	uint8_t protocol;
 	uint16_t checksum;
-	uint8_t sourceIp[4];
-	uint8_t targetIp[4];
+	Ip4Address sourceIp;
+	Ip4Address targetIp;
 };
 static_assert(sizeof(Ip4Header) == 20, "Bad sizeof(Ip4Header)");
 

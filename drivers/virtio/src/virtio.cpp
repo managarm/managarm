@@ -138,8 +138,8 @@ void Queue::postDescriptor(size_t desc_index) {
 
 void Queue::notifyDevice() {
 	asm volatile ( "" : : : "memory" );
-	assert(accessUsedHeader()->flags == 0);
-	frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_NOTIFY, queueIndex);
+	if(!(accessUsedHeader()->flags & VIRTQ_USED_F_NO_NOTIFY))
+		frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_NOTIFY, queueIndex);
 }
 
 void Queue::processInterrupt() {
