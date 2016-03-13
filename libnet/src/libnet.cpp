@@ -4,6 +4,7 @@
 #include <libnet.hpp>
 #include "udp.hpp"
 #include "tcp.hpp"
+#include "dns.hpp"
 
 namespace libnet {
 
@@ -123,7 +124,7 @@ Ip4Address localIp;
 MacAddress localMac;
 Ip4Address routerIp;
 MacAddress routerMac;
-Ip4Address dns;
+Ip4Address dnsIp;
 Ip4Address subnetMask;
 
 TcpSocket tcpSocket;
@@ -188,6 +189,52 @@ void sendArpRequest() {
 	ethernet_info.etherType = kEtherArp;
 
 	sendEthernetPacket(*globalDevice, ethernet_info, packet);
+}
+
+void sendDnsRequest() {
+	std::string packet;
+	packet.resize(sizeof(DnsHeader));
+	
+	DnsHeader dns_header;
+	dns_header.identification = hostToNet<uint16_t>(123);
+	dns_header.flags = hostToNet<uint16_t>(0x100);
+	dns_header.totalQuestions = hostToNet<uint16_t>(1);
+	dns_header.totalAnswerRRs = hostToNet<uint16_t>(0);
+	dns_header.totalAuthorityRRs = hostToNet<uint16_t>(0);
+	dns_header.totalAdditionalRRs = hostToNet<uint16_t>(0);
+
+	memcpy(&packet[0], &dns_header, sizeof(DnsHeader));
+	
+	uint16_t qtype = 1;
+	uint16_t qclass = 1;
+
+	packet += char(3);
+	packet += "www";
+	packet += char(6);
+	packet += "google";
+	packet += char(3);
+	packet += "com";
+	packet += char(0);
+	packet += qtype >> 8;
+	packet += qtype & 0xFF;
+	packet += qclass >> 8;
+	packet += qclass & 0xFF;
+
+	EthernetInfo ethernet_info;
+	ethernet_info.sourceMac = localMac;
+	ethernet_info.destMac = routerMac;
+	ethernet_info.etherType = kEtherIp4;
+
+	Ip4Info ip_info;
+	ip_info.sourceIp = localIp;
+	ip_info.destIp = Ip4Address(8,8,8,8);
+	ip_info.protocol = kUdpProtocol;
+
+	UdpInfo udp_info;
+	udp_info.sourcePort = 49152;
+	udp_info.destPort = 53;
+	
+	sendUdpPacket(*globalDevice, ethernet_info, ip_info, udp_info, packet);
 }
 
 
@@ -301,7 +348,8 @@ void receiveArpPacket(void *buffer, size_t length) {
 	printf("protolength: %i\n", arp_packet->protoLength);
 	printf("operation: %i\n", netToHost<uint16_t>(arp_packet->operation));
 
-	tcpSocket.connect();
+	sendDnsRequest();	
+	//tcpSocket.connect();
 }
 
 void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length) {
@@ -373,6 +421,96 @@ void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length) {
 	}
 }
 
+std::string readDnsName(void *packet, uint8_t *&it) {
+	std::string name;
+	while(true) { // read the record name
+		uint8_t code = *(it++);
+		if((code & 0xC0) == 0xC0) {
+			// this segment is a "pointer"
+			uint8_t offset = ((code & 0x3F) << 8) | *(it++);
+			auto offset_it = (uint8_t *)packet + offset;
+			return name + readDnsName(packet, offset_it);
+		}else if(!(code & 0xC0)) {
+			// this segment is a length followed by chars
+			if(!code)
+				return name;
+
+			for(uint8_t i = 0; i < code; i++)
+				name += *(it++);
+			name += ".";
+		}else{
+			printf("Illegal octet in DNS name\n");
+		}
+	}
+}
+
+void receiveDnsPacket(void *buffer, size_t length) {
+	if(length < sizeof(DnsHeader)) {
+		printf("        DNS packet is too short!\n");
+		return;
+	}
+	auto dns_header = (DnsHeader *)buffer;
+	if(netToHost<uint16_t>(dns_header->identification) != 123) {
+		printf("        DNS identification does not match!\n");
+		return;	
+	}
+	auto dns_flags = netToHost<uint16_t>(dns_header->flags);
+	if(!(dns_flags & 0x8000)) {
+		printf("        DNS answer is a request!\n");
+		return;	
+	}
+	if(dns_flags & 0x0200) {
+		printf("        DNS answer is truncated!\n");
+		return;	
+	}
+	if(dns_flags & 0x0070) {
+		printf("        DNS answer has set Z flag!\n");
+		return;	
+	}
+	if((dns_flags & 0x000F) != 0) {
+		printf("        Error in DNS RCODE: %d!\n", netToHost<uint16_t>(dns_header->flags) & 0x000F);
+		return;		
+	}
+
+	auto answers = netToHost<uint16_t>(dns_header->totalAnswerRRs);
+	printf("        Count of DNS answers: %d\n", answers);
+
+	auto it = (uint8_t *)buffer + sizeof(DnsHeader);
+
+	// read the DNS questions
+	for(int k = 0; k < netToHost<uint16_t>(dns_header->totalQuestions); k++) {
+		std::string name = readDnsName(buffer, it);
+		printf("QName: %s\n", name.c_str());
+
+		uint16_t qtype = (it[0] << 8) | it[1];
+		uint16_t qclass = (it[2] << 8) | it[3];
+		it += 4;
+	}
+	
+	// read the DNS answer RRs
+	for(int k = 0; k < netToHost<uint16_t>(dns_header->totalAnswerRRs); k++) {
+		std::string name = readDnsName(buffer, it);
+		printf("Name: %s\n", name.c_str());
+
+		uint16_t rr_type = (it[0] << 8) | it[1];
+		uint16_t rr_class = (it[2] << 8) | it[3];
+		uint16_t rr_length = (it[8] << 8) | it[9];
+		it += 10;
+
+		void *rr_data = it;
+		if(rr_type == 1) {
+			Ip4Address address;
+			memcpy(address.octets, rr_data, sizeof(Ip4Address));
+			printf("            A record: %d.%d.%d.%d\n", address.octets[0], address.octets[1], 
+					address.octets[2], address.octets[3]);
+		}else{
+			printf("            Unexpected RR type: %d!\n", rr_type);
+		}
+
+		it += rr_length;
+	}
+}
+
 void receiveUdpPacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length) {
 	if(length < sizeof(UdpHeader)) {
 		printf("Udp packet is too short!\n");
@@ -389,13 +527,16 @@ void receiveUdpPacket(EthernetInfo link_info, Ip4Info network_info, void *buffer
 		return;
 	}
 
-	void *packet_buffer = (char *)buffer + sizeof(UdpHeader);
-	size_t buffer_length = length - sizeof(UdpHeader);
+	void *payload_buffer = (char *)buffer + sizeof(UdpHeader);
+	size_t payload_length = length - sizeof(UdpHeader);
 
 	if(netToHost<uint16_t>(udp_header->source) == 67
 			&& netToHost<uint16_t>(udp_header->destination) == 68)
-		receivePacket(link_info, network_info, packet_buffer, buffer_length);
+		receivePacket(link_info, network_info, payload_buffer, payload_length);
+	if(netToHost<uint16_t>(udp_header->source) == 53)
+		receiveDnsPacket(payload_buffer, payload_length);
 }
+
 
 void receiveTcpPacket(void *buffer, size_t length) {
 	if(length < sizeof(TcpHeader)) {
@@ -575,10 +716,10 @@ void receivePacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, s
 			routerIp.octets[3] = opt_data[3];	
 		}else if(tag == kBootpDns) {
 			assert(opt_size == 4);
-			dns.octets[0] = opt_data[0];
-			dns.octets[1] = opt_data[1];
-			dns.octets[2] = opt_data[2];
-			dns.octets[3] = opt_data[3];	
+			dnsIp.octets[0] = opt_data[0];
+			dnsIp.octets[1] = opt_data[1];
+			dnsIp.octets[2] = opt_data[2];
+			dnsIp.octets[3] = opt_data[3];	
 		}else if(tag == kDhcpLeaseTime) {
 		
 		}else if(tag == kDhcpMessageType) {
