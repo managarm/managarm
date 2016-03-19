@@ -2,6 +2,7 @@
 #ifndef LIBNET_IP4_HPP
 #define LIBNET_IP4_HPP
 
+#include <stdio.h>
 #include <string>
 #include "ethernet.hpp"
 
@@ -9,9 +10,15 @@ namespace libnet {
 
 enum {
 	kIp4Version = 4,
+	kIp6Version = 6,
 	kTtl = 64,
 	kUdpProtocol = 17,
-	kTcpProtocol = 6
+	kTcpProtocol = 6,
+	
+	kFlagReserved = 0x8000,
+	kFlagDF = 0x4000,
+	kFlagMF = 0x2000,
+	kFragmentOffsetMask = 0x1FFF
 };
 
 struct Ip4Address {
@@ -103,8 +110,15 @@ private:
 	uint32_t currentSum;
 };
 
+extern Ip4Address localIp;
+extern Ip4Address routerIp;
+extern Ip4Address dnsIp;
+extern Ip4Address subnetMask;
+
 void sendIp4Packet(NetDevice &device, EthernetInfo link_info,
 		Ip4Info network_info, std::string payload);
+
+void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length);
 
 } // namespace libnet
 

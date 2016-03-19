@@ -22,6 +22,8 @@ struct UdpHeader {
 void sendUdpPacket(NetDevice &device, EthernetInfo link_info, Ip4Info network_info, 
 		UdpInfo transport_info, std::string payload);
 
+void receiveUdpPacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length);
+
 } // namespace libnet
 
 #endif // LIBNET_UDP_HPP

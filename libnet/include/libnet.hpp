@@ -37,9 +37,13 @@ struct NetDevice {
 	virtual void sendPacket(std::string packet) = 0;
 };
 
+extern NetDevice *globalDevice;
+
 void testDevice(NetDevice &device, uint8_t mac_octets[6]);
 
 void sendArpRequest();
+
+void sendDnsRequest();
 
 void onReceive(void *buffer, size_t length);
 

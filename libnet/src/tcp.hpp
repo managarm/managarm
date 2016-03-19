@@ -33,8 +33,34 @@ struct TcpHeader {
 	uint16_t urgentPointer;
 };
 
+struct TcpSocket {
+	enum State {
+		kStateNone,
+		kStateSynSent,
+		kStateEstablished
+	};
+
+	TcpSocket();
+
+	void connect();
+
+	State state;
+
+	// number of the latest byte the remote end has ACKed
+	uint32_t ackedLocalSequence;
+
+	// number of byte we expect to receive next
+	uint32_t expectedRemoteSequence;
+
+	//std::queue<std::string> resendQueue;
+};
+
+extern TcpSocket tcpSocket;
+
 void sendTcpPacket(NetDevice &device, EthernetInfo link_info, Ip4Info network_info, 
 		TcpInfo transport_info, std::string payload);
+
+void receiveTcpPacket(void *buffer, size_t length);
 
 } // namespace libnet
 

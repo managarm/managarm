@@ -44,7 +44,12 @@ struct EthernetHeader {
 	uint16_t etherType;
 };
 
+extern MacAddress localMac;
+extern MacAddress routerMac;
+
 void sendEthernetPacket(NetDevice &device, EthernetInfo link_info, std::string payload);
+
+void receiveEthernetPacket(void *buffer, size_t length);
 
 } // namespace libnet
 
