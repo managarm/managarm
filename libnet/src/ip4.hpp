@@ -36,10 +36,10 @@ struct Ip4Address {
 	: octets{ uint8_t(word >> 24), uint8_t((word >> 16) & 0xFF),
 			uint8_t((word >> 8) & 0xFF), uint8_t(word & 0xFF) } { }
 	
-	bool operator== (const Ip4Address &other) {
+	bool operator== (const Ip4Address &other) const {
 		return memcmp(octets, other.octets, 4) == 0;
 	}
-	bool operator!= (const Ip4Address &other) {
+	bool operator!= (const Ip4Address &other) const {
 		return !(*this == other);
 	}
 
@@ -121,6 +121,18 @@ void sendIp4Packet(NetDevice &device, EthernetInfo link_info,
 void receiveIp4Packet(EthernetInfo link_info, void *buffer, size_t length);
 
 } // namespace libnet
+
+namespace std {
+
+template<>
+struct hash<libnet::Ip4Address> {
+	inline size_t operator() (const libnet::Ip4Address &address) const {
+		return (size_t(address.octets[0]) << 24) | (size_t(address.octets[1]) << 16)
+				| (size_t(address.octets[2]) << 8) | address.octets[3];
+	}
+};
+
+} // namespace std
 
 #endif // LIBNET_IP4_HPP
 

@@ -4,6 +4,10 @@
 
 #include <stdio.h>
 #include <string>
+#include <unordered_map>
+#include <vector>
+#include <frigg/callback.hpp>
+
 #include "ethernet.hpp"
 #include "ip4.hpp"
 
@@ -20,9 +24,19 @@ struct ArpPacket {
 	Ip4Address targetProto;
 };
 
-void receiveArpPacket(void *buffer, size_t length);
+struct ArpEntry {
+	ArpEntry();
 
-void sendArpRequest();
+	Ip4Address address;
+	MacAddress result;
+	bool finished;
+
+	std::vector<frigg::CallbackPtr<void(MacAddress)>> callbacks;
+};
+
+void arpLookup(Ip4Address address, frigg::CallbackPtr<void(MacAddress)> callback);
+
+void receiveArpPacket(void *buffer, size_t length);
 
 } // namespace libnet
 

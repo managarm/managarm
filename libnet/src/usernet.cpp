@@ -3,6 +3,7 @@
 #include <libnet.hpp>
 #include "usernet.hpp"
 #include "udp.hpp"
+#include "arp.hpp"
 #include "dns.hpp"
 
 namespace libnet {
@@ -28,6 +29,14 @@ std::string readDnsName(void *packet, uint8_t *&it) {
 			printf("Illegal octet in DNS name\n");
 		}
 	}
+}
+
+void gotRouterIp(void *object, MacAddress address) {
+	printf("Router Mac: %d:%d:%d:%d:%d:%d\n", address.octets[0], address.octets[1],
+			address.octets[2], address.octets[3], address.octets[4], address.octets[5]);		
+	routerMac = address;
+		
+	sendDnsRequest();
 }
 
 void receivePacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, size_t length) {
@@ -162,7 +171,8 @@ void receivePacket(EthernetInfo link_info, Ip4Info network_info, void *buffer, s
 	}else if(dhcpState == kRequestSent) {
 		assert(dhcp_type == kTypeAck);
 		dhcpState = kAckReceived;
-		sendArpRequest();
+
+		arpLookup(routerIp, CALLBACK_STATIC(nullptr, &gotRouterIp));
 	}else{
 		printf("Unexpected DHCP state");
 	 	abort();
