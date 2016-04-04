@@ -5,6 +5,10 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
+#include <helx.hpp>
+#include <bragi/mbus.hpp>
+#include <vector>
+#include <unordered_map>
 #include <string>
 
 namespace libnet {
@@ -39,9 +43,9 @@ struct NetDevice {
 
 extern NetDevice *globalDevice;
 
-void testDevice(NetDevice &device, uint8_t mac_octets[6]);
-
 void onReceive(void *buffer, size_t length);
+
+void testDevice(helx::EventHub &event_hub, NetDevice &device, uint8_t mac_octets[6]);
 
 } // namespace libnet
 

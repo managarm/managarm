@@ -790,9 +790,17 @@ void QueryDeviceIfClosure::operator() () {
 void QueryDeviceIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msq_seq,
 		HelHandle handle) {
 	auto fs = frigg::construct<extern_fs::MountPoint>(*allocator, helx::Pipe(handle));
-	auto path = frigg::String<Allocator>(*allocator, "");
-	initMountSpace->allMounts.insert(path, fs);
-
+	if(requestId == 1) { // FIXME: UGLY HACK
+		frigg::infoLogger.log() << "/ is ready!" << frigg::EndLog();
+		auto path = frigg::String<Allocator>(*allocator, "");
+		initMountSpace->allMounts.insert(path, fs);
+	}else if(requestId == 2) {
+		frigg::infoLogger.log() << "/dev/network is ready!" << frigg::EndLog();
+		auto path = frigg::String<Allocator>(*allocator, "/dev/network");
+		initMountSpace->allMounts.insert(path, fs);
+	}else{
+		frigg::panicLogger.log() << "Unexpected requestId" << frigg::EndLog();
+	}
 }
 
 // --------------------------------------------------------
@@ -836,6 +844,16 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
+	}else if(hasCapability(svr_request, "network")) {
+		managarm::mbus::CntRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+		request.set_object_id(svr_request.object_id());
+
+		frigg::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 2, 0);
+
+		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 2);
 	}
 
 	(*this)();

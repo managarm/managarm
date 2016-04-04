@@ -44,5 +44,13 @@ int main() {
 		execve("/usr/bin/virtio-net", args.data(), envp);
 //		execve("/usr/bin/bochs_vga", args.data(), envp);
 	}
+	
+	// TODO: this is a very ugly hack to wait until the fs is ready
+	for(int i = 0; i < 10000; i++)
+		sched_yield();
+	
+	printf("Testing network API!\n");
+	
+	open("/dev/network/ip+tcp", O_RDWR);
 }
 

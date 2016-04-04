@@ -17,12 +17,12 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lbragi_mbus \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libnet.so,libnet.o ethernet.o ip4.o udp.o tcp.o arp.o usernet.o)
+$(call make_so,libnet.so,libnet.o network.o ethernet.o ip4.o udp.o tcp.o arp.o usernet.o fs.pb.o)
 $(call install_header,libnet.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files
-gen-$c:
+gen-$c: $($c_GENDIR)/fs.pb.tag
 
 $(call gen_protobuf_cpp,$(TREE_PATH)/bragi/proto,$($c_GENDIR))
 $(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))

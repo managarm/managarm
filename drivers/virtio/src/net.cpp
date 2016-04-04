@@ -7,7 +7,6 @@
 
 extern helx::EventHub eventHub;
 
-
 namespace virtio {
 namespace net {
 
@@ -64,7 +63,7 @@ void Device::testDevice() {
 			mac_octets[0], mac_octets[1], mac_octets[2],
 			mac_octets[3], mac_octets[4], mac_octets[5]);
 
-	libnet::testDevice(*this, mac_octets);
+	libnet::testDevice(eventHub, *this, mac_octets);
 
 	// -----------------------------------------------------------------------------------------
 
@@ -89,11 +88,6 @@ void Device::testDevice() {
 
 	receiveQueue.postDescriptor(rx_header_index);
 	receiveQueue.notifyDevice();
-
-	while(true) {
-		receiveQueue.processInterrupt();
-		transmitQueue.processInterrupt();
-	}
 }
 
 void Device::doInitialize() {
@@ -103,6 +97,10 @@ void Device::doInitialize() {
 	// natural alignment to make sure we do not cross page boundaries
 	receiveBuffer = malloc(2048);
 	assert((uintptr_t)receiveBuffer % 2048 == 0);
+	
+	// setup an interrupt for the device
+	irq = helx::Irq::access(11);
+	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 }
 
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
@@ -139,6 +137,14 @@ void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t by
 
 void Device::afterRetrieve() { }
 
-void Device::onInterrupt(HelError error) { }
+void Device::onInterrupt(HelError error) {
+	HEL_CHECK(error);
+
+	readIsr();
+	receiveQueue.processInterrupt();
+	transmitQueue.processInterrupt();
+
+	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+}
 
 } } // namespace virtio::net
