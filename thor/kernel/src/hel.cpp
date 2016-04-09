@@ -1,6 +1,5 @@
 
 #include "kernel.hpp"
-#include "../../hel/include/hel.h"
 
 using namespace thor;
 
@@ -742,7 +741,7 @@ HelError helWaitForEvents(HelHandle handle,
 				assert(!"Unexpected error");
 			}
 		} break;
-		case UserEvent::kTypeRecvStringTransfer: {
+		case UserEvent::kTypeRecvStringTransferToBuffer: {
 			user_evt->type = kHelEventRecvString;
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
@@ -752,9 +751,42 @@ HelError helWaitForEvents(HelHandle handle,
 	
 			// do the actual memory transfer
 			hub_guard.unlock();
-			memcpy(event.userBuffer, event.kernelBuffer.data(), event.length);
+			memcpy(event.userBuffer, event.kernelBuffer.data(),
+					event.kernelBuffer.size());
 			hub_guard.lock();
-			user_evt->length = event.length;
+			user_evt->length = event.kernelBuffer.size();
+		} break;
+		case UserEvent::kTypeRecvStringTransferToQueue: {
+			for(size_t i = 0; i < event.numQueues; i++) {
+				HelQueue *queue = &event.userQueueArray[i];
+
+				size_t length = event.kernelBuffer.size();
+
+				// reserve queue space for the data
+				size_t offset = queue->offset;
+				size_t ref_count = queue->refCount;
+				assert(offset + length <= queue->length);
+
+				uint8_t success;
+				asm volatile ( "lock cmpxchg16b %1\n"
+						"\tsetz %0"
+						: "=r" (success)
+						: "m" (*queue), "d" (ref_count), "a" (offset),
+						"c" (ref_count + 1), "b" (offset + length) );
+				assert(success);
+				
+				// copy the actual data
+//				infoLogger->log() << "recv at offset " << offset << frigg::EndLog();
+				memcpy((uint8_t *)queue->data + offset, event.kernelBuffer.data(), length);
+
+				user_evt->type = kHelEventRecvStringToQueue;
+				user_evt->error = kHelErrNone;
+				user_evt->msgRequest = event.msgRequest;
+				user_evt->msgSequence = event.msgSequence;
+				user_evt->offset = offset;
+				user_evt->length = length;
+				break;
+			}
 		} break;
 		case UserEvent::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;
@@ -962,6 +994,61 @@ HelError helSubmitRecvString(HelHandle handle,
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
 			user_buffer, max_length, filter_request, filter_sequence, submit_info, recv_flags);
+	channel_guard.unlock();
+
+	if(error == kErrPipeClosed)
+		return kHelErrPipeClosed;
+
+	assert(error == kErrSuccess);
+	*async_id = submit_info.asyncId;
+	return kHelErrNone;
+}
+
+HelError helSubmitRecvStringToQueue(HelHandle handle,
+		HelHandle hub_handle, HelQueue *user_queue_array, size_t num_queues,
+		int64_t filter_request, int64_t filter_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id) {
+	if(flags & ~(kHelRequest | kHelResponse))
+		return kHelErrIllegalArgs;
+	
+	if(!(flags & kHelRequest) && !(flags & kHelResponse))
+		return kHelErrIllegalArgs;
+
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto event_hub = hub_wrapper->get<EventHubDescriptor>().getEventHub();
+
+	auto wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	if(!wrapper->is<EndpointDescriptor>())
+		return kHelErrBadDescriptor;
+	auto &descriptor = wrapper->get<EndpointDescriptor>();
+	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
+	universe_guard.unlock();
+
+	size_t read_index = endpoint->getReadIndex();
+	Channel &channel = endpoint->getPipe()->getChannel(read_index);
+
+	uint32_t recv_flags = 0;
+	if(flags & kHelRequest)
+		recv_flags |= Channel::kFlagRequest;
+	if(flags & kHelResponse)
+		recv_flags |= Channel::kFlagResponse;
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	
+	Channel::Guard channel_guard(&channel.lock);
+	Error error = channel.submitRecvStringToQueue(channel_guard, KernelSharedPtr<EventHub>(event_hub),
+			user_queue_array, num_queues, filter_request, filter_sequence, submit_info, recv_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)

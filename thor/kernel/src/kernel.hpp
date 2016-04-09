@@ -21,6 +21,8 @@
 
 #include <frigg/arch_x86/machine.hpp>
 
+#include "../../hel/include/hel.h"
+
 typedef uint64_t Word;
 
 typedef uint64_t PhysicalAddr;

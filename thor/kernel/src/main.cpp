@@ -1,7 +1,6 @@
 
 #include "kernel.hpp"
 #include <frigg/elf.hpp>
-#include "../../hel/include/hel.h"
 #include <eir/interface.hpp>
 
 using namespace thor;
@@ -470,6 +469,14 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		int64_t async_id;
 		HelError error = helSubmitRecvString((HelHandle)arg0,
 				(HelHandle)arg1, (void *)arg2, (size_t)arg3,
+				(int64_t)arg4, (int64_t)arg5,
+				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
+	} break;
+	case kHelCallSubmitRecvStringToQueue: {
+		int64_t async_id;
+		HelError error = helSubmitRecvStringToQueue((HelHandle)arg0,
+				(HelHandle)arg1, (HelQueue *)arg2, (size_t)arg3,
 				(int64_t)arg4, (int64_t)arg5,
 				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);

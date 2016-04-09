@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 53,
+	kHelNumCalls = 54,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -49,6 +49,7 @@ enum {
 	kHelCallSendString = 8,
 	kHelCallSendDescriptor = 28,
 	kHelCallSubmitRecvString = 9,
+	kHelCallSubmitRecvStringToQueue = 53,
 	kHelCallSubmitRecvDescriptor = 29,
 	
 	kHelCallCreateServer = 17,
@@ -110,6 +111,7 @@ enum {
 	kHelEventLockMemory = 8,
 	kHelEventJoin = 6,
 	kHelEventRecvString = 1,
+	kHelEventRecvStringToQueue = 9,
 	kHelEventRecvDescriptor = 5,
 	kHelEventAccept = 2,
 	kHelEventConnect = 3,
@@ -124,6 +126,8 @@ struct HelEvent {
 	int64_t msgSequence;
 	size_t length;
 	HelHandle handle;
+
+	// used by lHelEventLoadMemory
 	size_t offset;
 
 	int64_t asyncId;
@@ -171,6 +175,16 @@ enum HelThreadFlags {
 enum HelMessageFlags {
 	kHelRequest = 1,
 	kHelResponse = 2
+};
+
+struct HelQueue {
+	// these two fields MUST only be modified by a double-word CAS
+	size_t offset;
+	size_t refCount;
+	
+	// the other fields are not modified during queue operation
+	size_t length;
+	void *data;
 };
 
 enum HelIrqFlags {
@@ -232,6 +246,11 @@ HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle
 		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, void *buffer, size_t max_length,
+		int64_t filter_request, int64_t filter_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id);
+HEL_C_LINKAGE HelError helSubmitRecvStringToQueue(HelHandle handle,
+		HelHandle hub_handle, HelQueue *queue_array, size_t num_queues,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object,
 		uint32_t flags, int64_t *async_id);

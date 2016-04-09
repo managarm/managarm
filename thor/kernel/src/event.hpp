@@ -8,7 +8,8 @@ struct UserEvent {
 		kTypeMemoryLoad,
 		kTypeMemoryLock,
 		kTypeJoin,
-		kTypeRecvStringTransfer,
+		kTypeRecvStringTransferToBuffer,
+		kTypeRecvStringTransferToQueue,
 		kTypeRecvDescriptor,
 		kTypeAccept,
 		kTypeConnect,
@@ -22,16 +23,25 @@ struct UserEvent {
 
 	// used by kTypeRecvStringError
 	Error error;
+
+	// used by kTypeMemoryLoad
+	size_t offset;
+	size_t length;
 	
-	// used by kTypeRecvStringTransfer and kTypeRecvDescriptor
+	// used by kTypeRecvStringTransferToBuffer, kTypeRecvStringTransferToQueue
+	// and kTypeRecvDescriptor
 	int64_t msgRequest;
 	int64_t msgSequence;
 
-	// used by kTypeRecvStringTransfer
+	// used by kTypeRecvStringTransferToBuffer and kTypeRecvStringTransferToQueue
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
+
+	// used by kTypeRecvStringTransferToBuffer
 	void *userBuffer;
-	size_t offset;
-	size_t length;
+
+	// used by kTypeRecvStringTransferToQueue
+	HelQueue *userQueueArray;
+	size_t numQueues;
 
 	// used by kTypeAccept, kTypeConnect
 	KernelSharedPtr<Endpoint> endpoint;

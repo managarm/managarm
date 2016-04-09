@@ -76,11 +76,43 @@ Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_
 	if(p_wasClosed)
 		return kErrPipeClosed;
 
-	Request request(kMsgString, frigg::move(event_hub),
+	Request request(kMsgStringToBuffer, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 	request.flags = flags;
 	request.userBuffer = user_buffer;
 	request.maxLength = max_length;
+
+	bool queue_request = true;
+	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
+		if(!matchRequest(*it, request))
+			continue;
+		
+		if(processStringRequest(*it, request))
+			p_messages.remove(it);
+		// NOTE: we never queue failed requests
+		queue_request = false;
+		break;
+	}
+	
+	if(queue_request)
+		p_requests.addBack(frigg::move(request));
+	return kErrSuccess;
+}
+
+Error Channel::submitRecvStringToQueue(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+		HelQueue *user_queue_array, size_t num_queues,
+		int64_t filter_request, int64_t filter_sequence,
+		SubmitInfo submit_info, uint32_t flags) {
+	assert(guard.protects(&lock));
+
+	if(p_wasClosed)
+		return kErrPipeClosed;
+
+	Request request(kMsgStringToQueue, frigg::move(event_hub),
+			filter_request, filter_sequence, submit_info);
+	request.flags = flags;
+	request.userQueueArray = user_queue_array;
+	request.numQueues = num_queues;
 
 	bool queue_request = true;
 	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
@@ -142,8 +174,12 @@ void Channel::close(Guard &guard) {
 }
 
 bool Channel::matchRequest(const Message &message, const Request &request) {
-	if(request.type != message.type)
+	if(message.type == kMsgString) {
+		if(request.type != kMsgStringToBuffer && request.type != kMsgStringToQueue)
+			return false;
+	}else if(message.type != request.type) {
 		return false;
+	}
 
 	if((bool)(request.flags & kFlagRequest) != (bool)(message.flags & kFlagRequest))
 		return false;
@@ -162,7 +198,8 @@ bool Channel::matchRequest(const Message &message, const Request &request) {
 }
 
 bool Channel::processStringRequest(Message &message, Request &request) {
-	if(message.length > request.maxLength) {
+	if(request.type == kMsgStringToBuffer
+			&& message.length > request.maxLength) {
 		UserEvent event(UserEvent::kTypeError, request.submitInfo);
 		event.error = kErrBufferTooSmall;
 
@@ -170,19 +207,36 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 		return false;
-	}else{
-		UserEvent event(UserEvent::kTypeRecvStringTransfer, request.submitInfo);
+	}
+
+	if(request.type == kMsgStringToBuffer) {
+		UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, request.submitInfo);
+		event.kernelBuffer = frigg::move(message.kernelBuffer);
 		event.msgRequest = message.msgRequest;
 		event.msgSequence = message.msgSequence;
-		event.kernelBuffer = frigg::move(message.kernelBuffer);
-		event.userBuffer = request.userBuffer;
-		event.length = message.length;
 		
+		event.userBuffer = request.userBuffer;
+	
 		EventHub::Guard hub_guard(&request.eventHub->lock);
 		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
-		return true;
+	}else if(request.type == kMsgStringToQueue) {
+		UserEvent event(UserEvent::kTypeRecvStringTransferToQueue, request.submitInfo);
+		event.kernelBuffer = frigg::move(message.kernelBuffer);
+		event.msgRequest = message.msgRequest;
+		event.msgSequence = message.msgSequence;
+
+		event.userQueueArray = request.userQueueArray;
+		event.numQueues = request.numQueues;
+	
+		EventHub::Guard hub_guard(&request.eventHub->lock);
+		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
+		hub_guard.unlock();
+	}else{
+		frigg::panicLogger.log() << "Illegal request type" << frigg::EndLog();
 	}
+
+	return true;
 }
 
 void Channel::processDescriptorRequest(Message &message, Request &request) {
@@ -213,9 +267,9 @@ Channel::Request::Request(MsgType type,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info)
 : type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
+		filterRequest(filter_request), filterSequence(filter_sequence), flags(0),
 		userBuffer(nullptr), maxLength(0),
-		filterRequest(filter_request), filterSequence(filter_sequence),
-		flags(0) { }
+		userQueueArray(nullptr), numQueues(0) { }
 
 // --------------------------------------------------------
 // FullPipe

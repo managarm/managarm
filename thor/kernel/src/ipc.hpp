@@ -24,6 +24,10 @@ public:
 			void *user_buffer, size_t length,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info, uint32_t flags);
+	Error submitRecvStringToQueue(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+			HelQueue *user_queue_array, size_t num_queues,
+			int64_t filter_request, int64_t filter_sequence,
+			SubmitInfo submit_info, uint32_t flags);
 	
 	Error submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
 			int64_t filter_request, int64_t filter_sequence,
@@ -37,6 +41,8 @@ private:
 	enum MsgType {
 		kMsgNone,
 		kMsgString,
+		kMsgStringToBuffer,
+		kMsgStringToQueue,
 		kMsgDescriptor
 	};
 
@@ -60,11 +66,17 @@ private:
 		MsgType type;
 		KernelSharedPtr<EventHub> eventHub;
 		SubmitInfo submitInfo;
-		void *userBuffer;
-		size_t maxLength;
 		int64_t filterRequest;
 		int64_t filterSequence;
 		uint32_t flags;
+		
+		// used by kMsgStringToBuffer
+		void *userBuffer;
+		size_t maxLength;
+
+		// used by kMsgStringToQueue
+		HelQueue *userQueueArray;
+		size_t numQueues;
 	};
 
 	bool matchRequest(const Message &message, const Request &request);

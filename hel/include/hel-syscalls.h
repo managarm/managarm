@@ -234,6 +234,18 @@ DEFINE_SYSCALL(SubmitRecvString, HelHandle handle, HelHandle hub_handle,
 	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
+DEFINE_SYSCALL(SubmitRecvStringToQueue, HelHandle handle, HelHandle hub_handle,
+		HelQueue *queue_array, size_t num_queues,
+		int64_t filter_request, int64_t filter_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, queue_array) IN(3, num_queues)
+			IN(4, filter_request) IN(5, filter_sequence)
+			IN(6, submit_function) IN(7, submit_object) IN(8, flags)
+	DO_SYSCALL(SubmitRecvStringToQueue)
+	OUT(0, int64_t, async_id)
+END_SYSCALL()
+
 DEFINE_SYSCALL(SubmitRecvDescriptor, HelHandle handle, HelHandle hub_handle,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object,

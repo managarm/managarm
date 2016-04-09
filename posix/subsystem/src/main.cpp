@@ -48,6 +48,8 @@ helx::Pipe initrdPipe;
 // TODO: this is a ugly hack
 MountSpace *initMountSpace;
 
+HelQueue stringQueue;
+
 void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &response,
 		int64_t msg_request) {
 	frigg::String<Allocator> serialized(*allocator);
@@ -66,11 +68,11 @@ struct RequestClosure : frigg::BaseClosure<RequestClosure> {
 	void operator() ();
 	
 private:
-	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
+			size_t index, size_t offset, size_t length);
 
 	void processRequest(managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
 	
-	uint8_t reqBuffer[1024];
 	StdSharedPtr<helx::Pipe> pipe;
 	StdSharedPtr<Process> process;
 	int iteration;
@@ -524,7 +526,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 }
 
 void RequestClosure::operator() () {
-	HelError error = pipe->recvStringReq(reqBuffer, 1024, eventHub, kHelAnyRequest, 0,
+	HelError error = pipe->recvStringReqToQueue(&stringQueue, 1, eventHub, kHelAnyRequest, 0,
 			CALLBACK_MEMBER(this, &RequestClosure::recvRequest));
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
@@ -534,7 +536,7 @@ void RequestClosure::operator() () {
 }
 
 void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
+		size_t index, size_t offset, size_t length) {
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
 		return;
@@ -542,7 +544,7 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 	HEL_CHECK(error);
 
 	managarm::posix::ClientRequest<Allocator> request(*allocator);
-	request.ParseFromArray(reqBuffer, length);
+	request.ParseFromArray((uint8_t *)stringQueue.data + offset, length);
 	processRequest(frigg::move(request), msg_request);
 
 	(*this)();
@@ -698,6 +700,13 @@ int main() {
 	size_t init_count = __init_array_end - __init_array_start;
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
+	
+	// initialize our string queue
+	stringQueue.offset = 0;
+	stringQueue.refCount = 0;
+
+	stringQueue.length = 0x10000;
+	stringQueue.data = allocator->allocate(0x10000);
 
 	// connect to mbus
 	const char *mbus_path = "local/mbus";

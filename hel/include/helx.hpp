@@ -22,6 +22,7 @@ typedef void (*LoadMemoryFunction) (void *, HelError, uintptr_t, size_t);
 typedef void (*LockMemoryFunction) (void *, HelError);
 typedef void (*JoinFunction) (void *, HelError);
 typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
+typedef void (*RecvStringToQueueFunction) (void *, HelError, int64_t, int64_t, size_t, size_t, size_t);
 typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t, HelHandle);
 typedef void (*AcceptFunction) (void *, HelError, HelHandle);
 typedef void (*ConnectFunction) (void *, HelError, HelHandle);
@@ -103,6 +104,12 @@ public:
 				auto function = (RecvStringFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error,
 						evt.msgRequest, evt.msgSequence, evt.length);
+			} break;
+			case kHelEventRecvStringToQueue: {
+				// FIXME: fill in correct queue index
+				auto function = (RecvStringToQueueFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error,
+						evt.msgRequest, evt.msgSequence, 0, evt.offset, evt.length);
 			} break;
 			case kHelEventRecvDescriptor: {
 				auto function = (RecvDescriptorFunction)evt.submitFunction;
@@ -231,10 +238,26 @@ public:
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
 	}
+	inline HelError recvStringToQueue(HelQueue *queue_array, size_t num_queues,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback,
+			uint32_t flags) {
+		int64_t async_id;
+		return helSubmitRecvStringToQueue(p_handle, event_hub.getHandle(),
+				queue_array, num_queues, msg_request, msg_seq,
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				flags, &async_id);
+	}
 	inline HelError recvStringReq(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback) {
 		return recvString(buffer, max_length, event_hub,
+				msg_request, msg_seq, callback, kHelRequest);
+	}
+	inline HelError recvStringReqToQueue(HelQueue *queue_array, size_t num_queues,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback) {
+		return recvStringToQueue(queue_array, num_queues, event_hub,
 				msg_request, msg_seq, callback, kHelRequest);
 	}
 	inline HelError recvStringResp(void *buffer, size_t max_length,
