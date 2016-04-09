@@ -43,7 +43,9 @@ frigg::String<Allocator> concatenatePath(frigg::StringView prefix,
 struct VfsOpenFile {
 	virtual void openAt(frigg::String<Allocator> path,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
-	
+
+	virtual void connect(frigg::CallbackPtr<void()> callback);
+
 	virtual void fstat(frigg::CallbackPtr<void(FileStats)> callback);
 
 	virtual void write(const void *buffer, size_t length,

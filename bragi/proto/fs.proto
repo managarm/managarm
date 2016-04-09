@@ -13,12 +13,14 @@ enum FileType {
 	REGULAR = 1;
 	DIRECTORY = 2;
 	SYMLINK = 3;
+	SOCKET = 4;
 }
 
 enum CntReqType {
 	NONE = 0;
 	FSTAT = 5;
 	OPEN = 1;
+	CONNECT = 10;
 	READ = 2;
 	WRITE = 3;
 	SEEK_ABS = 6;

@@ -19,6 +19,12 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> callback) {
 	(*closure)();
 }
 
+void OpenFile::connect(frigg::CallbackPtr<void()> callback) {
+	auto closure = frigg::construct<ConnectClosure>(*allocator,
+			connection, externFd, callback);
+	(*closure)();
+}
+
 void OpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
 	assert(!"Not implemented");
 }
@@ -111,6 +117,42 @@ void StatClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_
 }
 
 // --------------------------------------------------------
+// ConnectClosure
+// --------------------------------------------------------
+
+ConnectClosure::ConnectClosure(MountPoint &connection, int extern_fd,
+		frigg::CallbackPtr<void()> callback)
+: connection(connection), externFd(extern_fd), callback(callback) { }
+
+void ConnectClosure::operator() () {
+	managarm::fs::CntRequest<Allocator> request(*allocator);
+	request.set_req_type(managarm::fs::CntReqType::CONNECT);
+	request.set_fd(externFd);
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	
+	// FIXME: fix request id
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &ConnectClosure::recvResponse)));
+}
+
+void ConnectClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+
+	callback();
+
+	frigg::destruct(*allocator, this);
+}
+
+// --------------------------------------------------------
 // OpenClosure
 // --------------------------------------------------------
 
@@ -148,6 +190,7 @@ void OpenClosure::recvOpenResponse(HelError error, int64_t msg_request, int64_t 
 	assert(response.error() == managarm::fs::Errors::SUCCESS);
 	
 	if(response.file_type() == managarm::fs::FileType::REGULAR
+			|| response.file_type() == managarm::fs::FileType::SOCKET
 			|| response.file_type() == managarm::fs::FileType::DIRECTORY) {
 		auto open_file = frigg::makeShared<OpenFile>(*allocator, connection, response.fd());
 		callback(frigg::staticPtrCast<VfsOpenFile>(open_file));

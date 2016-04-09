@@ -126,9 +126,10 @@ OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
 void OpenClosure::operator() () {
 	managarm::fs::SvrResponse response;
 	
-	if(request.path() == "tcp+ip") {
+	if(request.path() == "ip+udp") {
 		int handle = connection.attachOpenFile(new OpenFile);
 		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_file_type(managarm::fs::FileType::SOCKET);
 		response.set_fd(handle);
 	}else{
 		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);

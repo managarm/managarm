@@ -76,6 +76,10 @@ void VfsOpenFile::openAt(frigg::String<Allocator> path,
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
 }
+
+void VfsOpenFile::connect(frigg::CallbackPtr<void()> callback) {
+	assert(!"Illegal operation for this file");
+}
 	
 void VfsOpenFile::fstat(frigg::CallbackPtr<void(FileStats)> callback) {
 	assert(!"Illegal operation for this file");

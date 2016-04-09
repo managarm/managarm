@@ -8,6 +8,8 @@
 #include <spawn.h>
 #include <sched.h>
 #include <sys/types.h>
+#include <sys/socket.h> // FIXME: for testing
+#include <netinet/in.h> // FIXME: for testing
 #include <sys/stat.h>
 
 #include <vector>
@@ -51,6 +53,12 @@ int main() {
 	
 	printf("Testing network API!\n");
 	
-	open("/dev/network/ip+tcp", O_RDWR);
+	int socket = open("/dev/network/ip+udp", O_RDWR);
+	
+	struct sockaddr_in address;
+	address.sin_family = AF_INET;
+	address.sin_port = 7;
+	address.sin_addr.s_addr = (10 << 24) | (85 << 16) | (1 << 8) | 1;
+	connect(socket, (struct sockaddr *)&address, sizeof(struct sockaddr_in));
 }
 

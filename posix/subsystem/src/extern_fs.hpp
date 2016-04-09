@@ -12,6 +12,7 @@ struct OpenFile : public VfsOpenFile {
 	OpenFile(MountPoint &connection, int extern_fd);
 
 	// inherited from VfsOpenFile
+	void connect(frigg::CallbackPtr<void()> callback) override;
 	void fstat(frigg::CallbackPtr<void(FileStats)> callback) override;
 	void write(const void *buffer, size_t length,
 			frigg::CallbackPtr<void()> callback) override;
@@ -84,6 +85,21 @@ private:
 	int externFd;
 	char dataBuffer[128];
 	frigg::String<Allocator> linkTarget;
+};
+
+struct ConnectClosure {
+	ConnectClosure(MountPoint &connection, int extern_fd,
+			frigg::CallbackPtr<void()> callback);
+
+	void operator() ();
+
+private:
+	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+
+	MountPoint &connection;
+	int externFd;
+	frigg::CallbackPtr<void()> callback;
+	uint8_t buffer[128];
 };
 
 struct ReadClosure {

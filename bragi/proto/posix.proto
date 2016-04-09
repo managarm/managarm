@@ -23,6 +23,7 @@ enum ClientRequestType {
 	EXEC = 1;
 	FSTAT = 12;
 	OPEN = 2;
+	CONNECT = 19;
 	READ = 3;
 	WRITE = 4;
 	SEEK_ABS = 13;
