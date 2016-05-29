@@ -60,5 +60,6 @@ int main() {
 	address.sin_port = 7;
 	address.sin_addr.s_addr = (10 << 24) | (85 << 16) | (1 << 8) | 1;
 	connect(socket, (struct sockaddr *)&address, sizeof(struct sockaddr_in));
+	write(socket, "hello", 5);
 }
 

@@ -15,9 +15,15 @@
 #include "ethernet.hpp"
 #include "network.hpp"
 
+template<typename... Args>
+frigg::CallbackPtr<void(Args...)> libchainToFrigg(libchain::Callback<void(Args...)> callback) {
+	return CALLBACK_STATIC(callback.implementation(),
+			&libchain::Callback<void(Args...)>::invoke);
+}
+
 namespace libnet {
 
-Network::Network(NetDevice &devide)
+Network::Network(NetDevice &device)
 : device(device) { }
 
 // --------------------------------------------------------
@@ -130,7 +136,8 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 			managarm::fs::SvrResponse response;
 			
 			auto file = getOpenFile(request.fd());
-			file->address = Ip4Address(8, 8, 8, 8);
+			file->address = Ip4Address(192, 168, 178, 43);
+			file->port = 1234;
 			response.set_error(managarm::fs::Errors::SUCCESS);
 
 			std::string serialized;
@@ -138,6 +145,49 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 			pipe.sendStringResp(serialized.data(), serialized.size(),
 					msg_request, 0);
 		}, libchain::nullary);
+
+		libchain::run(action);
+	}else if(request.req_type() == managarm::fs::CntReqType::WRITE) {
+		auto action = libchain::contextify([this, request, msg_request] (std::string &buffer) {
+			buffer.resize(request.size());
+
+			return libchain::sequence()
+			& libchain::await<void(HelError, int64_t, int64_t, size_t)>([this, request, msg_request, &buffer] (auto callback) {
+				HEL_CHECK(pipe.recvStringReq(&buffer[0], request.size(), eventHub, msg_request, 1,
+						libchainToFrigg(callback)));
+			})
+			& libchain::apply([this, request, msg_request, &buffer] (HelError error,
+					int64_t msg_request, int64_t msg_seq, size_t length) {
+				HEL_CHECK(error);
+				assert(length == (size_t)request.size());
+
+				managarm::fs::SvrResponse response;
+			
+				auto file = getOpenFile(request.fd());
+				
+				EthernetInfo etherInfo;
+				etherInfo.sourceMac = localMac;
+				etherInfo.destMac = routerMac;
+				etherInfo.etherType = kEtherIp4;
+				
+				Ip4Info ipInfo;
+				ipInfo.sourceIp = localIp;
+				ipInfo.destIp = file->address;
+				ipInfo.protocol = kUdpProtocol;
+
+				UdpInfo udpInfo;
+				udpInfo.sourcePort = 1234;
+				udpInfo.destPort = file->port;
+				
+				sendUdpPacket(net.device, etherInfo, ipInfo, udpInfo, buffer);
+				response.set_error(managarm::fs::Errors::SUCCESS);
+
+				std::string serialized;
+				response.SerializeToString(&serialized);
+				pipe.sendStringResp(serialized.data(), serialized.size(),
+						msg_request, 0);
+			}, libchain::nullary);
+		}, std::string());
 
 		libchain::run(action);
 	}/*else if(request.req_type() == managarm::fs::CntReqType::READ) {

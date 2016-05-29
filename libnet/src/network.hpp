@@ -22,6 +22,7 @@ struct Network {
 
 struct OpenFile {
 	Ip4Address address;
+	uint16_t port;
 };
 
 struct Client {

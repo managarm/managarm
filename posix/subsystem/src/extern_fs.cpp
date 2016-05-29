@@ -26,7 +26,9 @@ void OpenFile::connect(frigg::CallbackPtr<void()> callback) {
 }
 
 void OpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
-	assert(!"Not implemented");
+	auto closure = frigg::construct<WriteClosure>(*allocator,
+			connection, externFd, buffer, length, callback);
+	(*closure)();
 }
 
 void OpenFile::read(void *buffer, size_t max_length,
@@ -313,6 +315,44 @@ void ReadClosure::recvData(HelError error, int64_t msg_request, int64_t msg_seq,
 
 	callback(kVfsSuccess, length);
 	frigg::destruct(*allocator, this);
+}
+
+// --------------------------------------------------------
+// WriteClosure
+// --------------------------------------------------------
+
+WriteClosure::WriteClosure(MountPoint &connection,
+		int extern_fd, const void *write_buffer, size_t size,
+		frigg::CallbackPtr<void()> callback)
+: connection(connection), externFd(extern_fd), writeBuffer(write_buffer), size(size),
+		callback(callback) { }
+
+void WriteClosure::operator() () {
+	managarm::fs::CntRequest<Allocator> request(*allocator);
+	request.set_req_type(managarm::fs::CntReqType::WRITE);
+	request.set_fd(externFd);
+	request.set_size(size);
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+	connection.getPipe().sendStringReq(writeBuffer, size, 1, 1);
+	
+	// FIXME: fix request id
+	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
+			CALLBACK_MEMBER(this, &WriteClosure::recvResponse)));
+}
+
+void WriteClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
+		size_t length) {
+	HEL_CHECK(error);
+
+	managarm::fs::SvrResponse<Allocator> response(*allocator);
+	response.ParseFromArray(buffer, length);
+
+	assert(response.error() == managarm::fs::Errors::SUCCESS);
+	
+	callback();
 }
 
 // --------------------------------------------------------

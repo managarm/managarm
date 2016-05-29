@@ -120,6 +120,23 @@ private:
 	uint8_t buffer[128];
 };
 
+struct WriteClosure {
+	WriteClosure(MountPoint &connection, int extern_fd, const void *write_buffer, size_t size,
+			frigg::CallbackPtr<void()> callback);
+
+	void operator() ();
+
+private:
+	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
+
+	MountPoint &connection;
+	int externFd;
+	const void *writeBuffer;
+	size_t size;
+	frigg::CallbackPtr<void()> callback;
+	uint8_t buffer[128];
+};
+
 struct SeekClosure {
 	SeekClosure(MountPoint &connection, int extern_fd, int64_t rel_offset, VfsSeek whence,
 			frigg::CallbackPtr<void(uint64_t)> callback);
