@@ -1,8 +1,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#include <libchain/all.hpp>
+
 #include <fs.pb.h>
 #include <libnet.hpp>
+
 #include "udp.hpp"
 #include "tcp.hpp"
 #include "dns.hpp"
@@ -84,10 +88,6 @@ Network &Connection::getNet() {
 	return net;
 }
 
-helx::Pipe &Connection::getPipe() {
-	return pipe;
-}
-
 int Connection::attachOpenFile(OpenFile *file) {
 	int handle = nextHandle++;
 	fileHandles.insert(std::make_pair(handle, file));
@@ -106,8 +106,40 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	request.ParseFromArray(buffer, length);
 	
 	if(request.req_type() == managarm::fs::CntReqType::OPEN) {
-		auto closure = new OpenClosure(*this, msg_request, std::move(request));
-		(*closure)();
+		auto action = libchain::apply([this, request, msg_request] () {
+			managarm::fs::SvrResponse response;
+
+			if(request.path() == "ip+udp") {
+				int handle = attachOpenFile(new OpenFile);
+				response.set_error(managarm::fs::Errors::SUCCESS);
+				response.set_file_type(managarm::fs::FileType::SOCKET);
+				response.set_fd(handle);
+			}else{
+				response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+			}
+			
+			std::string serialized;
+			response.SerializeToString(&serialized);
+			pipe.sendStringResp(serialized.data(), serialized.size(),
+					msg_request, 0);	
+		}, libchain::nullary);
+	
+		libchain::run(action);
+	}else if(request.req_type() == managarm::fs::CntReqType::CONNECT) {
+		auto action = libchain::apply([this, request, msg_request] () {
+			managarm::fs::SvrResponse response;
+			
+			auto file = getOpenFile(request.fd());
+			file->address = Ip4Address(8, 8, 8, 8);
+			response.set_error(managarm::fs::Errors::SUCCESS);
+
+			std::string serialized;
+			response.SerializeToString(&serialized);
+			pipe.sendStringResp(serialized.data(), serialized.size(),
+					msg_request, 0);
+		}, libchain::nullary);
+
+		libchain::run(action);
 	}/*else if(request.req_type() == managarm::fs::CntReqType::READ) {
 		auto closure = new ReadClosure(*this, msg_request, std::move(request));
 		(*closure)();
@@ -117,30 +149,6 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	}
 
 	(*this)();
-}
-
-OpenClosure::OpenClosure(Connection &connection, int64_t response_id,
-		managarm::fs::CntRequest request)
-: connection(connection), responseId(response_id), request(std::move(request)) { }
-
-void OpenClosure::operator() () {
-	managarm::fs::SvrResponse response;
-	
-	if(request.path() == "ip+udp") {
-		int handle = connection.attachOpenFile(new OpenFile);
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_file_type(managarm::fs::FileType::SOCKET);
-		response.set_fd(handle);
-	}else{
-		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-	}
-	
-	std::string serialized;
-	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-			responseId, 0);
-
-	delete this;
 }
 
 } // namespace libnet

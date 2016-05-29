@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <string>
 
+#include "ip4.hpp"
+
 namespace libnet {
 
 struct Network {
@@ -19,7 +21,7 @@ struct Network {
 };
 
 struct OpenFile {
-	
+	Ip4Address address;
 };
 
 struct Client {
@@ -63,7 +65,6 @@ struct Connection {
 	void operator() ();
 
 	Network &getNet();
-	helx::Pipe &getPipe();
 
 	int attachOpenFile(OpenFile *handle);
 	OpenFile *getOpenFile(int handle);
@@ -78,17 +79,6 @@ private:
 	std::unordered_map<int, OpenFile *> fileHandles;
 	int nextHandle;
 	uint8_t buffer[128];
-};
-
-struct OpenClosure {
-	OpenClosure(Connection &connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-	void operator() ();
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
 };
 
 } // namespace libnet
