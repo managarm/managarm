@@ -7,6 +7,30 @@ namespace frigg {
 template<typename... Types>
 struct TypePack;
 
+struct TrueType {
+	static constexpr bool value = true;
+};
+
+struct FalseType {
+	static constexpr bool value = false;
+};
+
+template<typename T>
+T declval();
+
+namespace _detail {
+	template<typename S>
+	struct ResultOfHelper;
+
+	template<typename F, typename... Args>
+	struct ResultOfHelper<F(Args...)> {
+		using Type = decltype(declval<F>() (declval<Args>()...));
+	};
+};
+
+template<typename T>
+using ResultOf = typename _detail::ResultOfHelper<T>::Type;
+
 template<bool condition, typename T = void>
 struct EnableIf;
 
@@ -14,6 +38,9 @@ template<typename T>
 struct EnableIf<true, T> {
 	typedef T type;
 };
+
+template<bool condition, typename T = void>
+using EnableIfT = typename EnableIf<condition, T>::type;
 
 template<typename T>
 struct IsIntegral {
