@@ -2,6 +2,8 @@
 #include "common.hpp"
 #include "extern_fs.hpp"
 
+#include <frigg/chain-all.hpp>
+
 #include <fs.frigg_pb.hpp>
 
 namespace extern_fs {
@@ -13,24 +15,110 @@ namespace extern_fs {
 OpenFile::OpenFile(MountPoint &connection, int extern_fd)
 : connection(connection), externFd(extern_fd) { }
 
-void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> callback) {
-	auto closure = frigg::construct<StatClosure>(*allocator,
-			connection, externFd, callback);
-	(*closure)();
+void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
+	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+		buffer->resize(128);
+
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {		
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::fs::CntReqType::FSTAT);
+			request.set_fd(externFd);
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+			
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::apply([buffer] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(buffer->data(), length);
+
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+
+			FileStats stats;
+			stats.inodeNumber = response.inode_num();
+			stats.mode = response.mode();
+			stats.numLinks = response.num_links();
+			stats.uid = response.uid();
+			stats.gid = response.gid();
+			stats.fileSize = response.file_size();
+			stats.atimeSecs = response.atime_secs();
+			stats.atimeNanos = response.atime_nanos();
+			stats.mtimeSecs = response.mtime_secs();
+			stats.mtimeNanos = response.mtime_nanos();
+			stats.ctimeSecs = response.ctime_secs();
+			stats.ctimeNanos = response.ctime_nanos();
+			
+			return stats;
+		});
+	}, frigg::String<Allocator>(*allocator));
+
+	frigg::run(action, allocator.get(), complete);
 }
 
-void OpenFile::connect(frigg::CallbackPtr<void()> callback) {
-	auto closure = frigg::construct<ConnectClosure>(*allocator,
-			connection, externFd, callback);
-	(*closure)();
+void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
+	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+		buffer->resize(128);
+	
+		 return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {	
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::fs::CntReqType::CONNECT);
+			request.set_fd(externFd);
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::apply([buffer] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(buffer->data(), length);
+
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+		});
+	}, frigg::String<Allocator>(*allocator));
+
+	frigg::run(action, allocator.get(), complete);
 }
 
-void OpenFile::write(const void *buffer, size_t length, frigg::CallbackPtr<void()> callback) {
-	auto closure = frigg::construct<WriteClosure>(*allocator,
-			connection, externFd, buffer, length, callback);
-	(*closure)();
-}
+void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()> complete) {
+	auto action = frigg::contextify([this, buffer, size] (frigg::String<Allocator> *respBuffer) {
+		respBuffer->resize(128);
 
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer, size, respBuffer] (auto callback) {		
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::fs::CntReqType::WRITE);
+			request.set_fd(externFd);
+			request.set_size(size);
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+			connection.getPipe().sendStringReq(buffer, size, 1, 1);
+			
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::apply([buffer, respBuffer] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(respBuffer->data(), length);
+
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+		});
+	}, frigg::String<Allocator>(*allocator));
+
+	frigg::run(action, allocator.get(), complete);
+}
 void OpenFile::read(void *buffer, size_t max_length,
 		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
 	auto closure = frigg::construct<ReadClosure>(*allocator,
@@ -38,19 +126,83 @@ void OpenFile::read(void *buffer, size_t max_length,
 	(*closure)();
 }
 
-void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> callback) {
-	auto closure = frigg::construct<MapClosure>(*allocator,
-			connection, externFd, callback);
-	(*closure)();
+void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
+	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+		buffer->resize(128);
+
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {		
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::fs::CntReqType::MMAP);
+			request.set_fd(externFd);
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+			
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::await<void(HelError, int64_t, int64_t, size_t)>(
+				[this, buffer] (auto callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {		
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(buffer->data(), length);
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+			
+			// FIXME: fix request id
+			connection.getPipe().recvDescriptorResp(eventHub, 1, 1, callback);
+		})
+		+ frigg::apply([this] (HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle ) {	
+			HEL_CHECK(error);
+
+			return handle;
+		});
+	}, frigg::String<Allocator>(*allocator));
+
+	frigg::run(action, allocator.get(), complete);
 }
 
-void OpenFile::seek(int64_t rel_offset, VfsSeek whence,
-		frigg::CallbackPtr<void(uint64_t)> callback) {
-	auto closure = frigg::construct<SeekClosure>(*allocator,
-			connection, externFd, rel_offset, whence, callback);
-	(*closure)();
-}
+void OpenFile::seek(int64_t rel_offset, VfsSeek whence,	frigg::CallbackPtr<void(uint64_t)> complete) {
+	auto action = frigg::contextify([this, rel_offset, whence] (frigg::String<Allocator> *buffer) {
+		buffer->resize(128);
+		
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, rel_offset, whence, buffer] (auto callback) {	
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_fd(externFd);
+			request.set_rel_offset(rel_offset);
 
+			if(whence == kSeekAbs) {
+				request.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
+			}else if(whence == kSeekRel) {
+				request.set_req_type(managarm::fs::CntReqType::SEEK_REL);
+			}else if(whence == kSeekEof) {
+				request.set_req_type(managarm::fs::CntReqType::SEEK_EOF);
+			}else{
+				frigg::panicLogger.log() << "Illegal whence argument" << frigg::EndLog();
+			}
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::apply([buffer] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(buffer->data(), length);
+
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+			
+			return response.offset();
+		});
+	}, frigg::String<Allocator>(*allocator));
+
+	frigg::run(action, allocator.get(), complete);
+}
 // --------------------------------------------------------
 // MountPoint
 // --------------------------------------------------------
@@ -67,91 +219,6 @@ void MountPoint::openMounted(StdUnsafePtr<Process> process,
 
 helx::Pipe &MountPoint::getPipe() {
 	return p_pipe;
-}
-
-// --------------------------------------------------------
-// StatClosure
-// --------------------------------------------------------
-
-StatClosure::StatClosure(MountPoint &connection, int extern_fd,
-		frigg::CallbackPtr<void(FileStats)> callback)
-: connection(connection), externFd(extern_fd), callback(callback) { }
-
-void StatClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::FSTAT);
-	request.set_fd(externFd);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &StatClosure::recvResponse)));
-}
-
-void StatClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-
-	FileStats stats;
-	stats.inodeNumber = response.inode_num();
-	stats.mode = response.mode();
-	stats.numLinks = response.num_links();
-	stats.uid = response.uid();
-	stats.gid = response.gid();
-	stats.fileSize = response.file_size();
-	stats.atimeSecs = response.atime_secs();
-	stats.atimeNanos = response.atime_nanos();
-	stats.mtimeSecs = response.mtime_secs();
-	stats.mtimeNanos = response.mtime_nanos();
-	stats.ctimeSecs = response.ctime_secs();
-	stats.ctimeNanos = response.ctime_nanos();
-	callback(stats);
-
-	frigg::destruct(*allocator, this);
-}
-
-// --------------------------------------------------------
-// ConnectClosure
-// --------------------------------------------------------
-
-ConnectClosure::ConnectClosure(MountPoint &connection, int extern_fd,
-		frigg::CallbackPtr<void()> callback)
-: connection(connection), externFd(extern_fd), callback(callback) { }
-
-void ConnectClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::CONNECT);
-	request.set_fd(externFd);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &ConnectClosure::recvResponse)));
-}
-
-void ConnectClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-
-	callback();
-
-	frigg::destruct(*allocator, this);
 }
 
 // --------------------------------------------------------
@@ -314,134 +381,6 @@ void ReadClosure::recvData(HelError error, int64_t msg_request, int64_t msg_seq,
 	HEL_CHECK(error);
 
 	callback(kVfsSuccess, length);
-	frigg::destruct(*allocator, this);
-}
-
-// --------------------------------------------------------
-// WriteClosure
-// --------------------------------------------------------
-
-WriteClosure::WriteClosure(MountPoint &connection,
-		int extern_fd, const void *write_buffer, size_t size,
-		frigg::CallbackPtr<void()> callback)
-: connection(connection), externFd(extern_fd), writeBuffer(write_buffer), size(size),
-		callback(callback) { }
-
-void WriteClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::WRITE);
-	request.set_fd(externFd);
-	request.set_size(size);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	connection.getPipe().sendStringReq(writeBuffer, size, 1, 1);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &WriteClosure::recvResponse)));
-}
-
-void WriteClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	
-	callback();
-}
-
-// --------------------------------------------------------
-// SeekClosure
-// --------------------------------------------------------
-
-SeekClosure::SeekClosure(MountPoint &connection,
-		int extern_fd, int64_t rel_offset, VfsSeek whence,
-		frigg::CallbackPtr<void(uint64_t)> callback)
-: connection(connection), externFd(extern_fd), relOffset(rel_offset), whence(whence),
-		callback(callback) { }
-
-void SeekClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_fd(externFd);
-	request.set_rel_offset(relOffset);
-	
-	if(whence == kSeekAbs) {
-		request.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
-	}else if(whence == kSeekRel) {
-		request.set_req_type(managarm::fs::CntReqType::SEEK_REL);
-	}else if(whence == kSeekEof) {
-		request.set_req_type(managarm::fs::CntReqType::SEEK_EOF);
-	}else{
-		frigg::panicLogger.log() << "Illegal whence argument" << frigg::EndLog();
-	}
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &SeekClosure::recvResponse)));
-}
-
-void SeekClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	callback(response.offset());
-
-	frigg::destruct(*allocator, this);
-}
-
-// --------------------------------------------------------
-// MapClosure
-// --------------------------------------------------------
-
-MapClosure::MapClosure(MountPoint &connection, int extern_fd,
-		frigg::CallbackPtr<void(HelHandle)> callback)
-: connection(connection), externFd(extern_fd), callback(callback) { }
-
-void MapClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::MMAP);
-	request.set_fd(externFd);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &MapClosure::recvResponse)));
-}
-
-void MapClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	
-	// FIXME: fix request id
-	connection.getPipe().recvDescriptorResp(eventHub, 1, 1,
-			CALLBACK_MEMBER(this, &MapClosure::recvHandle));
-}
-
-void MapClosure::recvHandle(HelError error, int64_t msg_request, int64_t msg_seq,
-		HelHandle file_memory) {
-	HEL_CHECK(error);
-
-	callback(file_memory);
 	frigg::destruct(*allocator, this);
 }
 

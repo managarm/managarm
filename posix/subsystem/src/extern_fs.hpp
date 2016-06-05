@@ -51,21 +51,6 @@ private:
 // Closures
 // --------------------------------------------------------
 
-struct StatClosure {
-	StatClosure(MountPoint &connection, int extern_fd,
-			frigg::CallbackPtr<void(FileStats)> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	MountPoint &connection;
-	int externFd;
-	frigg::CallbackPtr<void(FileStats)> callback;
-	uint8_t buffer[128];
-};
-
 struct OpenClosure {
 	OpenClosure(MountPoint &connection, frigg::String<Allocator> path,
 			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
@@ -87,21 +72,6 @@ private:
 	frigg::String<Allocator> linkTarget;
 };
 
-struct ConnectClosure {
-	ConnectClosure(MountPoint &connection, int extern_fd,
-			frigg::CallbackPtr<void()> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	MountPoint &connection;
-	int externFd;
-	frigg::CallbackPtr<void()> callback;
-	uint8_t buffer[128];
-};
-
 struct ReadClosure {
 	ReadClosure(MountPoint &connection, int extern_fd, void *read_buffer, size_t max_size,
 			frigg::CallbackPtr<void(VfsError, size_t)> callback);
@@ -119,57 +89,6 @@ private:
 	frigg::CallbackPtr<void(VfsError, size_t)> callback;
 	uint8_t buffer[128];
 };
-
-struct WriteClosure {
-	WriteClosure(MountPoint &connection, int extern_fd, const void *write_buffer, size_t size,
-			frigg::CallbackPtr<void()> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	MountPoint &connection;
-	int externFd;
-	const void *writeBuffer;
-	size_t size;
-	frigg::CallbackPtr<void()> callback;
-	uint8_t buffer[128];
-};
-
-struct SeekClosure {
-	SeekClosure(MountPoint &connection, int extern_fd, int64_t rel_offset, VfsSeek whence,
-			frigg::CallbackPtr<void(uint64_t)> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	MountPoint &connection;
-	int externFd;
-	int64_t relOffset;
-	VfsSeek whence;
-	frigg::CallbackPtr<void(uint64_t)> callback;
-	uint8_t buffer[128];
-};
-
-struct MapClosure {
-	MapClosure(MountPoint &connection, int extern_fd,
-			frigg::CallbackPtr<void(HelHandle)> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-	void recvHandle(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle file_memory);
-
-	MountPoint &connection;
-	int externFd;
-	frigg::CallbackPtr<void(HelHandle)> callback;
-	uint8_t buffer[128];
-};
-
 
 } // namespace extern_fs
 
