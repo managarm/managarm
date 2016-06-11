@@ -746,14 +746,6 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
-
-			// TODO: check userspace page access rights
-	
-			// do the actual memory transfer
-			hub_guard.unlock();
-			memcpy(event.userBuffer, event.kernelBuffer.data(),
-					event.kernelBuffer.size());
-			hub_guard.lock();
 			user_evt->length = event.kernelBuffer.size();
 		} break;
 		case UserEvent::kTypeRecvStringTransferToQueue: {
@@ -990,10 +982,13 @@ HelError helSubmitRecvString(HelHandle handle,
 		recv_flags |= Channel::kFlagResponse;
 
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	
+
+	frigg::SharedPtr<AddressSpace> space(this_thread->getAddressSpace());
+	auto space_lock = ForeignSpaceLock::acquire(frigg::move(space), user_buffer, max_length);
+
 	Channel::Guard channel_guard(&channel.lock);
 	Error error = channel.submitRecvString(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-			user_buffer, max_length, filter_request, filter_sequence, submit_info, recv_flags);
+			frigg::move(space_lock), filter_request, filter_sequence, submit_info, recv_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)

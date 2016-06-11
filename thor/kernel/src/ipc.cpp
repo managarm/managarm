@@ -67,8 +67,8 @@ Error Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 	return kErrSuccess;
 }
 
-Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-		void *user_buffer, size_t max_length,
+Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> event_hub,
+		ForeignSpaceLock space_lock,
 		int64_t filter_request, int64_t filter_sequence,
 		SubmitInfo submit_info, uint32_t flags) {
 	assert(guard.protects(&lock));
@@ -79,8 +79,7 @@ Error Channel::submitRecvString(Guard &guard, KernelSharedPtr<EventHub> &&event_
 	Request request(kMsgStringToBuffer, frigg::move(event_hub),
 			filter_request, filter_sequence, submit_info);
 	request.flags = flags;
-	request.userBuffer = user_buffer;
-	request.maxLength = max_length;
+	request.spaceLock = frigg::move(space_lock);
 
 	bool queue_request = true;
 	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
@@ -199,7 +198,7 @@ bool Channel::matchRequest(const Message &message, const Request &request) {
 
 bool Channel::processStringRequest(Message &message, Request &request) {
 	if(request.type == kMsgStringToBuffer
-			&& message.length > request.maxLength) {
+			&& message.length > request.spaceLock.length()) {
 		UserEvent event(UserEvent::kTypeError, request.submitInfo);
 		event.error = kErrBufferTooSmall;
 
@@ -214,8 +213,9 @@ bool Channel::processStringRequest(Message &message, Request &request) {
 		event.kernelBuffer = frigg::move(message.kernelBuffer);
 		event.msgRequest = message.msgRequest;
 		event.msgSequence = message.msgSequence;
-		
-		event.userBuffer = request.userBuffer;
+
+		// perform the actual data transfer
+		request.spaceLock.copyTo(event.kernelBuffer.data(), event.kernelBuffer.size());
 	
 		EventHub::Guard hub_guard(&request.eventHub->lock);
 		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
@@ -268,7 +268,6 @@ Channel::Request::Request(MsgType type,
 		SubmitInfo submit_info)
 : type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
 		filterRequest(filter_request), filterSequence(filter_sequence), flags(0),
-		userBuffer(nullptr), maxLength(0),
 		userQueueArray(nullptr), numQueues(0) { }
 
 // --------------------------------------------------------

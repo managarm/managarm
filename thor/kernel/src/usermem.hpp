@@ -59,6 +59,9 @@ public:
 
 	PhysicalAddr resolveOriginalAt(size_t offset);
 
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			size_t offset);
+
 	size_t numPages();
 	
 	void zeroPages();
@@ -179,6 +182,8 @@ public:
 	
 	PhysicalAddr getPhysical(Guard &guard, VirtualAddr address);
 	
+	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
+	
 	void activate();
 
 	Lock lock;
@@ -243,6 +248,73 @@ private:
 	
 	Mapping *p_root;
 	PageSpace p_pageSpace;
+};
+
+template<typename T>
+struct DirectSpaceLock {
+
+};
+
+struct ForeignSpaceLock {
+	static ForeignSpaceLock acquire(frigg::SharedPtr<AddressSpace> space,
+			void *address, size_t length) {
+//		Mapping *mapping = _space->getMapping(address);
+//		assert(mapping->length >= length);
+		// TODO: return an empty lock if the acquire fails
+		return ForeignSpaceLock(frigg::move(space), address, length);
+	}
+
+	friend void swap(ForeignSpaceLock &a, ForeignSpaceLock &b) {
+		frigg::swap(a._space, b._space);
+		frigg::swap(a._address, b._address);
+		frigg::swap(a._length, b._length);
+	}
+
+	ForeignSpaceLock() = default;
+
+	ForeignSpaceLock(const ForeignSpaceLock &other) = delete;
+
+	ForeignSpaceLock(ForeignSpaceLock &&other)
+	: ForeignSpaceLock() {
+		swap(*this, other);
+	}
+	
+	ForeignSpaceLock &operator= (ForeignSpaceLock other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	size_t length() {
+		return _length;
+	}
+
+	void copyTo(void *pointer, size_t size) {
+		AddressSpace::Guard guard(&_space->lock);
+		
+		size_t offset = 0;
+		while(offset < size) {
+			VirtualAddr write = (VirtualAddr)_address + offset;
+			size_t misalign = (VirtualAddr)write % kPageSize;
+			size_t chunk = frigg::min(kPageSize - misalign, size - offset);
+
+			PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+			memcpy(physicalToVirtual(page + misalign), (char *)pointer + offset, chunk);
+			offset += chunk;
+		}
+	}
+
+private:
+	ForeignSpaceLock(frigg::SharedPtr<AddressSpace> space,
+			void *address, size_t length)
+	: _space(frigg::move(space)), _address(address), _length(length) { }
+
+	frigg::SharedPtr<AddressSpace> _space;
+	void *_address;
+	size_t _length;
+};
+
+struct OwnSpaceLock {
+
 };
 
 } // namespace thor

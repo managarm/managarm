@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 54,
+	kHelNumCalls = 55,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -47,6 +47,7 @@ enum {
 
 	kHelCallCreateFullPipe = 4,
 	kHelCallSendString = 8,
+	kHelCallSubmitSendString = 54,
 	kHelCallSendDescriptor = 28,
 	kHelCallSubmitRecvString = 9,
 	kHelCallSubmitRecvStringToQueue = 53,
@@ -242,6 +243,11 @@ HEL_C_LINKAGE HelError helCreateFullPipe(HelHandle *first,
 HEL_C_LINKAGE HelError helSendString(HelHandle handle,
 		const void *buffer, size_t length,
 		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
+HEL_C_LINKAGE HelError helSubmitSendString(HelHandle handle,
+		HelHandle hub_handle, const void *buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id);
 HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,

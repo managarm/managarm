@@ -214,6 +214,29 @@ public:
 		sendString(buffer, length, msg_request, msg_seq, kHelResponse);
 	}
 
+	inline void sendString(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			frigg::CallbackPtr<void(HelError)> callback,
+			uint32_t flags) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitSendString(p_handle, event_hub.getHandle(),
+				(uint8_t *)buffer, length, msg_request, msg_seq,
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				flags, &async_id));
+	}
+	inline void sendStringReq(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			frigg::CallbackPtr<void(HelError)> callback) {
+		sendString(buffer, length, event_hub, msg_request, msg_seq,
+				callback, kHelRequest);
+	}
+	inline void sendStringResp(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			frigg::CallbackPtr<void(HelError)> callback) {
+		sendString(buffer, length, event_hub, msg_request, msg_seq,
+				callback, kHelResponse);
+	}
+
 	inline void sendDescriptor(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		HEL_CHECK(helSendDescriptor(p_handle, send_handle,

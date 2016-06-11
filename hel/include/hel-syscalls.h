@@ -216,6 +216,18 @@ DEFINE_SYSCALL(SendString, HelHandle handle, const void *buffer, size_t length,
 	DO_SYSCALL(SendString)
 END_SYSCALL()
 
+DEFINE_SYSCALL(SubmitSendString, HelHandle handle, HelHandle hub_handle,
+		const void *buffer, size_t length,
+		int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, length)
+			IN(4, msg_request) IN(5, msg_sequence)
+			IN(6, submit_function) IN(7, submit_object) IN(8, flags)
+	DO_SYSCALL(SubmitSendString)
+	OUT(0, int64_t, async_id)
+END_SYSCALL()
+
 DEFINE_SYSCALL(SendDescriptor, HelHandle handle, HelHandle send_handle,
 		int64_t msg_request, int64_t msg_sequence, uint32_t flags)
 	IN(0, handle) IN(1, send_handle) IN(2, msg_request) IN(3, msg_sequence) IN(4, flags)

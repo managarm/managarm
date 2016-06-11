@@ -36,9 +36,6 @@ struct UserEvent {
 	// used by kTypeRecvStringTransferToBuffer and kTypeRecvStringTransferToQueue
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 
-	// used by kTypeRecvStringTransferToBuffer
-	void *userBuffer;
-
 	// used by kTypeRecvStringTransferToQueue
 	HelQueue *userQueueArray;
 	size_t numQueues;
