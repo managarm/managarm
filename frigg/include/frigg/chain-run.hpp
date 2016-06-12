@@ -44,9 +44,9 @@ void run(Chainable chainable, Allocator *allocator, Finally finally) {
 	closure->continuation();
 }
 
-template<typename Chainable>
-void run(Chainable chainable) {
-	run(frigg::move(chainable), [] () { });
+template<typename Chainable, typename Allocator>
+void run(Chainable chainable, Allocator *allocator) {
+	run(frigg::move(chainable), allocator, [] () { });
 }
 
 } // namespace frigg

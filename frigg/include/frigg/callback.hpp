@@ -50,7 +50,7 @@ public:
 		return function;
 	}
 
-	R operator() (Args... args) {
+	R operator() (Args... args) const {
 		return function(object, args...);
 	}
 

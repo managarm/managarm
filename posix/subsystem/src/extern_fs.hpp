@@ -72,24 +72,6 @@ private:
 	frigg::String<Allocator> linkTarget;
 };
 
-struct ReadClosure {
-	ReadClosure(MountPoint &connection, int extern_fd, void *read_buffer, size_t max_size,
-			frigg::CallbackPtr<void(VfsError, size_t)> callback);
-
-	void operator() ();
-
-private:
-	void recvResponse(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-	void recvData(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	MountPoint &connection;
-	int externFd;
-	void *readBuffer;
-	size_t maxSize;
-	frigg::CallbackPtr<void(VfsError, size_t)> callback;
-	uint8_t buffer[128];
-};
-
 } // namespace extern_fs
 
 #endif // POSIX_SUBSYSTEM_EXTERN_FS_HPP

@@ -119,11 +119,50 @@ void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()>
 
 	frigg::run(action, allocator.get(), complete);
 }
-void OpenFile::read(void *buffer, size_t max_length,
-		frigg::CallbackPtr<void(VfsError, size_t)> callback) {
-	auto closure = frigg::construct<ReadClosure>(*allocator,
-			connection, externFd, buffer, max_length, callback);
-	(*closure)();
+
+void OpenFile::read(void *buffer, size_t max_length, frigg::CallbackPtr<void(VfsError, size_t)> complete) {
+	// work around a segfault in GCC
+	auto max_length2 = max_length;
+	auto action = frigg::compose([=] (frigg::String<Allocator> *respBuffer) {
+		respBuffer->resize(128);
+
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([=] (auto callback) {		
+			managarm::fs::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::fs::CntReqType::READ);
+			request.set_fd(externFd);
+			request.set_size(max_length);
+
+			frigg::String<Allocator> serialized(*allocator);
+			request.SerializeToString(&serialized);
+			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+			
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0, callback));
+		})
+		+ frigg::await<void(HelError, int64_t, int64_t, size_t)>
+				([=] (auto callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {
+			HEL_CHECK(error);
+
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.ParseFromArray(respBuffer->data(), length);
+
+			if(response.error() == managarm::fs::Errors::END_OF_FILE) {
+				complete(kVfsEndOfFile, 0);
+				return;
+			}
+			assert(response.error() == managarm::fs::Errors::SUCCESS);
+			
+			// FIXME: fix request id
+			HEL_CHECK(connection.getPipe().recvStringResp(buffer, max_length2, eventHub, 1, 1, callback));
+		})
+		+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+			HEL_CHECK(error);
+
+			complete(kVfsSuccess, length);
+		});
+	 }, frigg::String<Allocator>(*allocator));
+
+	 frigg::run(action, allocator.get());
 }
 
 void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
@@ -330,58 +369,6 @@ void OpenClosure::recvReadData(HelError error, int64_t msg_request, int64_t msg_
 	// FIXME: fix request id
 	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
 			CALLBACK_MEMBER(this, &OpenClosure::recvReadResponse)));
-}
-
-// --------------------------------------------------------
-// ReadClosure
-// --------------------------------------------------------
-
-ReadClosure::ReadClosure(MountPoint &connection,
-		int extern_fd, void *read_buffer, size_t max_size,
-		frigg::CallbackPtr<void(VfsError, size_t)> callback)
-: connection(connection), externFd(extern_fd), readBuffer(read_buffer), maxSize(max_size),
-		callback(callback) { }
-
-void ReadClosure::operator() () {
-	managarm::fs::CntRequest<Allocator> request(*allocator);
-	request.set_req_type(managarm::fs::CntReqType::READ);
-	request.set_fd(externFd);
-	request.set_size(maxSize);
-
-	frigg::String<Allocator> serialized(*allocator);
-	request.SerializeToString(&serialized);
-	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(buffer, 128, eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &ReadClosure::recvResponse)));
-}
-
-void ReadClosure::recvResponse(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.ParseFromArray(buffer, length);
-
-	if(response.error() == managarm::fs::Errors::END_OF_FILE) {
-		callback(kVfsEndOfFile, 0);
-		frigg::destruct(*allocator, this);
-		return;
-	}
-	assert(response.error() == managarm::fs::Errors::SUCCESS);
-	
-	// FIXME: fix request id
-	HEL_CHECK(connection.getPipe().recvStringResp(readBuffer, maxSize, eventHub, 1, 1,
-			CALLBACK_MEMBER(this, &ReadClosure::recvData)));
-}
-
-void ReadClosure::recvData(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	HEL_CHECK(error);
-
-	callback(kVfsSuccess, length);
-	frigg::destruct(*allocator, this);
 }
 
 } // namespace extern_fs
