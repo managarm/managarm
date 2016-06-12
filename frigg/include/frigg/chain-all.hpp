@@ -8,7 +8,6 @@
 #include <frigg/chain-await.hpp>
 #include <frigg/chain-branch.hpp>
 #include <frigg/chain-compose.hpp>
-#include <frigg/chain-contextify.hpp>
 #include <frigg/chain-repeat.hpp>
 #include <frigg/chain-then.hpp>
 

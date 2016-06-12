@@ -2,6 +2,8 @@
 #ifndef FRIGG_TRAITS_HPP
 #define FRIGG_TRAITS_HPP
 
+#include <frigg/cxx-support.hpp>
+
 namespace frigg {
 
 template<typename... Types>
@@ -101,7 +103,28 @@ typename RemoveRef<T>::type &&move(T &&arg) noexcept {
 template<typename T>
 T &&forward(typename RemoveRef<T>::type &arg) noexcept {
 	return static_cast<T &&>(arg);
-} 
+}
+
+template<size_t... I>
+struct IndexSequence { };
+
+namespace _index_sequence {
+	template<size_t N, size_t... Suffix>
+	struct MakeHelper {
+		using Type = typename MakeHelper<N - 1, N - 1, Suffix...>::Type;
+	};
+
+	template<size_t... Suffix>
+	struct MakeHelper<0, Suffix...> {
+		using Type = IndexSequence<Suffix...>;
+	};
+};
+
+template<size_t N>
+using MakeIndexSequence = typename _index_sequence::MakeHelper<N>::Type;
+
+template<typename... T>
+using IndexSequenceFor = MakeIndexSequence<sizeof...(T)>;
 
 } // namespace frigg
 

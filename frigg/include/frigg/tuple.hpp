@@ -4,16 +4,15 @@
 
 namespace frigg {
 
-namespace tuple_impl {
+namespace _tuple {
 
 template<typename... Types>
 struct Storage;
 
 template<typename T, typename... Types>
 struct Storage<T, Types...> {
-	template<typename FwT, typename... FwTypes>
-	Storage(FwT &&item, FwTypes &&... tail)
-	: item(forward<FwT>(item)), tail(forward<FwTypes>(tail)...) { }
+	Storage(T item, Types... tail)
+	: item(move(item)), tail(move(tail)...) { }
 
 	T item;
 	Storage<Types...> tail;
@@ -54,24 +53,21 @@ struct Access<0, T, Types...> {
 	}
 };
 
-} // namespace tuple_impl
+} // namespace _tuple
 
 template<typename... Types>
 class Tuple {
 public:
-	Tuple(const Tuple &other) = default;
-
-	template<typename... FwTypes>
-	explicit Tuple(FwTypes &&... args)
-	: p_storage(forward<FwTypes>(args)...) { }
+	explicit Tuple(Types... args)
+	: p_storage(move(args)...) { }
 
 	template<int n>
-	typename tuple_impl::NthType<n, Types...>::type &get() {
-		return tuple_impl::Access<n, Types...>::access(p_storage);
+	typename _tuple::NthType<n, Types...>::type &get() {
+		return _tuple::Access<n, Types...>::access(p_storage);
 	}
 
 private:
-	tuple_impl::Storage<Types...> p_storage;
+	_tuple::Storage<Types...> p_storage;
 };
 
 template<typename... Types>

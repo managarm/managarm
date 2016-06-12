@@ -4,20 +4,22 @@
 
 #include <assert.h>
 
+#include <frigg/traits.hpp>
+#include <frigg/tuple.hpp>
 #include <frigg/chain-common.hpp>
 #include <frigg/chain-run.hpp>
 
 namespace frigg {
 
-template<typename Functor>
-struct ComposeDynamic {
+template<typename Functor, typename... T>
+struct Compose {
 private:
 	template<typename P>
 	struct ResolveSignature;
 	
 	template<typename... Args>
 	struct ResolveSignature<void(Args...)> {
-		using Type = typename ResultOf<Functor(Args...)>::template Signature<void()>;
+		using Type = typename ResultOf<Functor(Args..., T *...)>::template Signature<void()>;
 	};
 
 public:
@@ -30,18 +32,16 @@ public:
 	template<typename... Args, typename Next>
 	struct Chain<void(Args...), Next> {
 	private:
-		using ComposedChainable = ResultOf<Functor(Args...)>;
-		using ComposedSignature = typename ComposedChainable::template Signature<void()>;
-	
-		template<typename S>
-		struct Resume;
-		
-		template<typename... Results>
-		struct Resume<void(Results...)> {
+		struct Resume {
 			Resume(Chain *chain)
 			: _chain(chain) { }
 
+			template<typename... Results>
 			void operator() (Results &&... results) {
+				assert(_chain->_hasComposedChain);
+				_chain->_composedChain.~ComposedChain();
+				_chain->_hasComposedChain = false;
+
 				_chain->_next(forward<Results>(results)...);
 			}
 
@@ -49,127 +49,71 @@ public:
 			Chain *_chain;
 		};
 
+		using ComposedChainable = ResultOf<Functor(Args..., T *...)>;
+		using ComposedChain = typename ComposedChainable::template Chain<void(), Resume>;
+	
 	public:
 		template<typename... E>
-		Chain(const ComposeDynamic &bp, E &&... emplace)
-		: _functor(bp._functor), _next(forward<E>(emplace)...) { }
+		Chain(const Compose &bp, E &&... emplace)
+		: _functor(bp._functor), _context(bp._context),
+				_next(forward<E>(emplace)...), _hasComposedChain(false) { }
 		
-		void operator() (Args &&... args) {
-			auto chainable = _functor(forward<Args>(args)...);
-			run(chainable, Resume<ComposedSignature>(this));
-		}
-
-	private:
-		Functor _functor;
-		Next _next;
-	};
-
-	ComposeDynamic(Functor functor)
-	: _functor(move(functor)) { }
-
-private:
-	Functor _functor;
-};
-
-template<typename Functor>
-struct CanSequence<ComposeDynamic<Functor>>
-: public TrueType { };
-
-template<typename Functor>
-struct ComposeOnce {
-private:
-	template<typename P>
-	struct ResolveSignature;
-	
-	template<typename... Args>
-	struct ResolveSignature<void(Args...)> {
-		using Type = typename ResultOf<Functor(Args...)>::template Signature<void()>;
-	};
-
-public:
-	template<typename P>
-	using Signature = typename ResolveSignature<P>::Type;
-
-	template<typename P, typename Next>
-	struct Chain;
-
-	template<typename... Args, typename Next>
-	struct Chain<void(Args...), Next> {
-	private:
-		using ComposedChainable = ResultOf<Functor(Args...)>;
-		using ComposedChain = typename ComposedChainable::template Chain<void(), Next>;
-	
-	public:
 		template<typename... E>
-		Chain(const ComposeOnce &bp, E &&... emplace)
-		: _constructData(bp._functor, forward<E>(emplace)...),
-				_hasConstructData(true), _hasComposedChain(false) { }
-	
+		Chain(Compose &&bp, E &&... emplace)
+		: _functor(move(bp._functor)), _context(move(bp._context)),
+				_next(forward<E>(emplace)...), _hasComposedChain(false) { }
+
+		Chain(const Chain &other) = delete;
+
 		~Chain() {
-			if(_hasConstructData)
-				_constructData.~ConstructData();
-			if(_hasComposedChain)
-				_composedChain.~ComposedChain();
+			assert(!_hasComposedChain);
 		}
 
-		void operator() (Args &&... args) {
-			assert(_hasConstructData);
+		Chain &operator= (Chain other) = delete;
 
-			// destruct the construction data to make room for the chainable
-			Functor functor = move(_constructData.functor);
-			Next next = move(_constructData.next);
-			_hasConstructData = false;
-			_constructData.~ConstructData();
+		void operator() (Args &&... args) {
+			invoke(IndexSequenceFor<T...>(), forward<Args>(args)...);
+		}
+
+	private:
+		template<size_t... I>
+		void invoke(IndexSequence<I...>, Args &&... args) {
+			assert(!_hasComposedChain);
 
 			// construct the chain in-place and invoke it
-			auto chainable = functor(forward<Args>(args)...);
-			auto chain = new (&_composedChain) ComposedChain(chainable, move(next));
+			auto chainable = _functor(forward<Args>(args)..., &_context.template get<I>()...);
+			new (&_composedChain) ComposedChain(move(chainable), this);
 			_hasComposedChain = true;
 
-			(*chain)();
+			_composedChain();
 		}
 
-	private:
-		struct ConstructData {
-			template<typename... E>
-			ConstructData(Functor functor, E &&... emplace)
-			: functor(move(functor)), next(forward<E>(emplace)...) { }
-
-			Functor functor;
-			Next next;
-		};
+		Functor _functor;
+		Tuple<T...> _context;
+		Next _next;
 
 		union {
-			ConstructData _constructData;
 			ComposedChain _composedChain;
 		};
 
-		bool _hasConstructData, _hasComposedChain;
+		bool _hasComposedChain;
 	};
 
-	ComposeOnce(Functor functor)
-	: _functor(move(functor)) { }
+	Compose(Functor functor, T... contexts)
+	: _functor(move(functor)), _context(move(contexts)...) { }
 
 private:
 	Functor _functor;
+	Tuple<T...> _context;
 };
 
 template<typename Functor>
-struct CanSequence<ComposeOnce<Functor>>
+struct CanSequence<Compose<Functor>>
 : public TrueType { };
 
-struct Once { };
-
-constexpr Once once;
-
-template<typename Functor>
-auto compose(Functor functor) {
-	return ComposeDynamic<Functor>(move(functor));
-}
-
-template<typename Functor>
-auto compose(Functor functor, Once tag) {
-	return ComposeOnce<Functor>(move(functor));
+template<typename Functor, typename... T>
+Compose<Functor, T...> compose(Functor functor, T... contexts) {
+	return Compose<Functor, T...>(move(functor), move(contexts)...);
 }
 
 } // namespace frigg

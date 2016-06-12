@@ -16,7 +16,7 @@ OpenFile::OpenFile(MountPoint &connection, int extern_fd)
 : connection(connection), externFd(extern_fd) { }
 
 void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
-	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+	auto action = frigg::compose([this] (frigg::String<Allocator> *buffer) {
 		buffer->resize(128);
 
 		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {		
@@ -61,7 +61,7 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
 }
 
 void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
-	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+	auto action = frigg::compose([this] (frigg::String<Allocator> *buffer) {
 		buffer->resize(128);
 	
 		 return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {	
@@ -90,7 +90,7 @@ void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
 }
 
 void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()> complete) {
-	auto action = frigg::contextify([this, buffer, size] (frigg::String<Allocator> *respBuffer) {
+	auto action = frigg::compose([this, buffer, size] (frigg::String<Allocator> *respBuffer) {
 		respBuffer->resize(128);
 
 		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer, size, respBuffer] (auto callback) {		
@@ -127,7 +127,7 @@ void OpenFile::read(void *buffer, size_t max_length,
 }
 
 void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
-	auto action = frigg::contextify([this] (frigg::String<Allocator> *buffer) {
+	auto action = frigg::compose([this] (frigg::String<Allocator> *buffer) {
 		buffer->resize(128);
 
 		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, buffer] (auto callback) {		
@@ -164,7 +164,7 @@ void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
 }
 
 void OpenFile::seek(int64_t rel_offset, VfsSeek whence,	frigg::CallbackPtr<void(uint64_t)> complete) {
-	auto action = frigg::contextify([this, rel_offset, whence] (frigg::String<Allocator> *buffer) {
+	auto action = frigg::compose([this, rel_offset, whence] (frigg::String<Allocator> *buffer) {
 		buffer->resize(128);
 		
 		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([this, rel_offset, whence, buffer] (auto callback) {	
