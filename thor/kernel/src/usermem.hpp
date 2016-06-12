@@ -295,7 +295,7 @@ struct DirectSpaceLock {
 		size_t misalign = (VirtualAddr)_address % kPageSize;
 		AddressSpace::Guard guard(&_space->lock);
 		PhysicalAddr page = _space->grabPhysical(guard, (VirtualAddr)_address - misalign);
-		return  reinterpret_cast<T *>(page + misalign);
+		return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
 	}
 
 	T &operator* () {

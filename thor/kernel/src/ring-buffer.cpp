@@ -31,7 +31,7 @@ void RingBuffer::doTransfer(AsyncSendString send, AsyncRecvString recv) {
 		size_t offset = front.offset;
 		front.offset += send.kernelBuffer.size();
 
-//		__atomic_add_fetch(&front.spaceLock->refCount, 1, __ATOMIC_RELEASE);
+		__atomic_add_fetch(&front.spaceLock->refCount, 1, __ATOMIC_RELEASE);
 
 		frigg::SharedPtr<AddressSpace> space(front.spaceLock.space());
 		auto address = (char *)front.spaceLock.foreignAddress() + sizeof(HelRingBuffer) + offset;
