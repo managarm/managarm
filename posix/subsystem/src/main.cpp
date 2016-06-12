@@ -120,51 +120,6 @@ void OpenClosure::openComplete(StdSharedPtr<VfsOpenFile> file) {
 }
 
 // --------------------------------------------------------
-// WriteClosure
-// --------------------------------------------------------
-
-struct WriteClosure : frigg::BaseClosure<WriteClosure> {
-	WriteClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
-
-	void operator() ();
-
-private:
-	void writeComplete();
-
-	StdSharedPtr<helx::Pipe> pipe;
-	StdSharedPtr<Process> process;
-	managarm::posix::ClientRequest<Allocator> request;
-	int64_t msgRequest;
-};
-
-WriteClosure::WriteClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
-: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
-		msgRequest(msg_request) { }
-
-void WriteClosure::operator() () {
-	auto file = process->allOpenFiles.get(request.fd());
-	if(!file) {
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-		sendResponse(*pipe, response, msgRequest);
-		suicide(*allocator);
-		return;
-	}
-
-	(*file)->write(request.buffer().data(), request.buffer().size(),
-			CALLBACK_MEMBER(this, &WriteClosure::writeComplete));
-}
-
-void WriteClosure::writeComplete() {
-	managarm::posix::ServerResponse<Allocator> response(*allocator);
-	response.set_error(managarm::posix::Errors::SUCCESS);
-	sendResponse(*pipe, response, msgRequest);
-	suicide(*allocator);
-}
-
-// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -352,8 +307,28 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] WRITE" << frigg::EndLog();
 
-		frigg::runClosure<WriteClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
-				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
+			auto file = process->allOpenFiles.get(request.fd());
+			
+			auto action = frigg::ifThenElse(
+				frigg::apply([=] () { return file; }),
+
+				frigg::await<void()>([=] (auto callback) {
+					(*file)->write(request.buffer().data(), request.buffer().size(), callback);
+				})
+				+ frigg::apply([=] () {
+					managarm::posix::ServerResponse<Allocator> response(*allocator);
+					response.set_error(managarm::posix::Errors::SUCCESS);
+					sendResponse(*pipe, response, msg_request);
+				}),
+				
+				frigg::apply([=] () {
+					managarm::posix::ServerResponse<Allocator> response(*allocator);
+					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+					sendResponse(*pipe, response, msg_request);
+				})
+			);
+
+			frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] READ" << frigg::EndLog();
