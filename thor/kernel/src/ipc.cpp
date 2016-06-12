@@ -8,29 +8,21 @@ namespace thor {
 // --------------------------------------------------------
 
 Channel::Channel()
-: p_messages(*kernelAlloc), p_requests(*kernelAlloc), p_wasClosed(false) { }
+: _wasClosed(false) { }
 
-Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+Error Channel::sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send) {
 	assert(guard.protects(&lock));
 
-	if(p_wasClosed)
+	if(_wasClosed)
 		return kErrPipeClosed;
 
-	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
-	memcpy(kernel_buffer.data(), user_buffer, length);
-	
-	AsyncSendString message(kMsgString, msg_request, msg_sequence);
-	message.flags = flags;
-	message.kernelBuffer = frigg::move(kernel_buffer);
-
 	bool queue_message = true;
-	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
-		if(!matchRequest(message, *it))
+	for(auto it = _recvQueue.frontIter(); it; ++it) {
+		if(!matchRequest(send, *it))
 			continue;
 		
-		if(processStringRequest(message, *it)) {
-			p_requests.remove(it);
+		if(processStringRequest(send, frigg::SharedPtr<AsyncRecvString>(*it))) {
+			_recvQueue.remove(it);
 			// don't queue the message if a request succeeds
 			queue_message = false;
 			break;
@@ -38,191 +30,167 @@ Error Channel::sendString(Guard &guard, const void *user_buffer, size_t length,
 	}
 
 	if(queue_message)
-		p_messages.addBack(frigg::move(message));
+		_sendQueue.addBack(frigg::move(send));
 	return kErrSuccess;
 }
 
-Error Channel::sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+Error Channel::sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendString> send) {
 	assert(guard.protects(&lock));
 
-	if(p_wasClosed)
+	if(_wasClosed)
 		return kErrPipeClosed;
 
-	AsyncSendString message(kMsgDescriptor, msg_request, msg_sequence);
-	message.flags = flags;
-	message.descriptor = frigg::move(descriptor);
-
-	for(auto it = p_requests.frontIter(); it.okay(); ++it) {
-		if(!matchRequest(message, *it))
+	for(auto it = _recvQueue.frontIter(); it; ++it) {
+		if(!matchRequest(send, *it))
 			continue;
 		
-		processDescriptorRequest(message, *it);
-		p_requests.remove(it);
+		processDescriptorRequest(send, frigg::SharedPtr<AsyncRecvString>(*it));
+		_recvQueue.remove(it);
 		return kErrSuccess;
 	}
 
-	p_messages.addBack(frigg::move(message));
+	_sendQueue.addBack(frigg::move(send));
 	return kErrSuccess;
 }
 
-Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-		ForeignSpaceLock space_lock,
-		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info, uint32_t flags) {
+Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
 	assert(guard.protects(&lock));
 
-	if(p_wasClosed)
+	if(_wasClosed)
 		return kErrPipeClosed;
 
-	AsyncRecvString request(kMsgStringToBuffer, frigg::move(event_hub),
-			filter_request, filter_sequence, submit_info);
-	request.flags = flags;
-	request.spaceLock = frigg::move(space_lock);
-
 	bool queue_request = true;
-	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
-		if(!matchRequest(*it, request))
+	for(auto it = _sendQueue.frontIter(); it; ++it) {
+		if(!matchRequest(*it, recv))
 			continue;
 		
-		if(processStringRequest(*it, request))
-			p_messages.remove(it);
+		if(processStringRequest(frigg::SharedPtr<AsyncSendString>(*it), recv))
+			_sendQueue.remove(it);
 		// NOTE: we never queue failed requests
 		queue_request = false;
 		break;
 	}
 	
 	if(queue_request)
-		p_requests.addBack(frigg::move(request));
+		_recvQueue.addBack(frigg::move(recv));
 	return kErrSuccess;
 }
 
-Error Channel::submitRecvStringToRing(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-		frigg::SharedPtr<RingBuffer> ring_buffer,
-		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info, uint32_t flags) {
+Error Channel::submitRecvStringToRing(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
 	assert(guard.protects(&lock));
 
-	if(p_wasClosed)
+	if(_wasClosed)
 		return kErrPipeClosed;
 
-	AsyncRecvString request(kMsgStringToRing, frigg::move(event_hub),
-			filter_request, filter_sequence, submit_info);
-	request.flags = flags;
-	request.ringBuffer = frigg::move(ring_buffer);
-
 	bool queue_request = true;
-	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
-		if(!matchRequest(*it, request))
+	for(auto it = _sendQueue.frontIter(); it; ++it) {
+		if(!matchRequest(*it, recv))
 			continue;
 		
-		if(processStringRequest(*it, request))
-			p_messages.remove(it);
+		if(processStringRequest(frigg::SharedPtr<AsyncSendString>(*it), recv))
+			_sendQueue.remove(it);
 		// NOTE: we never queue failed requests
 		queue_request = false;
 		break;
 	}
 	
 	if(queue_request)
-		p_requests.addBack(frigg::move(request));
+		_recvQueue.addBack(frigg::move(recv));
 	return kErrSuccess;
 }
 
-Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info, uint32_t flags) {
+Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
 	assert(guard.protects(&lock));
 
-	if(p_wasClosed)
+	if(_wasClosed)
 		return kErrPipeClosed;
 
-	AsyncRecvString request(kMsgDescriptor, frigg::move(event_hub),
-			filter_request, filter_sequence, submit_info);
-	request.flags = flags;
-
-	for(auto it = p_messages.frontIter(); it.okay(); ++it) {
-		if(!matchRequest(*it, request))
+	for(auto it = _sendQueue.frontIter(); it; ++it) {
+		if(!matchRequest(*it, recv))
 			continue;
 		
-		processDescriptorRequest(*it, request);
-		p_messages.remove(it);
+		processDescriptorRequest(frigg::SharedPtr<AsyncSendString>(*it), recv);
+		_sendQueue.remove(it);
 		return kErrSuccess;
 	}
 	
-	p_requests.addBack(frigg::move(request));
+	_recvQueue.addBack(frigg::move(recv));
 	return kErrSuccess;
 }
 
 void Channel::close(Guard &guard) {
-	while(!p_messages.empty())
-		p_messages.removeFront();
+	while(!_sendQueue.empty())
+		_sendQueue.removeFront();
 
-	while(!p_requests.empty()) {
-		AsyncRecvString request = p_requests.removeFront();
-		UserEvent event(UserEvent::kTypeError, request.submitInfo);
+	while(!_recvQueue.empty()) {
+		frigg::SharedPtr<AsyncRecvString> recv = _recvQueue.removeFront();
+
+		UserEvent event(UserEvent::kTypeError, recv->submitInfo);
 		event.error = kErrPipeClosed;
 
-		EventHub::Guard hub_guard(&request.eventHub->lock);
-		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
+		EventHub::Guard hub_guard(&recv->eventHub->lock);
+		recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 	}
 
-	p_wasClosed = true;
+	_wasClosed = true;
 }
 
-bool Channel::matchRequest(const AsyncSendString &message, const AsyncRecvString &request) {
-	if(message.type == kMsgString) {
-		if(request.type != kMsgStringToBuffer && request.type != kMsgStringToRing)
+bool Channel::matchRequest(frigg::UnsafePtr<AsyncSendString> send,
+		frigg::UnsafePtr<AsyncRecvString> recv) {
+	if(send->type == kMsgString) {
+		if(recv->type != kMsgStringToBuffer && recv->type != kMsgStringToRing)
 			return false;
-	}else if(message.type != request.type) {
+	}else if(send->type != recv->type) {
 		return false;
 	}
 
-	if((bool)(request.flags & kFlagRequest) != (bool)(message.flags & kFlagRequest))
+	if((bool)(recv->flags & kFlagRequest) != (bool)(send->flags & kFlagRequest))
 		return false;
-	if((bool)(request.flags & kFlagResponse) != (bool)(message.flags & kFlagResponse))
+	if((bool)(recv->flags & kFlagResponse) != (bool)(send->flags & kFlagResponse))
 		return false;
 	
-	if(request.filterRequest != -1)
-		if(request.filterRequest != message.msgRequest)
+	if(recv->filterRequest != -1)
+		if(recv->filterRequest != send->msgRequest)
 			return false;
 	
-	if(request.filterSequence != -1)
-		if(request.filterSequence != message.msgSequence)
+	if(recv->filterSequence != -1)
+		if(recv->filterSequence != send->msgSequence)
 			return false;
 	
 	return true;
 }
 
-bool Channel::processStringRequest(AsyncSendString &send, AsyncRecvString &recv) {
-	if(recv.type == kMsgStringToBuffer) {
-		if(send.kernelBuffer.size() <= recv.spaceLock.length()) {
+bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
+		frigg::SharedPtr<AsyncRecvString> recv) {
+	if(recv->type == kMsgStringToBuffer) {
+		if(send->kernelBuffer.size() <= recv->spaceLock.length()) {
 			// perform the actual data transfer
-			recv.spaceLock.copyTo(send.kernelBuffer.data(), send.kernelBuffer.size());
+			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 
 			// post the receive event
-			UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, recv.submitInfo);
-			event.length = send.kernelBuffer.size();
-			event.msgRequest = send.msgRequest;
-			event.msgSequence = send.msgSequence;
+			UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, recv->submitInfo);
+			event.length = send->kernelBuffer.size();
+			event.msgRequest = send->msgRequest;
+			event.msgSequence = send->msgSequence;
 		
-			EventHub::Guard recv_guard(&recv.eventHub->lock);
-			recv.eventHub->raiseEvent(recv_guard, frigg::move(event));
+			EventHub::Guard recv_guard(&recv->eventHub->lock);
+			recv->eventHub->raiseEvent(recv_guard, frigg::move(event));
 			recv_guard.unlock();
 			return true;
 		}else{
 			// post the error event
-			UserEvent event(UserEvent::kTypeError, recv.submitInfo);
+			UserEvent event(UserEvent::kTypeError, recv->submitInfo);
 			event.error = kErrBufferTooSmall;
 
-			EventHub::Guard recv_guard(&recv.eventHub->lock);
-			recv.eventHub->raiseEvent(recv_guard, frigg::move(event));
+			EventHub::Guard recv_guard(&recv->eventHub->lock);
+			recv->eventHub->raiseEvent(recv_guard, frigg::move(event));
 			recv_guard.unlock();
 			return false;
 		}
-	}else if(recv.type == kMsgStringToRing) {
+	}else if(recv->type == kMsgStringToRing) {
 		// transfer the request to the ring buffer
-		frigg::SharedPtr<RingBuffer> ring_buffer(recv.ringBuffer);
+		frigg::SharedPtr<RingBuffer> ring_buffer(recv->ringBuffer);
 		ring_buffer->doTransfer(frigg::move(send), frigg::move(recv));
 		return true;
 	}else{
@@ -231,14 +199,15 @@ bool Channel::processStringRequest(AsyncSendString &send, AsyncRecvString &recv)
 	}
 }
 
-void Channel::processDescriptorRequest(AsyncSendString &message, AsyncRecvString &request) {
-	UserEvent event(UserEvent::kTypeRecvDescriptor, request.submitInfo);
-	event.msgRequest = message.msgRequest;
-	event.msgSequence = message.msgSequence;
-	event.descriptor = frigg::move(message.descriptor);
+void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
+		frigg::SharedPtr<AsyncRecvString> recv) {
+	UserEvent event(UserEvent::kTypeRecvDescriptor, recv->submitInfo);
+	event.msgRequest = send->msgRequest;
+	event.msgSequence = send->msgSequence;
+	event.descriptor = frigg::move(send->descriptor);
 		
-	EventHub::Guard hub_guard(&request.eventHub->lock);
-	request.eventHub->raiseEvent(hub_guard, frigg::move(event));
+	EventHub::Guard hub_guard(&recv->eventHub->lock);
+	recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
 	hub_guard.unlock();
 }
 

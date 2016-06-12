@@ -14,40 +14,38 @@ public:
 
 	Channel();
 
-	Error sendString(Guard &guard, const void *user_buffer, size_t length,
-			int64_t msg_request, int64_t msg_sequence, uint32_t flags);
+	Error sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
+	Error sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
 	
-	Error sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
-			int64_t msg_request, int64_t msg_sequence, uint32_t flags);
-	
-	Error submitRecvString(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-			ForeignSpaceLock space_lock,
-			int64_t filter_request, int64_t filter_sequence,
-			SubmitInfo submit_info, uint32_t flags);
-	Error submitRecvStringToRing(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-			frigg::SharedPtr<RingBuffer> ring_buffer,
-			int64_t filter_request, int64_t filter_sequence,
-			SubmitInfo submit_info, uint32_t flags);
-	
-	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
-			int64_t filter_request, int64_t filter_sequence,
-			SubmitInfo submit_info, uint32_t flags);
+	Error submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
+	Error submitRecvStringToRing(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
+	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
 	
 	void close(Guard &guard);
 
 	Lock lock;
 
 private:
-	bool matchRequest(const AsyncSendString &message, const AsyncRecvString &request);
+	bool matchRequest(frigg::UnsafePtr<AsyncSendString> send,
+			frigg::UnsafePtr<AsyncRecvString> recv);
 
 	// returns true if the message + request are consumed
-	bool processStringRequest(AsyncSendString &message, AsyncRecvString &request);
+	bool processStringRequest(frigg::SharedPtr<AsyncSendString> send,
+			frigg::SharedPtr<AsyncRecvString> recv);
+	void processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
+			frigg::SharedPtr<AsyncRecvString> recv);
 
-	void processDescriptorRequest(AsyncSendString &message, AsyncRecvString &request);
+	frigg::IntrusiveSharedLinkedList<
+		AsyncSendString,
+		&AsyncSendString::sendItem
+	> _sendQueue;
 
-	frigg::LinkedList<AsyncSendString, KernelAlloc> p_messages;
-	frigg::LinkedList<AsyncRecvString, KernelAlloc> p_requests;
-	bool p_wasClosed;
+	frigg::IntrusiveSharedLinkedList<
+		AsyncRecvString,
+		&AsyncRecvString::recvItem
+	> _recvQueue;
+
+	bool _wasClosed;
 };
 
 class Endpoint;

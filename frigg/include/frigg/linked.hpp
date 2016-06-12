@@ -1,5 +1,101 @@
 
+#include <frigg/smart_ptr.hpp>
+
 namespace frigg {
+
+template<typename T>
+struct IntrusiveSharedLinkedItem {
+	SharedPtr<T> next;
+	UnsafePtr<T> previous;
+};
+
+template<typename T, IntrusiveSharedLinkedItem<T> T::* Ptr>
+struct IntrusiveSharedLinkedList {
+	class Iterator {
+	friend class IntrusiveSharedLinkedList;
+	public:
+		UnsafePtr<T> operator* () {
+			return _current;
+		}
+		
+		explicit operator bool() {
+			return _current;
+		}
+
+		Iterator &operator++ () {
+			_current = ((*_current).*Ptr).next;
+			return *this;
+		}
+
+	private:
+		Iterator(UnsafePtr<T> current)
+		: _current(current) { }
+
+		UnsafePtr<T> _current;
+	};
+
+	void addBack(SharedPtr<T> element) {
+		// need a copy as we move out of the SharedPtr
+		UnsafePtr<T> copy(element);
+		if(!_back) {
+			_front = move(element);
+		}else{
+			item(copy)->previous = _back;
+			item(_back)->next = move(element);
+		}
+		_back = copy;
+	}
+
+	bool empty() {
+		return !_front;
+	}
+
+	UnsafePtr<T> front() {
+		return _front;
+	}
+
+	SharedPtr<T> removeFront() {
+		return remove(frontIter());
+	}
+
+	SharedPtr<T> remove(const Iterator &it) {
+		SharedPtr<T> next = move(item(it._current)->next);
+		UnsafePtr<T> previous = item(it._current)->previous;
+
+		if(!next) {
+			_back = previous;
+		}else{
+			item(next)->previous = previous;
+		}
+
+		SharedPtr<T> erased;
+		if(!previous) {
+			erased = move(_front);
+			_front = move(next);
+		}else{
+			erased = move(item(previous)->next);
+			item(previous)->next = move(next);
+		}
+
+		item(it._current)->next = SharedPtr<T>();
+		item(it._current)->previous = UnsafePtr<T>();
+
+		assert(erased.get() == it._current.get());
+		return erased;
+	}
+
+	Iterator frontIter() {
+		return Iterator(_front);
+	}
+
+private:
+	IntrusiveSharedLinkedItem<T> *item(UnsafePtr<T> ptr) {
+		return &(ptr.get()->*Ptr);
+	}
+
+	SharedPtr<T> _front;
+	UnsafePtr<T> _back;
+};
 
 template<typename T, typename Allocator>
 class LinkedList {

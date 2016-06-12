@@ -26,6 +26,8 @@ struct AsyncSendString {
 	int64_t msgRequest;
 	int64_t msgSequence;
 	uint32_t flags;
+
+	frigg::IntrusiveSharedLinkedItem<AsyncSendString> sendItem;
 };
 
 struct AsyncRecvString {
@@ -45,6 +47,8 @@ struct AsyncRecvString {
 	
 	// used by kMsgStringToRing
 	frigg::SharedPtr<RingBuffer> ringBuffer;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> recvItem;
 };
 
 struct AsyncRingItem : public AsyncOperation {
@@ -55,18 +59,24 @@ struct AsyncRingItem : public AsyncOperation {
 	size_t bufferSize;
 
 	size_t offset;
+
+	frigg::IntrusiveSharedLinkedItem<AsyncRingItem> bufferItem;
 };
 
 class RingBuffer {
 public:
 	RingBuffer();
 
-	void submitBuffer(AsyncRingItem item);
+	void submitBuffer(frigg::SharedPtr<AsyncRingItem> item);
 
-	void doTransfer(AsyncSendString send, AsyncRecvString recv);
+	void doTransfer(frigg::SharedPtr<AsyncSendString> send,
+			frigg::SharedPtr<AsyncRecvString> recv);
 
 private:
-	frigg::LinkedList<AsyncRingItem, KernelAlloc> _items;
+	frigg::IntrusiveSharedLinkedList<
+		AsyncRingItem,
+		&AsyncRingItem::bufferItem
+	> _bufferQueue;
 };
 
 } // namespace thor

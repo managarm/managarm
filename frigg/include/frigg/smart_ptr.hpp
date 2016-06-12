@@ -122,7 +122,8 @@ public:
 				&(*shared_struct->storage));
 	}
 
-	SharedPtr() : p_block(nullptr), p_object(nullptr) { }
+	SharedPtr()
+	: p_block(nullptr), p_object(nullptr) { }
 	
 	~SharedPtr() {
 		reset();
@@ -273,7 +274,8 @@ class UnsafePtr {
 
 	friend class details::Cast;
 public:
-	UnsafePtr() : p_block(nullptr), p_object(nullptr) { }
+	UnsafePtr()
+	: p_block(nullptr), p_object(nullptr) { }
 	
 	UnsafePtr(const SharedPtr<T> &shared)
 	: p_block(shared.p_block), p_object(shared.p_object) { }
@@ -285,10 +287,13 @@ public:
 		return p_block != nullptr;
 	}
 
+	T &operator* () {
+		return *p_object;
+	}
 	T *operator-> () {
 		return p_object;
 	}
-	T *get() {
+	T *get() const {
 		return p_object;
 	}
 
