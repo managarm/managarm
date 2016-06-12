@@ -226,62 +226,6 @@ void ReadClosure::readComplete(VfsError error, size_t actual_size) {
 }
 
 // --------------------------------------------------------
-// SeekClosure
-// --------------------------------------------------------
-
-struct SeekClosure : frigg::BaseClosure<SeekClosure> {
-	SeekClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
-
-	void operator() ();
-
-private:
-	void seekComplete(uint64_t offset);
-
-	StdSharedPtr<helx::Pipe> pipe;
-	StdSharedPtr<Process> process;
-	managarm::posix::ClientRequest<Allocator> request;
-	int64_t msgRequest;
-};
-
-SeekClosure::SeekClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
-: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
-		msgRequest(msg_request) { }
-
-void SeekClosure::operator() () {
-	auto file = process->allOpenFiles.get(request.fd());
-	if(!file) {
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-		sendResponse(*pipe, response, msgRequest);
-		suicide(*allocator);
-		return;
-	}
-
-	if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
-		(*file)->seek(request.rel_offset(), kSeekAbs,
-				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
-	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_REL) {
-		(*file)->seek(request.rel_offset(), kSeekRel,
-				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
-	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
-		(*file)->seek(request.rel_offset(), kSeekEof,
-				CALLBACK_MEMBER(this, &SeekClosure::seekComplete));
-	}else{
-		frigg::panicLogger.log() << "Illegal SEEK request" << frigg::EndLog();
-	}
-}
-
-void SeekClosure::seekComplete(uint64_t offset) {
-	managarm::posix::ServerResponse<Allocator> response(*allocator);
-	response.set_error(managarm::posix::Errors::SUCCESS);
-	response.set_offset(offset);
-	sendResponse(*pipe, response, msgRequest);
-	suicide(*allocator);
-}
-
-// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -483,8 +427,37 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] SEEK" << frigg::EndLog();
 
-		frigg::runClosure<SeekClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
-				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
+		auto file = process->allOpenFiles.get(request.fd());
+
+		auto action = frigg::ifThenElse(
+			frigg::apply([=] () { return file; }),
+
+			frigg::await<void(uint64_t offset)>([=] (auto callback) {
+				if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
+					(*file)->seek(request.rel_offset(), kSeekAbs, callback);
+				}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_REL) {
+					(*file)->seek(request.rel_offset(), kSeekRel, callback);
+				}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
+					(*file)->seek(request.rel_offset(), kSeekEof, callback);
+				}else{
+					frigg::panicLogger.log() << "Illegal SEEK request" << frigg::EndLog();
+				}
+			})
+			+ frigg::apply([=] (uint64_t offset) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+				response.set_offset(offset);
+				sendResponse(*pipe, response, msg_request);
+			}),
+
+			frigg::apply([=] () {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				sendResponse(*pipe, response, msg_request);
+			})
+		);
+
+		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::MMAP) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] MMAP" << frigg::EndLog();
