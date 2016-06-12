@@ -121,7 +121,7 @@ Thread::JoinRequest::JoinRequest(KernelSharedPtr<EventHub> event_hub,
 void ThreadGroup::addThreadToGroup(KernelSharedPtr<ThreadGroup> group,
 		KernelWeakPtr<Thread> thread) {
 	KernelUnsafePtr<Thread> thread_ptr = thread;
-	assert(!thread->getThreadGroup());
+	assert(!thread_ptr->getThreadGroup());
 	group->p_members.push(frigg::move(thread));
 	thread_ptr->setThreadGroup(frigg::move(group));
 }

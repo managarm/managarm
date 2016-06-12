@@ -48,7 +48,8 @@ helx::Pipe initrdPipe;
 // TODO: this is a ugly hack
 MountSpace *initMountSpace;
 
-HelQueue stringQueue;
+HelHandle ringBuffer;
+HelRingBuffer *ringItem;
 
 void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &response,
 		int64_t msg_request) {
@@ -526,7 +527,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 }
 
 void RequestClosure::operator() () {
-	HelError error = pipe->recvStringReqToQueue(&stringQueue, 1, eventHub, kHelAnyRequest, 0,
+	HelError error = pipe->recvStringReqToRing(ringBuffer, eventHub, kHelAnyRequest, 0,
 			CALLBACK_MEMBER(this, &RequestClosure::recvRequest));
 	if(error == kHelErrPipeClosed) {
 		suicide(*allocator);
@@ -544,7 +545,7 @@ void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t ms
 	HEL_CHECK(error);
 
 	managarm::posix::ClientRequest<Allocator> request(*allocator);
-	request.ParseFromArray((uint8_t *)stringQueue.data + offset, length);
+	request.ParseFromArray(ringItem->data + offset, length);
 	processRequest(frigg::move(request), msg_request);
 
 	(*this)();
@@ -701,12 +702,13 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 	
+	ringItem = (HelRingBuffer *)allocator->allocate(sizeof(HelRingBuffer) + 0x10000);
+	
 	// initialize our string queue
-	stringQueue.offset = 0;
-	stringQueue.refCount = 0;
-
-	stringQueue.length = 0x10000;
-	stringQueue.data = allocator->allocate(0x10000);
+	HEL_CHECK(helCreateRing(0x1000, &ringBuffer));
+	int64_t async_id;
+	HEL_CHECK(helSubmitRing(ringBuffer, eventHub.getHandle(),
+			ringItem, 0x10000, 0, 0, &async_id));
 
 	// connect to mbus
 	const char *mbus_path = "local/mbus";

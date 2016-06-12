@@ -63,6 +63,7 @@ class AddressSpace;
 class Thread;
 class Signal;
 class EventHub;
+class RingBuffer;
 class Channel;
 class BiDirectionPipe;
 class Endpoint;
@@ -114,6 +115,7 @@ struct BaseRequest {
 #include "usermem.hpp"
 #include "thread.hpp"
 #include "event.hpp"
+#include "ring-buffer.hpp"
 #include "ipc.hpp"
 #include "rd.hpp"
 #include "io.hpp"

@@ -746,39 +746,15 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
-			user_evt->length = event.kernelBuffer.size();
+			user_evt->length = event.length;
 		} break;
 		case UserEvent::kTypeRecvStringTransferToQueue: {
-			for(size_t i = 0; i < event.numQueues; i++) {
-				HelQueue *queue = &event.userQueueArray[i];
-
-				size_t length = event.kernelBuffer.size();
-
-				// reserve queue space for the data
-				size_t offset = queue->offset;
-				size_t ref_count = queue->refCount;
-				assert(offset + length <= queue->length);
-
-				uint8_t success;
-				asm volatile ( "lock cmpxchg16b %1\n"
-						"\tsetz %0"
-						: "=r" (success)
-						: "m" (*queue), "d" (ref_count), "a" (offset),
-						"c" (ref_count + 1), "b" (offset + length) );
-				assert(success);
-				
-				// copy the actual data
-//				infoLogger->log() << "recv at offset " << offset << frigg::EndLog();
-				memcpy((uint8_t *)queue->data + offset, event.kernelBuffer.data(), length);
-
-				user_evt->type = kHelEventRecvStringToQueue;
-				user_evt->error = kHelErrNone;
-				user_evt->msgRequest = event.msgRequest;
-				user_evt->msgSequence = event.msgSequence;
-				user_evt->offset = offset;
-				user_evt->length = length;
-				break;
-			}
+			user_evt->type = kHelEventRecvStringToQueue;
+			user_evt->error = kHelErrNone;
+			user_evt->msgRequest = event.msgRequest;
+			user_evt->msgSequence = event.msgSequence;
+			user_evt->length = event.length;
+			user_evt->offset = event.offset;
 		} break;
 		case UserEvent::kTypeRecvDescriptor: {
 			user_evt->type = kHelEventRecvDescriptor;
@@ -825,6 +801,56 @@ HelError helWaitForEvents(HelHandle handle,
 
 	*num_items = count;
 
+	return kHelErrNone;
+}
+
+
+HelError helCreateRing(size_t max_chunk_size, HelHandle *handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	auto ring_buffer = frigg::makeShared<RingBuffer>(*kernelAlloc);
+
+	Universe::Guard universe_guard(&universe->lock);
+	*handle = universe->attachDescriptor(universe_guard,
+			RingDescriptor(frigg::move(ring_buffer)));
+	universe_guard.unlock();
+
+	return kHelErrNone;
+}
+
+HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
+		struct HelRingBuffer *buffer, size_t buffer_size,
+		uintptr_t submit_function, uintptr_t submit_object,
+		int64_t *async_id) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	Universe::Guard universe_guard(&universe->lock);
+	auto ring_wrapper = universe->getDescriptor(universe_guard, handle);
+	if(!ring_wrapper)
+		return kHelErrNoDescriptor;
+	if(!ring_wrapper->is<RingDescriptor>())
+		return kHelErrBadDescriptor;
+	auto ring_buffer = ring_wrapper->get<RingDescriptor>().ringBuffer;
+
+	auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+	if(!hub_wrapper)
+		return kHelErrNoDescriptor;
+	if(!hub_wrapper->is<EventHubDescriptor>())
+		return kHelErrBadDescriptor;
+	auto event_hub = hub_wrapper->get<EventHubDescriptor>().getEventHub();
+	universe_guard.unlock();
+	
+	frigg::SharedPtr<AddressSpace> space(this_thread->getAddressSpace());
+	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
+
+	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncRingItem ring_item(frigg::WeakPtr<EventHub>(event_hub),
+			submit_info, frigg::move(space_lock), buffer_size);
+	ring_buffer->submitBuffer(frigg::move(ring_item));
+	
+	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -999,8 +1025,8 @@ HelError helSubmitRecvString(HelHandle handle,
 	return kHelErrNone;
 }
 
-HelError helSubmitRecvStringToQueue(HelHandle handle,
-		HelHandle hub_handle, HelQueue *user_queue_array, size_t num_queues,
+HelError helSubmitRecvStringToRing(HelHandle handle,
+		HelHandle hub_handle, HelHandle ring_handle,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object,
 		uint32_t flags, int64_t *async_id) {
@@ -1020,6 +1046,13 @@ HelError helSubmitRecvStringToQueue(HelHandle handle,
 	if(!hub_wrapper->is<EventHubDescriptor>())
 		return kHelErrBadDescriptor;
 	auto event_hub = hub_wrapper->get<EventHubDescriptor>().getEventHub();
+
+	auto ring_wrapper = universe->getDescriptor(universe_guard, ring_handle);
+	if(!ring_wrapper)
+		return kHelErrNoDescriptor;
+	if(!ring_wrapper->is<RingDescriptor>())
+		return kHelErrBadDescriptor;
+	auto ring_buffer = ring_wrapper->get<RingDescriptor>().ringBuffer;
 
 	auto wrapper = universe->getDescriptor(universe_guard, handle);
 	if(!wrapper)
@@ -1042,8 +1075,9 @@ HelError helSubmitRecvStringToQueue(HelHandle handle,
 	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvStringToQueue(channel_guard, KernelSharedPtr<EventHub>(event_hub),
-			user_queue_array, num_queues, filter_request, filter_sequence, submit_info, recv_flags);
+	Error error = channel.submitRecvStringToRing(channel_guard,
+			KernelSharedPtr<EventHub>(event_hub), frigg::move(ring_buffer),
+			filter_request, filter_sequence, submit_info, recv_flags);
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)

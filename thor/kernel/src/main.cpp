@@ -439,6 +439,19 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 				&num_items);
 		thorRtReturnSyscall2((Word)error, (Word)num_items);
 	} break;
+	
+	case kHelCallCreateRing: {
+		HelHandle handle;
+		HelError error = helCreateRing((HelHandle)arg0, &handle);
+		thorRtReturnSyscall2((Word)error, (Word)handle);
+	} break;
+	case kHelCallSubmitRing: {
+		int64_t async_id;
+		HelError error = helSubmitRing((HelHandle)arg0, (HelHandle)arg1,
+				(HelRingBuffer *)arg2, (size_t)arg3,
+				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
+	} break;
 
 	case kHelCallCreateFullPipe: {
 		HelHandle first;
@@ -473,12 +486,12 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
-	case kHelCallSubmitRecvStringToQueue: {
+	case kHelCallSubmitRecvStringToRing: {
 		int64_t async_id;
-		HelError error = helSubmitRecvStringToQueue((HelHandle)arg0,
-				(HelHandle)arg1, (HelQueue *)arg2, (size_t)arg3,
-				(int64_t)arg4, (int64_t)arg5,
-				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
+		HelError error = helSubmitRecvStringToRing((HelHandle)arg0,
+				(HelHandle)arg1, (HelHandle)arg2,
+				(int64_t)arg3, (int64_t)arg4,
+				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
 		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
 	

@@ -250,16 +250,73 @@ private:
 	PageSpace p_pageSpace;
 };
 
+// directly accesses an object in an arbitrary address space.
+// requires the object's address to be naturally aligned
+// so that the object cannot cross a page boundary.
+// requires the object to be smaller than a page for the same reason.
 template<typename T>
 struct DirectSpaceLock {
+	static DirectSpaceLock acquire(frigg::SharedPtr<AddressSpace> space, T *address) {
+		assert(sizeof(T) <= kPageSize);
+		assert((VirtualAddr)address % sizeof(T) == 0);
+		// TODO: actually lock the memory + make sure the memory is mapped as writeable
+		// TODO: return an empty lock if the acquire fails
+		return DirectSpaceLock(frigg::move(space), address);
+	}
 
+	friend void swap(DirectSpaceLock &a, DirectSpaceLock &b) {
+		frigg::swap(a._space, b._space);
+		frigg::swap(a._address, b._address);
+	}
+
+	DirectSpaceLock() = default;
+
+	DirectSpaceLock(const DirectSpaceLock &other) = delete;
+
+	DirectSpaceLock(DirectSpaceLock &&other)
+	: DirectSpaceLock() {
+		swap(*this, other);
+	}
+	
+	DirectSpaceLock &operator= (DirectSpaceLock other) {
+		swap(*this, other);
+		return *this;
+	}
+	
+	frigg::UnsafePtr<AddressSpace> space() {
+		return _space;
+	}
+	void *foreignAddress() {
+		return _address;
+	}
+
+	T *get() {
+		assert(_space);
+		size_t misalign = (VirtualAddr)_address % kPageSize;
+		AddressSpace::Guard guard(&_space->lock);
+		PhysicalAddr page = _space->grabPhysical(guard, (VirtualAddr)_address - misalign);
+		return  reinterpret_cast<T *>(page + misalign);
+	}
+
+	T &operator* () {
+		return *get();
+	}
+	T *operator-> () {
+		return get();
+	}
+
+private:
+	DirectSpaceLock(frigg::SharedPtr<AddressSpace> space, T *address)
+	: _space(frigg::move(space)), _address(address) { }
+
+	frigg::SharedPtr<AddressSpace> _space;
+	void *_address;
 };
 
 struct ForeignSpaceLock {
 	static ForeignSpaceLock acquire(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length) {
-//		Mapping *mapping = _space->getMapping(address);
-//		assert(mapping->length >= length);
+		// TODO: actually lock the memory + make sure the memory is mapped as writeable
 		// TODO: return an empty lock if the acquire fails
 		return ForeignSpaceLock(frigg::move(space), address, length);
 	}
@@ -284,6 +341,9 @@ struct ForeignSpaceLock {
 		return *this;
 	}
 
+	frigg::UnsafePtr<AddressSpace> space() {
+		return _space;
+	}
 	size_t length() {
 		return _length;
 	}

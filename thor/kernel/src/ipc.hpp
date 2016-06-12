@@ -20,16 +20,16 @@ public:
 	Error sendDescriptor(Guard &guard, AnyDescriptor &&descriptor,
 			int64_t msg_request, int64_t msg_sequence, uint32_t flags);
 	
-	Error submitRecvString(Guard &guard, KernelSharedPtr<EventHub> event_hub,
+	Error submitRecvString(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
 			ForeignSpaceLock space_lock,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info, uint32_t flags);
-	Error submitRecvStringToQueue(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-			HelQueue *user_queue_array, size_t num_queues,
+	Error submitRecvStringToRing(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
+			frigg::SharedPtr<RingBuffer> ring_buffer,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info, uint32_t flags);
 	
-	Error submitRecvDescriptor(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
+	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<EventHub> event_hub,
 			int64_t filter_request, int64_t filter_sequence,
 			SubmitInfo submit_info, uint32_t flags);
 	
@@ -38,55 +38,15 @@ public:
 	Lock lock;
 
 private:
-	enum MsgType {
-		kMsgNone,
-		kMsgString,
-		kMsgStringToBuffer,
-		kMsgStringToQueue,
-		kMsgDescriptor
-	};
-
-	struct Message {
-		Message(MsgType type, int64_t msg_request, int64_t msg_sequence);
-		
-		MsgType type;
-		frigg::UniqueMemory<KernelAlloc> kernelBuffer;
-		size_t length;
-		AnyDescriptor descriptor;
-		int64_t msgRequest;
-		int64_t msgSequence;
-		uint32_t flags;
-	};
-
-	struct Request {
-		Request(MsgType type, KernelSharedPtr<EventHub> &&event_hub,
-				int64_t filter_request, int64_t filter_sequence,
-				SubmitInfo submit_info);
-		
-		MsgType type;
-		KernelSharedPtr<EventHub> eventHub;
-		SubmitInfo submitInfo;
-		int64_t filterRequest;
-		int64_t filterSequence;
-		uint32_t flags;
-		
-		// used by kMsgStringToBuffer
-		ForeignSpaceLock spaceLock;
-
-		// used by kMsgStringToQueue
-		HelQueue *userQueueArray;
-		size_t numQueues;
-	};
-
-	bool matchRequest(const Message &message, const Request &request);
+	bool matchRequest(const AsyncSendString &message, const AsyncRecvString &request);
 
 	// returns true if the message + request are consumed
-	bool processStringRequest(Message &message, Request &request);
+	bool processStringRequest(AsyncSendString &message, AsyncRecvString &request);
 
-	void processDescriptorRequest(Message &message, Request &request);
+	void processDescriptorRequest(AsyncSendString &message, AsyncRecvString &request);
 
-	frigg::LinkedList<Message, KernelAlloc> p_messages;
-	frigg::LinkedList<Request, KernelAlloc> p_requests;
+	frigg::LinkedList<AsyncSendString, KernelAlloc> p_messages;
+	frigg::LinkedList<AsyncRecvString, KernelAlloc> p_requests;
 	bool p_wasClosed;
 };
 

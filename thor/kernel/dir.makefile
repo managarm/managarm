@@ -9,7 +9,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch_x86/ints.o arch_x86/pic.o arch_x86/system.o arch_x86/paging.o \
 	arch_x86/hpet.o \
 	physical.o main.o hel.o \
-	core.o descriptor.o usermem.o schedule.o ipc.o \
+	core.o descriptor.o usermem.o schedule.o ring-buffer.o ipc.o \
 	event.o thread.o rd.o io.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 

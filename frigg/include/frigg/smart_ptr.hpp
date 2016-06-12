@@ -260,10 +260,6 @@ public:
 		p_block = nullptr;
 		p_object = nullptr;
 	}
-	
-	T *operator-> () {
-		return p_object;
-	}
 
 private:
 	SharedBlock *p_block;

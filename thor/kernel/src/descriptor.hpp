@@ -61,6 +61,13 @@ private:
 // IPC related descriptors
 // --------------------------------------------------------
 
+class RingDescriptor {
+public:
+	RingDescriptor(KernelSharedPtr<RingBuffer> ring_buffer);
+	
+	KernelSharedPtr<RingBuffer> ringBuffer;
+};
+
 class EndpointDescriptor {
 public:
 	EndpointDescriptor(KernelSharedPtr<Endpoint> &&endpoint);
@@ -138,6 +145,7 @@ typedef frigg::Variant<MemoryAccessDescriptor,
 		ThreadDescriptor,
 		SignalDescriptor,
 		EventHubDescriptor,
+		RingDescriptor,
 		EndpointDescriptor,
 		ServerDescriptor,
 		ClientDescriptor,

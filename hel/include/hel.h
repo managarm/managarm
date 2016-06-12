@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 55,
+	kHelNumCalls = 58,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -44,13 +44,16 @@ enum {
 	
 	kHelCallCreateEventHub = 13,
 	kHelCallWaitForEvents = 45,
+	
+	kHelCallCreateRing = 56,
+	kHelCallSubmitRing = 57,
 
 	kHelCallCreateFullPipe = 4,
 	kHelCallSendString = 8,
 	kHelCallSubmitSendString = 54,
 	kHelCallSendDescriptor = 28,
 	kHelCallSubmitRecvString = 9,
-	kHelCallSubmitRecvStringToQueue = 53,
+	kHelCallSubmitRecvStringToRing = 55,
 	kHelCallSubmitRecvDescriptor = 29,
 	
 	kHelCallCreateServer = 17,
@@ -178,14 +181,10 @@ enum HelMessageFlags {
 	kHelResponse = 2
 };
 
-struct HelQueue {
-	// these two fields MUST only be modified by a double-word CAS
-	size_t offset;
-	size_t refCount;
-	
-	// the other fields are not modified during queue operation
-	size_t length;
-	void *data;
+struct HelRingBuffer {
+	uint32_t refCount;
+
+	char data[];
 };
 
 enum HelIrqFlags {
@@ -238,6 +237,12 @@ HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 		struct HelEvent *list, size_t max_items,
 		HelNanotime max_time, size_t *num_items);
 
+HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);
+HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
+		struct HelRingBuffer *buffer, size_t buffer_size,
+		uintptr_t submit_function, uintptr_t submit_object,
+		int64_t *async_id);
+
 HEL_C_LINKAGE HelError helCreateFullPipe(HelHandle *first,
 		HelHandle *second);
 HEL_C_LINKAGE HelError helSendString(HelHandle handle,
@@ -255,8 +260,8 @@ HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object,
 		uint32_t flags, int64_t *async_id);
-HEL_C_LINKAGE HelError helSubmitRecvStringToQueue(HelHandle handle,
-		HelHandle hub_handle, HelQueue *queue_array, size_t num_queues,
+HEL_C_LINKAGE HelError helSubmitRecvStringToRing(HelHandle handle,
+		HelHandle hub_handle, HelHandle ring_handle,
 		int64_t filter_request, int64_t filter_sequence,
 		uintptr_t submit_function, uintptr_t submit_object,
 		uint32_t flags, int64_t *async_id);

@@ -261,13 +261,13 @@ public:
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
 	}
-	inline HelError recvStringToQueue(HelQueue *queue_array, size_t num_queues,
+	inline HelError recvStringToRing(HelHandle ring_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback,
 			uint32_t flags) {
 		int64_t async_id;
-		return helSubmitRecvStringToQueue(p_handle, event_hub.getHandle(),
-				queue_array, num_queues, msg_request, msg_seq,
+		return helSubmitRecvStringToRing(p_handle, event_hub.getHandle(),
+				ring_handle, msg_request, msg_seq,
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
 	}
@@ -277,10 +277,10 @@ public:
 		return recvString(buffer, max_length, event_hub,
 				msg_request, msg_seq, callback, kHelRequest);
 	}
-	inline HelError recvStringReqToQueue(HelQueue *queue_array, size_t num_queues,
+	inline HelError recvStringReqToRing(HelHandle ring_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback) {
-		return recvStringToQueue(queue_array, num_queues, event_hub,
+		return recvStringToRing(ring_handle, event_hub,
 				msg_request, msg_seq, callback, kHelRequest);
 	}
 	inline HelError recvStringResp(void *buffer, size_t max_length,

@@ -51,6 +51,13 @@ KernelUnsafePtr<EventHub> EventHubDescriptor::getEventHub() {
 }
 
 // --------------------------------------------------------
+// RingDescriptor
+// --------------------------------------------------------
+
+RingDescriptor::RingDescriptor(KernelSharedPtr<RingBuffer> ring_buffer)
+		: ringBuffer(frigg::move(ring_buffer)) { }
+
+// --------------------------------------------------------
 // EndpointDescriptor
 // --------------------------------------------------------
 
