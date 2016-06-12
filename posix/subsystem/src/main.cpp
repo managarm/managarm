@@ -56,70 +56,6 @@ void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &
 }
 
 // --------------------------------------------------------
-// OpenClosure
-// --------------------------------------------------------
-
-struct OpenClosure : frigg::BaseClosure<OpenClosure> {
-	OpenClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-			managarm::posix::ClientRequest<Allocator> request, int64_t msg_request);
-
-	void operator() ();
-
-private:
-	void openComplete(StdSharedPtr<VfsOpenFile> file);
-
-	StdSharedPtr<helx::Pipe> pipe;
-	StdSharedPtr<Process> process;
-	managarm::posix::ClientRequest<Allocator> request;
-	int64_t msgRequest;
-};
-
-OpenClosure::OpenClosure(StdSharedPtr<helx::Pipe> pipe, StdSharedPtr<Process> process,
-		managarm::posix::ClientRequest<Allocator> request, int64_t msg_request)
-: pipe(frigg::move(pipe)), process(frigg::move(process)), request(frigg::move(request)),
-		msgRequest(msg_request) { }
-
-void OpenClosure::operator() () {
-	uint32_t open_flags = 0;
-	if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
-		open_flags |= MountSpace::kOpenCreat;
-
-	uint32_t open_mode = 0;
-	if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
-		open_mode |= MountSpace::kOpenHelfd;
-	
-	frigg::String<Allocator> path = concatenatePath("/", request.path());
-	frigg::String<Allocator> normalized = normalizePath(path);
-
-	MountSpace *mount_space = process->mountSpace;
-	mount_space->openAbsolute(process, frigg::move(normalized), open_flags, open_mode,
-			CALLBACK_MEMBER(this, &OpenClosure::openComplete));
-}
-
-void OpenClosure::openComplete(StdSharedPtr<VfsOpenFile> file) {
-	if(!file) {
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-		sendResponse(*pipe, response, msgRequest);
-	}else{
-		int fd = process->nextFd;
-		assert(fd > 0);
-		process->nextFd++;
-		process->allOpenFiles.insert(fd, frigg::move(file));
-
-		if(traceRequests)
-			infoLogger->log() << "[" << process->pid << "] OPEN response" << frigg::EndLog();
-
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		response.set_fd(fd);
-		sendResponse(*pipe, response, msgRequest);
-	}
-
-	suicide(*allocator);
-}
-
-// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -274,9 +210,44 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] OPEN" << frigg::EndLog();
+	
+			auto action = frigg::await<void(StdSharedPtr<VfsOpenFile> file)>([=] (auto callback) {
+				uint32_t open_flags = 0;
+				if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
+					open_flags |= MountSpace::kOpenCreat;
 
-		frigg::runClosure<OpenClosure>(*allocator, StdSharedPtr<helx::Pipe>(pipe),
-				StdSharedPtr<Process>(process), frigg::move(request), msg_request);
+				uint32_t open_mode = 0;
+				if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
+					open_mode |= MountSpace::kOpenHelfd;
+				
+				frigg::String<Allocator> path = concatenatePath("/", request.path());
+				frigg::String<Allocator> normalized = normalizePath(path);
+
+				MountSpace *mount_space = process->mountSpace;
+				mount_space->openAbsolute(process, frigg::move(normalized), open_flags, open_mode, callback);
+			})
+			+ frigg::apply([=] (StdSharedPtr<VfsOpenFile> file) {
+				if(!file) {
+					managarm::posix::ServerResponse<Allocator> response(*allocator);
+					response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+					sendResponse(*pipe, response, msg_request);
+				}else{
+					int fd = process->nextFd;
+					assert(fd > 0);
+					process->nextFd++;
+					process->allOpenFiles.insert(fd, frigg::move(file));
+
+					if(traceRequests)
+						infoLogger->log() << "[" << process->pid << "] OPEN response" << frigg::EndLog();
+
+					managarm::posix::ServerResponse<Allocator> response(*allocator);
+					response.set_error(managarm::posix::Errors::SUCCESS);
+					response.set_fd(fd);
+					sendResponse(*pipe, response, msg_request);
+				}
+			});
+
+			frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CONNECT) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] CONNECT" << frigg::EndLog();
