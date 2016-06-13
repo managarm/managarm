@@ -22,187 +22,174 @@ class WeakPtr;
 template<typename T>
 class UnsafePtr;
 
-struct SharedBlock {
-	typedef void (*DeleteFuncPtr) (SharedBlock *block);
+namespace _shared_ptr {
+	struct Control {
+		typedef void (*ControlFunction) (Control *);
 
-	SharedBlock(DeleteFuncPtr destruct_function, DeleteFuncPtr free_function)
-	: refCount(1), weakCount(1),
-			destructFunction(destruct_function), freeFunction(free_function) { }
+		Control(ControlFunction destruct_me, ControlFunction free_me)
+		: refCount(1), weakCount(1),
+				destructMe(destruct_me), freeMe(free_me) { }
 
-	SharedBlock(const SharedBlock &other) = delete;
+		Control(const Control &other) = delete;
 
-	SharedBlock &operator= (const SharedBlock &other) = delete;
+		Control &operator= (const Control &other) = delete;
 
-	~SharedBlock() {
-		assert(volatileRead<int>(&refCount) == 0);
-		assert(volatileRead<int>(&weakCount) == 0);
-	}
+		~Control() {
+			assert(volatileRead<int>(&refCount) == 0);
+			assert(volatileRead<int>(&weakCount) == 0);
+		}
 
-	int refCount;
-	int weakCount;
-	DeleteFuncPtr destructFunction;
-	DeleteFuncPtr freeFunction;
-};
+		int refCount;
+		int weakCount;
+		ControlFunction destructMe;
+		ControlFunction freeMe;
+	};
 
-template<typename T>
-union SharedStorage {
-	SharedStorage() { }
-	~SharedStorage() { }
+	template<typename T>
+	union Storage {
+		Storage() { }
+		~Storage() { }
 
-	template<typename... Args>
-	void construct(Args &&... args) {
-		new (&object) T(forward<Args>(args)...);
-	}
-	
-	void destruct() {
-		object.~T();
-	}
+		template<typename... Args>
+		void construct(Args &&... args) {
+			new (&object) T(forward<Args>(args)...);
+		}
+		
+		void destruct() {
+			object.~T();
+		}
 
-	T &operator* () {
-		return object;
-	}
-	
-	T object;
+		T &operator* () {
+			return object;
+		}
+		
+		T object;
+	};
+
 };
 
 template<typename T, typename Allocator>
-struct SharedStruct : public SharedBlock {
-	static void destructFunction(SharedBlock *block) {
-		auto *self = reinterpret_cast<SharedStruct *>(block);
+struct SharedStruct : public _shared_ptr::Control {
+	static void destructMe(_shared_ptr::Control *control) {
+		auto *self = reinterpret_cast<SharedStruct *>(control);
 		self->storage.destruct();
 	}
 
-	static void freeFunction(SharedBlock *block) {
-		auto *self = reinterpret_cast<SharedStruct *>(block);
+	static void freeMe(_shared_ptr::Control *control) {
+		auto *self = reinterpret_cast<SharedStruct *>(control);
 		destruct(self->allocator, self);
 	}
 
 	template<typename... Args>
 	SharedStruct(Allocator &allocator, Args &&... args)
-	: SharedBlock(&destructFunction, &freeFunction), allocator(allocator) {
+	: _shared_ptr::Control(&destructMe, &freeMe), allocator(allocator) {
 		storage.construct(forward<Args>(args)...);
 	}
 
-	SharedStorage<T> storage;
+	_shared_ptr::Storage<T> storage;
 	Allocator &allocator;
 };
 
-namespace details {
-
-struct Cast {
-	template<typename U, typename T>
-	static SharedPtr<U> staticPtrCast(SharedPtr<T> pointer) {
-		SharedPtr<U> result(pointer.p_block, static_cast<U *>(pointer.p_object));
-		// reset the input pointer to keep the ref count accurate
-		pointer.p_block = nullptr;
-		pointer.p_object = nullptr;
-		return move(result);
-	}
-	
-	template<typename U, typename T>
-	static UnsafePtr<U> staticPtrCast(UnsafePtr<T> pointer) {
-		return UnsafePtr<U>(pointer.p_block, static_cast<U *>(pointer.p_object));
-	}
-};
-
-} // namespace details
-
 template<typename T>
 class SharedPtr {
-	friend class UnsafePtr<T>;
+	template<typename U>
+	friend class SharedPtr;
 
-	friend class details::Cast;
+	friend class UnsafePtr<T>;
 
 public:
 	template<typename Allocator, typename... Args>
 	static SharedPtr make(Allocator &allocator, Args &&... args) {
 		auto shared_struct = construct<SharedStruct<T, Allocator>>
 				(allocator, allocator, forward<Args>(args)...);
-		return SharedPtr(static_cast<SharedBlock *>(shared_struct),
+		return SharedPtr(static_cast<_shared_ptr::Control *>(shared_struct),
 				&(*shared_struct->storage));
 	}
 
-	SharedPtr()
-	: p_block(nullptr), p_object(nullptr) { }
-	
-	~SharedPtr() {
-		reset();
+	friend void swap(SharedPtr &a, SharedPtr &b) {
+		swap(a._control, b._control);
+		swap(a._object, b._object);
 	}
 
-	SharedPtr(const SharedPtr &other) {
-		p_block = other.p_block;
-		p_object = other.p_object;
-		if(p_block != nullptr) {
-			int old_ref_count;
-			fetchInc(&p_block->refCount, old_ref_count);
-			assert(old_ref_count > 0);
+	SharedPtr()
+	: _control(nullptr), _object(nullptr) { }
+
+	SharedPtr(const SharedPtr &other)
+	: _control(other._control), _object(other._object) {
+		if(_control) {
+			int previous_ref_count;
+			fetchInc(&_control->refCount, previous_ref_count);
+			assert(previous_ref_count > 0);
 		}
 	}
+
+	SharedPtr(SharedPtr &&other)
+	: SharedPtr() {
+		swap(*this, other);
+	}
 	
+	template<typename U>
+	explicit SharedPtr(SharedPtr<U> pointer, T *alias)
+	: _control(pointer._control), _object(alias) {
+		// manually empty the argument pointer so that
+		// its destructor does not decrement the reference count
+		pointer._control = nullptr;
+		pointer._object = nullptr;
+	}
+
 	explicit SharedPtr(const WeakPtr<T> &weak);
 	
 	explicit SharedPtr(const UnsafePtr<T> &unsafe);
+	
+	~SharedPtr() {
+		if(_control) {
+			int previous_ref_count;
+			fetchDec(&_control->refCount, previous_ref_count);
+			if(previous_ref_count == 1) {
+				_control->destructMe(_control);
 
-	SharedPtr(SharedPtr &&other) {
-		p_block = other.p_block;
-		p_object = other.p_object;
-		other.p_block = nullptr;
-		other.p_object = nullptr;
+				int previous_weak_count;
+				fetchDec(&_control->weakCount, previous_weak_count);
+				assert(previous_weak_count > 0);
+				if(previous_weak_count == 1)
+					_control->freeMe(_control);
+			}
+		}
 	}
 
-	SharedPtr &operator= (SharedPtr &&other) {
-		reset();
-		p_block = other.p_block;
-		p_object = other.p_object;
-		other.p_block = nullptr;
-		other.p_object = nullptr;
+	SharedPtr &operator= (SharedPtr other) {
+		swap(*this, other);
 		return *this;
 	}
 
-	operator bool () {
-		return p_block != nullptr;
-	}
-
-	void reset() {
-		if(p_block == nullptr)
-			return;
-
-		int old_ref_count;
-		fetchDec(&p_block->refCount, old_ref_count);
-		if(old_ref_count == 1) {
-			p_block->destructFunction(p_block);
-
-			int old_weak_count;
-			fetchDec(&p_block->weakCount, old_weak_count);
-			assert(old_weak_count > 0);
-			if(old_weak_count == 1)
-				p_block->freeFunction(p_block);
-		}
-		p_block = nullptr;
-		p_object = nullptr;
+	explicit operator bool () {
+		return _control;
 	}
 
 	T *get() const {
-		return p_object;
+		return _object;
 	}
 	T &operator* () const {
-		return *p_object;
+		assert(_control);
+		return *_object;
 	}
 	T *operator-> () const {
-		return p_object;
+		assert(_control);
+		return _object;
 	}
 
 private:
-	SharedPtr(SharedBlock *block, T *object)
-	: p_block(block), p_object(object) { }
+	SharedPtr(_shared_ptr::Control *control, T *object)
+	: _control(control), _object(object) { }
 
-	SharedBlock *p_block;
-	T *p_object;
+	_shared_ptr::Control *_control;
+	T *_object;
 };
 	
-template<typename U, typename T>
-SharedPtr<U> staticPtrCast(SharedPtr<T> pointer) {
-	return details::Cast::staticPtrCast<U>(pointer);
+template<typename T, typename U>
+SharedPtr<T> staticPtrCast(SharedPtr<U> pointer) {
+	auto object = static_cast<T *>(pointer.get());
+	return SharedPtr<T>(move(pointer), object);
 }
 
 template<typename T>
@@ -210,116 +197,112 @@ class WeakPtr {
 	friend class SharedPtr<T>;
 	friend class UnsafePtr<T>;
 public:
-	WeakPtr() : p_block(nullptr), p_object(nullptr) { }
-	
-	~WeakPtr() {
-		reset();
+	friend void swap(WeakPtr &a, WeakPtr &b) {
+		swap(a._control, b._control);
+		swap(a._object, b._object);
 	}
 
-	WeakPtr(const WeakPtr &other) {
-		p_block = other.p_block;
-		p_object = other.p_object;
-		if(p_block != nullptr) {
-			int old_weak_count;
-			fetchInc(&p_block->weakCount, old_weak_count);
-			assert(old_weak_count > 0);
+	WeakPtr()
+	: _control(nullptr), _object(nullptr) { }
+	
+	~WeakPtr() {
+		if(_control) {
+			int previous_weak_count;
+			fetchDec(&_control->weakCount, previous_weak_count);
+			assert(previous_weak_count > 0);
+			if(previous_weak_count == 1)
+				_control->freeMe(_control);
 		}
+	}
+
+	WeakPtr(const WeakPtr &other)
+	: _control(other._control), _object(other._object) {
+		if(_control) {
+			int previous_weak_count;
+			fetchInc(&_control->weakCount, previous_weak_count);
+			assert(previous_weak_count > 0);
+		}
+	}
+
+	WeakPtr(WeakPtr &&other)
+	: WeakPtr() {
+		swap(*this, other);
 	}
 	
 	explicit WeakPtr(const UnsafePtr<T> &unsafe);
 
-	WeakPtr(WeakPtr &&other) {
-		p_block = other.p_block;
-		p_object = other.p_object;
-		other.p_block = nullptr;
-		other.p_object = nullptr;
-	}
-
-	WeakPtr &operator= (WeakPtr &&other) {
-		reset();
-		p_block = other.p_block;
-		p_object = other.p_object;
-		other.p_block = nullptr;
-		other.p_object = nullptr;
+	WeakPtr &operator= (WeakPtr other) {
+		swap(*this, other);
 		return *this;
 	}
 
-	operator bool () {
-		return p_block != nullptr;
-	}
-
-	void reset() {
-		if(p_block == nullptr)
-			return;
-
-		int old_weak_count;
-		fetchDec(&p_block->weakCount, old_weak_count);
-		assert(old_weak_count > 0);
-		if(old_weak_count == 1)
-			p_block->freeFunction(p_block);
-		
-		p_block = nullptr;
-		p_object = nullptr;
+	explicit operator bool () {
+		return _control;
 	}
 
 private:
-	SharedBlock *p_block;
-	T *p_object;
+	_shared_ptr::Control *_control;
+	T *_object;
 };
 
 template<typename T>
 class UnsafePtr {
 	friend class WeakPtr<T>;
 	friend class SharedPtr<T>;
-
-	friend class details::Cast;
 public:
 	UnsafePtr()
-	: p_block(nullptr), p_object(nullptr) { }
+	: _control(nullptr), _object(nullptr) { }
 	
 	UnsafePtr(const SharedPtr<T> &shared)
-	: p_block(shared.p_block), p_object(shared.p_object) { }
+	: _control(shared._control), _object(shared._object) { }
 	
 	UnsafePtr(const WeakPtr<T> &weak)
-	: p_block(weak.p_block), p_object(weak.p_object) { }
+	: _control(weak._control), _object(weak._object) { }
 
-	operator bool () {
-		return p_block != nullptr;
+	template<typename U>
+	explicit UnsafePtr(UnsafePtr<U> pointer, T *object)
+	: _control(pointer._control), _object(object) { }
+
+	explicit operator bool () {
+		return _control;
 	}
 
 	T &operator* () {
-		return *p_object;
+		return *_object;
 	}
 	T *operator-> () {
-		return p_object;
+		assert(_control);
+		return _object;
 	}
 	T *get() const {
-		return p_object;
+		assert(_control);
+		return _object;
 	}
 
 private:
-	SharedBlock *p_block;
-	T *p_object;
+	_shared_ptr::Control *_control;
+	T *_object;
 };
 	
-template<typename U, typename T>
-UnsafePtr<U> staticPtrCast(UnsafePtr<T> pointer) {
-	return details::Cast::staticPtrCast<U>(pointer);
+template<typename T, typename U>
+UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
+	auto object = static_cast<T *>(pointer.get());
+	return UnsafePtr<T>(pointer, object);
 }
 
 template<typename T>
 SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
-: p_block(weak.p_block), p_object(weak.p_object) {
-	int last_count = volatileRead<int>(&p_block->refCount);
+: _control(weak._control), _object(weak._object) {
+	int last_count = volatileRead<int>(&_control->refCount);
 	while(true) {
 		if(last_count == 0) {
-			p_block = nullptr;
-			p_object = nullptr;
+			_control = nullptr;
+			_object = nullptr;
 			break;
 		}
 
 		int found_count;
-		if(compareSwap(&p_block->refCount, last_count, last_count + 1, found_count))
+		if(compareSwap(&_control->refCount, last_count, last_count + 1, found_count))
 			break;
 		last_count = found_count;
 	}
@@ -327,18 +310,18 @@ SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
 
 template<typename T>
 SharedPtr<T>::SharedPtr(const UnsafePtr<T> &unsafe)
-: p_block(unsafe.p_block), p_object(unsafe.p_object) {
-	int old_ref_count;
-	fetchInc<int>(&p_block->refCount, old_ref_count);
-	assert(old_ref_count > 0);
+: _control(unsafe._control), _object(unsafe._object) {
+	int previous_ref_count;
+	fetchInc<int>(&_control->refCount, previous_ref_count);
+	assert(previous_ref_count > 0);
 }
 
 template<typename T>
 WeakPtr<T>::WeakPtr(const UnsafePtr<T> &unsafe)
-: p_block(unsafe.p_block), p_object(unsafe.p_object) {
-	int old_weak_count;
-	fetchInc<int>(&p_block->weakCount, old_weak_count);
-	assert(old_weak_count > 0);
+: _control(unsafe._control), _object(unsafe._object) {
+	int previous_weak_count;
+	fetchInc<int>(&_control->weakCount, previous_weak_count);
+	assert(previous_weak_count > 0);
 }
 
 template<typename T, typename Allocator, typename... Args>
@@ -353,12 +336,18 @@ SharedPtr<T> makeShared(Allocator &allocator, Args&&... args) {
 template<typename Allocator>
 class UniqueMemory {
 public:
+	friend void swap(UniqueMemory &a, UniqueMemory &b) {
+		swap(a._pointer, b._pointer);
+		swap(a._size, b._size);
+		swap(a._allocator, b._allocator);
+	}
+
 	UniqueMemory()
-	: p_pointer(nullptr), p_size(0), p_allocator(nullptr) { }
+	: _pointer(nullptr), _size(0), _allocator(nullptr) { }
 
 	explicit UniqueMemory(Allocator &allocator, size_t size)
-	: p_size(size), p_allocator(&allocator) {
-		p_pointer = p_allocator->allocate(size);
+	: _size(size), _allocator(&allocator) {
+		_pointer = _allocator->allocate(size);
 	}
 
 	UniqueMemory(UniqueMemory &&other)
@@ -366,42 +355,30 @@ public:
 		swap(*this, other);
 	}
 
-	~UniqueMemory() {
-		reset();
-	}
-
 	UniqueMemory(const UniqueMemory &other) = delete;
+
+	~UniqueMemory() {
+		if(_pointer)
+			_allocator->free(_pointer);
+	}
 
 	UniqueMemory &operator= (UniqueMemory other) {
 		swap(*this, other);
 		return *this;
 	}
 
-	void reset() {
-		if(p_pointer)
-			p_allocator->free(p_pointer);
-		p_pointer = nullptr;
-		p_size = 0;
-	}
-
-	friend void swap(UniqueMemory &a, UniqueMemory &b) {
-		swap(a.p_pointer, b.p_pointer);
-		swap(a.p_size, b.p_size);
-		swap(a.p_allocator, b.p_allocator);
-	}
-
 	void *data() {
-		return p_pointer;
+		return _pointer;
 	}
 
 	size_t size() {
-		return p_size;
+		return _size;
 	}
 
 private:
-	void *p_pointer;
-	size_t p_size;
-	Allocator *p_allocator;
+	void *_pointer;
+	size_t _size;
+	Allocator *_allocator;
 };
 
 } // namespace frigg

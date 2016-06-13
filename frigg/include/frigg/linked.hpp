@@ -19,7 +19,7 @@ struct IntrusiveSharedLinkedList {
 		}
 		
 		explicit operator bool() {
-			return _current;
+			return !!_current;
 		}
 
 		Iterator &operator++ () {

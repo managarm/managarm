@@ -421,7 +421,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 			p_pageSpace.unmapSingle4k(vaddr);
 	}
 
-	mapping->memoryRegion.reset();
+	mapping->memoryRegion = frigg::SharedPtr<Memory>();
 
 	Mapping *lower_ptr = mapping->lowerPtr;
 	Mapping *higher_ptr = mapping->higherPtr;
