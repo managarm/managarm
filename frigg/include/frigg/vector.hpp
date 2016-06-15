@@ -10,7 +10,22 @@ namespace frigg {
 template<typename T, typename Allocator>
 class Vector {
 public:
+	friend void swap(Vector &a, Vector &b) {
+		swap(a.p_allocator, b.p_allocator);
+		swap(a.p_elements, b.p_elements);
+		swap(a.p_size, b.p_size);
+		swap(a.p_capacity, b.p_capacity);
+	}
+
 	Vector(Allocator &allocator);
+
+	Vector(const Vector &other) = delete;
+
+	Vector(Vector &&other)
+	: Vector(*other.p_allocator) {
+		swap(*this, other);
+	}
+
 	~Vector();
 
 	T &push(const T &element);
@@ -44,7 +59,7 @@ public:
 private:
 	void ensureCapacity(size_t capacity);
 
-	Allocator &p_allocator;
+	Allocator *p_allocator;
 	T *p_elements;
 	size_t p_size;
 	size_t p_capacity;
@@ -52,13 +67,13 @@ private:
 
 template<typename T, typename Allocator>
 Vector<T, Allocator>::Vector(Allocator &allocator)
-		: p_allocator(allocator), p_elements(nullptr), p_size(0), p_capacity(0) { }
+		: p_allocator(&allocator), p_elements(nullptr), p_size(0), p_capacity(0) { }
 
 template<typename T, typename Allocator>
 Vector<T, Allocator>::~Vector() {
 	for(size_t i = 0; i < p_size; i++)
 		p_elements[i].~T();
-	p_allocator.free(p_elements);
+	p_allocator->free(p_elements);
 }
 
 template<typename T, typename Allocator>
@@ -93,13 +108,13 @@ void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 		return;
 	
 	size_t new_capacity = capacity * 2;	
-	T *new_array = (T *)p_allocator.allocate(sizeof(T) * new_capacity);
+	T *new_array = (T *)p_allocator->allocate(sizeof(T) * new_capacity);
 	for(size_t i = 0; i < p_capacity; i++)
 		new (&new_array[i]) T(move(p_elements[i]));
 	
 	for(size_t i = 0; i < p_size; i++)
 		p_elements[i].~T();
-	p_allocator.free(p_elements);
+	p_allocator->free(p_elements);
 
 	p_elements = new_array;
 	p_capacity = new_capacity;
