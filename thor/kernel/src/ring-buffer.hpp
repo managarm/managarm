@@ -2,8 +2,10 @@
 namespace thor {
 
 struct AsyncOperation {
-	AsyncOperation(frigg::WeakPtr<EventHub> event_hub, SubmitInfo submit_info);
-	
+	AsyncOperation(AsyncData data)
+	: eventHub(frigg::move(data.eventHub)),
+		submitInfo(data.asyncId, data.submitFunction, data.submitObject) { }
+
 	frigg::WeakPtr<EventHub> eventHub;
 	SubmitInfo submitInfo;
 };
@@ -17,8 +19,9 @@ enum MsgType {
 	kMsgDescriptor
 };
 
-struct AsyncSendString {
-	AsyncSendString(MsgType type, int64_t msg_request, int64_t msg_sequence);
+struct AsyncSendString : public AsyncOperation {
+	AsyncSendString(AsyncData data, MsgType type,
+			int64_t msg_request, int64_t msg_sequence);
 	
 	MsgType type;
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
@@ -52,8 +55,8 @@ struct AsyncRecvString {
 };
 
 struct AsyncRingItem : public AsyncOperation {
-	AsyncRingItem(frigg::WeakPtr<EventHub> event_hub, SubmitInfo submit_info,
-			DirectSpaceLock<HelRingBuffer> space_lock, size_t buffer_size);
+	AsyncRingItem(AsyncData data, DirectSpaceLock<HelRingBuffer> space_lock,
+			size_t buffer_size);
 
 	DirectSpaceLock<HelRingBuffer> spaceLock;
 	size_t bufferSize;

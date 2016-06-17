@@ -3,14 +3,9 @@
 
 namespace thor {
 
-AsyncOperation::AsyncOperation(frigg::WeakPtr<EventHub> event_hub,
-		SubmitInfo submit_info)
-: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
-
-AsyncRingItem::AsyncRingItem(frigg::WeakPtr<EventHub> event_hub,
-		SubmitInfo submit_info, DirectSpaceLock<HelRingBuffer> space_lock,
-		size_t buffer_size)
-: AsyncOperation(frigg::move(event_hub), submit_info),
+AsyncRingItem::AsyncRingItem(AsyncData data,
+		DirectSpaceLock<HelRingBuffer> space_lock, size_t buffer_size)
+: AsyncOperation(frigg::move(data)),
 		spaceLock(frigg::move(space_lock)), bufferSize(buffer_size), offset(0) { }
 
 RingBuffer::RingBuffer() { }

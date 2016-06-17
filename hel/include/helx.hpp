@@ -21,6 +21,7 @@ inline void panic(const char *string) {
 typedef void (*LoadMemoryFunction) (void *, HelError, uintptr_t, size_t);
 typedef void (*LockMemoryFunction) (void *, HelError);
 typedef void (*JoinFunction) (void *, HelError);
+typedef void (*SendStringFunction) (void *, HelError);
 typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
 typedef void (*RecvStringToQueueFunction) (void *, HelError, int64_t, int64_t, size_t, size_t, size_t);
 typedef void (*RecvDescriptorFunction) (void *, HelError, int64_t, int64_t, HelHandle);
@@ -100,6 +101,10 @@ public:
 				auto function = (JoinFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error);
 			} break;
+			case kHelEventSendString: {
+				auto function = (SendStringFunction)evt.submitFunction;
+				function((void *)evt.submitObject, evt.error);
+			} break;
 			case kHelEventRecvString: {
 				auto function = (RecvStringFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error,
@@ -148,6 +153,8 @@ public:
 		}
 	}
 
+	inline void waitForSendString(int64_t async_id, HelError &error);
+	inline void waitForSendDescriptor(int64_t async_id, HelError &error);
 	inline void waitForRecvString(int64_t async_id, HelError &error, size_t &length);
 	inline void waitForRecvDescriptor(int64_t async_id, HelError &error, HelHandle &handle);
 	inline void waitForConnect(int64_t async_id, HelError &error, Pipe &pipe);
@@ -236,6 +243,16 @@ public:
 		sendString(buffer, length, event_hub, msg_request, msg_seq,
 				callback, kHelResponse);
 	}
+	
+	inline void sendStringSync(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			uint32_t flags, HelError &error) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitSendString(p_handle, event_hub.getHandle(),
+				(uint8_t *)buffer, length, msg_request, msg_seq,
+				0, 0, flags, &async_id));
+		event_hub.waitForSendString(async_id, error);
+	}
 
 	inline void sendDescriptor(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
@@ -249,6 +266,16 @@ public:
 	inline void sendDescriptorResp(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq) {
 		sendDescriptor(send_handle, msg_request, msg_seq, kHelResponse);
+	}
+	
+	inline void sendDescriptorSync(HelHandle send_handle,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
+			uint32_t flags, HelError &error) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitSendDescriptor(p_handle, event_hub.getHandle(),
+				send_handle, msg_request, msg_seq,
+				0, 0, flags, &async_id));
+		event_hub.waitForSendString(async_id, error);
 	}
 
 	inline HelError recvString(void *buffer, size_t max_length,
@@ -598,6 +625,14 @@ private:
 // EventHub implementation
 // --------------------------------------------------------
 
+void EventHub::waitForSendString(int64_t async_id, HelError &error) {
+	HelEvent event = waitForEvent(async_id);
+	error = event.error;
+}
+void EventHub::waitForSendDescriptor(int64_t async_id, HelError &error) {
+	HelEvent event = waitForEvent(async_id);
+	error = event.error;
+}
 void EventHub::waitForRecvString(int64_t async_id, HelError &error, size_t &length) {
 	HelEvent event = waitForEvent(async_id);
 	error = event.error;

@@ -136,7 +136,7 @@ ThreadGroup::ThreadGroup()
 ThreadQueue::ThreadQueue() { }
 
 bool ThreadQueue::empty() {
-	return p_front.get() == nullptr;
+	return !p_front;
 }
 
 void ThreadQueue::addBack(KernelSharedPtr<Thread> &&thread) {
@@ -162,7 +162,7 @@ KernelSharedPtr<Thread> ThreadQueue::removeFront() {
 	front->p_previousInQueue = KernelUnsafePtr<Thread>();
 
 	// fix the pointers to previous elements
-	if(next.get() == nullptr) {
+	if(!next) {
 		p_back = KernelUnsafePtr<Thread>();
 	}else{
 		next->p_previousInQueue = KernelUnsafePtr<Thread>();

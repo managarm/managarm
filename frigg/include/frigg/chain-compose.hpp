@@ -54,12 +54,7 @@ public:
 	
 	public:
 		template<typename... E>
-		Chain(const Compose &bp, E &&... emplace)
-		: _functor(bp._functor), _context(bp._context),
-				_next(forward<E>(emplace)...), _hasComposedChain(false) { }
-		
-		template<typename... E>
-		Chain(Compose &&bp, E &&... emplace)
+		Chain(Compose bp, E &&... emplace)
 		: _functor(move(bp._functor)), _context(move(bp._context)),
 				_next(forward<E>(emplace)...), _hasComposedChain(false) { }
 

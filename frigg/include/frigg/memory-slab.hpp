@@ -112,6 +112,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 		FreeChunk *chunk = p_freeList[index];
 		assert(chunk != nullptr);
 		p_freeList[index] = chunk->nextChunk;
+		//infoLogger.log() << "[slab] alloc " << chunk << frigg::EndLog();
 		return chunk;
 	}else{
 		size_t area_size = length;
@@ -120,6 +121,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 		VirtualArea *area = allocateNewArea(kTypeLarge, area_size);
 //		infoLogger.log() << "[" << (void *)area->baseAddress
 //				<< "] Large alloc varea " << area << EndLog();
+		//infoLogger.log() << "[slab] alloc " << (void *)area->baseAddress << frigg::EndLog();
 		return (void *)area->baseAddress;
 	}
 }
@@ -147,6 +149,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_leng
 					return nullptr;
 				memcpy(new_pointer, pointer, item_size);
 				free(pointer);
+				//infoLogger.log() << "[slab] realloc " << new_pointer << frigg::EndLog();
 				return new_pointer;
 			}else{
 				assert(current->type == kTypeLarge);
@@ -161,6 +164,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_leng
 					return nullptr;
 				memcpy(new_pointer, pointer, current->length);
 				free(pointer);
+				//infoLogger.log() << "[slab] realloc " << new_pointer << frigg::EndLog();
 				return new_pointer;
 			}
 		}
@@ -178,6 +182,7 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 	
 	if(!pointer)
 		return;
+	//infoLogger.log() << "[slab] free " << pointer << frigg::EndLog();
 
 	uintptr_t address = (uintptr_t)pointer;
 
@@ -259,6 +264,7 @@ void SlabAllocator<VirtualAlloc, Mutex>::fillSlabArea(VirtualArea *area, int pow
 		auto chunk = new ((void *)(area->baseAddress + i * item_size)) FreeChunk();
 		chunk->nextChunk = p_freeList[index];
 		p_freeList[index] = chunk;
+		//infoLogger.log() << "[slab] fill " << chunk << frigg::EndLog();
 	}
 }
 

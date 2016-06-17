@@ -122,9 +122,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	scheduleLock.initialize();
 
 	initializeTheSystem();
-	infoLogger->log() << "before" << frigg::EndLog();
 	initializeThisProcessor();
-	infoLogger->log() << "after" << frigg::EndLog();
 	
 	// create a directory and load the memory regions of all modules into it
 	assert(info->numModules >= 1);
@@ -459,17 +457,33 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		HelError error = helCreateFullPipe(&first, &second);
 		thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
 	} break;
-	case kHelCallSendString: {
+/*	case kHelCallSendString: {
 //		infoLogger->log() << "helSendString(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		HelError error = helSendString((HelHandle)arg0,
 				(const void *)arg1, (size_t)arg2,
 				(int64_t)arg3, (int64_t)arg4, (uint32_t)arg5);
 		thorRtReturnSyscall1((Word)error);
+	} break;*/
+	case kHelCallSubmitSendString: {
+		int64_t async_id;
+		HelError error = helSubmitSendString((HelHandle)arg0,
+				(HelHandle)arg1, (const void *)arg2, (size_t)arg3,
+				(int64_t)arg4, (int64_t)arg5,
+				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
-	case kHelCallSendDescriptor: {
+/*	case kHelCallSendDescriptor: {
 		HelError error = helSendDescriptor((HelHandle)arg0, (HelHandle)arg1,
 				(int64_t)arg2, (int64_t)arg3, (uint32_t)arg4);
 		thorRtReturnSyscall1((Word)error);
+	} break;*/
+	case kHelCallSubmitSendDescriptor: {
+		int64_t async_id;
+		HelError error = helSubmitSendDescriptor((HelHandle)arg0,
+				(HelHandle)arg1, (HelHandle)arg2,
+				(int64_t)arg3, (int64_t)arg4,
+				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
+		thorRtReturnSyscall2((Word)error, (Word)async_id);
 	} break;
 	case kHelCallSubmitRecvDescriptor: {
 		int64_t async_id;

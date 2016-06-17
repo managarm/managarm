@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 58,
+	kHelNumCalls = 59,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -52,6 +52,7 @@ enum {
 	kHelCallSendString = 8,
 	kHelCallSubmitSendString = 54,
 	kHelCallSendDescriptor = 28,
+	kHelCallSubmitSendDescriptor = 58,
 	kHelCallSubmitRecvString = 9,
 	kHelCallSubmitRecvStringToRing = 55,
 	kHelCallSubmitRecvDescriptor = 29,
@@ -114,6 +115,8 @@ enum {
 	kHelEventLoadMemory = 7,
 	kHelEventLockMemory = 8,
 	kHelEventJoin = 6,
+	kHelEventSendString = 11,
+	kHelEventSendDescriptor = 10,
 	kHelEventRecvString = 1,
 	kHelEventRecvStringToQueue = 9,
 	kHelEventRecvDescriptor = 5,
@@ -255,6 +258,11 @@ HEL_C_LINKAGE HelError helSubmitSendString(HelHandle handle,
 		uint32_t flags, int64_t *async_id);
 HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
+HEL_C_LINKAGE HelError helSubmitSendDescriptor(HelHandle handle,
+		HelHandle hub_handle, HelHandle send_handle,
+		int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id);
 HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
 		HelHandle hub_handle, void *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,

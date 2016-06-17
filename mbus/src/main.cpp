@@ -7,6 +7,7 @@
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/hashmap.hpp>
+#include <frigg/chain-all.hpp>
 
 #include <helx.hpp>
 
@@ -167,43 +168,53 @@ void RequestClosure::operator() () {
 void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
 	if(error == kHelErrPipeClosed) {
+		infoLogger->log() << "wtf" << frigg::EndLog();
 		suicide(*allocator);
 		return;
 	}
 	HEL_CHECK(error);
 	
-	managarm::mbus::CntRequest<Allocator> request(*allocator);
-	request.ParseFromArray(buffer, length);
+	managarm::mbus::CntRequest<Allocator> recvd_request(*allocator);
+	recvd_request.ParseFromArray(buffer, length);
 	
-	switch(request.req_type()) {
+	switch(recvd_request.req_type()) {
 	case managarm::mbus::CntReqType::REGISTER: {
-		auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
-		object->connection = frigg::SharedPtr<Connection>(connection);
-		allObjects.insert(object->objectId, object);
-		
-		for(size_t i = 0; i < request.caps_size(); i++) {
-			Capability capability;
-			capability.name = request.caps(i).name();
-			object->caps.push(frigg::move(capability));
-		}
+		auto action = frigg::compose([=] (auto request, auto serialized) {
+			return frigg::apply([=] () {
+				auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
+				object->connection = frigg::SharedPtr<Connection>(connection);
+				allObjects.insert(object->objectId, object);
+				
+				for(size_t i = 0; i < request->caps_size(); i++) {
+					Capability capability;
+					capability.name = request->caps(i).name();
+					object->caps.push(frigg::move(capability));
+				}
 
-		managarm::mbus::SvrResponse<Allocator> response(*allocator);
-		response.set_object_id(object->objectId);
+				managarm::mbus::SvrResponse<Allocator> response(*allocator);
+				response.set_object_id(object->objectId);
+				response.SerializeToString(serialized);
+			})
+			+ frigg::await<void(HelError)>([=] (auto callback) {
+				connection->pipe.sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0, callback);
+			})
+			+ frigg::apply([=] (HelError error) {
+				HEL_CHECK(error);
+			});
+		}, frigg::move(recvd_request), frigg::String<Allocator>(*allocator));
 
-		frigg::String<Allocator> serialized(*allocator);
-		response.SerializeToString(&serialized);
-		connection->pipe.sendStringResp(serialized.data(), serialized.size(),
-				msg_request, 0);
-
-		broadcastRegister(frigg::move(object));
+		frigg::run(frigg::move(action), allocator.get());
+		/*broadcastRegister(frigg::move(object));
+		*/
 	} break;
 	case managarm::mbus::CntReqType::ENUMERATE: {
 		for(auto it = allObjects.iterator(); it; ++it) {
 			frigg::UnsafePtr<Object> object = it->get<1>();
 			
 			bool matching = true;
-			for(size_t i = 0; i < request.caps_size(); i++) {
-				if(!object->hasCapability(request.caps(i).name()))
+			for(size_t i = 0; i < recvd_request.caps_size(); i++) {
+				if(!object->hasCapability(recvd_request.caps(i).name()))
 					matching = false;
 			}
 			if(!matching)
@@ -224,12 +235,12 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		assert(!"No matching object");
 	} break;
 	case managarm::mbus::CntReqType::QUERY_IF: {
-		frigg::SharedPtr<Object> *object = allObjects.get(request.object_id());
+		frigg::SharedPtr<Object> *object = allObjects.get(recvd_request.object_id());
 		assert(object);
 
 		managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
 		require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
-		require_request.set_object_id(request.object_id());
+		require_request.set_object_id(recvd_request.object_id());
 
 		int64_t require_request_id = (*object)->connection->nextRequestId++;
 		frigg::String<Allocator> serialized(*allocator);
@@ -307,8 +318,13 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
-	HEL_CHECK(helCloseDescriptor(parent_handle));
+
+	helx::Pipe parent_pipe(parent_handle);
+	HelError send_error;
+	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub,
+			0, 0, kHelRequest, send_error);
+	HEL_CHECK(send_error);
+	parent_pipe.reset();
 	client.reset();
 
 	while(true)

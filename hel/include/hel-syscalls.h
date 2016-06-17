@@ -250,6 +250,17 @@ DEFINE_SYSCALL(SendDescriptor, HelHandle handle, HelHandle send_handle,
 	DO_SYSCALL(SendDescriptor)
 END_SYSCALL()
 
+DEFINE_SYSCALL(SubmitSendDescriptor, HelHandle handle, HelHandle hub_handle,
+		HelHandle send_handle, int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id)
+	IN(0, handle) IN(1, hub_handle) IN(2, send_handle)
+			IN(3, msg_request) IN(4, msg_sequence)
+			IN(5, submit_function) IN(6, submit_object) IN(7, flags)
+	DO_SYSCALL(SubmitSendDescriptor)
+	OUT(0, int64_t, async_id)
+END_SYSCALL()
+
 DEFINE_SYSCALL(SubmitRecvString, HelHandle handle, HelHandle hub_handle,
 		void *buffer, size_t max_length,
 		int64_t filter_request, int64_t filter_sequence,

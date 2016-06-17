@@ -38,9 +38,10 @@ void enterThread(KernelUnsafePtr<Thread> thread) {
 	assert(!intsAreEnabled());
 	auto cpu_context = getCpuContext();
 	assert(!cpu_context->currentThread);
-	
-	if((thread->flags & Thread::kFlagExclusive) == 0)
-		preemptThisCpu(100000000);
+
+//FIXME: re-enable preemption
+//	if((thread->flags & Thread::kFlagExclusive) == 0)
+//		preemptThisCpu(100000000);
 
 	thread->activate();
 	cpu_context->currentThread = thread;

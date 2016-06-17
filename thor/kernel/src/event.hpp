@@ -8,6 +8,8 @@ struct UserEvent {
 		kTypeMemoryLoad,
 		kTypeMemoryLock,
 		kTypeJoin,
+		kTypeSendString,
+		kTypeSendDescriptor,
 		// TODO: use only a single kTypeRecvString
 		kTypeRecvStringTransferToBuffer,
 		kTypeRecvStringTransferToQueue,

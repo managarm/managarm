@@ -90,6 +90,12 @@ class BasicString {
 public:
 	typedef Char CharType;
 
+	friend void swap(BasicString &a, BasicString &b) {
+		swap(a.p_allocator, b.p_allocator);
+		swap(a.p_buffer, b.p_buffer);
+		swap(a.p_length, b.p_length);
+	}
+
 	BasicString(Allocator &allocator)
 	: p_allocator(&allocator), p_buffer(nullptr), p_length(0) { }
 
@@ -196,12 +202,6 @@ public:
 
 	operator BasicStringView<Char> () const {
 		return BasicStringView<Char>(p_buffer, p_length);
-	}
-
-	friend void swap(BasicString &a, BasicString &b) {
-		swap(a.p_allocator, b.p_allocator);
-		swap(a.p_buffer, b.p_buffer);
-		swap(a.p_length, b.p_length);
 	}
 
 private:

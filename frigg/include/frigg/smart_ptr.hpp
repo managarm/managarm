@@ -90,6 +90,10 @@ struct SharedStruct : public _shared_ptr::Control {
 	Allocator &allocator;
 };
 
+struct AdoptShared { };
+
+static constexpr AdoptShared adoptShared;
+
 template<typename T>
 class SharedPtr {
 	template<typename U>
@@ -98,14 +102,6 @@ class SharedPtr {
 	friend class UnsafePtr<T>;
 
 public:
-	template<typename Allocator, typename... Args>
-	static SharedPtr make(Allocator &allocator, Args &&... args) {
-		auto shared_struct = construct<SharedStruct<T, Allocator>>
-				(allocator, allocator, forward<Args>(args)...);
-		return SharedPtr(static_cast<_shared_ptr::Control *>(shared_struct),
-				&(*shared_struct->storage));
-	}
-
 	friend void swap(SharedPtr &a, SharedPtr &b) {
 		swap(a._control, b._control);
 		swap(a._object, b._object);
@@ -113,6 +109,14 @@ public:
 
 	SharedPtr()
 	: _control(nullptr), _object(nullptr) { }
+	
+	template<typename Allocator>
+	SharedPtr(AdoptShared, SharedStruct<T, Allocator> *block)
+	: _control(block), _object(&(*block->storage)) {
+		assert(block);
+		assert(_control->refCount == 1);
+		assert(_control->weakCount == 1);
+	}
 
 	SharedPtr(const SharedPtr &other)
 	: _control(other._control), _object(other._object) {
@@ -167,6 +171,7 @@ public:
 	}
 
 	T *get() const {
+		assert(_control);
 		return _object;
 	}
 	T &operator* () const {
@@ -179,9 +184,6 @@ public:
 	}
 
 private:
-	SharedPtr(_shared_ptr::Control *control, T *object)
-	: _control(control), _object(object) { }
-
 	_shared_ptr::Control *_control;
 	T *_object;
 };
@@ -268,6 +270,7 @@ public:
 	}
 
 	T &operator* () {
+		assert(_control);
 		return *_object;
 	}
 	T *operator-> () {
@@ -293,6 +296,8 @@ UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
 template<typename T>
 SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
 : _control(weak._control), _object(weak._object) {
+	assert(_control);
+	
 	int last_count = volatileRead<int>(&_control->refCount);
 	while(true) {
 		if(last_count == 0) {
@@ -311,6 +316,8 @@ SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
 template<typename T>
 SharedPtr<T>::SharedPtr(const UnsafePtr<T> &unsafe)
 : _control(unsafe._control), _object(unsafe._object) {
+	assert(_control);
+	
 	int previous_ref_count;
 	fetchInc<int>(&_control->refCount, previous_ref_count);
 	assert(previous_ref_count > 0);
@@ -319,14 +326,19 @@ SharedPtr<T>::SharedPtr(const UnsafePtr<T> &unsafe)
 template<typename T>
 WeakPtr<T>::WeakPtr(const UnsafePtr<T> &unsafe)
 : _control(unsafe._control), _object(unsafe._object) {
+	assert(_control);
+
 	int previous_weak_count;
 	fetchInc<int>(&_control->weakCount, previous_weak_count);
 	assert(previous_weak_count > 0);
 }
 
 template<typename T, typename Allocator, typename... Args>
-SharedPtr<T> makeShared(Allocator &allocator, Args&&... args) {
-	return SharedPtr<T>::make(allocator, forward<Args>(args)...);
+SharedPtr<T> makeShared(Allocator &allocator, Args &&... args) {
+	auto block = construct<SharedStruct<T, Allocator>>(allocator,
+			allocator, forward<Args>(args)...);
+	return SharedPtr<T>(adoptShared, block);
+
 }
 
 // --------------------------------------------------------

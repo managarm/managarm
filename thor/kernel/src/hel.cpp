@@ -741,6 +741,16 @@ HelError helWaitForEvents(HelHandle handle,
 				assert(!"Unexpected error");
 			}
 		} break;
+		case UserEvent::kTypeSendString: {
+			infoLogger->log() << "Event: kHelEventSendString" << frigg::EndLog();
+			user_evt->type = kHelEventSendString;
+			user_evt->error = kHelErrNone;
+		} break;
+		case UserEvent::kTypeSendDescriptor: {
+			infoLogger->log() << "Event: kHelEventSendDescriptor" << frigg::EndLog();
+			user_evt->type = kHelEventSendDescriptor;
+			user_evt->error = kHelErrNone;
+		} break;
 		case UserEvent::kTypeRecvStringTransferToBuffer: {
 			user_evt->type = kHelEventRecvString;
 			user_evt->error = kHelErrNone;
@@ -845,13 +855,14 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 	frigg::SharedPtr<AddressSpace> space(this_thread->getAddressSpace());
 	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
+			allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
 	auto ring_item = frigg::makeShared<AsyncRingItem>(*kernelAlloc,
-			frigg::WeakPtr<EventHub>(event_hub), submit_info,
-			frigg::move(space_lock), buffer_size);
+			frigg::move(data), frigg::move(space_lock), buffer_size);
 	ring_buffer->submitBuffer(frigg::move(ring_item));
 	
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -875,9 +886,11 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 	return kHelErrNone;
 }
 
-HelError helSendString(HelHandle handle,
+HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 		const void *user_buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+		int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id) {
 	if(flags & ~(kHelRequest | kHelResponse))
 		return kHelErrIllegalArgs;
 	
@@ -889,15 +902,26 @@ HelError helSendString(HelHandle handle,
 	
 	// TODO: check userspace page access rights
 	
-	Universe::Guard universe_guard(&universe->lock);
-	auto wrapper = universe->getDescriptor(universe_guard, handle);
-	if(!wrapper)
-		return kHelErrNoDescriptor;
-	if(!wrapper->is<EndpointDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &descriptor = wrapper->get<EndpointDescriptor>();
-	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
-	universe_guard.unlock();
+	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<EventHub> event_hub;
+	AnyDescriptor send_descriptor;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!end_wrapper)
+			return kHelErrNoDescriptor;
+		if(!end_wrapper->is<EndpointDescriptor>())
+			return kHelErrBadDescriptor;
+		endpoint = frigg::SharedPtr<Endpoint>(end_wrapper->get<EndpointDescriptor>().getEndpoint());
+		
+		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+		if(!hub_wrapper)
+			return kHelErrNoDescriptor;
+		if(!hub_wrapper->is<EventHubDescriptor>())
+			return kHelErrBadDescriptor;
+		event_hub = frigg::SharedPtr<EventHub>(hub_wrapper->get<EventHubDescriptor>().getEventHub());
+	}
 	
 	size_t write_index = endpoint->getWriteIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
@@ -911,24 +935,33 @@ HelError helSendString(HelHandle handle,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), user_buffer, length);
 	
+	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
+			allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			kMsgString, msg_request, msg_sequence);
+			frigg::move(data), kMsgString, msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->kernelBuffer = frigg::move(kernel_buffer);
 	
-	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.sendString(channel_guard, frigg::move(send));
-	channel_guard.unlock();
+	Error error;
+	{
+		Channel::Guard channel_guard(&channel.lock);
+		error = channel.sendString(channel_guard, frigg::move(send));
+	}
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
+	infoLogger->log() << "submitSendString()" << frigg::EndLog();
 	return kHelErrNone;
 }
 
-HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags) {
+HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
+		HelHandle send_handle, int64_t msg_request, int64_t msg_sequence,
+		uintptr_t submit_function, uintptr_t submit_object,
+		uint32_t flags, int64_t *async_id) {
 	if(flags & ~(kHelRequest | kHelResponse))
 		return kHelErrIllegalArgs;
 	
@@ -939,20 +972,32 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
-
-	Universe::Guard universe_guard(&universe->lock);
-	auto wrapper = universe->getDescriptor(universe_guard, handle);
-	if(!wrapper)
-		return kHelErrNoDescriptor;
-	if(!wrapper->is<EndpointDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &descriptor = wrapper->get<EndpointDescriptor>();
-	KernelSharedPtr<Endpoint> endpoint(descriptor.getEndpoint());
 	
-	auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
-	if(!send_wrapper)
-		return kHelErrNoDescriptor;
-	universe_guard.unlock();
+	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<EventHub> event_hub;
+	AnyDescriptor send_descriptor;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!end_wrapper)
+			return kHelErrNoDescriptor;
+		if(!end_wrapper->is<EndpointDescriptor>())
+			return kHelErrBadDescriptor;
+		endpoint = frigg::SharedPtr<Endpoint>(end_wrapper->get<EndpointDescriptor>().getEndpoint());
+		
+		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+		if(!hub_wrapper)
+			return kHelErrNoDescriptor;
+		if(!hub_wrapper->is<EventHubDescriptor>())
+			return kHelErrBadDescriptor;
+		event_hub = frigg::SharedPtr<EventHub>(hub_wrapper->get<EventHubDescriptor>().getEventHub());
+		
+		auto send_wrapper = universe->getDescriptor(universe_guard, send_handle);
+		if(!send_wrapper)
+			return kHelErrNoDescriptor;
+		send_descriptor = AnyDescriptor(*send_wrapper);
+	}
 	
 	size_t write_index = endpoint->getWriteIndex();
 	Channel &channel = endpoint->getPipe()->getChannel(write_index);
@@ -963,19 +1008,26 @@ HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
 	if(flags & kHelResponse)
 		send_flags |= Channel::kFlagResponse;
 	
+	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
+			allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			kMsgDescriptor, msg_request, msg_sequence);
+			frigg::move(data), kMsgDescriptor, msg_request, msg_sequence);
 	send->flags = send_flags;
-	send->descriptor = AnyDescriptor(*send_wrapper);
+	send->descriptor = frigg::move(send_descriptor);
 
-	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.sendDescriptor(channel_guard, frigg::move(send));
-	channel_guard.unlock();
+	Error error;
+	{
+		Channel::Guard channel_guard(&channel.lock);
+		error = channel.sendDescriptor(channel_guard, frigg::move(send));
+	}
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
+	infoLogger->log() << "submitSendDescriptor()" << frigg::EndLog();
 	return kHelErrNone;
 }
 

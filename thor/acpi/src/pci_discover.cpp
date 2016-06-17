@@ -218,7 +218,10 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
-		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 123, 0);
+		HelError send_error;
+		mbusPipe.sendStringSync(serialized.data(), serialized.size(),
+				eventHub, 123, 0, kHelRequest, send_error);
+		HEL_CHECK(send_error);
 
 		uint8_t buffer[128];
 		HelError error;
