@@ -5,40 +5,34 @@ namespace thor {
 // Memory related descriptors
 // --------------------------------------------------------
 
-class MemoryAccessDescriptor {
-public:
-	MemoryAccessDescriptor(KernelSharedPtr<Memory> &&memory);
+struct MemoryAccessDescriptor {
+	MemoryAccessDescriptor(KernelSharedPtr<Memory> memory)
+	: memory(frigg::move(memory)) { }
 
-	KernelUnsafePtr<Memory> getMemory();
-
-private:
-	KernelSharedPtr<Memory> p_memory;
+	KernelSharedPtr<Memory> memory;
 };
 
-class AddressSpaceDescriptor {
-public:
-	AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> &&space);
+struct AddressSpaceDescriptor {
+	AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> space)
+	: space(frigg::move(space)) { }
 
-	KernelUnsafePtr<AddressSpace> getSpace();
-
-private:
-	KernelSharedPtr<AddressSpace> p_space;
+	KernelSharedPtr<AddressSpace> space;
 };
 
 // --------------------------------------------------------
 // Threading related descriptors
 // --------------------------------------------------------
 
-class ThreadDescriptor {
-public:
-	ThreadDescriptor(KernelSharedPtr<Thread> &&thread);
+struct ThreadDescriptor {
+	ThreadDescriptor(KernelSharedPtr<Thread> thread)
+	: thread(frigg::move(thread)) { }
 	
 	KernelSharedPtr<Thread> thread;
 };
 
-class SignalDescriptor {
-public:
-	SignalDescriptor(KernelSharedPtr<Signal> signal);
+struct SignalDescriptor {
+	SignalDescriptor(KernelSharedPtr<Signal> signal)
+	: signal(frigg::move(signal)) { }
 	
 	KernelSharedPtr<Signal> signal;
 };
@@ -47,63 +41,50 @@ public:
 // Event related descriptors
 // --------------------------------------------------------
 
-class EventHubDescriptor {
-public:
-	EventHubDescriptor(KernelSharedPtr<EventHub> &&event_hub);
+struct EventHubDescriptor {
+	EventHubDescriptor(KernelSharedPtr<EventHub> event_hub)
+	: eventHub(frigg::move(event_hub)) { }
 
-	KernelUnsafePtr<EventHub> getEventHub();
-
-private:
-	KernelSharedPtr<EventHub> p_eventHub;
+	KernelSharedPtr<EventHub> eventHub;
 };
 
 // --------------------------------------------------------
 // IPC related descriptors
 // --------------------------------------------------------
 
-class RingDescriptor {
-public:
-	RingDescriptor(KernelSharedPtr<RingBuffer> ring_buffer);
+struct RingDescriptor {
+	RingDescriptor(KernelSharedPtr<RingBuffer> ring_buffer)
+	: ringBuffer(frigg::move(ring_buffer)) { }
 	
 	KernelSharedPtr<RingBuffer> ringBuffer;
 };
 
-class EndpointDescriptor {
-public:
-	EndpointDescriptor(KernelSharedPtr<Endpoint> &&endpoint);
+struct EndpointDescriptor {
+	EndpointDescriptor(KernelSharedPtr<Endpoint> endpoint)
+	: endpoint(frigg::move(endpoint)) { }
 	
-	KernelUnsafePtr<Endpoint> getEndpoint();
-
-private:
-	KernelSharedPtr<Endpoint> p_endpoint;
+	KernelSharedPtr<Endpoint> endpoint;
 };
 
-class ServerDescriptor {
-public:
-	ServerDescriptor(KernelSharedPtr<Server> &&server);
+struct ServerDescriptor {
+	ServerDescriptor(KernelSharedPtr<Server> server)
+	: server(frigg::move(server)) { }
 	
-	KernelUnsafePtr<Server> getServer();
-
-private:
-	KernelSharedPtr<Server> p_server;
+	KernelSharedPtr<Server> server;
 };
 
-class ClientDescriptor {
-public:
-	ClientDescriptor(KernelSharedPtr<Server> &&server);
+struct ClientDescriptor {
+	ClientDescriptor(KernelSharedPtr<Server> server)
+	: server(frigg::move(server)) { }
 	
-	KernelUnsafePtr<Server> getServer();
-
-private:
-	KernelSharedPtr<Server> p_server;
+	KernelSharedPtr<Server> server;
 };
 
 // --------------------------------------------------------
 // Resource directory related descriptors
 // --------------------------------------------------------
 
-class RdDescriptor {
-public:
+struct RdDescriptor {
 	RdDescriptor(KernelSharedPtr<RdFolder> &&folder);
 	
 	KernelUnsafePtr<RdFolder> getFolder();
@@ -116,42 +97,38 @@ private:
 // IO related descriptors
 // --------------------------------------------------------
 
-class IrqDescriptor {
-public:
-	IrqDescriptor(KernelSharedPtr<IrqLine> &&irq_line);
+struct IrqDescriptor {
+	IrqDescriptor(KernelSharedPtr<IrqLine> irq_line)
+	: irqLine(frigg::move(irq_line)) { }
 	
-	KernelUnsafePtr<IrqLine> getIrqLine();
-
-private:
-	KernelSharedPtr<IrqLine> p_irqLine;
+	KernelSharedPtr<IrqLine> irqLine;
 };
 
-class IoDescriptor {
-public:
-	IoDescriptor(KernelSharedPtr<IoSpace> &&io_space);
+struct IoDescriptor {
+	IoDescriptor(KernelSharedPtr<IoSpace> io_space)
+	: ioSpace(frigg::move(io_space)) { }
 	
-	KernelUnsafePtr<IoSpace> getIoSpace();
-
-private:
-	KernelSharedPtr<IoSpace> p_ioSpace;
+	KernelSharedPtr<IoSpace> ioSpace;
 };
 
 // --------------------------------------------------------
 // AnyDescriptor
 // --------------------------------------------------------
 
-typedef frigg::Variant<MemoryAccessDescriptor,
-		AddressSpaceDescriptor,
-		ThreadDescriptor,
-		SignalDescriptor,
-		EventHubDescriptor,
-		RingDescriptor,
-		EndpointDescriptor,
-		ServerDescriptor,
-		ClientDescriptor,
-		RdDescriptor,
-		IrqDescriptor,
-		IoDescriptor> AnyDescriptor;
+typedef frigg::Variant<
+	MemoryAccessDescriptor,
+	AddressSpaceDescriptor,
+	ThreadDescriptor,
+	SignalDescriptor,
+	EventHubDescriptor,
+	RingDescriptor,
+	EndpointDescriptor,
+	ServerDescriptor,
+	ClientDescriptor,
+	RdDescriptor,
+	IrqDescriptor,
+	IoDescriptor
+> AnyDescriptor;
 
 } // namespace thor
 
