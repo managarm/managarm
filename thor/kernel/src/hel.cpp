@@ -789,31 +789,34 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
 			
-			assert(!"Move descriptor assignment to IPC subsystem");
-			//universe_guard.lock();
-			//user_evt->handle = universe->attachDescriptor(universe_guard,
-			//		AnyDescriptor(frigg::move(event.descriptor)));
-			//universe_guard.unlock();
+			{
+				Universe::Guard universe_guard(&universe->lock);
+
+				user_evt->handle = universe->attachDescriptor(universe_guard,
+						AnyDescriptor(frigg::move(event.descriptor)));
+			}
 		} break;
 		case UserEvent::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
 			user_evt->error = kHelErrNone;
 
-			assert(!"Move descriptor assignment to IPC subsystem");
-			//universe_guard.lock();
-			//user_evt->handle = universe->attachDescriptor(universe_guard,
-			//		EndpointDescriptor(frigg::move(event.endpoint)));
-			//universe_guard.unlock();
+			{
+				Universe::Guard universe_guard(&universe->lock);
+
+				user_evt->handle = universe->attachDescriptor(universe_guard,
+						EndpointDescriptor(frigg::move(event.endpoint)));
+			}
 		} break;
 		case UserEvent::kTypeConnect: {
 			user_evt->type = kHelEventConnect;
 			user_evt->error = kHelErrNone;
 
-			assert(!"Move descriptor assignment to IPC subsystem");
-			//universe_guard.lock();
-			//user_evt->handle = universe->attachDescriptor(universe_guard,
-			//		EndpointDescriptor(frigg::move(event.endpoint)));
-			//universe_guard.unlock();
+			{
+				Universe::Guard universe_guard(&universe->lock);
+
+				user_evt->handle = universe->attachDescriptor(universe_guard,
+						EndpointDescriptor(frigg::move(event.endpoint)));
+			}
 		} break;
 		case UserEvent::kTypeIrq: {
 			user_evt->type = kHelEventIrq;
