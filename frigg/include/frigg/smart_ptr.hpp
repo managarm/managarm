@@ -99,6 +99,7 @@ class SharedPtr {
 	template<typename U>
 	friend class SharedPtr;
 
+	friend class WeakPtr<T>;
 	friend class UnsafePtr<T>;
 
 public:
@@ -133,7 +134,7 @@ public:
 	}
 	
 	template<typename U>
-	explicit SharedPtr(SharedPtr<U> pointer, T *alias)
+	SharedPtr(SharedPtr<U> pointer, T *alias)
 	: _control(pointer._control), _object(alias) {
 		// manually empty the argument pointer so that
 		// its destructor does not decrement the reference count
@@ -141,10 +142,6 @@ public:
 		pointer._object = nullptr;
 	}
 
-	explicit SharedPtr(const WeakPtr<T> &weak);
-	
-	explicit SharedPtr(const UnsafePtr<T> &unsafe);
-	
 	~SharedPtr() {
 		if(_control) {
 			int previous_ref_count;
@@ -184,6 +181,9 @@ public:
 	}
 
 private:
+	SharedPtr(_shared_ptr::Control *control, T *object)
+	: _control(move(control)), _object(move(object)) { }
+
 	_shared_ptr::Control *_control;
 	T *_object;
 };
@@ -196,7 +196,6 @@ SharedPtr<T> staticPtrCast(SharedPtr<U> pointer) {
 
 template<typename T>
 class WeakPtr {
-	friend class SharedPtr<T>;
 	friend class UnsafePtr<T>;
 public:
 	friend void swap(WeakPtr &a, WeakPtr &b) {
@@ -207,14 +206,13 @@ public:
 	WeakPtr()
 	: _control(nullptr), _object(nullptr) { }
 	
-	~WeakPtr() {
-		if(_control) {
-			int previous_weak_count;
-			fetchDec(&_control->weakCount, previous_weak_count);
-			assert(previous_weak_count > 0);
-			if(previous_weak_count == 1)
-				_control->freeMe(_control);
-		}
+	WeakPtr(const SharedPtr<T> &shared)
+	: _control(shared._control), _object(shared._object) {
+		assert(_control);
+
+		int previous_weak_count;
+		fetchInc<int>(&_control->weakCount, previous_weak_count);
+		assert(previous_weak_count > 0);
 	}
 
 	WeakPtr(const WeakPtr &other)
@@ -231,7 +229,26 @@ public:
 		swap(*this, other);
 	}
 	
-	explicit WeakPtr(const UnsafePtr<T> &unsafe);
+	~WeakPtr() {
+		if(_control) {
+			int previous_weak_count;
+			fetchDec(&_control->weakCount, previous_weak_count);
+			assert(previous_weak_count > 0);
+			if(previous_weak_count == 1)
+				_control->freeMe(_control);
+		}
+	}
+	
+	SharedPtr<T> grab() {
+		assert(_control);
+		
+		int last_count = volatileRead<int>(&_control->refCount);
+		while(last_count) {
+			if(compareSwap(&_control->refCount, last_count, last_count + 1, last_count))
+				return SharedPtr<T>(_control, _object);
+		}
+		return SharedPtr<T>();
+	}
 
 	WeakPtr &operator= (WeakPtr other) {
 		swap(*this, other);
@@ -243,14 +260,15 @@ public:
 	}
 
 private:
+	WeakPtr(_shared_ptr::Control *control, T *object)
+	: _control(move(control)), _object(move(object)) { }
+
 	_shared_ptr::Control *_control;
 	T *_object;
 };
 
 template<typename T>
 class UnsafePtr {
-	friend class WeakPtr<T>;
-	friend class SharedPtr<T>;
 public:
 	UnsafePtr()
 	: _control(nullptr), _object(nullptr) { }
@@ -262,8 +280,28 @@ public:
 	: _control(weak._control), _object(weak._object) { }
 
 	template<typename U>
-	explicit UnsafePtr(UnsafePtr<U> pointer, T *object)
+	UnsafePtr(UnsafePtr<U> pointer, T *object)
 	: _control(pointer._control), _object(object) { }
+
+	SharedPtr<T> toShared() {
+		assert(_control);
+		
+		int previous_ref_count;
+		fetchInc<int>(&_control->refCount, previous_ref_count);
+		assert(previous_ref_count > 0);
+
+		return SharedPtr<T>(_control, _object);
+	}
+
+	WeakPtr<T> toWeak() {
+		assert(_control);
+
+		int previous_weak_count;
+		fetchInc<int>(&_control->weakCount, previous_weak_count);
+		assert(previous_weak_count > 0);
+
+		return WeakPtr<T>(_control, _object);
+	}
 
 	explicit operator bool () {
 		return _control;
@@ -291,46 +329,6 @@ template<typename T, typename U>
 UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
 	auto object = static_cast<T *>(pointer.get());
 	return UnsafePtr<T>(pointer, object);
-}
-
-template<typename T>
-SharedPtr<T>::SharedPtr(const WeakPtr<T> &weak)
-: _control(weak._control), _object(weak._object) {
-	assert(_control);
-	
-	int last_count = volatileRead<int>(&_control->refCount);
-	while(true) {
-		if(last_count == 0) {
-			_control = nullptr;
-			_object = nullptr;
-			break;
-		}
-
-		int found_count;
-		if(compareSwap(&_control->refCount, last_count, last_count + 1, found_count))
-			break;
-		last_count = found_count;
-	}
-}
-
-template<typename T>
-SharedPtr<T>::SharedPtr(const UnsafePtr<T> &unsafe)
-: _control(unsafe._control), _object(unsafe._object) {
-	assert(_control);
-	
-	int previous_ref_count;
-	fetchInc<int>(&_control->refCount, previous_ref_count);
-	assert(previous_ref_count > 0);
-}
-
-template<typename T>
-WeakPtr<T>::WeakPtr(const UnsafePtr<T> &unsafe)
-: _control(unsafe._control), _object(unsafe._object) {
-	assert(_control);
-
-	int previous_weak_count;
-	fetchInc<int>(&_control->weakCount, previous_weak_count);
-	assert(previous_weak_count > 0);
 }
 
 template<typename T, typename Allocator, typename... Args>

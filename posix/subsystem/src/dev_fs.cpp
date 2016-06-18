@@ -16,7 +16,7 @@ void CharDeviceNode::openSelf(StdUnsafePtr<Process> process,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	StdUnsafePtr<Device> device = process->mountSpace->charDevices.getDevice(major, minor);
 	assert(device);
-	auto open_file = frigg::makeShared<OpenFile>(*allocator, StdSharedPtr<Device>(device));
+	auto open_file = frigg::makeShared<OpenFile>(*allocator, device.toShared());
 	callback(frigg::staticPtrCast<VfsOpenFile>(frigg::move(open_file)));
 }
 

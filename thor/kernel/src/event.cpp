@@ -22,7 +22,7 @@ void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
 	p_queue.addBack(frigg::move(event));
 
 	while(!p_waitingThreads.empty()) {
-		KernelSharedPtr<Thread> waiting(p_waitingThreads.removeFront());
+		KernelSharedPtr<Thread> waiting = p_waitingThreads.removeFront().grab();
 
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		enqueueInSchedule(schedule_guard, waiting);
@@ -49,7 +49,7 @@ void EventHub::blockCurrentThread(Guard &guard) {
 	void *restore_state = __builtin_alloca(getStateSize());
 	if(forkState(restore_state)) {
 		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-		p_waitingThreads.addBack(KernelWeakPtr<Thread>(this_thread));
+		p_waitingThreads.addBack(this_thread.toWeak());
 		
 		// keep the lock on this hub unlocked while we sleep
 		guard.unlock();

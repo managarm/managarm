@@ -34,7 +34,7 @@ void IrqRelay::fire(Guard &guard) {
 	p_sequence++;
 
 	for(size_t i = 0; i < p_lines.size(); i++) {
-		frigg::SharedPtr<IrqLine> line(p_lines[i]);
+		frigg::SharedPtr<IrqLine> line = p_lines[i].grab();
 		if(!line)
 			continue; // TODO: remove the irq line
 

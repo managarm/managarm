@@ -21,7 +21,7 @@ Error Channel::sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send) 
 		if(!matchRequest(send, *it))
 			continue;
 		
-		if(processStringRequest(send, frigg::SharedPtr<AsyncRecvString>(*it))) {
+		if(processStringRequest(send, (*it).toShared())) {
 			_recvQueue.remove(it);
 			// don't queue the message if a request succeeds
 			queue_message = false;
@@ -44,7 +44,7 @@ Error Channel::sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendString> se
 		if(!matchRequest(send, *it))
 			continue;
 		
-		processDescriptorRequest(send, frigg::SharedPtr<AsyncRecvString>(*it));
+		processDescriptorRequest(send, (*it).toShared());
 		_recvQueue.remove(it);
 		return kErrSuccess;
 	}
@@ -64,7 +64,7 @@ Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> 
 		if(!matchRequest(*it, recv))
 			continue;
 		
-		if(processStringRequest(frigg::SharedPtr<AsyncSendString>(*it), recv))
+		if(processStringRequest((*it).toShared(), recv))
 			_sendQueue.remove(it);
 		// NOTE: we never queue failed requests
 		queue_request = false;
@@ -87,7 +87,7 @@ Error Channel::submitRecvStringToRing(Guard &guard, frigg::SharedPtr<AsyncRecvSt
 		if(!matchRequest(*it, recv))
 			continue;
 		
-		if(processStringRequest(frigg::SharedPtr<AsyncSendString>(*it), recv))
+		if(processStringRequest((*it).toShared(), recv))
 			_sendQueue.remove(it);
 		// NOTE: we never queue failed requests
 		queue_request = false;
@@ -109,7 +109,7 @@ Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvStri
 		if(!matchRequest(*it, recv))
 			continue;
 		
-		processDescriptorRequest(frigg::SharedPtr<AsyncSendString>(*it), recv);
+		processDescriptorRequest((*it).toShared(), recv);
 		_sendQueue.remove(it);
 		return kErrSuccess;
 	}
@@ -171,7 +171,7 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			{ // post the send event
 				UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
 			
-				frigg::SharedPtr<EventHub> event_hub(send->eventHub);
+				frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
 				assert(event_hub);
 				EventHub::Guard hub_guard(&event_hub->lock);
 				event_hub->raiseEvent(hub_guard, frigg::move(event));
@@ -213,7 +213,7 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
 	{ // post the send event
 		UserEvent event(UserEvent::kTypeSendDescriptor, send->submitInfo);
 
-		frigg::SharedPtr<EventHub> event_hub(send->eventHub);
+		frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->raiseEvent(hub_guard, frigg::move(event));

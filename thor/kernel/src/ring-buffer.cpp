@@ -28,9 +28,9 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 
 		__atomic_add_fetch(&front.spaceLock->refCount, 1, __ATOMIC_RELEASE);
 
-		frigg::SharedPtr<AddressSpace> space(front.spaceLock.space());
+		frigg::UnsafePtr<AddressSpace> space = front.spaceLock.space();
 		auto address = (char *)front.spaceLock.foreignAddress() + sizeof(HelRingBuffer) + offset;
-		auto data_lock = ForeignSpaceLock::acquire(frigg::move(space), address,
+		auto data_lock = ForeignSpaceLock::acquire(space.toShared(), address,
 				send->kernelBuffer.size());
 		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 

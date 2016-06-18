@@ -123,7 +123,7 @@ void timerInterrupt() {
 	while(!timerQueue->empty() && timerQueue->front().deadline < current) {
 		Timer timer = timerQueue->dequeue();
 
-		KernelSharedPtr<Thread> thread(timer.thread);
+		KernelSharedPtr<Thread> thread = timer.thread.grab();
 		if(thread) {
 			ScheduleGuard schedule_guard(scheduleLock.get());
 			enqueueInSchedule(schedule_guard, thread);
