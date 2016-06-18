@@ -34,17 +34,27 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 				send->kernelBuffer.size());
 		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 
-		// post the receive event
-		UserEvent event(UserEvent::kTypeRecvStringTransferToQueue, recv->submitInfo);
-		event.length = send->kernelBuffer.size();
-		event.offset = offset;
-		event.msgRequest = send->msgRequest;
-		event.msgSequence = send->msgSequence;
-	
-		frigg::SharedPtr<EventHub> recv_hub(recv->eventHub);
-		EventHub::Guard recv_guard(&recv_hub->lock);
-		recv_hub->raiseEvent(recv_guard, frigg::move(event));
-		recv_guard.unlock();
+		{ // post the send event
+			UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
+		
+			frigg::SharedPtr<EventHub> recv_hub(send->eventHub);
+			EventHub::Guard hub_guard(&recv_hub->lock);
+			recv_hub->raiseEvent(hub_guard, frigg::move(event));
+			hub_guard.unlock();
+		}
+
+		{ // post the receive event
+			UserEvent event(UserEvent::kTypeRecvStringTransferToQueue, recv->submitInfo);
+			event.length = send->kernelBuffer.size();
+			event.offset = offset;
+			event.msgRequest = send->msgRequest;
+			event.msgSequence = send->msgSequence;
+		
+			frigg::SharedPtr<EventHub> recv_hub(recv->eventHub);
+			EventHub::Guard hub_guard(&recv_hub->lock);
+			recv_hub->raiseEvent(hub_guard, frigg::move(event));
+			hub_guard.unlock();
+		}
 	}else{
 		assert(!"TODO: Return the buffer to user-space");
 	}

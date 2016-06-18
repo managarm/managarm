@@ -168,7 +168,6 @@ void RequestClosure::operator() () {
 void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
 	if(error == kHelErrPipeClosed) {
-		infoLogger->log() << "wtf" << frigg::EndLog();
 		suicide(*allocator);
 		return;
 	}
@@ -179,6 +178,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 	
 	switch(recvd_request.req_type()) {
 	case managarm::mbus::CntReqType::REGISTER: {
+		
 		auto action = frigg::compose([=] (auto request, auto serialized) {
 			return frigg::apply([=] () {
 				auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
@@ -209,6 +209,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		*/
 	} break;
 	case managarm::mbus::CntReqType::ENUMERATE: {
+		frigg::SharedPtr<Object> found;
 		for(auto it = allObjects.iterator(); it; ++it) {
 			frigg::UnsafePtr<Object> object = it->get<1>();
 			
@@ -217,39 +218,70 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 				if(!object->hasCapability(recvd_request.caps(i).name()))
 					matching = false;
 			}
-			if(!matching)
-				continue;
-
-			managarm::mbus::SvrResponse<Allocator> response(*allocator);
-			response.set_object_id(object->objectId);
-
-			frigg::String<Allocator> serialized(*allocator);
-			response.SerializeToString(&serialized);
-			connection->pipe.sendStringResp(serialized.data(), serialized.size(),
-					msg_request, 0);
-
-			(*this)(); //FIXME
-			return;
+			if(matching) {
+				found = frigg::SharedPtr<Object>(object);
+				break;
+			}
 		}
+		assert(found);
 
-		assert(!"No matching object");
+		auto action = frigg::compose([=]  (auto serialized) {
+			return frigg::apply([=] () {
+				managarm::mbus::SvrResponse<Allocator> response(*allocator);
+				response.set_object_id(found->objectId);
+				response.SerializeToString(serialized);
+			})
+			+ frigg::await<void(HelError)>([=] (auto callback) {
+				connection->pipe.sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0, callback);
+			})
+			+ frigg::apply([=] (HelError error) {
+				HEL_CHECK(error);
+			});
+		}, frigg::String<Allocator>(*allocator));
+
+		frigg::run(frigg::move(action), allocator.get());
 	} break;
 	case managarm::mbus::CntReqType::QUERY_IF: {
 		frigg::SharedPtr<Object> *object = allObjects.get(recvd_request.object_id());
 		assert(object);
 
-		managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
-		require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
-		require_request.set_object_id(recvd_request.object_id());
+		auto action = frigg::compose([=] (auto request, auto serialized) {
+			int64_t require_request_id = (*object)->connection->nextRequestId++;
+			
+			return frigg::apply([=] () {
+				managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
+				require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
+				require_request.set_object_id(request->object_id());
+				require_request.SerializeToString(serialized);
+			})
+			+ frigg::await<void(HelError)>([=] (auto callback) {
+				(*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
+						eventHub, require_request_id, 0, callback);
+			})
+			+ frigg::apply([=] (HelError error) {
+				HEL_CHECK(error);
+			})
+			+ frigg::await<void(HelError, int64_t, int64_t, HelHandle)>([=] (auto callback) {
+				(*object)->connection->pipe.recvDescriptorResp(eventHub, require_request_id, 1,
+						callback);
+			})
+			+ frigg::compose([=] (HelError error, int64_t msg_request,
+					int64_t msg_seq, HelHandle handle) {
+				HEL_CHECK(error);
+				
+				return frigg::await<void(HelError)>([=] (auto callback) {
+					connection->pipe.sendDescriptorResp(handle, eventHub, msg_request, 1, callback);
+				})
+				+ frigg::apply([=] (HelError error) {
+					HEL_CHECK(error);
 
-		int64_t require_request_id = (*object)->connection->nextRequestId++;
-		frigg::String<Allocator> serialized(*allocator);
-		require_request.SerializeToString(&serialized);
-		(*object)->connection->pipe.sendStringReq(serialized.data(), serialized.size(),
-				require_request_id, 0);
-	
-		frigg::runClosure<QueryIfClosure>(*allocator, connection,
-				*object, msg_request, require_request_id);
+					HEL_CHECK(helCloseDescriptor(handle));
+				});
+			});
+		}, frigg::move(recvd_request), frigg::String<Allocator>(*allocator));
+
+		frigg::run(frigg::move(action), allocator.get());
 	} break;
 	default:
 		assert(!"Illegal request type");

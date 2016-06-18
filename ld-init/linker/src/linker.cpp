@@ -339,13 +339,17 @@ frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
 	
 	frigg::String<Allocator> open_serialized(*allocator);
 	open_request.SerializeToString(&open_serialized);
-	posixPipe->sendStringReq(open_serialized.data(), open_serialized.size(), 0, 0);
+	
+	HelError send_open_error;
+	posixPipe->sendStringReqSync(open_serialized.data(), open_serialized.size(),
+			*eventHub, 0, 0, send_open_error);
+	HEL_CHECK(send_open_error);
 
 	uint8_t open_buffer[128];
-	HelError open_error;
+	HelError recv_open_error;
 	size_t open_length;
-	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, open_error, open_length);
-	HEL_CHECK(open_error);
+	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, recv_open_error, open_length);
+	HEL_CHECK(recv_open_error);
 	
 	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
 	open_response.ParseFromArray(open_buffer, open_length);
@@ -364,13 +368,17 @@ void posixSeek(int fd, int64_t offset) {
 	
 	frigg::String<Allocator> seek_serialized(*allocator);
 	seek_request.SerializeToString(&seek_serialized);
-	posixPipe->sendStringReq(seek_serialized.data(), seek_serialized.size(), 0, 0);
+
+	HelError send_seek_error;
+	posixPipe->sendStringReqSync(seek_serialized.data(), seek_serialized.size(),
+			*eventHub, 0, 0, send_seek_error);
+	HEL_CHECK(send_seek_error);
 
 	uint8_t seek_buffer[128];
-	HelError seek_error;
+	HelError recv_seek_error;
 	size_t seek_length;
-	posixPipe->recvStringRespSync(seek_buffer, 128, *eventHub, 0, 0, seek_error, seek_length);
-	HEL_CHECK(seek_error);
+	posixPipe->recvStringRespSync(seek_buffer, 128, *eventHub, 0, 0, recv_seek_error, seek_length);
+	HEL_CHECK(recv_seek_error);
 	
 	managarm::posix::ServerResponse<Allocator> seek_response(*allocator);
 	seek_response.ParseFromArray(seek_buffer, seek_length);
@@ -389,14 +397,18 @@ void posixRead(int fd, void *buffer, size_t length) {
 
 		frigg::String<Allocator> read_serialized(*allocator);
 		read_request.SerializeToString(&read_serialized);
-		posixPipe->sendStringReq(read_serialized.data(), read_serialized.size(), 0, 0);
+
+		HelError send_read_error;
+		posixPipe->sendStringReqSync(read_serialized.data(), read_serialized.size(),
+				*eventHub, 0, 0, send_read_error);
+		HEL_CHECK(send_read_error);
 
 		uint8_t read_buffer[128];
-		HelError read_error;
+		HelError recv_read_error;
 		size_t read_length;
 		posixPipe->recvStringRespSync(read_buffer, 128,
-				*eventHub, 0, 0, read_error, read_length);
-		HEL_CHECK(read_error);
+				*eventHub, 0, 0, recv_read_error, read_length);
+		HEL_CHECK(recv_read_error);
 		
 		managarm::posix::ServerResponse<Allocator> read_response(*allocator);
 		read_response.ParseFromArray(read_buffer, read_length);
@@ -419,13 +431,17 @@ HelHandle posixMmap(int fd) {
 	
 	frigg::String<Allocator> mmap_serialized(*allocator);
 	mmap_request.SerializeToString(&mmap_serialized);
-	posixPipe->sendStringReq(mmap_serialized.data(), mmap_serialized.size(), 0, 0);
+
+	HelError send_mmap_error;
+	posixPipe->sendStringReqSync(mmap_serialized.data(), mmap_serialized.size(),
+			*eventHub, 0, 0, send_mmap_error);
+	HEL_CHECK(send_mmap_error);
 
 	uint8_t mmap_buffer[128];
-	HelError mmap_error;
+	HelError recv_mmap_error;
 	size_t mmap_length;
-	posixPipe->recvStringRespSync(mmap_buffer, 128, *eventHub, 0, 0, mmap_error, mmap_length);
-	HEL_CHECK(mmap_error);
+	posixPipe->recvStringRespSync(mmap_buffer, 128, *eventHub, 0, 0, recv_mmap_error, mmap_length);
+	HEL_CHECK(recv_mmap_error);
 	
 	managarm::posix::ServerResponse<Allocator> mmap_response(*allocator);
 	mmap_response.ParseFromArray(mmap_buffer, mmap_length);

@@ -215,13 +215,17 @@ void posixDoRequest(managarm::posix::ClientRequest<Allocator> &request,
 
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
-	posixPipe.sendStringReq(serialized.data(), serialized.size(), request_id, 0);
 	
+	HelError send_error; 
+	posixPipe.sendStringReqSync(serialized.data(), serialized.size(),
+			eventHub, request_id, 0, send_error);
+	HEL_CHECK(send_error);
+
 	uint8_t buffer[128];
-	HelError error;
+	HelError recv_error;
 	size_t length;
-	posixPipe.recvStringRespSync(buffer, 128, eventHub, request_id, 0, error, length);
-	HEL_CHECK(error);
+	posixPipe.recvStringRespSync(buffer, 128, eventHub, request_id, 0, recv_error, length);
+	HEL_CHECK(recv_error);
 	response.ParseFromArray(buffer, length);
 }
 

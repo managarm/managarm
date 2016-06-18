@@ -320,12 +320,23 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-
+/*
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
 	HEL_CHECK(helCloseDescriptor(parent_handle));
+*/
+	const char *parent_path = "local/parent";
+	HelHandle parent_handle;
+	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
+	
+	helx::Pipe parent_pipe(parent_handle);
+	HelError send_error;
+	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub,
+			0, 0, kHelRequest, send_error);	
+	HEL_CHECK(send_error);
+	parent_pipe.reset();
 	client.reset();
 
 	while(true)

@@ -343,7 +343,12 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 	if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
 		helx::Pipe local, remote;
 		helx::Pipe::createFullPipe(local, remote);
-		mbusPipe.sendDescriptorResp(remote.getHandle(), msg_request, 1);
+		
+		//FIXME: this should not be sync
+		HelError send_error;
+		mbusPipe.sendDescriptorRespSync(remote.getHandle(), eventHub,
+				msg_request, 1, send_error);
+		HEL_CHECK(send_error);
 		remote.reset();
 
 		auto connection = frigg::construct<Connection>(*allocator, frigg::move(local));
@@ -388,11 +393,13 @@ int main() {
 	managarm::mbus::Capability<Allocator> cap(*allocator);
 	cap.set_name(frigg::String<Allocator>(*allocator, "initrd"));
 	request.add_caps(frigg::move(cap));
-	
+
+	HelError register_error;
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
-	mbusPipe.sendStringReq(serialized.data(), serialized.size(), 123, 0);
-
+	mbusPipe.sendStringReqSync(serialized.data(), serialized.size(),
+			eventHub, 123, 0, register_error);
+	
 	uint8_t buffer[128];
 	HelError error;
 	size_t length;
@@ -409,8 +416,9 @@ int main() {
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 
+	HelError ready_error;
 	helx::Pipe parent_pipe(parent_handle);
-	parent_pipe.sendStringReq(nullptr, 0, 0, 0);
+	parent_pipe.sendStringReqSync(nullptr, 0, eventHub, 0, 0, ready_error);
 
 	while(true)
 		eventHub.defaultProcessEvents();

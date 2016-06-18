@@ -51,13 +51,6 @@ MountSpace *initMountSpace;
 HelHandle ringBuffer;
 HelRingBuffer *ringItem;
 
-void sendResponse(helx::Pipe &pipe, managarm::posix::ServerResponse<Allocator> &response,
-		int64_t msg_request) {
-	frigg::String<Allocator> serialized(*allocator);
-	response.SerializeToString(&serialized);
-	pipe.sendStringResp(serialized.data(), serialized.size(), msg_request, 0);
-}
-
 // --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
@@ -83,92 +76,129 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		int64_t msg_request) {
 	// check the iteration number to prevent this process from being hijacked
 	if(process && iteration != process->iteration) {
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::DEAD_FORK);
-		sendResponse(*pipe, response, msg_request);
+		auto action = frigg::compose([=] (auto serialized) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::DEAD_FORK);
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 		return;
 	}
 
 	if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
 		assert(!process);
 
-		process = Process::init();
-		initMountSpace = process->mountSpace;
+		auto action = frigg::compose([=] (auto serialized) {
+			process = Process::init();
+			initMountSpace = process->mountSpace;
 
-		auto device = frigg::makeShared<KernelOutDevice>(*allocator);
+			auto device = frigg::makeShared<KernelOutDevice>(*allocator);
 
-		unsigned int major, minor;
-		DeviceAllocator &char_devices = process->mountSpace->charDevices;
-		char_devices.allocateDevice("misc",
-				frigg::staticPtrCast<Device>(frigg::move(device)), major, minor);
-	
-		auto initrd_fs = frigg::construct<extern_fs::MountPoint>(*allocator,
-				frigg::move(initrdPipe));
-		auto initrd_path = frigg::String<Allocator>(*allocator, "/initrd");
-		initMountSpace->allMounts.insert(initrd_path, initrd_fs);
-
-		auto dev_fs = frigg::construct<dev_fs::MountPoint>(*allocator);
-		auto inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
-		dev_fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
-				frigg::staticPtrCast<dev_fs::Inode>(frigg::move(inode)));
-		auto dev_root = frigg::String<Allocator>(*allocator, "/dev");
-		process->mountSpace->allMounts.insert(dev_root, dev_fs);
-
-		auto pts_fs = frigg::construct<pts_fs::MountPoint>(*allocator);
-		auto pts_root = frigg::String<Allocator>(*allocator, "/dev/pts");
-		process->mountSpace->allMounts.insert(pts_root, pts_fs);
+			unsigned int major, minor;
+			DeviceAllocator &char_devices = process->mountSpace->charDevices;
+			char_devices.allocateDevice("misc",
+					frigg::staticPtrCast<Device>(frigg::move(device)), major, minor);
 		
-		auto sysfile_fs = frigg::construct<sysfile_fs::MountPoint>(*allocator);
-		auto sysfile_root = frigg::String<Allocator>(*allocator, "/dev/sysfile");
-		process->mountSpace->allMounts.insert(sysfile_root, sysfile_fs);
+			auto initrd_fs = frigg::construct<extern_fs::MountPoint>(*allocator,
+					frigg::move(initrdPipe));
+			auto initrd_path = frigg::String<Allocator>(*allocator, "/initrd");
+			initMountSpace->allMounts.insert(initrd_path, initrd_fs);
 
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(*pipe, response, msg_request);
+			auto dev_fs = frigg::construct<dev_fs::MountPoint>(*allocator);
+			auto inode = frigg::makeShared<dev_fs::CharDeviceNode>(*allocator, major, minor);
+			dev_fs->getRootDirectory()->entries.insert(frigg::String<Allocator>(*allocator, "helout"),
+					frigg::staticPtrCast<dev_fs::Inode>(frigg::move(inode)));
+			auto dev_root = frigg::String<Allocator>(*allocator, "/dev");
+			process->mountSpace->allMounts.insert(dev_root, dev_fs);
+
+			auto pts_fs = frigg::construct<pts_fs::MountPoint>(*allocator);
+			auto pts_root = frigg::String<Allocator>(*allocator, "/dev/pts");
+			process->mountSpace->allMounts.insert(pts_root, pts_fs);
+			
+			auto sysfile_fs = frigg::construct<sysfile_fs::MountPoint>(*allocator);
+			auto sysfile_root = frigg::String<Allocator>(*allocator, "/dev/sysfile");
+			process->mountSpace->allMounts.insert(sysfile_root, sysfile_fs);
+
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::SUCCESS);
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) {
+				HEL_CHECK(error);
+			});
+		}, frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::GET_PID) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] GET_PID" << frigg::EndLog();
 
-			auto action = frigg::apply([=] () {
+			auto action = frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
 				response.set_pid(process->pid);
+				response.SerializeToString(serialized);
 				
-				sendResponse(*pipe, response, msg_request);
-			});
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator));
 
 			frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] FORK" << frigg::EndLog();
 
-		StdSharedPtr<Process> new_process = process->fork();
+		auto action = frigg::compose([=] (auto serialized) {
+			StdSharedPtr<Process> new_process = process->fork();
 
-		HelThreadState state;
-		memset(&state, 0, sizeof(HelThreadState));
-		state.rip = request.child_ip();
-		state.rsp = request.child_sp();
+			HelThreadState state;
+			memset(&state, 0, sizeof(HelThreadState));
+			state.rip = request.child_ip();
+			state.rsp = request.child_sp();
+			
+			helx::Directory directory = Process::runServer(new_process);
+
+			HelHandle thread;
+			HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
+					&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
+			HEL_CHECK(helCloseDescriptor(thread));
+
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::SUCCESS);
+			response.set_pid(new_process->pid);
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
 		
-		helx::Directory directory = Process::runServer(new_process);
-
-		HelHandle thread;
-		HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
-				&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
-		HEL_CHECK(helCloseDescriptor(thread));
-
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		response.set_pid(new_process->pid);
-		sendResponse(*pipe, response, msg_request);
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] EXEC" << frigg::EndLog();
 
-		execute(process, request.path());
+		auto action = frigg::compose([=] (auto serialized) {
+			execute(process, request.path());
+			
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::SUCCESS);
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
 		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(*pipe, response, msg_request);
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FSTAT) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] FSTAT" << frigg::EndLog();
@@ -181,7 +211,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			frigg::await<void(FileStats)>([=] (auto callback) {
 				(*file)->fstat(callback);
 			})
-			+ frigg::apply([=] (FileStats stats) {
+			+ frigg::compose([=] (FileStats stats, auto serialized) {
 				if(traceRequests)
 					infoLogger->log() << "[" << process->pid << "] FSTAT response" << frigg::EndLog();
 
@@ -199,42 +229,56 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				response.set_mtime_nanos(stats.mtimeNanos);
 				response.set_ctime_secs(stats.ctimeSecs);
 				response.set_ctime_nanos(stats.ctimeNanos);
-				sendResponse(*pipe, response, msg_request);
-			}),
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator)),
 
-			frigg::apply([=] () {
+			frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				sendResponse(*pipe, response, msg_request);
-			})
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator))
 		);
 
 		frigg::run(action, allocator.get()); 
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] OPEN" << frigg::EndLog();
-	
-			auto action = frigg::await<void(StdSharedPtr<VfsOpenFile> file)>([=] (auto callback) {
-				uint32_t open_flags = 0;
-				if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
-					open_flags |= MountSpace::kOpenCreat;
 
-				uint32_t open_mode = 0;
-				if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
-					open_mode |= MountSpace::kOpenHelfd;
-				
-				frigg::String<Allocator> path = concatenatePath("/", request.path());
-				frigg::String<Allocator> normalized = normalizePath(path);
+		// NOTE: this is a hack that works around a segfault in GCC
+		auto msg_request2 = msg_request;
 
-				MountSpace *mount_space = process->mountSpace;
-				mount_space->openAbsolute(process, frigg::move(normalized), open_flags, open_mode, callback);
-			})
-			+ frigg::apply([=] (StdSharedPtr<VfsOpenFile> file) {
-				if(!file) {
-					managarm::posix::ServerResponse<Allocator> response(*allocator);
-					response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-					sendResponse(*pipe, response, msg_request);
-				}else{
+		auto action = frigg::await<void(StdSharedPtr<VfsOpenFile> file)>([=] (auto callback) {
+			uint32_t open_flags = 0;
+			if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
+				open_flags |= MountSpace::kOpenCreat;
+
+			uint32_t open_mode = 0;
+			if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
+				open_mode |= MountSpace::kOpenHelfd;
+			
+			frigg::String<Allocator> path = concatenatePath("/", request.path());
+			frigg::String<Allocator> normalized = normalizePath(path);
+
+			MountSpace *mount_space = process->mountSpace;
+			mount_space->openAbsolute(process, frigg::move(normalized), open_flags, open_mode, callback);
+		})
+		+ frigg::compose([=] (StdSharedPtr<VfsOpenFile> file) {
+			return frigg::ifThenElse(
+				frigg::apply([=] () {
+					// NOTE: this is a hack that works around a bug in GCC
+					auto f = file;
+					return (bool)f;
+				}),
+
+				frigg::compose([=] (auto serialized) {
 					int fd = process->nextFd;
 					assert(fd > 0);
 					process->nextFd++;
@@ -246,11 +290,24 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
 					response.set_error(managarm::posix::Errors::SUCCESS);
 					response.set_fd(fd);
-					sendResponse(*pipe, response, msg_request);
-				}
-			});
+					response.SerializeToString(serialized);
+					
+					return pipe->sendStringResp(serialized->data(), serialized->size(),
+							eventHub, msg_request2, 0)
+					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				}, frigg::String<Allocator>(*allocator)),
 
-			frigg::run(action, allocator.get());
+				frigg::compose([=] (auto serialized) {
+					managarm::posix::ServerResponse<Allocator> response(*allocator);
+					response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+					return pipe->sendStringResp(serialized->data(), serialized->size(),
+							eventHub, msg_request, 0)
+					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				}, frigg::String<Allocator>(*allocator))
+			);
+		});
+		
+		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CONNECT) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] CONNECT" << frigg::EndLog();
@@ -263,17 +320,25 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			frigg::await<void()>([=] (auto callback) {
 				(*file)->connect(callback);
 			})
-			+ frigg::apply([=] () {
+			+ frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
-				sendResponse(*pipe, response, msg_request);
-			}),
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator)),
 
-			frigg::apply([=] () {
+			frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				sendResponse(*pipe, response, msg_request);
-			})
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator))
 		);
 
 		frigg::run(action, allocator.get());
@@ -289,17 +354,25 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				frigg::await<void()>([=] (auto callback) {
 					(*file)->write(request.buffer().data(), request.buffer().size(), callback);
 				})
-				+ frigg::apply([=] () {
+				+ frigg::compose([=] (auto serialized) {
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
 					response.set_error(managarm::posix::Errors::SUCCESS);
-					sendResponse(*pipe, response, msg_request);
-				}),
+					response.SerializeToString(serialized);
+
+					return pipe->sendStringResp(serialized->data(), serialized->size(),
+							eventHub, msg_request, 0)
+					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				}, frigg::String<Allocator>(*allocator)),
 				
-				frigg::apply([=] () {
+				frigg::compose([=] (auto serialized) {
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
 					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-					sendResponse(*pipe, response, msg_request);
-				})
+					response.SerializeToString(serialized);
+
+					return pipe->sendStringResp(serialized->data(), serialized->size(),
+								eventHub, msg_request, 0)
+					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				}, frigg::String<Allocator>(*allocator))
 			);
 
 			frigg::run(action, allocator.get());
@@ -317,30 +390,53 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					buffer->resize(request.size());
 					(*file)->read(buffer->data(), request.size(), callback);
 				})
-				+ frigg::apply([=] (VfsError error, size_t actual_size) {
-					if(error == kVfsEndOfFile) {
-						managarm::posix::ServerResponse<Allocator> response(*allocator);
-						response.set_error(managarm::posix::Errors::END_OF_FILE);
-						sendResponse(*pipe, response, msg_request);
-					}else{
-						assert(error == kVfsSuccess);
-						// TODO: make request.size() unsigned
-						frigg::String<Allocator> actual_buffer(*allocator,
-								frigg::StringView(*buffer).subString(0, actual_size));
-						managarm::posix::ServerResponse<Allocator> response(*allocator);
-						response.set_error(managarm::posix::Errors::SUCCESS);
-						sendResponse(*pipe, response, msg_request);
+				+ frigg::compose([=] (VfsError error, size_t actual_size) {
+					// FIXME: hack to work around a GCC bug
+					auto msg_request2 = msg_request;
+					
+					return frigg::ifThenElse(
+						frigg::apply([=] () { return error == kVfsEndOfFile; }),
 
-						pipe->sendStringResp(actual_buffer.data(), actual_buffer.size(), msg_request, 1);
-					}
+						frigg::compose([=] (auto serialized) {
+							managarm::posix::ServerResponse<Allocator> response(*allocator);
+							response.set_error(managarm::posix::Errors::END_OF_FILE);
+							response.SerializeToString(serialized);
+							
+							return pipe->sendStringResp(serialized->data(), serialized->size(),
+									eventHub, msg_request2, 0)
+							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+						}, frigg::String<Allocator>(*allocator)),
+
+						frigg::compose([=] (auto serialized) {
+							assert(error == kVfsSuccess);
+							
+							// TODO: make request.size() unsigned
+							frigg::String<Allocator> actual_buffer(*allocator,
+									frigg::StringView(*buffer).subString(0, actual_size));
+							managarm::posix::ServerResponse<Allocator> response(*allocator);
+							response.set_error(managarm::posix::Errors::SUCCESS);
+							response.SerializeToString(serialized);
+
+							return pipe->sendStringResp(serialized->data(), serialized->size(),
+									eventHub, msg_request2, 0)
+							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); })
+							+ pipe->sendStringResp(actual_buffer.data(), actual_buffer.size(),
+									eventHub, msg_request2, 1)
+							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+						}, frigg::String<Allocator>(*allocator))
+					);
 				});
 			}, frigg::String<Allocator>(*allocator)),
 
-			frigg::apply([=] () {
+			frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				sendResponse(*pipe, response, msg_request);
-			})
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator))
 		);
 
 		frigg::run(action, allocator.get());
@@ -366,18 +462,27 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					frigg::panicLogger.log() << "Illegal SEEK request" << frigg::EndLog();
 				}
 			})
-			+ frigg::apply([=] (uint64_t offset) {
+
+			+ frigg::compose([=] (uint64_t offset, auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
 				response.set_offset(offset);
-				sendResponse(*pipe, response, msg_request);
-			}),
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator)),
 
-			frigg::apply([=] () {
+			frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				sendResponse(*pipe, response, msg_request);
-			})
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator))
 		);
 
 		frigg::run(action, allocator.get());
@@ -393,20 +498,29 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			frigg::await<void(HelHandle handle)>([=] (auto callback) {
 				(*file)->mmap(callback);
 			})
-			+ frigg::apply([=] (HelHandle handle) {
+			+ frigg::compose([=] (HelHandle handle, auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
+				response.SerializeToString(serialized);
 				
-				sendResponse(*pipe, response, msg_request);
-				pipe->sendDescriptorResp(handle, msg_request, 1);
-				HEL_CHECK(helCloseDescriptor(handle));
-			}),
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);
+					pipe->sendDescriptorResp(handle, msg_request, 1);
+					HEL_CHECK(helCloseDescriptor(handle));
+				});
+			}, frigg::String<Allocator>(*allocator)),
 
-			frigg::apply([=] () {
-					managarm::posix::ServerResponse<Allocator> response(*allocator);
-					response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-					sendResponse(*pipe, response, msg_request);
-			})
+			frigg::compose([=] (auto serialized) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error);	});
+			}, frigg::String<Allocator>(*allocator))
 		);
 
 		frigg::run(action, allocator.get());
@@ -414,37 +528,54 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] CLOSE" << frigg::EndLog();
 
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-
-		int32_t fd = request.fd();
-		auto file_wrapper = process->allOpenFiles.get(fd);
-		if(file_wrapper){
-			process->allOpenFiles.remove(fd);
-			response.set_error(managarm::posix::Errors::SUCCESS);
-		}else{
-			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-		}
 		
-		sendResponse(*pipe, response, msg_request);
+		auto action = frigg::compose([=] (auto serialized) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+
+			int32_t fd = request.fd();
+			auto file_wrapper = process->allOpenFiles.get(fd);
+			if(file_wrapper){
+				process->allOpenFiles.remove(fd);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+			}else{
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+			}
+			
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] DUP2" << frigg::EndLog();
 
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
 
-		int32_t oldfd = request.fd();
-		int32_t newfd = request.newfd();
-		auto file_wrapper = process->allOpenFiles.get(oldfd);
-		if(file_wrapper){
-			auto file = *file_wrapper;
-			process->allOpenFiles.insert(newfd, file);
+		auto action = frigg::compose([=] (auto serialized) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
 
-			response.set_error(managarm::posix::Errors::SUCCESS);
-		}else{
-			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-		}
+			int32_t oldfd = request.fd();
+			int32_t newfd = request.newfd();
+			auto file_wrapper = process->allOpenFiles.get(oldfd);
+			if(file_wrapper){
+				auto file = *file_wrapper;
+				process->allOpenFiles.insert(newfd, file);
 
-		sendResponse(*pipe, response, msg_request);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+			}else{
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+			}
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::TTY_NAME) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] TTY_NAME" << frigg::EndLog();
@@ -454,7 +585,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto action = frigg::ifThenElse(
 			frigg::apply([=] () { return file; }),
 
-			frigg::apply([=] () {
+			frigg::compose([=] (auto serialized) {
 				frigg::Optional<frigg::String<Allocator>> result = (*file)->ttyName();
 				
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -465,15 +596,26 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					response.set_error(managarm::posix::Errors::BAD_FD);
 				}
 				
-				sendResponse(*pipe, response, msg_request);
-			}),
-
-			frigg::apply([=] () {
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator)),
+			
+			frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-				sendResponse(*pipe, response, msg_request);
-				suicide(*allocator);
-			})
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator))
 		);
 			
 		frigg::run(action, allocator.get());
@@ -488,41 +630,91 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		HEL_CHECK(error);
 
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
-		if(!file_wrapper) {
-			managarm::posix::ServerResponse<Allocator> response(*allocator);
-			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-			sendResponse(*pipe, response, msg_request);
-			return;
-		}
-
-		auto file = *file_wrapper;
-		file->setHelfd(handle);
 		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(*pipe, response, msg_request);
+		auto action = frigg::ifThenElse(
+			frigg::apply([=] () { return file_wrapper; }),
+
+			frigg::compose([=] (auto serialized) {
+				auto file = *file_wrapper;
+				file->setHelfd(handle);
+				
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator)),
+
+			frigg::compose([=] (auto serialized) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator))
+		);
+
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
 		if(traceRequests)
 			infoLogger->log() << "[" << process->pid << "] HELFD_CLONE" << frigg::EndLog();
 
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
-		if(!file_wrapper) {
-			managarm::posix::ServerResponse<Allocator> response(*allocator);
-			response.set_error(managarm::posix::Errors::NO_SUCH_FD);
-			sendResponse(*pipe, response, msg_request);
-			return;
-		}
-
-		auto file = *file_wrapper;
-		pipe->sendDescriptorResp(file->getHelfd(), msg_request, 1);
 		
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::SUCCESS);
-		sendResponse(*pipe, response, msg_request);
+		auto action = frigg::ifThenElse(
+			frigg::apply([=] () { return file_wrapper; }),
+
+			frigg::compose([=] (auto serialized) {
+				auto file = *file_wrapper;
+				pipe->sendDescriptorResp(file->getHelfd(), msg_request, 1);
+				
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::SUCCESS);
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator)),
+
+			frigg::compose([=] (auto serialized) {
+				managarm::posix::ServerResponse<Allocator> response(*allocator);
+				response.set_error(managarm::posix::Errors::NO_SUCH_FD);
+				response.SerializeToString(serialized);
+				
+				return pipe->sendStringResp(serialized->data(), serialized->size(),
+						eventHub, msg_request, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error);	
+				});
+			}, frigg::String<Allocator>(*allocator))
+		);
+
+		frigg::run(frigg::move(action), allocator.get());
 	}else{
-		managarm::posix::ServerResponse<Allocator> response(*allocator);
-		response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-		sendResponse(*pipe, response, msg_request);
+		auto action = frigg::compose([=] (auto serialized) {
+			managarm::posix::ServerResponse<Allocator> response(*allocator);
+			response.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+			response.SerializeToString(serialized);
+			
+			return pipe->sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
+			+ frigg::apply([=] (HelError error) { 
+				HEL_CHECK(error);	
+			});
+		}, frigg::String<Allocator>(*allocator));
+
+		frigg::run(frigg::move(action), allocator.get());
 	}
 }
 
@@ -659,6 +851,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 	managarm::mbus::SvrRequest<Allocator> svr_request(*allocator);
 	svr_request.ParseFromArray(buffer, length);
 
+	infoLogger->log() << "[posix/subsystem/src/main] recvdBroadcast" << frigg::EndLog();
 	if(hasCapability(svr_request, "file-system")) {
 		managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
@@ -728,9 +921,11 @@ int main() {
 	cap.set_name(frigg::String<Allocator>(*allocator, "initrd"));
 	enum_request.add_caps(frigg::move(cap));
 
+	HelError enumerate_error;
 	frigg::String<Allocator> enum_serialized(*allocator);
 	enum_request.SerializeToString(&enum_serialized);
-	mbusPipe.sendStringReq(enum_serialized.data(), enum_serialized.size(), 0, 0);
+	mbusPipe.sendStringReqSync(enum_serialized.data(), enum_serialized.size(),
+			eventHub, 0, 0, enumerate_error);
 
 	uint8_t enum_buffer[128];
 	HelError enum_error;
@@ -746,14 +941,16 @@ int main() {
 	query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
 	query_request.set_object_id(enum_response.object_id());
 
+	HelError send_query_error;
 	frigg::String<Allocator> query_serialized(*allocator);
 	query_request.SerializeToString(&query_serialized);
-	mbusPipe.sendStringReq(query_serialized.data(), query_serialized.size(), 0, 0);
+	mbusPipe.sendStringReqSync(query_serialized.data(), query_serialized.size(),
+			eventHub, 0, 0, send_query_error);
 	
-	HelError query_error;
+	HelError recv_query_error;
 	HelHandle query_handle;
-	mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, query_error, query_handle);
-	HEL_CHECK(query_error);
+	mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, recv_query_error, query_handle);
+	HEL_CHECK(recv_query_error);
 	initrdPipe = helx::Pipe(query_handle);
 
 	frigg::runClosure<MbusClosure>(*allocator);
@@ -767,9 +964,16 @@ int main() {
 	const char *parent_path = "local/parent";
 	HelHandle parent_handle;
 	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
-	client.reset();
+	
+	helx::Pipe parent_pipe(parent_handle);
+	HelError send_error;
+	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub, 0, 0, 
+			kHelRequest, send_error);
+	HEL_CHECK(send_error);
 
+	parent_pipe.reset();
+	client.reset();
+	
 	while(true) {
 		eventHub.defaultProcessEvents();
 	}
