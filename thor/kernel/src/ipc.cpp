@@ -76,29 +76,6 @@ Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> 
 	return kErrSuccess;
 }
 
-Error Channel::submitRecvStringToRing(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
-	assert(guard.protects(&lock));
-
-	if(_wasClosed)
-		return kErrPipeClosed;
-
-	bool queue_request = true;
-	for(auto it = _sendQueue.frontIter(); it; ++it) {
-		if(!matchRequest(*it, recv))
-			continue;
-		
-		if(processStringRequest((*it).toShared(), recv))
-			_sendQueue.remove(it);
-		// NOTE: we never queue failed requests
-		queue_request = false;
-		break;
-	}
-	
-	if(queue_request)
-		_recvQueue.addBack(frigg::move(recv));
-	return kErrSuccess;
-}
-
 Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
 	assert(guard.protects(&lock));
 
@@ -128,8 +105,10 @@ void Channel::close(Guard &guard) {
 		UserEvent event(UserEvent::kTypeError, recv->submitInfo);
 		event.error = kErrPipeClosed;
 
-		EventHub::Guard hub_guard(&recv->eventHub->lock);
-		recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
+		frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
+		assert(event_hub);
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->raiseEvent(hub_guard, frigg::move(event));
 		hub_guard.unlock();
 	}
 
@@ -183,18 +162,23 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 				event.msgRequest = send->msgRequest;
 				event.msgSequence = send->msgSequence;
 			
-				EventHub::Guard hub_guard(&recv->eventHub->lock);
-				recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
+				frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
+				assert(event_hub);
+				EventHub::Guard hub_guard(&event_hub->lock);
+				event_hub->raiseEvent(hub_guard, frigg::move(event));
 			}
 			return true;
 		}else{
 			// post the error event
-			UserEvent event(UserEvent::kTypeError, recv->submitInfo);
-			event.error = kErrBufferTooSmall;
+			{
+				UserEvent event(UserEvent::kTypeError, recv->submitInfo);
+				event.error = kErrBufferTooSmall;
 
-			EventHub::Guard hub_guard(&recv->eventHub->lock);
-			recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
-			hub_guard.unlock();
+				frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
+				assert(event_hub);
+				EventHub::Guard hub_guard(&event_hub->lock);
+				event_hub->raiseEvent(hub_guard, frigg::move(event));
+			}
 			return false;
 		}
 	}else if(recv->type == kMsgStringToRing) {
@@ -225,32 +209,12 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
 		event.msgSequence = send->msgSequence;
 		event.descriptor = frigg::move(send->descriptor);
 
-		EventHub::Guard hub_guard(&recv->eventHub->lock);
-		recv->eventHub->raiseEvent(hub_guard, frigg::move(event));
+		frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
+		assert(event_hub);
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->raiseEvent(hub_guard, frigg::move(event));
 	}
 }
-
-// --------------------------------------------------------
-// AsyncSendString
-// --------------------------------------------------------
-
-// TODO: move this to another file
-AsyncSendString::AsyncSendString(AsyncData data, MsgType type,
-		int64_t msg_request, int64_t msg_sequence)
-: AsyncOperation(frigg::move(data)), type(type),
-		msgRequest(msg_request), msgSequence(msg_sequence), flags(0) { }
-
-// --------------------------------------------------------
-// AsyncRecvString
-// --------------------------------------------------------
-
-// TODO: move this to another file
-AsyncRecvString::AsyncRecvString(MsgType type,
-		KernelSharedPtr<EventHub> event_hub,
-		int64_t filter_request, int64_t filter_sequence,
-		SubmitInfo submit_info)
-: type(type), eventHub(frigg::move(event_hub)), submitInfo(submit_info),
-		filterRequest(filter_request), filterSequence(filter_sequence), flags(0) { }
 
 // --------------------------------------------------------
 // FullPipe

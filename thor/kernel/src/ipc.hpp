@@ -18,7 +18,6 @@ public:
 	Error sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
 	
 	Error submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
-	Error submitRecvStringToRing(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
 	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
 	
 	void close(Guard &guard);

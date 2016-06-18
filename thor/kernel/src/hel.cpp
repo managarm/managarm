@@ -881,8 +881,7 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
 
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 
 	auto ring_item = frigg::makeShared<AsyncRingItem>(*kernelAlloc,
@@ -961,8 +960,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), user_buffer, length);
 	
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
@@ -1034,8 +1032,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	if(flags & kHelResponse)
 		send_flags |= Channel::kFlagResponse;
 	
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
@@ -1103,10 +1100,11 @@ HelError helSubmitRecvString(HelHandle handle,
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = ForeignSpaceLock::acquire(frigg::move(space), user_buffer, max_length);
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc,
-			kMsgStringToBuffer, frigg::SharedPtr<EventHub>(event_hub),
-			filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgStringToBuffer, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
 
@@ -1118,7 +1116,6 @@ HelError helSubmitRecvString(HelHandle handle,
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1173,22 +1170,22 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc,
-			kMsgStringToRing, frigg::SharedPtr<EventHub>(event_hub),
-			filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgStringToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvStringToRing(channel_guard, frigg::move(recv));
+	Error error = channel.submitRecvString(channel_guard, frigg::move(recv));
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1235,9 +1232,11 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, kMsgDescriptor,
-			frigg::SharedPtr<EventHub>(event_hub), filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgDescriptor, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
 	Channel::Guard channel_guard(&channel.lock);
@@ -1248,7 +1247,6 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 		return kHelErrPipeClosed;
 	
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
