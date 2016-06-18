@@ -725,7 +725,8 @@ HelError helWaitForEvents(HelHandle handle,
 	for(count = 0; count < max_items; count++) {
 		if(!event_hub->hasEvent(hub_guard))
 			break;
-		UserEvent event = event_hub->dequeueEvent(hub_guard);
+		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
+		UserEvent event = operation->getEvent();
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {

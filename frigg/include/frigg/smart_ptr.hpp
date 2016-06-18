@@ -141,6 +141,15 @@ public:
 		pointer._control = nullptr;
 		pointer._object = nullptr;
 	}
+	
+	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	SharedPtr(SharedPtr<U> pointer)
+	: _control(pointer._control), _object(pointer._object) {
+		// manually empty the argument pointer so that
+		// its destructor does not decrement the reference count
+		pointer._control = nullptr;
+		pointer._object = nullptr;
+	}
 
 	~SharedPtr() {
 		if(_control) {

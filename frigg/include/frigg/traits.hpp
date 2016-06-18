@@ -126,6 +126,26 @@ using MakeIndexSequence = typename _index_sequence::MakeHelper<N>::Type;
 template<typename... T>
 using IndexSequenceFor = MakeIndexSequence<sizeof...(T)>;
 
+// This is a quick std::is_convertible implementation that works
+// at least for pointers. I did not validate its correctness for all
+// cases or compare it to other implementations; it is likely that this
+// code is just plain wrong for many cases.
+namespace _convertible {
+	template<typename T>
+	void test(T);
+
+	template<typename From, typename To>
+	using Helper = decltype(test<To>(declval<From>()));
+};
+
+template<typename From, typename To, typename = void>
+struct IsConvertible
+: public FalseType { };
+
+template<typename From, typename To>
+struct IsConvertible<From, To, _convertible::Helper<From, To>>
+: public TrueType { };
+
 } // namespace frigg
 
 #endif // FRIGG_TRAITS_HPP

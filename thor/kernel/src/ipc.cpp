@@ -102,6 +102,8 @@ void Channel::close(Guard &guard) {
 	while(!_recvQueue.empty()) {
 		frigg::SharedPtr<AsyncRecvString> recv = _recvQueue.removeFront();
 
+		assert(!"Fix pipe close");
+/*
 		UserEvent event(UserEvent::kTypeError, recv->submitInfo);
 		event.error = kErrPipeClosed;
 
@@ -109,7 +111,7 @@ void Channel::close(Guard &guard) {
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();
+		hub_guard.unlock();*/
 	}
 
 	_wasClosed = true;
@@ -147,17 +149,18 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			// perform the actual data transfer
 			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 			
+			assert(!"Fix send/recv string");
 			{ // post the send event
-				UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
+/*				UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
 			
 				frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
 				assert(event_hub);
 				EventHub::Guard hub_guard(&event_hub->lock);
-				event_hub->raiseEvent(hub_guard, frigg::move(event));
+				event_hub->raiseEvent(hub_guard, frigg::move(event));*/
 			}
 
 			{ // post the receive event
-				UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, recv->submitInfo);
+/*				UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, recv->submitInfo);
 				event.length = send->kernelBuffer.size();
 				event.msgRequest = send->msgRequest;
 				event.msgSequence = send->msgSequence;
@@ -165,19 +168,20 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 				frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
 				assert(event_hub);
 				EventHub::Guard hub_guard(&event_hub->lock);
-				event_hub->raiseEvent(hub_guard, frigg::move(event));
+				event_hub->raiseEvent(hub_guard, frigg::move(event));*/
 			}
 			return true;
 		}else{
 			// post the error event
+			assert(!"Fix recv error");
 			{
-				UserEvent event(UserEvent::kTypeError, recv->submitInfo);
+/*				UserEvent event(UserEvent::kTypeError, recv->submitInfo);
 				event.error = kErrBufferTooSmall;
 
 				frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
 				assert(event_hub);
 				EventHub::Guard hub_guard(&event_hub->lock);
-				event_hub->raiseEvent(hub_guard, frigg::move(event));
+				event_hub->raiseEvent(hub_guard, frigg::move(event));*/
 			}
 			return false;
 		}
@@ -194,25 +198,23 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 
 void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
 		frigg::SharedPtr<AsyncRecvString> recv) {
-	{ // post the send event
-		UserEvent event(UserEvent::kTypeSendDescriptor, send->submitInfo);
+	recv->error = kErrSuccess;
+	recv->msgRequest = send->msgRequest;
+	recv->msgSequence = send->msgSequence;
+	recv->descriptor = frigg::move(send->descriptor);
 
+	{ // post the send event
 		frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));
+		event_hub->raiseEvent(hub_guard, frigg::move(send));
 	}
 	
 	{ // post the receive event
-		UserEvent event(UserEvent::kTypeRecvDescriptor, recv->submitInfo);
-		event.msgRequest = send->msgRequest;
-		event.msgSequence = send->msgSequence;
-		event.descriptor = frigg::move(send->descriptor);
-
 		frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));
+		event_hub->raiseEvent(hub_guard, frigg::move(recv));
 	}
 }
 
@@ -290,24 +292,25 @@ void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 	KernelSharedPtr<Endpoint> end1, end2;
 	FullPipe::create(pipe, end1, end2);
 
+	assert(!"Fix accept/connect");
 	{ // post the accept event
-		UserEvent event(UserEvent::kTypeAccept, accept->submitInfo);
+/*		UserEvent event(UserEvent::kTypeAccept, accept->submitInfo);
 		event.endpoint = frigg::move(end1);
 
 		frigg::SharedPtr<EventHub> event_hub = accept->eventHub.grab();
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));
+		event_hub->raiseEvent(hub_guard, frigg::move(event));*/
 	}
 
 	{ // post the connect event
-		UserEvent event(UserEvent::kTypeConnect, connect->submitInfo);
+/*		UserEvent event(UserEvent::kTypeConnect, connect->submitInfo);
 		event.endpoint = frigg::move(end2);
 		
 		frigg::SharedPtr<EventHub> event_hub = connect->eventHub.grab();
 		assert(event_hub);
 		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));
+		event_hub->raiseEvent(hub_guard, frigg::move(event));*/
 	}
 }
 

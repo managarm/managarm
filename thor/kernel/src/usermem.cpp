@@ -237,7 +237,8 @@ void Memory::performLoad(ProcessRequest *process_request, LoadOrder *load_order)
 	user_event.length = load_order->size;
 
 	EventHub::Guard hub_guard(&process_request->eventHub->lock);
-	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	assert(!"Fix memory load event");
+//	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
 	hub_guard.unlock();
 }
 
@@ -259,7 +260,8 @@ void Memory::performLock(LockRequest *lock_request) {
 	UserEvent user_event(UserEvent::kTypeMemoryLock, lock_request->submitInfo);
 
 	EventHub::Guard hub_guard(&lock_request->eventHub->lock);
-	lock_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	assert(!"Fix memory lock event");
+//	lock_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
 	hub_guard.unlock();
 }
 

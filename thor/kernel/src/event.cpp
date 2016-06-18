@@ -10,16 +10,33 @@ namespace thor {
 UserEvent::UserEvent(Type type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
+UserEvent AsyncSendString::getEvent() {
+	UserEvent event(UserEvent::kTypeSendDescriptor, submitInfo);
+	event.error = kErrSuccess;
+	return event;
+}
+UserEvent AsyncRecvString::getEvent() {
+	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
+	event.error = error;
+	event.msgRequest = msgRequest;
+	event.msgSequence = msgSequence;
+	event.descriptor = frigg::move(descriptor);
+	return event;
+}
+UserEvent AsyncAccept::getEvent() { assert(false); }
+UserEvent AsyncConnect::getEvent() { assert(false); }
+UserEvent AsyncRingItem::getEvent() { assert(false); }
+
 // --------------------------------------------------------
 // EventHub
 // --------------------------------------------------------
 
-EventHub::EventHub() : p_queue(*kernelAlloc), p_waitingThreads(*kernelAlloc) { }
+EventHub::EventHub() : p_waitingThreads(*kernelAlloc) { }
 
-void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
+void EventHub::raiseEvent(Guard &guard, frigg::SharedPtr<AsyncOperation> operation) {
 	assert(guard.protects(&lock));
 
-	p_queue.addBack(frigg::move(event));
+	_eventQueue.addBack(frigg::move(operation));
 
 	while(!p_waitingThreads.empty()) {
 		KernelSharedPtr<Thread> waiting = p_waitingThreads.removeFront().grab();
@@ -33,13 +50,13 @@ void EventHub::raiseEvent(Guard &guard, UserEvent &&event) {
 bool EventHub::hasEvent(Guard &guard) {
 	assert(guard.protects(&lock));
 
-	return !p_queue.empty();
+	return !_eventQueue.empty();
 }
 
-UserEvent EventHub::dequeueEvent(Guard &guard) {
+frigg::SharedPtr<AsyncOperation> EventHub::dequeueEvent(Guard &guard) {
 	assert(guard.protects(&lock));
 
-	return p_queue.removeFront();
+	return _eventQueue.removeFront();
 }
 
 void EventHub::blockCurrentThread(Guard &guard) {

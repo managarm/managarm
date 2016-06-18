@@ -100,20 +100,22 @@ void IrqLine::fire(Guard &guard, uint64_t sequence) {
 		processRequest(p_requests.removeFront());
 	
 	for(auto it = p_subscriptions.frontIter(); it.okay(); ++it) {
-		UserEvent event(UserEvent::kTypeIrq, it->submitInfo);
+		assert(!"Fix IRQ subscriptions");
+/*		UserEvent event(UserEvent::kTypeIrq, it->submitInfo);
 
 		EventHub::Guard hub_guard(&it->eventHub->lock);
 		it->eventHub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();
+		hub_guard.unlock();*/
 	}
 }
 
 void IrqLine::processRequest(Request request) {
-	UserEvent event(UserEvent::kTypeIrq, request.submitInfo);
+	assert(!"Fix IRQ events");
+/*	UserEvent event(UserEvent::kTypeIrq, request.submitInfo);
 
 	EventHub::Guard hub_guard(&request.eventHub->lock);
 	request.eventHub->raiseEvent(hub_guard, frigg::move(event));
-	hub_guard.unlock();
+	hub_guard.unlock();*/
 
 	assert(p_firedSequence > p_notifiedSequence);
 	p_notifiedSequence = p_firedSequence;

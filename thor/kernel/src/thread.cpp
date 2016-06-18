@@ -21,12 +21,13 @@ Thread::Thread(KernelSharedPtr<Universe> &&universe,
 
 Thread::~Thread() {
 	while(!p_joined.empty()) {
-		JoinRequest request = p_joined.removeFront();
+		assert(!"Fix join");
+/*		JoinRequest request = p_joined.removeFront();
 
 		UserEvent event(UserEvent::kTypeJoin, request.submitInfo);
 		EventHub::Guard hub_guard(&request.eventHub->lock);
 		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();
+		hub_guard.unlock();*/
 	}
 }
 
