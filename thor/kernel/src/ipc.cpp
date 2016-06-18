@@ -262,73 +262,54 @@ size_t Endpoint::getWriteIndex() {
 // Server
 // --------------------------------------------------------
 
-Server::Server() : p_acceptRequests(*kernelAlloc),
-		p_connectRequests(*kernelAlloc) { }
-
-void Server::submitAccept(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-		SubmitInfo submit_info) {
+void Server::submitAccept(Guard &guard, frigg::SharedPtr<AsyncAccept> request) {
 	assert(guard.protects(&lock));
 
-	AcceptRequest request(frigg::move(event_hub), submit_info);
-	
-	if(!p_connectRequests.empty()) {
-		processRequests(request, p_connectRequests.front());
-		p_connectRequests.removeFront();
+	if(!_connectQueue.empty()) {
+		processRequests(frigg::move(request), _connectQueue.front().toShared());
+		_connectQueue.removeFront();
 	}else{
-		p_acceptRequests.addBack(frigg::move(request));
+		_acceptQueue.addBack(frigg::move(request));
 	}
 }
 
-void Server::submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-		SubmitInfo submit_info) {
+void Server::submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request) {
 	assert(guard.protects(&lock));
 
-	ConnectRequest request(frigg::move(event_hub), submit_info);
-
-	if(!p_acceptRequests.empty()) {
-		processRequests(p_acceptRequests.front(), request);
-		p_acceptRequests.removeFront();
+	if(!_acceptQueue.empty()) {
+		processRequests(_acceptQueue.front().toShared(), frigg::move(request));
+		_acceptQueue.removeFront();
 	}else{
-		p_connectRequests.addBack(frigg::move(request));
+		_connectQueue.addBack(frigg::move(request));
 	}
 }
 
-void Server::processRequests(const AcceptRequest &accept,
-		const ConnectRequest &connect) {
+void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
+		frigg::SharedPtr<AsyncConnect> connect) {
 	KernelSharedPtr<FullPipe> pipe;
 	KernelSharedPtr<Endpoint> end1, end2;
 	FullPipe::create(pipe, end1, end2);
 
-	UserEvent accept_event(UserEvent::kTypeAccept, accept.submitInfo);
-	accept_event.endpoint = frigg::move(end1);
-	
-	EventHub::Guard accept_hub_guard(&accept.eventHub->lock);
-	accept.eventHub->raiseEvent(accept_hub_guard, frigg::move(accept_event));
-	accept_hub_guard.unlock();
+	{ // post the accept event
+		UserEvent event(UserEvent::kTypeAccept, accept->submitInfo);
+		event.endpoint = frigg::move(end1);
 
-	UserEvent connect_event(UserEvent::kTypeConnect, connect.submitInfo);
-	connect_event.endpoint = frigg::move(end2);
-	
-	EventHub::Guard connect_hub_guard(&connect.eventHub->lock);
-	connect.eventHub->raiseEvent(connect_hub_guard, frigg::move(connect_event));
-	connect_hub_guard.unlock();
+		frigg::SharedPtr<EventHub> event_hub = accept->eventHub.grab();
+		assert(event_hub);
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->raiseEvent(hub_guard, frigg::move(event));
+	}
+
+	{ // post the connect event
+		UserEvent event(UserEvent::kTypeConnect, connect->submitInfo);
+		event.endpoint = frigg::move(end2);
+		
+		frigg::SharedPtr<EventHub> event_hub = connect->eventHub.grab();
+		assert(event_hub);
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->raiseEvent(hub_guard, frigg::move(event));
+	}
 }
-
-// --------------------------------------------------------
-// Server::AcceptRequest
-// --------------------------------------------------------
-
-Server::AcceptRequest::AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
-		SubmitInfo submit_info)
-	: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
-
-// --------------------------------------------------------
-// Server::ConnectRequest
-// --------------------------------------------------------
-
-Server::ConnectRequest::ConnectRequest(KernelSharedPtr<EventHub> &&event_hub,
-		SubmitInfo submit_info)
-	: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 } // namespace thor
 

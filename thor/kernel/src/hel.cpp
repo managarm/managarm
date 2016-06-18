@@ -1293,13 +1293,15 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
 	
-	Server::Guard server_guard(&server->lock);
-	server->submitAccept(server_guard, frigg::move(event_hub), submit_info);
-	server_guard.unlock();
+	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc, frigg::move(data));
+	{
+		Server::Guard server_guard(&server->lock);
+		server->submitAccept(server_guard, frigg::move(request));
+	}
 
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1328,13 +1330,15 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
 	
-	Server::Guard server_guard(&server->lock);
-	server->submitConnect(server_guard, frigg::move(event_hub), submit_info);
-	server_guard.unlock();
+	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc, frigg::move(data));
+	{
+		Server::Guard server_guard(&server->lock);
+		server->submitConnect(server_guard, frigg::move(request));
+	}
 
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 

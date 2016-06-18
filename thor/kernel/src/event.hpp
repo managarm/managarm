@@ -55,6 +55,20 @@ struct AsyncRecvString : public AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> recvItem;
 };
 
+struct AsyncAccept : public AsyncOperation {
+	AsyncAccept(AsyncData data)
+	: AsyncOperation(frigg::move(data)) { }
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncAccept> processItem;
+};
+
+struct AsyncConnect : public AsyncOperation {
+	AsyncConnect(AsyncData data)
+	: AsyncOperation(frigg::move(data)) { }
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncConnect> processItem;
+};
+
 struct AsyncRingItem : public AsyncOperation {
 	AsyncRingItem(AsyncData data, DirectSpaceLock<HelRingBuffer> space_lock,
 			size_t buffer_size);

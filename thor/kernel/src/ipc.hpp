@@ -81,37 +81,24 @@ public:
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
 
-	Server();
-
-	void submitAccept(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-			SubmitInfo submit_info);
-	
-	void submitConnect(Guard &guard, KernelSharedPtr<EventHub> &&event_hub,
-			SubmitInfo submit_info);
+	void submitAccept(Guard &guard, frigg::SharedPtr<AsyncAccept> request);
+	void submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request);
 	
 	Lock lock;
 	
 private:
-	struct AcceptRequest {
-		AcceptRequest(KernelSharedPtr<EventHub> &&event_hub,
-				SubmitInfo submit_info);
-
-		KernelSharedPtr<EventHub> eventHub;
-		SubmitInfo submitInfo;
-	};
-	struct ConnectRequest {
-		ConnectRequest(KernelSharedPtr<EventHub> &&event_hub,
-				SubmitInfo submit_info);
-
-		KernelSharedPtr<EventHub> eventHub;
-		SubmitInfo submitInfo;
-	};
-
-	void processRequests(const AcceptRequest &accept,
-			const ConnectRequest &connect);
+	void processRequests(frigg::SharedPtr<AsyncAccept> accept,
+			frigg::SharedPtr<AsyncConnect> connect);
 	
-	frigg::LinkedList<AcceptRequest, KernelAlloc> p_acceptRequests;
-	frigg::LinkedList<ConnectRequest, KernelAlloc> p_connectRequests;
+	frigg::IntrusiveSharedLinkedList<
+		AsyncAccept,
+		&AsyncAccept::processItem
+	> _acceptQueue;
+	
+	frigg::IntrusiveSharedLinkedList<
+		AsyncConnect,
+		&AsyncConnect::processItem
+	> _connectQueue;
 };
 
 } // namespace thor
