@@ -148,7 +148,7 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 		Universe::Guard universe_guard(&universe->lock);
 
 		if(handle == kHelNullHandle) {
-			space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+			space = this_thread->getAddressSpace().toShared();
 		}else{
 			auto space_wrapper = universe->getDescriptor(universe_guard, handle);
 			if(!space_wrapper)
@@ -200,7 +200,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 		
 		if(space_handle == kHelNullHandle) {
-			space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+			space = this_thread->getAddressSpace().toShared();
 		}else{
 			auto space_wrapper = universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
@@ -255,7 +255,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	Universe::Guard universe_guard(&universe->lock);
 	KernelSharedPtr<AddressSpace> space;
 	if(space_handle == kHelNullHandle) {
-		space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+		space = this_thread->getAddressSpace().toShared();
 	}else{
 		auto space_wrapper = universe->getDescriptor(universe_guard, space_handle);
 		if(!space_wrapper)
@@ -276,8 +276,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	
-	KernelSharedPtr<AddressSpace> space
-		= KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+	KernelSharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 
 	auto address = (VirtualAddr)pointer;
 	auto misalign = address % kPageSize;
@@ -465,7 +464,7 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		if(space_handle == kHelNullHandle) {
-			space = KernelSharedPtr<AddressSpace>(this_thread->getAddressSpace());
+			space = this_thread->getAddressSpace().toShared();
 		}else{
 			auto space_wrapper = this_universe->getDescriptor(universe_guard, space_handle);
 			if(!space_wrapper)
@@ -476,7 +475,7 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		}
 
 		if(directory_handle == kHelNullHandle) {
-			directory = KernelSharedPtr<RdFolder>(this_thread->getDirectory());
+			directory = this_thread->getDirectory().toShared();
 		}else{
 			auto dir_wrapper = this_universe->getDescriptor(universe_guard, directory_handle);
 			if(!dir_wrapper)
@@ -484,7 +483,7 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 			if(!dir_wrapper->is<RdDescriptor>())
 				return kHelErrBadDescriptor;
 			auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-			directory = KernelSharedPtr<RdFolder>(dir_desc.getFolder());
+			directory = dir_desc.getFolder().toShared();
 		}
 	}
 
@@ -492,14 +491,14 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	if(flags & kHelThreadNewUniverse) {
 		universe = frigg::makeShared<Universe>(*kernelAlloc);
 	}else{
-		universe = KernelSharedPtr<Universe>(this_universe);
+		universe = this_universe.toShared();
 	}
 
 	KernelSharedPtr<ThreadGroup> group;
 	if(flags & kHelThreadNewGroup) {
 		group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
 	}else{
-		group = KernelSharedPtr<ThreadGroup>(this_thread->getThreadGroup());
+		group = this_thread->getThreadGroup().toShared();
 	}
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
@@ -713,7 +712,7 @@ HelError helWaitForEvents(HelHandle handle,
 		uint64_t deadline = currentTicks() + durationToTicks(0, 0, 0, max_nanotime);
 
 		Timer timer(deadline);
-		timer.thread = KernelWeakPtr<Thread>(this_thread);
+		timer.thread = this_thread.toWeak();
 		installTimer(frigg::move(timer));
 
 		while(!event_hub->hasEvent(hub_guard) && currentTicks() < deadline)
@@ -726,7 +725,8 @@ HelError helWaitForEvents(HelHandle handle,
 	for(count = 0; count < max_items; count++) {
 		if(!event_hub->hasEvent(hub_guard))
 			break;
-		UserEvent event = event_hub->dequeueEvent(hub_guard);
+		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
+		UserEvent event = operation->getEvent();
 
 		HelEvent *user_evt = &user_list[count];
 		switch(event.type) {
@@ -879,11 +879,10 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	frigg::SharedPtr<AddressSpace> space(this_thread->getAddressSpace());
+	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
 
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 
 	auto ring_item = frigg::makeShared<AsyncRingItem>(*kernelAlloc,
@@ -962,8 +961,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), user_buffer, length);
 	
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
@@ -1035,8 +1033,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	if(flags & kHelResponse)
 		send_flags |= Channel::kFlagResponse;
 	
-	AsyncData data(frigg::WeakPtr<EventHub>(event_hub),
-			allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
@@ -1101,13 +1098,14 @@ HelError helSubmitRecvString(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	frigg::SharedPtr<AddressSpace> space(this_thread->getAddressSpace());
+	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = ForeignSpaceLock::acquire(frigg::move(space), user_buffer, max_length);
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc,
-			kMsgStringToBuffer, frigg::SharedPtr<EventHub>(event_hub),
-			filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgStringToBuffer, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
 
@@ -1119,7 +1117,6 @@ HelError helSubmitRecvString(HelHandle handle,
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1174,22 +1171,22 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc,
-			kMsgStringToRing, frigg::SharedPtr<EventHub>(event_hub),
-			filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgStringToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
 	
 	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvStringToRing(channel_guard, frigg::move(recv));
+	Error error = channel.submitRecvString(channel_guard, frigg::move(recv));
 	channel_guard.unlock();
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1236,9 +1233,11 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, kMsgDescriptor,
-			frigg::SharedPtr<EventHub>(event_hub), filter_request, filter_sequence, submit_info);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+			kMsgDescriptor, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
 	Channel::Guard channel_guard(&channel.lock);
@@ -1249,7 +1248,6 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 		return kHelErrPipeClosed;
 	
 	assert(error == kErrSuccess);
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1296,13 +1294,15 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
 	
-	Server::Guard server_guard(&server->lock);
-	server->submitAccept(server_guard, frigg::move(event_hub), submit_info);
-	server_guard.unlock();
+	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc, frigg::move(data));
+	{
+		Server::Guard server_guard(&server->lock);
+		server->submitAccept(server_guard, frigg::move(request));
+	}
 
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1331,13 +1331,15 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
 	
-	Server::Guard server_guard(&server->lock);
-	server->submitConnect(server_guard, frigg::move(event_hub), submit_info);
-	server_guard.unlock();
+	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc, frigg::move(data));
+	{
+		Server::Guard server_guard(&server->lock);
+		server->submitConnect(server_guard, frigg::move(request));
+	}
 
-	*async_id = submit_info.asyncId;
 	return kHelErrNone;
 }
 
@@ -1368,7 +1370,7 @@ HelError helRdMount(HelHandle handle, const char *user_name,
 	if(!dir_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
 	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> directory(dir_desc.getFolder());
+	KernelSharedPtr<RdFolder> directory = dir_desc.getFolder().toShared();
 
 	auto mount_wrapper = universe->getDescriptor(universe_guard, mount_handle);
 	if(!mount_wrapper)
@@ -1376,7 +1378,7 @@ HelError helRdMount(HelHandle handle, const char *user_name,
 	if(!mount_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
 	auto &mount_desc = mount_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> mount_directory(mount_desc.getFolder());
+	KernelSharedPtr<RdFolder> mount_directory = mount_desc.getFolder().toShared();
 	universe_guard.unlock();
 
 	directory->mount(user_name, name_length, frigg::move(mount_directory));
@@ -1396,7 +1398,7 @@ HelError helRdPublish(HelHandle handle, const char *user_name,
 	if(!dir_wrapper->is<RdDescriptor>())
 		return kHelErrBadDescriptor;
 	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> directory(dir_desc.getFolder());
+	KernelSharedPtr<RdFolder> directory = dir_desc.getFolder().toShared();
 	
 	// copy the descriptor we want to publish
 	auto publish_wrapper = universe->getDescriptor(universe_guard, publish_handle);
@@ -1433,11 +1435,9 @@ HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle)
 		if(next_slash == name_length) {
 			if(part == frigg::StringView("#this")) {
 				// open a handle to this directory
-				KernelSharedPtr<RdFolder> copy(directory);
-			
 				Universe::Guard universe_guard(&universe->lock);
 				*handle = universe->attachDescriptor(universe_guard,
-						RdDescriptor(frigg::move(copy)));
+						RdDescriptor(directory.toShared()));
 				universe_guard.unlock();
 
 				return kHelErrNone;

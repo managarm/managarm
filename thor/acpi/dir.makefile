@@ -8,7 +8,7 @@ $c_INCLUDE += -I$(TREE_PATH)/$c/acpica/source/include -I$(TREE_PATH)/frigg/inclu
 $c_CCFLAGS := $($c_INCLUDE)
 
 $c_CXX := x86_64-managarm-g++
-$c_CXXFLAGS := -std=c++11 -fno-rtti -fno-exceptions $($c_INCLUDE)
+$c_CXXFLAGS := -std=c++14 -fno-rtti -fno-exceptions $($c_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_LDFLAGS := -nostdlib

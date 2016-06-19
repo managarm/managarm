@@ -79,7 +79,7 @@ frigg::LazyInitializer<frigg::Vector<frigg::WeakPtr<Connection>, Allocator>> all
 
 void broadcastRegister(frigg::SharedPtr<Object> object) {
 	for(size_t i = 0; i < allConnections->size(); i++) {
-		frigg::SharedPtr<Connection> other((*allConnections)[i]);
+		frigg::SharedPtr<Connection> other = (*allConnections)[i].grab();
 		if(!other)
 			continue;
 		if(other.get() == object->connection.get())
@@ -219,7 +219,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 					matching = false;
 			}
 			if(matching) {
-				found = frigg::SharedPtr<Object>(object);
+				found = object.toShared();
 				break;
 			}
 		}

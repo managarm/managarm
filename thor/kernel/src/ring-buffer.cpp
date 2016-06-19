@@ -28,32 +28,33 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 
 		__atomic_add_fetch(&front.spaceLock->refCount, 1, __ATOMIC_RELEASE);
 
-		frigg::SharedPtr<AddressSpace> space(front.spaceLock.space());
+		frigg::UnsafePtr<AddressSpace> space = front.spaceLock.space();
 		auto address = (char *)front.spaceLock.foreignAddress() + sizeof(HelRingBuffer) + offset;
-		auto data_lock = ForeignSpaceLock::acquire(frigg::move(space), address,
+		auto data_lock = ForeignSpaceLock::acquire(space.toShared(), address,
 				send->kernelBuffer.size());
 		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 
+			assert(!"Fix ring buffer events");
 		{ // post the send event
-			UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
+/*			UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
 		
-			frigg::SharedPtr<EventHub> recv_hub(send->eventHub);
-			EventHub::Guard hub_guard(&recv_hub->lock);
-			recv_hub->raiseEvent(hub_guard, frigg::move(event));
-			hub_guard.unlock();
+			frigg::SharedPtr<EventHub> event_hub(send->eventHub);
+			EventHub::Guard hub_guard(&event_hub->lock);
+			event_hub->raiseEvent(hub_guard, frigg::move(event));
+			hub_guard.unlock();*/
 		}
-
-		{ // post the receive event
-			UserEvent event(UserEvent::kTypeRecvStringTransferToQueue, recv->submitInfo);
+		// post the receive event
+		{
+/*			UserEvent event(UserEvent::kTypeRecvStringTransferToQueue, recv->submitInfo);
 			event.length = send->kernelBuffer.size();
 			event.offset = offset;
 			event.msgRequest = send->msgRequest;
 			event.msgSequence = send->msgSequence;
 		
-			frigg::SharedPtr<EventHub> recv_hub(recv->eventHub);
-			EventHub::Guard hub_guard(&recv_hub->lock);
-			recv_hub->raiseEvent(hub_guard, frigg::move(event));
-			hub_guard.unlock();
+			frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
+			assert(event_hub);
+			EventHub::Guard hub_guard(&event_hub->lock);
+			event_hub->raiseEvent(hub_guard, frigg::move(recv));*/
 		}
 	}else{
 		assert(!"TODO: Return the buffer to user-space");

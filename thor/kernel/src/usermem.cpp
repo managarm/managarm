@@ -99,7 +99,7 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			void *restore_state = __builtin_alloca(getStateSize());
 			if(forkState(restore_state)) {
 				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-				waitQueue.addBack(frigg::SharedPtr<Thread>(this_thread));
+				waitQueue.addBack(this_thread.toShared());
 				
 				resetCurrentThread(restore_state);
 				ScheduleGuard schedule_guard(scheduleLock.get());
@@ -237,7 +237,8 @@ void Memory::performLoad(ProcessRequest *process_request, LoadOrder *load_order)
 	user_event.length = load_order->size;
 
 	EventHub::Guard hub_guard(&process_request->eventHub->lock);
-	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	assert(!"Fix memory load event");
+//	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
 	hub_guard.unlock();
 }
 
@@ -259,7 +260,8 @@ void Memory::performLock(LockRequest *lock_request) {
 	UserEvent user_event(UserEvent::kTypeMemoryLock, lock_request->submitInfo);
 
 	EventHub::Guard hub_guard(&lock_request->eventHub->lock);
-	lock_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
+	assert(!"Fix memory lock event");
+//	lock_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
 	hub_guard.unlock();
 }
 
@@ -338,7 +340,7 @@ void AddressSpace::map(Guard &guard,
 	assert(mapping != nullptr);
 
 	mapping->type = Mapping::kTypeMemory;
-	mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
+	mapping->memoryRegion = memory.toShared();
 	mapping->memoryOffset = offset;
 
 	uint32_t page_flags = 0;
@@ -652,7 +654,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
 		
-		dest_mapping->memoryRegion = KernelSharedPtr<Memory>(memory);
+		dest_mapping->memoryRegion = memory.toShared();
 		dest_mapping->memoryOffset = mapping->memoryOffset;
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
@@ -670,7 +672,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		// create a copy-on-write region for the original space
 		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
 		src_memory->resize(memory->numPages());
-		src_memory->master = KernelSharedPtr<Memory>(memory);
+		src_memory->master = memory.toShared();
 		mapping->memoryRegion = frigg::move(src_memory);
 		
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
@@ -689,7 +691,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		// create a copy-on-write region for the forked space
 		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
 		dest_memory->resize(memory->numPages());
-		dest_memory->master = KernelSharedPtr<Memory>(memory);
+		dest_memory->master = memory.toShared();
 		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		
 		for(size_t page = 0; page < mapping->length; page += kPageSize) {

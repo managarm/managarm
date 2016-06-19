@@ -144,7 +144,7 @@ void MountPoint::openMounted(StdUnsafePtr<Process> process,
 
 		frigg::WeakPtr<Terminal> *entry = openTerminals.get(*number);
 		assert(entry);
-		frigg::SharedPtr<Terminal> terminal(*entry);
+		frigg::SharedPtr<Terminal> terminal = entry->grab();
 		assert(terminal);
 
 		auto slave = frigg::makeShared<Slave>(*allocator, frigg::move(terminal));

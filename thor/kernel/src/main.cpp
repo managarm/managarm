@@ -165,7 +165,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	thread->flags |= Thread::kFlagExclusive;
 	
 	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
-	ThreadGroup::addThreadToGroup(frigg::move(group), KernelWeakPtr<Thread>(thread));
+	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
 
 	// FIXME: do not heap-allocate the state structs
 	void *state = kernelAlloc->allocate(getStateSize());
