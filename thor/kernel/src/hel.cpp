@@ -726,109 +726,48 @@ HelError helWaitForEvents(HelHandle handle,
 		if(!event_hub->hasEvent(hub_guard))
 			break;
 		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
-		UserEvent event = operation->getEvent();
+		AsyncEvent event = operation->getEvent();
 
-		HelEvent *user_evt = &user_list[count];
+		int type;
 		switch(event.type) {
-		case UserEvent::kTypeMemoryLoad: {
-			user_evt->type = kHelEventLoadMemory;
-			user_evt->error = kHelErrNone;
-			user_evt->offset = event.offset;
-			user_evt->length = event.length;
-		} break;
-		case UserEvent::kTypeMemoryLock: {
-			user_evt->type = kHelEventLockMemory;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeJoin: {
-			user_evt->type = kHelEventJoin;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeError: {
-			user_evt->type = kHelEventRecvString;
-
-			switch(event.error) {
-			case kErrPipeClosed:
-				user_evt->error = kHelErrPipeClosed;
-				break;
-			case kErrBufferTooSmall:
-				user_evt->error = kHelErrBufferTooSmall;
-				break;
-			default:
-				assert(!"Unexpected error");
-			}
-		} break;
-		case UserEvent::kTypeSendString: {
-			infoLogger->log() << "Event: kHelEventSendString" << frigg::EndLog();
-			user_evt->type = kHelEventSendString;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeSendDescriptor: {
-			infoLogger->log() << "Event: kHelEventSendDescriptor" << frigg::EndLog();
-			user_evt->type = kHelEventSendDescriptor;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeRecvStringTransferToBuffer: {
-			user_evt->type = kHelEventRecvString;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			user_evt->length = event.length;
-		} break;
-		case UserEvent::kTypeRecvStringTransferToQueue: {
-			user_evt->type = kHelEventRecvStringToQueue;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			user_evt->length = event.length;
-			user_evt->offset = event.offset;
-		} break;
-		case UserEvent::kTypeRecvDescriptor: {
-			user_evt->type = kHelEventRecvDescriptor;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			
-			{
-				Universe::Guard universe_guard(&universe->lock);
-
-				user_evt->handle = universe->attachDescriptor(universe_guard,
-						AnyDescriptor(frigg::move(event.descriptor)));
-			}
-		} break;
-		case UserEvent::kTypeAccept: {
-			user_evt->type = kHelEventAccept;
-			user_evt->error = kHelErrNone;
-
-			{
-				Universe::Guard universe_guard(&universe->lock);
-
-				user_evt->handle = universe->attachDescriptor(universe_guard,
-						EndpointDescriptor(frigg::move(event.endpoint)));
-			}
-		} break;
-		case UserEvent::kTypeConnect: {
-			user_evt->type = kHelEventConnect;
-			user_evt->error = kHelErrNone;
-
-			{
-				Universe::Guard universe_guard(&universe->lock);
-
-				user_evt->handle = universe->attachDescriptor(universe_guard,
-						EndpointDescriptor(frigg::move(event.endpoint)));
-			}
-		} break;
-		case UserEvent::kTypeIrq: {
-			user_evt->type = kHelEventIrq;
-			user_evt->error = kHelErrNone;
-		} break;
+		case kEventMemoryLoad: type = kHelEventLoadMemory; break;
+		case kEventMemoryLock: type = kHelEventLockMemory; break;
+		case kEventJoin: type = kHelEventJoin; break;
+		case kEventSendString: type = kHelEventSendString; break;
+		case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
+		case kEventRecvString: type = kHelEventRecvString; break;
+		case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
+		case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
+		case kEventAccept: type = kHelEventAccept; break;
+		case kEventConnect: type = kHelEventConnect; break;
+		case kEventIrq: type = kHelEventIrq; break;
 		default:
-			assert(!"Illegal event type");
+			assert(!"Unexpected event type");
+			__builtin_unreachable();
 		}
 
-		user_evt->asyncId = event.submitInfo.asyncId;
-		user_evt->submitFunction = event.submitInfo.submitFunction;
-		user_evt->submitObject = event.submitInfo.submitObject;
+		HelError error;
+		switch(event.error) {
+		case kErrSuccess: error = kHelErrNone; break;
+		case kErrPipeClosed: error = kHelErrPipeClosed; break;
+		case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
+		default:
+			assert(!"Unexpected error");
+			__builtin_unreachable();
+		}
+
+		auto accessor = DirectSelfAccessor<HelEvent>::acquire(&user_list[count]);
+		accessor->type = type;
+		accessor->error = error;
+		accessor->asyncId = event.submitInfo.asyncId;
+		accessor->submitFunction = event.submitInfo.submitFunction;
+		accessor->submitObject = event.submitInfo.submitObject;
+
+		accessor->msgRequest = event.msgRequest;
+		accessor->msgSequence = event.msgSequence;
+		accessor->offset = event.offset;
+		accessor->length = event.length;
+		accessor->handle = event.handle;
 	}
 	hub_guard.unlock();
 
@@ -965,7 +904,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			frigg::move(data), kMsgString, msg_request, msg_sequence);
+			frigg::move(data), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->kernelBuffer = frigg::move(kernel_buffer);
 	
@@ -979,7 +918,6 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	infoLogger->log() << "submitSendString()" << frigg::EndLog();
 	return kHelErrNone;
 }
 
@@ -1036,8 +974,8 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			frigg::move(data), kMsgDescriptor, msg_request, msg_sequence);
+	auto send = frigg::makeShared<AsyncSendDescriptor>(*kernelAlloc,
+			frigg::move(data), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->descriptor = frigg::move(send_descriptor);
 
@@ -1051,7 +989,6 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 		return kHelErrPipeClosed;
 
 	assert(error == kErrSuccess);
-	infoLogger->log() << "submitSendDescriptor()" << frigg::EndLog();
 	return kHelErrNone;
 }
 
@@ -1105,7 +1042,7 @@ HelError helSubmitRecvString(HelHandle handle,
 	*async_id = data.asyncId;
 
 	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
-			kMsgStringToBuffer, filter_request, filter_sequence);
+			AsyncRecvString::kTypeNormal, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
 
@@ -1175,7 +1112,7 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	*async_id = data.asyncId;
 
 	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
-			kMsgStringToRing, filter_request, filter_sequence);
+			AsyncRecvString::kTypeToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
 	
@@ -1236,8 +1173,8 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
-			kMsgDescriptor, filter_request, filter_sequence);
+	auto recv = frigg::makeShared<AsyncRecvDescriptor>(*kernelAlloc, frigg::move(data),
+			universe.toWeak(), filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
 	Channel::Guard channel_guard(&channel.lock);
@@ -1297,7 +1234,8 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc, frigg::move(data));
+	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc,
+			frigg::move(data), universe.toWeak());
 	{
 		Server::Guard server_guard(&server->lock);
 		server->submitAccept(server_guard, frigg::move(request));
@@ -1334,7 +1272,8 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc, frigg::move(data));
+	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc,
+			frigg::move(data), universe.toWeak());
 	{
 		Server::Guard server_guard(&server->lock);
 		server->submitConnect(server_guard, frigg::move(request));

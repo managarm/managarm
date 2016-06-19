@@ -4,28 +4,75 @@
 namespace thor {
 
 // --------------------------------------------------------
-// UserEvent
+// AsyncEvent
 // --------------------------------------------------------
 
-UserEvent::UserEvent(Type type, SubmitInfo submit_info)
+AsyncEvent::AsyncEvent(EventType type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
-UserEvent AsyncSendString::getEvent() {
-	UserEvent event(UserEvent::kTypeSendDescriptor, submitInfo);
+AsyncEvent AsyncSendString::getEvent() {
+	AsyncEvent event(kEventSendString, submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncRecvString::getEvent() {
-	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
-	event.error = error;
-	event.msgRequest = msgRequest;
-	event.msgSequence = msgSequence;
-	event.descriptor = frigg::move(descriptor);
+AsyncEvent AsyncSendDescriptor::getEvent() {
+	AsyncEvent event(kEventSendDescriptor, submitInfo);
+	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncAccept::getEvent() { assert(false); }
-UserEvent AsyncConnect::getEvent() { assert(false); }
-UserEvent AsyncRingItem::getEvent() { assert(false); }
+AsyncEvent AsyncRecvString::getEvent() {
+	if(type == kTypeNormal) {
+		AsyncEvent event(kEventRecvString, submitInfo);
+		event.error = error;
+		event.msgRequest = msgRequest;
+		event.msgSequence = msgSequence;
+		event.length = length;
+		return event;
+	}else{
+		assert(type == kTypeToRing);
+		
+		AsyncEvent event(kEventRecvStringToRing, submitInfo);
+		event.error = error;
+		event.msgRequest = msgRequest;
+		event.msgSequence = msgSequence;
+		event.offset = offset;
+		event.length = length;
+		return event;
+	}
+}
+AsyncEvent AsyncRecvDescriptor::getEvent() {
+	AsyncEvent event(kEventRecvDescriptor, submitInfo);
+	event.error = kErrSuccess;
+	event.msgRequest = msgRequest;
+	event.msgSequence = msgSequence;
+	event.handle = handle;
+	return event;
+}
+AsyncEvent AsyncAccept::getEvent() {
+	AsyncEvent event(kEventAccept, submitInfo);
+	event.error = kErrSuccess;
+	event.handle = handle;
+	return event;
+}
+AsyncEvent AsyncConnect::getEvent() {
+	AsyncEvent event(kEventConnect, submitInfo);
+	event.error = kErrSuccess;
+	event.handle = handle;
+	return event;
+}
+AsyncEvent AsyncRingItem::getEvent() { assert(false); }
+
+// --------------------------------------------------------
+// AsyncOperation
+// --------------------------------------------------------
+
+void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
+	frigg::SharedPtr<EventHub> event_hub = operation->eventHub.grab();
+	assert(event_hub);
+
+	EventHub::Guard hub_guard(&event_hub->lock);
+	event_hub->raiseEvent(hub_guard, frigg::move(operation));
+}
 
 // --------------------------------------------------------
 // EventHub

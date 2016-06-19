@@ -1,55 +1,52 @@
 
 namespace thor {
+	
+enum EventType {
+	kEventNone,
+	kEventMemoryLoad,
+	kEventMemoryLock,
+	kEventJoin,
+	kEventSendString,
+	kEventSendDescriptor,
+	kEventRecvString,
+	kEventRecvStringToRing,
+	kEventRecvDescriptor,
+	kEventAccept,
+	kEventConnect,
+	kEventIrq
+};
 
-struct UserEvent {
-	enum Type {
-		kTypeNone,
-		kTypeError,
-		kTypeMemoryLoad,
-		kTypeMemoryLock,
-		kTypeJoin,
-		kTypeSendString,
-		kTypeSendDescriptor,
-		// TODO: use only a single kTypeRecvString
-		kTypeRecvStringTransferToBuffer,
-		kTypeRecvStringTransferToQueue,
-		kTypeRecvDescriptor,
-		kTypeAccept,
-		kTypeConnect,
-		kTypeIrq
-	};
+struct AsyncEvent {
+	AsyncEvent(EventType type, SubmitInfo submit_info);
 
-	UserEvent(Type type, SubmitInfo submit_info);
-
-	Type type;
+	EventType type;
 	SubmitInfo submitInfo;
 
-	// used by kTypeRecvStringError
+	// used by kEventRecvStringError
 	Error error;
 
-	// used by kTypeMemoryLoad, kTypeRecvStringTransferToBuffer
-	// and kTypeRecvStringTransferToQueue
+	// used by kEventMemoryLoad, kEventRecvStringTransferToBuffer
+	// and kEventRecvStringTransferToQueue
 	size_t offset;
 	size_t length;
 	
-	// used by kTypeRecvStringTransferToBuffer, kTypeRecvStringTransferToQueue
-	// and kTypeRecvDescriptor
+	// used by kEventRecvStringTransferToBuffer, kEventRecvStringTransferToQueue
+	// and kEventRecvDescriptor
 	int64_t msgRequest;
 	int64_t msgSequence;
 
-	// used by kTypeAccept, kTypeConnect
-	KernelSharedPtr<Endpoint> endpoint;
-
-	// used by kTypeRecvDescriptor
-	AnyDescriptor descriptor;
+	// used by kEventRecvDescriptor, kEventAccept, kEventConnect
+	Handle handle;
 };
 
 struct AsyncOperation {
+	static void complete(frigg::SharedPtr<AsyncOperation> operation);
+
 	AsyncOperation(AsyncData data)
 	: eventHub(frigg::move(data.eventHub)),
 		submitInfo(data.asyncId, data.submitFunction, data.submitObject) { }
 
-	virtual UserEvent getEvent() = 0;
+	virtual AsyncEvent getEvent() = 0;
 
 	frigg::WeakPtr<EventHub> eventHub;
 	SubmitInfo submitInfo;
@@ -57,83 +54,121 @@ struct AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
-// TODO: clean this up; split this into Send/Recv type
-enum MsgType {
-	kMsgNone,
-	kMsgString,
-	kMsgStringToBuffer,
-	kMsgStringToRing,
-	kMsgDescriptor
-};
-
 struct AsyncSendString : public AsyncOperation {
-	AsyncSendString(AsyncData data, MsgType type,
-			int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(data)), type(type),
-			msgRequest(msg_request), msgSequence(msg_sequence), flags(0) { }
+	AsyncSendString(AsyncData data, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+			flags(0) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
-	MsgType type;
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
-	AnyDescriptor descriptor;
 	int64_t msgRequest;
 	int64_t msgSequence;
 	uint32_t flags;
 
-	frigg::IntrusiveSharedLinkedItem<AsyncSendString> sendItem;
+	frigg::IntrusiveSharedLinkedItem<AsyncSendString> processQueueItem;
+};
+
+struct AsyncSendDescriptor : public AsyncOperation {
+	AsyncSendDescriptor(AsyncData data, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+			flags(0) { }
+	
+	AsyncEvent getEvent() override;
+	
+	AnyDescriptor descriptor;
+	int64_t msgRequest;
+	int64_t msgSequence;
+	uint32_t flags;
+	
+
+	frigg::IntrusiveSharedLinkedItem<AsyncSendDescriptor> processQueueItem;
 };
 
 struct AsyncRecvString : public AsyncOperation {
-	AsyncRecvString(AsyncData data, MsgType type,
+	enum Type {
+		kTypeNormal,
+		kTypeToRing
+	};
+
+	AsyncRecvString(AsyncData data, Type type,
 			int64_t filter_request, int64_t filter_sequence)
 	: AsyncOperation(frigg::move(data)), type(type),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
-	MsgType type;
+	Type type;
 	int64_t filterRequest;
 	int64_t filterSequence;
 	uint32_t flags;
 	
-	// used by kMsgStringToBuffer
+	// used by kTypeNormal
 	ForeignSpaceLock spaceLock;
 	
-	// used by kMsgStringToRing
+	// used by kTypeToRing
 	frigg::SharedPtr<RingBuffer> ringBuffer;
 	
-	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> recvItem;
+	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> processQueueItem;
 
 	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
-	AnyDescriptor descriptor;
+	size_t offset;
+	size_t length;
+};
+
+struct AsyncRecvDescriptor : public AsyncOperation {
+	AsyncRecvDescriptor(AsyncData data, frigg::WeakPtr<Universe> universe,
+			int64_t filter_request, int64_t filter_sequence)
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)),
+			filterRequest(filter_request), filterSequence(filter_sequence) { }
+	
+	AsyncEvent getEvent() override;
+	
+	frigg::WeakPtr<Universe> universe;
+	int64_t filterRequest;
+	int64_t filterSequence;
+	uint32_t flags;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncRecvDescriptor> processQueueItem;
+
+	int64_t msgRequest;
+	int64_t msgSequence;
+	Handle handle;
 };
 
 struct AsyncAccept : public AsyncOperation {
-	AsyncAccept(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncAccept(AsyncData data, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
+	
+	frigg::WeakPtr<Universe> universe;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncAccept> processItem;
+
+	Handle handle;
 };
 
 struct AsyncConnect : public AsyncOperation {
-	AsyncConnect(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncConnect(AsyncData data, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
+	
+	frigg::WeakPtr<Universe> universe;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncConnect> processItem;
+
+	Handle handle;
 };
 
 struct AsyncRingItem : public AsyncOperation {
 	AsyncRingItem(AsyncData data, DirectSpaceLock<HelRingBuffer> space_lock,
 			size_t buffer_size);
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 
 	DirectSpaceLock<HelRingBuffer> spaceLock;
 	size_t bufferSize;

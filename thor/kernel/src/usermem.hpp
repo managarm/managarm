@@ -373,8 +373,51 @@ private:
 	size_t _length;
 };
 
-struct OwnSpaceLock {
+template<typename T>
+struct DirectSelfAccessor {
+	static DirectSelfAccessor acquire(T *address) {
+		// TODO: actually lock the memory + make sure the memory is mapped as writeable
+		// TODO: return an empty lock if the acquire fails
+		return DirectSelfAccessor(address);
+	}
 
+	friend void swap(DirectSelfAccessor &a, DirectSelfAccessor &b) {
+		frigg::swap(a._address, b._address);
+	}
+
+	DirectSelfAccessor()
+	: _address(nullptr) { }
+
+	DirectSelfAccessor(const DirectSelfAccessor &other) = delete;
+
+	DirectSelfAccessor(DirectSelfAccessor &&other)
+	: DirectSelfAccessor() {
+		swap(*this, other);
+	}
+	
+	DirectSelfAccessor &operator= (DirectSelfAccessor other) {
+		swap(*this, other);
+		return *this;
+	}
+	
+	T *get() {
+		assert(_address);
+		return _address;
+	}
+
+	T &operator* () {
+		return *get();
+	}
+	T *operator-> () {
+		return get();
+	}
+
+private:
+	DirectSelfAccessor(T *address)
+	: _address(address) { }
+
+	frigg::SharedPtr<AddressSpace> _space;
+	T *_address;
 };
 
 } // namespace thor
