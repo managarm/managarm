@@ -10,13 +10,24 @@ namespace thor {
 UserEvent::UserEvent(Type type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
-UserEvent AsyncSendString::getEvent() { assert(false); }
+UserEvent AsyncSendString::getEvent() {
+	UserEvent event(UserEvent::kTypeSendString, submitInfo);
+	event.error = kErrSuccess;
+	return event;
+}
 UserEvent AsyncSendDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeSendDescriptor, submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncRecvString::getEvent() { assert(false); }
+UserEvent AsyncRecvString::getEvent() {
+	UserEvent event(UserEvent::kTypeRecvString, submitInfo);
+	event.error = error;
+	event.msgRequest = msgRequest;
+	event.msgSequence = msgSequence;
+	event.length = length;
+	return event;
+}
 UserEvent AsyncRecvDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
 	event.error = error;
@@ -25,8 +36,18 @@ UserEvent AsyncRecvDescriptor::getEvent() {
 	event.handle = handle;
 	return event;
 }
-UserEvent AsyncAccept::getEvent() { assert(false); }
-UserEvent AsyncConnect::getEvent() { assert(false); }
+UserEvent AsyncAccept::getEvent() {
+	UserEvent event(UserEvent::kTypeAccept, submitInfo);
+	event.error = kErrSuccess;
+	event.handle = handle;
+	return event;
+}
+UserEvent AsyncConnect::getEvent() {
+	UserEvent event(UserEvent::kTypeConnect, submitInfo);
+	event.error = kErrSuccess;
+	event.handle = handle;
+	return event;
+}
 UserEvent AsyncRingItem::getEvent() { assert(false); }
 
 // --------------------------------------------------------

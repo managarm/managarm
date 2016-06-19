@@ -10,9 +10,8 @@ struct UserEvent {
 		kTypeJoin,
 		kTypeSendString,
 		kTypeSendDescriptor,
-		// TODO: use only a single kTypeRecvString
-		kTypeRecvStringTransferToBuffer,
-		kTypeRecvStringTransferToQueue,
+		kTypeRecvString,
+		kTypeRecvStringToQueue,
 		kTypeRecvDescriptor,
 		kTypeAccept,
 		kTypeConnect,
@@ -37,10 +36,7 @@ struct UserEvent {
 	int64_t msgRequest;
 	int64_t msgSequence;
 
-	// used by kTypeAccept, kTypeConnect
-	KernelSharedPtr<Endpoint> endpoint;
-
-	// used by kTypeRecvDescriptor
+	// used by kTypeRecvDescriptor, kTypeAccept, kTypeConnect
 	Handle handle;
 };
 
@@ -127,6 +123,7 @@ struct AsyncRecvString : public AsyncOperation {
 	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
+	size_t length;
 };
 
 struct AsyncRecvDescriptor : public AsyncOperation {
@@ -151,21 +148,29 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 };
 
 struct AsyncAccept : public AsyncOperation {
-	AsyncAccept(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncAccept(AsyncData data, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
 	UserEvent getEvent() override;
 	
+	frigg::WeakPtr<Universe> universe;
+	
 	frigg::IntrusiveSharedLinkedItem<AsyncAccept> processItem;
+
+	Handle handle;
 };
 
 struct AsyncConnect : public AsyncOperation {
-	AsyncConnect(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncConnect(AsyncData data, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
 	UserEvent getEvent() override;
 	
+	frigg::WeakPtr<Universe> universe;
+	
 	frigg::IntrusiveSharedLinkedItem<AsyncConnect> processItem;
+
+	Handle handle;
 };
 
 struct AsyncRingItem : public AsyncOperation {

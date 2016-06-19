@@ -164,27 +164,13 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			// perform the actual data transfer
 			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 			
-			assert(!"Fix send/recv string");
-			{ // post the send event
-/*				UserEvent event(UserEvent::kTypeSendString, send->submitInfo);
-			
-				frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
-				assert(event_hub);
-				EventHub::Guard hub_guard(&event_hub->lock);
-				event_hub->raiseEvent(hub_guard, frigg::move(event));*/
-			}
+			recv->error = kErrSuccess;
+			recv->msgRequest = send->msgRequest;
+			recv->msgSequence = send->msgSequence;
+			recv->length = send->kernelBuffer.size();
 
-			{ // post the receive event
-/*				UserEvent event(UserEvent::kTypeRecvStringTransferToBuffer, recv->submitInfo);
-				event.length = send->kernelBuffer.size();
-				event.msgRequest = send->msgRequest;
-				event.msgSequence = send->msgSequence;
-			
-				frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
-				assert(event_hub);
-				EventHub::Guard hub_guard(&event_hub->lock);
-				event_hub->raiseEvent(hub_guard, frigg::move(event));*/
-			}
+			AsyncOperation::complete(frigg::move(send));
+			AsyncOperation::complete(frigg::move(recv));
 			return true;
 		}else{
 			// post the error event
@@ -306,26 +292,24 @@ void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 	KernelSharedPtr<Endpoint> end1, end2;
 	FullPipe::create(pipe, end1, end2);
 
-	assert(!"Fix accept/connect");
-	{ // post the accept event
-/*		UserEvent event(UserEvent::kTypeAccept, accept->submitInfo);
-		event.endpoint = frigg::move(end1);
-
-		frigg::SharedPtr<EventHub> event_hub = accept->eventHub.grab();
-		assert(event_hub);
-		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));*/
+	frigg::SharedPtr<Universe> accept_universe = accept->universe.grab();
+	assert(accept_universe);
+	{
+		Universe::Guard universe_guard(&accept_universe->lock);
+		accept->handle = accept_universe->attachDescriptor(universe_guard,
+				EndpointDescriptor(frigg::move(end1)));
+	}
+	
+	frigg::SharedPtr<Universe> connect_universe = connect->universe.grab();
+	assert(connect_universe);
+	{
+		Universe::Guard universe_guard(&connect_universe->lock);
+		connect->handle = connect_universe->attachDescriptor(universe_guard,
+				EndpointDescriptor(frigg::move(end2)));
 	}
 
-	{ // post the connect event
-/*		UserEvent event(UserEvent::kTypeConnect, connect->submitInfo);
-		event.endpoint = frigg::move(end2);
-		
-		frigg::SharedPtr<EventHub> event_hub = connect->eventHub.grab();
-		assert(event_hub);
-		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));*/
-	}
+	AsyncOperation::complete(frigg::move(accept));
+	AsyncOperation::complete(frigg::move(connect));
 }
 
 } // namespace thor
