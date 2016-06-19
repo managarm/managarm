@@ -232,7 +232,7 @@ void Memory::loadMemory(uintptr_t offset, size_t size) {
 }
 
 void Memory::performLoad(ProcessRequest *process_request, LoadOrder *load_order) {
-	UserEvent user_event(UserEvent::kTypeMemoryLoad, process_request->submitInfo);
+	AsyncEvent user_event(kEventMemoryLoad, process_request->submitInfo);
 	user_event.offset = load_order->offset;
 	user_event.length = load_order->size;
 
@@ -257,7 +257,7 @@ bool Memory::checkLock(LockRequest *lock_request) {
 }
 
 void Memory::performLock(LockRequest *lock_request) {
-	UserEvent user_event(UserEvent::kTypeMemoryLock, lock_request->submitInfo);
+	AsyncEvent user_event(kEventMemoryLock, lock_request->submitInfo);
 
 	EventHub::Guard hub_guard(&lock_request->eventHub->lock);
 	assert(!"Fix memory lock event");

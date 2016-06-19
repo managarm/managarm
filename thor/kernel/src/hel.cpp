@@ -726,21 +726,21 @@ HelError helWaitForEvents(HelHandle handle,
 		if(!event_hub->hasEvent(hub_guard))
 			break;
 		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
-		UserEvent event = operation->getEvent();
+		AsyncEvent event = operation->getEvent();
 
 		int type;
 		switch(event.type) {
-		case UserEvent::kTypeMemoryLoad: type = kHelEventLoadMemory; break;
-		case UserEvent::kTypeMemoryLock: type = kHelEventLockMemory; break;
-		case UserEvent::kTypeJoin: type = kHelEventJoin; break;
-		case UserEvent::kTypeSendString: type = kHelEventSendString; break;
-		case UserEvent::kTypeSendDescriptor: type = kHelEventSendDescriptor; break;
-		case UserEvent::kTypeRecvString: type = kHelEventRecvString; break;
-		case UserEvent::kTypeRecvStringToRing: type = kHelEventRecvStringToQueue; break;
-		case UserEvent::kTypeRecvDescriptor: type = kHelEventRecvDescriptor; break;
-		case UserEvent::kTypeAccept: type = kHelEventAccept; break;
-		case UserEvent::kTypeConnect: type = kHelEventConnect; break;
-		case UserEvent::kTypeIrq: type = kHelEventIrq; break;
+		case kEventMemoryLoad: type = kHelEventLoadMemory; break;
+		case kEventMemoryLock: type = kHelEventLockMemory; break;
+		case kEventJoin: type = kHelEventJoin; break;
+		case kEventSendString: type = kHelEventSendString; break;
+		case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
+		case kEventRecvString: type = kHelEventRecvString; break;
+		case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
+		case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
+		case kEventAccept: type = kHelEventAccept; break;
+		case kEventConnect: type = kHelEventConnect; break;
+		case kEventIrq: type = kHelEventIrq; break;
 		default:
 			assert(!"Unexpected event type");
 			__builtin_unreachable();

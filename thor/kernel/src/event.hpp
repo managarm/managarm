@@ -1,41 +1,41 @@
 
 namespace thor {
+	
+enum EventType {
+	kEventNone,
+	kEventMemoryLoad,
+	kEventMemoryLock,
+	kEventJoin,
+	kEventSendString,
+	kEventSendDescriptor,
+	kEventRecvString,
+	kEventRecvStringToRing,
+	kEventRecvDescriptor,
+	kEventAccept,
+	kEventConnect,
+	kEventIrq
+};
 
-struct UserEvent {
-	enum Type {
-		kTypeNone,
-		kTypeMemoryLoad,
-		kTypeMemoryLock,
-		kTypeJoin,
-		kTypeSendString,
-		kTypeSendDescriptor,
-		kTypeRecvString,
-		kTypeRecvStringToRing,
-		kTypeRecvDescriptor,
-		kTypeAccept,
-		kTypeConnect,
-		kTypeIrq
-	};
+struct AsyncEvent {
+	AsyncEvent(EventType type, SubmitInfo submit_info);
 
-	UserEvent(Type type, SubmitInfo submit_info);
-
-	Type type;
+	EventType type;
 	SubmitInfo submitInfo;
 
-	// used by kTypeRecvStringError
+	// used by kEventRecvStringError
 	Error error;
 
-	// used by kTypeMemoryLoad, kTypeRecvStringTransferToBuffer
-	// and kTypeRecvStringTransferToQueue
+	// used by kEventMemoryLoad, kEventRecvStringTransferToBuffer
+	// and kEventRecvStringTransferToQueue
 	size_t offset;
 	size_t length;
 	
-	// used by kTypeRecvStringTransferToBuffer, kTypeRecvStringTransferToQueue
-	// and kTypeRecvDescriptor
+	// used by kEventRecvStringTransferToBuffer, kEventRecvStringTransferToQueue
+	// and kEventRecvDescriptor
 	int64_t msgRequest;
 	int64_t msgSequence;
 
-	// used by kTypeRecvDescriptor, kTypeAccept, kTypeConnect
+	// used by kEventRecvDescriptor, kEventAccept, kEventConnect
 	Handle handle;
 };
 
@@ -46,7 +46,7 @@ struct AsyncOperation {
 	: eventHub(frigg::move(data.eventHub)),
 		submitInfo(data.asyncId, data.submitFunction, data.submitObject) { }
 
-	virtual UserEvent getEvent() = 0;
+	virtual AsyncEvent getEvent() = 0;
 
 	frigg::WeakPtr<EventHub> eventHub;
 	SubmitInfo submitInfo;
@@ -59,7 +59,7 @@ struct AsyncSendString : public AsyncOperation {
 	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
 			flags(0) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 	int64_t msgRequest;
@@ -74,7 +74,7 @@ struct AsyncSendDescriptor : public AsyncOperation {
 	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
 			flags(0) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	AnyDescriptor descriptor;
 	int64_t msgRequest;
@@ -96,7 +96,7 @@ struct AsyncRecvString : public AsyncOperation {
 	: AsyncOperation(frigg::move(data)), type(type),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	Type type;
 	int64_t filterRequest;
@@ -124,7 +124,7 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	frigg::WeakPtr<Universe> universe;
 	int64_t filterRequest;
@@ -142,7 +142,7 @@ struct AsyncAccept : public AsyncOperation {
 	AsyncAccept(AsyncData data, frigg::WeakPtr<Universe> universe)
 	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	frigg::WeakPtr<Universe> universe;
 	
@@ -155,7 +155,7 @@ struct AsyncConnect : public AsyncOperation {
 	AsyncConnect(AsyncData data, frigg::WeakPtr<Universe> universe)
 	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 	
 	frigg::WeakPtr<Universe> universe;
 	
@@ -168,7 +168,7 @@ struct AsyncRingItem : public AsyncOperation {
 	AsyncRingItem(AsyncData data, DirectSpaceLock<HelRingBuffer> space_lock,
 			size_t buffer_size);
 	
-	UserEvent getEvent() override;
+	AsyncEvent getEvent() override;
 
 	DirectSpaceLock<HelRingBuffer> spaceLock;
 	size_t bufferSize;

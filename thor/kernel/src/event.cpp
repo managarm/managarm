@@ -4,25 +4,25 @@
 namespace thor {
 
 // --------------------------------------------------------
-// UserEvent
+// AsyncEvent
 // --------------------------------------------------------
 
-UserEvent::UserEvent(Type type, SubmitInfo submit_info)
+AsyncEvent::AsyncEvent(EventType type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
-UserEvent AsyncSendString::getEvent() {
-	UserEvent event(UserEvent::kTypeSendString, submitInfo);
+AsyncEvent AsyncSendString::getEvent() {
+	AsyncEvent event(kEventSendString, submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncSendDescriptor::getEvent() {
-	UserEvent event(UserEvent::kTypeSendDescriptor, submitInfo);
+AsyncEvent AsyncSendDescriptor::getEvent() {
+	AsyncEvent event(kEventSendDescriptor, submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncRecvString::getEvent() {
+AsyncEvent AsyncRecvString::getEvent() {
 	if(type == kTypeNormal) {
-		UserEvent event(UserEvent::kTypeRecvString, submitInfo);
+		AsyncEvent event(kEventRecvString, submitInfo);
 		event.error = error;
 		event.msgRequest = msgRequest;
 		event.msgSequence = msgSequence;
@@ -31,7 +31,7 @@ UserEvent AsyncRecvString::getEvent() {
 	}else{
 		assert(type == kTypeToRing);
 		
-		UserEvent event(UserEvent::kTypeRecvStringToRing, submitInfo);
+		AsyncEvent event(kEventRecvStringToRing, submitInfo);
 		event.error = error;
 		event.msgRequest = msgRequest;
 		event.msgSequence = msgSequence;
@@ -40,27 +40,27 @@ UserEvent AsyncRecvString::getEvent() {
 		return event;
 	}
 }
-UserEvent AsyncRecvDescriptor::getEvent() {
-	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
+AsyncEvent AsyncRecvDescriptor::getEvent() {
+	AsyncEvent event(kEventRecvDescriptor, submitInfo);
 	event.error = kErrSuccess;
 	event.msgRequest = msgRequest;
 	event.msgSequence = msgSequence;
 	event.handle = handle;
 	return event;
 }
-UserEvent AsyncAccept::getEvent() {
-	UserEvent event(UserEvent::kTypeAccept, submitInfo);
+AsyncEvent AsyncAccept::getEvent() {
+	AsyncEvent event(kEventAccept, submitInfo);
 	event.error = kErrSuccess;
 	event.handle = handle;
 	return event;
 }
-UserEvent AsyncConnect::getEvent() {
-	UserEvent event(UserEvent::kTypeConnect, submitInfo);
+AsyncEvent AsyncConnect::getEvent() {
+	AsyncEvent event(kEventConnect, submitInfo);
 	event.error = kErrSuccess;
 	event.handle = handle;
 	return event;
 }
-UserEvent AsyncRingItem::getEvent() { assert(false); }
+AsyncEvent AsyncRingItem::getEvent() { assert(false); }
 
 // --------------------------------------------------------
 // AsyncOperation
