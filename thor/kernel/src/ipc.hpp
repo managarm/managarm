@@ -15,34 +15,46 @@ public:
 	Channel();
 
 	Error sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
-	Error sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
+	Error sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendDescriptor> send);
 	
 	Error submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
-	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
+	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvDescriptor> recv);
 	
 	void close(Guard &guard);
 
 	Lock lock;
 
 private:
-	bool matchRequest(frigg::UnsafePtr<AsyncSendString> send,
+	bool matchStringRequest(frigg::UnsafePtr<AsyncSendString> send,
 			frigg::UnsafePtr<AsyncRecvString> recv);
+	bool matchDescriptorRequest(frigg::UnsafePtr<AsyncSendDescriptor> send,
+			frigg::UnsafePtr<AsyncRecvDescriptor> recv);
 
 	// returns true if the message + request are consumed
 	bool processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			frigg::SharedPtr<AsyncRecvString> recv);
-	void processDescriptorRequest(frigg::SharedPtr<AsyncSendString> send,
-			frigg::SharedPtr<AsyncRecvString> recv);
+	void processDescriptorRequest(frigg::SharedPtr<AsyncSendDescriptor> send,
+			frigg::SharedPtr<AsyncRecvDescriptor> recv);
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncSendString,
-		&AsyncSendString::sendItem
-	> _sendQueue;
+		&AsyncSendString::processQueueItem
+	> _sendStringQueue;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncSendDescriptor,
+		&AsyncSendDescriptor::processQueueItem
+	> _sendDescriptorQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncRecvString,
-		&AsyncRecvString::recvItem
-	> _recvQueue;
+		&AsyncRecvString::processQueueItem
+	> _recvStringQueue;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncRecvDescriptor,
+		&AsyncRecvDescriptor::processQueueItem
+	> _recvDescriptorQueue;
 
 	bool _wasClosed;
 };

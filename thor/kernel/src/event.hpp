@@ -76,12 +76,28 @@ struct AsyncSendString : public AsyncOperation {
 	
 	MsgType type;
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
+	int64_t msgRequest;
+	int64_t msgSequence;
+	uint32_t flags;
+
+	frigg::IntrusiveSharedLinkedItem<AsyncSendString> processQueueItem;
+};
+
+struct AsyncSendDescriptor : public AsyncOperation {
+	AsyncSendDescriptor(AsyncData data, MsgType type,
+			int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(data)), type(type),
+			msgRequest(msg_request), msgSequence(msg_sequence), flags(0) { }
+	
+	UserEvent getEvent() override;
+	
+	MsgType type;
 	AnyDescriptor descriptor;
 	int64_t msgRequest;
 	int64_t msgSequence;
 	uint32_t flags;
 
-	frigg::IntrusiveSharedLinkedItem<AsyncSendString> sendItem;
+	frigg::IntrusiveSharedLinkedItem<AsyncSendDescriptor> processQueueItem;
 };
 
 struct AsyncRecvString : public AsyncOperation {
@@ -103,7 +119,27 @@ struct AsyncRecvString : public AsyncOperation {
 	// used by kMsgStringToRing
 	frigg::SharedPtr<RingBuffer> ringBuffer;
 	
-	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> recvItem;
+	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> processQueueItem;
+
+	Error error;
+	int64_t msgRequest;
+	int64_t msgSequence;
+};
+
+struct AsyncRecvDescriptor : public AsyncOperation {
+	AsyncRecvDescriptor(AsyncData data, MsgType type,
+			int64_t filter_request, int64_t filter_sequence)
+	: AsyncOperation(frigg::move(data)), type(type),
+			filterRequest(filter_request), filterSequence(filter_sequence) { }
+	
+	UserEvent getEvent() override;
+	
+	MsgType type;
+	int64_t filterRequest;
+	int64_t filterSequence;
+	uint32_t flags;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncRecvDescriptor> processQueueItem;
 
 	Error error;
 	int64_t msgRequest;

@@ -1036,7 +1036,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
+	auto send = frigg::makeShared<AsyncSendDescriptor>(*kernelAlloc,
 			frigg::move(data), kMsgDescriptor, msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->descriptor = frigg::move(send_descriptor);
@@ -1236,7 +1236,7 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+	auto recv = frigg::makeShared<AsyncRecvDescriptor>(*kernelAlloc, frigg::move(data),
 			kMsgDescriptor, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	

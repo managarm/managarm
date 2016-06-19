@@ -10,12 +10,14 @@ namespace thor {
 UserEvent::UserEvent(Type type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
-UserEvent AsyncSendString::getEvent() {
+UserEvent AsyncSendString::getEvent() { assert(false); }
+UserEvent AsyncSendDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeSendDescriptor, submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
-UserEvent AsyncRecvString::getEvent() {
+UserEvent AsyncRecvString::getEvent() { assert(false); }
+UserEvent AsyncRecvDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
 	event.error = error;
 	event.msgRequest = msgRequest;
