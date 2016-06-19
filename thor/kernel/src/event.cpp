@@ -21,12 +21,24 @@ UserEvent AsyncSendDescriptor::getEvent() {
 	return event;
 }
 UserEvent AsyncRecvString::getEvent() {
-	UserEvent event(UserEvent::kTypeRecvString, submitInfo);
-	event.error = error;
-	event.msgRequest = msgRequest;
-	event.msgSequence = msgSequence;
-	event.length = length;
-	return event;
+	if(type == kTypeNormal) {
+		UserEvent event(UserEvent::kTypeRecvString, submitInfo);
+		event.error = error;
+		event.msgRequest = msgRequest;
+		event.msgSequence = msgSequence;
+		event.length = length;
+		return event;
+	}else{
+		assert(type == kTypeToRing);
+		
+		UserEvent event(UserEvent::kTypeRecvStringToRing, submitInfo);
+		event.error = error;
+		event.msgRequest = msgRequest;
+		event.msgSequence = msgSequence;
+		event.offset = offset;
+		event.length = length;
+		return event;
+	}
 }
 UserEvent AsyncRecvDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);

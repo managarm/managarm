@@ -159,7 +159,7 @@ bool Channel::matchDescriptorRequest(frigg::UnsafePtr<AsyncSendDescriptor> send,
 
 bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 		frigg::SharedPtr<AsyncRecvString> recv) {
-	if(recv->type == kMsgStringToBuffer) {
+	if(recv->type == AsyncRecvString::kTypeNormal) {
 		if(send->kernelBuffer.size() <= recv->spaceLock.length()) {
 			// perform the actual data transfer
 			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
@@ -186,7 +186,7 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			}
 			return false;
 		}
-	}else if(recv->type == kMsgStringToRing) {
+	}else if(recv->type == AsyncRecvString::kTypeToRing) {
 		// transfer the request to the ring buffer
 		frigg::SharedPtr<RingBuffer> ring_buffer(recv->ringBuffer);
 		ring_buffer->doTransfer(frigg::move(send), frigg::move(recv));

@@ -773,7 +773,7 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->msgSequence = event.msgSequence;
 			user_evt->length = event.length;
 		} break;
-		case UserEvent::kTypeRecvStringToQueue: {
+		case UserEvent::kTypeRecvStringToRing: {
 			user_evt->type = kHelEventRecvStringToQueue;
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
@@ -945,7 +945,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			frigg::move(data), kMsgString, msg_request, msg_sequence);
+			frigg::move(data), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->kernelBuffer = frigg::move(kernel_buffer);
 	
@@ -1016,7 +1016,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	*async_id = data.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendDescriptor>(*kernelAlloc,
-			frigg::move(data), kMsgDescriptor, msg_request, msg_sequence);
+			frigg::move(data), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->descriptor = frigg::move(send_descriptor);
 
@@ -1083,7 +1083,7 @@ HelError helSubmitRecvString(HelHandle handle,
 	*async_id = data.asyncId;
 
 	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
-			kMsgStringToBuffer, filter_request, filter_sequence);
+			AsyncRecvString::kTypeNormal, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
 
@@ -1153,7 +1153,7 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	*async_id = data.asyncId;
 
 	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
-			kMsgStringToRing, filter_request, filter_sequence);
+			AsyncRecvString::kTypeToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
 	

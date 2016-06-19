@@ -11,7 +11,7 @@ struct UserEvent {
 		kTypeSendString,
 		kTypeSendDescriptor,
 		kTypeRecvString,
-		kTypeRecvStringToQueue,
+		kTypeRecvStringToRing,
 		kTypeRecvDescriptor,
 		kTypeAccept,
 		kTypeConnect,
@@ -55,24 +55,13 @@ struct AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
-// TODO: clean this up; split this into Send/Recv type
-enum MsgType {
-	kMsgNone,
-	kMsgString,
-	kMsgStringToBuffer,
-	kMsgStringToRing,
-	kMsgDescriptor
-};
-
 struct AsyncSendString : public AsyncOperation {
-	AsyncSendString(AsyncData data, MsgType type,
-			int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(data)), type(type),
-			msgRequest(msg_request), msgSequence(msg_sequence), flags(0) { }
+	AsyncSendString(AsyncData data, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+			flags(0) { }
 	
 	UserEvent getEvent() override;
 	
-	MsgType type;
 	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
 	int64_t msgRequest;
 	int64_t msgSequence;
@@ -82,14 +71,12 @@ struct AsyncSendString : public AsyncOperation {
 };
 
 struct AsyncSendDescriptor : public AsyncOperation {
-	AsyncSendDescriptor(AsyncData data, MsgType type,
-			int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(data)), type(type),
-			msgRequest(msg_request), msgSequence(msg_sequence), flags(0) { }
+	AsyncSendDescriptor(AsyncData data, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+			flags(0) { }
 	
 	UserEvent getEvent() override;
 	
-	MsgType type;
 	AnyDescriptor descriptor;
 	int64_t msgRequest;
 	int64_t msgSequence;
@@ -100,22 +87,27 @@ struct AsyncSendDescriptor : public AsyncOperation {
 };
 
 struct AsyncRecvString : public AsyncOperation {
-	AsyncRecvString(AsyncData data, MsgType type,
+	enum Type {
+		kTypeNormal,
+		kTypeToRing
+	};
+
+	AsyncRecvString(AsyncData data, Type type,
 			int64_t filter_request, int64_t filter_sequence)
 	: AsyncOperation(frigg::move(data)), type(type),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
 	UserEvent getEvent() override;
 	
-	MsgType type;
+	Type type;
 	int64_t filterRequest;
 	int64_t filterSequence;
 	uint32_t flags;
 	
-	// used by kMsgStringToBuffer
+	// used by kTypeNormal
 	ForeignSpaceLock spaceLock;
 	
-	// used by kMsgStringToRing
+	// used by kTypeToRing
 	frigg::SharedPtr<RingBuffer> ringBuffer;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> processQueueItem;
@@ -123,6 +115,7 @@ struct AsyncRecvString : public AsyncOperation {
 	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
+	size_t offset;
 	size_t length;
 };
 
