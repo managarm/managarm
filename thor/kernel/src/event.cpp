@@ -30,6 +30,18 @@ UserEvent AsyncConnect::getEvent() { assert(false); }
 UserEvent AsyncRingItem::getEvent() { assert(false); }
 
 // --------------------------------------------------------
+// AsyncOperation
+// --------------------------------------------------------
+
+void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
+	frigg::SharedPtr<EventHub> event_hub = operation->eventHub.grab();
+	assert(event_hub);
+
+	EventHub::Guard hub_guard(&event_hub->lock);
+	event_hub->raiseEvent(hub_guard, frigg::move(operation));
+}
+
+// --------------------------------------------------------
 // EventHub
 // --------------------------------------------------------
 

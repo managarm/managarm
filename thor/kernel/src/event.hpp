@@ -45,6 +45,8 @@ struct UserEvent {
 };
 
 struct AsyncOperation {
+	static void complete(frigg::SharedPtr<AsyncOperation> operation);
+
 	AsyncOperation(AsyncData data)
 	: eventHub(frigg::move(data.eventHub)),
 		submitInfo(data.asyncId, data.submitFunction, data.submitObject) { }

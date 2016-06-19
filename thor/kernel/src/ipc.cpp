@@ -213,19 +213,8 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendDescriptor> sen
 	recv->msgSequence = send->msgSequence;
 	recv->descriptor = frigg::move(send->descriptor);
 
-	{ // post the send event
-		frigg::SharedPtr<EventHub> event_hub = send->eventHub.grab();
-		assert(event_hub);
-		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(send));
-	}
-	
-	{ // post the receive event
-		frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
-		assert(event_hub);
-		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(recv));
-	}
+	AsyncOperation::complete(frigg::move(send));
+	AsyncOperation::complete(frigg::move(recv));
 }
 
 // --------------------------------------------------------
