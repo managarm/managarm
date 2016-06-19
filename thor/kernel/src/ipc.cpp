@@ -209,7 +209,6 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendDescriptor> sen
 				frigg::move(send->descriptor));
 	}
 
-	recv->error = kErrSuccess;
 	recv->msgRequest = send->msgRequest;
 	recv->msgSequence = send->msgSequence;
 	recv->handle = handle;

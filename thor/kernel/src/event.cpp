@@ -42,7 +42,7 @@ UserEvent AsyncRecvString::getEvent() {
 }
 UserEvent AsyncRecvDescriptor::getEvent() {
 	UserEvent event(UserEvent::kTypeRecvDescriptor, submitInfo);
-	event.error = error;
+	event.error = kErrSuccess;
 	event.msgRequest = msgRequest;
 	event.msgSequence = msgSequence;
 	event.handle = handle;

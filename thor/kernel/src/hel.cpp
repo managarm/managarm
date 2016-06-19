@@ -728,87 +728,46 @@ HelError helWaitForEvents(HelHandle handle,
 		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
 		UserEvent event = operation->getEvent();
 
-		HelEvent *user_evt = &user_list[count];
+		int type;
 		switch(event.type) {
-		case UserEvent::kTypeMemoryLoad: {
-			user_evt->type = kHelEventLoadMemory;
-			user_evt->error = kHelErrNone;
-			user_evt->offset = event.offset;
-			user_evt->length = event.length;
-		} break;
-		case UserEvent::kTypeMemoryLock: {
-			user_evt->type = kHelEventLockMemory;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeJoin: {
-			user_evt->type = kHelEventJoin;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeError: {
-			user_evt->type = kHelEventRecvString;
-
-			switch(event.error) {
-			case kErrPipeClosed:
-				user_evt->error = kHelErrPipeClosed;
-				break;
-			case kErrBufferTooSmall:
-				user_evt->error = kHelErrBufferTooSmall;
-				break;
-			default:
-				assert(!"Unexpected error");
-			}
-		} break;
-		case UserEvent::kTypeSendString: {
-			user_evt->type = kHelEventSendString;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeSendDescriptor: {
-			user_evt->type = kHelEventSendDescriptor;
-			user_evt->error = kHelErrNone;
-		} break;
-		case UserEvent::kTypeRecvString: {
-			user_evt->type = kHelEventRecvString;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			user_evt->length = event.length;
-		} break;
-		case UserEvent::kTypeRecvStringToRing: {
-			user_evt->type = kHelEventRecvStringToQueue;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			user_evt->length = event.length;
-			user_evt->offset = event.offset;
-		} break;
-		case UserEvent::kTypeRecvDescriptor: {
-			user_evt->type = kHelEventRecvDescriptor;
-			user_evt->error = kHelErrNone;
-			user_evt->msgRequest = event.msgRequest;
-			user_evt->msgSequence = event.msgSequence;
-			user_evt->handle = event.handle;
-		} break;
-		case UserEvent::kTypeAccept: {
-			user_evt->type = kHelEventAccept;
-			user_evt->error = kHelErrNone;
-			user_evt->handle = event.handle;
-		} break;
-		case UserEvent::kTypeConnect: {
-			user_evt->type = kHelEventConnect;
-			user_evt->error = kHelErrNone;
-			user_evt->handle = event.handle;
-		} break;
-		case UserEvent::kTypeIrq: {
-			user_evt->type = kHelEventIrq;
-			user_evt->error = kHelErrNone;
-		} break;
+		case UserEvent::kTypeMemoryLoad: type = kHelEventLoadMemory; break;
+		case UserEvent::kTypeMemoryLock: type = kHelEventLockMemory; break;
+		case UserEvent::kTypeJoin: type = kHelEventJoin; break;
+		case UserEvent::kTypeSendString: type = kHelEventSendString; break;
+		case UserEvent::kTypeSendDescriptor: type = kHelEventSendDescriptor; break;
+		case UserEvent::kTypeRecvString: type = kHelEventRecvString; break;
+		case UserEvent::kTypeRecvStringToRing: type = kHelEventRecvStringToQueue; break;
+		case UserEvent::kTypeRecvDescriptor: type = kHelEventRecvDescriptor; break;
+		case UserEvent::kTypeAccept: type = kHelEventAccept; break;
+		case UserEvent::kTypeConnect: type = kHelEventConnect; break;
+		case UserEvent::kTypeIrq: type = kHelEventIrq; break;
 		default:
-			assert(!"Illegal event type");
+			assert(!"Unexpected event type");
+			__builtin_unreachable();
 		}
 
-		user_evt->asyncId = event.submitInfo.asyncId;
-		user_evt->submitFunction = event.submitInfo.submitFunction;
-		user_evt->submitObject = event.submitInfo.submitObject;
+		HelError error;
+		switch(event.error) {
+		case kErrSuccess: error = kHelErrNone; break;
+		case kErrPipeClosed: error = kHelErrPipeClosed; break;
+		case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
+		default:
+			assert(!"Unexpected error");
+			__builtin_unreachable();
+		}
+
+		auto accessor = DirectSelfAccessor<HelEvent>::acquire(&user_list[count]);
+		accessor->type = type;
+		accessor->error = error;
+		accessor->asyncId = event.submitInfo.asyncId;
+		accessor->submitFunction = event.submitInfo.submitFunction;
+		accessor->submitObject = event.submitInfo.submitObject;
+
+		accessor->msgRequest = event.msgRequest;
+		accessor->msgSequence = event.msgSequence;
+		accessor->offset = event.offset;
+		accessor->length = event.length;
+		accessor->handle = event.handle;
 	}
 	hub_guard.unlock();
 

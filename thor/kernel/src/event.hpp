@@ -4,7 +4,6 @@ namespace thor {
 struct UserEvent {
 	enum Type {
 		kTypeNone,
-		kTypeError,
 		kTypeMemoryLoad,
 		kTypeMemoryLock,
 		kTypeJoin,
@@ -134,7 +133,6 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncRecvDescriptor> processQueueItem;
 
-	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
 	Handle handle;
