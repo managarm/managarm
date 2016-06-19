@@ -9,13 +9,13 @@ namespace frigg {
 template<typename... Types>
 struct TypePack;
 
-struct TrueType {
-	static constexpr bool value = true;
+template<typename T, T Value>
+struct IntegralConstant {
+	static constexpr T value = Value;
 };
 
-struct FalseType {
-	static constexpr bool value = false;
-};
+struct TrueType : public IntegralConstant<bool, true> { };
+struct FalseType : public IntegralConstant<bool ,false> { };
 
 template<typename T>
 T declval();
@@ -145,6 +145,48 @@ struct IsConvertible
 template<typename From, typename To>
 struct IsConvertible<From, To, _convertible::Helper<From, To>>
 : public TrueType { };
+
+namespace _common_type {
+	template<typename... T>
+	struct Helper;
+
+	template<typename H>
+	struct Helper<H> {
+		using Type = H;
+	};
+
+	template<typename H, typename... T>
+	struct Helper<H, T...> {
+		using Type = decltype(declval<bool>() ? declval<H>()
+				: declval<typename Helper<T...>::Type>());
+	};
+};
+
+template<typename... T>
+using CommonType = typename _common_type::Helper<T...>::Type;
+
+namespace _aligned_union {
+	template<size_t size, size_t align>
+	struct alignas(align) Storage {
+		char buffer[size];
+	};
+
+	template<size_t... S>
+	struct Max;
+
+	template<size_t H>
+	struct Max<H> : public IntegralConstant<size_t, H> { };
+	
+	template<size_t H, size_t... T>
+	struct Max<H, T...> : public IntegralConstant<size_t,
+			H >= Max<T...>::value ? H : Max<T...>::value> { };
+};
+
+template<typename... T>
+using AlignedUnion = _aligned_union::Storage<
+	_aligned_union::Max<sizeof(T)...>::value,
+	_aligned_union::Max<alignof(T)...>::value
+>;
 
 } // namespace frigg
 

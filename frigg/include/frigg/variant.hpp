@@ -1,344 +1,221 @@
 
+#include <frigg/traits.hpp>
+
 namespace frigg {
 
-namespace variant_impl {
+namespace _variant {
+	// check if S is one of the types T
+	template<typename S, typename... T>
+	struct Exists
+	: public FalseType { };
+	
+	template<typename S, typename... T>
+	struct Exists<S, S, T...>
+	: public TrueType { };
+	
+	template<typename S, typename H, typename... T>
+	struct Exists<S, H, T...>
+	: public Exists<S, T...> { };
 
-// --------------------------------------------------------
-// Helper classes
-// --------------------------------------------------------
+	// get the index of S in the argument pack T
+	template<typename, typename S, typename... T>
+	struct IndexOfHelper { };
+	
+	template<typename S, typename... T>
+	struct IndexOfHelper<EnableIfT<Exists<S, S, T...>::value>, S, S, T...>
+	: public IntegralConstant<int, 0> { };
+	
+	template<typename S, typename H, typename... T>
+	struct IndexOfHelper<EnableIfT<Exists<S, H, T...>::value>, S, H, T...>
+	: public IntegralConstant<int, IndexOfHelper<void, S, T...>::value + 1> { };
+	
+	template<typename S, typename... T>
+	using IndexOf = IndexOfHelper<void, S, T...>;
 
-template<typename L, typename R>
-struct TypesEq {
-	static constexpr bool value = false;
+	// get a type with a certain index from the argument pack T
+	template<int index, typename... T>
+	struct GetHelper { };
+	
+	template<typename H, typename... T>
+	struct GetHelper<0, H, T...> {
+		using Type = H;
+	};
+	
+	template<int index, typename H, typename... T>
+	struct GetHelper<index, H, T...>
+	: public GetHelper<index - 1, T...> { };
+	
+	template<int index, typename... T>
+	using Get = typename GetHelper<index, T...>::Type;
 };
 
-template<typename T>
-struct TypesEq<T, T> {
-	static constexpr bool value = true;
-};
-
-template<typename T>
-struct TryToInstantiate {
-	static constexpr bool value = true;
-};
-
-template<typename T, typename... Types>
-struct IsOneOf;
-
-template<typename T, typename U, typename... Types>
-struct IsOneOf<T, U, Types...> {
-	static constexpr bool value = TypesEq<T, U>::value
-			|| IsOneOf<T, Types...>::value;
-};
-
-template<typename T>
-struct IsOneOf<T> {
-	static constexpr bool value = false;
-};
-
-// --------------------------------------------------------
-// Storage
-// --------------------------------------------------------
-
-template<typename... Types>
-union Storage;
-
-template<typename T, typename... Tail>
-union Storage<T, Tail...> {
-	T element;
-	Storage<Tail...> others;
-
-	Storage() { }
-	~Storage() { }
-};
-
-template<>
-union Storage<> { };
-
-// --------------------------------------------------------
-// Tag management
-// --------------------------------------------------------
-
-template<typename R, typename... Types>
-struct TagOf;
-
-template<typename R, bool found, typename T, typename... Tail>
-struct TagOfStaticBranch;
-
-template<typename R, typename T, typename... Tail>
-struct TagOf<R, T, Tail...> {
-	static constexpr int value
-			= TagOfStaticBranch<R, TypesEq<R, T>::value, T, Tail...>::value;
-};
-
-template<typename R>
-struct TagOf<R> {
-	static_assert(!TryToInstantiate<R>::value, "Incompatible variant type");
-};
-
-template<typename R, typename T, typename... Tail>
-struct TagOfStaticBranch<R, false, T, Tail...> {
-	static constexpr int value = TagOf<R, Tail...>::value + 1;
-};
-
-template<typename R, typename T, typename... Tail>
-struct TagOfStaticBranch<R, true, T, Tail...> {
-	static constexpr int value = 1;
-};
-
-// --------------------------------------------------------
-// Retrieval
-// --------------------------------------------------------
-
-template<typename R, typename... LookupTypes>
-struct GetByType;
-
-template<typename R, bool found, typename T, typename... Tail>
-struct GetByTypeStaticBranch;
-
-template<typename R, typename T, typename... Tail>
-struct GetByType<R, T, Tail...> {
-	static R &get(Storage<T, Tail...> &storage) {
-		return GetByTypeStaticBranch<R, TypesEq<R, T>::value, T, Tail...>::get(storage);
-	}
-};
-
-template<typename R>
-struct GetByType<R> {
-	static_assert(!TryToInstantiate<R>::value, "Incompatible variant type");
-};
-
-template<typename R, typename T, typename... Tail>
-struct GetByTypeStaticBranch<R, false, T, Tail...> {
-	static R &get(Storage<T, Tail...> &storage) {
-		return GetByType<R, Tail...>::get(storage.others);
-	}
-};
-
-template<typename R, typename T, typename... Tail>
-struct GetByTypeStaticBranch<R, true, T, Tail...> {
-	static R &get(Storage<T, Tail...> &storage) {
-		return storage.element;
-	}
-};
-
-// --------------------------------------------------------
-// Destruction
-// --------------------------------------------------------
-
-template<int tag_iter, typename... Types>
-struct Destruct;
-
-template<int tag_iter, typename T, typename... Tail>
-struct Destruct<tag_iter, T, Tail...> {
-	static void destruct(int tag, Storage<T, Tail...> &storage) {
-		if(tag == tag_iter) {
-			storage.element.~T();
-		}else{
-			Destruct<tag_iter + 1, Tail...>::destruct(tag, storage.others);
-		}
-	}
-};
-
-template<int tag_iter>
-struct Destruct<tag_iter> {
-	static void destruct(int tag, Storage<> &storage) {
-		assert(!"Destruct: Illegal variant tag");
-	}
-};
-
-// --------------------------------------------------------
-// Copy construction and assignment
-// --------------------------------------------------------
-
-template<int tag_iter, typename... Types>
-struct CopyConstruct;
-
-template<int tag_iter, typename T, typename... Tail>
-struct CopyConstruct<tag_iter, T, Tail...> {
-	static void construct(int tag, Storage<T, Tail...> &dest, const Storage<T, Tail...> &src) {
-		if(tag == tag_iter) {
-			new (&dest) T(src.element);
-		}else{
-			CopyConstruct<tag_iter + 1, Tail...>::construct(tag, dest.others, src.others);
-		}
-	}
-};
-
-template<int tag_iter>
-struct CopyConstruct<tag_iter> {
-	static void construct(int tag, Storage<> &dest, const Storage<> &src) {
-		assert(!"CopyConstruct: Illegal variant tag");
-	}
-};
-
-template<int tag_iter, typename... Types>
-struct CopyAssign;
-
-template<int tag_iter, typename T, typename... Tail>
-struct CopyAssign<tag_iter, T, Tail...> {
-	static void assign(int tag, Storage<T, Tail...> &dest, const Storage<T, Tail...> &src) {
-		if(tag == tag_iter) {
-			dest.element = src.element;
-		}else{
-			CopyAssign<tag_iter + 1, Tail...>::assign(tag, dest.others, src.others);
-		}
-	}
-};
-
-template<int tag_iter>
-struct CopyAssign<tag_iter> {
-	static void assign(int tag, Storage<> &dest, const Storage<> &src) {
-		assert(!"CopyAssign: Illegal variant tag");
-	}
-};
-
-// --------------------------------------------------------
-// Move construction and assignment
-// --------------------------------------------------------
-
-template<int tag_iter, typename... Types>
-struct MoveConstruct;
-
-template<int tag_iter, typename T, typename... Tail>
-struct MoveConstruct<tag_iter, T, Tail...> {
-	static void construct(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
-		if(tag == tag_iter) {
-			new (&dest) T(move(src.element));
-		}else{
-			MoveConstruct<tag_iter + 1, Tail...>::construct(tag, dest.others, src.others);
-		}
-	}
-};
-
-template<int tag_iter>
-struct MoveConstruct<tag_iter> {
-	static void construct(int tag, Storage<> &dest, Storage<> &src) {
-		assert(!"MoveConstruct: Illegal variant tag");
-	}
-};
-
-template<int tag_iter, typename... Types>
-struct MoveAssign;
-
-template<int tag_iter, typename T, typename... Tail>
-struct MoveAssign<tag_iter, T, Tail...> {
-	static void assign(int tag, Storage<T, Tail...> &dest, Storage<T, Tail...> &src) {
-		if(tag == tag_iter) {
-			dest.element = move(src.element);
-		}else{
-			MoveAssign<tag_iter + 1, Tail...>::assign(tag, dest.others, src.others);
-		}
-	}
-};
-
-template<int tag_iter>
-struct MoveAssign<tag_iter> {
-	static void assign(int tag, Storage<> &dest, Storage<> &src) {
-		assert(!"MoveAssign: Illegal variant tag");
-	}
-};
-
-} // namespace variant_impl
-
-// --------------------------------------------------------
-// Variant class
-// --------------------------------------------------------
-
-template<typename... Types>
-class Variant {
-public:
-	Variant() : p_tag(0) { }
-
-	template<typename T, typename Enable
-			= typename EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
-	Variant(const T &element) {
-		p_tag = variant_impl::TagOf<T, Types...>::value;
-		new (&p_storage) T(element);
-	}
-	template<typename T, typename Enable
-			= typename EnableIf<variant_impl::IsOneOf<T, Types...>::value>::type>
-	Variant(T &&element) {
-		p_tag = variant_impl::TagOf<T, Types...>::value;
-		new (&p_storage) T(move(element));
+template<typename... T>
+struct Variant {
+	template<typename X, int index = _variant::IndexOf<X, T...>::value>
+	static constexpr int tagOf() {
+		return index;
 	}
 
-	Variant(const Variant &other) {
-		variant_impl::CopyConstruct<1, Types...>::construct(other.p_tag,
-				p_storage, other.p_storage);
-		p_tag = other.p_tag;
+	Variant()
+	: _tag(-1) { }
+
+	template<typename X, int index = _variant::IndexOf<X, T...>::value>
+	Variant(X object)
+	: Variant() {
+		construct(IntegralConstant<int, index>(), move(object));
+	};
+
+	Variant(const Variant &other)
+	: Variant() {
+		if(other)
+			copyConstruct(IntegralConstant<int, 0>(), other);
 	}
-	Variant(Variant &&other) {
-		if(other.p_tag != 0)
-			variant_impl::MoveConstruct<1, Types...>::construct(other.p_tag,
-					p_storage, other.p_storage);
-		p_tag = other.p_tag;
+	Variant(Variant &&other)
+	: Variant() {
+		if(other)
+			moveConstruct(IntegralConstant<int, 0>(), move(other));
+			
 	}
 
 	~Variant() {
-		if(p_tag != 0)
-			variant_impl::Destruct<1, Types...>::destruct(p_tag, p_storage);
+		if(*this)
+			destruct(IntegralConstant<int, 0>());
 	}
 
-	Variant &operator= (const Variant &other) {
-		if(other.p_tag == 0) {
-			reset();
-		}else if(p_tag == other.p_tag) {
-			variant_impl::CopyAssign<1, Types...>::assign(p_tag, p_storage, other.p_storage);
+	explicit operator bool() const {
+		return _tag != -1;
+	}
+
+	Variant &operator= (Variant other) {
+		// Because swap is quite hard to implement for this type we don't use copy-and-swap.
+		// Instead we perform a destruct-then-move-construct operation on the internal object.
+		// Note that we take the argument by value so there are no self-assignment problems.
+		if(_tag == other._tag) {
+			assign(IntegralConstant<int, 0>(), move(other));
 		}else{
-			reset();
-			variant_impl::CopyConstruct<1, Types...>::construct(other.p_tag,
-					p_storage, other.p_storage);
-			p_tag = other.p_tag;
+			if(*this)
+				destruct(IntegralConstant<int, 0>());
+			if(other)
+				moveConstruct(IntegralConstant<int, 0>(), move(other));
 		}
 		return *this;
-	}
-	Variant &operator= (Variant &&other) {
-		if(other.p_tag == 0) {
-			reset();
-		}else if(p_tag == other.p_tag) {
-			variant_impl::MoveAssign<1, Types...>::assign(p_tag, p_storage, other.p_storage);
-		}else{
-			reset();
-			variant_impl::MoveConstruct<1, Types...>::construct(other.p_tag,
-					p_storage, other.p_storage);
-			p_tag = other.p_tag;
-		}
-		return *this;
-	}
-
-	template<typename T>
-	static constexpr int tagOf() {
-		return variant_impl::TagOf<T, Types...>::value;
-	}
-
-	void reset() {
-		if(p_tag != 0)
-			variant_impl::Destruct<1, Types...>::destruct(p_tag, p_storage);
-		p_tag = 0;
-	}
-
-	bool empty() {
-		return p_tag == 0;
 	}
 
 	int tag() {
-		return p_tag;
-	}
-	
-	template<typename T>
-	bool is() {
-		return p_tag == variant_impl::TagOf<T, Types...>::value;
+		return _tag;
 	}
 
-	template<typename T>
-	T &get() {
-		return variant_impl::GetByType<T, Types...>::get(p_storage);
+	template<typename X, int index = _variant::IndexOf<X, T...>::value>
+	bool is() const {
+		return _tag == index;
+	}
+
+	template<typename X, int index = _variant::IndexOf<X, T...>::value>
+	X &get() {
+		assert(_tag == index);
+		return *reinterpret_cast<X *>(&_storage);
+	}
+	template<typename X, int index = _variant::IndexOf<X, T...>::value>
+	const X &get() const {
+		assert(_tag == index);
+		return *reinterpret_cast<const X *>(&_storage);
+	}
+
+	template<typename F>
+	CommonType<ResultOf<F(T)>...> apply(F functor) const {
+		return apply(IntegralConstant<int, 0>(), move(functor));
 	}
 
 private:
-	variant_impl::Storage<Types...> p_storage;
-	int p_tag;
+	// construct the internal object from one of the summed types
+	template<int index, typename X = _variant::Get<index, T...>>
+	void construct(IntegralConstant<int, index>, X object) {
+		assert(!*this);
+		new (&_storage) X(move(object));
+		_tag = index;
+	}
+
+	// construct the internal object by copying from another variant
+	template<int index, typename X = _variant::Get<index, T...>>
+	void copyConstruct(IntegralConstant<int, index>, const Variant &other) {
+		if(other._tag == index) {
+			assert(!*this);
+			new (&_storage) X(other.get<X>());
+			_tag = index;
+		}else{
+			copyConstruct(IntegralConstant<int, index + 1>(), other);
+		}
+	}
+
+	void copyConstruct(IntegralConstant<int, sizeof...(T)>, const Variant &other) {
+		assert(!"Copy-construction from variant with illegal tag");
+	}
+
+	// construct the internal object by moving from another variant
+	template<int index, typename X = _variant::Get<index, T...>>
+	void moveConstruct(IntegralConstant<int, index>, Variant &&other) {
+		if(other._tag == index) {
+			assert(!*this);
+			new (&_storage) X(move(other.get<X>()));
+			_tag = index;
+		}else{
+			moveConstruct(IntegralConstant<int, index + 1>(), move(other));
+		}
+	}
+
+	void moveConstruct(IntegralConstant<int, sizeof...(T)>, Variant &&other) {
+		assert(!"Move-construction from variant with illegal tag");
+	}
+	
+	// destruct the internal object
+	template<int index, typename X = _variant::Get<index, T...>>
+	void destruct(IntegralConstant<int, index>) {
+		if(_tag == index) {
+			get<X>().~X();
+			_tag = -1;
+		}else{
+			destruct(IntegralConstant<int, index + 1>());
+		}
+	}
+	
+	void destruct(IntegralConstant<int, sizeof...(T)>) {
+		assert(!"Destruction of variant with illegal tag");
+	}
+	
+	// assign the internal object
+	template<int index, typename X = _variant::Get<index, T...>>
+	void assign(IntegralConstant<int, index>, Variant other) {
+		if(_tag == index) {
+			get<X>() = move(other.get<X>());
+		}else{
+			assign(IntegralConstant<int, index +1>(), move(other));
+		}
+	}
+
+	void assign(IntegralConstant<int, sizeof...(T)>, Variant other) {
+		assert(!"Assignment from variant with illegal tag");
+	}
+	
+	// apply a functor to the internal object
+	template<typename F, int index, typename X = _variant::Get<index, T...>>
+	CommonType<ResultOf<F(T)>...>
+	apply(IntegralConstant<int, index>, F functor) const {
+		if(_tag == index) {
+			return functor(get<X>());
+		}else{
+			return apply(IntegralConstant<int, index + 1>(), move(functor));
+		}
+	}
+
+	template<typename F>
+	CommonType<ResultOf<F(T)>...>
+	apply(IntegralConstant<int, sizeof...(T)>, F functor) const {
+		assert(!"apply() on variant with illegal tag");
+		__builtin_unreachable();
+	}
+
+	int _tag;
+	AlignedUnion<T...> _storage;
 };
 
 } // namespace frigg
