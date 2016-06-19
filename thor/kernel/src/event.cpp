@@ -22,7 +22,7 @@ UserEvent AsyncRecvDescriptor::getEvent() {
 	event.error = error;
 	event.msgRequest = msgRequest;
 	event.msgSequence = msgSequence;
-	event.descriptor = frigg::move(descriptor);
+	event.handle = handle;
 	return event;
 }
 UserEvent AsyncAccept::getEvent() { assert(false); }

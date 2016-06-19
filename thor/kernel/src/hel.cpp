@@ -788,13 +788,7 @@ HelError helWaitForEvents(HelHandle handle,
 			user_evt->error = kHelErrNone;
 			user_evt->msgRequest = event.msgRequest;
 			user_evt->msgSequence = event.msgSequence;
-			
-			{
-				Universe::Guard universe_guard(&universe->lock);
-
-				user_evt->handle = universe->attachDescriptor(universe_guard,
-						AnyDescriptor(frigg::move(event.descriptor)));
-			}
+			user_evt->handle = event.handle;
 		} break;
 		case UserEvent::kTypeAccept: {
 			user_evt->type = kHelEventAccept;
@@ -1237,7 +1231,7 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	*async_id = data.asyncId;
 
 	auto recv = frigg::makeShared<AsyncRecvDescriptor>(*kernelAlloc, frigg::move(data),
-			kMsgDescriptor, filter_request, filter_sequence);
+			universe.toWeak(), filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
 	Channel::Guard channel_guard(&channel.lock);

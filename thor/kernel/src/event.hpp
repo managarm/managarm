@@ -41,7 +41,7 @@ struct UserEvent {
 	KernelSharedPtr<Endpoint> endpoint;
 
 	// used by kTypeRecvDescriptor
-	AnyDescriptor descriptor;
+	Handle handle;
 };
 
 struct AsyncOperation {
@@ -98,6 +98,7 @@ struct AsyncSendDescriptor : public AsyncOperation {
 	int64_t msgRequest;
 	int64_t msgSequence;
 	uint32_t flags;
+	
 
 	frigg::IntrusiveSharedLinkedItem<AsyncSendDescriptor> processQueueItem;
 };
@@ -129,14 +130,14 @@ struct AsyncRecvString : public AsyncOperation {
 };
 
 struct AsyncRecvDescriptor : public AsyncOperation {
-	AsyncRecvDescriptor(AsyncData data, MsgType type,
+	AsyncRecvDescriptor(AsyncData data, frigg::WeakPtr<Universe> universe,
 			int64_t filter_request, int64_t filter_sequence)
-	: AsyncOperation(frigg::move(data)), type(type),
+	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
 	UserEvent getEvent() override;
 	
-	MsgType type;
+	frigg::WeakPtr<Universe> universe;
 	int64_t filterRequest;
 	int64_t filterSequence;
 	uint32_t flags;
@@ -146,7 +147,7 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
-	AnyDescriptor descriptor;
+	Handle handle;
 };
 
 struct AsyncAccept : public AsyncOperation {
