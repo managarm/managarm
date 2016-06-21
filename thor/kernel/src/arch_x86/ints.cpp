@@ -35,8 +35,8 @@ extern "C" void thorRtIsrPreempted();
 
 namespace thor {
 
-uint32_t earlyGdt[3];
-uint32_t earlyIdt[512];
+uint32_t earlyGdt[6];
+uint32_t earlyIdt[1024];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
 	frigg::panicLogger.log() << "Division by zero during boot\n"
@@ -83,7 +83,7 @@ void initializeProcessorEarly() {
 	
 	// setup the idt
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubOpcode, 0);
+	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);

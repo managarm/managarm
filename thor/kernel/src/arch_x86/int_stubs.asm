@@ -101,7 +101,15 @@
 	mov $\number, %rsi
 .endif
 	call \func
+.if \type == .L_typeIrq
+	mov %rsp, %rdi
+	call restoreStateFrame
+.elseif \type == .L_typeFaultWithCode
+	mov %rsp, %rdi
+	call restoreStateFrame
+.else
 	ud2
+.endif
 .endm
 
 MAKE_HANDLER .L_typeFaultNoCode, faultStubDivideByZero, handleDivideByZeroFault

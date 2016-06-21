@@ -86,6 +86,15 @@ struct FxState {
 };
 static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
 
+struct IrqImagePtr {
+	GprState *gpr() {
+		return reinterpret_cast<GprState *>(_pointer);
+	}
+
+private:
+	char *_pointer;
+};
+
 inline GprState *accessGprState(void *state) {
 	return reinterpret_cast<GprState *>(state);
 }

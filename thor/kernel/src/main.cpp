@@ -231,34 +231,33 @@ extern "C" void handlePageFault(void *state, Word error) {
 	bool handled = address_space->handleFault(space_guard, address, flags);
 	space_guard.unlock();
 	
-	if(handled)
-		restoreStateFrame(state);
-	
-	auto gpr_state = (GprState *)accessGprState(state);
+	if(!handled) {
+		auto gpr_state = (GprState *)accessGprState(state);
 
-	auto msg = frigg::panicLogger.log();
-	msg << "Page fault"
-			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)gpr_state->rip << "\n";
-	msg << "Errors:";
-	if(error & kPfUser) {
-		msg << " (User)";
-	}else{
-		msg << " (Supervisor)";
+		auto msg = frigg::panicLogger.log();
+		msg << "Page fault"
+				<< " at " << (void *)address
+				<< ", faulting ip: " << (void *)gpr_state->rip << "\n";
+		msg << "Errors:";
+		if(error & kPfUser) {
+			msg << " (User)";
+		}else{
+			msg << " (Supervisor)";
+		}
+		if(error & kPfAccess) {
+			msg << " (Access violation)";
+		}else{
+			msg << " (Page not present)";
+		}
+		if(error & kPfWrite) {
+			msg << " (Write)";
+		}else if(error & kPfInstruction) {
+			msg << " (Instruction fetch)";
+		}else{
+			msg << " (Read)";
+		}
+		msg << frigg::EndLog();
 	}
-	if(error & kPfAccess) {
-		msg << " (Access violation)";
-	}else{
-		msg << " (Page not present)";
-	}
-	if(error & kPfWrite) {
-		msg << " (Write)";
-	}else if(error & kPfInstruction) {
-		msg << " (Instruction fetch)";
-	}else{
-		msg << " (Read)";
-	}
-	msg << frigg::EndLog();
 }
 
 extern "C" void thorIrq(void *state, int irq) {
@@ -272,8 +271,6 @@ extern "C" void thorIrq(void *state, int irq) {
 	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);
 	irqRelays[irq]->fire(irq_guard);
 	irq_guard.unlock();
-	
-	restoreStateFrame(state);
 }
 
 extern "C" void thorImplementNoThreadIrqs() {
