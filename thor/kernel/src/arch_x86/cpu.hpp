@@ -154,8 +154,8 @@ struct ThorRtCpuSpecific {
 		kCpuStackSize = 0x10000
 	};
 
-	uint32_t gdt[8 * 8];
-	uint32_t idt[256 * 16];
+	uint32_t gdt[8 * 2];
+	uint32_t idt[256 * 4];
 	frigg::arch_x86::Tss64 tssTemplate;
 
 	alignas(kCpuStackAlign) uint8_t cpuStack[kCpuStackSize];

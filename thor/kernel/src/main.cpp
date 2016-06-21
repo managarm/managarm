@@ -198,8 +198,17 @@ extern "C" void handleOpcodeFault(void *state) {
 	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
 }
 
+extern "C" void handleNoFpuFault(void *state) {
+	auto gpr_state = (GprState *)accessGprState(state);
+	frigg::panicLogger.log() << "FPU invoked at "
+			<< (void *)gpr_state->rip << frigg::EndLog();
+}
+
 extern "C" void handleDoubleFault(void *state) {
-	frigg::panicLogger.log() << "Double fault" << frigg::EndLog();
+	auto gpr_state = (GprState *)accessGprState(state);
+	frigg::panicLogger.log() << "Double fault at "
+			<< (void *)gpr_state->rip
+			<< frigg::EndLog();
 }
 
 extern "C" void handleProtectionFault(void *state, Word error) {
@@ -260,10 +269,10 @@ extern "C" void handlePageFault(void *state, Word error) {
 	}
 }
 
-extern "C" void thorIrq(void *state, int irq) {
+extern "C" void handleIrq(IrqImagePtr image, int irq) {
 	assert(!intsAreEnabled());
 
-//	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
+	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
 	
 	if(irq == 2)
 		timerInterrupt();

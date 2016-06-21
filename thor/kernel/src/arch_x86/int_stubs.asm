@@ -37,8 +37,7 @@
 # macro to construct an interrupt handler
 .set .L_typeFaultNoCode, 1
 .set .L_typeFaultWithCode, 2
-.set .L_typeIrq, 3
-.set .L_typeCall, 4
+.set .L_typeCall, 3
 
 .macro MAKE_HANDLER type, name, func, number=0
 .global \name
@@ -74,7 +73,7 @@
 	mov %r15, .L_frameR15(%rsp)
 
 	# save the cpu's extended state
-	fxsaveq .L_frameFxSave(%rsp)
+	#fxsaveq .L_frameFxSave(%rsp)
 	
 	# save all remaining registers
 	mov -8(%rbp), %rax # frame rax
@@ -97,14 +96,9 @@
 	mov %rsp, %rdi
 .if \type == .L_typeFaultWithCode
 	mov 8(%rbp), %rsi
-.elseif \type == .L_typeIrq
-	mov $\number, %rsi
 .endif
 	call \func
-.if \type == .L_typeIrq
-	mov %rsp, %rdi
-	call restoreStateFrame
-.elseif \type == .L_typeFaultWithCode
+.if \type == .L_typeFaultWithCode
 	mov %rsp, %rdi
 	call restoreStateFrame
 .else
@@ -115,28 +109,70 @@
 MAKE_HANDLER .L_typeFaultNoCode, faultStubDivideByZero, handleDivideByZeroFault
 MAKE_HANDLER .L_typeFaultNoCode, faultStubDebug, handleDebugFault
 MAKE_HANDLER .L_typeFaultNoCode, faultStubOpcode, handleOpcodeFault
+MAKE_HANDLER .L_typeFaultNoCode, faultStubNoFpu, handleNoFpuFault
 MAKE_HANDLER .L_typeFaultWithCode, faultStubDouble, handleDoubleFault
 MAKE_HANDLER .L_typeFaultWithCode, faultStubProtection, handleProtectionFault
 MAKE_HANDLER .L_typeFaultWithCode, faultStubPage, handlePageFault
 
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq0, thorIrq, number=0
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq1, thorIrq, number=1
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq2, thorIrq, number=2
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq3, thorIrq, number=3
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq4, thorIrq, number=4
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq5, thorIrq, number=5
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq6, thorIrq, number=6
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq7, thorIrq, number=7
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq8, thorIrq, number=8
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq9, thorIrq, number=9
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq10, thorIrq, number=10
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq11, thorIrq, number=11
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq12, thorIrq, number=12
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq13, thorIrq, number=13
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq14, thorIrq, number=14
-MAKE_HANDLER .L_typeIrq, thorRtIsrIrq15, thorIrq, number=15
-
 MAKE_HANDLER .L_typeCall, thorRtIsrPreempted, onPreemption
+
+.macro MAKE_IRQ_STUB name, number
+.global \name
+\name:
+	push %rbp
+	push %r15
+	push %r14
+	push %r13
+	push %r12
+	push %r11
+	push %r10
+	push %r9
+	push %r8
+	push %rsi
+	push %rdi
+	push %rdx
+	push %rcx
+	push %rbx
+	push %rax
+	
+	mov %rsp, %rdi
+	mov $\number, %rsi
+	call handleIrq
+
+	pop %rax
+	pop %rbx
+	pop %rcx
+	pop %rdx
+	pop %rdi
+	pop %rsi
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r11
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %r15
+	pop %rbp
+	iretq
+.endm
+
+MAKE_IRQ_STUB thorRtIsrIrq0, 0
+MAKE_IRQ_STUB thorRtIsrIrq1, 1
+MAKE_IRQ_STUB thorRtIsrIrq2, 2
+MAKE_IRQ_STUB thorRtIsrIrq3, 3
+MAKE_IRQ_STUB thorRtIsrIrq4, 4
+MAKE_IRQ_STUB thorRtIsrIrq5, 5
+MAKE_IRQ_STUB thorRtIsrIrq6, 6
+MAKE_IRQ_STUB thorRtIsrIrq7, 7
+MAKE_IRQ_STUB thorRtIsrIrq8, 8
+MAKE_IRQ_STUB thorRtIsrIrq9, 9
+MAKE_IRQ_STUB thorRtIsrIrq10, 10
+MAKE_IRQ_STUB thorRtIsrIrq11, 11
+MAKE_IRQ_STUB thorRtIsrIrq12, 12
+MAKE_IRQ_STUB thorRtIsrIrq13, 13
+MAKE_IRQ_STUB thorRtIsrIrq14, 14
+MAKE_IRQ_STUB thorRtIsrIrq15, 15
 
 # saves the current state to a buffer. returns twice (like fork)
 # returns 1 when the state is saved and 0 when it is restored
@@ -151,7 +187,7 @@ forkState:
 	mov %r15, .L_frameR15(%rdi)
 
 	# save the cpu's extended state
-	fxsaveq .L_frameFxSave(%rdi)
+	#fxsaveq .L_frameFxSave(%rdi)
 	
 	# setup the state for the second return
 	pushfq
@@ -186,7 +222,7 @@ restoreStateFrame:
 	mov .L_frameR15(%rdi), %r15
 	
 	# restore the cpu's extended state
-	fxrstorq .L_frameFxSave(%rdi)
+	#fxrstorq .L_frameFxSave(%rdi)
 
 	# check if we return to kernel mode
 	testb $1, .L_frameKernel(%rdi)

@@ -10,6 +10,7 @@ extern "C" void earlyStubPage();
 extern "C" void faultStubDivideByZero();
 extern "C" void faultStubDebug();
 extern "C" void faultStubOpcode();
+extern "C" void faultStubNoFpu();
 extern "C" void faultStubDouble();
 extern "C" void faultStubProtection();
 extern "C" void faultStubPage();
@@ -35,8 +36,8 @@ extern "C" void thorRtIsrPreempted();
 
 namespace thor {
 
-uint32_t earlyGdt[6];
-uint32_t earlyIdt[1024];
+uint32_t earlyGdt[3 * 2];
+uint32_t earlyIdt[256 * 4];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
 	frigg::panicLogger.log() << "Division by zero during boot\n"
@@ -95,11 +96,15 @@ void initializeProcessorEarly() {
 }
 
 void setupIdt(uint32_t *table) {
+	for(int i = 0; i < 256; i++) {
+	}
+
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
 			0x8, (void *)&faultStubDivideByZero, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
 			0x8, (void *)&faultStubOpcode, 0);
+	frigg::arch_x86::makeIdt64IntSystemGate(table, 7, 0x8, (void *)&faultStubNoFpu, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
 			0x8, (void *)&faultStubDouble, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,

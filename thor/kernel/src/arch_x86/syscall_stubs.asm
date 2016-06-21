@@ -61,7 +61,17 @@ syscallStub:
 	push %r10
 	mov %rax, %rcx
 
+	# debugging: disallow use of the FPU in kernel code
+#	mov %cr0, %r15
+#	or $8, %r15
+#	mov %r15, %cr0
+
 	call thorSyscall
+
+	# debugging: disallow use of the FPU in kernel code
+#	mov %cr0, %r15
+#	and $0xFFFFFFFFFFFFFFF7, %r15
+#	mov %r15, %cr0
 	
 	# switch back to user-space stack and restore return arguments
 	mov .L_kSyscallRsp(%rbx), %rsp
@@ -81,33 +91,5 @@ syscallStub:
 	
 .global jumpFromSyscall
 jumpFromSyscall:
-	mov %gs:.L_kGsSyscallState, %rbx
-	
-	# restore the cpu's extended state
-	fxrstorq .L_kSyscallFxSave(%rbx)
-
-	mov .L_kAdditionalRax(%rdi), %rax
-	mov .L_kAdditionalRcx(%rdi), %rcx
-	mov .L_kAdditionalRdx(%rdi), %rdx
-	mov .L_kAdditionalRsi(%rdi), %rsi
-	mov .L_kAdditionalRbp(%rdi), %rbp
-	mov .L_kAdditionalR8(%rdi), %r8
-	mov .L_kAdditionalR9(%rdi), %r9
-	mov .L_kAdditionalR10(%rdi), %r10
-	mov .L_kAdditionalR11(%rdi), %r11
-	mov .L_kAdditionalR12(%rdi), %r12
-	mov .L_kAdditionalR13(%rdi), %r13
-	mov .L_kAdditionalR14(%rdi), %r14
-	mov .L_kAdditionalR15(%rdi), %r15
-	
-	pushq $.L_userDataSelector
-	pushq .L_kSyscallRsp(%rbx)
-	pushq .L_kSyscallRflags(%rbx)
-	pushq $.L_userCode64Selector
-	pushq .L_kSyscallRip(%rbx)
-
-	# note: we have to preserve rcx and r11 so we cannot use sysret
-	mov .L_kAdditionalRbx(%rdi), %rbx
-	mov .L_kAdditionalRdi(%rdi), %rdi
-	iretq
+	ud2
 
