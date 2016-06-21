@@ -37,58 +37,62 @@
 
 .global syscallStub
 syscallStub:
-	mov %gs:.L_kGsSyscallState, %rbx
-	
-	# syscall stores rip to rcx and rflags to r11
 	# rsp still contains the user-space stack pointer
-	mov %rcx, .L_kSyscallRip(%rbx)
-	mov %r11, .L_kSyscallRflags(%rbx)
-	mov %rsp, .L_kSyscallRsp(%rbx)
-
-	# the following registers are not restored on a usual syscall return
-	# they are preserved by the x86_64 calling convention so there is no need to restore them
-	mov %r15, .L_kSyscallSavedR15(%rbx)
-	mov %rbp, .L_kSyscallSavedRbp(%rbx)
-
-	# save the cpu's extended state
-	fxsaveq .L_kSyscallFxSave(%rbx)
-
-	# switch to kernel stack and satisfy the x86_64 calling convention
+	# temporarily save it and switch to kernel-stack
+	mov %rsp, %r15
 	mov %gs:.L_kGsSyscallStackPtr, %rsp
+
+	# syscall stores rip to rcx and rflags to r11
+	push %r11 
+	push %rcx
+	push %r15
+
+	push %rbp
 	push %r14
 	push %r13
 	push %r12
 	push %r10
-	mov %rax, %rcx
+	push %r9
+	push %r8
+	push %rax
+	push %rdx
+	push %rsi
+	push %rdi
 
 	# debugging: disallow use of the FPU in kernel code
 #	mov %cr0, %r15
 #	or $8, %r15
 #	mov %r15, %cr0
 
-	call thorSyscall
+	mov %rsp, %rdi
+	call handleSyscall
 
 	# debugging: disallow use of the FPU in kernel code
 #	mov %cr0, %r15
 #	and $0xFFFFFFFFFFFFFFF7, %r15
 #	mov %r15, %cr0
 	
-	# switch back to user-space stack and restore return arguments
-	mov .L_kSyscallRsp(%rbx), %rsp
-	mov .L_kSyscallReturnRdi(%rbx), %rdi
-	mov .L_kSyscallReturnRsi(%rbx), %rsi
-	mov .L_kSyscallReturnRdx(%rbx), %rdx
+	pop %rdi
+	pop %rsi
+	pop %rdx
+	pop %rax
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %rbp
 	
-	# restore the cpu's extended state
-	fxrstorq .L_kSyscallFxSave(%rbx)
+	# prepare rcx and r11 for sysret
+	pop %r15
+	pop %rcx
+	pop %r11
 
-	# setup rcx and r11 for sysret
-	mov .L_kSyscallRip(%rbx), %rcx
-	mov .L_kSyscallRflags(%rbx), %r11
+	mov %r15, %rsp
 	or $.L_kRflagsIf, %r11 # enable interrupts
-	
 	sysretq
-	
+
 .global jumpFromSyscall
 jumpFromSyscall:
 	ud2

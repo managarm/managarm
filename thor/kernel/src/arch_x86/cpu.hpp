@@ -86,6 +86,49 @@ struct FxState {
 };
 static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
 
+struct SyscallImagePtr {
+	Word *number() { return &_frame()->rdi; }
+	Word *in0() { return &_frame()->rsi; }
+	Word *in1() { return &_frame()->rdx; }
+	Word *in2() { return &_frame()->rax; }
+	Word *in3() { return &_frame()->r8; }
+	Word *in4() { return &_frame()->r9; }
+	Word *in5() { return &_frame()->r10; }
+	Word *in6() { return &_frame()->r12; }
+	Word *in7() { return &_frame()->r13; }
+	Word *in8() { return &_frame()->r14; }
+
+	Word *error() { return &_frame()->rdi; }
+	Word *out0() { return &_frame()->rsi; }
+	Word *out1() { return &_frame()->rdx; }
+
+private:
+	// this struct is accessed from assembly.
+	// do not randomly change its contents.
+	struct Frame {
+		Word rdi;
+		Word rsi;
+		Word rdx;
+		Word rax;
+		Word r8;
+		Word r9;
+		Word r10;
+		Word r12;
+		Word r13;
+		Word r14;
+		Word rbp;
+		Word rsp;
+		Word rip;
+		Word rflags;
+	};
+
+	Frame *_frame() {
+		return reinterpret_cast<Frame *>(_pointer);
+	}
+	
+	char *_pointer;
+};
+
 struct IrqImagePtr {
 	GprState *gpr() {
 		return reinterpret_cast<GprState *>(_pointer);

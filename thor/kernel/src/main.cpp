@@ -286,18 +286,25 @@ extern "C" void thorImplementNoThreadIrqs() {
 	assert(!"Implement no-thread IRQ stubs");
 }
 
-extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
-		Word arg2, Word arg3, Word arg4, Word arg5,
-		Word arg6, Word arg7, Word arg8) {
+extern "C" void handleSyscall(SyscallImagePtr image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 //	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
 //	if(index != kHelCallLog)
 //		infoLogger->log() << "syscall #" << index << frigg::EndLog();
 
-	switch(index) {
+	Word arg0 = *image.in0();
+	Word arg1 = *image.in1();
+	Word arg2 = *image.in2();
+	Word arg3 = *image.in3();
+	Word arg4 = *image.in4();
+	Word arg5 = *image.in5();
+	Word arg6 = *image.in6();
+	Word arg7 = *image.in7();
+	Word arg8 = *image.in8();
+
+	switch(*image.number()) {
 	case kHelCallLog: {
-		HelError error = helLog((const char *)arg0, (size_t)arg1);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helLog((const char *)arg0, (size_t)arg1);
 	} break;
 	case kHelCallPanic: {
 		infoLogger->log() << "User space panic:" << frigg::EndLog();
@@ -307,75 +314,70 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 	} break;
 
 	case kHelCallDescriptorInfo: {
-		HelError error = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
 	} break;
 	case kHelCallCloseDescriptor: {
 //		infoLogger->log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
-		HelError error = helCloseDescriptor((HelHandle)arg0);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helCloseDescriptor((HelHandle)arg0);
 	} break;
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
-		HelError error = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
-		HelError error = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallCreateSpace: {
 		HelHandle handle;
-		HelError error = helCreateSpace(&handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helCreateSpace(&handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallForkSpace: {
 		HelHandle forked;
-		HelError error = helForkSpace((HelHandle)arg0, &forked);
-		thorRtReturnSyscall2((Word)error, (Word)forked);
+		*image.error() = helForkSpace((HelHandle)arg0, &forked);
+		*image.out0() = forked;
 	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
-		HelError error = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
 				(void *)arg2, (uintptr_t)arg3, (size_t)arg4, (uint32_t)arg5, &actual_pointer);
-		thorRtReturnSyscall2((Word)error, (Word)actual_pointer);
+		*image.out0() = (Word)actual_pointer;
 	} break;
 	case kHelCallUnmapMemory: {
-		HelError error = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
 	} break;
 	case kHelCallPointerPhysical: {
 		uintptr_t physical;
-		HelError error = helPointerPhysical((void *)arg0, &physical);
-		thorRtReturnSyscall2((Word)error, (Word)physical);
+		*image.error() = helPointerPhysical((void *)arg0, &physical);
+		*image.out0() = physical;
 	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
-		HelError error = helMemoryInfo((HelHandle)arg0, &size);
-		thorRtReturnSyscall2((Word)error, (Word)size);
+		*image.error() = helMemoryInfo((HelHandle)arg0, &size);
+		*image.out0() = size;
 	} break;
 	case kHelCallSubmitProcessLoad: {
 		int64_t async_id;
-		HelError error = helSubmitProcessLoad((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitProcessLoad((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallCompleteLoad: {
-		HelError error = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
 	case kHelCallSubmitLockMemory: {
 		int64_t async_id;
-		HelError error = helSubmitLockMemory((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitLockMemory((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (size_t)arg3,
 				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallLoadahead: {
-		HelError error = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
 
 	case kHelCallCreateThread: {
@@ -383,54 +385,49 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 //				<< " helCreateThread()"
 //				<< frigg::EndLog();
 		HelHandle handle;
-		HelError error = helCreateThread((HelHandle)arg0,
+		*image.error() = helCreateThread((HelHandle)arg0,
 				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallYield: {
-		HelError error = helYield();
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helYield();
 	} break;
 	case kHelCallSubmitJoin: {
 		int64_t async_id;
-		HelError error = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallExitThisThread: {
-		HelError error = helExitThisThread();
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helExitThisThread();
 	} break;
 	case kHelCallWriteFsBase: {
-		HelError error = helWriteFsBase((void *)arg0);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helWriteFsBase((void *)arg0);
 	} break;
 	case kHelCallGetClock: {
 		uint64_t counter;
-		HelError error = helGetClock(&counter);
-		thorRtReturnSyscall2((Word)error, (Word)counter);
+		*image.error() = helGetClock(&counter);
+		*image.out0() = counter;
 	} break;
 
 	case kHelCallCreateSignal: {
 		HelHandle handle;
-		HelError error = helCreateSignal((void *)arg0, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helCreateSignal((void *)arg0, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallRaiseSignal: {
-		HelError error = helRaiseSignal((HelHandle)arg0);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helRaiseSignal((HelHandle)arg0);
 	} break;
 	case kHelCallReturnFromSignal: {
-		HelError error = helReturnFromSignal();
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helReturnFromSignal();
 	} break;
 
 	case kHelCallCreateEventHub: {
 //			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
-		HelError error = helCreateEventHub(&handle);
+		*image.error() = helCreateEventHub(&handle);
 //			infoLogger->log() << "    -> " << handle << frigg::EndLog();
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallWaitForEvents: {
 //			infoLogger->log() << "helWaitForEvents(" << (HelHandle)arg0
@@ -438,162 +435,146 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 //					<< ", " << (HelNanotime)arg3 << ")" << frigg::EndLog();
 
 		size_t num_items;
-		HelError error = helWaitForEvents((HelHandle)arg0,
+		*image.error() = helWaitForEvents((HelHandle)arg0,
 				(HelEvent *)arg1, (size_t)arg2, (HelNanotime)arg3,
 				&num_items);
-		thorRtReturnSyscall2((Word)error, (Word)num_items);
+		*image.out0() = num_items;
 	} break;
 	
 	case kHelCallCreateRing: {
 		HelHandle handle;
-		HelError error = helCreateRing((HelHandle)arg0, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helCreateRing((HelHandle)arg0, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallSubmitRing: {
 		int64_t async_id;
-		HelError error = helSubmitRing((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitRing((HelHandle)arg0, (HelHandle)arg1,
 				(HelRingBuffer *)arg2, (size_t)arg3,
 				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 
 	case kHelCallCreateFullPipe: {
 		HelHandle first;
 		HelHandle second;
-		HelError error = helCreateFullPipe(&first, &second);
-		thorRtReturnSyscall3((Word)error, (Word)first, (Word)second);
+		*image.error() = helCreateFullPipe(&first, &second);
+		*image.out0() = first;
+		*image.out1() = second;
 	} break;
-/*	case kHelCallSendString: {
-//		infoLogger->log() << "helSendString(" << (HelHandle)arg0 << ")" << frigg::EndLog();
-		HelError error = helSendString((HelHandle)arg0,
-				(const void *)arg1, (size_t)arg2,
-				(int64_t)arg3, (int64_t)arg4, (uint32_t)arg5);
-		thorRtReturnSyscall1((Word)error);
-	} break;*/
 	case kHelCallSubmitSendString: {
 		int64_t async_id;
-		HelError error = helSubmitSendString((HelHandle)arg0,
+		*image.error() = helSubmitSendString((HelHandle)arg0,
 				(HelHandle)arg1, (const void *)arg2, (size_t)arg3,
 				(int64_t)arg4, (int64_t)arg5,
 				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
-/*	case kHelCallSendDescriptor: {
-		HelError error = helSendDescriptor((HelHandle)arg0, (HelHandle)arg1,
-				(int64_t)arg2, (int64_t)arg3, (uint32_t)arg4);
-		thorRtReturnSyscall1((Word)error);
-	} break;*/
 	case kHelCallSubmitSendDescriptor: {
 		int64_t async_id;
-		HelError error = helSubmitSendDescriptor((HelHandle)arg0,
+		*image.error() = helSubmitSendDescriptor((HelHandle)arg0,
 				(HelHandle)arg1, (HelHandle)arg2,
 				(int64_t)arg3, (int64_t)arg4,
 				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallSubmitRecvDescriptor: {
 		int64_t async_id;
-		HelError error = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
 				(int64_t)arg2, (int64_t)arg3,
 				(uintptr_t)arg4, (uintptr_t)arg5, (uint32_t)arg6, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallSubmitRecvString: {
 		int64_t async_id;
-		HelError error = helSubmitRecvString((HelHandle)arg0,
+		*image.error() = helSubmitRecvString((HelHandle)arg0,
 				(HelHandle)arg1, (void *)arg2, (size_t)arg3,
 				(int64_t)arg4, (int64_t)arg5,
 				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallSubmitRecvStringToRing: {
 		int64_t async_id;
-		HelError error = helSubmitRecvStringToRing((HelHandle)arg0,
+		*image.error() = helSubmitRecvStringToRing((HelHandle)arg0,
 				(HelHandle)arg1, (HelHandle)arg2,
 				(int64_t)arg3, (int64_t)arg4,
 				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	
 	case kHelCallCreateServer: {
 		HelHandle server_handle;
 		HelHandle client_handle;
-		HelError error = helCreateServer(&server_handle, &client_handle);
-		thorRtReturnSyscall3((Word)error, (Word)server_handle, (Word)client_handle);
+		*image.error() = helCreateServer(&server_handle, &client_handle);
+		*image.out0() = server_handle;
+		*image.out1() = client_handle;
 	} break;
 	case kHelCallSubmitAccept: {
 		int64_t async_id;
-		HelError error = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallSubmitConnect: {
 		int64_t async_id;
-		HelError error = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 
 	case kHelCallCreateRd: {
 		HelHandle handle;
-		HelError error = helCreateRd(&handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helCreateRd(&handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallRdMount: {
-		HelError error = helRdMount((HelHandle)arg0,
+		*image.error() = helRdMount((HelHandle)arg0,
 				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-		thorRtReturnSyscall1((Word)error);
 	} break;
 	case kHelCallRdPublish: {
-		HelError error = helRdPublish((HelHandle)arg0,
+		*image.error() = helRdPublish((HelHandle)arg0,
 				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-		thorRtReturnSyscall1((Word)error);
 	} break;
 	case kHelCallRdOpen: {
 		HelHandle handle;
-		HelError error = helRdOpen((const char *)arg0,
+		*image.error() = helRdOpen((const char *)arg0,
 				(size_t)arg1, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.out0() = handle;
 	} break;
 
 	case kHelCallAccessIrq: {
 		HelHandle handle;
-		HelError error = helAccessIrq((int)arg0, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helAccessIrq((int)arg0, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallSetupIrq: {
-		HelError error = helSetupIrq((HelHandle)arg0, (uint32_t)arg1);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helSetupIrq((HelHandle)arg0, (uint32_t)arg1);
 	} break;
 	case kHelCallAcknowledgeIrq: {
-		HelError error = helAcknowledgeIrq((HelHandle)arg0);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helAcknowledgeIrq((HelHandle)arg0);
 	} break;
 	case kHelCallSubmitWaitForIrq: {
 		int64_t async_id;
-		HelError error = helSubmitWaitForIrq((HelHandle)arg0,
+		*image.error() = helSubmitWaitForIrq((HelHandle)arg0,
 				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallSubscribeIrq: {
 		int64_t async_id;
-		HelError error = helSubscribeIrq((HelHandle)arg0,
+		*image.error() = helSubscribeIrq((HelHandle)arg0,
 				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		thorRtReturnSyscall2((Word)error, (Word)async_id);
+		*image.out0() = async_id;
 	} break;
 
 	case kHelCallAccessIo: {
 		HelHandle handle;
-		HelError error = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
-		thorRtReturnSyscall2((Word)error, (Word)handle);
+		*image.error() = helAccessIo((uintptr_t *)arg0, (size_t)arg1, &handle);
+		*image.out0() = handle;
 	} break;
 	case kHelCallEnableIo: {
-		HelError error = helEnableIo((HelHandle)arg0);
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helEnableIo((HelHandle)arg0);
 	} break;
 	case kHelCallEnableFullIo: {
-		HelError error = helEnableFullIo();
-		thorRtReturnSyscall1((Word)error);
+		*image.error() = helEnableFullIo();
 	} break;
 	
 	case kHelCallControlKernel: {
@@ -604,7 +585,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 
 		if(subsystem == kThorSubArch) {
 			controlArch(interface, user_input, user_output);
-			thorRtReturnSyscall1((Word)kHelErrNone);
+			*image.error() = kHelErrNone;
 		}else if(subsystem == kThorSubDebug) {
 			if(interface == kThorIfDebugMemory) {
 				infoLogger->log() << "Memory info:\n"
@@ -612,7 +593,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 						<< ", free: " << physicalAllocator->numFreePages() << "\n"
 						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
 						<< frigg::EndLog();
-				thorRtReturnSyscall1((Word)kHelErrNone);
+				*image.error() = kHelErrNone;
 			}else{
 				assert(!"Illegal debug interface");
 			}
@@ -621,7 +602,7 @@ extern "C" void thorSyscall(Word index, Word arg0, Word arg1,
 		}
 	} break;
 	default:
-		thorRtReturnSyscall1(kHelErrIllegalSyscall);
+		*image.error() = kHelErrIllegalSyscall;
 	}
 	
 	this_thread->issueSignalAfterSyscall();
