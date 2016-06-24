@@ -57,18 +57,16 @@ ThorRtThreadState::~ThorRtThreadState() {
 void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (image),
-			"i" (ThorRtKernelGs::kOffExecutorImage) : "memory" );
+			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
 			: : "r" (kernelStack.base()),
-			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
+			"i" (AssemblyCpuContext::kOffSyscallStackPtr) : "memory" );
 	
 	// setup the thread's tss segment
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
-	threadTss.ist1 = cpu_specific->tssTemplate.ist1;
+	CpuContext *cpu_context = getCpuContext();
+	threadTss.ist1 = cpu_context->tssTemplate.ist1;
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
 			&threadTss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 
@@ -79,17 +77,15 @@ void ThorRtThreadState::activate() {
 void ThorRtThreadState::deactivate() {
 	// reset the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffExecutorImage) : "memory" );
+			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
+			"i" (AssemblyCpuContext::kOffSyscallStackPtr) : "memory" );
 	
 	// setup the tss segment
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
+	CpuContext *cpu_context = getCpuContext();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
-			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
+			&cpu_context->tssTemplate, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 
 	// save the fs segment limit
@@ -98,39 +94,32 @@ void ThorRtThreadState::deactivate() {
 }
 
 // --------------------------------------------------------
-// ThorRtKernelGs
+// AssemblyCpuContext
 // --------------------------------------------------------
 
-ThorRtKernelGs::ThorRtKernelGs()
-: cpuContext(nullptr), stateSize(0), syscallStackPtr(nullptr),
-		cpuSpecific(nullptr) { }
+AssemblyCpuContext::AssemblyCpuContext()
+: syscallStackPtr(nullptr) { }
 
 // --------------------------------------------------------
 // Namespace scope functions
 // --------------------------------------------------------
 
 size_t getStateSize() {
-	size_t result;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (result)
-			: "i" (ThorRtKernelGs::kOffStateSize) );
-	return result;
+	return ExecutorImagePtr::determineSize();
 }
 
 CpuContext *getCpuContext() {
-	CpuContext *context;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (context)
-			: "i" (ThorRtKernelGs::kOffCpuContext) );
-	return context;
+	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
+	auto asm_context = reinterpret_cast<AssemblyCpuContext *>(msr);
+	return static_cast<CpuContext *>(asm_context);
 }
 
 void callOnCpuStack(void (*function) ()) {
 	assert(!intsAreEnabled());
 
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
+	CpuContext *cpu_context = getCpuContext();
 	
-	uintptr_t stack_ptr = (uintptr_t)cpu_specific->systemStack.base();
+	uintptr_t stack_ptr = (uintptr_t)cpu_context->systemStack.base();
 	asm volatile ( "mov %0, %%rsp\n"
 			"\tcall *%1\n"
 			"\tud2\n" : : "r" (stack_ptr), "r" (function) );
@@ -140,38 +129,32 @@ void callOnCpuStack(void (*function) ()) {
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
-	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*kernelAlloc);
-	cpu_specific->systemStack = UniqueKernelStack::make();
+	auto cpu_context = frigg::construct<CpuContext>(*kernelAlloc);
+	cpu_context->systemStack = UniqueKernelStack::make();
+	cpu_context->flags = 0;
 
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 
 	// set up the kernel gs segment
-	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
-	kernel_gs->stateSize = ExecutorImagePtr::determineSize();
-	kernel_gs->flags = 0;
-	kernel_gs->cpuSpecific = cpu_specific;
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
-	
-	// set up the cpu context. we do this after setting up gs because
-	// the CpuContext constructor calls getStateSize()
-	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
+	AssemblyCpuContext *asm_context = cpu_context;
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)asm_context);
 
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
-	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
+	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 0);
 	// the layout of the next two kernel descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_specific->gdt, 2);
+	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_context->gdt, 1);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_context->gdt, 2);
 	// the layout of the next three user-space descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 3);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 4);
-	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 5);
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6, nullptr, 0);
+	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 3);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_context->gdt, 4);
+	frigg::arch_x86::makeGdtCode64UserSegment(cpu_context->gdt, 5);
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6, nullptr, 0);
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 8 * 8;
-	gdtr.pointer = cpu_specific->gdt;
+	gdtr.pointer = cpu_context->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq $0x8\n"
@@ -184,21 +167,21 @@ void initializeThisProcessor() {
 	void *irq_stack_base = kernelAlloc->allocate(irq_stack_size);
 	
 	// setup the kernel tss
-	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
-	cpu_specific->tssTemplate.ist1 = (uintptr_t)irq_stack_base + irq_stack_size;
+	frigg::arch_x86::initializeTss64(&cpu_context->tssTemplate);
+	cpu_context->tssTemplate.ist1 = (uintptr_t)irq_stack_base + irq_stack_size;
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
-			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
+			&cpu_context->tssTemplate, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(cpu_specific->idt, i);
-	setupIdt(cpu_specific->idt);
+		frigg::arch_x86::makeIdt64NullGate(cpu_context->idt, i);
+	setupIdt(cpu_context->idt);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 256 * 16;
-	idtr.pointer = cpu_specific->idt;
+	idtr.pointer = cpu_context->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	// enable wrfsbase / wrgsbase instructions

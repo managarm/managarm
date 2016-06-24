@@ -72,7 +72,7 @@ class RdFolder;
 class IrqLine;
 class IoSpace;
 
-struct CpuContext {
+struct CpuContext : public PlatformCpuContext {
 	CpuContext();
 
 	KernelUnsafePtr<Thread> currentThread;

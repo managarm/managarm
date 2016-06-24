@@ -268,44 +268,40 @@ struct ThorRtThreadState {
 	Word fsBase;
 };
 
-struct ThorRtCpuSpecific {
-	uint32_t gdt[8 * 2];
-	uint32_t idt[256 * 4];
-	frigg::arch_x86::Tss64 tssTemplate;
-	UniqueKernelStack systemStack;
-};
-
-struct CpuContext;
-
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct ThorRtKernelGs {
+struct AssemblyCpuContext {
 	enum {
-		kOffCpuContext = 0x00,
-		kOffStateSize = 0x08,
 		kOffExecutorImage = 0x10,
 		kOffSyscallStackPtr = 0x18,
-		kOffFlags = 0x20,
-		kOffCpuSpecific = 0x28
+		kOffFlags = 0x20
 	};
 
 	enum {
 		// there are no flags for now
 	};
 
-	ThorRtKernelGs();
+	AssemblyCpuContext();
 
-	CpuContext *cpuContext;				// offset 0x00
-	size_t stateSize;					// offset 0x08
+	size_t dummy;				// offset 0x00
+	size_t dummy2;					// offset 0x08
 	// TODO: this was syscallState before. tidy up this struct
 	ExecutorImagePtr executorImage;					// offset 0x10
 	// TODO: move this to the executor state
 	void *syscallStackPtr;				// offset 0x18
 	uint32_t flags;						// offset 0x20
 	uint32_t padding;
-	ThorRtCpuSpecific *cpuSpecific;		// offset 0x28
 };
 
+struct PlatformCpuContext : public AssemblyCpuContext {
+	uint32_t gdt[8 * 2];
+	uint32_t idt[256 * 4];
+	frigg::arch_x86::Tss64 tssTemplate;
+	UniqueKernelStack systemStack;
+};
+
+// CpuContext is some high-level struct that inherits from PlatformCpuContext
+struct CpuContext;
 CpuContext *getCpuContext();
 
 bool intsAreAllowed();
