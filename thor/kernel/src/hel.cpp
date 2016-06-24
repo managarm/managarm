@@ -454,7 +454,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 }
 
 HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
-		HelThreadState *user_state, uint32_t flags, HelHandle *handle) {
+		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
@@ -509,31 +509,9 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	ThreadGroup::addThreadToGroup(frigg::move(group),
 			KernelWeakPtr<Thread>(new_thread));
 	
-	// FIXME: do not heap-allocate the state structs
-	void *state = kernelAlloc->allocate(getStateSize());
-	auto gpr_state = accessGprState(state);
-	gpr_state->rax = user_state->rax;
-	gpr_state->rbx = user_state->rbx;
-	gpr_state->rcx = user_state->rcx;
-	gpr_state->rdx = user_state->rdx;
-	gpr_state->rsi = user_state->rsi;
-	gpr_state->rdi = user_state->rdi;
-	gpr_state->rbp = user_state->rbp;
-
-	gpr_state->r8 = user_state->r8;
-	gpr_state->r9 = user_state->r9;
-	gpr_state->r10 = user_state->r10;
-	gpr_state->r11 = user_state->r11;
-	gpr_state->r12 = user_state->r12;
-	gpr_state->r13 = user_state->r13;
-	gpr_state->r14 = user_state->r14;
-	gpr_state->r15 = user_state->r15;
-
-	gpr_state->rip = user_state->rip;
-	gpr_state->rsp = user_state->rsp;
-	gpr_state->rflags = 0x200; // set the interrupt flag
-	gpr_state->kernel = 0;
-	new_thread->accessSaveState().restoreState = state;
+	*new_thread->accessSaveState().image.ip() = (Word)ip;
+	*new_thread->accessSaveState().image.sp() = (Word)sp;
+	*new_thread->accessSaveState().image.rflags() = 0x200;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
 	activeList->addBack(KernelSharedPtr<Thread>(new_thread));
@@ -559,7 +537,8 @@ HelError helYield() {
 
 	void *state = __builtin_alloca(getStateSize());
 	if(forkState(state)) {
-		resetCurrentThread(state);
+		assert(!"Fix yield");
+		//resetCurrentThread(state);
 	
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		if(!(this_thread->flags & Thread::kFlagNotScheduled))
@@ -650,24 +629,7 @@ HelError helRaiseSignal(HelHandle handle) {
 }
 
 HelError helReturnFromSignal() {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	
-	auto *syscall_state = this_thread->accessSaveState().accessSyscallBaseState();
-
-	// TODO: lock user memory
-
-	AdditionalSyscallState additional;
-	auto stack = (uint64_t *)syscall_state->rsp;
-	additional.rbp = *(stack++);
-	additional.r15 = *(stack++);
-	additional.rdx = *(stack++);
-	additional.rsi = *(stack++);
-	additional.rdi = *(stack++);
-	syscall_state->rflags = *(stack++);
-	syscall_state->rip = *(stack++);
-	syscall_state->rsp = *(stack++);
-
-	jumpFromSyscall(&additional);
+	assert(!"Signals are deprecated");
 }
 
 HelError helCreateEventHub(HelHandle *handle) {

@@ -16,26 +16,36 @@ void BochsSink::print(const char *str) {
 }
 
 // --------------------------------------------------------
+// ExecutorImagePtr
+// --------------------------------------------------------
+
+ExecutorImagePtr ExecutorImagePtr::make() {
+	return ExecutorImagePtr((char *)kernelAlloc->allocate(getStateSize()));
+}
+
+void saveExecutorFromIrq(IrqImagePtr base) {
+
+}
+
+// --------------------------------------------------------
 // ThorRtThreadState
 // --------------------------------------------------------
 
-ThorRtThreadState::ThorRtThreadState() : restoreState(0), fsBase(0) {
-	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxState);
-	syscallState = kernelAlloc->allocate(syscall_size);
-
+ThorRtThreadState::ThorRtThreadState()
+: image(ExecutorImagePtr::make()), fsBase(0) {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
 	threadTss.rsp0 = uintptr_t(syscallStack + kSyscallStackSize);
 }
 
 ThorRtThreadState::~ThorRtThreadState() {
-	kernelAlloc->free(syscallState);
+	//FIXME: free the executor image ptr
 }
 
 void ThorRtThreadState::activate() {
 	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (syscallState),
-			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+	asm volatile ( "mov %0, %%gs:%c1" : : "r" (image),
+			"i" (ThorRtKernelGs::kOffExecutorImage) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
 			: : "r" (syscallStack + kSyscallStackSize),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
@@ -57,7 +67,7 @@ void ThorRtThreadState::activate() {
 void ThorRtThreadState::deactivate() {
 	// reset the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
+			"i" (ThorRtKernelGs::kOffExecutorImage) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
@@ -275,30 +285,6 @@ void bootSecondary(uint32_t secondary_apic_id) {
 		frigg::pause();
 	}
 	infoLogger->log() << "AP finished booting" << frigg::EndLog();
-}
-
-void thorRtReturnSyscall1(Word out0) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-}
-
-void thorRtReturnSyscall2(Word out0, Word out1) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-	state->returnRsi = out1;
-}
-
-void thorRtReturnSyscall3(Word out0, Word out1, Word out2) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-	state->returnRsi = out1;
-	state->returnRdx = out2;
 }
 
 } // namespace thor

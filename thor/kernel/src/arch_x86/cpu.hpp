@@ -86,6 +86,21 @@ struct FxState {
 };
 static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
 
+struct FaultImagePtr {
+	Word *ip() {
+		return &((GprState *)_pointer)->rip;
+	}
+
+private:
+	char *_pointer;
+};
+
+struct IrqImagePtr {
+
+private:
+	char *_pointer;
+};
+
 struct SyscallImagePtr {
 	Word *number() { return &_frame()->rdi; }
 	Word *in0() { return &_frame()->rsi; }
@@ -129,39 +144,47 @@ private:
 	char *_pointer;
 };
 
-struct IrqImagePtr {
-	GprState *gpr() {
+struct ExecutorImagePtr {
+	static ExecutorImagePtr make();
+
+	ExecutorImagePtr()
+	: _pointer(nullptr) { }
+
+	// FIXME: remove or refactor the rdi / rflags accessors
+	// as they are platform specific and need to be abstracted here
+	Word *rdi() { return &_gprs()->rdi; }
+	Word *rflags() { return &_gprs()->rflags; }
+
+	Word *ip() { return &_gprs()->rip; }
+	Word *sp() { return &_gprs()->rsp; }
+	uint8_t *kernel() { return &_gprs()->kernel; }
+
+private:
+	explicit ExecutorImagePtr(char *pointer)
+	: _pointer(pointer) { }
+
+	GprState *_gprs() {
 		return reinterpret_cast<GprState *>(_pointer);
 	}
 
-private:
 	char *_pointer;
 };
 
-inline GprState *accessGprState(void *state) {
-	return reinterpret_cast<GprState *>(state);
-}
+void saveExecutorFromIrq(IrqImagePtr base);
+
+// copies the current state into the executor and continues normal control flow.
+// returns 1 when the state is saved and 0 when it is restored.
+extern "C" [[ gnu::returns_twice ]] int forkExecutor();
+
+// restores the current executor from its saved image.
+// this is functions does the heavy lifting during task switch.
+extern "C" [[ noreturn ]] void restoreExecutor();
 
 size_t getStateSize();
 
 extern "C" __attribute__ (( returns_twice )) bool forkState(void *state);
 
 extern "C" __attribute__ (( noreturn )) void restoreStateFrame(void *state);
-
-// note: this struct is accessed from assembly.
-// do not change the field offsets!
-struct SyscallBaseState {
-	Word rsp;		// offset 0x00
-	Word rip;		// offset 0x08
-	Word rflags;	// offset 0x10
-	Word returnRdi; // offset 0x18
-	Word returnRsi; // offset 0x20
-	Word returnRdx; // offset 0x28
-	Word savedRbp;	// offset 0x30
-	Word savedR15;	// offset 0x38
-};
-
-static_assert(sizeof(SyscallBaseState) == 0x40, "Bad sizeof(SyscallBaseState)");
 
 struct ThorRtThreadState {
 	enum {
@@ -178,13 +201,8 @@ struct ThorRtThreadState {
 
 	void activate();
 	void deactivate();
-
-	inline SyscallBaseState *accessSyscallBaseState() {
-		return (SyscallBaseState *)syscallState;
-	}
 	
-	void *syscallState;
-	void *restoreState;
+	ExecutorImagePtr image;
 	frigg::arch_x86::Tss64 threadTss;
 	Word fsBase;
 
@@ -212,7 +230,7 @@ struct ThorRtKernelGs {
 	enum {
 		kOffCpuContext = 0x00,
 		kOffStateSize = 0x08,
-		kOffSyscallState = 0x10,
+		kOffExecutorImage = 0x10,
 		kOffSyscallStackPtr = 0x18,
 		kOffFlags = 0x20,
 		kOffCpuSpecific = 0x28
@@ -226,7 +244,8 @@ struct ThorRtKernelGs {
 
 	CpuContext *cpuContext;				// offset 0x00
 	size_t stateSize;					// offset 0x08
-	void *syscallState;					// offset 0x10
+	// TODO: this was syscallState before. tidy up this struct
+	ExecutorImagePtr executorImage;					// offset 0x10
 	void *syscallStackPtr;				// offset 0x18
 	uint32_t flags;						// offset 0x20
 	uint32_t padding;
@@ -246,10 +265,6 @@ void callOnCpuStack(void (*function) ()) __attribute__ (( noreturn ));
 void initializeThisProcessor();
 
 void bootSecondary(uint32_t secondary_apic_id);
-
-void thorRtReturnSyscall1(Word out0);
-void thorRtReturnSyscall2(Word out0, Word out1);
-void thorRtReturnSyscall3(Word out0, Word out1, Word out2);
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!

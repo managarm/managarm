@@ -27,6 +27,7 @@
 
 # kernel gs segment fields
 .set .L_kGsStateSize, 0x08
+.set .L_kGsExecutorImage, 0x10
 .set .L_kGsFlags, 0x20
 
 .set .L_kernelCodeSelector, 0x8
@@ -246,4 +247,80 @@ restoreStateFrame:
 	
 	mov .L_frameRdi(%rdi), %rdi
 	iretq
+
+.global forkExecutor
+forkExecutor:
+	mov %gs:.L_kGsExecutorImage, %rdi
+
+	# only save the registers that are callee-saved by system v
+	mov %rbx, .L_frameRbx(%rdi)
+	mov %rbp, .L_frameRbp(%rdi)
+	mov %r12, .L_frameR12(%rdi)
+	mov %r13, .L_frameR13(%rdi)
+	mov %r14, .L_frameR14(%rdi)
+	mov %r15, .L_frameR15(%rdi)
+
+	# save the cpu's extended state
+	#fxsaveq .L_frameFxSave(%rdi)
+	
+	# setup the state for the second return
+	pushfq
+	popq .L_frameRflags(%rdi)
+	mov (%rsp), %rdx
+	mov %rdx, .L_frameRip(%rdi)
+	leaq 8(%rsp), %rcx
+	mov %rcx, .L_frameRsp(%rdi)
+	movb $1, .L_frameKernel(%rdi)
+	movq $0, .L_frameRax(%rdi)
+
+	mov $1, %rax
+	ret
+
+.global restoreExecutor
+restoreExecutor:
+	mov %gs:.L_kGsExecutorImage, %rdi
+
+	# restore the general purpose registers except for rdi
+	mov .L_frameRax(%rdi), %rax
+	mov .L_frameRbx(%rdi), %rbx
+	mov .L_frameRcx(%rdi), %rcx
+	mov .L_frameRdx(%rdi), %rdx
+	mov .L_frameRsi(%rdi), %rsi
+	mov .L_frameRbp(%rdi), %rbp
+
+	mov .L_frameR8(%rdi), %r8
+	mov .L_frameR9(%rdi), %r9
+	mov .L_frameR10(%rdi), %r10
+	mov .L_frameR11(%rdi), %r11
+	mov .L_frameR12(%rdi), %r12
+	mov .L_frameR13(%rdi), %r13
+	mov .L_frameR14(%rdi), %r14
+	mov .L_frameR15(%rdi), %r15
+	
+	# restore the cpu's extended state
+	#fxrstorq .L_frameFxSave(%rdi)
+
+	# check if we return to kernel mode
+	testb $1, .L_frameKernel(%rdi)
+	jnz .L_restore_kernel
+
+	pushq $.L_userDataSelector
+	pushq .L_frameRsp(%rdi)
+	pushq .L_frameRflags(%rdi)
+	pushq $.L_userCode64Selector
+	pushq .L_frameRip(%rdi)
+	
+	mov .L_frameRdi(%rdi), %rdi
+	iretq
+
+.L_restore_kernel:
+	pushq $.L_kernelDataSelector
+	pushq .L_frameRsp(%rdi)
+	pushq .L_frameRflags(%rdi)
+	pushq $.L_kernelCodeSelector
+	pushq .L_frameRip(%rdi)
+	
+	mov .L_frameRdi(%rdi), %rdi
+	iretq
+
 

@@ -110,15 +110,14 @@ void EventHub::blockCurrentThread(Guard &guard) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
 
-	void *restore_state = __builtin_alloca(getStateSize());
-	if(forkState(restore_state)) {
+	if(forkExecutor()) {
 		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 		p_waitingThreads.addBack(this_thread.toWeak());
 		
 		// keep the lock on this hub unlocked while we sleep
 		guard.unlock();
 		
-		resetCurrentThread(restore_state);
+		exitExecutor();
 		
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		doSchedule(frigg::move(schedule_guard));

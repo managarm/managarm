@@ -13,9 +13,7 @@ extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 
-// resets the current thread on this processor to null
-// do not use this function to exit the current thread!
-void resetCurrentThread(void *restore_state);
+void exitExecutor();
 
 // resets the current thread and schedules.
 // removes the current thread from the activeList

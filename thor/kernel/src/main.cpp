@@ -168,14 +168,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
 
 	// FIXME: do not heap-allocate the state structs
-	void *state = kernelAlloc->allocate(getStateSize());
-	auto gpr_state = accessGprState(state);
-	gpr_state->rdi = modules[0].physicalBase;
-	gpr_state->rsp = (uintptr_t)thread->accessSaveState().syscallStack
+	*thread->accessSaveState().image.rdi() = modules[0].physicalBase;
+	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().syscallStack
 			+ ThorRtThreadState::kSyscallStackSize;
-	gpr_state->rip = (Word)&enterImage;
-	gpr_state->kernel = 1;
-	thread->accessSaveState().restoreState = state;
+	*thread->accessSaveState().image.ip() = (Word)&enterImage;
+	*thread->accessSaveState().image.kernel() = 1;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
 	activeList->addBack(frigg::move(thread));
@@ -187,38 +184,32 @@ extern "C" void handleDivideByZeroFault(void *state) {
 	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
 
-extern "C" void handleDebugFault(void *state) {
-	auto gpr_state = (GprState *)accessGprState(state);
+extern "C" void handleDebugFault(FaultImagePtr image) {
 	infoLogger->log() << "Debug fault at "
-			<< (void *)gpr_state->rip
-			<< ", rsp: " << (void *)gpr_state->rsp << frigg::EndLog();
+			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleOpcodeFault(void *state) {
+extern "C" void handleOpcodeFault(FaultImagePtr image) {
 	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
 }
 
-extern "C" void handleNoFpuFault(void *state) {
-	auto gpr_state = (GprState *)accessGprState(state);
+extern "C" void handleNoFpuFault(FaultImagePtr image) {
 	frigg::panicLogger.log() << "FPU invoked at "
-			<< (void *)gpr_state->rip << frigg::EndLog();
+			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleDoubleFault(void *state) {
-	auto gpr_state = (GprState *)accessGprState(state);
+extern "C" void handleDoubleFault(FaultImagePtr image) {
 	frigg::panicLogger.log() << "Double fault at "
-			<< (void *)gpr_state->rip
-			<< frigg::EndLog();
+			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleProtectionFault(void *state, Word error) {
-	auto gpr_state = (GprState *)accessGprState(state);
+extern "C" void handleProtectionFault(FaultImagePtr image, Word error) {
 	frigg::panicLogger.log() << "General protection fault\n"
-			<< "    Faulting IP: " << (void *)gpr_state->rip << "\n"
+			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
 			<< "    Faulting segment: " << (void *)error << frigg::EndLog();
 }
 
-extern "C" void handlePageFault(void *state, Word error) {
+extern "C" void handlePageFault(FaultImagePtr image, Word error) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
@@ -241,12 +232,10 @@ extern "C" void handlePageFault(void *state, Word error) {
 	space_guard.unlock();
 	
 	if(!handled) {
-		auto gpr_state = (GprState *)accessGprState(state);
-
 		auto msg = frigg::panicLogger.log();
 		msg << "Page fault"
 				<< " at " << (void *)address
-				<< ", faulting ip: " << (void *)gpr_state->rip << "\n";
+				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
 		if(error & kPfUser) {
 			msg << " (User)";
@@ -386,7 +375,7 @@ extern "C" void handleSyscall(SyscallImagePtr image) {
 //				<< frigg::EndLog();
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0,
-				(HelHandle)arg1, (HelThreadState *)arg2, (uint32_t)arg3,  &handle);
+				(HelHandle)arg1, (int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallYield: {
