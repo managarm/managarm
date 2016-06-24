@@ -96,8 +96,7 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 		while(loadState[page_index] == Memory::kStateLoading) {
 			assert(!intsAreEnabled());
 
-			void *restore_state = __builtin_alloca(getStateSize());
-			if(forkState(restore_state)) {
+			if(forkExecutor()) {
 				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 				waitQueue.addBack(this_thread.toShared());
 				

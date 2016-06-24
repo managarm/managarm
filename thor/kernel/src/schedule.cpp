@@ -62,7 +62,8 @@ void doSchedule(ScheduleGuard &&guard) {
 	}
 }
 
-extern "C" void onPreemption(void *state) {
+// FIXME: this function should get a parameter of type IrqImagePtr
+extern "C" void onPreemption() {
 	assert(!"Fix preemption");
 /*	acknowledgePreemption();
 	

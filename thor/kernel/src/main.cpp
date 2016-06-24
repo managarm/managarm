@@ -180,7 +180,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	enterThread(thread_ptr);
 }
 
-extern "C" void handleDivideByZeroFault(void *state) {
+extern "C" void handleDivideByZeroFault(FaultImagePtr image) {
 	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
 
@@ -203,10 +203,10 @@ extern "C" void handleDoubleFault(FaultImagePtr image) {
 			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleProtectionFault(FaultImagePtr image, Word error) {
+extern "C" void handleProtectionFault(FaultImagePtr image) {
 	frigg::panicLogger.log() << "General protection fault\n"
 			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
-			<< "    Faulting segment: " << (void *)error << frigg::EndLog();
+			<< "    Faulting segment: " << (void *)*image.code() << frigg::EndLog();
 }
 
 extern "C" void handlePageFault(FaultImagePtr image, Word error) {
@@ -221,10 +221,10 @@ extern "C" void handlePageFault(FaultImagePtr image, Word error) {
 	const Word kPfUser = 4;
 	const Word kPfBadTable = 8;
 	const Word kPfInstruction = 16;
-	assert(!(error & kPfBadTable));
+	assert(!(*image.code() & kPfBadTable));
 
 	uint32_t flags = 0;
-	if(error & kPfWrite)
+	if(*image.code() & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 
 	AddressSpace::Guard space_guard(&address_space->lock);
@@ -237,19 +237,19 @@ extern "C" void handlePageFault(FaultImagePtr image, Word error) {
 				<< " at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
 		msg << "Errors:";
-		if(error & kPfUser) {
+		if(*image.code() & kPfUser) {
 			msg << " (User)";
 		}else{
 			msg << " (Supervisor)";
 		}
-		if(error & kPfAccess) {
+		if(*image.code() & kPfAccess) {
 			msg << " (Access violation)";
 		}else{
 			msg << " (Page not present)";
 		}
-		if(error & kPfWrite) {
+		if(*image.code() & kPfWrite) {
 			msg << " (Write)";
-		}else if(error & kPfInstruction) {
+		}else if(*image.code() & kPfInstruction) {
 			msg << " (Instruction fetch)";
 		}else{
 			msg << " (Read)";

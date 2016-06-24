@@ -535,8 +535,7 @@ HelError helYield() {
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 
-	void *state = __builtin_alloca(getStateSize());
-	if(forkState(state)) {
+	if(forkExecutor()) {
 		assert(!"Fix yield");
 		//resetCurrentThread(state);
 	

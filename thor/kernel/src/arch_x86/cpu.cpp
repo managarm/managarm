@@ -19,6 +19,10 @@ void BochsSink::print(const char *str) {
 // ExecutorImagePtr
 // --------------------------------------------------------
 
+size_t ExecutorImagePtr::determineSize() {
+	return sizeof(General) + sizeof(FxState);
+}
+
 ExecutorImagePtr ExecutorImagePtr::make() {
 	return ExecutorImagePtr((char *)kernelAlloc->allocate(getStateSize()));
 }
@@ -132,9 +136,12 @@ extern "C" void syscallStub();
 void initializeThisProcessor() {
 	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*kernelAlloc);
 	
+	// FIXME: the stateSize should not be CPU specific!
+	// move it to a global variable and initialize it in initializeTheSystem() etc.!
+
 	// set up the kernel gs segment
 	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
-	kernel_gs->stateSize = sizeof(GprState) + sizeof(FxState);
+	kernel_gs->stateSize = ExecutorImagePtr::determineSize();
 	kernel_gs->flags = 0;
 	kernel_gs->cpuSpecific = cpu_specific;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
