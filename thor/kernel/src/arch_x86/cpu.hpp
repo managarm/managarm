@@ -9,6 +9,41 @@ namespace thor {
 // Global runtime functions
 // --------------------------------------------------------
 
+struct UniqueKernelStack {
+	static constexpr size_t kSize = 0x2000;
+
+	static UniqueKernelStack make();
+
+	friend void swap(UniqueKernelStack &a, UniqueKernelStack &b) {
+		frigg::swap(a._pointer, b._pointer);
+	}
+
+	UniqueKernelStack()
+	: _pointer(nullptr) { }
+
+	UniqueKernelStack(const UniqueKernelStack &other) = delete;
+
+	UniqueKernelStack(UniqueKernelStack &&other)
+	: UniqueKernelStack() {
+		swap(*this, other);
+	}
+
+	UniqueKernelStack &operator= (UniqueKernelStack other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	void *base() {
+		return _pointer + kSize;
+	}
+
+private:
+	explicit UniqueKernelStack(char *pointer)
+	: _pointer(pointer) { }
+
+	char *_pointer;
+};
+
 struct FaultImagePtr {
 	Word *code() { return &_frame()->code; }
 
@@ -217,11 +252,6 @@ extern "C" [[ noreturn ]] void restoreExecutor();
 size_t getStateSize();
 
 struct ThorRtThreadState {
-	enum {
-		kSyscallStackAlign = 16,
-		kSyscallStackSize = 0x10000
-	};
-
 	ThorRtThreadState();
 	~ThorRtThreadState();
 
@@ -233,23 +263,16 @@ struct ThorRtThreadState {
 	void deactivate();
 	
 	ExecutorImagePtr image;
+	UniqueKernelStack kernelStack;
 	frigg::arch_x86::Tss64 threadTss;
 	Word fsBase;
-
-	alignas(kSyscallStackAlign) uint8_t syscallStack[kSyscallStackSize];
 };
 
 struct ThorRtCpuSpecific {
-	enum {
-		kCpuStackAlign = 16,
-		kCpuStackSize = 0x10000
-	};
-
 	uint32_t gdt[8 * 2];
 	uint32_t idt[256 * 4];
 	frigg::arch_x86::Tss64 tssTemplate;
-
-	alignas(kCpuStackAlign) uint8_t cpuStack[kCpuStackSize];
+	UniqueKernelStack systemStack;
 };
 
 struct CpuContext;
@@ -276,6 +299,7 @@ struct ThorRtKernelGs {
 	size_t stateSize;					// offset 0x08
 	// TODO: this was syscallState before. tidy up this struct
 	ExecutorImagePtr executorImage;					// offset 0x10
+	// TODO: move this to the executor state
 	void *syscallStackPtr;				// offset 0x18
 	uint32_t flags;						// offset 0x20
 	uint32_t padding;

@@ -16,6 +16,14 @@ void BochsSink::print(const char *str) {
 }
 
 // --------------------------------------------------------
+// UniqueKernelStack
+// --------------------------------------------------------
+
+UniqueKernelStack UniqueKernelStack::make() {
+	return UniqueKernelStack((char *)kernelAlloc->allocate(kSize));
+}
+
+// --------------------------------------------------------
 // ExecutorImagePtr
 // --------------------------------------------------------
 
@@ -36,10 +44,10 @@ void saveExecutorFromIrq(IrqImagePtr base) {
 // --------------------------------------------------------
 
 ThorRtThreadState::ThorRtThreadState()
-: image(ExecutorImagePtr::make()), fsBase(0) {
+: image(ExecutorImagePtr::make()), kernelStack(UniqueKernelStack::make()), fsBase(0) {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
-	threadTss.rsp0 = uintptr_t(syscallStack + kSyscallStackSize);
+	threadTss.rsp0 = (uintptr_t)kernelStack.base();
 }
 
 ThorRtThreadState::~ThorRtThreadState() {
@@ -51,7 +59,7 @@ void ThorRtThreadState::activate() {
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (image),
 			"i" (ThorRtKernelGs::kOffExecutorImage) : "memory" );
 	asm volatile ( "mov %0, %%gs:%c1"
-			: : "r" (syscallStack + kSyscallStackSize),
+			: : "r" (kernelStack.base()),
 			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
 	
 	// setup the thread's tss segment
@@ -122,9 +130,7 @@ void callOnCpuStack(void (*function) ()) {
 	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
 			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
 	
-	uintptr_t stack_ptr = (uintptr_t)cpu_specific->cpuStack
-			+ ThorRtCpuSpecific::kCpuStackSize;
-	
+	uintptr_t stack_ptr = (uintptr_t)cpu_specific->systemStack.base();
 	asm volatile ( "mov %0, %%rsp\n"
 			"\tcall *%1\n"
 			"\tud2\n" : : "r" (stack_ptr), "r" (function) );
@@ -135,7 +141,8 @@ extern "C" void syscallStub();
 
 void initializeThisProcessor() {
 	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*kernelAlloc);
-	
+	cpu_specific->systemStack = UniqueKernelStack::make();
+
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 

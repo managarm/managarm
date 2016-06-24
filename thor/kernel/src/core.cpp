@@ -75,8 +75,7 @@ CpuContext::CpuContext() {
 	thread->flags |= Thread::kFlagNotScheduled;
 
 	// FIXME: do not heap-allocate the state structs
-	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().syscallStack
-			+ ThorRtThreadState::kSyscallStackSize;
+	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().kernelStack.base();
 	*thread->accessSaveState().image.rflags() = 0x200; // enable interrupts
 	*thread->accessSaveState().image.ip() = (Word)&idleRoutine;
 	*thread->accessSaveState().image.kernel() = 1;

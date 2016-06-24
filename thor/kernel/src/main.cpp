@@ -169,8 +169,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	// FIXME: do not heap-allocate the state structs
 	*thread->accessSaveState().image.rdi() = modules[0].physicalBase;
-	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().syscallStack
-			+ ThorRtThreadState::kSyscallStackSize;
+	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().kernelStack.base();
 	*thread->accessSaveState().image.ip() = (Word)&enterImage;
 	*thread->accessSaveState().image.kernel() = 1;
 	
