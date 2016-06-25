@@ -1,35 +1,37 @@
 
-# fields of the state structs
-.set .L_frameRax, 0x0
-.set .L_frameRbx, 0x8
-.set .L_frameRcx, 0x10
-.set .L_frameRdx, 0x18
-.set .L_frameRsi, 0x20
-.set .L_frameRdi, 0x28
-.set .L_frameRbp, 0x30
-
-.set .L_frameR8, 0x38
-.set .L_frameR9, 0x40
-.set .L_frameR10, 0x48
-.set .L_frameR11, 0x50
-.set .L_frameR12, 0x58
-.set .L_frameR13, 0x60
-.set .L_frameR14, 0x68
-.set .L_frameR15, 0x70
-
-.set .L_frameRsp, 0x78
-.set .L_frameRip, 0x80
-.set .L_frameRflags, 0x88
-.set .L_frameKernel, 0x90
-
-.set .L_frameFxSave, 0xA0
-
 # kernel gs segment fields
 .set .L_gsActiveExecutor, 0x08
 
 # executor struct fields
 .set .L_executorImagePtr, 0x00
+.set .L_executorKernelStack, 0x08
 
+# fields of the state structs
+.set .L_imageRax, 0x0
+.set .L_imageRbx, 0x8
+.set .L_imageRcx, 0x10
+.set .L_imageRdx, 0x18
+.set .L_imageRsi, 0x20
+.set .L_imageRdi, 0x28
+.set .L_imageRbp, 0x30
+
+.set .L_imageR8, 0x38
+.set .L_imageR9, 0x40
+.set .L_imageR10, 0x48
+.set .L_imageR11, 0x50
+.set .L_imageR12, 0x58
+.set .L_imageR13, 0x60
+.set .L_imageR14, 0x68
+.set .L_imageR15, 0x70
+
+.set .L_imageRsp, 0x78
+.set .L_imageRip, 0x80
+.set .L_imageRflags, 0x88
+.set .L_imageKernel, 0x90
+
+.set .L_imageFxSave, 0xA0
+
+# GDT selectors for various descriptors
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10
 .set .L_userCode64Selector, 0x2B
@@ -39,6 +41,10 @@
 .set .L_typeFaultNoCode, 1
 .set .L_typeFaultWithCode, 2
 .set .L_typeCall, 3
+
+# ---------------------------------------------------------
+# Fault stubs
+# ---------------------------------------------------------
 
 .macro MAKE_FAULT_STUB type, name, func, number=0
 .global \name
@@ -95,6 +101,10 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, handlePageFault
 
 # TODO: handle this as an IRQ
 MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
+
+# ---------------------------------------------------------
+# IRQ stubs
+# ---------------------------------------------------------
 
 .macro MAKE_IRQ_STUB name, number
 .global \name
@@ -154,31 +164,99 @@ MAKE_IRQ_STUB thorRtIsrIrq13, 13
 MAKE_IRQ_STUB thorRtIsrIrq14, 14
 MAKE_IRQ_STUB thorRtIsrIrq15, 15
 
+# ---------------------------------------------------------
+# Syscall stubs
+# ---------------------------------------------------------
+
+.global syscallStub
+syscallStub:
+	# rsp still contains the user-space stack pointer
+	# temporarily save it and switch to kernel-stack
+	mov %rsp, %r15
+	mov %gs:.L_gsActiveExecutor, %rsp
+	mov .L_executorKernelStack(%rsp), %rsp
+
+	# syscall stores rip to rcx and rflags to r11
+	push %r11 
+	push %rcx
+	push %r15
+
+	push %rbp
+	push %r14
+	push %r13
+	push %r12
+	push %r10
+	push %r9
+	push %r8
+	push %rax
+	push %rdx
+	push %rsi
+	push %rdi
+
+	# debugging: disallow use of the FPU in kernel code
+#	mov %cr0, %r15
+#	or $8, %r15
+#	mov %r15, %cr0
+
+	mov %rsp, %rdi
+	call handleSyscall
+
+	# debugging: disallow use of the FPU in kernel code
+#	mov %cr0, %r15
+#	and $0xFFFFFFFFFFFFFFF7, %r15
+#	mov %r15, %cr0
+	
+	pop %rdi
+	pop %rsi
+	pop %rdx
+	pop %rax
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %rbp
+	
+	# prepare rcx and r11 for sysret
+	pop %r15
+	pop %rcx
+	pop %r11
+
+	mov %r15, %rsp
+	# TODO: is this necessary? should r11 not already have the flag set?
+	#or $.L_kRflagsIf, %r11 # enable interrupts
+	sysretq
+
+# ---------------------------------------------------------
+# Executor related functions
+# ---------------------------------------------------------
+
 .global forkExecutor
 forkExecutor:
 	mov %gs:.L_gsActiveExecutor, %rsi
 	mov .L_executorImagePtr(%rsi), %rdi
 
 	# only save the registers that are callee-saved by system v
-	mov %rbx, .L_frameRbx(%rdi)
-	mov %rbp, .L_frameRbp(%rdi)
-	mov %r12, .L_frameR12(%rdi)
-	mov %r13, .L_frameR13(%rdi)
-	mov %r14, .L_frameR14(%rdi)
-	mov %r15, .L_frameR15(%rdi)
+	mov %rbx, .L_imageRbx(%rdi)
+	mov %rbp, .L_imageRbp(%rdi)
+	mov %r12, .L_imageR12(%rdi)
+	mov %r13, .L_imageR13(%rdi)
+	mov %r14, .L_imageR14(%rdi)
+	mov %r15, .L_imageR15(%rdi)
 
 	# save the cpu's extended state
-	#fxsaveq .L_frameFxSave(%rdi)
+	#fxsaveq .L_imageFxSave(%rdi)
 	
 	# setup the state for the second return
 	pushfq
-	popq .L_frameRflags(%rdi)
+	popq .L_imageRflags(%rdi)
 	mov (%rsp), %rdx
-	mov %rdx, .L_frameRip(%rdi)
+	mov %rdx, .L_imageRip(%rdi)
 	leaq 8(%rsp), %rcx
-	mov %rcx, .L_frameRsp(%rdi)
-	movb $1, .L_frameKernel(%rdi)
-	movq $0, .L_frameRax(%rdi)
+	mov %rcx, .L_imageRsp(%rdi)
+	movb $1, .L_imageKernel(%rdi)
+	movq $0, .L_imageRax(%rdi)
 
 	mov $1, %rax
 	ret
@@ -189,46 +267,45 @@ restoreExecutor:
 	mov .L_executorImagePtr(%rsi), %rdi
 
 	# restore the general purpose registers except for rdi
-	mov .L_frameRax(%rdi), %rax
-	mov .L_frameRbx(%rdi), %rbx
-	mov .L_frameRcx(%rdi), %rcx
-	mov .L_frameRdx(%rdi), %rdx
-	mov .L_frameRsi(%rdi), %rsi
-	mov .L_frameRbp(%rdi), %rbp
+	mov .L_imageRax(%rdi), %rax
+	mov .L_imageRbx(%rdi), %rbx
+	mov .L_imageRcx(%rdi), %rcx
+	mov .L_imageRdx(%rdi), %rdx
+	mov .L_imageRsi(%rdi), %rsi
+	mov .L_imageRbp(%rdi), %rbp
 
-	mov .L_frameR8(%rdi), %r8
-	mov .L_frameR9(%rdi), %r9
-	mov .L_frameR10(%rdi), %r10
-	mov .L_frameR11(%rdi), %r11
-	mov .L_frameR12(%rdi), %r12
-	mov .L_frameR13(%rdi), %r13
-	mov .L_frameR14(%rdi), %r14
-	mov .L_frameR15(%rdi), %r15
+	mov .L_imageR8(%rdi), %r8
+	mov .L_imageR9(%rdi), %r9
+	mov .L_imageR10(%rdi), %r10
+	mov .L_imageR11(%rdi), %r11
+	mov .L_imageR12(%rdi), %r12
+	mov .L_imageR13(%rdi), %r13
+	mov .L_imageR14(%rdi), %r14
+	mov .L_imageR15(%rdi), %r15
 	
 	# restore the cpu's extended state
-	#fxrstorq .L_frameFxSave(%rdi)
+	#fxrstorq .L_imageFxSave(%rdi)
 
 	# check if we return to kernel mode
-	testb $1, .L_frameKernel(%rdi)
+	testb $1, .L_imageKernel(%rdi)
 	jnz .L_restore_kernel
 
 	pushq $.L_userDataSelector
-	pushq .L_frameRsp(%rdi)
-	pushq .L_frameRflags(%rdi)
+	pushq .L_imageRsp(%rdi)
+	pushq .L_imageRflags(%rdi)
 	pushq $.L_userCode64Selector
-	pushq .L_frameRip(%rdi)
+	pushq .L_imageRip(%rdi)
 	
-	mov .L_frameRdi(%rdi), %rdi
+	mov .L_imageRdi(%rdi), %rdi
 	iretq
 
 .L_restore_kernel:
 	pushq $.L_kernelDataSelector
-	pushq .L_frameRsp(%rdi)
-	pushq .L_frameRflags(%rdi)
+	pushq .L_imageRsp(%rdi)
+	pushq .L_imageRflags(%rdi)
 	pushq $.L_kernelCodeSelector
-	pushq .L_frameRip(%rdi)
+	pushq .L_imageRip(%rdi)
 	
-	mov .L_frameRdi(%rdi), %rdi
+	mov .L_imageRdi(%rdi), %rdi
 	iretq
-
 
