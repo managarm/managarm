@@ -251,19 +251,22 @@ extern "C" [[ noreturn ]] void restoreExecutor();
 
 size_t getStateSize();
 
-struct ThorRtThreadState {
-	ThorRtThreadState();
-	~ThorRtThreadState();
+// note: this struct is accessed from assembly.
+// do not change the field offsets!
+struct AssemblyExecutor {
+	AssemblyExecutor(ExecutorImagePtr image, UniqueKernelStack kernel_stack)
+	: image(image), kernelStack(frigg::move(kernel_stack)) { }
 
-	ThorRtThreadState(const ThorRtThreadState &other) = delete;
-	
-	ThorRtThreadState &operator= (const ThorRtThreadState &other) = delete;
+	ExecutorImagePtr image;
+	UniqueKernelStack kernelStack;
+};
+
+struct PlatformExecutor : public AssemblyExecutor {
+	PlatformExecutor();
 
 	void activate();
 	void deactivate();
 	
-	ExecutorImagePtr image;
-	UniqueKernelStack kernelStack;
 	frigg::arch_x86::Tss64 threadTss;
 	Word fsBase;
 };

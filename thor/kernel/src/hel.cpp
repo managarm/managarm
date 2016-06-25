@@ -509,9 +509,9 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	ThreadGroup::addThreadToGroup(frigg::move(group),
 			KernelWeakPtr<Thread>(new_thread));
 	
-	*new_thread->accessSaveState().image.ip() = (Word)ip;
-	*new_thread->accessSaveState().image.sp() = (Word)sp;
-	*new_thread->accessSaveState().image.rflags() = 0x200;
+	*new_thread->image.ip() = (Word)ip;
+	*new_thread->image.sp() = (Word)sp;
+	*new_thread->image.rflags() = 0x200;
 	
 	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
 	activeList->addBack(KernelSharedPtr<Thread>(new_thread));

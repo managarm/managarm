@@ -64,20 +64,16 @@ void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
 }
 
 void Thread::enableIoPort(uintptr_t port) {
-	p_saveState.threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+	threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
 void Thread::activate() {
 	p_addressSpace->activate();
-	p_saveState.activate();
+	PlatformExecutor::activate();
 }
 
 void Thread::deactivate() {
-	p_saveState.deactivate();
-}
-
-ThorRtThreadState &Thread::accessSaveState() {
-	return p_saveState;
+	PlatformExecutor::deactivate();
 }
 
 // --------------------------------------------------------

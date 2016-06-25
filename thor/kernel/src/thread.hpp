@@ -3,9 +3,8 @@ namespace thor {
 
 class ThreadGroup;
 
-class Thread {
+class Thread : public PlatformExecutor {
 friend class ThreadQueue;
-friend void switchThread(KernelUnsafePtr<Thread> thread);
 public:
 	enum Flags : uint32_t {
 		// disables preemption for this thread
@@ -39,8 +38,6 @@ public:
 	void activate();
 	void deactivate();
 
-	ThorRtThreadState &accessSaveState();
-
 	const uint64_t globalThreadId;
 	
 	uint32_t flags;
@@ -66,8 +63,6 @@ private:
 
 	frigg::LinkedList<PendingSignal, KernelAlloc> p_pendingSignals;
 	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
-
-	ThorRtThreadState p_saveState;
 };
 
 struct ThreadGroup {

@@ -40,21 +40,17 @@ void saveExecutorFromIrq(IrqImagePtr base) {
 }
 
 // --------------------------------------------------------
-// ThorRtThreadState
+// PlatformExecutor
 // --------------------------------------------------------
 
-ThorRtThreadState::ThorRtThreadState()
-: image(ExecutorImagePtr::make()), kernelStack(UniqueKernelStack::make()), fsBase(0) {
+PlatformExecutor::PlatformExecutor()
+: AssemblyExecutor(ExecutorImagePtr::make(), UniqueKernelStack::make()), fsBase(0) {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
 	threadTss.rsp0 = (uintptr_t)kernelStack.base();
 }
 
-ThorRtThreadState::~ThorRtThreadState() {
-	//FIXME: free the executor image ptr
-}
-
-void ThorRtThreadState::activate() {
+void PlatformExecutor::activate() {
 	// set the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (image),
 			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );
@@ -74,7 +70,7 @@ void ThorRtThreadState::activate() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, fsBase);
 }
 
-void ThorRtThreadState::deactivate() {
+void PlatformExecutor::deactivate() {
 	// reset the current general / syscall state pointer
 	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
 			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );

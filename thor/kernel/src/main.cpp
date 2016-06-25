@@ -168,10 +168,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
 
 	// FIXME: do not heap-allocate the state structs
-	*thread->accessSaveState().image.rdi() = modules[0].physicalBase;
-	*thread->accessSaveState().image.sp() = (uintptr_t)thread->accessSaveState().kernelStack.base();
-	*thread->accessSaveState().image.ip() = (Word)&enterImage;
-	*thread->accessSaveState().image.kernel() = 1;
+	*thread->image.rdi() = modules[0].physicalBase;
+	*thread->image.sp() = (uintptr_t)thread->kernelStack.base();
+	*thread->image.ip() = (Word)&enterImage;
+	*thread->image.kernel() = 1;
 	
 	KernelUnsafePtr<Thread> thread_ptr(thread);
 	activeList->addBack(frigg::move(thread));
@@ -276,7 +276,6 @@ extern "C" void thorImplementNoThreadIrqs() {
 
 extern "C" void handleSyscall(SyscallImagePtr image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-//	auto base_state = getCurrentThread()->accessSaveState().accessGeneralBaseState();
 //	if(index != kHelCallLog)
 //		infoLogger->log() << "syscall #" << index << frigg::EndLog();
 
