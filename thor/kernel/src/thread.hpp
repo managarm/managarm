@@ -35,9 +35,6 @@ public:
 
 	void enableIoPort(uintptr_t port);
 	
-	void activate();
-	void deactivate();
-
 	const uint64_t globalThreadId;
 	
 	uint32_t flags;

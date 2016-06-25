@@ -8,16 +8,7 @@ frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
 frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread() {
-	return getCpuContext()->currentThread;
-}
-
-void exitExecutor() {
-	assert(!intsAreEnabled());
-	auto cpu_context = getCpuContext();
-	assert(cpu_context->currentThread);
-
-	cpu_context->currentThread->deactivate();
-	cpu_context->currentThread = KernelUnsafePtr<Thread>();
+	return activeExecutor();
 }
 
 void dropCurrentThread() {
@@ -33,23 +24,16 @@ void dropCurrentThread() {
 }
 
 void enterThread(KernelUnsafePtr<Thread> thread) {
-	assert(!intsAreEnabled());
-	auto cpu_context = getCpuContext();
-	assert(!cpu_context->currentThread);
-
-//FIXME: re-enable preemption
-//	if((thread->flags & Thread::kFlagExclusive) == 0)
-//		preemptThisCpu(100000000);
-
-	thread->activate();
-	cpu_context->currentThread = thread;
+	enterExecutor(thread);
 	restoreExecutor();
 }
 
 void doSchedule(ScheduleGuard &&guard) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(scheduleLock.get()));
-	assert(!getCpuContext()->currentThread);
+
+	// FIXME: make sure that we only schedule from
+	// a executor-indepedent domain.
 	
 	if(!scheduleQueue->empty()) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();

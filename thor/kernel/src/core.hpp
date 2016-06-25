@@ -75,7 +75,6 @@ class IoSpace;
 struct CpuContext : public PlatformCpuContext {
 	CpuContext();
 
-	KernelUnsafePtr<Thread> currentThread;
 	KernelUnsafePtr<Thread> idleThread;
 };
 

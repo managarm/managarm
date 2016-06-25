@@ -50,32 +50,38 @@ PlatformExecutor::PlatformExecutor()
 	threadTss.rsp0 = (uintptr_t)kernelStack.base();
 }
 
-void PlatformExecutor::activate() {
-	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (image),
-			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1"
-			: : "r" (kernelStack.base()),
-			"i" (AssemblyCpuContext::kOffSyscallStackPtr) : "memory" );
+void enterExecutor(frigg::UnsafePtr<Thread> executor) {
+	assert(!intsAreEnabled());
+
+	AssemblyCpuContext *context = getCpuContext();
+	assert(!context->activeExecutor);
+	context->activeExecutor = executor;
+	context->executorImage = executor->image;
+	context->syscallStackPtr = executor->kernelStack.base();
 	
+	executor->getAddressSpace()->activate();
+
+
 	// setup the thread's tss segment
 	CpuContext *cpu_context = getCpuContext();
-	threadTss.ist1 = cpu_context->tssTemplate.ist1;
+	executor->threadTss.ist1 = cpu_context->tssTemplate.ist1;
 	
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
-			&threadTss, sizeof(frigg::arch_x86::Tss64));
+			&executor->threadTss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 
 	// restore the fs segment limit
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, fsBase);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->fsBase);
 }
 
-void PlatformExecutor::deactivate() {
-	// reset the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (AssemblyCpuContext::kOffExecutorImage) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (AssemblyCpuContext::kOffSyscallStackPtr) : "memory" );
+void exitExecutor() {
+	assert(!intsAreEnabled());
+
+	AssemblyCpuContext *context = getCpuContext();
+	assert(context->activeExecutor);
+	context->activeExecutor = frigg::UnsafePtr<AssemblyExecutor>();
+	context->executorImage = ExecutorImagePtr();
+	context->syscallStackPtr = nullptr;
 	
 	// setup the tss segment
 	CpuContext *cpu_context = getCpuContext();
@@ -85,8 +91,13 @@ void PlatformExecutor::deactivate() {
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 
 	// save the fs segment limit
-	fsBase = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	//FIXME: save / restore fsBase
+	// executor->fsBase = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, 0);
+}
+
+frigg::UnsafePtr<Thread> activeExecutor() {
+	return frigg::staticPtrCast<Thread>(getCpuContext()->activeExecutor);
 }
 
 // --------------------------------------------------------
@@ -127,7 +138,6 @@ extern "C" void syscallStub();
 void initializeThisProcessor() {
 	auto cpu_context = frigg::construct<CpuContext>(*kernelAlloc);
 	cpu_context->systemStack = UniqueKernelStack::make();
-	cpu_context->flags = 0;
 
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!

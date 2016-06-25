@@ -13,8 +13,6 @@ extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 
-void exitExecutor();
-
 // resets the current thread and schedules.
 // removes the current thread from the activeList
 // use this in conjunction with callOnCpuStack()

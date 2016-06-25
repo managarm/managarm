@@ -25,8 +25,7 @@
 .set .L_frameFxSave, 0xA0
 
 # kernel gs segment fields
-.set .L_kGsExecutorImage, 0x10
-.set .L_kGsFlags, 0x20
+.set .L_kGsExecutorImage, 0x00
 
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10

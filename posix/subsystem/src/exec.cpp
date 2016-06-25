@@ -291,7 +291,9 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
-	HelThreadState state;
+	assert(!"Fix exec()");
+
+/*	HelThreadState state;
 	memset(&state, 0, sizeof(HelThreadState));
 	state.rip = interpreterEntry;
 	state.rsp = (uintptr_t)stack_base + stack_size;
@@ -305,7 +307,7 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
 			&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
-	HEL_CHECK(helCloseDescriptor(thread));
+	HEL_CHECK(helCloseDescriptor(thread));*/
 }
 
 void execute(frigg::SharedPtr<Process> process, frigg::String<Allocator> path) {

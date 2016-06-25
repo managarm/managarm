@@ -263,37 +263,26 @@ struct AssemblyExecutor {
 
 struct PlatformExecutor : public AssemblyExecutor {
 	PlatformExecutor();
-
-	void activate();
-	void deactivate();
 	
 	frigg::arch_x86::Tss64 threadTss;
 	Word fsBase;
 };
 
+struct Thread;
+void enterExecutor(frigg::UnsafePtr<Thread> executor);
+
+void exitExecutor();
+
+frigg::UnsafePtr<Thread> activeExecutor();
+
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyCpuContext {
-	enum {
-		kOffExecutorImage = 0x10,
-		kOffSyscallStackPtr = 0x18,
-		kOffFlags = 0x20
-	};
-
-	enum {
-		// there are no flags for now
-	};
-
 	AssemblyCpuContext();
 
-	size_t dummy;				// offset 0x00
-	size_t dummy2;					// offset 0x08
-	// TODO: this was syscallState before. tidy up this struct
-	ExecutorImagePtr executorImage;					// offset 0x10
-	// TODO: move this to the executor state
-	void *syscallStackPtr;				// offset 0x18
-	uint32_t flags;						// offset 0x20
-	uint32_t padding;
+	ExecutorImagePtr executorImage;
+	void *syscallStackPtr;
+	frigg::UnsafePtr<AssemblyExecutor> activeExecutor;
 };
 
 struct PlatformCpuContext : public AssemblyCpuContext {

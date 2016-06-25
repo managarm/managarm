@@ -67,15 +67,6 @@ void Thread::enableIoPort(uintptr_t port) {
 	threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
-void Thread::activate() {
-	p_addressSpace->activate();
-	PlatformExecutor::activate();
-}
-
-void Thread::deactivate() {
-	PlatformExecutor::deactivate();
-}
-
 // --------------------------------------------------------
 // Thread::PendingSignal
 // --------------------------------------------------------
