@@ -194,7 +194,8 @@ private:
 		// 0 = thread saved in user mode
 		// 1 = thread saved in kernel mode
 		uint8_t kernel;		// offset 0x90
-		uint8_t padding[15];
+		uint8_t padding[7];
+		Word fsBase;		// offset 0x98
 	};
 	static_assert(sizeof(General) == 0xA0, "Bad sizeof(General)");
 
@@ -281,7 +282,6 @@ struct PlatformExecutor : public AssemblyExecutor {
 	PlatformExecutor();
 	
 	frigg::arch_x86::Tss64 threadTss;
-	Word fsBase;
 };
 
 struct Thread;

@@ -28,6 +28,7 @@
 .set .L_imageRip, 0x80
 .set .L_imageRflags, 0x88
 .set .L_imageKernel, 0x90
+.set .L_imageFsBase, 0x98
 
 .set .L_imageFxSave, 0xA0
 
@@ -37,14 +38,15 @@
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-# macro to construct an interrupt handler
-.set .L_typeFaultNoCode, 1
-.set .L_typeFaultWithCode, 2
-.set .L_typeCall, 3
+.set .L_msrIndexFsBase, 0xC0000100
 
 # ---------------------------------------------------------
 # Fault stubs
 # ---------------------------------------------------------
+
+.set .L_typeFaultNoCode, 1
+.set .L_typeFaultWithCode, 2
+.set .L_typeCall, 3
 
 .macro MAKE_FAULT_STUB type, name, func, number=0
 .global \name
@@ -236,6 +238,13 @@ syscallStub:
 forkExecutor:
 	mov %gs:.L_gsActiveExecutor, %rsi
 	mov .L_executorImagePtr(%rsi), %rdi
+	
+	# save the fs segment
+	mov $.L_msrIndexFsBase, %rcx
+	rdmsr
+	shl $32, %rdx
+	or %rdx, %rax
+	mov %rax, .L_imageFsBase(%rdi)
 
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_imageRbx(%rdi)
@@ -246,7 +255,7 @@ forkExecutor:
 	mov %r15, .L_imageR15(%rdi)
 
 	# save the cpu's extended state
-	#fxsaveq .L_imageFxSave(%rdi)
+	fxsaveq .L_imageFxSave(%rdi)
 	
 	# setup the state for the second return
 	pushfq
@@ -266,6 +275,13 @@ restoreExecutor:
 	mov %gs:.L_gsActiveExecutor, %rsi
 	mov .L_executorImagePtr(%rsi), %rdi
 
+	# restore the fs segment
+	mov .L_imageFsBase(%rdi), %rax
+	mov .L_imageFsBase(%rdi), %rdx
+	shr $32, %rdx
+	mov $.L_msrIndexFsBase, %rcx
+	wrmsr
+
 	# restore the general purpose registers except for rdi
 	mov .L_imageRax(%rdi), %rax
 	mov .L_imageRbx(%rdi), %rbx
@@ -284,7 +300,7 @@ restoreExecutor:
 	mov .L_imageR15(%rdi), %r15
 	
 	# restore the cpu's extended state
-	#fxrstorq .L_imageFxSave(%rdi)
+	fxrstorq .L_imageFxSave(%rdi)
 
 	# check if we return to kernel mode
 	testb $1, .L_imageKernel(%rdi)

@@ -41,7 +41,7 @@ UniqueExecutorImage UniqueExecutorImage::make() {
 // --------------------------------------------------------
 
 PlatformExecutor::PlatformExecutor()
-: AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()), fsBase(0) {
+: AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()) {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
 	threadTss.rsp0 = (uintptr_t)kernelStack.base();
@@ -63,9 +63,6 @@ void enterExecutor(frigg::UnsafePtr<Thread> executor) {
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
 			&executor->threadTss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
-
-	// restore the fs segment limit
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->fsBase);
 }
 
 void exitExecutor() {
@@ -81,11 +78,6 @@ void exitExecutor() {
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
 			&cpu_context->tssTemplate, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
-
-	// save the fs segment limit
-	//FIXME: save / restore fsBase
-	// executor->fsBase = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, 0);
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
