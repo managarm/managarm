@@ -15,11 +15,11 @@ struct UniqueKernelStack {
 	static UniqueKernelStack make();
 
 	friend void swap(UniqueKernelStack &a, UniqueKernelStack &b) {
-		frigg::swap(a._pointer, b._pointer);
+		frigg::swap(a._base, b._base);
 	}
 
 	UniqueKernelStack()
-	: _pointer(nullptr) { }
+	: _base(nullptr) { }
 
 	UniqueKernelStack(const UniqueKernelStack &other) = delete;
 
@@ -34,14 +34,14 @@ struct UniqueKernelStack {
 	}
 
 	void *base() {
-		return _pointer + kSize;
+		return _base;
 	}
 
 private:
-	explicit UniqueKernelStack(char *pointer)
-	: _pointer(pointer) { }
+	explicit UniqueKernelStack(char *base)
+	: _base(base) { }
 
-	char *_pointer;
+	char *_base;
 };
 
 struct FaultImagePtr {
@@ -278,10 +278,6 @@ frigg::UnsafePtr<Thread> activeExecutor();
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyCpuContext {
-	AssemblyCpuContext();
-
-	ExecutorImagePtr executorImage;
-	void *syscallStackPtr;
 	frigg::UnsafePtr<AssemblyExecutor> activeExecutor;
 };
 

@@ -28,7 +28,9 @@
 .set .L_kAdditionalR14, 0x68
 .set .L_kAdditionalR15, 0x70
 
-.set .L_kGsSyscallStackPtr, 0x08
+.set .L_gsActiveExecutor, 0x08
+
+.set .L_executorSyscallStack, 0x08
 
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
@@ -38,7 +40,8 @@ syscallStub:
 	# rsp still contains the user-space stack pointer
 	# temporarily save it and switch to kernel-stack
 	mov %rsp, %r15
-	mov %gs:.L_kGsSyscallStackPtr, %rsp
+	mov %gs:.L_gsActiveExecutor, %rsp
+	mov .L_executorSyscallStack(%rsp), %rsp
 
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 

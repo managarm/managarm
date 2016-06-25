@@ -25,7 +25,10 @@
 .set .L_frameFxSave, 0xA0
 
 # kernel gs segment fields
-.set .L_kGsExecutorImage, 0x00
+.set .L_gsActiveExecutor, 0x08
+
+# executor struct fields
+.set .L_executorImagePtr, 0x00
 
 .set .L_kernelCodeSelector, 0x8
 .set .L_kernelDataSelector, 0x10
@@ -153,7 +156,8 @@ MAKE_IRQ_STUB thorRtIsrIrq15, 15
 
 .global forkExecutor
 forkExecutor:
-	mov %gs:.L_kGsExecutorImage, %rdi
+	mov %gs:.L_gsActiveExecutor, %rsi
+	mov .L_executorImagePtr(%rsi), %rdi
 
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_frameRbx(%rdi)
@@ -181,7 +185,8 @@ forkExecutor:
 
 .global restoreExecutor
 restoreExecutor:
-	mov %gs:.L_kGsExecutorImage, %rdi
+	mov %gs:.L_gsActiveExecutor, %rsi
+	mov .L_executorImagePtr(%rsi), %rdi
 
 	# restore the general purpose registers except for rdi
 	mov .L_frameRax(%rdi), %rax

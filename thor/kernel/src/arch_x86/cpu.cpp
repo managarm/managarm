@@ -20,7 +20,8 @@ void BochsSink::print(const char *str) {
 // --------------------------------------------------------
 
 UniqueKernelStack UniqueKernelStack::make() {
-	return UniqueKernelStack((char *)kernelAlloc->allocate(kSize));
+	char *pointer = (char *)kernelAlloc->allocate(kSize);
+	return UniqueKernelStack(pointer + kSize);
 }
 
 // --------------------------------------------------------
@@ -56,11 +57,8 @@ void enterExecutor(frigg::UnsafePtr<Thread> executor) {
 	AssemblyCpuContext *context = getCpuContext();
 	assert(!context->activeExecutor);
 	context->activeExecutor = executor;
-	context->executorImage = executor->image;
-	context->syscallStackPtr = executor->kernelStack.base();
 	
 	executor->getAddressSpace()->activate();
-
 
 	// setup the thread's tss segment
 	CpuContext *cpu_context = getCpuContext();
@@ -80,8 +78,6 @@ void exitExecutor() {
 	AssemblyCpuContext *context = getCpuContext();
 	assert(context->activeExecutor);
 	context->activeExecutor = frigg::UnsafePtr<AssemblyExecutor>();
-	context->executorImage = ExecutorImagePtr();
-	context->syscallStackPtr = nullptr;
 	
 	// setup the tss segment
 	CpuContext *cpu_context = getCpuContext();
@@ -99,13 +95,6 @@ void exitExecutor() {
 frigg::UnsafePtr<Thread> activeExecutor() {
 	return frigg::staticPtrCast<Thread>(getCpuContext()->activeExecutor);
 }
-
-// --------------------------------------------------------
-// AssemblyCpuContext
-// --------------------------------------------------------
-
-AssemblyCpuContext::AssemblyCpuContext()
-: syscallStackPtr(nullptr) { }
 
 // --------------------------------------------------------
 // Namespace scope functions
