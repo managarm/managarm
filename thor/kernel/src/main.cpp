@@ -179,36 +179,36 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	enterThread(thread_ptr);
 }
 
-extern "C" void handleDivideByZeroFault(FaultImagePtr image) {
+extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
 
-extern "C" void handleDebugFault(FaultImagePtr image) {
+extern "C" void handleDebugFault(FaultImageAccessor image) {
 	infoLogger->log() << "Debug fault at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleOpcodeFault(FaultImagePtr image) {
+extern "C" void handleOpcodeFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
 }
 
-extern "C" void handleNoFpuFault(FaultImagePtr image) {
+extern "C" void handleNoFpuFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "FPU invoked at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleDoubleFault(FaultImagePtr image) {
+extern "C" void handleDoubleFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "Double fault at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }
 
-extern "C" void handleProtectionFault(FaultImagePtr image) {
+extern "C" void handleProtectionFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "General protection fault\n"
 			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
 			<< "    Faulting segment: " << (void *)*image.code() << frigg::EndLog();
 }
 
-extern "C" void handlePageFault(FaultImagePtr image, Word error) {
+extern "C" void handlePageFault(FaultImageAccessor image, Word error) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
@@ -257,7 +257,7 @@ extern "C" void handlePageFault(FaultImagePtr image, Word error) {
 	}
 }
 
-extern "C" void handleIrq(IrqImagePtr image, int irq) {
+extern "C" void handleIrq(IrqImageAccessor image, int irq) {
 	assert(!intsAreEnabled());
 
 	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
@@ -274,7 +274,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 	assert(!"Implement no-thread IRQ stubs");
 }
 
-extern "C" void handleSyscall(SyscallImagePtr image) {
+extern "C" void handleSyscall(SyscallImageAccessor image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 //	if(index != kHelCallLog)
 //		infoLogger->log() << "syscall #" << index << frigg::EndLog();

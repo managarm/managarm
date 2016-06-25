@@ -25,19 +25,15 @@ UniqueKernelStack UniqueKernelStack::make() {
 }
 
 // --------------------------------------------------------
-// ExecutorImagePtr
+// UniqueExecutorImage
 // --------------------------------------------------------
 
-size_t ExecutorImagePtr::determineSize() {
+size_t UniqueExecutorImage::determineSize() {
 	return sizeof(General) + sizeof(FxState);
 }
 
-ExecutorImagePtr ExecutorImagePtr::make() {
-	return ExecutorImagePtr((char *)kernelAlloc->allocate(getStateSize()));
-}
-
-void saveExecutorFromIrq(IrqImagePtr base) {
-
+UniqueExecutorImage UniqueExecutorImage::make() {
+	return UniqueExecutorImage((char *)kernelAlloc->allocate(getStateSize()));
 }
 
 // --------------------------------------------------------
@@ -45,7 +41,7 @@ void saveExecutorFromIrq(IrqImagePtr base) {
 // --------------------------------------------------------
 
 PlatformExecutor::PlatformExecutor()
-: AssemblyExecutor(ExecutorImagePtr::make(), UniqueKernelStack::make()), fsBase(0) {
+: AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()), fsBase(0) {
 	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&threadTss);
 	threadTss.rsp0 = (uintptr_t)kernelStack.base();
@@ -101,7 +97,7 @@ frigg::UnsafePtr<Thread> activeExecutor() {
 // --------------------------------------------------------
 
 size_t getStateSize() {
-	return ExecutorImagePtr::determineSize();
+	return UniqueExecutorImage::determineSize();
 }
 
 CpuContext *getCpuContext() {

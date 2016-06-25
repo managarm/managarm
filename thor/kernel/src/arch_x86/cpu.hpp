@@ -44,7 +44,7 @@ private:
 	char *_base;
 };
 
-struct FaultImagePtr {
+struct FaultImageAccessor {
 	Word *code() { return &_frame()->code; }
 
 	Word *ip() { return &_frame()->rip; }
@@ -85,13 +85,13 @@ private:
 	char *_pointer;
 };
 
-struct IrqImagePtr {
+struct IrqImageAccessor {
 
 private:
 	char *_pointer;
 };
 
-struct SyscallImagePtr {
+struct SyscallImageAccessor {
 	Word *number() { return &_frame()->rdi; }
 	Word *in0() { return &_frame()->rsi; }
 	Word *in1() { return &_frame()->rdx; }
@@ -134,13 +134,29 @@ private:
 	char *_pointer;
 };
 
-struct ExecutorImagePtr {
+struct UniqueExecutorImage {
 	static size_t determineSize();
 
-	static ExecutorImagePtr make();
+	static UniqueExecutorImage make();
 
-	ExecutorImagePtr()
+	friend void swap(UniqueExecutorImage &a, UniqueExecutorImage &b) {
+		frigg::swap(a._pointer, b._pointer);
+	}
+
+	UniqueExecutorImage()
 	: _pointer(nullptr) { }
+
+	UniqueExecutorImage(const UniqueExecutorImage &other) = delete;
+	
+	UniqueExecutorImage(UniqueExecutorImage &&other)
+	: UniqueExecutorImage() {
+		swap(*this, other);
+	}
+
+	UniqueExecutorImage &operator= (UniqueExecutorImage other) {
+		swap(*this, other);
+		return *this;
+	}
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
@@ -229,7 +245,7 @@ private:
 	};
 	static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
 
-	explicit ExecutorImagePtr(char *pointer)
+	explicit UniqueExecutorImage(char *pointer)
 	: _pointer(pointer) { }
 
 	General *_general() {
@@ -239,7 +255,7 @@ private:
 	char *_pointer;
 };
 
-void saveExecutorFromIrq(IrqImagePtr base);
+void saveExecutorFromIrq(IrqImageAccessor base);
 
 // copies the current state into the executor and continues normal control flow.
 // returns 1 when the state is saved and 0 when it is restored.
@@ -254,10 +270,10 @@ size_t getStateSize();
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyExecutor {
-	AssemblyExecutor(ExecutorImagePtr image, UniqueKernelStack kernel_stack)
-	: image(image), kernelStack(frigg::move(kernel_stack)) { }
+	AssemblyExecutor(UniqueExecutorImage image, UniqueKernelStack kernel_stack)
+	: image(frigg::move(image)), kernelStack(frigg::move(kernel_stack)) { }
 
-	ExecutorImagePtr image;
+	UniqueExecutorImage image;
 	UniqueKernelStack kernelStack;
 };
 
