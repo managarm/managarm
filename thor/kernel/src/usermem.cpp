@@ -99,7 +99,8 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			if(forkExecutor()) {
 				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 				waitQueue.addBack(this_thread.toShared());
-				
+			
+				// TODO: make sure we do not hold any locks here!
 				assert(!"Fix page fault blocking");
 				//resetCurrentThread(restore_state);
 				ScheduleGuard schedule_guard(scheduleLock.get());

@@ -280,14 +280,16 @@ struct AssemblyExecutor {
 
 struct PlatformExecutor : public AssemblyExecutor {
 	PlatformExecutor();
-	
-	frigg::arch_x86::Tss64 threadTss;
+
+	void enableIoPort(uintptr_t port);
+
+	frigg::arch_x86::Tss64 tss;
 };
 
+// switches the active executor. this does install the executor's
+// address space and TSS but does not restore its state.
 struct Thread;
-void enterExecutor(frigg::UnsafePtr<Thread> executor);
-
-void exitExecutor();
+void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
 frigg::UnsafePtr<Thread> activeExecutor();
 
@@ -300,7 +302,7 @@ struct AssemblyCpuContext {
 struct PlatformCpuContext : public AssemblyCpuContext {
 	uint32_t gdt[8 * 2];
 	uint32_t idt[256 * 4];
-	frigg::arch_x86::Tss64 tssTemplate;
+	UniqueKernelStack irqStack;
 	UniqueKernelStack systemStack;
 };
 

@@ -12,19 +12,11 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 }
 
 void dropCurrentThread() {
-	infoLogger->log() << "dropCurrentThread()" << frigg::EndLog();
-	assert(!intsAreEnabled());
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	exitExecutor();
-	activeList->remove(this_thread);
-	
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(frigg::move(schedule_guard));
-	// note: doSchedule takes care of the lock
+	assert(!"Fix dropCurrentThread");
 }
 
 void enterThread(KernelUnsafePtr<Thread> thread) {
-	enterExecutor(thread);
+	switchExecutor(thread);
 	restoreExecutor();
 }
 

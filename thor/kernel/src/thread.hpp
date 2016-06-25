@@ -33,8 +33,6 @@ public:
 
 	void submitJoin(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 
-	void enableIoPort(uintptr_t port);
-	
 	const uint64_t globalThreadId;
 	
 	uint32_t flags;

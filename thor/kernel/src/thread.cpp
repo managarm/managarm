@@ -63,10 +63,6 @@ void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
 	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
 }
 
-void Thread::enableIoPort(uintptr_t port) {
-	threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
-}
-
 // --------------------------------------------------------
 // Thread::PendingSignal
 // --------------------------------------------------------

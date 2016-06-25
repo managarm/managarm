@@ -117,8 +117,6 @@ void EventHub::blockCurrentThread(Guard &guard) {
 		// keep the lock on this hub unlocked while we sleep
 		guard.unlock();
 		
-		exitExecutor();
-		
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		doSchedule(frigg::move(schedule_guard));
 		// note: doSchedule() takes care of the schedule_guard lock

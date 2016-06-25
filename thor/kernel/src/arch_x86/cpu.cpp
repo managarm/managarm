@@ -42,42 +42,33 @@ UniqueExecutorImage UniqueExecutorImage::make() {
 
 PlatformExecutor::PlatformExecutor()
 : AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()) {
-	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&threadTss);
-	threadTss.rsp0 = (uintptr_t)kernelStack.base();
+	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::initializeTss64(&tss);
+	tss.rsp0 = (Word)kernelStack.base();
 }
 
-void enterExecutor(frigg::UnsafePtr<Thread> executor) {
-	assert(!intsAreEnabled());
+void PlatformExecutor::enableIoPort(uintptr_t port) {
+	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+}
 
-	AssemblyCpuContext *context = getCpuContext();
-	assert(!context->activeExecutor);
-	context->activeExecutor = executor;
+void switchExecutor(frigg::UnsafePtr<Thread> executor) {
+	assert(!intsAreEnabled());
 	
 	executor->getAddressSpace()->activate();
 
 	// setup the thread's tss segment
 	CpuContext *cpu_context = getCpuContext();
-	executor->threadTss.ist1 = cpu_context->tssTemplate.ist1;
+	executor->tss.ist1 = (Word)cpu_context->irqStack.base();
 	
 	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
-			&executor->threadTss, sizeof(frigg::arch_x86::Tss64));
+			&executor->tss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
-}
 
-void exitExecutor() {
-	assert(!intsAreEnabled());
-
+	// finally update the active executor register.
+	// we do this after setting up the address space and TSS
+	// so that these structures are always valid.
 	AssemblyCpuContext *context = getCpuContext();
-	assert(context->activeExecutor);
-	context->activeExecutor = frigg::UnsafePtr<AssemblyExecutor>();
-	
-	// setup the tss segment
-	CpuContext *cpu_context = getCpuContext();
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
-			&cpu_context->tssTemplate, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+	context->activeExecutor = executor;
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
@@ -114,6 +105,7 @@ extern "C" void syscallStub();
 
 void initializeThisProcessor() {
 	auto cpu_context = frigg::construct<CpuContext>(*kernelAlloc);
+	cpu_context->irqStack = UniqueKernelStack::make();
 	cpu_context->systemStack = UniqueKernelStack::make();
 
 	// FIXME: the stateSize should not be CPU specific!
@@ -144,18 +136,10 @@ void initializeThisProcessor() {
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
 			".L_reloadCs:" );
-	
-	// setup a stack for irqs
-	size_t irq_stack_size = 0x10000;
-	void *irq_stack_base = kernelAlloc->allocate(irq_stack_size);
-	
-	// setup the kernel tss
-	frigg::arch_x86::initializeTss64(&cpu_context->tssTemplate);
-	cpu_context->tssTemplate.ist1 = (uintptr_t)irq_stack_base + irq_stack_size;
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
-			&cpu_context->tssTemplate, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+
+	// we enter the idle thread before setting up the IDT.
+	// this gives us a valid TSS segment in case an NMI or fault happens here.
+	switchExecutor(cpu_context->idleThread);
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
