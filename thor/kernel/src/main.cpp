@@ -5,11 +5,10 @@
 
 using namespace thor;
 
-// loads an elf image into the current address space
-// this is called in kernel mode from the initial user thread
-void enterImage(PhysicalAddr image_paddr) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<AddressSpace> space = this_thread->getAddressSpace();
+void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
+	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	space->setupDefaultMappings();
 
 	void *image_ptr = physicalToVirtual(image_paddr);
 	
@@ -41,6 +40,7 @@ void enterImage(PhysicalAddr image_paddr) {
 			auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
 			memory->resize(virt_length / kPageSize);
 
+			// FIXME: setPageAt should be deleted! copy the pages instead?
 			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 			for(size_t i = 0; i < memory->numPages(); i++)
 				memory->setPageAt(i * kPageSize,
@@ -87,9 +87,28 @@ void enterImage(PhysicalAddr image_paddr) {
 			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
 	space_guard.unlock();
 	thorRtInvalidateSpace();
+
+	// create a thread for the module
+	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
+	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
+			frigg::move(space), frigg::move(root_directory));
+	thread->flags |= Thread::kFlagExclusive;
 	
-	infoLogger->log() << "Entering user mode" << frigg::EndLog();
-	enterUserMode((void *)(stack_base + stack_size), (void *)ehdr->e_entry);
+	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
+	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
+
+	// FIXME: do not heap-allocate the state structs
+	*thread->image.sp() = stack_base + stack_size;
+	*thread->image.ip() = ehdr->e_entry;
+	
+	activeList->addBack(thread);
+
+	// finally run the module by scheduling
+	infoLogger->log() << "Exiting Thor!" << frigg::EndLog();
+	
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	enqueueInSchedule(schedule_guard, frigg::move(thread));
+	doSchedule(frigg::move(schedule_guard));
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
@@ -155,28 +174,13 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
 
 	// finally we lauch the user_boot program
-	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
-	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
-	address_space->setupDefaultMappings();
+	executeModule(frigg::move(root_directory), modules[0].physicalBase);
+}
 
-	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
-			frigg::move(address_space), frigg::move(root_directory));
-	thread->flags |= Thread::kFlagExclusive;
-	
-	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
-	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
+extern char stubsPtr[], stubsLimit[];
 
-	// FIXME: do not heap-allocate the state structs
-	*thread->image.rdi() = modules[0].physicalBase;
-	*thread->image.sp() = (uintptr_t)thread->kernelStack.base();
-	*thread->image.ip() = (Word)&enterImage;
-	*thread->image.kernel() = 1;
-	
-	KernelUnsafePtr<Thread> thread_ptr(thread);
-	activeList->addBack(frigg::move(thread));
-	infoLogger->log() << "Leaving Thor" << frigg::EndLog();
-	enterThread(thread_ptr);
+bool inStub(uintptr_t ip) {
+	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
 }
 
 extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
@@ -184,6 +188,7 @@ extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
+	assert(!inStub(*image.ip()));
 	infoLogger->log() << "Debug fault at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }

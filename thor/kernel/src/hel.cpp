@@ -511,18 +511,16 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	
 	*new_thread->image.ip() = (Word)ip;
 	*new_thread->image.sp() = (Word)sp;
-	*new_thread->image.rflags() = 0x200;
+//	*new_thread->image.rflags() = 0x200;
 	
-	KernelUnsafePtr<Thread> new_thread_ptr(new_thread);
-	activeList->addBack(KernelSharedPtr<Thread>(new_thread));
+	activeList->addBack(new_thread);
 
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, new_thread_ptr);
+	enqueueInSchedule(schedule_guard, new_thread);
 	schedule_guard.unlock();
 
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
-
 		*handle = this_universe->attachDescriptor(universe_guard,
 				ThreadDescriptor(frigg::move(new_thread)));
 	}

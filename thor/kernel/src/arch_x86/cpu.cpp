@@ -20,7 +20,7 @@ void BochsSink::print(const char *str) {
 // --------------------------------------------------------
 
 UniqueKernelStack UniqueKernelStack::make() {
-	char *pointer = (char *)kernelAlloc->allocate(kSize);
+	auto pointer = (char *)kernelAlloc->allocate(kSize);
 	return UniqueKernelStack(pointer + kSize);
 }
 
@@ -33,7 +33,9 @@ size_t UniqueExecutorImage::determineSize() {
 }
 
 UniqueExecutorImage UniqueExecutorImage::make() {
-	return UniqueExecutorImage((char *)kernelAlloc->allocate(getStateSize()));
+	auto pointer = (char *)kernelAlloc->allocate(getStateSize());
+	memset(pointer, 0, getStateSize());
+	return UniqueExecutorImage(pointer);
 }
 
 // --------------------------------------------------------
@@ -114,6 +116,7 @@ void initializeThisProcessor() {
 	// set up the kernel gs segment
 	AssemblyCpuContext *asm_context = cpu_context;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)asm_context);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, (uintptr_t)asm_context);
 
 	// setup the gdt
 	// note: the tss requires two slots in the gdt

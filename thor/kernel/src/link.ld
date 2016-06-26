@@ -5,7 +5,12 @@ SECTIONS {
 	/* this address is dictated by system v abi's kernel code model */
 	. = 0xFFFFFFFF80000000;
 
-	.text : ALIGN(0x1000) {
+	stubsPtr = .;
+	.text.stubs : ALIGN(0x1000) {
+		*(.text.stubs)
+	}
+	stubsLimit = .;
+	.text : {
 		*(.text .text.*)
 		*(.rodata .rodata.*)
 		*(.eh_frame)

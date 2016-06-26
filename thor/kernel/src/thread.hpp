@@ -76,7 +76,7 @@ public:
 
 	bool empty();
 
-	void addBack(KernelSharedPtr<Thread> &&thread);
+	void addBack(KernelSharedPtr<Thread> thread);
 	
 	KernelSharedPtr<Thread> removeFront();
 	KernelSharedPtr<Thread> remove(KernelUnsafePtr<Thread> thread);

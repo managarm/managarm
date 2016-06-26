@@ -28,9 +28,10 @@
 .set .L_imageRip, 0x80
 .set .L_imageRflags, 0x88
 .set .L_imageKernel, 0x90
-.set .L_imageFsBase, 0x98
+.set .L_imageClientFs, 0x98
+.set .L_imageClientGs, 0xA0
 
-.set .L_imageFxSave, 0xA0
+.set .L_imageFxSave, 0xB0
 
 # GDT selectors for various descriptors
 .set .L_kernelCodeSelector, 0x8
@@ -39,6 +40,8 @@
 .set .L_userDataSelector, 0x23
 
 .set .L_msrIndexFsBase, 0xC0000100
+.set .L_msrIndexGsBase, 0xC0000101
+.set .L_msrIndexKernelGsBase, 0xC0000102
 
 # ---------------------------------------------------------
 # Fault stubs
@@ -49,6 +52,7 @@
 .set .L_typeCall, 3
 
 .macro MAKE_FAULT_STUB type, name, func, number=0
+.section .text.stubs
 .global \name
 \name:
 	# if there is no error code we push a fake one to keep the image struct intact
@@ -71,8 +75,12 @@
 	push %rbx
 	push %rax
 	
+	swapgs
+
 	mov %rsp, %rdi
 	call \func
+	
+	swapgs
 
 	pop %rax
 	pop %rbx
@@ -109,6 +117,7 @@ MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
 # ---------------------------------------------------------
 
 .macro MAKE_IRQ_STUB name, number
+.section .text.stubs
 .global \name
 \name:
 	push %rbp
@@ -127,9 +136,13 @@ MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
 	push %rbx
 	push %rax
 	
+	swapgs
+
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	call handleIrq
+	
+	swapgs
 
 	pop %rax
 	pop %rbx
@@ -170,10 +183,12 @@ MAKE_IRQ_STUB thorRtIsrIrq15, 15
 # Syscall stubs
 # ---------------------------------------------------------
 
+.section .text.stubs
 .global syscallStub
 syscallStub:
 	# rsp still contains the user-space stack pointer
 	# temporarily save it and switch to kernel-stack
+	swapgs
 	mov %rsp, %r15
 	mov %gs:.L_gsActiveExecutor, %rsp
 	mov .L_executorKernelStack(%rsp), %rsp
@@ -228,12 +243,14 @@ syscallStub:
 	mov %r15, %rsp
 	# TODO: is this necessary? should r11 not already have the flag set?
 	#or $.L_kRflagsIf, %r11 # enable interrupts
+	swapgs
 	sysretq
 
 # ---------------------------------------------------------
 # Executor related functions
 # ---------------------------------------------------------
 
+.text
 .global forkExecutor
 forkExecutor:
 	mov %gs:.L_gsActiveExecutor, %rsi
@@ -244,7 +261,16 @@ forkExecutor:
 	rdmsr
 	shl $32, %rdx
 	or %rdx, %rax
-	mov %rax, .L_imageFsBase(%rdi)
+	mov %rax, .L_imageClientFs(%rdi)
+	
+	# save the gs segment.
+	# we are sure that this function is only called from system code
+	# so that the client gs is currently swapped to the kernel MSR.
+	mov $.L_msrIndexKernelGsBase, %rcx
+	rdmsr
+	shl $32, %rdx
+	or %rdx, %rax
+	mov %rax, .L_imageClientGs(%rdi)
 
 	# only save the registers that are callee-saved by system v
 	mov %rbx, .L_imageRbx(%rdi)
@@ -270,14 +296,46 @@ forkExecutor:
 	mov $1, %rax
 	ret
 
+.section .text.stubs
 .global restoreExecutor
 restoreExecutor:
 	mov %gs:.L_gsActiveExecutor, %rsi
 	mov .L_executorImagePtr(%rsi), %rdi
 
+	# restore the gs segment.
+	# we do a swapgs later if we restore a client context
+	mov .L_imageClientGs(%rdi), %rax
+	mov .L_imageClientGs(%rdi), %rdx
+	shr $32, %rdx
+	mov $.L_msrIndexKernelGsBase, %rcx
+	wrmsr
+	
+	testb $1, .L_imageKernel(%rdi)
+	jnz .L_restore_system
+
+.L_restore_client_user: # we restore to client/user mode
+	# setup the IRET frame
+	pushq $.L_userDataSelector
+	pushq .L_imageRsp(%rdi)
+	pushq .L_imageRflags(%rdi)
+	pushq $.L_userCode64Selector
+	pushq .L_imageRip(%rdi)
+	
+	swapgs
+	jmp .L_complete_restore
+
+.L_restore_system: # we restore to kernel mode
+	# setup the IRET frame
+	pushq $.L_kernelDataSelector
+	pushq .L_imageRsp(%rdi)
+	pushq .L_imageRflags(%rdi)
+	pushq $.L_kernelCodeSelector
+	pushq .L_imageRip(%rdi)
+
+.L_complete_restore:
 	# restore the fs segment
-	mov .L_imageFsBase(%rdi), %rax
-	mov .L_imageFsBase(%rdi), %rdx
+	mov .L_imageClientFs(%rdi), %rax
+	mov .L_imageClientFs(%rdi), %rdx
 	shr $32, %rdx
 	mov $.L_msrIndexFsBase, %rcx
 	wrmsr
@@ -301,26 +359,6 @@ restoreExecutor:
 	
 	# restore the cpu's extended state
 	fxrstorq .L_imageFxSave(%rdi)
-
-	# check if we return to kernel mode
-	testb $1, .L_imageKernel(%rdi)
-	jnz .L_restore_kernel
-
-	pushq $.L_userDataSelector
-	pushq .L_imageRsp(%rdi)
-	pushq .L_imageRflags(%rdi)
-	pushq $.L_userCode64Selector
-	pushq .L_imageRip(%rdi)
-	
-	mov .L_imageRdi(%rdi), %rdi
-	iretq
-
-.L_restore_kernel:
-	pushq $.L_kernelDataSelector
-	pushq .L_imageRsp(%rdi)
-	pushq .L_imageRflags(%rdi)
-	pushq $.L_kernelCodeSelector
-	pushq .L_imageRip(%rdi)
 	
 	mov .L_imageRdi(%rdi), %rdi
 	iretq

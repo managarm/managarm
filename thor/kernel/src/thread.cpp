@@ -103,7 +103,7 @@ bool ThreadQueue::empty() {
 	return !p_front;
 }
 
-void ThreadQueue::addBack(KernelSharedPtr<Thread> &&thread) {
+void ThreadQueue::addBack(KernelSharedPtr<Thread> thread) {
 	// setup the back pointer before moving the thread pointer
 	KernelUnsafePtr<Thread> back = p_back;
 	p_back = thread;

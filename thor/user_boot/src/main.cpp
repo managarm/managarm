@@ -103,6 +103,8 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
 			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
+	
+	infoLogger->log() << "Create thread" << frigg::EndLog();
 
 	HelHandle thread;
 	uint32_t thread_flags = kHelThreadNewUniverse | kHelThreadNewGroup;

@@ -23,16 +23,6 @@ thorRtEntry:
 	call thorMain
 	ud2
 
-# enter user mode for the first time
-.global enterUserMode
-enterUserMode:
-	pushq $.L_userDataSelector
-	pushq %rdi # rsp
-	pushq $.L_kRflagsIf # rflags, enable interrupts
-	pushq $.L_userCode64Selector
-	pushq %rsi # rip
-	iretq
-
 .section .trampoline, "a"
 .code16
 .global trampoline

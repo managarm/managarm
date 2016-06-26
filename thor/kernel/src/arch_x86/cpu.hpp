@@ -160,7 +160,6 @@ struct UniqueExecutorImage {
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
-	Word *rdi() { return &_general()->rdi; }
 	Word *rflags() { return &_general()->rflags; }
 
 	Word *ip() { return &_general()->rip; }
@@ -196,8 +195,10 @@ private:
 		uint8_t kernel;		// offset 0x90
 		uint8_t padding[7];
 		Word fsBase;		// offset 0x98
+		Word gsBase;		// offset 0xA0
+		Word padding2;
 	};
-	static_assert(sizeof(General) == 0xA0, "Bad sizeof(General)");
+	static_assert(sizeof(General) == 0xB0, "Bad sizeof(General)");
 
 	struct FxState {
 		uint16_t fcw; // x87 control word
