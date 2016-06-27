@@ -87,8 +87,42 @@ private:
 };
 
 struct IrqImageAccessor {
+	Word *ip() { return &_frame()->rip; }
+	
+	Word *cs() { return &_frame()->cs; }
 
 private:
+	// note: this struct is accessed from assembly.
+	// do not change the field offsets!
+	struct Frame {
+		Word rax;
+		Word rbx;
+		Word rcx;
+		Word rdx;
+		Word rsi;
+		Word rdi;
+		Word r8;
+		Word r9;
+		Word r10;
+		Word r11;
+		Word r12;
+		Word r13;
+		Word r14;
+		Word r15;
+		Word rbp;
+
+		// the following fields are pushed by interrupt
+		Word rip;
+		Word cs;
+		Word rflags;
+		Word rsp;
+		Word ss;
+	};
+
+	Frame *_frame() {
+		return reinterpret_cast<Frame *>(_pointer);
+	}
+
 	char *_pointer;
 };
 

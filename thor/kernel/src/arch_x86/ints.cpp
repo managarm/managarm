@@ -155,6 +155,7 @@ bool inStub(uintptr_t ip) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address);
+void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	assert(!inStub(*image.ip()));
@@ -171,6 +172,18 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	default:
 		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
 	}
+	
+	if(*image.cs() == 0x2B)
+		asm volatile ( "swapgs" : : : "memory" );
+}
+
+extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
+	assert(!inStub(*image.ip()));
+
+	if(*image.cs() == 0x2B)
+		asm volatile ( "swapgs" : : : "memory" );
+
+	handleIrq(image, number);
 	
 	if(*image.cs() == 0x2B)
 		asm volatile ( "swapgs" : : : "memory" );

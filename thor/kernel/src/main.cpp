@@ -259,16 +259,16 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	}
 }
 
-extern "C" void handleIrq(IrqImageAccessor image, int irq) {
+void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
-	infoLogger->log() << "IRQ #" << irq << frigg::EndLog();
+	infoLogger->log() << "IRQ #" << number << frigg::EndLog();
 	
-	if(irq == 2)
+	if(number == 2)
 		timerInterrupt();
 	
-	IrqRelay::Guard irq_guard(&irqRelays[irq]->lock);
-	irqRelays[irq]->fire(irq_guard);
+	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
+	irqRelays[number]->fire(irq_guard);
 	irq_guard.unlock();
 }
 
