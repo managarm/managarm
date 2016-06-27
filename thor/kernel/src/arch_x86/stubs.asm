@@ -59,6 +59,8 @@
 .if \type != .L_typeFaultWithCode
 	push $0
 .endif
+	# we're pushing 15 registers here.
+	# adjust the rsp offsets below if you change those pushs.
 	push %rbp
 	push %r15
 	push %r14
@@ -74,12 +76,38 @@
 	push %rcx
 	push %rbx
 	push %rax
-	
+
+	# make sure we never interrupt another stub
+	mov 0x80(%rsp), %rax
+	cmp $stubsPtr, %rax
+	jl 0f
+	cmp $stubsLimit, %rax
+	jge 0f
+	call handleStubInterrupt
+	ud2
+
+0:
+	# look at the cs register to determine if we need to swapgs
+	mov 0x88(%rsp), %rcx
+	cmp $.L_userCode64Selector, %rcx
+	je 1f
+	call handleBadDomain
+	ud2
+
+1:
 	swapgs
 
 	mov %rsp, %rdi
 	call \func
 	
+	# check if we need to swapgs back to a client context
+	mov 0x88(%rsp), %rcx
+	cmp $.L_userCode64Selector, %rcx
+	je 1f
+	call handleBadDomain
+	ud2
+
+1:
 	swapgs
 
 	pop %rax
@@ -120,6 +148,8 @@ MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
 .section .text.stubs
 .global \name
 \name:
+	# we're pushing 15 registers here.
+	# adjust the rsp offsets below if you change those pushs.
 	push %rbp
 	push %r15
 	push %r14
@@ -136,12 +166,38 @@ MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
 	push %rbx
 	push %rax
 	
+	# make sure we never interrupt another stub
+	mov 0x78(%rsp), %rax
+	cmp $stubsPtr, %rax
+	jl 0f
+	cmp $stubsLimit, %rax
+	jge 0f
+	call handleStubInterrupt
+	ud2
+
+0:
+	# look at the cs register to determine if we need to swapgs
+	mov 0x80(%rsp), %rax
+	cmp $.L_userCode64Selector, %rax
+	je 1f
+	call handleBadDomain
+	ud2
+
+1:
 	swapgs
 
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	call handleIrq
-	
+
+	# check if we need to swapgs back to a client context
+	mov 0x80(%rsp), %rax
+	cmp $.L_userCode64Selector, %rax
+	je 1f
+	call handleBadDomain
+	ud2
+
+1:
 	swapgs
 
 	pop %rax

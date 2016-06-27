@@ -183,6 +183,13 @@ bool inStub(uintptr_t ip) {
 	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
 }
 
+extern "C" void handleStubInterrupt() {
+	frigg::panicLogger.log() << "Fault or IRQ from stub" << frigg::EndLog();
+}
+extern "C" void handleBadDomain() {
+	frigg::panicLogger.log() << "Fault or IRQ from bad domain" << frigg::EndLog();
+}
+
 extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
 }
