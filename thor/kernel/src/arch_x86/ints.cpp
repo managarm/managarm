@@ -150,6 +150,32 @@ void setupIdt(uint32_t *table) {
 //			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
+enum Domain {
+	kDomNone,
+
+	// the system is not running an executor, e.g.
+	// we are processing an IRQ, NMI or MCE.
+	kDomSystem,
+
+	// the system is running an executor and we are in client code,
+	// either in user-mode or in supervisor code.
+	kDomClientUser,
+	kDomClientSupervisor,
+
+	// the system is running an executor in the kernel, e.g.
+	// we are processing a system call or exception.
+	kDomExecutorKernel
+};
+
+Domain determineDomain(uintptr_t cs) {
+	switch(cs) {
+	case 0x2B:
+		return kDomClientUser;
+	default:
+		frigg::panicLogger.log() << "Unexpected CS segment" << frigg::EndLog();
+	}
+}
+
 bool inStub(uintptr_t ip) {
 	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
 }
@@ -158,9 +184,12 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address);
 void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	Domain domain = determineDomain(*image.cs());
+	assert(domain == kDomClientUser || domain == kDomClientSupervisor
+			|| domain == kDomExecutorKernel);
 	assert(!inStub(*image.ip()));
 
-	if(*image.cs() == 0x2B)
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	switch(number) {
@@ -173,19 +202,22 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
 	}
 	
-	if(*image.cs() == 0x2B)
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
+	Domain domain = determineDomain(*image.cs());
+	assert(domain == kDomClientUser || domain == kDomClientSupervisor
+			|| domain == kDomExecutorKernel);
 	assert(!inStub(*image.ip()));
 
-	if(*image.cs() == 0x2B)
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	handleIrq(image, number);
 	
-	if(*image.cs() == 0x2B)
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 
