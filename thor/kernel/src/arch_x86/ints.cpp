@@ -1,6 +1,8 @@
 
 #include "../kernel.hpp"
 
+extern char stubsPtr[], stubsLimit[];
+
 extern "C" void earlyStubDivideByZero();
 extern "C" void earlyStubOpcode();
 extern "C" void earlyStubDouble();
@@ -33,6 +35,7 @@ extern "C" void thorRtIsrIrq14();
 extern "C" void thorRtIsrIrq15();
 
 extern "C" void thorRtIsrPreempted();
+
 
 namespace thor {
 
@@ -141,9 +144,36 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq14, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 79,
 			0x8, (void *)&thorRtIsrIrq15, 1);
+
+	//FIXME
+//	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
+//			0x8, (void *)&thorRtIsrPreempted, 0);
+}
+
+bool inStub(uintptr_t ip) {
+	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
+}
+
+void handlePageFault(FaultImageAccessor image, uintptr_t address);
+
+extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	assert(!inStub(*image.ip()));
+
+	if(*image.cs() == 0x2B)
+		asm volatile ( "swapgs" : : : "memory" );
+
+	switch(number) {
+	case 14: {
+		uintptr_t address;
+		asm volatile ( "mov %%cr2, %0" : "=r" (address) );
+		handlePageFault(image, address);
+	} break;
+	default:
+		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
+	}
 	
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
-			0x8, (void *)&thorRtIsrPreempted, 0);
+	if(*image.cs() == 0x2B)
+		asm volatile ( "swapgs" : : : "memory" );
 }
 
 bool intsAreEnabled() {

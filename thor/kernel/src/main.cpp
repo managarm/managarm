@@ -3,7 +3,7 @@
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 
-using namespace thor;
+namespace thor {
 
 void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
@@ -177,12 +177,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	executeModule(frigg::move(root_directory), modules[0].physicalBase);
 }
 
-extern char stubsPtr[], stubsLimit[];
-
-bool inStub(uintptr_t ip) {
-	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
-}
-
 extern "C" void handleStubInterrupt() {
 	frigg::panicLogger.log() << "Fault or IRQ from stub" << frigg::EndLog();
 }
@@ -195,7 +189,6 @@ extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
-	assert(!inStub(*image.ip()));
 	infoLogger->log() << "Debug fault at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }
@@ -220,12 +213,9 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 			<< "    Faulting segment: " << (void *)*image.code() << frigg::EndLog();
 }
 
-extern "C" void handlePageFault(FaultImageAccessor image, Word error) {
+void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
-
-	uintptr_t address;
-	asm volatile ( "mov %%cr2, %0" : "=r" (address) );
 
 	const Word kPfAccess = 1;
 	const Word kPfWrite = 2;
@@ -606,4 +596,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	
 	this_thread->issueSignalAfterSyscall();
 }
+
+} // namespace thor
 

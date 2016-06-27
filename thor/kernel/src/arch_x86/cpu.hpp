@@ -45,9 +45,10 @@ private:
 };
 
 struct FaultImageAccessor {
-	Word *code() { return &_frame()->code; }
-
 	Word *ip() { return &_frame()->rip; }
+
+	Word *cs() { return &_frame()->cs; }
+	Word *code() { return &_frame()->code; }
 
 private:
 	// note: this struct is accessed from assembly.

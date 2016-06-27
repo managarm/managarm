@@ -51,7 +51,7 @@
 .set .L_typeFaultWithCode, 2
 .set .L_typeCall, 3
 
-.macro MAKE_FAULT_STUB type, name, func, number=0
+.macro MAKE_FAULT_STUB type, name, number=0
 .section .text.stubs
 .global \name
 \name:
@@ -77,38 +77,9 @@
 	push %rbx
 	push %rax
 
-	# make sure we never interrupt another stub
-	mov 0x80(%rsp), %rax
-	cmp $stubsPtr, %rax
-	jl 0f
-	cmp $stubsLimit, %rax
-	jge 0f
-	call handleStubInterrupt
-	ud2
-
-0:
-	# look at the cs register to determine if we need to swapgs
-	mov 0x88(%rsp), %rcx
-	cmp $.L_userCode64Selector, %rcx
-	je 1f
-	call handleBadDomain
-	ud2
-
-1:
-	swapgs
-
 	mov %rsp, %rdi
-	call \func
-	
-	# check if we need to swapgs back to a client context
-	mov 0x88(%rsp), %rcx
-	cmp $.L_userCode64Selector, %rcx
-	je 1f
-	call handleBadDomain
-	ud2
-
-1:
-	swapgs
+	mov $\number, %rsi
+	call onPlatformFault
 
 	pop %rax
 	pop %rbx
@@ -129,16 +100,16 @@
 	iretq
 .endm
 
-MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDivideByZero, handleDivideByZeroFault
-MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDebug, handleDebugFault
-MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubOpcode, handleOpcodeFault
-MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubNoFpu, handleNoFpuFault
-MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, handleDoubleFault
-MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubProtection, handleProtectionFault
-MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, handlePageFault
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDivideByZero, 0
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDebug, 1
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubOpcode, 6
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubNoFpu, 7
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, 8
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubProtection, 13
+MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 
 # TODO: handle this as an IRQ
-MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
+#MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
 
 # ---------------------------------------------------------
 # IRQ stubs
