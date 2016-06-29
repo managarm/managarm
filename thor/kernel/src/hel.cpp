@@ -566,7 +566,13 @@ HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 }
 
 HelError helExitThisThread() {
-	callOnCpuStack(&dropCurrentThread);
+	// TODO: it does not make sense to return an error here!
+	// FIXME: really kill the current thread!
+	runSystemFunction([] () {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
+	});
+	__builtin_unreachable();
 }
 
 HelError helWriteFsBase(void *pointer) {

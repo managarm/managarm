@@ -11,15 +11,6 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 	return activeExecutor();
 }
 
-void dropCurrentThread() {
-	assert(!"Fix dropCurrentThread");
-}
-
-void enterThread(KernelUnsafePtr<Thread> thread) {
-	switchExecutor(thread);
-	restoreExecutor();
-}
-
 void doSchedule(ScheduleGuard &&guard) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(scheduleLock.get()));
@@ -31,10 +22,12 @@ void doSchedule(ScheduleGuard &&guard) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
 		
 		guard.unlock();
-		enterThread(thread);
+		switchExecutor(thread);
+		restoreExecutor();
 	}else{
 		guard.unlock();
-		enterThread(getCpuContext()->idleThread);
+		switchExecutor(getCpuContext()->idleThread);
+		restoreExecutor();
 	}
 }
 

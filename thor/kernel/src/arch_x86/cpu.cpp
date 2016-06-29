@@ -91,15 +91,15 @@ CpuContext *getCpuContext() {
 	return static_cast<CpuContext *>(asm_context);
 }
 
-void callOnCpuStack(void (*function) ()) {
+void doRunSystemFunction(void (*function) (void *), void *argument) {
 	assert(!intsAreEnabled());
 
 	CpuContext *cpu_context = getCpuContext();
 	
 	uintptr_t stack_ptr = (uintptr_t)cpu_context->systemStack.base();
-	asm volatile ( "mov %0, %%rsp\n"
+	asm volatile ( "mov %2, %%rsp\n"
 			"\tcall *%1\n"
-			"\tud2\n" : : "r" (stack_ptr), "r" (function) );
+			"\tud2\n" : : "D" (argument), "r" (function), "r" (stack_ptr) );
 	__builtin_unreachable();
 }
 

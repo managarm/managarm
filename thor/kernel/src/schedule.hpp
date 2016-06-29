@@ -13,16 +13,6 @@ extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 
-// resets the current thread and schedules.
-// removes the current thread from the activeList
-// use this in conjunction with callOnCpuStack()
-void dropCurrentThread() __attribute__ (( noreturn ));
-
-// enters a new thread on this processor
-// must only be called if there is no current thread
-void enterThread(KernelUnsafePtr<Thread> thread)
-		__attribute__ (( noreturn ));
-
 // selects an active thread and enters it on this processor
 // must only be called if enterThread() would also be allowed
 void doSchedule(ScheduleGuard &&guard) __attribute__ (( noreturn ));

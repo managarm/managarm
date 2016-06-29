@@ -349,10 +349,20 @@ CpuContext *getCpuContext();
 bool intsAreAllowed();
 void allowInts();
 
+template<typename F>
+void runSystemFunction(F functor) {
+	auto wrapper = [] (void *argument) {
+		F stolen = frigg::move(*static_cast<F *>(argument));
+		stolen();
+	};
+
+	doRunSystemFunction(wrapper, &functor);
+}
+
 // calls the given function on the per-cpu stack
 // this allows us to implement a save exit-this-thread function
 // that destroys the thread together with its kernel stack
-void callOnCpuStack(void (*function) ()) __attribute__ (( noreturn ));
+void doRunSystemFunction(void (*function) (void *), void *argument);
 
 void initializeThisProcessor();
 
