@@ -99,7 +99,8 @@ void Channel::close(Guard &guard) {
 	// TODO: just cancel all requests
 	assert(_sendStringQueue.empty());
 	assert(_sendDescriptorQueue.empty());
-	assert(_recvStringQueue.empty());
+	if(!_recvStringQueue.empty())
+		infoLogger->log() << "Fix Channel::close()" << frigg::EndLog();
 	assert(_recvDescriptorQueue.empty());
 
 /*	while(!_sendQueue.empty())

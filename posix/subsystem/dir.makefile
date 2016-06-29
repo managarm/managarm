@@ -14,7 +14,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -I$($c_GENDIR)
-$c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
+$c_CXXFLAGS += -std=c++14 -Wall -ffreestanding -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_LDFLAGS := -nostdlib

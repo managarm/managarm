@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include <bragi/mbus.hpp>
+#include <libchain/all.hpp>
 #include <mbus.pb.h>
 
 namespace bragi_mbus {
@@ -138,20 +139,26 @@ Connection::EnumerateClosure::EnumerateClosure(Connection &connection,
 : connection(connection), capabilities(std::move(capabilities)), callback(callback) { }
 
 void Connection::EnumerateClosure::operator() () {
-	managarm::mbus::CntRequest request;
-	request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		managarm::mbus::CntRequest request;
+		request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
 
-	for(auto it = capabilities.begin(); it != capabilities.end(); ++it) {
-		managarm::mbus::Capability *cap = request.add_caps();
-		cap->set_name(*it);
-	}
+		for(auto it = capabilities.begin(); it != capabilities.end(); ++it) {
+			managarm::mbus::Capability *cap = request.add_caps();
+			cap->set_name(*it);
+		}
 
-	std::string serialized;
-	request.SerializeToString(&serialized);
-	connection.mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
-	
-	HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
-			CALLBACK_MEMBER(this, &EnumerateClosure::recvdResponse)));
+		request.SerializeToString(serialized);
+		return connection.mbusPipe.sendStringReq(serialized->data(), serialized->size(),
+				connection.eventHub, 1, 0)
+		+ libchain::apply([=] (HelError error) { HEL_CHECK(error); })
+		+ libchain::apply([=] () {
+			HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
+					CALLBACK_MEMBER(this, &EnumerateClosure::recvdResponse)));
+		});
+	}, std::string());
+
+	libchain::run(std::move(action));
 }
 
 void Connection::EnumerateClosure::recvdResponse(HelError error,
@@ -176,16 +183,22 @@ Connection::QueryIfClosure::QueryIfClosure(Connection &connection, ObjectId obje
 : connection(connection), objectId(object_id), callback(callback) { }
 
 void Connection::QueryIfClosure::operator() () {
-	managarm::mbus::CntRequest request;
-	request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-	request.set_object_id(objectId);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		managarm::mbus::CntRequest request;
+		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+		request.set_object_id(objectId);
+		request.SerializeToString(serialized);
+		
+		return connection.mbusPipe.sendStringReq(serialized->data(), serialized->size(),
+				connection.eventHub, 1, 0)
+		+ libchain::apply([=] (HelError error) { HEL_CHECK(error); });
+	}, std::string())
+	+ libchain::apply([=] () {
+		connection.mbusPipe.recvDescriptorResp(connection.eventHub, 1, 1,
+				CALLBACK_MEMBER(this, &QueryIfClosure::recvdDescriptor));
+	});
 
-	std::string serialized;
-	request.SerializeToString(&serialized);
-	connection.mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
-
-	connection.mbusPipe.recvDescriptorResp(connection.eventHub, 1, 1,
-			CALLBACK_MEMBER(this, &QueryIfClosure::recvdDescriptor));
+	libchain::run(std::move(action));
 }
 
 void Connection::QueryIfClosure::recvdDescriptor(HelError error,
@@ -210,7 +223,10 @@ void Connection::RequireIfClosure::operator() () {
 }
 
 void Connection::RequireIfClosure::requiredIf(HelHandle handle) {
-	connection.mbusPipe.sendDescriptorResp(handle, requestId, 1);
+	printf("[bragi/src/mbus] Connection:RequireIfClosure sendDescriptorResp\n");
+	auto action = connection.mbusPipe.sendDescriptorResp(handle, connection.eventHub, requestId, 1)
+			+ libchain::apply([=] (HelError error) { HEL_CHECK(error); });
+	libchain::run(std::move(action));
 	delete this;
 }
 

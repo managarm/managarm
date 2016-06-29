@@ -12,6 +12,7 @@
 #include <frigg/vector.hpp>
 #include <frigg/protobuf.hpp>
 #include <frigg/glue-hel.hpp>
+#include <frigg/chain-all.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -216,8 +217,11 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 		helx::Pipe local, remote;
 		helx::Pipe::createFullPipe(local, remote);
 		requireObject(request.object_id(), frigg::move(local));
-		mbusPipe.sendDescriptorResp(remote.getHandle(), msg_request, 1);
-		remote.reset();
+		
+		auto action = mbusPipe.sendDescriptorResp(remote.getHandle(), eventHub, msg_request, 1)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}
 
 	(*this)();

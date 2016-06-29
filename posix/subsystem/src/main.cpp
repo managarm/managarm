@@ -407,8 +407,6 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 							assert(error == kVfsSuccess);
 							
 							// TODO: make request.size() unsigned
-							frigg::String<Allocator> actual_buffer(*allocator,
-									frigg::StringView(*buffer).subString(0, actual_size));
 							managarm::posix::ServerResponse<Allocator> response(*allocator);
 							response.set_error(managarm::posix::Errors::SUCCESS);
 							response.SerializeToString(serialized);
@@ -416,7 +414,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 							return pipe->sendStringResp(serialized->data(), serialized->size(),
 									eventHub, msg_request2, 0)
 							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); })
-							+ pipe->sendStringResp(actual_buffer.data(), actual_buffer.size(),
+							+ pipe->sendStringResp(buffer->data(), actual_size,
 									eventHub, msg_request2, 1)
 							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
 						}, frigg::String<Allocator>(*allocator))
@@ -503,7 +501,10 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 						eventHub, msg_request, 0)
 				+ frigg::apply([=] (HelError error) { 
 					HEL_CHECK(error);
-					pipe->sendDescriptorResp(handle, msg_request, 1);
+				})
+				+ pipe->sendDescriptorResp(handle, eventHub, msg_request, 1)
+				+ frigg::apply([=] (HelError error) {
+					HEL_CHECK(error);
 					HEL_CHECK(helCloseDescriptor(handle));
 				});
 			}, frigg::String<Allocator>(*allocator)),
@@ -670,6 +671,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 			frigg::compose([=] (auto serialized) {
 				auto file = *file_wrapper;
+				infoLogger->log() << "[posix/subsystem/src/main] HELFD_CLONE sendDescriptorResp" << frigg::EndLog();
 				pipe->sendDescriptorResp(file->getHelfd(), msg_request, 1);
 				
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -855,6 +857,8 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
+
+		infoLogger->log() << "[posix/subsystem/src/main] file-system sendStringReq" << frigg::EndLog();
 		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
@@ -865,6 +869,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
+		infoLogger->log() << "[posix/subsystem/src/main] network sendStringReq" << frigg::EndLog();
 		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 2, 0);
 
 		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 2);

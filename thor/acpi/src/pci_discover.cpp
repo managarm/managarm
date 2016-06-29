@@ -5,6 +5,7 @@
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
 #include <frigg/protobuf.hpp>
+#include <frigg/chain-all.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -46,7 +47,10 @@ void DeviceClosure::operator() () {
 			bar_response.set_length(device->bars[k].length);
 			response.add_bars(frigg::move(bar_response));
 
-			pipe.sendDescriptorResp(device->bars[k].handle, 1, 1 + k);
+			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			
+			frigg::run(frigg::move(action), allocator.get());
 		}else if(device->bars[k].type == PciDevice::kBarMemory) {
 			managarm::hw::PciBar<Allocator> bar_response(*allocator);
 			bar_response.set_io_type(managarm::hw::IoType::MEMORY);
@@ -54,7 +58,10 @@ void DeviceClosure::operator() () {
 			bar_response.set_length(device->bars[k].length);
 			response.add_bars(frigg::move(bar_response));
 
-			pipe.sendDescriptorResp(device->bars[k].handle, 1, 1 + k);
+			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			
+			frigg::run(frigg::move(action), allocator.get());
 		}else{
 			assert(device->bars[k].type == PciDevice::kBarNone);
 
@@ -64,9 +71,15 @@ void DeviceClosure::operator() () {
 		}
 	}
 
-	frigg::String<Allocator> serialized(*allocator);
-	response.SerializeToString(&serialized);
-	pipe.sendStringResp(serialized.data(), serialized.size(), 1, 0);
+	auto action = frigg::compose([=] (frigg::String<Allocator> *serialized, 
+			managarm::hw::PciDevice<Allocator> *response) {
+		response->SerializeToString(serialized);
+		
+		return pipe.sendStringResp(serialized->data(), serialized->size(), eventHub, 1, 0)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+	}, frigg::String<Allocator>(*allocator), frigg::move(response));
+
+	frigg::run(frigg::move(action), allocator.get());
 }
 
 void requireObject(int64_t object_id, helx::Pipe pipe) {

@@ -249,6 +249,13 @@ public:
 				callback, kHelResponse);
 	}
 	
+	inline auto sendStringReq(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
+		// FIXME: do not capture event_hub by reference
+		return frigg::await<void(HelError)>([=, &event_hub] (auto callback) {
+			this->sendStringReq(buffer, length, event_hub, msg_request, msg_seq, callback);
+		});
+	}
 	inline auto sendStringResp(const void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
 		// FIXME: do not capture event_hub by reference
@@ -312,6 +319,15 @@ public:
 			frigg::CallbackPtr<void(HelError)> callback) {
 		sendDescriptor(send_handle, event_hub, msg_request, msg_seq,
 				kHelResponse, callback);
+	}
+
+	inline auto sendDescriptorResp(HelHandle send_handle,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
+		// FIXME: do not capture event_hub by reference
+		return frigg::await<void(HelError)>([=, &event_hub] (auto callback) {
+			this->sendDescriptorResp(send_handle, event_hub, msg_request, 
+					msg_seq, callback);
+		});
 	}
 
 	inline void sendDescriptorSync(HelHandle send_handle,

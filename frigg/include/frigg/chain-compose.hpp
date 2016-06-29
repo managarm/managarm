@@ -102,8 +102,8 @@ private:
 	Tuple<T...> _context;
 };
 
-template<typename Functor>
-struct CanSequence<Compose<Functor>>
+template<typename Functor, typename... T>
+struct CanSequence<Compose<Functor, T...>>
 : public TrueType { };
 
 template<typename Functor, typename... T>

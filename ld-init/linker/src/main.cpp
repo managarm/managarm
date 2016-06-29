@@ -66,7 +66,7 @@ frigg::LazyInitializer<helx::Pipe> posixPipe;
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	infoLogger.initialize(infoSink);
-	//infoLogger->log() << "Entering ld-init" << frigg::EndLog();
+	infoLogger->log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 
@@ -138,7 +138,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	allocateTcb();
 	globalLoader->initObjects();
 
-//	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
+	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 

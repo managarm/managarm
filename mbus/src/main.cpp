@@ -97,47 +97,9 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
+		infoLogger->log() << "[mbus/src/main] broadcastRegister sendStringReq" << frigg::EndLog();
 		other->pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
 	}
-}
-
-// --------------------------------------------------------
-// QueryIfClosure
-// --------------------------------------------------------
-
-struct QueryIfClosure : frigg::BaseClosure<QueryIfClosure> {
-public:
-	QueryIfClosure(frigg::SharedPtr<Connection> query_connection,
-			frigg::SharedPtr<Object> object, int64_t query_request_id,
-			int64_t require_request_id);
-
-	void operator() ();
-
-private:
-	void recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle);
-
-	frigg::SharedPtr<Connection> queryConnection;
-	frigg::SharedPtr<Object> object;
-	int64_t queryRequestId;
-	int64_t requireRequestId;
-};
-
-QueryIfClosure::QueryIfClosure(frigg::SharedPtr<Connection> connection,
-		frigg::SharedPtr<Object> object, int64_t query_request_id, int64_t require_request_id)
-: queryConnection(frigg::move(connection)), object(object),
-		queryRequestId(query_request_id), requireRequestId(require_request_id) { }
-
-void QueryIfClosure::operator() () {
-	object->connection->pipe.recvDescriptorResp(eventHub, requireRequestId, 1,
-			CALLBACK_MEMBER(this, &QueryIfClosure::recvdPipe));
-}
-
-void QueryIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_t msg_seq,
-		HelHandle handle) {
-	queryConnection->pipe.sendDescriptorResp(handle, queryRequestId, 1);
-	HEL_CHECK(helCloseDescriptor(handle));
-
-	suicide(*allocator);
 }
 
 // --------------------------------------------------------
@@ -246,28 +208,27 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		frigg::SharedPtr<Object> *object = allObjects.get(recvd_request.object_id());
 		assert(object);
 
-		auto action = frigg::compose([=] (auto request, auto serialized) {
+		auto action = frigg::compose([=] (auto request) {
 			int64_t require_request_id = (*object)->connection->nextRequestId++;
 			
-			return frigg::apply([=] () {
+			return frigg::compose([=] (auto serialized) {
 				managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
 				require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
 				require_request.set_object_id(request->object_id());
 				require_request.SerializeToString(serialized);
-			})
-			+ frigg::await<void(HelError)>([=] (auto callback) {
-				(*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
-						eventHub, require_request_id, 0, callback);
-			})
-			+ frigg::apply([=] (HelError error) {
-				HEL_CHECK(error);
-			})
+			
+				return frigg::await<void(HelError)>([=] (auto callback) {
+					(*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
+							eventHub, require_request_id, 0, callback);
+				})
+				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			}, frigg::String<Allocator>(*allocator))
 			+ frigg::await<void(HelError, int64_t, int64_t, HelHandle)>([=] (auto callback) {
 				(*object)->connection->pipe.recvDescriptorResp(eventHub, require_request_id, 1,
 						callback);
 			})
-			+ frigg::compose([=] (HelError error, int64_t msg_request,
-					int64_t msg_seq, HelHandle handle) {
+			+ frigg::compose([=] (HelError error, int64_t require_msg_request,
+					int64_t require_msg_seq, HelHandle handle) {
 				HEL_CHECK(error);
 				
 				return frigg::await<void(HelError)>([=] (auto callback) {
@@ -275,11 +236,10 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 				})
 				+ frigg::apply([=] (HelError error) {
 					HEL_CHECK(error);
-
 					HEL_CHECK(helCloseDescriptor(handle));
 				});
 			});
-		}, frigg::move(recvd_request), frigg::String<Allocator>(*allocator));
+		}, frigg::move(recvd_request));
 
 		frigg::run(frigg::move(action), allocator.get());
 	} break;

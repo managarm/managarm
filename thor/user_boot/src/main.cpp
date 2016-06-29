@@ -227,6 +227,29 @@ void posixDoRequest(managarm::posix::ClientRequest<Allocator> &request,
 	response.ParseFromArray(buffer, length);
 }
 
+void posixDoRequestWithHandle(HelHandle handle, managarm::posix::ClientRequest<Allocator> &request,
+		managarm::posix::ServerResponse<Allocator> &response, int64_t request_id) {
+
+	frigg::String<Allocator> serialized(*allocator);
+	request.SerializeToString(&serialized);
+	
+	HelError send_error; 
+	posixPipe.sendStringReqSync(serialized.data(), serialized.size(),
+			eventHub, request_id, 0, send_error);
+	HEL_CHECK(send_error);
+
+	HelError descriptor_error;
+	posixPipe.sendDescriptorReqSync(handle, eventHub, request_id, 1, descriptor_error);
+	HEL_CHECK(descriptor_error);
+	
+	uint8_t buffer[128];
+	HelError recv_error;
+	size_t length;
+	posixPipe.recvStringRespSync(buffer, 128, eventHub, request_id, 0, recv_error, length);
+	HEL_CHECK(recv_error);
+	response.ParseFromArray(buffer, length);
+}
+
 void runPosixInit() {
 	// first we send an INIT request to create an initial process
 	managarm::posix::ClientRequest<Allocator> init_request(*allocator);
@@ -252,10 +275,8 @@ void runPosixInit() {
 	attach_request.set_request_type(managarm::posix::ClientRequestType::HELFD_ATTACH);
 	attach_request.set_fd(open_response.fd());
 
-	posixPipe.sendDescriptorReq(acpiConnect.getHandle(), 3, 1);
-	
 	managarm::posix::ServerResponse<Allocator> attach_response(*allocator);
-	posixDoRequest(attach_request, attach_response, 3);
+	posixDoRequestWithHandle(acpiConnect.getHandle(), attach_request, attach_response, 3);
 	assert(attach_response.error() == managarm::posix::Errors::SUCCESS);
 	
 	// after that we EXEC the actual init program

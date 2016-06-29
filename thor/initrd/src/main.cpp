@@ -188,6 +188,8 @@ void StatClosure::operator() () {
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
+	// FIXME: use chains instead of sync calls
+	infoLogger->log() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::EndLog();
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
@@ -212,6 +214,7 @@ void OpenClosure::operator() () {
 
 		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
+		// FIXME: use chains instead of sync calls
 		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 		return;
 	}
@@ -234,7 +237,11 @@ void OpenClosure::operator() () {
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	// FIXME: use chains instead of sync calls
+	HelError send_open_error;
+	connection.getPipe().sendStringRespSync(serialized.data(), serialized.size(), 
+			eventHub, responseId, 0, send_open_error);
+	HEL_CHECK(send_open_error);
 }
 
 // --------------------------------------------------------
@@ -254,25 +261,37 @@ void ReadClosure::operator() () {
 
 		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+		// FIXME: use chains instead of sync calls
+		infoLogger->log() << "[thor/initrd/src/main] ReadClosure:() sendStringResp" << frigg::EndLog();
+		HelError send_read_error;
+		connection.getPipe().sendStringRespSync(serialized.data(), serialized.size(),
+				eventHub, responseId, 0, send_read_error);
+		HEL_CHECK(send_read_error);
 		return;
 	}
 
 	size_t read_size = request.size();
 	if(read_size > open_file->size - open_file->offset)
 		read_size = open_file->size - open_file->offset;
+	
+	auto action = frigg::compose([=] (frigg::String<Allocator> *serialized) {
+		managarm::fs::SvrResponse<Allocator> response(*allocator);
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.SerializeToString(serialized);
+		
+		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+				eventHub, responseId, 0)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+	}, frigg::String<Allocator>(*allocator))
+	+ frigg::compose([=] () {
+		char *ptr = open_file->image + open_file->offset;
+		open_file->offset += read_size;
 
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.set_error(managarm::fs::Errors::SUCCESS);
+		return connection.getPipe().sendStringResp(ptr, read_size, eventHub, responseId, 1)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+	});
 
-	frigg::String<Allocator> serialized(*allocator);
-	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-
-	char *ptr = open_file->image + open_file->offset;
-	connection.getPipe().sendStringResp(ptr, read_size, responseId, 1);
-
-	open_file->offset += read_size;
+	frigg::run(frigg::move(action), allocator.get());
 }
 
 // --------------------------------------------------------
@@ -293,7 +312,11 @@ void SeekClosure::operator() () {
 
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	// FIXME: use chains instead of sync calls
+	HelError seek_error;
+	connection.getPipe().sendStringRespSync(serialized.data(), serialized.size(),
+			eventHub, responseId, 0, seek_error);
+	HEL_CHECK(seek_error);
 }
 
 // --------------------------------------------------------
@@ -307,13 +330,22 @@ MapClosure::MapClosure(Connection &connection, int64_t response_id,
 void MapClosure::operator() () {
 	auto open_file = connection.getOpenFile(request.fd());
 
-	managarm::fs::SvrResponse<Allocator> response(*allocator);
-	response.set_error(managarm::fs::Errors::SUCCESS);
+	// FIXME: use chains instead of sync calls
+	auto action = frigg::compose([=] (frigg::String<Allocator> *resp_buffer) {
+		managarm::fs::SvrResponse<Allocator> response(*allocator);
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.SerializeToString(resp_buffer);
+		
+		return connection.getPipe().sendStringResp(resp_buffer->data(), resp_buffer->size(),
+				eventHub, responseId, 0)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+	}, frigg::String<Allocator>(*allocator))
+	+ frigg::compose([=] () {
+		return connection.getPipe().sendDescriptorResp(open_file->fileMemory, eventHub, responseId, 1)
+		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+	});
 
-	frigg::String<Allocator> serialized(*allocator);
-	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-	connection.getPipe().sendDescriptorResp(open_file->fileMemory, responseId, 1);
+	frigg::run(frigg::move(action), allocator.get()); 
 }
 
 
