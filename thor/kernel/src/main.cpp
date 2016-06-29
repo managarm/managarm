@@ -94,9 +94,6 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive;
 	
-	auto group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
-	ThreadGroup::addThreadToGroup(frigg::move(group), thread);
-
 	// FIXME: do not heap-allocate the state structs
 	*thread->image.sp() = stack_base + stack_size;
 	*thread->image.ip() = ehdr->e_entry;

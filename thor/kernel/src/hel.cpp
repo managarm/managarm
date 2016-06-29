@@ -494,20 +494,10 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		universe = this_universe.toShared();
 	}
 
-	KernelSharedPtr<ThreadGroup> group;
-	if(flags & kHelThreadNewGroup) {
-		group = frigg::makeShared<ThreadGroup>(*kernelAlloc);
-	}else{
-		group = this_thread->getThreadGroup().toShared();
-	}
-
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(space), frigg::move(directory));
 	if((flags & kHelThreadExclusive) != 0)
 		new_thread->flags |= Thread::kFlagExclusive;
-	
-	ThreadGroup::addThreadToGroup(frigg::move(group),
-			KernelWeakPtr<Thread>(new_thread));
 	
 	*new_thread->image.ip() = (Word)ip;
 	*new_thread->image.sp() = (Word)sp;

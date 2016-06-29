@@ -1,8 +1,6 @@
 
 namespace thor {
 
-class ThreadGroup;
-
 class Thread : public PlatformExecutor {
 friend class ThreadQueue;
 public:
@@ -20,9 +18,6 @@ public:
 			KernelSharedPtr<RdFolder> &&directory);
 	~Thread();
 
-	void setThreadGroup(KernelSharedPtr<ThreadGroup> group);
-	
-	KernelUnsafePtr<ThreadGroup> getThreadGroup();
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
@@ -48,7 +43,6 @@ private:
 		JoinRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 	};
 
-	KernelSharedPtr<ThreadGroup> p_threadGroup;
 	KernelSharedPtr<Universe> p_universe;
 	KernelSharedPtr<AddressSpace> p_addressSpace;
 	KernelSharedPtr<RdFolder> p_directory;
@@ -58,16 +52,6 @@ private:
 
 	frigg::LinkedList<PendingSignal, KernelAlloc> p_pendingSignals;
 	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
-};
-
-struct ThreadGroup {
-	static void addThreadToGroup(KernelSharedPtr<ThreadGroup> group,
-			KernelWeakPtr<Thread> thread);
-
-	ThreadGroup();
-
-private:
-	frigg::Vector<KernelWeakPtr<Thread>, KernelAlloc> p_members;
 };
 
 class ThreadQueue {

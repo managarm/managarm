@@ -173,7 +173,6 @@ enum HelMapFlags {
 
 enum HelThreadFlags {
 	kHelThreadNewUniverse = 1,
-	kHelThreadNewGroup = 4,
 	kHelThreadExclusive = 2
 };
 

@@ -164,7 +164,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			HelHandle thread;
 			HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
 					kHelAbiSystemV, (void *)request.child_ip(), (void *)request.child_sp(),
-					kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
+					kHelThreadNewUniverse, &thread));
 			HEL_CHECK(helCloseDescriptor(thread));
 
 			managarm::posix::ServerResponse<Allocator> response(*allocator);

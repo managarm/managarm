@@ -107,7 +107,7 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	infoLogger->log() << "Create thread" << frigg::EndLog();
 
 	HelHandle thread;
-	uint32_t thread_flags = kHelThreadNewUniverse | kHelThreadNewGroup;
+	uint32_t thread_flags = kHelThreadNewUniverse;
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
 	HEL_CHECK(helCreateThread(space, directory, kHelAbiSystemV, (void *)ehdr->e_entry,

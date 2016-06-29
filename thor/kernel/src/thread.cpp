@@ -31,13 +31,6 @@ Thread::~Thread() {
 	}
 }
 
-void Thread::setThreadGroup(KernelSharedPtr<ThreadGroup> group) {
-	p_threadGroup = frigg::move(group);
-}
-
-KernelUnsafePtr<ThreadGroup> Thread::getThreadGroup() {
-	return p_threadGroup;
-}
 KernelUnsafePtr<Universe> Thread::getUniverse() {
 	return p_universe;
 }
@@ -77,21 +70,6 @@ Thread::PendingSignal::PendingSignal(void *entry)
 Thread::JoinRequest::JoinRequest(KernelSharedPtr<EventHub> event_hub,
 		SubmitInfo submit_info)
 : BaseRequest(frigg::move(event_hub), submit_info) { }
-
-// --------------------------------------------------------
-// ThreadGroup
-// --------------------------------------------------------
-
-void ThreadGroup::addThreadToGroup(KernelSharedPtr<ThreadGroup> group,
-		KernelWeakPtr<Thread> thread) {
-	KernelUnsafePtr<Thread> thread_ptr = thread;
-	assert(!thread_ptr->getThreadGroup());
-	group->p_members.push(frigg::move(thread));
-	thread_ptr->setThreadGroup(frigg::move(group));
-}
-
-ThreadGroup::ThreadGroup()
-: p_members(*kernelAlloc) { }
 
 // --------------------------------------------------------
 // ThreadQueue
