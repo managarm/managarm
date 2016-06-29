@@ -268,6 +268,7 @@ public:
 				kHelResponse, error);
 	}
 
+
 	inline void sendDescriptor(HelHandle send_handle,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		assert(!"Replace by async overloads");
@@ -319,7 +320,29 @@ public:
 		sendDescriptorSync(send_handle, event_hub, msg_request, msg_seq, kHelResponse, error);
 	}
 
-	inline HelError recvString(void *buffer, size_t max_length,
+
+	inline auto recvString(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		HelHandle hub_handle = event_hub.getHandle();
+		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([=] (auto callback) {
+			int64_t async_id;
+			HEL_CHECK(helSubmitRecvString(p_handle, hub_handle,
+					(uint8_t *)buffer, max_length, msg_request, msg_seq,
+					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+					flags, &async_id));
+		});
+	}
+	inline auto recvStringReq(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
+		return recvString(buffer, max_length, event_hub, msg_request, msg_seq, kHelRequest);
+		
+	}
+	inline auto recvStringResp(void *buffer, size_t max_length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq)  {
+		 return recvString(buffer, max_length, event_hub, msg_request, msg_seq, kHelResponse);
+	}
+
+	[[ deprecated ]] inline HelError recvString(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback,
 			uint32_t flags) {
@@ -329,7 +352,7 @@ public:
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
 	}
-	inline HelError recvStringToRing(HelHandle ring_handle,
+	[[ deprecated ]] inline HelError recvStringToRing(HelHandle ring_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback,
 			uint32_t flags) {
@@ -339,7 +362,7 @@ public:
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
 	}
-	inline HelError recvStringReq(void *buffer, size_t max_length,
+	[[ deprecated ]] inline HelError recvStringReq(void *buffer, size_t max_length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback) {
 		return recvString(buffer, max_length, event_hub,
