@@ -281,35 +281,24 @@ public:
 		assert(!"Replace by async overloads");
 	}
 	
-	inline void sendDescriptor(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitSendDescriptor(p_handle, event_hub.getHandle(),
-				send_handle, msg_request, msg_seq,
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-				flags, &async_id));
+	inline auto sendDescriptor(HelHandle send_handle,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		HelHandle hub_handle = event_hub.getHandle();
+		return frigg::await<void(HelError)>([=] (auto callback) {
+			int64_t async_id;
+			HEL_CHECK(helSubmitSendDescriptor(p_handle, hub_handle,
+					send_handle, msg_request, msg_seq,
+					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+					flags, &async_id));
+		});
 	}
-	inline void sendDescriptorReq(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		sendDescriptor(send_handle, event_hub, msg_request, msg_seq,
-				kHelRequest, callback);
+	inline auto sendDescriptorReq(HelHandle send_handle,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
+		return sendDescriptor(send_handle, event_hub, msg_request, msg_seq, kHelRequest);
 	}
-	inline void sendDescriptorResp(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		sendDescriptor(send_handle, event_hub, msg_request, msg_seq,
-				kHelResponse, callback);
-	}
-
 	inline auto sendDescriptorResp(HelHandle send_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		// FIXME: do not capture event_hub by reference
-		return frigg::await<void(HelError)>([=, &event_hub] (auto callback) {
-			this->sendDescriptorResp(send_handle, event_hub, msg_request, 
-					msg_seq, callback);
-		});
+		return sendDescriptor(send_handle, event_hub, msg_request, msg_seq, kHelResponse);
 	}
 
 	inline void sendDescriptorSync(HelHandle send_handle,

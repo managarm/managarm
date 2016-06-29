@@ -225,9 +225,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 					int64_t require_msg_seq, HelHandle handle) {
 				HEL_CHECK(error);
 				
-				return frigg::await<void(HelError)>([=] (auto callback) {
-					connection->pipe.sendDescriptorResp(handle, eventHub, msg_request, 1, callback);
-				})
+				return connection->pipe.sendDescriptorResp(handle, eventHub, msg_request, 1)
 				+ frigg::apply([=] (HelError error) {
 					HEL_CHECK(error);
 					HEL_CHECK(helCloseDescriptor(handle));
