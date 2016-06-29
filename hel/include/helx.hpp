@@ -226,42 +226,24 @@ public:
 		assert(!"Replace by async overloads");
 	}
 
-	inline void sendString(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			frigg::CallbackPtr<void(HelError)> callback,
-			uint32_t flags) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitSendString(p_handle, event_hub.getHandle(),
-				(uint8_t *)buffer, length, msg_request, msg_seq,
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-				flags, &async_id));
+	inline auto sendString(const void *buffer, size_t length,
+			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		HelHandle hub_handle = event_hub.getHandle();
+		return frigg::await<void(HelError)>([=] (auto callback) {
+			int64_t async_id;
+			HEL_CHECK(helSubmitSendString(p_handle, hub_handle, 
+					buffer, length, msg_request, msg_seq,
+					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+					flags, &async_id));
+		});
 	}
-	inline void sendStringReq(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		sendString(buffer, length, event_hub, msg_request, msg_seq,
-				callback, kHelRequest);
-	}
-	inline void sendStringResp(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		sendString(buffer, length, event_hub, msg_request, msg_seq,
-				callback, kHelResponse);
-	}
-	
 	inline auto sendStringReq(const void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		// FIXME: do not capture event_hub by reference
-		return frigg::await<void(HelError)>([=, &event_hub] (auto callback) {
-			this->sendStringReq(buffer, length, event_hub, msg_request, msg_seq, callback);
-		});
+		return sendString(buffer, length, event_hub, msg_request, msg_seq, kHelRequest);
 	}
 	inline auto sendStringResp(const void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		// FIXME: do not capture event_hub by reference
-		return frigg::await<void(HelError)>([=, &event_hub] (auto callback) {
-			this->sendStringResp(buffer, length, event_hub, msg_request, msg_seq, callback);
-		});
+		return sendString(buffer, length, event_hub, msg_request, msg_seq, kHelResponse);
 	}
 
 	inline void sendStringSync(const void *buffer, size_t length,

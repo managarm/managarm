@@ -142,25 +142,22 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 	case managarm::mbus::CntReqType::REGISTER: {
 		
 		auto action = frigg::compose([=] (auto request, auto serialized) {
-			return frigg::apply([=] () {
-				auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
-				object->connection = frigg::SharedPtr<Connection>(connection);
-				allObjects.insert(object->objectId, object);
-				
-				for(size_t i = 0; i < request->caps_size(); i++) {
-					Capability capability;
-					capability.name = request->caps(i).name();
-					object->caps.push(frigg::move(capability));
-				}
+			auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
+			object->connection = frigg::SharedPtr<Connection>(connection);
+			allObjects.insert(object->objectId, object);
+			
+			for(size_t i = 0; i < request->caps_size(); i++) {
+				Capability capability;
+				capability.name = request->caps(i).name();
+				object->caps.push(frigg::move(capability));
+			}
 
-				managarm::mbus::SvrResponse<Allocator> response(*allocator);
-				response.set_object_id(object->objectId);
-				response.SerializeToString(serialized);
-			})
-			+ frigg::await<void(HelError)>([=] (auto callback) {
-				connection->pipe.sendStringResp(serialized->data(), serialized->size(),
-						eventHub, msg_request, 0, callback);
-			})
+			managarm::mbus::SvrResponse<Allocator> response(*allocator);
+			response.set_object_id(object->objectId);
+			response.SerializeToString(serialized);
+			
+			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
 			+ frigg::apply([=] (HelError error) {
 				HEL_CHECK(error);
 			});
@@ -188,15 +185,12 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 		assert(found);
 
 		auto action = frigg::compose([=]  (auto serialized) {
-			return frigg::apply([=] () {
-				managarm::mbus::SvrResponse<Allocator> response(*allocator);
-				response.set_object_id(found->objectId);
-				response.SerializeToString(serialized);
-			})
-			+ frigg::await<void(HelError)>([=] (auto callback) {
-				connection->pipe.sendStringResp(serialized->data(), serialized->size(),
-						eventHub, msg_request, 0, callback);
-			})
+			managarm::mbus::SvrResponse<Allocator> response(*allocator);
+			response.set_object_id(found->objectId);
+			response.SerializeToString(serialized);
+			
+			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
+					eventHub, msg_request, 0)
 			+ frigg::apply([=] (HelError error) {
 				HEL_CHECK(error);
 			});
@@ -217,11 +211,11 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 				require_request.set_object_id(request->object_id());
 				require_request.SerializeToString(serialized);
 			
-				return frigg::await<void(HelError)>([=] (auto callback) {
-					(*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
-							eventHub, require_request_id, 0, callback);
-				})
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				return (*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
+							eventHub, require_request_id, 0)
+				+ frigg::apply([=] (HelError error) { 
+					HEL_CHECK(error); 
+				});
 			}, frigg::String<Allocator>(*allocator))
 			+ frigg::await<void(HelError, int64_t, int64_t, HelHandle)>([=] (auto callback) {
 				(*object)->connection->pipe.recvDescriptorResp(eventHub, require_request_id, 1,

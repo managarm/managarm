@@ -310,6 +310,11 @@ int main() {
 	startMbus();
 	startAcpi();
 	startInitrd();
+
+	// hack to synchronize posix subsystem and initrd
+	for(int i = 0; i < 10000; i++)
+		HEL_CHECK(helYield());
+
 	startPosixSubsystem();
 	runPosixInit();
 	
