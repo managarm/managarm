@@ -92,7 +92,7 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(space), frigg::move(root_directory));
-	thread->flags |= Thread::kFlagExclusive;
+	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	
 	// FIXME: do not heap-allocate the state structs
 	*thread->image.sp() = stack_base + stack_size;
@@ -254,6 +254,27 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}
 		msg << frigg::EndLog();
 	}
+}
+
+void handleOtherFault(FaultImageAccessor image, Fault fault) {
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+
+	const char *name;
+	switch(fault) {
+	case kFaultBreakpoint: name = "breakpoint"; break;
+	default:
+		frigg::panicLogger.log() << "Unexpected fault code" << frigg::EndLog();
+	}
+
+	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
+		frigg::infoLogger.log() << "traps-are-fatal thread killed by " << name << " fault.\n"
+				<< "Last ip: " << (void *)*image.ip() << frigg::EndLog();
+	}else{
+		saveExecutorFromFault(image);
+	}
+
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	doSchedule(frigg::move(schedule_guard));
 }
 
 void handleIrq(IrqImageAccessor image, int number) {

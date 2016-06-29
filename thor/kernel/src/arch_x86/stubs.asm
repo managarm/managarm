@@ -102,6 +102,7 @@
 
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDivideByZero, 0
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubDebug, 1
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubBreakpoint, 3
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubOpcode, 6
 MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubNoFpu, 7
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, 8

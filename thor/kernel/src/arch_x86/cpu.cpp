@@ -38,6 +38,34 @@ UniqueExecutorImage UniqueExecutorImage::make() {
 	return UniqueExecutorImage(pointer);
 }
 
+void saveExecutorFromFault(FaultImageAccessor accessor) {
+	UniqueExecutorImage &image = activeExecutor()->image;
+
+	image._general()->rax = accessor._frame()->rax;
+	image._general()->rbx = accessor._frame()->rbx;
+	image._general()->rcx = accessor._frame()->rcx;
+	image._general()->rdx = accessor._frame()->rdx;
+	image._general()->rdi = accessor._frame()->rdi;
+	image._general()->rsi = accessor._frame()->rsi;
+	image._general()->rbp = accessor._frame()->rbp;
+
+	image._general()->r8 = accessor._frame()->r8;
+	image._general()->r9 = accessor._frame()->r9;
+	image._general()->r10 = accessor._frame()->r10;
+	image._general()->r11 = accessor._frame()->r11;
+	image._general()->r12 = accessor._frame()->r12;
+	image._general()->r13 = accessor._frame()->r13;
+	image._general()->r14 = accessor._frame()->r14;
+	image._general()->r15 = accessor._frame()->r15;
+	
+	image._general()->rsp = accessor._frame()->rsp;
+	image._general()->rip = accessor._frame()->rip;
+	image._general()->rflags = accessor._frame()->rflags;
+	image._general()->kernel = 0;
+	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+}
+
 // --------------------------------------------------------
 // PlatformExecutor
 // --------------------------------------------------------
