@@ -524,9 +524,6 @@ HelError helYield() {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 
 	if(forkExecutor()) {
-		assert(!"Fix yield");
-		//resetCurrentThread(state);
-	
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		if(!(this_thread->flags & Thread::kFlagNotScheduled))
 			enqueueInSchedule(schedule_guard, this_thread);
