@@ -4,7 +4,7 @@ $(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch_x86)
 
 $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
-	arch_x86/early_stubs.o arch_x86/int_stubs.o arch_x86/syscall_stubs.o \
+	arch_x86/early_stubs.o arch_x86/stubs.o \
 	arch_x86/cpu.o arch_x86/trampoline.o \
 	arch_x86/ints.o arch_x86/pic.o arch_x86/system.o arch_x86/paging.o \
 	arch_x86/hpet.o \
@@ -30,6 +30,7 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
+$c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_AS := x86_64-managarm-as

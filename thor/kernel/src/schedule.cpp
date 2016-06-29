@@ -8,53 +8,24 @@ frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
 frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
 KernelUnsafePtr<Thread> getCurrentThread() {
-	return getCpuContext()->currentThread;
-}
-
-void resetCurrentThread(void *restore_state) {
-	assert(!intsAreEnabled());
-	auto cpu_context = getCpuContext();
-	assert(cpu_context->currentThread);
-	
-	assert(!cpu_context->currentThread->accessSaveState().restoreState);
-	cpu_context->currentThread->accessSaveState().restoreState = restore_state;
-
-	cpu_context->currentThread->deactivate();
-	cpu_context->currentThread = KernelUnsafePtr<Thread>();
+	return activeExecutor();
 }
 
 void dropCurrentThread() {
-	assert(!intsAreEnabled());
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	resetCurrentThread(nullptr);
-	activeList->remove(this_thread);
-	
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(frigg::move(schedule_guard));
-	// note: doSchedule takes care of the lock
+	assert(!"Fix dropCurrentThread");
 }
 
 void enterThread(KernelUnsafePtr<Thread> thread) {
-	assert(!intsAreEnabled());
-	auto cpu_context = getCpuContext();
-	assert(!cpu_context->currentThread);
-
-//FIXME: re-enable preemption
-//	if((thread->flags & Thread::kFlagExclusive) == 0)
-//		preemptThisCpu(100000000);
-
-	thread->activate();
-	cpu_context->currentThread = thread;
-	void *restore_state = thread->accessSaveState().restoreState;
-	assert(restore_state);
-	thread->accessSaveState().restoreState = nullptr;
-	restoreStateFrame(restore_state);
+	switchExecutor(thread);
+	restoreExecutor();
 }
 
 void doSchedule(ScheduleGuard &&guard) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(scheduleLock.get()));
-	assert(!getCpuContext()->currentThread);
+
+	// FIXME: make sure that we only schedule from
+	// a executor-indepedent domain.
 	
 	if(!scheduleQueue->empty()) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
@@ -67,8 +38,10 @@ void doSchedule(ScheduleGuard &&guard) {
 	}
 }
 
-extern "C" void onPreemption(void *state) {
-	acknowledgePreemption();
+// FIXME: this function should get a parameter of type IrqImagePtr
+extern "C" void onPreemption() {
+	assert(!"Fix preemption");
+/*	acknowledgePreemption();
 	
 	KernelUnsafePtr<Thread> thread = getCurrentThread();
 	resetCurrentThread(state);
@@ -76,7 +49,7 @@ extern "C" void onPreemption(void *state) {
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	if((thread->flags & Thread::kFlagNotScheduled) == 0)
 		enqueueInSchedule(schedule_guard, thread);
-	doSchedule(frigg::move(schedule_guard));
+	doSchedule(frigg::move(schedule_guard));*/
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {

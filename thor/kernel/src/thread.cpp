@@ -55,49 +55,12 @@ void Thread::queueSignal(void *entry) {
 void Thread::issueSignalAfterSyscall() {
 	if(p_pendingSignals.empty())
 		return;
-	PendingSignal pending = p_pendingSignals.removeFront();
-
-	SyscallBaseState *state = p_saveState.accessSyscallBaseState();
-	uintptr_t stack_addr = state->rsp - 128; // x86_64 red zone
-	if((stack_addr % 32) != 0)
-		stack_addr -= 32 - (stack_addr % 32);
-	
-	// TODO: lock user space memory
-	
-	// note: make sure we keep the stack 32 byte aligned
-	auto *stack = (uint64_t *)stack_addr;
-	*(--stack) = state->rsp;
-	*(--stack) = state->rip;
-	*(--stack) = state->rflags;
-	*(--stack) = state->returnRdi;
-	*(--stack) = state->returnRsi;
-	*(--stack) = state->returnRdx;
-	*(--stack) = state->savedR15;
-	*(--stack) = state->savedRbp;
-	state->rsp = (Word)stack;
-	state->rip = (Word)pending.entry;
+	assert(!"Signals are deprecated");
 }
 
 void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
 		SubmitInfo submit_info) {
 	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
-}
-
-void Thread::enableIoPort(uintptr_t port) {
-	p_saveState.threadTss.ioBitmap[port / 8] &= ~(1 << (port % 8));
-}
-
-void Thread::activate() {
-	p_addressSpace->activate();
-	p_saveState.activate();
-}
-
-void Thread::deactivate() {
-	p_saveState.deactivate();
-}
-
-ThorRtThreadState &Thread::accessSaveState() {
-	return p_saveState;
 }
 
 // --------------------------------------------------------
@@ -140,7 +103,7 @@ bool ThreadQueue::empty() {
 	return !p_front;
 }
 
-void ThreadQueue::addBack(KernelSharedPtr<Thread> &&thread) {
+void ThreadQueue::addBack(KernelSharedPtr<Thread> thread) {
 	// setup the back pointer before moving the thread pointer
 	KernelUnsafePtr<Thread> back = p_back;
 	p_back = thread;

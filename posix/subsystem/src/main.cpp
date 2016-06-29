@@ -159,16 +159,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto action = frigg::compose([=] (auto serialized) {
 			StdSharedPtr<Process> new_process = process->fork();
 
-			HelThreadState state;
-			memset(&state, 0, sizeof(HelThreadState));
-			state.rip = request.child_ip();
-			state.rsp = request.child_sp();
-			
 			helx::Directory directory = Process::runServer(new_process);
 
 			HelHandle thread;
 			HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
-					&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
+					kHelAbiSystemV, (void *)request.child_ip(), (void *)request.child_sp(),
+					kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
 			HEL_CHECK(helCloseDescriptor(thread));
 
 			managarm::posix::ServerResponse<Allocator> response(*allocator);

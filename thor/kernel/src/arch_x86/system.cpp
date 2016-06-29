@@ -5,6 +5,9 @@ namespace thor {
 
 void initializeTheSystem() {
 	initLocalApicOnTheSystem();
+	// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
+	// we need to debug that and find the cause of this problem.
+	setupLegacyPic();
 	maskLegacyPic();
 }
 

@@ -94,6 +94,11 @@ struct AdoptShared { };
 
 static constexpr AdoptShared adoptShared;
 
+// NOTE: the memory layout of SharedPtr, WeakPtr and UnsafePtr is fixed!
+// It may be accessed by assembly code; do not change the field offsets!
+// Each of these structs consists of two pointers: the first one points
+// to a opaque control structure while the second one points to the actual object.
+
 template<typename T>
 class SharedPtr {
 	template<typename U>
@@ -278,6 +283,9 @@ private:
 
 template<typename T>
 class UnsafePtr {
+	template<typename U>
+	friend class UnsafePtr;
+
 public:
 	UnsafePtr()
 	: _control(nullptr), _object(nullptr) { }
@@ -291,6 +299,10 @@ public:
 	template<typename U>
 	UnsafePtr(UnsafePtr<U> pointer, T *object)
 	: _control(pointer._control), _object(object) { }
+	
+	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	UnsafePtr(UnsafePtr<U> pointer)
+	: _control(pointer._control), _object(pointer._object) { }
 
 	SharedPtr<T> toShared() {
 		assert(_control);

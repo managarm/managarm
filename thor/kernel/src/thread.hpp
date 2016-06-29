@@ -3,9 +3,8 @@ namespace thor {
 
 class ThreadGroup;
 
-class Thread {
+class Thread : public PlatformExecutor {
 friend class ThreadQueue;
-friend void switchThread(KernelUnsafePtr<Thread> thread);
 public:
 	enum Flags : uint32_t {
 		// disables preemption for this thread
@@ -34,13 +33,6 @@ public:
 
 	void submitJoin(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 
-	void enableIoPort(uintptr_t port);
-	
-	void activate();
-	void deactivate();
-
-	ThorRtThreadState &accessSaveState();
-
 	const uint64_t globalThreadId;
 	
 	uint32_t flags;
@@ -66,8 +58,6 @@ private:
 
 	frigg::LinkedList<PendingSignal, KernelAlloc> p_pendingSignals;
 	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
-
-	ThorRtThreadState p_saveState;
 };
 
 struct ThreadGroup {
@@ -86,7 +76,7 @@ public:
 
 	bool empty();
 
-	void addBack(KernelSharedPtr<Thread> &&thread);
+	void addBack(KernelSharedPtr<Thread> thread);
 	
 	KernelSharedPtr<Thread> removeFront();
 	KernelSharedPtr<Thread> remove(KernelUnsafePtr<Thread> thread);

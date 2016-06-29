@@ -1,6 +1,8 @@
 
 #include "../kernel.hpp"
 
+extern char stubsPtr[], stubsLimit[];
+
 extern "C" void earlyStubDivideByZero();
 extern "C" void earlyStubOpcode();
 extern "C" void earlyStubDouble();
@@ -10,6 +12,7 @@ extern "C" void earlyStubPage();
 extern "C" void faultStubDivideByZero();
 extern "C" void faultStubDebug();
 extern "C" void faultStubOpcode();
+extern "C" void faultStubNoFpu();
 extern "C" void faultStubDouble();
 extern "C" void faultStubProtection();
 extern "C" void faultStubPage();
@@ -33,10 +36,11 @@ extern "C" void thorRtIsrIrq15();
 
 extern "C" void thorRtIsrPreempted();
 
+
 namespace thor {
 
-uint32_t earlyGdt[3];
-uint32_t earlyIdt[512];
+uint32_t earlyGdt[3 * 2];
+uint32_t earlyIdt[256 * 4];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
 	frigg::panicLogger.log() << "Division by zero during boot\n"
@@ -83,7 +87,7 @@ void initializeProcessorEarly() {
 	
 	// setup the idt
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubOpcode, 0);
+	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);
@@ -100,6 +104,7 @@ void setupIdt(uint32_t *table) {
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
 			0x8, (void *)&faultStubOpcode, 0);
+	frigg::arch_x86::makeIdt64IntSystemGate(table, 7, 0x8, (void *)&faultStubNoFpu, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
 			0x8, (void *)&faultStubDouble, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
@@ -139,9 +144,81 @@ void setupIdt(uint32_t *table) {
 			0x8, (void *)&thorRtIsrIrq14, 1);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 79,
 			0x8, (void *)&thorRtIsrIrq15, 1);
+
+	//FIXME
+//	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
+//			0x8, (void *)&thorRtIsrPreempted, 0);
+}
+
+enum Domain {
+	kDomNone,
+
+	// the system is not running an executor, e.g.
+	// we are processing an IRQ, NMI or MCE.
+	kDomSystem,
+
+	// the system is running an executor and we are in client code,
+	// either in user-mode or in supervisor code.
+	kDomClientUser,
+	kDomClientSupervisor,
+
+	// the system is running an executor in the kernel, e.g.
+	// we are processing a system call or exception.
+	kDomExecutorKernel
+};
+
+Domain determineDomain(uintptr_t cs) {
+	switch(cs) {
+	case 0x2B:
+		return kDomClientUser;
+	default:
+		frigg::panicLogger.log() << "Unexpected CS segment" << frigg::EndLog();
+	}
+}
+
+bool inStub(uintptr_t ip) {
+	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
+}
+
+void handlePageFault(FaultImageAccessor image, uintptr_t address);
+void handleIrq(IrqImageAccessor image, int number);
+
+extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	Domain domain = determineDomain(*image.cs());
+	assert(domain == kDomClientUser || domain == kDomClientSupervisor
+			|| domain == kDomExecutorKernel);
+	assert(!inStub(*image.ip()));
+
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+		asm volatile ( "swapgs" : : : "memory" );
+
+	switch(number) {
+	case 14: {
+		uintptr_t address;
+		asm volatile ( "mov %%cr2, %0" : "=r" (address) );
+		handlePageFault(image, address);
+	} break;
+	default:
+		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
+	}
 	
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
-			0x8, (void *)&thorRtIsrPreempted, 0);
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+		asm volatile ( "swapgs" : : : "memory" );
+}
+
+extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
+	Domain domain = determineDomain(*image.cs());
+	assert(domain == kDomClientUser || domain == kDomClientSupervisor
+			|| domain == kDomExecutorKernel);
+	assert(!inStub(*image.ip()));
+
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+		asm volatile ( "swapgs" : : : "memory" );
+
+	handleIrq(image, number);
+	
+	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+		asm volatile ( "swapgs" : : : "memory" );
 }
 
 bool intsAreEnabled() {

@@ -96,12 +96,13 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 		while(loadState[page_index] == Memory::kStateLoading) {
 			assert(!intsAreEnabled());
 
-			void *restore_state = __builtin_alloca(getStateSize());
-			if(forkState(restore_state)) {
+			if(forkExecutor()) {
 				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 				waitQueue.addBack(this_thread.toShared());
-				
-				resetCurrentThread(restore_state);
+			
+				// TODO: make sure we do not hold any locks here!
+				assert(!"Fix page fault blocking");
+				//resetCurrentThread(restore_state);
 				ScheduleGuard schedule_guard(scheduleLock.get());
 				doSchedule(frigg::move(schedule_guard));
 				// note: doSchedule() takes care of the schedule_guard lock

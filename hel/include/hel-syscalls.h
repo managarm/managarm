@@ -148,8 +148,8 @@ DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
 END_SYSCALL()
 
 DEFINE_SYSCALL(CreateThread, HelHandle address_space, HelHandle directory,
-		struct HelThreadState *state, uint32_t flags, HelHandle *handle)
-	IN(0, address_space) IN(1, directory) IN(2, state) IN(3, flags)
+		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle)
+	IN(0, address_space) IN(1, directory) IN(2, abi) IN(3, ip) IN(4, sp) IN(5, flags)
 	DO_SYSCALL(CreateThread)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()

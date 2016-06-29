@@ -16,101 +16,87 @@ void BochsSink::print(const char *str) {
 }
 
 // --------------------------------------------------------
-// ThorRtThreadState
+// UniqueKernelStack
 // --------------------------------------------------------
 
-ThorRtThreadState::ThorRtThreadState() : restoreState(0), fsBase(0) {
-	size_t syscall_size = sizeof(SyscallBaseState) + sizeof(FxState);
-	syscallState = kernelAlloc->allocate(syscall_size);
-
-	memset(&threadTss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&threadTss);
-	threadTss.rsp0 = uintptr_t(syscallStack + kSyscallStackSize);
+UniqueKernelStack UniqueKernelStack::make() {
+	auto pointer = (char *)kernelAlloc->allocate(kSize);
+	return UniqueKernelStack(pointer + kSize);
 }
 
-ThorRtThreadState::~ThorRtThreadState() {
-	kernelAlloc->free(syscallState);
+// --------------------------------------------------------
+// UniqueExecutorImage
+// --------------------------------------------------------
+
+size_t UniqueExecutorImage::determineSize() {
+	return sizeof(General) + sizeof(FxState);
 }
 
-void ThorRtThreadState::activate() {
-	// set the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (syscallState),
-			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1"
-			: : "r" (syscallStack + kSyscallStackSize),
-			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
+UniqueExecutorImage UniqueExecutorImage::make() {
+	auto pointer = (char *)kernelAlloc->allocate(getStateSize());
+	memset(pointer, 0, getStateSize());
+	return UniqueExecutorImage(pointer);
+}
+
+// --------------------------------------------------------
+// PlatformExecutor
+// --------------------------------------------------------
+
+PlatformExecutor::PlatformExecutor()
+: AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()) {
+	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::initializeTss64(&tss);
+	tss.rsp0 = (Word)kernelStack.base();
+}
+
+void PlatformExecutor::enableIoPort(uintptr_t port) {
+	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+}
+
+void switchExecutor(frigg::UnsafePtr<Thread> executor) {
+	assert(!intsAreEnabled());
 	
+	executor->getAddressSpace()->activate();
+
 	// setup the thread's tss segment
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
-	threadTss.ist1 = cpu_specific->tssTemplate.ist1;
+	CpuContext *cpu_context = getCpuContext();
+	executor->tss.ist1 = (Word)cpu_context->irqStack.base();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
-			&threadTss, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
+			&executor->tss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
 
-	// restore the fs segment limit
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, fsBase);
+	// finally update the active executor register.
+	// we do this after setting up the address space and TSS
+	// so that these structures are always valid.
+	AssemblyCpuContext *context = getCpuContext();
+	context->activeExecutor = executor;
 }
 
-void ThorRtThreadState::deactivate() {
-	// reset the current general / syscall state pointer
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffSyscallState) : "memory" );
-	asm volatile ( "mov %0, %%gs:%c1" : : "r" (nullptr),
-			"i" (ThorRtKernelGs::kOffSyscallStackPtr) : "memory" );
-	
-	// setup the tss segment
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
-			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
-
-	// save the fs segment limit
-	fsBase = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, 0);
+frigg::UnsafePtr<Thread> activeExecutor() {
+	return frigg::staticPtrCast<Thread>(getCpuContext()->activeExecutor);
 }
-
-// --------------------------------------------------------
-// ThorRtKernelGs
-// --------------------------------------------------------
-
-ThorRtKernelGs::ThorRtKernelGs()
-: cpuContext(nullptr), stateSize(0), syscallStackPtr(nullptr),
-		cpuSpecific(nullptr) { }
 
 // --------------------------------------------------------
 // Namespace scope functions
 // --------------------------------------------------------
 
 size_t getStateSize() {
-	size_t result;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (result)
-			: "i" (ThorRtKernelGs::kOffStateSize) );
-	return result;
+	return UniqueExecutorImage::determineSize();
 }
 
 CpuContext *getCpuContext() {
-	CpuContext *context;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (context)
-			: "i" (ThorRtKernelGs::kOffCpuContext) );
-	return context;
+	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
+	auto asm_context = reinterpret_cast<AssemblyCpuContext *>(msr);
+	return static_cast<CpuContext *>(asm_context);
 }
 
 void callOnCpuStack(void (*function) ()) {
 	assert(!intsAreEnabled());
 
-	ThorRtCpuSpecific *cpu_specific;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (cpu_specific)
-			: "i" (ThorRtKernelGs::kOffCpuSpecific) );
+	CpuContext *cpu_context = getCpuContext();
 	
-	uintptr_t stack_ptr = (uintptr_t)cpu_specific->cpuStack
-			+ ThorRtCpuSpecific::kCpuStackSize;
-	
+	uintptr_t stack_ptr = (uintptr_t)cpu_context->systemStack.base();
 	asm volatile ( "mov %0, %%rsp\n"
 			"\tcall *%1\n"
 			"\tud2\n" : : "r" (stack_ptr), "r" (function) );
@@ -120,61 +106,51 @@ void callOnCpuStack(void (*function) ()) {
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
-	auto cpu_specific = frigg::construct<ThorRtCpuSpecific>(*kernelAlloc);
-	
+	auto cpu_context = frigg::construct<CpuContext>(*kernelAlloc);
+	cpu_context->irqStack = UniqueKernelStack::make();
+	cpu_context->systemStack = UniqueKernelStack::make();
+
+	// FIXME: the stateSize should not be CPU specific!
+	// move it to a global variable and initialize it in initializeTheSystem() etc.!
+
 	// set up the kernel gs segment
-	auto kernel_gs = frigg::construct<ThorRtKernelGs>(*kernelAlloc);
-	kernel_gs->stateSize = sizeof(GprState) + sizeof(FxState);
-	kernel_gs->flags = 0;
-	kernel_gs->cpuSpecific = cpu_specific;
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)kernel_gs);
-	
-	// set up the cpu context. we do this after setting up gs because
-	// the CpuContext constructor calls getStateSize()
-	kernel_gs->cpuContext = frigg::construct<CpuContext>(*kernelAlloc);
+	AssemblyCpuContext *asm_context = cpu_context;
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)asm_context);
 
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
-	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 0);
+	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 0);
 	// the layout of the next two kernel descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_specific->gdt, 1);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_specific->gdt, 2);
+	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_context->gdt, 1);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_context->gdt, 2);
 	// the layout of the next three user-space descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtNullSegment(cpu_specific->gdt, 3);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_specific->gdt, 4);
-	frigg::arch_x86::makeGdtCode64UserSegment(cpu_specific->gdt, 5);
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6, nullptr, 0);
+	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 3);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_context->gdt, 4);
+	frigg::arch_x86::makeGdtCode64UserSegment(cpu_context->gdt, 5);
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6, nullptr, 0);
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 8 * 8;
-	gdtr.pointer = cpu_specific->gdt;
+	gdtr.pointer = cpu_context->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq $0x8\n"
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
 			".L_reloadCs:" );
-	
-	// setup a stack for irqs
-	size_t irq_stack_size = 0x10000;
-	void *irq_stack_base = kernelAlloc->allocate(irq_stack_size);
-	
-	// setup the kernel tss
-	frigg::arch_x86::initializeTss64(&cpu_specific->tssTemplate);
-	cpu_specific->tssTemplate.ist1 = (uintptr_t)irq_stack_base + irq_stack_size;
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_specific->gdt, 6,
-			&cpu_specific->tssTemplate, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+
+	// we enter the idle thread before setting up the IDT.
+	// this gives us a valid TSS segment in case an NMI or fault happens here.
+	switchExecutor(cpu_context->idleThread);
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(cpu_specific->idt, i);
-	setupIdt(cpu_specific->idt);
+		frigg::arch_x86::makeIdt64NullGate(cpu_context->idt, i);
+	setupIdt(cpu_context->idt);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 256 * 16;
-	idtr.pointer = cpu_specific->idt;
+	idtr.pointer = cpu_context->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	// enable wrfsbase / wrgsbase instructions
@@ -275,30 +251,6 @@ void bootSecondary(uint32_t secondary_apic_id) {
 		frigg::pause();
 	}
 	infoLogger->log() << "AP finished booting" << frigg::EndLog();
-}
-
-void thorRtReturnSyscall1(Word out0) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-}
-
-void thorRtReturnSyscall2(Word out0, Word out1) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-	state->returnRsi = out1;
-}
-
-void thorRtReturnSyscall3(Word out0, Word out1, Word out2) {
-	SyscallBaseState *state;
-	asm volatile ( "mov %%gs:%c1, %0" : "=r" (state)
-			: "i" (ThorRtKernelGs::kOffSyscallState) );
-	state->returnRdi = out0;
-	state->returnRsi = out1;
-	state->returnRdx = out2;
 }
 
 } // namespace thor

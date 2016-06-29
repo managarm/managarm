@@ -75,14 +75,10 @@ CpuContext::CpuContext() {
 	thread->flags |= Thread::kFlagNotScheduled;
 
 	// FIXME: do not heap-allocate the state structs
-	void *state = kernelAlloc->allocate(getStateSize());
-	auto gpr_state = accessGprState(state);
-	gpr_state->rsp = (uintptr_t)thread->accessSaveState().syscallStack
-			+ ThorRtThreadState::kSyscallStackSize;
-	gpr_state->rflags = 0x200; // enable interrupts
-	gpr_state->rip = (Word)&idleRoutine;
-	gpr_state->kernel = 1;
-	thread->accessSaveState().restoreState = state;
+	*thread->image.sp() = (uintptr_t)thread->kernelStack.base();
+	*thread->image.rflags() = 0x200; // enable interrupts
+	*thread->image.ip() = (Word)&idleRoutine;
+	*thread->image.kernel() = 1;
 
 	idleThread = thread;
 	activeList->addBack(frigg::move(thread));
