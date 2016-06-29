@@ -15,7 +15,7 @@ Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<RdFolder> &&directory)
 : globalThreadId(nextGlobalThreadId++), flags(0),
 		p_universe(universe), p_addressSpace(address_space), p_directory(directory),
-		p_pendingSignals(*kernelAlloc), p_joined(*kernelAlloc) {
+		p_joined(*kernelAlloc) {
 //	infoLogger->log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
 }
 
@@ -41,27 +41,10 @@ KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
 }
 
-void Thread::queueSignal(void *entry) {
-	p_pendingSignals.addBack(PendingSignal(entry));
-}
-
-void Thread::issueSignalAfterSyscall() {
-	if(p_pendingSignals.empty())
-		return;
-	assert(!"Signals are deprecated");
-}
-
 void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
 		SubmitInfo submit_info) {
 	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
 }
-
-// --------------------------------------------------------
-// Thread::PendingSignal
-// --------------------------------------------------------
-
-Thread::PendingSignal::PendingSignal(void *entry)
-: entry(entry) { }
 
 // --------------------------------------------------------
 // Thread::JoinRequest
@@ -142,13 +125,6 @@ KernelSharedPtr<Thread> ThreadQueue::remove(KernelUnsafePtr<Thread> thread) {
 
 	return reference;
 }
-
-// --------------------------------------------------------
-// Signal
-// --------------------------------------------------------
-
-Signal::Signal(void *entry)
-: entry(entry) { }
 
 } // namespace thor
 

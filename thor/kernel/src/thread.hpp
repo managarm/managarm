@@ -22,10 +22,6 @@ public:
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
 
-	void queueSignal(void *entry);
-
-	void issueSignalAfterSyscall();
-
 	void submitJoin(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 
 	const uint64_t globalThreadId;
@@ -33,12 +29,6 @@ public:
 	uint32_t flags;
 
 private:
-	struct PendingSignal {
-		PendingSignal(void *entry);
-
-		void *entry;
-	};
-
 	struct JoinRequest : public BaseRequest {
 		JoinRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
 	};
@@ -50,7 +40,6 @@ private:
 	KernelSharedPtr<Thread> p_nextInQueue;
 	KernelUnsafePtr<Thread> p_previousInQueue;
 
-	frigg::LinkedList<PendingSignal, KernelAlloc> p_pendingSignals;
 	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
 };
 
@@ -68,12 +57,6 @@ public:
 private:
 	KernelSharedPtr<Thread> p_front;
 	KernelUnsafePtr<Thread> p_back;
-};
-
-struct Signal {
-	Signal(void *entry);
-
-	void *entry;
 };
 
 } // namespace thor

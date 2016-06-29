@@ -582,43 +582,6 @@ HelError helGetClock(uint64_t *counter) {
 	return kHelErrNone;
 }
 
-HelError helCreateSignal(void *entry, HelHandle *handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	auto signal = frigg::makeShared<Signal>(*kernelAlloc, entry);
-
-	Universe::Guard universe_guard(&universe->lock);
-	*handle = universe->attachDescriptor(universe_guard,
-			SignalDescriptor(frigg::move(signal)));
-	universe_guard.unlock();
-
-	return kHelErrNone;
-}
-
-HelError helRaiseSignal(HelHandle handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-
-	Universe::Guard universe_guard(&universe->lock);
-	auto signal_wrapper = universe->getDescriptor(universe_guard, handle);
-	if(!signal_wrapper)
-		return kHelErrNoDescriptor;
-	if(!signal_wrapper->is<SignalDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &signal_descriptor = signal_wrapper->get<SignalDescriptor>();
-	KernelSharedPtr<Signal> signal = signal_descriptor.signal;
-	universe_guard.unlock();
-
-	this_thread->queueSignal(signal->entry);
-
-	return kHelErrNone;
-}
-
-HelError helReturnFromSignal() {
-	assert(!"Signals are deprecated");
-}
-
 HelError helCreateEventHub(HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

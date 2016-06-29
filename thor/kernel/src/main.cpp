@@ -396,18 +396,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = counter;
 	} break;
 
-	case kHelCallCreateSignal: {
-		HelHandle handle;
-		*image.error() = helCreateSignal((void *)arg0, &handle);
-		*image.out0() = handle;
-	} break;
-	case kHelCallRaiseSignal: {
-		*image.error() = helRaiseSignal((HelHandle)arg0);
-	} break;
-	case kHelCallReturnFromSignal: {
-		*image.error() = helReturnFromSignal();
-	} break;
-
 	case kHelCallCreateEventHub: {
 //			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
@@ -590,8 +578,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}
-	
-	this_thread->issueSignalAfterSyscall();
 }
 
 } // namespace thor

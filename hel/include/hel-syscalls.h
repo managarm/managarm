@@ -179,17 +179,6 @@ DEFINE_SYSCALL(GetClock, uint64_t *counter)
 	OUT(0, uint64_t, counter)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateSignal, void *entry, HelHandle *handle)
-	IN(0, entry);
-	DO_SYSCALL(CreateSignal)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(RaiseSignal, HelHandle handle)
-	IN(0, handle);
-	DO_SYSCALL(RaiseSignal)
-END_SYSCALL()
-
 DEFINE_SYSCALL(CreateEventHub, HelHandle *handle)
 	DO_SYSCALL(CreateEventHub)
 	OUT(0, HelHandle, handle)

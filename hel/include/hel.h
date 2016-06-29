@@ -38,10 +38,6 @@ enum {
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
 
-	kHelCallCreateSignal = 38,
-	kHelCallRaiseSignal = 39,
-	kHelCallReturnFromSignal = 40,
-	
 	kHelCallCreateEventHub = 13,
 	kHelCallWaitForEvents = 45,
 	
@@ -227,10 +223,6 @@ HEL_C_LINKAGE HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 HEL_C_LINKAGE HelError helExitThisThread();
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
-
-HEL_C_LINKAGE HelError helCreateSignal(void *entry, HelHandle *handle);
-HEL_C_LINKAGE HelError helRaiseSignal(HelHandle handle);
-HEL_C_LINKAGE HelError helReturnFromSignal();
 
 HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);
 HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
