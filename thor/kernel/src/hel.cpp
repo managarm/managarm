@@ -46,7 +46,7 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 HelError helCloseDescriptor(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
+
 	Universe::Guard universe_guard(&universe->lock);
 	if(!universe->detachDescriptor(universe_guard, handle))
 		return kHelErrNoDescriptor;

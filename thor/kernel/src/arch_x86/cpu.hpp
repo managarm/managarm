@@ -156,6 +156,7 @@ private:
 		Word r12;
 		Word r13;
 		Word r14;
+		Word r15;
 		Word rbp;
 		Word rsp;
 		Word rip;

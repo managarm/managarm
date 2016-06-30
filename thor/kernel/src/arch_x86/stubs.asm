@@ -186,16 +186,17 @@ syscallStub:
 	# rsp still contains the user-space stack pointer
 	# temporarily save it and switch to kernel-stack
 	swapgs
-	mov %rsp, %r15
+	mov %rsp, %rbx
 	mov %gs:.L_gsActiveExecutor, %rsp
 	mov .L_executorKernelStack(%rsp), %rsp
 
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 
 	push %rcx
-	push %r15
+	push %rbx
 
 	push %rbp
+	push %r15
 	push %r14
 	push %r13
 	push %r12
@@ -230,14 +231,15 @@ syscallStub:
 	pop %r12
 	pop %r13
 	pop %r14
+	pop %r15
 	pop %rbp
 	
 	# prepare rcx and r11 for sysret
-	pop %r15
+	pop %rbx
 	pop %rcx
 	pop %r11
 
-	mov %r15, %rsp
+	mov %rbx, %rsp
 	# TODO: is this necessary? should r11 not already have the flag set?
 	#or $.L_kRflagsIf, %r11 # enable interrupts
 	swapgs
