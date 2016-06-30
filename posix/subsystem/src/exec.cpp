@@ -283,31 +283,41 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 
 	constexpr size_t stack_size = 0x10000;
 	
+	// allocate memory for the stack and map it into the remote space
 	HelHandle stack_memory;
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, process->vmSpace, nullptr,
 			0, stack_size, kHelMapReadWrite, &stack_base));
+	
+	// map the stack into this process and set it up
+	void *stack_window;
+	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr,
+			0, stack_size, kHelMapReadWrite, &stack_window));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
-	assert(!"Fix exec()");
+	size_t p = stack_size;
+	auto pushWord = [&] (uint64_t value) {
+		p -= sizeof(uint64_t);
+		memcpy((char *)stack_window + p, &value, sizeof(uint64_t));
+	};
 
-/*	HelThreadState state;
-	memset(&state, 0, sizeof(HelThreadState));
-	state.rip = interpreterEntry;
-	state.rsp = (uintptr_t)stack_base + stack_size;
-	state.rdi = phdrPointer;
-	state.rsi = phdrEntrySize;
-	state.rdx = phdrCount;
-	state.rcx = programEntry;
-	
+	pushWord(phdrPointer);
+	pushWord(phdrEntrySize);
+	pushWord(phdrCount);
+	pushWord(programEntry);
+
+	HEL_CHECK(helUnmapMemory(kHelNullHandle, stack_window, stack_size));
+
+	// finally create a new thread to run the executable
 	helx::Directory directory = Process::runServer(process);
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
-			&state, kHelThreadNewUniverse | kHelThreadNewGroup, &thread));
-	HEL_CHECK(helCloseDescriptor(thread));*/
+			kHelAbiSystemV, (void *)interpreterEntry, (char *)stack_base + p,
+			kHelThreadNewUniverse, &thread));
+	HEL_CHECK(helCloseDescriptor(thread));
 }
 
 void execute(frigg::SharedPtr<Process> process, frigg::String<Allocator> path) {
