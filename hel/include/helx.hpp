@@ -21,7 +21,7 @@ inline void panic(const char *string) {
 
 typedef void (*LoadMemoryFunction) (void *, HelError, uintptr_t, size_t);
 typedef void (*LockMemoryFunction) (void *, HelError);
-typedef void (*JoinFunction) (void *, HelError);
+typedef void (*ObserveFunction) (void *, HelError);
 typedef void (*SendStringFunction) (void *, HelError);
 typedef void (*SendDescriptorFunction) (void *, HelError);
 typedef void (*RecvStringFunction) (void *, HelError, int64_t, int64_t, size_t);
@@ -99,8 +99,8 @@ public:
 				auto function = (LockMemoryFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error);
 			} break;
-			case kHelEventJoin: {
-				auto function = (JoinFunction)evt.submitFunction;
+			case kHelEventObserve: {
+				auto function = (ObserveFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error);
 			} break;
 			case kHelEventSendString: {

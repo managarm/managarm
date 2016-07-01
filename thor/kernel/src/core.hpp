@@ -124,8 +124,8 @@ struct BaseRequest {
 
 #include "descriptor.hpp"
 #include "usermem.hpp"
-#include "thread.hpp"
 #include "event.hpp"
+#include "thread.hpp"
 #include "ring-buffer.hpp"
 #include "ipc.hpp"
 #include "rd.hpp"

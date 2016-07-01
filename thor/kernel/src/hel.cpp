@@ -383,9 +383,10 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 	while(!memory->waitQueue.empty()) {
 		KernelSharedPtr<Thread> waiting = memory->waitQueue.removeFront();
 
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, waiting);
-		schedule_guard.unlock();
+		{
+			ScheduleGuard schedule_guard(scheduleLock.get());
+			enqueueInSchedule(schedule_guard, waiting);
+		}
 	}
 	
 	return kHelErrNone;
@@ -510,9 +511,10 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	
 	activeList->addBack(new_thread);
 
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, new_thread);
-	schedule_guard.unlock();
+	{
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, new_thread);
+	}
 
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -538,7 +540,7 @@ HelError helYield() {
 	return kHelErrNone;
 }
 
-HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
+HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -547,6 +549,7 @@ HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
+
 		auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
 		if(!thread_wrapper)
 			return kHelErrNoDescriptor;
@@ -561,12 +564,43 @@ HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
+	
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+	
+	auto request = frigg::makeShared<AsyncObserve>(*kernelAlloc,
+			frigg::move(data));
+	{
+		// TODO: protect the thread with a lock!
+		thread->submitObserve(frigg::move(request));
+	}
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+	return kHelErrNone;
+}
 
-	thread->submitJoin(frigg::move(event_hub), submit_info);
+HelError helResume(HelHandle handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	*async_id = submit_info.asyncId;
+	frigg::SharedPtr<Thread> thread;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}	
+	
+	thread->resume();
+
+	{
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, thread);
+	}
+
 	return kHelErrNone;
 }
 
@@ -652,7 +686,7 @@ HelError helWaitForEvents(HelHandle handle,
 		switch(event.type) {
 		case kEventMemoryLoad: type = kHelEventLoadMemory; break;
 		case kEventMemoryLock: type = kHelEventLockMemory; break;
-		case kEventJoin: type = kHelEventJoin; break;
+		case kEventObserve: type = kHelEventObserve; break;
 		case kEventSendString: type = kHelEventSendString; break;
 		case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
 		case kEventRecvString: type = kHelEventRecvString; break;

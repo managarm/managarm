@@ -30,16 +30,25 @@ public:
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
 
-	void submitJoin(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+	void transitionToFault();
+	void resume();
+
+	void submitObserve(KernelSharedPtr<AsyncObserve> observe);
 
 	const uint64_t globalThreadId;
 	
 	uint32_t flags;
 
 private:
-	struct JoinRequest : public BaseRequest {
-		JoinRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
+	enum RunState {
+		kRunNone,
+		kRunActive,
+		kRunSaved,
+		kRunFaulted,
+		kRunInterrupted
 	};
+
+	RunState _runState;
 
 	KernelSharedPtr<Universe> p_universe;
 	KernelSharedPtr<AddressSpace> p_addressSpace;
@@ -48,7 +57,10 @@ private:
 	KernelSharedPtr<Thread> p_nextInQueue;
 	KernelUnsafePtr<Thread> p_previousInQueue;
 
-	frigg::LinkedList<JoinRequest, KernelAlloc> p_joined;
+	frigg::IntrusiveSharedLinkedList<
+		AsyncObserve,
+		&AsyncObserve::processQueueItem
+	> _observeQueue;
 };
 
 class ThreadQueue {

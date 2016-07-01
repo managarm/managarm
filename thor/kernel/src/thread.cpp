@@ -14,15 +14,15 @@ Thread::Thread(KernelSharedPtr<Universe> &&universe,
 		KernelSharedPtr<AddressSpace> &&address_space,
 		KernelSharedPtr<RdFolder> &&directory)
 : globalThreadId(nextGlobalThreadId++), flags(0),
-		p_universe(universe), p_addressSpace(address_space), p_directory(directory),
-		p_joined(*kernelAlloc) {
+		_runState(kRunActive), // FIXME: do not use the active run state here
+		p_universe(universe), p_addressSpace(address_space), p_directory(directory) {
 //	infoLogger->log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
 }
 
 Thread::~Thread() {
-	while(!p_joined.empty()) {
+	while(!_observeQueue.empty()) {
 		assert(!"Fix join");
-/*		JoinRequest request = p_joined.removeFront();
+/*		JoinRequest request = _observeQueue.removeFront();
 
 		UserEvent event(UserEvent::kTypeJoin, request.submitInfo);
 		EventHub::Guard hub_guard(&request.eventHub->lock);
@@ -41,18 +41,24 @@ KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
 }
 
-void Thread::submitJoin(KernelSharedPtr<EventHub> event_hub,
-		SubmitInfo submit_info) {
-	p_joined.addBack(JoinRequest(frigg::move(event_hub), submit_info));
+void Thread::transitionToFault() {
+	assert(_runState == kRunActive);
+	_runState = kRunFaulted;
+
+	while(!_observeQueue.empty()) {
+		frigg::SharedPtr<AsyncObserve> observe = _observeQueue.removeFront();
+		AsyncOperation::complete(frigg::move(observe));
+	}
 }
 
-// --------------------------------------------------------
-// Thread::JoinRequest
-// --------------------------------------------------------
+void Thread::resume() {
+	assert(_runState == kRunFaulted);
+	_runState = kRunActive;
+}
 
-Thread::JoinRequest::JoinRequest(KernelSharedPtr<EventHub> event_hub,
-		SubmitInfo submit_info)
-: BaseRequest(frigg::move(event_hub), submit_info) { }
+void Thread::submitObserve(KernelSharedPtr<AsyncObserve> observe) {
+	_observeQueue.addBack(frigg::move(observe));
+}
 
 // --------------------------------------------------------
 // ThreadQueue

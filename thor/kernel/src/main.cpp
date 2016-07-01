@@ -270,6 +270,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 		frigg::infoLogger.log() << "traps-are-fatal thread killed by " << name << " fault.\n"
 				<< "Last ip: " << (void *)*image.ip() << frigg::EndLog();
 	}else{
+		this_thread->transitionToFault();
 		saveExecutorFromFault(image);
 	}
 
@@ -399,11 +400,14 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallYield: {
 		*image.error() = helYield();
 	} break;
-	case kHelCallSubmitJoin: {
+	case kHelCallSubmitObserve: {
 		int64_t async_id;
-		*image.error() = helSubmitJoin((HelHandle)arg0, (HelHandle)arg1,
+		*image.error() = helSubmitObserve((HelHandle)arg0, (HelHandle)arg1,
 				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
 		*image.out0() = async_id;
+	} break;
+	case kHelCallResume: {
+		*image.error() = helResume((HelHandle)arg0);
 	} break;
 	case kHelCallExitThisThread: {
 		*image.error() = helExitThisThread();

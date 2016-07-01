@@ -317,7 +317,20 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
 			kHelAbiSystemV, (void *)interpreterEntry, (char *)stack_base + p,
 			kHelThreadNewUniverse, &thread));
-	HEL_CHECK(helCloseDescriptor(thread));
+	//HEL_CHECK(helCloseDescriptor(thread));
+
+	auto action = frigg::await<void(HelError)>([=] (auto callback) {
+		int64_t async_id;
+		HEL_CHECK(helSubmitObserve(thread, eventHub.getHandle(),
+				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
+				&async_id));
+	})
+	+ frigg::apply([=](HelError error) {
+		frigg::infoLogger.log() << "Observe triggered" << frigg::EndLog();
+		HEL_CHECK(helResume(thread));
+	});
+
+	frigg::run(frigg::move(action), allocator.get());
 }
 
 void execute(frigg::SharedPtr<Process> process, frigg::String<Allocator> path) {

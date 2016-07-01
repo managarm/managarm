@@ -5,7 +5,7 @@ enum EventType {
 	kEventNone,
 	kEventMemoryLoad,
 	kEventMemoryLock,
-	kEventJoin,
+	kEventObserve,
 	kEventSendString,
 	kEventSendDescriptor,
 	kEventRecvString,
@@ -52,6 +52,15 @@ struct AsyncOperation {
 	SubmitInfo submitInfo;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
+};
+
+struct AsyncObserve : public AsyncOperation {
+	AsyncObserve(AsyncData data)
+	: AsyncOperation(frigg::move(data)) { }
+	
+	AsyncEvent getEvent() override;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncObserve> processQueueItem;
 };
 
 struct AsyncSendString : public AsyncOperation {

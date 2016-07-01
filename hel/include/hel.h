@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 60,
+	kHelNumCalls = 62,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -33,7 +33,8 @@ enum {
 	
 	kHelCallCreateThread = 59,
 	kHelCallYield = 34,
-	kHelCallSubmitJoin = 37,
+	kHelCallSubmitObserve = 60,
+	kHelCallResume = 61,
 	kHelCallExitThisThread = 5,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
@@ -108,7 +109,7 @@ enum {
 enum {
 	kHelEventLoadMemory = 7,
 	kHelEventLockMemory = 8,
-	kHelEventJoin = 6,
+	kHelEventObserve = 12,
 	kHelEventSendString = 11,
 	kHelEventSendDescriptor = 10,
 	kHelEventRecvString = 1,
@@ -128,7 +129,7 @@ struct HelEvent {
 	size_t length;
 	HelHandle handle;
 
-	// used by lHelEventLoadMemory
+	// used by kHelEventLoadMemory
 	size_t offset;
 
 	int64_t asyncId;
@@ -219,8 +220,9 @@ HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
 		HelHandle directory, HelAbi abi, void *ip, void *sp,
 		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
-HEL_C_LINKAGE HelError helSubmitJoin(HelHandle handle, HelHandle hub_handle,
+HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
+HEL_C_LINKAGE HelError helResume(HelHandle handle);
 HEL_C_LINKAGE HelError helExitThisThread();
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
