@@ -90,9 +90,9 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	CpuContext *cpu_context = getCpuContext();
 	executor->tss.ist1 = (Word)cpu_context->irqStack.base();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, PlatformCpuContext::kSegTask,
 			&executor->tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" ( 0x30 ) );
+	asm volatile ( "ltr %w0" : : "r" (PlatformCpuContext::kSegTask << 3) );
 
 	// finally update the active executor register.
 	// we do this after setting up the address space and TSS
@@ -103,6 +103,26 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 
 frigg::UnsafePtr<Thread> activeExecutor() {
 	return frigg::staticPtrCast<Thread>(getCpuContext()->activeExecutor);
+}
+
+// --------------------------------------------------------
+// PlatformCpuContext
+// --------------------------------------------------------
+
+PlatformCpuContext::PlatformCpuContext() {
+	// setup the gdt
+	// note: the tss requires two slots in the gdt
+	frigg::arch_x86::makeGdtNullSegment(gdt, kSegNull);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegSystemGeneralCode);
+	frigg::arch_x86::makeGdtTss64Descriptor(gdt, kSegTask, nullptr, 0);
+	
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegSystemIrqCode);
+
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegExecutorKernelCode);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment(gdt, kSegExecutorKernelData);
+	frigg::arch_x86::makeGdtNullSegment(gdt, kSegExecutorUserCompat);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kSegExecutorUserData);
+	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kSegExecutorUserCode);
 }
 
 // --------------------------------------------------------
@@ -145,31 +165,20 @@ void initializeThisProcessor() {
 	AssemblyCpuContext *asm_context = cpu_context;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)asm_context);
 
-	// setup the gdt
-	// note: the tss requires two slots in the gdt
-	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 0);
-	// the layout of the next two kernel descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtCode64SystemSegment(cpu_context->gdt, 1);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(cpu_context->gdt, 2);
-	// the layout of the next three user-space descriptors is forced by the use of sysret
-	frigg::arch_x86::makeGdtNullSegment(cpu_context->gdt, 3);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(cpu_context->gdt, 4);
-	frigg::arch_x86::makeGdtCode64UserSegment(cpu_context->gdt, 5);
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, 6, nullptr, 0);
-
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 8 * 8;
+	gdtr.limit = 10 * 8;
 	gdtr.pointer = cpu_context->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
-	asm volatile ( "pushq $0x8\n"
+	asm volatile ( "pushq %0\n"
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
-			".L_reloadCs:" );
+			".L_reloadCs:" : : "i" (PlatformCpuContext::kSegSystemGeneralCode << 3) );
 
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
 	switchExecutor(cpu_context->idleThread);
+	infoLogger->log() << "we got here" << frigg::EndLog();
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
@@ -206,8 +215,10 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLstar, (uintptr_t)&syscallStub);
 	// user mode cs = 0x18, kernel mode cs = 0x08
 	// set user mode rpl bits to work around a qemu bug
+	uint64_t user_selector = (PlatformCpuContext::kSegExecutorUserCompat << 3) | 3;
+	uint64_t supervisor_selector = PlatformCpuContext::kSegExecutorKernelCode << 3;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
-			(uint64_t(0x1B) << 48) | (uint64_t(0x08) << 32));
+			(user_selector << 48) | (supervisor_selector << 32));
 	// mask interrupt and trap flag
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
 

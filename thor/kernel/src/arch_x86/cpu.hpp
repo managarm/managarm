@@ -341,7 +341,29 @@ struct AssemblyCpuContext {
 };
 
 struct PlatformCpuContext : public AssemblyCpuContext {
-	uint32_t gdt[8 * 2];
+	enum {
+		kSegNull = 0,
+
+		kSegSystemGeneralCode = 1,
+		
+		// note that the TSS consumes two entries in the GDT.
+		// we put it into the second GDT entry so that it is properly aligned.
+		kSegTask = 2,
+
+		kSegSystemIrqCode = 3,
+
+		// the order of the following segments should not change
+		// because syscall/sysret demands this layout
+		kSegExecutorKernelCode = 4,
+		kSegExecutorKernelData = 5,
+		kSegExecutorUserCompat = 6,
+		kSegExecutorUserData = 7,
+		kSegExecutorUserCode = 8
+	};
+
+	PlatformCpuContext();
+
+	uint32_t gdt[10 * 2];
 	uint32_t idt[256 * 4];
 	UniqueKernelStack irqStack;
 	UniqueKernelStack systemStack;

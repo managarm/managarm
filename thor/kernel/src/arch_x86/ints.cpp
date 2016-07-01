@@ -100,52 +100,36 @@ void initializeProcessorEarly() {
 }
 
 void setupIdt(uint32_t *table) {
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
-			0x8, (void *)&faultStubDivideByZero, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 0);
-	frigg::arch_x86::makeIdt64IntUserGate(table, 3, 0x8, (void *)&faultStubBreakpoint, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
-			0x8, (void *)&faultStubOpcode, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 7, 0x8, (void *)&faultStubNoFpu, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 8,
-			0x8, (void *)&faultStubDouble, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 13,
-			0x8, (void *)&faultStubProtection, 0);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 14,
-			0x8, (void *)&faultStubPage, 0);
+	using frigg::arch_x86::makeIdt64IntSystemGate;
+	using frigg::arch_x86::makeIdt64IntUserGate;
+	
+	int fault_selector = PlatformCpuContext::kSegExecutorKernelCode << 3;
+	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
+	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
+	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
+	makeIdt64IntSystemGate(table, 6, fault_selector, (void *)&faultStubOpcode, 0);
+	makeIdt64IntSystemGate(table, 7, fault_selector, (void *)&faultStubNoFpu, 0);
+	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 0);
+	makeIdt64IntSystemGate(table, 13, fault_selector, (void *)&faultStubProtection, 0);
+	makeIdt64IntSystemGate(table, 14, fault_selector, (void *)&faultStubPage, 0);
 
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 64,
-			0x8, (void *)&thorRtIsrIrq0, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 65,
-			0x8, (void *)&thorRtIsrIrq1, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 66,
-			0x8, (void *)&thorRtIsrIrq2, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 67,
-			0x8, (void *)&thorRtIsrIrq3, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 68,
-			0x8, (void *)&thorRtIsrIrq4, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 69,
-			0x8, (void *)&thorRtIsrIrq5, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 70,
-			0x8, (void *)&thorRtIsrIrq6, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 71,
-			0x8, (void *)&thorRtIsrIrq7, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 72,
-			0x8, (void *)&thorRtIsrIrq8, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 73,
-			0x8, (void *)&thorRtIsrIrq9, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 74,
-			0x8, (void *)&thorRtIsrIrq10, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 75,
-			0x8, (void *)&thorRtIsrIrq11, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 76,
-			0x8, (void *)&thorRtIsrIrq12, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 77,
-			0x8, (void *)&thorRtIsrIrq13, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 78,
-			0x8, (void *)&thorRtIsrIrq14, 1);
-	frigg::arch_x86::makeIdt64IntSystemGate(table, 79,
-			0x8, (void *)&thorRtIsrIrq15, 1);
+	int irq_selector = PlatformCpuContext::kSegSystemIrqCode << 3;
+	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);
+	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 1);
+	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 1);
+	makeIdt64IntSystemGate(table, 67, irq_selector, (void *)&thorRtIsrIrq3, 1);
+	makeIdt64IntSystemGate(table, 68, irq_selector, (void *)&thorRtIsrIrq4, 1);
+	makeIdt64IntSystemGate(table, 69, irq_selector, (void *)&thorRtIsrIrq5, 1);
+	makeIdt64IntSystemGate(table, 70, irq_selector, (void *)&thorRtIsrIrq6, 1);
+	makeIdt64IntSystemGate(table, 71, irq_selector, (void *)&thorRtIsrIrq7, 1);
+	makeIdt64IntSystemGate(table, 72, irq_selector, (void *)&thorRtIsrIrq8, 1);
+	makeIdt64IntSystemGate(table, 73, irq_selector, (void *)&thorRtIsrIrq9, 1);
+	makeIdt64IntSystemGate(table, 74, irq_selector, (void *)&thorRtIsrIrq10, 1);
+	makeIdt64IntSystemGate(table, 75, irq_selector, (void *)&thorRtIsrIrq11, 1);
+	makeIdt64IntSystemGate(table, 76, irq_selector, (void *)&thorRtIsrIrq12, 1);
+	makeIdt64IntSystemGate(table, 77, irq_selector, (void *)&thorRtIsrIrq13, 1);
+	makeIdt64IntSystemGate(table, 78, irq_selector, (void *)&thorRtIsrIrq14, 1);
+	makeIdt64IntSystemGate(table, 79, irq_selector, (void *)&thorRtIsrIrq15, 1);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
@@ -171,7 +155,9 @@ enum Domain {
 
 Domain determineDomain(uintptr_t cs) {
 	switch(cs) {
-	case 0x2B:
+	case PlatformCpuContext::kSegExecutorKernelCode << 3:
+		return kDomExecutorKernel;
+	case (PlatformCpuContext::kSegExecutorUserCode << 3) | 3:
 		return kDomClientUser;
 	default:
 		frigg::panicLogger.log() << "Unexpected CS segment" << frigg::EndLog();

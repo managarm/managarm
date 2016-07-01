@@ -34,10 +34,10 @@
 .set .L_imageFxSave, 0xB0
 
 # GDT selectors for various descriptors
-.set .L_kernelCodeSelector, 0x8
-.set .L_kernelDataSelector, 0x10
-.set .L_userCode64Selector, 0x2B
-.set .L_userDataSelector, 0x23
+.set .L_kernelCodeSelector, (4 << 3)
+.set .L_kernelDataSelector, (5 << 3)
+.set .L_userDataSelector, (7 << 3) | 3
+.set .L_userCode64Selector, (8 << 3) | 3
 
 .set .L_msrIndexFsBase, 0xC0000100
 .set .L_msrIndexGsBase, 0xC0000101
