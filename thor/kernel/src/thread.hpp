@@ -35,8 +35,6 @@ public:
 
 	void submitObserve(KernelSharedPtr<AsyncObserve> observe);
 
-	const uint64_t globalThreadId;
-	
 	uint32_t flags;
 
 private:
