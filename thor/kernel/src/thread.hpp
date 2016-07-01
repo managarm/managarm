@@ -1,6 +1,11 @@
 
 namespace thor {
 
+enum Fault {
+	kFaultNone,
+	kFaultBreakpoint
+};
+
 class Thread : public PlatformExecutor {
 friend class ThreadQueue;
 public:
@@ -10,7 +15,10 @@ public:
 
 		// thread is not enqueued in the scheduling queue
 		// e.g. this is set for the per-cpu idle threads
-		kFlagNotScheduled = 2
+		kFlagNotScheduled = 2,
+
+		// traps kill the process instead of just halting it
+		kFlagTrapsAreFatal = 4
 	};
 
 	Thread(KernelSharedPtr<Universe> &&universe,

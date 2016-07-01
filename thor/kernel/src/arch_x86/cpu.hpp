@@ -45,6 +45,8 @@ private:
 };
 
 struct FaultImageAccessor {
+	friend void saveExecutorFromFault(FaultImageAccessor accessor);
+
 	Word *ip() { return &_frame()->rip; }
 
 	Word *cs() { return &_frame()->cs; }
@@ -171,6 +173,8 @@ private:
 };
 
 struct UniqueExecutorImage {
+	friend void saveExecutorFromFault(FaultImageAccessor accessor);
+
 	static size_t determineSize();
 
 	static UniqueExecutorImage make();
@@ -230,8 +234,8 @@ private:
 		// 1 = thread saved in kernel mode
 		uint8_t kernel;		// offset 0x90
 		uint8_t padding[7];
-		Word fsBase;		// offset 0x98
-		Word gsBase;		// offset 0xA0
+		Word clientFs;		// offset 0x98
+		Word clientGs;		// offset 0xA0
 		Word padding2;
 	};
 	static_assert(sizeof(General) == 0xB0, "Bad sizeof(General)");
@@ -293,7 +297,7 @@ private:
 	char *_pointer;
 };
 
-void saveExecutorFromIrq(IrqImageAccessor base);
+void saveExecutorFromFault(FaultImageAccessor accessor);
 
 // copies the current state into the executor and continues normal control flow.
 // returns 1 when the state is saved and 0 when it is restored.

@@ -11,6 +11,7 @@ extern "C" void earlyStubPage();
 
 extern "C" void faultStubDivideByZero();
 extern "C" void faultStubDebug();
+extern "C" void faultStubBreakpoint();
 extern "C" void faultStubOpcode();
 extern "C" void faultStubNoFpu();
 extern "C" void faultStubDouble();
@@ -102,6 +103,7 @@ void setupIdt(uint32_t *table) {
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 0,
 			0x8, (void *)&faultStubDivideByZero, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 1, 0x8, (void *)&faultStubDebug, 0);
+	frigg::arch_x86::makeIdt64IntUserGate(table, 3, 0x8, (void *)&faultStubBreakpoint, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 6,
 			0x8, (void *)&faultStubOpcode, 0);
 	frigg::arch_x86::makeIdt64IntSystemGate(table, 7, 0x8, (void *)&faultStubNoFpu, 0);
@@ -173,6 +175,7 @@ Domain determineDomain(uintptr_t cs) {
 		return kDomClientUser;
 	default:
 		frigg::panicLogger.log() << "Unexpected CS segment" << frigg::EndLog();
+		__builtin_unreachable();
 	}
 }
 
@@ -181,6 +184,7 @@ bool inStub(uintptr_t ip) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address);
+void handleOtherFault(FaultImageAccessor image, Fault fault);
 void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
@@ -193,6 +197,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		asm volatile ( "swapgs" : : : "memory" );
 
 	switch(number) {
+	case 3: {
+		handleOtherFault(image, kFaultBreakpoint);
+	} break;
 	case 14: {
 		uintptr_t address;
 		asm volatile ( "mov %%cr2, %0" : "=r" (address) );

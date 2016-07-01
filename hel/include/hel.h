@@ -169,7 +169,8 @@ enum HelMapFlags {
 
 enum HelThreadFlags {
 	kHelThreadNewUniverse = 1,
-	kHelThreadExclusive = 2
+	kHelThreadExclusive = 2,
+	kHelThreadTrapsAreFatal = 8
 };
 
 enum HelMessageFlags {
@@ -308,6 +309,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Success";
 	case kHelErrIllegalSyscall:
 		return "Illegal syscall";
+	case kHelErrIllegalArgs:
+		return "Illegal arguments";
 	case kHelErrNoDescriptor:
 		return "No such descriptor";
 	case kHelErrBadDescriptor:

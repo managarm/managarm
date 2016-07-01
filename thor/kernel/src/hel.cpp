@@ -457,7 +457,10 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
-	
+
+	if(flags & ~(kHelThreadNewUniverse | kHelThreadExclusive | kHelThreadTrapsAreFatal))
+		return kHelErrIllegalArgs;
+
 	frigg::SharedPtr<AddressSpace> space;
 	frigg::SharedPtr<RdFolder> directory;
 	{
@@ -496,8 +499,10 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(space), frigg::move(directory));
-	if((flags & kHelThreadExclusive) != 0)
+	if(flags & kHelThreadExclusive)
 		new_thread->flags |= Thread::kFlagExclusive;
+	if(flags & kHelThreadTrapsAreFatal)
+		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 	
 	*new_thread->image.ip() = (Word)ip;
 	*new_thread->image.sp() = (Word)sp;

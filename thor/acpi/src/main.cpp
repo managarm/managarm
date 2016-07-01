@@ -349,6 +349,7 @@ int main() {
 
 asm ( ".global _start\n"
 		"_start:\n"
+		"\tint3\n"
 		"\tcall main\n"
 		"\tud2" );
 
