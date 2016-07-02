@@ -91,8 +91,8 @@ void acpicaCheckFailed(const char *expr, const char *file, int line) {
 #define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
 		acpicaCheckFailed(#expr, __FILE__, __LINE__); } } while(0)
 
-/*void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
-		std::vector<ACPI_HANDLE> &results) {
+void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
+		frigg::Vector<ACPI_HANDLE, Allocator> &results) {
 	ACPI_HANDLE previous = nullptr;
 	while(true) {
 		ACPI_HANDLE child;
@@ -101,7 +101,7 @@ void acpicaCheckFailed(const char *expr, const char *file, int line) {
 			break;
 		ACPICA_CHECK(status);
 		
-		results.push_back(child);
+		results.push(child);
 		previous = child;
 	}
 }
@@ -116,74 +116,77 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	buffer.Length = 5;
 	ACPICA_CHECK(AcpiGetName(object, ACPI_SINGLE_NAME, &buffer));
 	
+	auto log_type = frigg::infoLogger.log();
 	for(int i = 0; i < depth; i++)
-		printf("    ");
+		log_type << "    ";
 	if(type == ACPI_TYPE_DEVICE) {
-		printf("Device: ");
+		log_type << "Device: ";
 	}else if(type == ACPI_TYPE_PROCESSOR) {
-		printf("Processor: ");
+		log_type << "Processor: ";
 	}else if(type == ACPI_TYPE_MUTEX) {
-		printf("Mutex: ");
+		log_type << "Mutex: ";
 	}else if(type == ACPI_TYPE_LOCAL_SCOPE) {
-		printf("Scope: ");
+		log_type << "Scope: ";
 	}else{
-		printf("(Unknown type 0x%X): ", type);
+		log_type << "(Unknown type 0x" << frigg::logHex(type) << ") ";
 	}
-	printf("%s\n", segment);
+	log_type << (const char *)segment << frigg::EndLog();
 	
-	std::vector<ACPI_HANDLE> methods;
+	frigg::Vector<ACPI_HANDLE, Allocator> methods(*allocator);
 	findChildrenByType(object, ACPI_TYPE_METHOD, methods);
 	if(!methods.empty()) {
+		auto log_methods = frigg::infoLogger.log();
 		for(int i = 0; i < depth; i++)
-			printf("    ");
-		printf("    Methods: ");
-		for(auto it = methods.begin(); it != methods.end(); ++it) {
+			log_methods << "    ";
+		log_methods << "    Methods: ";
+		for(size_t i = 0; i < methods.size(); i++) {
 			char method_name[5];
 			ACPI_BUFFER method_buffer;
 			method_buffer.Pointer = method_name;
 			method_buffer.Length = 5;
-			ACPICA_CHECK(AcpiGetName(*it, ACPI_SINGLE_NAME, &method_buffer));
+			ACPICA_CHECK(AcpiGetName(methods[i], ACPI_SINGLE_NAME, &method_buffer));
 
-			printf(" %s", method_name);
+			log_methods << (const char *)method_name << " ";
 		}
-		printf("\n");
+		log_methods << frigg::EndLog();
 	}
 	
-	std::vector<ACPI_HANDLE> literals;
+	frigg::Vector<ACPI_HANDLE, Allocator> literals(*allocator);
 	findChildrenByType(object, ACPI_TYPE_INTEGER, literals);
 	findChildrenByType(object, ACPI_TYPE_STRING, literals);
 	findChildrenByType(object, ACPI_TYPE_BUFFER, literals);
 	findChildrenByType(object, ACPI_TYPE_PACKAGE, literals);
 	if(!literals.empty()) {
+		auto log_literals = frigg::infoLogger.log();
 		for(int i = 0; i < depth; i++)
-			printf("    ");
-		printf("    Literals: ");
-		for(auto it = literals.begin(); it != literals.end(); ++it) {
+			log_literals << "    ";
+		log_literals << "    Literals: ";
+		for(size_t i = 0; i < literals.size(); i++) {
 			char literal_name[5];
 			ACPI_BUFFER literal_buffer;
 			literal_buffer.Pointer = literal_name;
 			literal_buffer.Length = 5;
-			ACPICA_CHECK(AcpiGetName(*it, ACPI_SINGLE_NAME, &literal_buffer));
+			ACPICA_CHECK(AcpiGetName(literals[i], ACPI_SINGLE_NAME, &literal_buffer));
 
-			printf(" %s", literal_name);
+			log_literals << (const char *)literal_name << " ";
 		}
-		printf("\n");
+		log_literals << frigg::EndLog();
 	}
 
-	std::vector<ACPI_HANDLE> children;
+	frigg::Vector<ACPI_HANDLE, Allocator> children(*allocator);
 	findChildrenByType(object, ACPI_TYPE_ANY, children);
-	for(auto it = children.begin(); it != children.end(); ++it) {
+	for(size_t i = 0; i < children.size(); i++) {
 		ACPI_OBJECT_TYPE child_type;
-		ACPICA_CHECK(AcpiGetType(*it, &child_type));
+		ACPICA_CHECK(AcpiGetType(children[i], &child_type));
 		
 		if(child_type != ACPI_TYPE_METHOD
 				&& child_type != ACPI_TYPE_INTEGER
 				&& child_type != ACPI_TYPE_STRING
 				&& child_type != ACPI_TYPE_BUFFER
 				&& child_type != ACPI_TYPE_PACKAGE)
-			dumpNamespace(*it, depth + 1);
+			dumpNamespace(children[i], depth + 1);
 	}
-}*/
+}
 
 void pciDiscover(); // TODO: put this in a header file
 
@@ -317,7 +320,7 @@ int main() {
 	}
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	
-//	dumpNamespace(ACPI_ROOT_OBJECT, 0);
+	dumpNamespace(ACPI_ROOT_OBJECT, 0);
 
 	pciDiscover();
 
