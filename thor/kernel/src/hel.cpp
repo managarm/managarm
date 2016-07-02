@@ -791,15 +791,15 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	KernelSharedPtr<FullPipe> pipe;
-	KernelSharedPtr<Endpoint> end1, end2;
-	FullPipe::create(pipe, end1, end2);
+	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+	auto end0 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(0));
+	auto end1 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(1));
 
 	Universe::Guard universe_guard(&universe->lock);
 	*first_handle = universe->attachDescriptor(universe_guard,
-			EndpointDescriptor(frigg::move(end1)));
+			EndpointDescriptor(frigg::move(end0)));
 	*second_handle = universe->attachDescriptor(universe_guard,
-			EndpointDescriptor(frigg::move(end2)));
+			EndpointDescriptor(frigg::move(end1)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
@@ -821,7 +821,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	
 	// TODO: check userspace page access rights
 	
-	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	AnyDescriptor send_descriptor;
 	{
@@ -832,7 +832,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 			return kHelErrNoDescriptor;
 		if(!end_wrapper->is<EndpointDescriptor>())
 			return kHelErrBadDescriptor;
-		endpoint = end_wrapper->get<EndpointDescriptor>().endpoint;
+		channel = Endpoint::writeChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
 		
 		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
@@ -841,9 +841,6 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
-	
-	size_t write_index = endpoint->getWriteIndex();
-	Channel &channel = endpoint->getPipe()->getChannel(write_index);
 
 	uint32_t send_flags = 0;
 	if(flags & kHelRequest)
@@ -864,8 +861,8 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	
 	Error error;
 	{
-		Channel::Guard channel_guard(&channel.lock);
-		error = channel.sendString(channel_guard, frigg::move(send));
+		Channel::Guard channel_guard(&channel->lock);
+		error = channel->sendString(channel_guard, frigg::move(send));
 	}
 
 	if(error == kErrPipeClosed)
@@ -890,7 +887,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	
 	// TODO: check userspace page access rights
 	
-	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	AnyDescriptor send_descriptor;
 	{
@@ -901,7 +898,7 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 			return kHelErrNoDescriptor;
 		if(!end_wrapper->is<EndpointDescriptor>())
 			return kHelErrBadDescriptor;
-		endpoint = end_wrapper->get<EndpointDescriptor>().endpoint;
+		channel = Endpoint::writeChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
 		
 		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
@@ -916,9 +913,6 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 		send_descriptor = AnyDescriptor(*send_wrapper);
 	}
 	
-	size_t write_index = endpoint->getWriteIndex();
-	Channel &channel = endpoint->getPipe()->getChannel(write_index);
-
 	uint32_t send_flags = 0;
 	if(flags & kHelRequest)
 		send_flags |= Channel::kFlagRequest;
@@ -935,8 +929,8 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 
 	Error error;
 	{
-		Channel::Guard channel_guard(&channel.lock);
-		error = channel.sendDescriptor(channel_guard, frigg::move(send));
+		Channel::Guard channel_guard(&channel->lock);
+		error = channel->sendDescriptor(channel_guard, frigg::move(send));
 	}
 
 	if(error == kErrPipeClosed)
@@ -960,17 +954,17 @@ HelError helSubmitRecvString(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
-		auto endpoint_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!endpoint_wrapper)
+		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!end_wrapper)
 			return kHelErrNoDescriptor;
-		if(!endpoint_wrapper->is<EndpointDescriptor>())
+		if(!end_wrapper->is<EndpointDescriptor>())
 			return kHelErrBadDescriptor;
-		endpoint = endpoint_wrapper->get<EndpointDescriptor>().endpoint;
+		channel = Endpoint::readChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
 
 		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
@@ -979,9 +973,6 @@ HelError helSubmitRecvString(HelHandle handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
-
-	size_t read_index = endpoint->getReadIndex();
-	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
 	uint32_t recv_flags = 0;
 	if(flags & kHelRequest)
@@ -1000,9 +991,11 @@ HelError helSubmitRecvString(HelHandle handle,
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
 
-	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvString(channel_guard, frigg::move(recv));
-	channel_guard.unlock();
+	Error error;
+	{
+		Channel::Guard channel_guard(&channel->lock);
+		error = channel->submitRecvString(channel_guard, frigg::move(recv));
+	}
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
@@ -1025,11 +1018,18 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	frigg::SharedPtr<RingBuffer> ring;
 	{
 		Universe::Guard universe_guard(&universe->lock);
+
+		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!end_wrapper)
+			return kHelErrNoDescriptor;
+		if(!end_wrapper->is<EndpointDescriptor>())
+			return kHelErrBadDescriptor;
+		channel = Endpoint::readChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
 
 		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
@@ -1044,17 +1044,7 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 		if(!ring_wrapper->is<RingDescriptor>())
 			return kHelErrBadDescriptor;
 		ring = ring_wrapper->get<RingDescriptor>().ringBuffer;
-
-		auto endpoint_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!endpoint_wrapper)
-			return kHelErrNoDescriptor;
-		if(!endpoint_wrapper->is<EndpointDescriptor>())
-			return kHelErrBadDescriptor;
-		endpoint = endpoint_wrapper->get<EndpointDescriptor>().endpoint;
 	}
-
-	size_t read_index = endpoint->getReadIndex();
-	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
 	uint32_t recv_flags = 0;
 	if(flags & kHelRequest)
@@ -1069,10 +1059,12 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 			AsyncRecvString::kTypeToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
-	
-	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvString(channel_guard, frigg::move(recv));
-	channel_guard.unlock();
+
+	Error error;
+	{
+		Channel::Guard channel_guard(&channel->lock);
+		error = channel->submitRecvString(channel_guard, frigg::move(recv));
+	}
 
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
@@ -1095,17 +1087,17 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
-		auto wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!wrapper)
+		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!end_wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<EndpointDescriptor>())
+		if(!end_wrapper->is<EndpointDescriptor>())
 			return kHelErrBadDescriptor;
-		endpoint = wrapper->get<EndpointDescriptor>().endpoint;
+		channel = Endpoint::readChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
 
 		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
@@ -1114,9 +1106,6 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
-
-	size_t read_index = endpoint->getReadIndex();
-	Channel &channel = endpoint->getPipe()->getChannel(read_index);
 
 	uint32_t recv_flags = 0;
 	if(flags & kHelRequest)
@@ -1131,10 +1120,12 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 			universe.toWeak(), filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
-	Channel::Guard channel_guard(&channel.lock);
-	Error error = channel.submitRecvDescriptor(channel_guard, frigg::move(recv));
-	channel_guard.unlock();
-	
+	Error error;
+	{
+		Channel::Guard channel_guard(&channel->lock);
+		error = channel->submitRecvDescriptor(channel_guard, frigg::move(recv));
+	}
+
 	if(error == kErrPipeClosed)
 		return kHelErrPipeClosed;
 	

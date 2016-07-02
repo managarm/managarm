@@ -219,48 +219,6 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendDescriptor> sen
 }
 
 // --------------------------------------------------------
-// FullPipe
-// --------------------------------------------------------
-
-void FullPipe::create(KernelSharedPtr<FullPipe> &pipe,
-		KernelSharedPtr<Endpoint> &end1, KernelSharedPtr<Endpoint> &end2) {
-	pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
-	end1 = frigg::makeShared<Endpoint>(*kernelAlloc, pipe, 0, 1);
-	end2 = frigg::makeShared<Endpoint>(*kernelAlloc, pipe, 1, 0);
-}
-
-Channel &FullPipe::getChannel(size_t index) {
-	return p_channels[index];
-}
-
-// --------------------------------------------------------
-// Endpoint
-// --------------------------------------------------------
-
-Endpoint::Endpoint(KernelSharedPtr<FullPipe> pipe,
-		size_t read_index, size_t write_index)
-: p_pipe(pipe), p_readIndex(read_index), p_writeIndex(write_index) { }
-
-Endpoint::~Endpoint() {
-	for(size_t i = 0; i < 2; i++) {
-		Channel &channel = p_pipe->getChannel(i);
-		Channel::Guard guard(&channel.lock);
-		channel.close(guard);
-	}
-}
-
-KernelUnsafePtr<FullPipe> Endpoint::getPipe() {
-	return p_pipe;
-}
-
-size_t Endpoint::getReadIndex() {
-	return p_readIndex;
-}
-size_t Endpoint::getWriteIndex() {
-	return p_writeIndex;
-}
-
-// --------------------------------------------------------
 // Server
 // --------------------------------------------------------
 
@@ -288,16 +246,16 @@ void Server::submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request)
 
 void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 		frigg::SharedPtr<AsyncConnect> connect) {
-	KernelSharedPtr<FullPipe> pipe;
-	KernelSharedPtr<Endpoint> end1, end2;
-	FullPipe::create(pipe, end1, end2);
+	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+	auto end0 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(0));
+	auto end1 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(1));
 
 	frigg::SharedPtr<Universe> accept_universe = accept->universe.grab();
 	assert(accept_universe);
 	{
 		Universe::Guard universe_guard(&accept_universe->lock);
 		accept->handle = accept_universe->attachDescriptor(universe_guard,
-				EndpointDescriptor(frigg::move(end1)));
+				EndpointDescriptor(frigg::move(end0)));
 	}
 	
 	frigg::SharedPtr<Universe> connect_universe = connect->universe.grab();
@@ -305,7 +263,7 @@ void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 	{
 		Universe::Guard universe_guard(&connect_universe->lock);
 		connect->handle = connect_universe->attachDescriptor(universe_guard,
-				EndpointDescriptor(frigg::move(end2)));
+				EndpointDescriptor(frigg::move(end1)));
 	}
 
 	AsyncOperation::complete(frigg::move(accept));

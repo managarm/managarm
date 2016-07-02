@@ -59,33 +59,34 @@ private:
 	bool _wasClosed;
 };
 
-class Endpoint;
+struct Endpoint {
+	static frigg::SharedPtr<Channel> readChannel(frigg::SharedPtr<Endpoint> endpoint) {
+		return frigg::SharedPtr<Channel>(frigg::move(endpoint), endpoint->_read);
+	}
+	static frigg::SharedPtr<Channel> writeChannel(frigg::SharedPtr<Endpoint> endpoint) {
+		return frigg::SharedPtr<Channel>(frigg::move(endpoint), endpoint->_write);
+	}
+
+	Endpoint(Channel *read, Channel *write)
+	: _read(read), _write(write) { }
+
+private:
+	Channel *_read;
+	Channel *_write;
+};
 
 class FullPipe {
 public:
-	static void create(KernelSharedPtr<FullPipe> &pipe,
-			KernelSharedPtr<Endpoint> &end1, KernelSharedPtr<Endpoint> &end2);
+	FullPipe()
+	: _endpoints{ { &_channels[0], &_channels[1] }, { &_channels[1], &_channels[0] } } { }
 
-	Channel &getChannel(size_t index);
-
-private:
-	Channel p_channels[2];
-};
-
-class Endpoint {
-public:
-	Endpoint(KernelSharedPtr<FullPipe> pipe, size_t read_index, size_t write_index);
-	~Endpoint();
-
-	KernelUnsafePtr<FullPipe> getPipe();
-
-	size_t getReadIndex();
-	size_t getWriteIndex();
+	Endpoint &endpoint(int index) {
+		return _endpoints[index];
+	}
 
 private:
-	KernelSharedPtr<FullPipe> p_pipe;
-	size_t p_readIndex;
-	size_t p_writeIndex;
+	Channel _channels[2];
+	Endpoint _endpoints[2];
 };
 
 class Server {
