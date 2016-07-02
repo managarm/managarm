@@ -13,38 +13,7 @@ namespace frigg {
 // SharedPtr
 // --------------------------------------------------------
 
-template<typename T>
-class SharedPtr;
-
-template<typename T>
-class WeakPtr;
-
-template<typename T>
-class UnsafePtr;
-
 namespace _shared_ptr {
-	struct Control {
-		typedef void (*ControlFunction) (Control *);
-
-		Control(ControlFunction destruct_me, ControlFunction free_me)
-		: refCount(1), weakCount(1),
-				destructMe(destruct_me), freeMe(free_me) { }
-
-		Control(const Control &other) = delete;
-
-		Control &operator= (const Control &other) = delete;
-
-		~Control() {
-			assert(volatileRead<int>(&refCount) == 0);
-			assert(volatileRead<int>(&weakCount) == 0);
-		}
-
-		int refCount;
-		int weakCount;
-		ControlFunction destructMe;
-		ControlFunction freeMe;
-	};
-
 	template<typename T>
 	union Storage {
 		Storage() { }
@@ -68,21 +37,96 @@ namespace _shared_ptr {
 
 };
 
-template<typename T, typename Allocator>
-struct SharedStruct : public _shared_ptr::Control {
-	static void destructMe(_shared_ptr::Control *control) {
-		auto *self = reinterpret_cast<SharedStruct *>(control);
-		self->storage.destruct();
+struct SharedControl {
+	enum Action {
+		kCrtDestruct,
+		kCrtFree
+	};
+
+	typedef void (*ControlFunction) (SharedControl *, Action);
+
+	SharedControl(ControlFunction function, int ref_count = 1, int weak_count = 1)
+	: _refCount(1), _weakCount(1), function(function) { }
+
+	SharedControl(const SharedControl &other) = delete;
+
+	~SharedControl() {
+		assert(volatileRead<int>(&_refCount) == 0);
+		assert(volatileRead<int>(&_weakCount) == 0);
 	}
 
-	static void freeMe(_shared_ptr::Control *control) {
-		auto *self = reinterpret_cast<SharedStruct *>(control);
-		destruct(self->allocator, self);
+	SharedControl &operator= (const SharedControl &other) = delete;
+
+	// the following two operations are required for SharedPtrs
+	void increment() {
+		int previous_ref_count;
+		fetchInc(&_refCount, previous_ref_count);
+		assert(previous_ref_count > 0);
+	}
+
+	void decrement() {
+		int previous_ref_count;
+		fetchDec(&_refCount, previous_ref_count);
+		if(previous_ref_count == 1) {
+			decrementWeak();
+			function(this, kCrtDestruct);
+		}
+	}
+
+	// the following three operations are required fro WeakPtrs
+	void incrementWeak() {
+		int previous_weak_count;
+		fetchInc<int>(&_weakCount, previous_weak_count);
+		assert(previous_weak_count > 0);
+	}
+
+	void decrementWeak() {
+		int previous_weak_count;
+		fetchDec(&_weakCount, previous_weak_count);
+		assert(previous_weak_count > 0);
+		if(previous_weak_count == 1)
+			function(this, kCrtFree);
+	}
+
+	bool tryToIncrement() {
+		int last_count = volatileRead<int>(&_refCount);
+		while(last_count) {
+			if(compareSwap(&_refCount, last_count, last_count + 1, last_count))
+				return true;
+		}
+		return false;
+	}
+
+private:
+	int _refCount;
+	int _weakCount;
+	ControlFunction function;
+};
+
+template<typename T, typename C = SharedControl>
+class SharedPtr;
+
+template<typename T, typename C = SharedControl>
+class WeakPtr;
+
+template<typename T, typename C = SharedControl>
+class UnsafePtr;
+
+template<typename T, typename Allocator>
+struct SharedStruct : public SharedControl {
+	static void doControl(SharedControl *control, SharedControl::Action action) {
+		auto self = static_cast<SharedStruct *>(control);
+		if(action == SharedControl::kCrtDestruct) {
+			self->storage.destruct();
+		}else{
+			assert(action == SharedControl::kCrtFree);
+			destruct(self->allocator, self);
+		}
 	}
 
 	template<typename... Args>
 	SharedStruct(Allocator &allocator, Args &&... args)
-	: _shared_ptr::Control(&destructMe, &freeMe), allocator(allocator) {
+	: SharedControl(&doControl), allocator(allocator) {
 		storage.construct(forward<Args>(args)...);
 	}
 
@@ -99,13 +143,13 @@ static constexpr AdoptShared adoptShared;
 // Each of these structs consists of two pointers: the first one points
 // to a opaque control structure while the second one points to the actual object.
 
-template<typename T>
+template<typename T, typename C>
 class SharedPtr {
-	template<typename U>
+	template<typename U, typename D>
 	friend class SharedPtr;
 
-	friend class WeakPtr<T>;
-	friend class UnsafePtr<T>;
+	friend class WeakPtr<T, C>;
+	friend class UnsafePtr<T, C>;
 
 public:
 	friend void swap(SharedPtr &a, SharedPtr &b) {
@@ -120,17 +164,12 @@ public:
 	SharedPtr(AdoptShared, SharedStruct<T, Allocator> *block)
 	: _control(block), _object(&(*block->storage)) {
 		assert(block);
-		assert(_control->refCount == 1);
-		assert(_control->weakCount == 1);
 	}
 
 	SharedPtr(const SharedPtr &other)
 	: _control(other._control), _object(other._object) {
-		if(_control) {
-			int previous_ref_count;
-			fetchInc(&_control->refCount, previous_ref_count);
-			assert(previous_ref_count > 0);
-		}
+		if(_control)
+			_control->increment();
 	}
 
 	SharedPtr(SharedPtr &&other)
@@ -157,19 +196,8 @@ public:
 	}
 
 	~SharedPtr() {
-		if(_control) {
-			int previous_ref_count;
-			fetchDec(&_control->refCount, previous_ref_count);
-			if(previous_ref_count == 1) {
-				_control->destructMe(_control);
-
-				int previous_weak_count;
-				fetchDec(&_control->weakCount, previous_weak_count);
-				assert(previous_weak_count > 0);
-				if(previous_weak_count == 1)
-					_control->freeMe(_control);
-			}
-		}
+		if(_control)
+			_control->decrement();
 	}
 
 	SharedPtr &operator= (SharedPtr other) {
@@ -195,10 +223,10 @@ public:
 	}
 
 private:
-	SharedPtr(_shared_ptr::Control *control, T *object)
+	SharedPtr(C *control, T *object)
 	: _control(move(control)), _object(move(object)) { }
 
-	_shared_ptr::Control *_control;
+	C *_control;
 	T *_object;
 };
 	
@@ -208,9 +236,9 @@ SharedPtr<T> staticPtrCast(SharedPtr<U> pointer) {
 	return SharedPtr<T>(move(pointer), object);
 }
 
-template<typename T>
+template<typename T, typename C>
 class WeakPtr {
-	friend class UnsafePtr<T>;
+	friend class UnsafePtr<T, C>;
 public:
 	friend void swap(WeakPtr &a, WeakPtr &b) {
 		swap(a._control, b._control);
@@ -223,19 +251,13 @@ public:
 	WeakPtr(const SharedPtr<T> &shared)
 	: _control(shared._control), _object(shared._object) {
 		assert(_control);
-
-		int previous_weak_count;
-		fetchInc<int>(&_control->weakCount, previous_weak_count);
-		assert(previous_weak_count > 0);
+		_control->incrementWeak();
 	}
 
 	WeakPtr(const WeakPtr &other)
 	: _control(other._control), _object(other._object) {
-		if(_control) {
-			int previous_weak_count;
-			fetchInc(&_control->weakCount, previous_weak_count);
-			assert(previous_weak_count > 0);
-		}
+		if(_control)
+			_control->incrementWeak();
 	}
 
 	WeakPtr(WeakPtr &&other)
@@ -244,23 +266,15 @@ public:
 	}
 	
 	~WeakPtr() {
-		if(_control) {
-			int previous_weak_count;
-			fetchDec(&_control->weakCount, previous_weak_count);
-			assert(previous_weak_count > 0);
-			if(previous_weak_count == 1)
-				_control->freeMe(_control);
-		}
+		if(_control)
+			_control->decrementWeak();
 	}
 	
 	SharedPtr<T> grab() {
 		assert(_control);
 		
-		int last_count = volatileRead<int>(&_control->refCount);
-		while(last_count) {
-			if(compareSwap(&_control->refCount, last_count, last_count + 1, last_count))
+		if(_control->tryToIncrement())
 				return SharedPtr<T>(_control, _object);
-		}
 		return SharedPtr<T>();
 	}
 
@@ -274,16 +288,16 @@ public:
 	}
 
 private:
-	WeakPtr(_shared_ptr::Control *control, T *object)
+	WeakPtr(C *control, T *object)
 	: _control(move(control)), _object(move(object)) { }
 
-	_shared_ptr::Control *_control;
+	C *_control;
 	T *_object;
 };
 
-template<typename T>
+template<typename T, typename C>
 class UnsafePtr {
-	template<typename U>
+	template<typename U, typename D>
 	friend class UnsafePtr;
 
 public:
@@ -306,21 +320,13 @@ public:
 
 	SharedPtr<T> toShared() {
 		assert(_control);
-		
-		int previous_ref_count;
-		fetchInc<int>(&_control->refCount, previous_ref_count);
-		assert(previous_ref_count > 0);
-
+		_control->increment();
 		return SharedPtr<T>(_control, _object);
 	}
 
 	WeakPtr<T> toWeak() {
 		assert(_control);
-
-		int previous_weak_count;
-		fetchInc<int>(&_control->weakCount, previous_weak_count);
-		assert(previous_weak_count > 0);
-
+		_control->incrementWeak();
 		return WeakPtr<T>(_control, _object);
 	}
 
@@ -342,7 +348,7 @@ public:
 	}
 
 private:
-	_shared_ptr::Control *_control;
+	C *_control;
 	T *_object;
 };
 	
