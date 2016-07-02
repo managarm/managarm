@@ -17,12 +17,12 @@ AsyncEvent AsyncObserve::getEvent() {
 }
 AsyncEvent AsyncSendString::getEvent() {
 	AsyncEvent event(kEventSendString, submitInfo);
-	event.error = kErrSuccess;
+	event.error = error;
 	return event;
 }
 AsyncEvent AsyncSendDescriptor::getEvent() {
 	AsyncEvent event(kEventSendDescriptor, submitInfo);
-	event.error = kErrSuccess;
+	event.error = error;
 	return event;
 }
 AsyncEvent AsyncRecvString::getEvent() {
@@ -47,7 +47,7 @@ AsyncEvent AsyncRecvString::getEvent() {
 }
 AsyncEvent AsyncRecvDescriptor::getEvent() {
 	AsyncEvent event(kEventRecvDescriptor, submitInfo);
-	event.error = kErrSuccess;
+	event.error = error;
 	event.msgRequest = msgRequest;
 	event.msgSequence = msgSequence;
 	event.handle = handle;

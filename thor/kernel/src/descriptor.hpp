@@ -6,17 +6,17 @@ namespace thor {
 // --------------------------------------------------------
 
 struct MemoryAccessDescriptor {
-	MemoryAccessDescriptor(KernelSharedPtr<Memory> memory)
+	MemoryAccessDescriptor(frigg::SharedPtr<Memory> memory)
 	: memory(frigg::move(memory)) { }
 
-	KernelSharedPtr<Memory> memory;
+	frigg::SharedPtr<Memory> memory;
 };
 
 struct AddressSpaceDescriptor {
-	AddressSpaceDescriptor(KernelSharedPtr<AddressSpace> space)
+	AddressSpaceDescriptor(frigg::SharedPtr<AddressSpace> space)
 	: space(frigg::move(space)) { }
 
-	KernelSharedPtr<AddressSpace> space;
+	frigg::SharedPtr<AddressSpace> space;
 };
 
 // --------------------------------------------------------
@@ -24,17 +24,17 @@ struct AddressSpaceDescriptor {
 // --------------------------------------------------------
 
 struct ThreadDescriptor {
-	ThreadDescriptor(KernelSharedPtr<Thread> thread)
+	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
 	: thread(frigg::move(thread)) { }
 	
-	KernelSharedPtr<Thread> thread;
+	frigg::SharedPtr<Thread> thread;
 };
 
 struct SignalDescriptor {
-	SignalDescriptor(KernelSharedPtr<Signal> signal)
+	SignalDescriptor(frigg::SharedPtr<Signal> signal)
 	: signal(frigg::move(signal)) { }
 	
-	KernelSharedPtr<Signal> signal;
+	frigg::SharedPtr<Signal> signal;
 };
 
 // --------------------------------------------------------
@@ -42,10 +42,10 @@ struct SignalDescriptor {
 // --------------------------------------------------------
 
 struct EventHubDescriptor {
-	EventHubDescriptor(KernelSharedPtr<EventHub> event_hub)
+	EventHubDescriptor(frigg::SharedPtr<EventHub> event_hub)
 	: eventHub(frigg::move(event_hub)) { }
 
-	KernelSharedPtr<EventHub> eventHub;
+	frigg::SharedPtr<EventHub> eventHub;
 };
 
 // --------------------------------------------------------
@@ -53,31 +53,31 @@ struct EventHubDescriptor {
 // --------------------------------------------------------
 
 struct RingDescriptor {
-	RingDescriptor(KernelSharedPtr<RingBuffer> ring_buffer)
+	RingDescriptor(frigg::SharedPtr<RingBuffer> ring_buffer)
 	: ringBuffer(frigg::move(ring_buffer)) { }
 	
-	KernelSharedPtr<RingBuffer> ringBuffer;
+	frigg::SharedPtr<RingBuffer> ringBuffer;
 };
 
 struct EndpointDescriptor {
-	EndpointDescriptor(KernelSharedPtr<Endpoint> endpoint)
+	EndpointDescriptor(frigg::SharedPtr<Endpoint, EndpointControl> endpoint)
 	: endpoint(frigg::move(endpoint)) { }
 	
-	KernelSharedPtr<Endpoint> endpoint;
+	frigg::SharedPtr<Endpoint, EndpointControl> endpoint;
 };
 
 struct ServerDescriptor {
-	ServerDescriptor(KernelSharedPtr<Server> server)
+	ServerDescriptor(frigg::SharedPtr<Server> server)
 	: server(frigg::move(server)) { }
 	
-	KernelSharedPtr<Server> server;
+	frigg::SharedPtr<Server> server;
 };
 
 struct ClientDescriptor {
-	ClientDescriptor(KernelSharedPtr<Server> server)
+	ClientDescriptor(frigg::SharedPtr<Server> server)
 	: server(frigg::move(server)) { }
 	
-	KernelSharedPtr<Server> server;
+	frigg::SharedPtr<Server> server;
 };
 
 // --------------------------------------------------------
@@ -85,12 +85,12 @@ struct ClientDescriptor {
 // --------------------------------------------------------
 
 struct RdDescriptor {
-	RdDescriptor(KernelSharedPtr<RdFolder> &&folder);
+	RdDescriptor(frigg::SharedPtr<RdFolder> &&folder);
 	
 	KernelUnsafePtr<RdFolder> getFolder();
 
 private:
-	KernelSharedPtr<RdFolder> p_folder;
+	frigg::SharedPtr<RdFolder> p_folder;
 };
 
 // --------------------------------------------------------
@@ -98,17 +98,17 @@ private:
 // --------------------------------------------------------
 
 struct IrqDescriptor {
-	IrqDescriptor(KernelSharedPtr<IrqLine> irq_line)
+	IrqDescriptor(frigg::SharedPtr<IrqLine> irq_line)
 	: irqLine(frigg::move(irq_line)) { }
 	
-	KernelSharedPtr<IrqLine> irqLine;
+	frigg::SharedPtr<IrqLine> irqLine;
 };
 
 struct IoDescriptor {
-	IoDescriptor(KernelSharedPtr<IoSpace> io_space)
+	IoDescriptor(frigg::SharedPtr<IoSpace> io_space)
 	: ioSpace(frigg::move(io_space)) { }
 	
-	KernelSharedPtr<IoSpace> ioSpace;
+	frigg::SharedPtr<IoSpace> ioSpace;
 };
 
 // --------------------------------------------------------

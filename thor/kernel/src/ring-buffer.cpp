@@ -34,6 +34,8 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 				send->kernelBuffer.size());
 		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 
+		send->error = kErrSuccess;
+
 		recv->error = kErrSuccess;
 		recv->msgRequest = send->msgRequest;
 		recv->msgSequence = send->msgSequence;

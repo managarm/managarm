@@ -76,6 +76,8 @@ struct AsyncSendString : public AsyncOperation {
 	uint32_t flags;
 
 	frigg::IntrusiveSharedLinkedItem<AsyncSendString> processQueueItem;
+	
+	Error error;
 };
 
 struct AsyncSendDescriptor : public AsyncOperation {
@@ -89,9 +91,10 @@ struct AsyncSendDescriptor : public AsyncOperation {
 	int64_t msgRequest;
 	int64_t msgSequence;
 	uint32_t flags;
-	
 
 	frigg::IntrusiveSharedLinkedItem<AsyncSendDescriptor> processQueueItem;
+	
+	Error error;
 };
 
 struct AsyncRecvString : public AsyncOperation {
@@ -142,6 +145,7 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncRecvDescriptor> processQueueItem;
 
+	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
 	Handle handle;

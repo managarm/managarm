@@ -8,12 +8,18 @@ namespace thor {
 // --------------------------------------------------------
 
 Channel::Channel()
-: _wasClosed(false) { }
+: _readEndpointClosed(false), _writeEndpointClosed(false) { }
+
+Channel::~Channel() {
+	assert(_readEndpointClosed);
+	assert(_writeEndpointClosed);
+}
 
 Error Channel::sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send) {
 	assert(guard.protects(&lock));
 
-	if(_wasClosed)
+	assert(!_writeEndpointClosed);
+	if(_writeEndpointClosed)
 		return kErrPipeClosed;
 
 	bool queue_message = true;
@@ -37,7 +43,8 @@ Error Channel::sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send) 
 Error Channel::sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendDescriptor> send) {
 	assert(guard.protects(&lock));
 
-	if(_wasClosed)
+	assert(!_writeEndpointClosed);
+	if(_writeEndpointClosed)
 		return kErrPipeClosed;
 
 	for(auto it = _recvDescriptorQueue.frontIter(); it; ++it) {
@@ -56,7 +63,8 @@ Error Channel::sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendDescriptor
 Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv) {
 	assert(guard.protects(&lock));
 
-	if(_wasClosed)
+	assert(!_readEndpointClosed);
+	if(_writeEndpointClosed)
 		return kErrPipeClosed;
 
 	bool queue_request = true;
@@ -79,7 +87,8 @@ Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> 
 Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvDescriptor> recv) {
 	assert(guard.protects(&lock));
 
-	if(_wasClosed)
+	assert(!_readEndpointClosed);
+	if(_writeEndpointClosed)
 		return kErrPipeClosed;
 
 	for(auto it = _sendDescriptorQueue.frontIter(); it; ++it) {
@@ -95,31 +104,40 @@ Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvDesc
 	return kErrSuccess;
 }
 
-void Channel::close(Guard &guard) {
-	// TODO: just cancel all requests
-	assert(_sendStringQueue.empty());
-	assert(_sendDescriptorQueue.empty());
-	if(!_recvStringQueue.empty())
-		infoLogger->log() << "Fix Channel::close()" << frigg::EndLog();
-	assert(_recvDescriptorQueue.empty());
+void Channel::closeReadEndpoint(Guard &guard) {
+	assert(guard.protects(&lock));
+	assert(!_readEndpointClosed);
+	_readEndpointClosed = true;
+	
+	while(!_sendStringQueue.empty()) {
+		frigg::SharedPtr<AsyncSendString> send = _sendStringQueue.removeFront();
+		send->error = kErrPipeClosed;
+		AsyncOperation::complete(frigg::move(send));
+	}
+	
+	while(!_sendDescriptorQueue.empty()) {
+		frigg::SharedPtr<AsyncSendDescriptor> send = _sendDescriptorQueue.removeFront();
+		send->error = kErrPipeClosed;
+		AsyncOperation::complete(frigg::move(send));
+	}
+}
 
-/*	while(!_sendQueue.empty())
-		_sendQueue.removeFront();
-
-	while(!_recvQueue.empty()) {
-		frigg::SharedPtr<AsyncRecvString> recv = _recvQueue.removeFront();
-
-		UserEvent event(UserEvent::kTypeError, recv->submitInfo);
-		event.error = kErrPipeClosed;
-
-		frigg::SharedPtr<EventHub> event_hub = recv->eventHub.grab();
-		assert(event_hub);
-		EventHub::Guard hub_guard(&event_hub->lock);
-		event_hub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();
-	}*/
-
-	_wasClosed = true;
+void Channel::closeWriteEndpoint(Guard &guard) {
+	assert(guard.protects(&lock));
+	assert(!_writeEndpointClosed);
+	_writeEndpointClosed = true;
+	
+	while(!_recvStringQueue.empty()) {
+		frigg::SharedPtr<AsyncRecvString> send = _recvStringQueue.removeFront();
+		send->error = kErrPipeClosed;
+		AsyncOperation::complete(frigg::move(send));
+	}
+	
+	while(!_recvDescriptorQueue.empty()) {
+		frigg::SharedPtr<AsyncRecvDescriptor> send = _recvDescriptorQueue.removeFront();
+		send->error = kErrPipeClosed;
+		AsyncOperation::complete(frigg::move(send));
+	}
 }
 
 bool Channel::matchStringRequest(frigg::UnsafePtr<AsyncSendString> send,
@@ -165,6 +183,8 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 			// perform the actual data transfer
 			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 			
+			send->error = kErrSuccess;
+
 			recv->error = kErrSuccess;
 			recv->msgRequest = send->msgRequest;
 			recv->msgSequence = send->msgSequence;
@@ -210,6 +230,9 @@ void Channel::processDescriptorRequest(frigg::SharedPtr<AsyncSendDescriptor> sen
 				frigg::move(send->descriptor));
 	}
 
+	send->error = kErrSuccess;
+
+	recv->error = kErrSuccess;
 	recv->msgRequest = send->msgRequest;
 	recv->msgSequence = send->msgSequence;
 	recv->handle = handle;
@@ -247,8 +270,12 @@ void Server::submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request)
 void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 		frigg::SharedPtr<AsyncConnect> connect) {
 	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
-	auto end0 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(0));
-	auto end1 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(1));
+	pipe.control().increment();
+	pipe.control().increment();
+	frigg::SharedPtr<Endpoint, EndpointControl> end0(frigg::adoptShared, &pipe->endpoint(0),
+			EndpointControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointControl> end1(frigg::adoptShared, &pipe->endpoint(1),
+			EndpointControl(&pipe->endpoint(1), pipe.control().counter()));
 
 	frigg::SharedPtr<Universe> accept_universe = accept->universe.grab();
 	assert(accept_universe);

@@ -120,6 +120,29 @@ struct BaseRequest {
 	SubmitInfo submitInfo;
 };
 
+struct EndpointControl {
+	EndpointControl()
+	: _counter(nullptr) { }
+
+	EndpointControl(Endpoint *endpoint, frigg::SharedCounter *counter)
+	: _endpoint(endpoint), _counter(counter) { }
+
+	explicit operator bool () {
+		return _counter;
+	}
+
+	operator frigg::SharedControl () const {
+		return frigg::SharedControl(_counter);
+	}
+
+	void increment();
+	void decrement();
+
+private:
+	Endpoint *_endpoint;
+	frigg::SharedCounter *_counter;
+};
+
 } // namespace thor
 
 #include "descriptor.hpp"

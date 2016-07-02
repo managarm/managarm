@@ -13,6 +13,7 @@ public:
 	typedef frigg::LockGuard<Lock> Guard;
 
 	Channel();
+	~Channel();
 
 	Error sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send);
 	Error sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendDescriptor> send);
@@ -20,7 +21,8 @@ public:
 	Error submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> recv);
 	Error submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvDescriptor> recv);
 	
-	void close(Guard &guard);
+	void closeReadEndpoint(Guard &guard);
+	void closeWriteEndpoint(Guard &guard);
 
 	Lock lock;
 
@@ -56,10 +58,13 @@ private:
 		&AsyncRecvDescriptor::processQueueItem
 	> _recvDescriptorQueue;
 
-	bool _wasClosed;
+	bool _readEndpointClosed;
+	bool _writeEndpointClosed;
 };
 
 struct Endpoint {
+	friend class EndpointControl;
+
 	static frigg::SharedPtr<Channel> readChannel(frigg::SharedPtr<Endpoint> endpoint) {
 		return frigg::SharedPtr<Channel>(frigg::move(endpoint), endpoint->_read);
 	}
@@ -68,11 +73,12 @@ struct Endpoint {
 	}
 
 	Endpoint(Channel *read, Channel *write)
-	: _read(read), _write(write) { }
+	: _read(read), _write(write), _rwCount(1) { }
 
 private:
 	Channel *_read;
 	Channel *_write;
+	int _rwCount;
 };
 
 class FullPipe {

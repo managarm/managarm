@@ -37,25 +37,25 @@ namespace _shared_ptr {
 
 };
 
-struct SharedControl {
+struct SharedCounter {
 	enum Action {
 		kCrtDestruct,
 		kCrtFree
 	};
 
-	typedef void (*ControlFunction) (SharedControl *, Action);
+	typedef void (*ControlFunction) (SharedCounter *, Action);
 
-	SharedControl(ControlFunction function, int ref_count = 1, int weak_count = 1)
+	SharedCounter(ControlFunction function, int ref_count = 1, int weak_count = 1)
 	: _refCount(1), _weakCount(1), function(function) { }
 
-	SharedControl(const SharedControl &other) = delete;
+	SharedCounter(const SharedCounter &other) = delete;
 
-	~SharedControl() {
+	~SharedCounter() {
 		assert(volatileRead<int>(&_refCount) == 0);
 		assert(volatileRead<int>(&_weakCount) == 0);
 	}
 
-	SharedControl &operator= (const SharedControl &other) = delete;
+	SharedCounter &operator= (const SharedCounter &other) = delete;
 
 	// the following two operations are required for SharedPtrs
 	void increment() {
@@ -103,35 +103,64 @@ private:
 	ControlFunction function;
 };
 
-template<typename T, typename C = SharedControl>
+struct SharedControl {
+	SharedControl()
+	: _counter(nullptr) { }
+
+	SharedControl(SharedCounter *counter)
+	: _counter(counter) { }
+
+	explicit operator bool() const {
+		return _counter;
+	}
+
+	SharedCounter *counter() { return _counter; }
+
+	void increment() { _counter->increment(); }
+	void decrement() { _counter->decrement(); }
+	
+	void incrementWeak() { _counter->incrementWeak(); }
+	void decrementWeak() { _counter->decrementWeak(); }
+	bool tryToIncrement() { return _counter->tryToIncrement(); }
+
+private:
+	SharedCounter *_counter;
+};
+
+template<typename T, typename Control = SharedControl>
 class SharedPtr;
 
-template<typename T, typename C = SharedControl>
+template<typename T, typename Control = SharedControl>
 class WeakPtr;
 
-template<typename T, typename C = SharedControl>
+template<typename T, typename Control = SharedControl>
 class UnsafePtr;
 
 template<typename T, typename Allocator>
-struct SharedStruct : public SharedControl {
-	static void doControl(SharedControl *control, SharedControl::Action action) {
-		auto self = static_cast<SharedStruct *>(control);
-		if(action == SharedControl::kCrtDestruct) {
-			self->storage.destruct();
+struct SharedBlock : public SharedCounter {
+	static void doControl(SharedCounter *counter, SharedCounter::Action action) {
+		auto self = static_cast<SharedBlock *>(counter);
+		if(action == SharedCounter::kCrtDestruct) {
+			self->_storage.destruct();
 		}else{
-			assert(action == SharedControl::kCrtFree);
-			destruct(self->allocator, self);
+			assert(action == SharedCounter::kCrtFree);
+			destruct(self->_allocator, self);
 		}
 	}
 
 	template<typename... Args>
-	SharedStruct(Allocator &allocator, Args &&... args)
-	: SharedControl(&doControl), allocator(allocator) {
-		storage.construct(forward<Args>(args)...);
+	SharedBlock(Allocator &allocator, Args &&... args)
+	: SharedCounter(&doControl), _allocator(allocator) {
+		_storage.construct(forward<Args>(args)...);
 	}
 
-	_shared_ptr::Storage<T> storage;
-	Allocator &allocator;
+	T *get() {
+		return &(*_storage);
+	}
+
+private:
+	_shared_ptr::Storage<T> _storage;
+	Allocator &_allocator;
 };
 
 struct AdoptShared { };
@@ -143,13 +172,13 @@ static constexpr AdoptShared adoptShared;
 // Each of these structs consists of two pointers: the first one points
 // to a opaque control structure while the second one points to the actual object.
 
-template<typename T, typename C>
+template<typename T, typename Control>
 class SharedPtr {
 	template<typename U, typename D>
 	friend class SharedPtr;
 
-	friend class WeakPtr<T, C>;
-	friend class UnsafePtr<T, C>;
+	friend class WeakPtr<T, Control>;
+	friend class UnsafePtr<T, Control>;
 
 public:
 	friend void swap(SharedPtr &a, SharedPtr &b) {
@@ -158,18 +187,23 @@ public:
 	}
 
 	SharedPtr()
-	: _control(nullptr), _object(nullptr) { }
+	: _object(nullptr) { }
 	
 	template<typename Allocator>
-	SharedPtr(AdoptShared, SharedStruct<T, Allocator> *block)
-	: _control(block), _object(&(*block->storage)) {
-		assert(block);
+	SharedPtr(AdoptShared, SharedBlock<T, Allocator> *block)
+	: _control(block), _object(block->get()) {
+		assert(_control);
+	}
+	
+	SharedPtr(AdoptShared, T *object, Control control)
+	: _control(control), _object(object) {
+		assert(_control);
 	}
 
 	SharedPtr(const SharedPtr &other)
 	: _control(other._control), _object(other._object) {
 		if(_control)
-			_control->increment();
+			_control.increment();
 	}
 
 	SharedPtr(SharedPtr &&other)
@@ -178,26 +212,33 @@ public:
 	}
 	
 	template<typename U>
-	SharedPtr(SharedPtr<U> pointer, T *alias)
+	SharedPtr(SharedPtr<U, Control> pointer, T *alias)
 	: _control(pointer._control), _object(alias) {
 		// manually empty the argument pointer so that
 		// its destructor does not decrement the reference count
-		pointer._control = nullptr;
+		pointer._control = Control();
 		pointer._object = nullptr;
 	}
 	
 	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
-	SharedPtr(SharedPtr<U> pointer)
+	SharedPtr(SharedPtr<U, Control> pointer)
 	: _control(pointer._control), _object(pointer._object) {
 		// manually empty the argument pointer so that
 		// its destructor does not decrement the reference count
-		pointer._control = nullptr;
+		pointer._control = Control();
 		pointer._object = nullptr;
+	}
+	
+	template<typename D>
+	SharedPtr(const SharedPtr<T, D> &other)
+	: _control(other._control), _object(other._object) {
+		if(_control)
+			_control.increment();
 	}
 
 	~SharedPtr() {
 		if(_control)
-			_control->decrement();
+			_control.decrement();
 	}
 
 	SharedPtr &operator= (SharedPtr other) {
@@ -206,6 +247,10 @@ public:
 	}
 
 	explicit operator bool () {
+		return (bool)_control;
+	}
+
+	Control control() {
 		return _control;
 	}
 
@@ -223,10 +268,10 @@ public:
 	}
 
 private:
-	SharedPtr(C *control, T *object)
-	: _control(move(control)), _object(move(object)) { }
+	SharedPtr(Control control, T *object)
+	: _control(control), _object(object) { }
 
-	C *_control;
+	Control _control;
 	T *_object;
 };
 	
@@ -236,9 +281,9 @@ SharedPtr<T> staticPtrCast(SharedPtr<U> pointer) {
 	return SharedPtr<T>(move(pointer), object);
 }
 
-template<typename T, typename C>
+template<typename T, typename Control>
 class WeakPtr {
-	friend class UnsafePtr<T, C>;
+	friend class UnsafePtr<T, Control>;
 public:
 	friend void swap(WeakPtr &a, WeakPtr &b) {
 		swap(a._control, b._control);
@@ -248,16 +293,16 @@ public:
 	WeakPtr()
 	: _control(nullptr), _object(nullptr) { }
 	
-	WeakPtr(const SharedPtr<T> &shared)
+	WeakPtr(const SharedPtr<T, Control> &shared)
 	: _control(shared._control), _object(shared._object) {
 		assert(_control);
-		_control->incrementWeak();
+		_control.incrementWeak();
 	}
 
 	WeakPtr(const WeakPtr &other)
 	: _control(other._control), _object(other._object) {
 		if(_control)
-			_control->incrementWeak();
+			_control.incrementWeak();
 	}
 
 	WeakPtr(WeakPtr &&other)
@@ -267,15 +312,15 @@ public:
 	
 	~WeakPtr() {
 		if(_control)
-			_control->decrementWeak();
+			_control.decrementWeak();
 	}
 	
-	SharedPtr<T> grab() {
+	SharedPtr<T, Control> grab() {
 		assert(_control);
 		
-		if(_control->tryToIncrement())
-				return SharedPtr<T>(_control, _object);
-		return SharedPtr<T>();
+		if(_control.tryToIncrement())
+				return SharedPtr<T, Control>(_control, _object);
+		return SharedPtr<T, Control>();
 	}
 
 	WeakPtr &operator= (WeakPtr other) {
@@ -284,18 +329,18 @@ public:
 	}
 
 	explicit operator bool () {
-		return _control;
+		return (bool)_control;
 	}
 
 private:
-	WeakPtr(C *control, T *object)
-	: _control(move(control)), _object(move(object)) { }
+	WeakPtr(Control control, T *object)
+	: _control(control), _object(object) { }
 
-	C *_control;
+	Control _control;
 	T *_object;
 };
 
-template<typename T, typename C>
+template<typename T, typename Control>
 class UnsafePtr {
 	template<typename U, typename D>
 	friend class UnsafePtr;
@@ -304,34 +349,34 @@ public:
 	UnsafePtr()
 	: _control(nullptr), _object(nullptr) { }
 	
-	UnsafePtr(const SharedPtr<T> &shared)
+	UnsafePtr(const SharedPtr<T, Control> &shared)
 	: _control(shared._control), _object(shared._object) { }
 	
-	UnsafePtr(const WeakPtr<T> &weak)
+	UnsafePtr(const WeakPtr<T, Control> &weak)
 	: _control(weak._control), _object(weak._object) { }
 
 	template<typename U>
-	UnsafePtr(UnsafePtr<U> pointer, T *object)
+	UnsafePtr(UnsafePtr<U, Control> pointer, T *object)
 	: _control(pointer._control), _object(object) { }
 	
 	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
-	UnsafePtr(UnsafePtr<U> pointer)
+	UnsafePtr(UnsafePtr<U, Control> pointer)
 	: _control(pointer._control), _object(pointer._object) { }
 
-	SharedPtr<T> toShared() {
+	SharedPtr<T, Control> toShared() {
 		assert(_control);
-		_control->increment();
-		return SharedPtr<T>(_control, _object);
+		_control.increment();
+		return SharedPtr<T, Control>(_control, _object);
 	}
 
-	WeakPtr<T> toWeak() {
+	WeakPtr<T, Control> toWeak() {
 		assert(_control);
-		_control->incrementWeak();
-		return WeakPtr<T>(_control, _object);
+		_control.incrementWeak();
+		return WeakPtr<T, Control>(_control, _object);
 	}
 
 	explicit operator bool () {
-		return _control;
+		return (bool)_control;
 	}
 
 	T &operator* () {
@@ -348,7 +393,7 @@ public:
 	}
 
 private:
-	C *_control;
+	Control _control;
 	T *_object;
 };
 	
@@ -360,7 +405,7 @@ UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T> makeShared(Allocator &allocator, Args &&... args) {
-	auto block = construct<SharedStruct<T, Allocator>>(allocator,
+	auto block = construct<SharedBlock<T, Allocator>>(allocator,
 			allocator, forward<Args>(args)...);
 	return SharedPtr<T>(adoptShared, block);
 

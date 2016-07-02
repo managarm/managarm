@@ -792,8 +792,12 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
-	auto end0 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(0));
-	auto end1 = frigg::SharedPtr<Endpoint>(pipe, &pipe->endpoint(1));
+	pipe.control().increment();
+	pipe.control().increment();
+	frigg::SharedPtr<Endpoint, EndpointControl> end0(frigg::adoptShared, &pipe->endpoint(0),
+			EndpointControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointControl> end1(frigg::adoptShared, &pipe->endpoint(1),
+			EndpointControl(&pipe->endpoint(1), pipe.control().counter()));
 
 	Universe::Guard universe_guard(&universe->lock);
 	*first_handle = universe->attachDescriptor(universe_guard,
