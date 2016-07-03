@@ -101,9 +101,9 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	CpuContext *cpu_context = getCpuContext();
 	executor->tss.ist1 = (Word)cpu_context->irqStack.base();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, PlatformCpuContext::kSegTask,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, kSegTask,
 			&executor->tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" (PlatformCpuContext::kSegTask << 3) );
+	asm volatile ( "ltr %w0" : : "r" (selectorFor(kSegTask, false)) );
 
 	// finally update the active executor register.
 	// we do this after setting up the address space and TSS
@@ -184,7 +184,7 @@ void initializeThisProcessor() {
 	asm volatile ( "pushq %0\n"
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
-			".L_reloadCs:" : : "i" (PlatformCpuContext::kSegSystemGeneralCode << 3) );
+			".L_reloadCs:" : : "i" (selectorFor(kSegSystemGeneralCode, false)) );
 
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
@@ -226,8 +226,8 @@ void initializeThisProcessor() {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLstar, (uintptr_t)&syscallStub);
 	// user mode cs = 0x18, kernel mode cs = 0x08
 	// set user mode rpl bits to work around a qemu bug
-	uint64_t user_selector = (PlatformCpuContext::kSegExecutorUserCompat << 3) | 3;
-	uint64_t supervisor_selector = PlatformCpuContext::kSegExecutorKernelCode << 3;
+	uint64_t user_selector = selectorFor(kSegExecutorUserCompat, true);
+	uint64_t supervisor_selector = selectorFor(kSegExecutorKernelCode, false);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
 			(user_selector << 48) | (supervisor_selector << 32));
 	// mask interrupt and trap flag

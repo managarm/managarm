@@ -507,7 +507,7 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	
 	*new_thread->image.ip() = (Word)ip;
 	*new_thread->image.sp() = (Word)sp;
-//	*new_thread->image.rflags() = 0x200;
+	*new_thread->image.rflags() = 0x200;
 	
 	// we increment the owning refcount here.
 	// it is decremented when the thread is killed.

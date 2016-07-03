@@ -103,7 +103,7 @@ void setupIdt(uint32_t *table) {
 	using frigg::arch_x86::makeIdt64IntSystemGate;
 	using frigg::arch_x86::makeIdt64IntUserGate;
 	
-	int fault_selector = PlatformCpuContext::kSegExecutorKernelCode << 3;
+	int fault_selector = selectorFor(kSegExecutorKernelCode, false);
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
@@ -113,7 +113,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 13, fault_selector, (void *)&faultStubProtection, 0);
 	makeIdt64IntSystemGate(table, 14, fault_selector, (void *)&faultStubPage, 0);
 
-	int irq_selector = PlatformCpuContext::kSegSystemIrqCode << 3;
+	int irq_selector = selectorFor(kSegSystemIrqCode, false);
 	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);
 	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 1);
 	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 1);
@@ -136,35 +136,6 @@ void setupIdt(uint32_t *table) {
 //			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
-enum Domain {
-	kDomNone,
-
-	// the system is not running an executor, e.g.
-	// we are processing an IRQ, NMI or MCE.
-	kDomSystem,
-
-	// the system is running an executor and we are in client code,
-	// either in user-mode or in supervisor code.
-	kDomClientUser,
-	kDomClientSupervisor,
-
-	// the system is running an executor in the kernel, e.g.
-	// we are processing a system call or exception.
-	kDomExecutorKernel
-};
-
-Domain determineDomain(uintptr_t cs) {
-	switch(cs) {
-	case PlatformCpuContext::kSegExecutorKernelCode << 3:
-		return kDomExecutorKernel;
-	case (PlatformCpuContext::kSegExecutorUserCode << 3) | 3:
-		return kDomClientUser;
-	default:
-		frigg::panicLogger.log() << "Unexpected CS segment" << frigg::EndLog();
-		__builtin_unreachable();
-	}
-}
-
 bool inStub(uintptr_t ip) {
 	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
 }
@@ -174,12 +145,13 @@ void handleOtherFault(FaultImageAccessor image, Fault fault);
 void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
-	Domain domain = determineDomain(*image.cs());
-	assert(domain == kDomClientUser || domain == kDomClientSupervisor
-			|| domain == kDomExecutorKernel);
 	assert(!inStub(*image.ip()));
 
-	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+	uint16_t client_cs = selectorFor(kSegExecutorUserCode, true);
+	uint16_t kernel_cs = selectorFor(kSegExecutorKernelCode, false);
+	assert(*image.cs() == client_cs || *image.cs() == kernel_cs);
+
+	if(*image.cs() == client_cs)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	switch(number) {
@@ -195,22 +167,23 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
 	}
 	
-	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+	if(*image.cs() == client_cs)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
-	Domain domain = determineDomain(*image.cs());
-	assert(domain == kDomClientUser || domain == kDomClientSupervisor
-			|| domain == kDomExecutorKernel);
 	assert(!inStub(*image.ip()));
 
-	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+	uint16_t client_cs = selectorFor(kSegExecutorUserCode, true);
+	uint16_t kernel_cs = selectorFor(kSegExecutorKernelCode, false);
+	assert(*image.cs() == client_cs || *image.cs() == kernel_cs);
+
+	if(*image.cs() == client_cs)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	handleIrq(image, number);
 	
-	if(domain == kDomClientUser || domain == kDomClientSupervisor)
+	if(*image.cs() == client_cs)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 

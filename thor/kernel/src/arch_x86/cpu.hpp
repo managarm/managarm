@@ -341,6 +341,30 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
 frigg::UnsafePtr<Thread> activeExecutor();
 
+enum {
+	kSegNull = 0,
+
+	kSegSystemGeneralCode = 1,
+	
+	// note that the TSS consumes two entries in the GDT.
+	// we put it into the second GDT entry so that it is properly aligned.
+	kSegTask = 2,
+
+	kSegSystemIrqCode = 4,
+
+	// the order of the following segments should not change
+	// because syscall/sysret demands this layout
+	kSegExecutorKernelCode = 5,
+	kSegExecutorKernelData = 6,
+	kSegExecutorUserCompat = 7,
+	kSegExecutorUserData = 8,
+	kSegExecutorUserCode = 9
+};
+
+inline uint16_t selectorFor(uint16_t segment, bool user) {
+	return (segment << 3) | (user ? 3 : 0);
+}
+
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyCpuContext {
@@ -348,26 +372,6 @@ struct AssemblyCpuContext {
 };
 
 struct PlatformCpuContext : public AssemblyCpuContext {
-	enum {
-		kSegNull = 0,
-
-		kSegSystemGeneralCode = 1,
-		
-		// note that the TSS consumes two entries in the GDT.
-		// we put it into the second GDT entry so that it is properly aligned.
-		kSegTask = 2,
-
-		kSegSystemIrqCode = 3,
-
-		// the order of the following segments should not change
-		// because syscall/sysret demands this layout
-		kSegExecutorKernelCode = 4,
-		kSegExecutorKernelData = 5,
-		kSegExecutorUserCompat = 6,
-		kSegExecutorUserData = 7,
-		kSegExecutorUserCode = 8
-	};
-
 	PlatformCpuContext();
 
 	uint32_t gdt[10 * 2];
