@@ -101,16 +101,16 @@ BaseRequest::BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_
 : eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
 
 // --------------------------------------------------------
-// EndpointControl
+// EndpointRwControl
 // --------------------------------------------------------
 		
-void EndpointControl::increment() {
+void EndpointRwControl::increment() {
 	int previous_ref_count;
 	frigg::fetchInc(&_endpoint->_rwCount, previous_ref_count);
 	assert(previous_ref_count > 0);
 }
 
-void EndpointControl::decrement() {
+void EndpointRwControl::decrement() {
 	int previous_ref_count;
 	frigg::fetchDec(&_endpoint->_rwCount, previous_ref_count);
 	if(previous_ref_count == 1) {

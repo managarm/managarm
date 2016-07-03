@@ -791,13 +791,15 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
+	// we increment the owning reference count twice here. it is decremented
+	// each time one of the EndpointRwControl references is decremented to zero.
 	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
 	pipe.control().increment();
 	pipe.control().increment();
-	frigg::SharedPtr<Endpoint, EndpointControl> end0(frigg::adoptShared, &pipe->endpoint(0),
-			EndpointControl(&pipe->endpoint(0), pipe.control().counter()));
-	frigg::SharedPtr<Endpoint, EndpointControl> end1(frigg::adoptShared, &pipe->endpoint(1),
-			EndpointControl(&pipe->endpoint(1), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> end0(frigg::adoptShared, &pipe->endpoint(0),
+			EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> end1(frigg::adoptShared, &pipe->endpoint(1),
+			EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
 
 	Universe::Guard universe_guard(&universe->lock);
 	*first_handle = universe->attachDescriptor(universe_guard,

@@ -60,10 +60,10 @@ struct RingDescriptor {
 };
 
 struct EndpointDescriptor {
-	EndpointDescriptor(frigg::SharedPtr<Endpoint, EndpointControl> endpoint)
+	EndpointDescriptor(frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
 	: endpoint(frigg::move(endpoint)) { }
 	
-	frigg::SharedPtr<Endpoint, EndpointControl> endpoint;
+	frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint;
 };
 
 struct ServerDescriptor {

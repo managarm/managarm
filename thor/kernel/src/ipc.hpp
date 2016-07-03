@@ -63,7 +63,7 @@ private:
 };
 
 struct Endpoint {
-	friend class EndpointControl;
+	friend class EndpointRwControl;
 
 	static frigg::SharedPtr<Channel> readChannel(frigg::SharedPtr<Endpoint> endpoint) {
 		return frigg::SharedPtr<Channel>(frigg::move(endpoint), endpoint->_read);

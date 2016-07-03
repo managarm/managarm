@@ -269,13 +269,15 @@ void Server::submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request)
 
 void Server::processRequests(frigg::SharedPtr<AsyncAccept> accept,
 		frigg::SharedPtr<AsyncConnect> connect) {
+	// we increment the owning reference count twice here. it is decremented
+	// each time one of the EndpointRwControl references is decremented to zero.
 	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
 	pipe.control().increment();
 	pipe.control().increment();
-	frigg::SharedPtr<Endpoint, EndpointControl> end0(frigg::adoptShared, &pipe->endpoint(0),
-			EndpointControl(&pipe->endpoint(0), pipe.control().counter()));
-	frigg::SharedPtr<Endpoint, EndpointControl> end1(frigg::adoptShared, &pipe->endpoint(1),
-			EndpointControl(&pipe->endpoint(1), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> end0(frigg::adoptShared, &pipe->endpoint(0),
+			EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> end1(frigg::adoptShared, &pipe->endpoint(1),
+			EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
 
 	frigg::SharedPtr<Universe> accept_universe = accept->universe.grab();
 	assert(accept_universe);

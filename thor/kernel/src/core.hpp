@@ -120,11 +120,11 @@ struct BaseRequest {
 	SubmitInfo submitInfo;
 };
 
-struct EndpointControl {
-	EndpointControl()
+struct EndpointRwControl {
+	EndpointRwControl()
 	: _counter(nullptr) { }
 
-	EndpointControl(Endpoint *endpoint, frigg::SharedCounter *counter)
+	EndpointRwControl(Endpoint *endpoint, frigg::SharedCounter *counter)
 	: _endpoint(endpoint), _counter(counter) { }
 
 	explicit operator bool () {
