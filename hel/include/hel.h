@@ -331,13 +331,18 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 	}
 }
 
-extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError err_code, const char *string) {
+extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError err_code,
+		const char *string, int fatal) {
 	helLog(string, strlen(string));
 
 	const char *err_string = _helErrorString(err_code);
 	if(err_string == 0)
 		err_string = "(Unexpected error code)";
-	helPanic(err_string, strlen(err_string));
+	helLog(err_string, strlen(err_string));
+	helLog("\n", 1);
+
+	if(fatal)
+		helPanic(0, 0);
 }
 
 #define HEL_STRINGIFY_AUX(x) #x
@@ -345,7 +350,10 @@ extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError er
 
 #define HEL_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
 		_helCheckFailed(_error, "HEL_CHECK failed: " #expr "\n" \
-		"In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n"); } while(0)
+		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 1); } while(0)
+#define HEL_SOFT_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
+		_helCheckFailed(_error, "HEL_SOFT_CHECK failed: " #expr "\n" \
+		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); } while(0)
 
 #endif // HEL_H
 
