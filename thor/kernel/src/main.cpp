@@ -599,12 +599,10 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	}
 
 	if(this_thread->pendingSignal() == Thread::kSigKill) {
-		runSystemFunction([=] () {
-			this_thread.control().decrement();
+		this_thread.control().decrement();
 
-			ScheduleGuard schedule_guard(scheduleLock.get());
-			doSchedule(frigg::move(schedule_guard));
-		});
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
 	}
 	assert(!this_thread->pendingSignal());
 }

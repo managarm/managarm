@@ -24,9 +24,8 @@ void doSchedule(ScheduleGuard &&guard) {
 		switchExecutor(thread);
 		restoreExecutor();
 	}else{
+		assert(!"Fix idle implementation");
 		guard.unlock();
-		switchExecutor(getCpuData()->idleThread);
-		restoreExecutor();
 	}
 }
 
@@ -48,15 +47,6 @@ void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
 	assert(guard.protects(scheduleLock.get()));
 
 	scheduleQueue->addBack(thread);
-}
-
-void idleRoutine() {
-	while(true) {
-		disableInts();
-		enableInts();
-		assert(intsAreEnabled());
-		halt();
-	}
 }
 
 } // namespace thor

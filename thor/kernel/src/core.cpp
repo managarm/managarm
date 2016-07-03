@@ -74,12 +74,6 @@ CpuData::CpuData() {
 			frigg::move(address_space), KernelSharedPtr<RdFolder>());
 	thread->flags |= Thread::kFlagNotScheduled;
 
-	// FIXME: do not heap-allocate the state structs
-	*thread->image.sp() = (uintptr_t)thread->kernelStack.base();
-	*thread->image.rflags() = 0x200; // enable interrupts
-	*thread->image.ip() = (Word)&idleRoutine;
-	*thread->image.kernel() = 1;
-
 	idleThread = frigg::move(thread);
 }
 

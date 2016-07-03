@@ -95,20 +95,24 @@ void PlatformExecutor::enableIoPort(uintptr_t port) {
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	assert(!intsAreEnabled());
 	
-	executor->getAddressSpace()->activate();
+	// this function might destroy the currrent thread and thus deallocate
+	// its kernel stack; make sure we're running from a per-cpu stack.
+	runDetached([&] () {
+		executor->getAddressSpace()->activate();
 
-	// setup the thread's tss segment
-	CpuData *cpu_data = getCpuData();
-	executor->tss.ist1 = (Word)cpu_data->irqStack.base();
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kSegTask,
-			&executor->tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" (selectorFor(kSegTask, false)) );
+		// setup the thread's tss segment
+		CpuData *cpu_data = getCpuData();
+		executor->tss.ist1 = (Word)cpu_data->irqStack.base();
+		
+		frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kSegTask,
+				&executor->tss, sizeof(frigg::arch_x86::Tss64));
+		asm volatile ( "ltr %w0" : : "r" (selectorFor(kSegTask, false)) );
 
-	// finally update the active executor register.
-	// we do this after setting up the address space and TSS
-	// so that these structures are always valid.
-	cpu_data->activeExecutor = executor;
+		// finally update the active executor register.
+		// we do this after setting up the address space and TSS
+		// so that these structures are always valid.
+		cpu_data->activeExecutor = executor;
+	});
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
@@ -149,16 +153,16 @@ CpuData *getCpuData() {
 	return static_cast<CpuData *>(cpu_data);
 }
 
-void doRunSystemFunction(void (*function) (void *), void *argument) {
+void doRunDetached(void (*function) (void *), void *argument) {
 	assert(!intsAreEnabled());
 
 	CpuData *cpu_data = getCpuData();
 	
-	uintptr_t stack_ptr = (uintptr_t)cpu_data->systemStack.base();
-	asm volatile ( "mov %2, %%rsp\n"
+	uintptr_t stack_ptr = (uintptr_t)cpu_data->detachedStack.base();
+	asm volatile ( "mov %%rsp, %%rbp\n"
+			"\tmov %2, %%rsp\n"
 			"\tcall *%1\n"
-			"\tud2\n" : : "D" (argument), "r" (function), "r" (stack_ptr) );
-	__builtin_unreachable();
+			"\tmov %%rbp, %%rsp" : : "D" (argument), "r" (function), "r" (stack_ptr) : "rbp" );
 }
 
 extern "C" void syscallStub();
@@ -166,7 +170,7 @@ extern "C" void syscallStub();
 void initializeThisProcessor() {
 	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
 	cpu_data->irqStack = UniqueKernelStack::make();
-	cpu_data->systemStack = UniqueKernelStack::make();
+	cpu_data->detachedStack = UniqueKernelStack::make();
 
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!

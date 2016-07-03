@@ -39,6 +39,11 @@ struct UniqueKernelStack {
 		return _base;
 	}
 
+	bool contains(void *sp) {
+		return uintptr_t(sp) >= uintptr_t(_base) + kSize
+				&& uintptr_t(sp) <= uintptr_t(_base);
+	}
+
 private:
 	explicit UniqueKernelStack(char *base)
 	: _base(base) { }
@@ -377,7 +382,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	uint32_t gdt[10 * 2];
 	uint32_t idt[256 * 4];
 	UniqueKernelStack irqStack;
-	UniqueKernelStack systemStack;
+	UniqueKernelStack detachedStack;
 };
 
 // CpuData is some high-level struct that inherits from PlatformCpuData
@@ -388,19 +393,19 @@ bool intsAreAllowed();
 void allowInts();
 
 template<typename F>
-void runSystemFunction(F functor) {
+void runDetached(F functor) {
 	auto wrapper = [] (void *argument) {
 		F stolen = frigg::move(*static_cast<F *>(argument));
 		stolen();
 	};
 
-	doRunSystemFunction(wrapper, &functor);
+	doRunDetached(wrapper, &functor);
 }
 
 // calls the given function on the per-cpu stack
 // this allows us to implement a save exit-this-thread function
 // that destroys the thread together with its kernel stack
-void doRunSystemFunction(void (*function) (void *), void *argument);
+void doRunDetached(void (*function) (void *), void *argument);
 
 void initializeThisProcessor();
 
