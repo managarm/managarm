@@ -705,7 +705,8 @@ HelError helWaitForEvents(HelHandle handle,
 		HelError error;
 		switch(event.error) {
 		case kErrSuccess: error = kHelErrNone; break;
-		case kErrPipeClosed: error = kHelErrPipeClosed; break;
+		case kErrClosedLocally: error = kHelErrClosedLocally; break;
+		case kErrClosedRemotely: error = kHelErrClosedRemotely; break;
 		case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
 		default:
 			assert(!"Unexpected error");
@@ -874,8 +875,8 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 		error = channel->sendString(channel_guard, frigg::move(send));
 	}
 
-	if(error == kErrPipeClosed)
-		return kHelErrPipeClosed;
+	if(error == kErrClosedLocally)
+		return kHelErrClosedLocally;
 
 	assert(error == kErrSuccess);
 	return kHelErrNone;
@@ -942,8 +943,8 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 		error = channel->sendDescriptor(channel_guard, frigg::move(send));
 	}
 
-	if(error == kErrPipeClosed)
-		return kHelErrPipeClosed;
+	if(error == kErrClosedLocally)
+		return kHelErrClosedLocally;
 
 	assert(error == kErrSuccess);
 	return kHelErrNone;
@@ -1006,8 +1007,8 @@ HelError helSubmitRecvString(HelHandle handle,
 		error = channel->submitRecvString(channel_guard, frigg::move(recv));
 	}
 
-	if(error == kErrPipeClosed)
-		return kHelErrPipeClosed;
+	if(error == kErrClosedLocally)
+		return kHelErrClosedLocally;
 
 	assert(error == kErrSuccess);
 	return kHelErrNone;
@@ -1075,8 +1076,8 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 		error = channel->submitRecvString(channel_guard, frigg::move(recv));
 	}
 
-	if(error == kErrPipeClosed)
-		return kHelErrPipeClosed;
+	if(error == kErrClosedLocally)
+		return kHelErrClosedLocally;
 
 	assert(error == kErrSuccess);
 	return kHelErrNone;
@@ -1135,8 +1136,8 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 		error = channel->submitRecvDescriptor(channel_guard, frigg::move(recv));
 	}
 
-	if(error == kErrPipeClosed)
-		return kHelErrPipeClosed;
+	if(error == kErrClosedLocally)
+		return kHelErrClosedLocally;
 	
 	assert(error == kErrSuccess);
 	return kHelErrNone;

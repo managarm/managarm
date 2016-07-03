@@ -19,8 +19,8 @@ Error Channel::sendString(Guard &guard, frigg::SharedPtr<AsyncSendString> send) 
 	assert(guard.protects(&lock));
 
 	assert(!_writeEndpointClosed);
-	if(_writeEndpointClosed)
-		return kErrPipeClosed;
+	if(_readEndpointClosed)
+		return kErrClosedRemotely;
 
 	bool queue_message = true;
 	for(auto it = _recvStringQueue.frontIter(); it; ++it) {
@@ -44,8 +44,8 @@ Error Channel::sendDescriptor(Guard &guard, frigg::SharedPtr<AsyncSendDescriptor
 	assert(guard.protects(&lock));
 
 	assert(!_writeEndpointClosed);
-	if(_writeEndpointClosed)
-		return kErrPipeClosed;
+	if(_readEndpointClosed)
+		return kErrClosedRemotely;
 
 	for(auto it = _recvDescriptorQueue.frontIter(); it; ++it) {
 		if(!matchDescriptorRequest(send, *it))
@@ -65,7 +65,7 @@ Error Channel::submitRecvString(Guard &guard, frigg::SharedPtr<AsyncRecvString> 
 
 	assert(!_readEndpointClosed);
 	if(_writeEndpointClosed)
-		return kErrPipeClosed;
+		return kErrClosedRemotely;
 
 	bool queue_request = true;
 	for(auto it = _sendStringQueue.frontIter(); it; ++it) {
@@ -89,7 +89,7 @@ Error Channel::submitRecvDescriptor(Guard &guard, frigg::SharedPtr<AsyncRecvDesc
 
 	assert(!_readEndpointClosed);
 	if(_writeEndpointClosed)
-		return kErrPipeClosed;
+		return kErrClosedRemotely;
 
 	for(auto it = _sendDescriptorQueue.frontIter(); it; ++it) {
 		if(!matchDescriptorRequest(*it, recv))
@@ -109,15 +109,29 @@ void Channel::closeReadEndpoint(Guard &guard) {
 	assert(!_readEndpointClosed);
 	_readEndpointClosed = true;
 	
+	// drain the send queues
 	while(!_sendStringQueue.empty()) {
 		frigg::SharedPtr<AsyncSendString> send = _sendStringQueue.removeFront();
-		send->error = kErrPipeClosed;
+		send->error = kErrClosedRemotely;
 		AsyncOperation::complete(frigg::move(send));
 	}
 	
 	while(!_sendDescriptorQueue.empty()) {
 		frigg::SharedPtr<AsyncSendDescriptor> send = _sendDescriptorQueue.removeFront();
-		send->error = kErrPipeClosed;
+		send->error = kErrClosedRemotely;
+		AsyncOperation::complete(frigg::move(send));
+	}
+
+	// drain the receive queues
+	while(!_recvStringQueue.empty()) {
+		frigg::SharedPtr<AsyncRecvString> send = _recvStringQueue.removeFront();
+		send->error = kErrClosedLocally;
+		AsyncOperation::complete(frigg::move(send));
+	}
+	
+	while(!_recvDescriptorQueue.empty()) {
+		frigg::SharedPtr<AsyncRecvDescriptor> send = _recvDescriptorQueue.removeFront();
+		send->error = kErrClosedLocally;
 		AsyncOperation::complete(frigg::move(send));
 	}
 }
@@ -127,15 +141,29 @@ void Channel::closeWriteEndpoint(Guard &guard) {
 	assert(!_writeEndpointClosed);
 	_writeEndpointClosed = true;
 	
+	// drain the send queues
+	while(!_sendStringQueue.empty()) {
+		frigg::SharedPtr<AsyncSendString> send = _sendStringQueue.removeFront();
+		send->error = kErrClosedLocally;
+		AsyncOperation::complete(frigg::move(send));
+	}
+	
+	while(!_sendDescriptorQueue.empty()) {
+		frigg::SharedPtr<AsyncSendDescriptor> send = _sendDescriptorQueue.removeFront();
+		send->error = kErrClosedLocally;
+		AsyncOperation::complete(frigg::move(send));
+	}
+	
+	// drain the receive queues
 	while(!_recvStringQueue.empty()) {
 		frigg::SharedPtr<AsyncRecvString> send = _recvStringQueue.removeFront();
-		send->error = kErrPipeClosed;
+		send->error = kErrClosedRemotely;
 		AsyncOperation::complete(frigg::move(send));
 	}
 	
 	while(!_recvDescriptorQueue.empty()) {
 		frigg::SharedPtr<AsyncRecvDescriptor> send = _recvDescriptorQueue.removeFront();
-		send->error = kErrPipeClosed;
+		send->error = kErrClosedRemotely;
 		AsyncOperation::complete(frigg::move(send));
 	}
 }

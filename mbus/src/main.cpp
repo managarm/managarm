@@ -129,7 +129,7 @@ void RequestClosure::operator() () {
 
 void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
-	if(error == kHelErrPipeClosed) {
+	if(error == kHelErrClosedRemotely) {
 		suicide(*allocator);
 		return;
 	}

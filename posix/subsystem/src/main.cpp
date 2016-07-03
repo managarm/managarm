@@ -718,7 +718,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 void RequestClosure::operator() () {
 	HelError error = pipe->recvStringReqToRing(ringBuffer, eventHub, kHelAnyRequest, 0,
 			CALLBACK_MEMBER(this, &RequestClosure::recvRequest));
-	if(error == kHelErrPipeClosed) {
+	if(error == kHelErrClosedRemotely) {
 		suicide(*allocator);
 		return;
 	}
@@ -727,7 +727,7 @@ void RequestClosure::operator() () {
 
 void RequestClosure::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t index, size_t offset, size_t length) {
-	if(error == kHelErrPipeClosed) {
+	if(error == kHelErrClosedRemotely) {
 		suicide(*allocator);
 		return;
 	}
