@@ -509,7 +509,11 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	*new_thread->image.sp() = (Word)sp;
 //	*new_thread->image.rflags() = 0x200;
 	
-	activeList->addBack(new_thread);
+	// we increment the owning refcount here.
+	// it is decremented when the thread is killed.
+	new_thread.control().increment();
+	frigg::SharedPtr<Thread, ThreadRunControl> run_ptr(frigg::adoptShared, new_thread.get(),
+			ThreadRunControl(new_thread.get(), new_thread.control().counter()));
 
 	{
 		ScheduleGuard schedule_guard(scheduleLock.get());
@@ -519,7 +523,7 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
 		*handle = this_universe->attachDescriptor(universe_guard,
-				ThreadDescriptor(frigg::move(new_thread)));
+				ThreadDescriptor(frigg::move(run_ptr)));
 	}
 
 	return kHelErrNone;
@@ -605,13 +609,11 @@ HelError helResume(HelHandle handle) {
 }
 
 HelError helExitThisThread() {
-	// TODO: it does not make sense to return an error here!
-	// FIXME: really kill the current thread!
-	runSystemFunction([] () {
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	});
-	__builtin_unreachable();
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+
+	this_thread->signalKill();
+
+	return kHelErrNone;
 }
 
 HelError helWriteFsBase(void *pointer) {
@@ -791,9 +793,10 @@ HelError helCreateFullPipe(HelHandle *first_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
+	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+
 	// we increment the owning reference count twice here. it is decremented
 	// each time one of the EndpointRwControl references is decremented to zero.
-	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
 	pipe.control().increment();
 	pipe.control().increment();
 	frigg::SharedPtr<Endpoint, EndpointRwControl> end0(frigg::adoptShared, &pipe->endpoint(0),

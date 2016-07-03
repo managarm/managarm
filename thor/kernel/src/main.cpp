@@ -97,8 +97,9 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	// FIXME: do not heap-allocate the state structs
 	*thread->image.sp() = stack_base + stack_size;
 	*thread->image.ip() = ehdr->e_entry;
-	
-	activeList->addBack(thread);
+
+	// increment the reference counter so that the threads stays alive forever
+	thread.control().increment();
 
 	// finally run the module by scheduling
 	infoLogger->log() << "Exiting Thor!" << frigg::EndLog();
@@ -133,7 +134,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 
-	activeList.initialize();
 	scheduleQueue.initialize(*kernelAlloc);
 	scheduleLock.initialize();
 
@@ -603,6 +603,16 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}
+
+	if(this_thread->pendingSignal() == Thread::kSigKill) {
+		runSystemFunction([=] () {
+			this_thread.control().decrement();
+
+			ScheduleGuard schedule_guard(scheduleLock.get());
+			doSchedule(frigg::move(schedule_guard));
+		});
+	}
+	assert(!this_thread->pendingSignal());
 }
 
 } // namespace thor

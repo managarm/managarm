@@ -24,17 +24,10 @@ struct AddressSpaceDescriptor {
 // --------------------------------------------------------
 
 struct ThreadDescriptor {
-	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
+	ThreadDescriptor(frigg::SharedPtr<Thread, ThreadRunControl> thread)
 	: thread(frigg::move(thread)) { }
 	
-	frigg::SharedPtr<Thread> thread;
-};
-
-struct SignalDescriptor {
-	SignalDescriptor(frigg::SharedPtr<Signal> signal)
-	: signal(frigg::move(signal)) { }
-	
-	frigg::SharedPtr<Signal> signal;
+	frigg::SharedPtr<Thread, ThreadRunControl> thread;
 };
 
 // --------------------------------------------------------
@@ -119,7 +112,6 @@ typedef frigg::Variant<
 	MemoryAccessDescriptor,
 	AddressSpaceDescriptor,
 	ThreadDescriptor,
-	SignalDescriptor,
 	EventHubDescriptor,
 	RingDescriptor,
 	EndpointDescriptor,

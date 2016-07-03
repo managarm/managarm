@@ -250,7 +250,7 @@ public:
 		return (bool)_control;
 	}
 
-	Control control() {
+	Control control() const {
 		return _control;
 	}
 
@@ -377,6 +377,10 @@ public:
 
 	explicit operator bool () {
 		return (bool)_control;
+	}
+
+	Control control() const {
+		return _control;
 	}
 
 	T &operator* () {

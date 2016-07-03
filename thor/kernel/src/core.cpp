@@ -80,8 +80,7 @@ CpuContext::CpuContext() {
 	*thread->image.ip() = (Word)&idleRoutine;
 	*thread->image.kernel() = 1;
 
-	idleThread = thread;
-	activeList->addBack(frigg::move(thread));
+	idleThread = frigg::move(thread);
 }
 
 // --------------------------------------------------------
@@ -99,6 +98,25 @@ SubmitInfo::SubmitInfo(int64_t async_id,
 
 BaseRequest::BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info)
 : eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
+
+// --------------------------------------------------------
+// ThreadRunControl
+// --------------------------------------------------------
+		
+void ThreadRunControl::increment() {
+	int previous_ref_count;
+	frigg::fetchInc(&_thread->_runCount, previous_ref_count);
+	assert(previous_ref_count > 0);
+}
+
+void ThreadRunControl::decrement() {
+	int previous_ref_count;
+	frigg::fetchDec(&_thread->_runCount, previous_ref_count);
+	if(previous_ref_count == 1) {
+		// FIXME: protect this with a lock
+		_thread->signalKill();
+	}
+}
 
 // --------------------------------------------------------
 // EndpointRwControl

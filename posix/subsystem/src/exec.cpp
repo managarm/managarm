@@ -317,7 +317,6 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
 			kHelAbiSystemV, (void *)interpreterEntry, (char *)stack_base + p,
 			kHelThreadNewUniverse, &thread));
-	//HEL_CHECK(helCloseDescriptor(thread));
 
 	auto action = frigg::await<void(HelError)>([=] (auto callback) {
 		int64_t async_id;

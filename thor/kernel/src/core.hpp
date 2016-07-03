@@ -61,7 +61,6 @@ class Universe;
 class Memory;
 class AddressSpace;
 class Thread;
-class Signal;
 class EventHub;
 class RingBuffer;
 class Channel;
@@ -75,7 +74,7 @@ class IoSpace;
 struct CpuContext : public PlatformCpuContext {
 	CpuContext();
 
-	KernelUnsafePtr<Thread> idleThread;
+	KernelSharedPtr<Thread> idleThread;
 };
 
 struct Timer {
@@ -118,6 +117,29 @@ struct BaseRequest {
 	
 	KernelSharedPtr<EventHub> eventHub;
 	SubmitInfo submitInfo;
+};
+
+struct ThreadRunControl {
+	ThreadRunControl()
+	: _counter(nullptr) { }
+
+	ThreadRunControl(Thread *thread, frigg::SharedCounter *counter)
+	: _thread(thread), _counter(counter) { }
+
+	explicit operator bool () {
+		return _counter;
+	}
+
+	operator frigg::SharedControl () const {
+		return frigg::SharedControl(_counter);
+	}
+
+	void increment();
+	void decrement();
+
+private:
+	Thread *_thread;
+	frigg::SharedCounter *_counter;
 };
 
 struct EndpointRwControl {

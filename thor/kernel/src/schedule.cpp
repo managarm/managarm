@@ -3,7 +3,6 @@
 
 namespace thor {
 
-frigg::LazyInitializer<ThreadQueue> activeList;
 frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
 frigg::LazyInitializer<ScheduleLock> scheduleLock;
 

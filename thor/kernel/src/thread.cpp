@@ -7,24 +7,17 @@ namespace thor {
 // Thread
 // --------------------------------------------------------
 
-Thread::Thread(KernelSharedPtr<Universe> &&universe,
-		KernelSharedPtr<AddressSpace> &&address_space,
-		KernelSharedPtr<RdFolder> &&directory)
+Thread::Thread(KernelSharedPtr<Universe> universe,
+		KernelSharedPtr<AddressSpace> address_space,
+		KernelSharedPtr<RdFolder> directory)
 : flags(0), _runState(kRunActive), // FIXME: do not use the active run state here
+		_pendingSignal(kSigNone), _runCount(1),
 		p_universe(universe), p_addressSpace(address_space), p_directory(directory) {
 //	infoLogger->log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
 }
 
 Thread::~Thread() {
-	while(!_observeQueue.empty()) {
-		assert(!"Fix join");
-/*		JoinRequest request = _observeQueue.removeFront();
-
-		UserEvent event(UserEvent::kTypeJoin, request.submitInfo);
-		EventHub::Guard hub_guard(&request.eventHub->lock);
-		request.eventHub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();*/
-	}
+	assert(_observeQueue.empty());
 }
 
 KernelUnsafePtr<Universe> Thread::getUniverse() {
@@ -35,6 +28,20 @@ KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
 }
 KernelUnsafePtr<RdFolder> Thread::getDirectory() {
 	return p_directory;
+}
+
+void Thread::signalKill() {
+	assert(_pendingSignal == kSigNone);
+	_pendingSignal = kSigKill;
+
+	if(_runState == kRunActive)
+		return;
+
+	frigg::panicLogger.log() << "Thread killed in inactive state" << frigg::EndLog();
+}
+
+auto Thread::pendingSignal() -> Signal {
+	return _pendingSignal;
 }
 
 void Thread::transitionToFault() {
@@ -54,78 +61,6 @@ void Thread::resume() {
 
 void Thread::submitObserve(KernelSharedPtr<AsyncObserve> observe) {
 	_observeQueue.addBack(frigg::move(observe));
-}
-
-// --------------------------------------------------------
-// ThreadQueue
-// --------------------------------------------------------
-
-ThreadQueue::ThreadQueue() { }
-
-bool ThreadQueue::empty() {
-	return !p_front;
-}
-
-void ThreadQueue::addBack(KernelSharedPtr<Thread> thread) {
-	// setup the back pointer before moving the thread pointer
-	KernelUnsafePtr<Thread> back = p_back;
-	p_back = thread;
-
-	// move the thread pointer into the queue
-	if(empty()) {
-		p_front = frigg::move(thread);
-	}else{
-		thread->p_previousInQueue = back;
-		back->p_nextInQueue = frigg::move(thread);
-	}
-}
-
-KernelSharedPtr<Thread> ThreadQueue::removeFront() {
-	assert(!empty());
-	
-	// move the front and second element out of the queue
-	KernelSharedPtr<Thread> front = frigg::move(p_front);
-	KernelSharedPtr<Thread> next = frigg::move(front->p_nextInQueue);
-	front->p_previousInQueue = KernelUnsafePtr<Thread>();
-
-	// fix the pointers to previous elements
-	if(!next) {
-		p_back = KernelUnsafePtr<Thread>();
-	}else{
-		next->p_previousInQueue = KernelUnsafePtr<Thread>();
-	}
-
-	// move the second element back to the queue
-	p_front = frigg::move(next);
-
-	return front;
-}
-
-KernelSharedPtr<Thread> ThreadQueue::remove(KernelUnsafePtr<Thread> thread) {
-	// move the successor out of the queue
-	KernelSharedPtr<Thread> next = frigg::move(thread->p_nextInQueue);
-	KernelUnsafePtr<Thread> previous = thread->p_previousInQueue;
-	thread->p_previousInQueue = KernelUnsafePtr<Thread>();
-
-	// fix pointers to previous elements
-	if(p_back.get() == thread.get()) {
-		p_back = previous;
-	}else{
-		next->p_previousInQueue = previous;
-	}
-	
-	// move the successor back to the queue
-	// move the thread out of the queue
-	KernelSharedPtr<Thread> reference;
-	if(p_front.get() == thread.get()) {
-		reference = frigg::move(p_front);
-		p_front = frigg::move(next);
-	}else{
-		reference = frigg::move(previous->p_nextInQueue);
-		previous->p_nextInQueue = frigg::move(next);
-	}
-
-	return reference;
 }
 
 } // namespace thor

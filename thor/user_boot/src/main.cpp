@@ -110,7 +110,6 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 		thread_flags |= kHelThreadExclusive;
 	HEL_CHECK(helCreateThread(space, directory, kHelAbiSystemV, (void *)ehdr->e_entry,
 			(char *)stack_base + stack_size, thread_flags, &thread));
-	HEL_CHECK(helCloseDescriptor(thread));
 	HEL_CHECK(helCloseDescriptor(space));
 }
 

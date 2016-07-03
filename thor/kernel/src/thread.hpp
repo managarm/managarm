@@ -7,8 +7,15 @@ enum Fault {
 };
 
 class Thread : public PlatformExecutor {
-friend class ThreadQueue;
+friend class ThreadRunControl;
 public:
+	// these signals let the thread change its RunState.
+	// do not confuse them with POSIX signals!
+	enum Signal {
+		kSigNone,
+		kSigKill
+	};
+
 	enum Flags : uint32_t {
 		// disables preemption for this thread
 		kFlagExclusive = 1,
@@ -21,14 +28,17 @@ public:
 		kFlagTrapsAreFatal = 4
 	};
 
-	Thread(KernelSharedPtr<Universe> &&universe,
-			KernelSharedPtr<AddressSpace> &&address_space,
-			KernelSharedPtr<RdFolder> &&directory);
+	Thread(KernelSharedPtr<Universe> universe,
+			KernelSharedPtr<AddressSpace> address_space,
+			KernelSharedPtr<RdFolder> directory);
 	~Thread();
 
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
+
+	void signalKill();
+	Signal pendingSignal();
 
 	void transitionToFault();
 	void resume();
@@ -48,33 +58,22 @@ private:
 
 	RunState _runState;
 
+	// this is set by signalKill() and queried each time the kernel
+	// is ready to process the kill request, e.g. after a syscall finishes.
+	Signal _pendingSignal;
+
+	// number of references that keep this thread running.
+	// the thread is killed when this counter reaches zero.
+	int _runCount;
+
 	KernelSharedPtr<Universe> p_universe;
 	KernelSharedPtr<AddressSpace> p_addressSpace;
 	KernelSharedPtr<RdFolder> p_directory;
-
-	KernelSharedPtr<Thread> p_nextInQueue;
-	KernelUnsafePtr<Thread> p_previousInQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncObserve,
 		&AsyncObserve::processQueueItem
 	> _observeQueue;
-};
-
-class ThreadQueue {
-public:
-	ThreadQueue();
-
-	bool empty();
-
-	void addBack(KernelSharedPtr<Thread> thread);
-	
-	KernelSharedPtr<Thread> removeFront();
-	KernelSharedPtr<Thread> remove(KernelUnsafePtr<Thread> thread);
-
-private:
-	KernelSharedPtr<Thread> p_front;
-	KernelUnsafePtr<Thread> p_back;
 };
 
 } // namespace thor

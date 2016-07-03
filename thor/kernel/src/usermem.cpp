@@ -15,7 +15,8 @@ Memory::Memory(Type type)
 Memory::~Memory() {
 	if(p_type == kTypePhysical) {
 		// do nothing
-	}else if(p_type == kTypeAllocated || p_type == kTypeCopyOnWrite) {
+	}else if(p_type == kTypeAllocated || p_type == kTypeOnDemand
+			|| p_type == kTypeCopyOnWrite) {
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < p_physicalPages.size(); i++) {
 			if(p_physicalPages[i] != PhysicalAddr(-1))
