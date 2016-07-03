@@ -557,12 +557,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
 		*image.out0() = async_id;
 	} break;
-	case kHelCallSubscribeIrq: {
-		int64_t async_id;
-		*image.error() = helSubscribeIrq((HelHandle)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
-	} break;
 
 	case kHelCallAccessIo: {
 		HelHandle handle;

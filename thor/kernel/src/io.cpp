@@ -59,74 +59,40 @@ void IrqRelay::manualAcknowledge(Guard &guard) {
 // --------------------------------------------------------
 
 IrqLine::IrqLine(int number)
-: p_number(number), p_firedSequence(0), p_notifiedSequence(0),
-		p_requests(*kernelAlloc), p_subscriptions(*kernelAlloc) { }
+: _number(number), _firedSequence(0), _notifiedSequence(0) { }
 
 int IrqLine::getNumber() {
-	return p_number;
+	return _number;
 }
 
-void IrqLine::submitWait(Guard &guard, KernelSharedPtr<EventHub> event_hub,
-		SubmitInfo submit_info) {
+void IrqLine::submitWait(Guard &guard, frigg::SharedPtr<AsyncIrq> wait) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
-	
-	Request request(frigg::move(event_hub), submit_info);
 
-	assert(p_firedSequence >= p_notifiedSequence);
-	if(p_firedSequence > p_notifiedSequence) {
-		processRequest(frigg::move(request));
+	assert(_firedSequence >= _notifiedSequence);
+	if(_firedSequence > _notifiedSequence) {
+		processWait(frigg::move(wait));
 	}else{
-		p_requests.addBack(frigg::move(request));
+		_waitQueue.addBack(frigg::move(wait));
 	}
-}
-
-void IrqLine::subscribe(Guard &guard, KernelSharedPtr<EventHub> event_hub,
-		SubmitInfo submit_info) {
-	assert(!intsAreEnabled());
-	assert(guard.protects(&lock));
-	
-	Request request(frigg::move(event_hub), submit_info);
-	p_subscriptions.addBack(frigg::move(request));
 }
 
 void IrqLine::fire(Guard &guard, uint64_t sequence) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
 
-	p_firedSequence = sequence;
+	_firedSequence = sequence;
 
-	if(!p_requests.empty())
-		processRequest(p_requests.removeFront());
-	
-	for(auto it = p_subscriptions.frontIter(); it.okay(); ++it) {
-		assert(!"Fix IRQ subscriptions");
-/*		UserEvent event(UserEvent::kTypeIrq, it->submitInfo);
-
-		EventHub::Guard hub_guard(&it->eventHub->lock);
-		it->eventHub->raiseEvent(hub_guard, frigg::move(event));
-		hub_guard.unlock();*/
-	}
+	if(!_waitQueue.empty())
+		processWait(_waitQueue.removeFront());
 }
 
-void IrqLine::processRequest(Request request) {
-	assert(!"Fix IRQ events");
-/*	UserEvent event(UserEvent::kTypeIrq, request.submitInfo);
+void IrqLine::processWait(frigg::SharedPtr<AsyncIrq> wait) {
+	assert(_firedSequence > _notifiedSequence);
+	_notifiedSequence = _firedSequence;
 
-	EventHub::Guard hub_guard(&request.eventHub->lock);
-	request.eventHub->raiseEvent(hub_guard, frigg::move(event));
-	hub_guard.unlock();*/
-
-	assert(p_firedSequence > p_notifiedSequence);
-	p_notifiedSequence = p_firedSequence;
+	AsyncOperation::complete(frigg::move(wait));
 }
-
-// --------------------------------------------------------
-// IrqLine::Request
-// --------------------------------------------------------
-
-IrqLine::Request::Request(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info)
-: BaseRequest(frigg::move(event_hub), submit_info) { }
 
 // --------------------------------------------------------
 // IoSpace

@@ -572,11 +572,11 @@ HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto request = frigg::makeShared<AsyncObserve>(*kernelAlloc,
+	auto observe = frigg::makeShared<AsyncObserve>(*kernelAlloc,
 			frigg::move(data));
 	{
 		// TODO: protect the thread with a lock!
-		thread->submitObserve(frigg::move(request));
+		thread->submitObserve(frigg::move(observe));
 	}
 
 	return kHelErrNone;
@@ -1454,46 +1454,15 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-
-	IrqLine::Guard line_guard(&line->lock);
-	line->submitWait(line_guard, frigg::move(event_hub), submit_info);
-	line_guard.unlock();
-
-	*async_id = submit_info.asyncId;
-	return kHelErrNone;
-}
-HelError helSubscribeIrq(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
 	
-	frigg::SharedPtr<IrqLine> line;
-	frigg::SharedPtr<EventHub> event_hub;
+	auto wait = frigg::makeShared<AsyncIrq>(*kernelAlloc, frigg::move(data));
 	{
-		Universe::Guard universe_guard(&universe->lock);
-		auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!irq_wrapper)
-			return kHelErrNoDescriptor;
-		if(!irq_wrapper->is<IrqDescriptor>())
-			return kHelErrBadDescriptor;
-		line = irq_wrapper->get<IrqDescriptor>().irqLine;
-		
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
+		IrqLine::Guard guard(&line->lock);
+		line->submitWait(guard, frigg::move(wait));
 	}
-
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-
-	IrqLine::Guard line_guard(&line->lock);
-	line->subscribe(line_guard, frigg::move(event_hub), submit_info);
-	line_guard.unlock();
-
-	*async_id = submit_info.asyncId;
+	
 	return kHelErrNone;
 }
 

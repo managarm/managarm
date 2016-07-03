@@ -46,30 +46,24 @@ public:
 
 	int getNumber();
 
-	void submitWait(Guard &guard, KernelSharedPtr<EventHub> event_hub,
-			SubmitInfo submit_info);
-	
-	void subscribe(Guard &guard, KernelSharedPtr<EventHub> event_hub,
-			SubmitInfo submit_info);
+	void submitWait(Guard &guard, frigg::SharedPtr<AsyncIrq> wait);
 	
 	void fire(Guard &guard, uint64_t sequence);
 
 	Lock lock;
 
 private:
-	struct Request : BaseRequest {
-		Request(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
-	};
+	void processWait(frigg::SharedPtr<AsyncIrq> wait);
 
-	void processRequest(Request request);
-
-	int p_number;
+	int _number;
 	
-	uint64_t p_firedSequence;
-	uint64_t p_notifiedSequence;
+	uint64_t _firedSequence;
+	uint64_t _notifiedSequence;
 	
-	frigg::LinkedList<Request, KernelAlloc> p_requests;
-	frigg::LinkedList<Request, KernelAlloc> p_subscriptions;
+	frigg::IntrusiveSharedLinkedList<
+		AsyncIrq,
+		&AsyncIrq::processQueueItem
+	> _waitQueue;
 };
 
 class IoSpace {

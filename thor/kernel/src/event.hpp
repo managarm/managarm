@@ -191,6 +191,17 @@ struct AsyncRingItem : public AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncRingItem> bufferItem;
 };
 
+struct AsyncIrq : public AsyncOperation {
+	AsyncIrq(AsyncData data)
+	: AsyncOperation(frigg::move(data)) { }
+	
+	AsyncEvent getEvent() override;
+	
+	frigg::WeakPtr<Universe> universe;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncIrq> processQueueItem;
+};
+
 class EventHub {
 public:
 	typedef frigg::TicketLock Lock;

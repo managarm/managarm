@@ -66,6 +66,11 @@ AsyncEvent AsyncConnect::getEvent() {
 	return event;
 }
 AsyncEvent AsyncRingItem::getEvent() { assert(false); }
+AsyncEvent AsyncIrq::getEvent() {
+	AsyncEvent event(kEventIrq, submitInfo);
+	event.error = kErrSuccess;
+	return event;
+}
 
 // --------------------------------------------------------
 // AsyncOperation
