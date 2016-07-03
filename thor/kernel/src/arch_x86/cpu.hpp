@@ -367,12 +367,12 @@ inline uint16_t selectorFor(uint16_t segment, bool user) {
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
-struct AssemblyCpuContext {
+struct AssemblyCpuData {
 	frigg::UnsafePtr<AssemblyExecutor> activeExecutor;
 };
 
-struct PlatformCpuContext : public AssemblyCpuContext {
-	PlatformCpuContext();
+struct PlatformCpuData : public AssemblyCpuData {
+	PlatformCpuData();
 
 	uint32_t gdt[10 * 2];
 	uint32_t idt[256 * 4];
@@ -380,9 +380,9 @@ struct PlatformCpuContext : public AssemblyCpuContext {
 	UniqueKernelStack systemStack;
 };
 
-// CpuContext is some high-level struct that inherits from PlatformCpuContext
-struct CpuContext;
-CpuContext *getCpuContext();
+// CpuData is some high-level struct that inherits from PlatformCpuData
+struct CpuData;
+CpuData *getCpuData();
 
 bool intsAreAllowed();
 void allowInts();

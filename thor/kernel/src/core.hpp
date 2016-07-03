@@ -72,8 +72,8 @@ class RdFolder;
 class IrqLine;
 class IoSpace;
 
-struct CpuContext : public PlatformCpuContext {
-	CpuContext();
+struct CpuData : public PlatformCpuData {
+	CpuData();
 
 	KernelSharedPtr<Thread> idleThread;
 };

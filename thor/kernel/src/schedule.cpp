@@ -25,7 +25,7 @@ void doSchedule(ScheduleGuard &&guard) {
 		restoreExecutor();
 	}else{
 		guard.unlock();
-		switchExecutor(getCpuContext()->idleThread);
+		switchExecutor(getCpuData()->idleThread);
 		restoreExecutor();
 	}
 }

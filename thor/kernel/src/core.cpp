@@ -64,10 +64,10 @@ frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
-// CpuContext class
+// CpuData class
 // --------------------------------------------------------
 
-CpuContext::CpuContext() {
+CpuData::CpuData() {
 	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, KernelSharedPtr<Universe>(),

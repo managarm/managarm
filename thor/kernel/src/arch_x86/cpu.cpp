@@ -98,29 +98,28 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	executor->getAddressSpace()->activate();
 
 	// setup the thread's tss segment
-	CpuContext *cpu_context = getCpuContext();
-	executor->tss.ist1 = (Word)cpu_context->irqStack.base();
+	CpuData *cpu_data = getCpuData();
+	executor->tss.ist1 = (Word)cpu_data->irqStack.base();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_context->gdt, kSegTask,
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kSegTask,
 			&executor->tss, sizeof(frigg::arch_x86::Tss64));
 	asm volatile ( "ltr %w0" : : "r" (selectorFor(kSegTask, false)) );
 
 	// finally update the active executor register.
 	// we do this after setting up the address space and TSS
 	// so that these structures are always valid.
-	AssemblyCpuContext *context = getCpuContext();
-	context->activeExecutor = executor;
+	cpu_data->activeExecutor = executor;
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
-	return frigg::staticPtrCast<Thread>(getCpuContext()->activeExecutor);
+	return frigg::staticPtrCast<Thread>(getCpuData()->activeExecutor);
 }
 
 // --------------------------------------------------------
-// PlatformCpuContext
+// PlatformCpuData
 // --------------------------------------------------------
 
-PlatformCpuContext::PlatformCpuContext() {
+PlatformCpuData::PlatformCpuData() {
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
 	frigg::arch_x86::makeGdtNullSegment(gdt, kSegNull);
@@ -144,18 +143,18 @@ size_t getStateSize() {
 	return UniqueExecutorImage::determineSize();
 }
 
-CpuContext *getCpuContext() {
+CpuData *getCpuData() {
 	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
-	auto asm_context = reinterpret_cast<AssemblyCpuContext *>(msr);
-	return static_cast<CpuContext *>(asm_context);
+	auto cpu_data = reinterpret_cast<AssemblyCpuData *>(msr);
+	return static_cast<CpuData *>(cpu_data);
 }
 
 void doRunSystemFunction(void (*function) (void *), void *argument) {
 	assert(!intsAreEnabled());
 
-	CpuContext *cpu_context = getCpuContext();
+	CpuData *cpu_data = getCpuData();
 	
-	uintptr_t stack_ptr = (uintptr_t)cpu_context->systemStack.base();
+	uintptr_t stack_ptr = (uintptr_t)cpu_data->systemStack.base();
 	asm volatile ( "mov %2, %%rsp\n"
 			"\tcall *%1\n"
 			"\tud2\n" : : "D" (argument), "r" (function), "r" (stack_ptr) );
@@ -165,20 +164,20 @@ void doRunSystemFunction(void (*function) (void *), void *argument) {
 extern "C" void syscallStub();
 
 void initializeThisProcessor() {
-	auto cpu_context = frigg::construct<CpuContext>(*kernelAlloc);
-	cpu_context->irqStack = UniqueKernelStack::make();
-	cpu_context->systemStack = UniqueKernelStack::make();
+	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
+	cpu_data->irqStack = UniqueKernelStack::make();
+	cpu_data->systemStack = UniqueKernelStack::make();
 
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 
 	// set up the kernel gs segment
-	AssemblyCpuContext *asm_context = cpu_context;
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase, (uintptr_t)asm_context);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 10 * 8;
-	gdtr.pointer = cpu_context->gdt;
+	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq %0\n"
@@ -188,17 +187,17 @@ void initializeThisProcessor() {
 
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
-	switchExecutor(cpu_context->idleThread);
+	switchExecutor(cpu_data->idleThread);
 	infoLogger->log() << "we got here" << frigg::EndLog();
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
-		frigg::arch_x86::makeIdt64NullGate(cpu_context->idt, i);
-	setupIdt(cpu_context->idt);
+		frigg::arch_x86::makeIdt64NullGate(cpu_data->idt, i);
+	setupIdt(cpu_data->idt);
 
 	frigg::arch_x86::Idtr idtr;
 	idtr.limit = 256 * 16;
-	idtr.pointer = cpu_context->idt;
+	idtr.pointer = cpu_data->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	// enable wrfsbase / wrgsbase instructions
