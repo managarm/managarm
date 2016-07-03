@@ -297,6 +297,9 @@ private:
 	General *_general() {
 		return reinterpret_cast<General *>(_pointer);
 	}
+	FxState *_fxState() {
+		return reinterpret_cast<FxState *>(_pointer + sizeof(General));
+	}
 
 	char *_pointer;
 };

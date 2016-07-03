@@ -72,7 +72,9 @@ void saveExecutorFromFault(FaultImageAccessor accessor) {
 	image._general()->rflags = accessor._frame()->rflags;
 	image._general()->kernel = 0;
 	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	image._general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	
+	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
 }
 
 // --------------------------------------------------------
