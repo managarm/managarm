@@ -24,6 +24,11 @@ UniqueKernelStack UniqueKernelStack::make() {
 	return UniqueKernelStack(pointer + kSize);
 }
 
+UniqueKernelStack::~UniqueKernelStack() {
+	if(_base)
+		kernelAlloc->free(_base - kSize);
+}
+
 // --------------------------------------------------------
 // UniqueExecutorImage
 // --------------------------------------------------------
@@ -36,6 +41,10 @@ UniqueExecutorImage UniqueExecutorImage::make() {
 	auto pointer = (char *)kernelAlloc->allocate(getStateSize());
 	memset(pointer, 0, getStateSize());
 	return UniqueExecutorImage(pointer);
+}
+
+UniqueExecutorImage::~UniqueExecutorImage() {
+	kernelAlloc->free(_pointer);
 }
 
 void saveExecutorFromFault(FaultImageAccessor accessor) {

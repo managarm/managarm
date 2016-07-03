@@ -28,6 +28,8 @@ struct UniqueKernelStack {
 		swap(*this, other);
 	}
 
+	~UniqueKernelStack();
+
 	UniqueKernelStack &operator= (UniqueKernelStack other) {
 		swap(*this, other);
 		return *this;
@@ -192,6 +194,8 @@ struct UniqueExecutorImage {
 	: UniqueExecutorImage() {
 		swap(*this, other);
 	}
+
+	~UniqueExecutorImage();
 
 	UniqueExecutorImage &operator= (UniqueExecutorImage other) {
 		swap(*this, other);
