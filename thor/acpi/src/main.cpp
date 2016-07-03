@@ -111,26 +111,50 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	ACPICA_CHECK(AcpiGetType(object, &type));
 
 	char segment[5];
-	ACPI_BUFFER buffer;
-	buffer.Pointer = segment;
-	buffer.Length = 5;
-	ACPICA_CHECK(AcpiGetName(object, ACPI_SINGLE_NAME, &buffer));
-	
+	ACPI_BUFFER name_buffer;
+	name_buffer.Pointer = segment;
+	name_buffer.Length = 5;
+	ACPICA_CHECK(AcpiGetName(object, ACPI_SINGLE_NAME, &name_buffer));
+
 	auto log_type = frigg::infoLogger.log();
 	for(int i = 0; i < depth; i++)
 		log_type << "    ";
 	if(type == ACPI_TYPE_DEVICE) {
 		log_type << "Device: ";
-	}else if(type == ACPI_TYPE_PROCESSOR) {
-		log_type << "Processor: ";
 	}else if(type == ACPI_TYPE_MUTEX) {
 		log_type << "Mutex: ";
+	}else if(type == ACPI_TYPE_REGION) {
+		log_type << "Region: ";
+	}else if(type == ACPI_TYPE_PROCESSOR) {
+		log_type << "Processor: ";
 	}else if(type == ACPI_TYPE_LOCAL_SCOPE) {
 		log_type << "Scope: ";
 	}else{
 		log_type << "(Unknown type 0x" << frigg::logHex(type) << ") ";
 	}
 	log_type << (const char *)segment << frigg::EndLog();
+	
+	if(strcmp(segment, "PCI0") == 0) {
+		ACPI_BUFFER rt_buffer;
+		rt_buffer.Pointer = nullptr;
+		rt_buffer.Length = ACPI_ALLOCATE_BUFFER;
+
+		ACPICA_CHECK(AcpiGetIrqRoutingTable(object, &rt_buffer));
+		frigg::infoLogger.log() << "Routing table:" << frigg::EndLog();
+
+		size_t offset = 0;
+		while(true) {
+			assert(offset < rt_buffer.Length);
+			auto entry = (ACPI_PCI_ROUTING_TABLE *)((char *)rt_buffer.Pointer + offset);
+			if(entry->Length == 0)
+				break;
+			frigg::infoLogger.log() << "Pin: " << entry->Pin
+					<< ", source: " << (const char *)entry->Source << frigg::EndLog();
+			offset += entry->Length;
+		}
+
+		AcpiOsFree(rt_buffer.Pointer);
+	}
 	
 	frigg::Vector<ACPI_HANDLE, Allocator> methods(*allocator);
 	findChildrenByType(object, ACPI_TYPE_METHOD, methods);
