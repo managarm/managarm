@@ -161,10 +161,13 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 			helx::Directory directory = Process::runServer(new_process);
 
+			HelHandle universe;
+			HEL_CHECK(helCreateUniverse(&universe));
+
 			HelHandle thread;
-			HEL_CHECK(helCreateThread(new_process->vmSpace, directory.getHandle(),
+			HEL_CHECK(helCreateThread(universe, new_process->vmSpace, directory.getHandle(),
 					kHelAbiSystemV, (void *)request.child_ip(), (void *)request.child_sp(),
-					kHelThreadNewUniverse, &thread));
+					0, &thread));
 
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 			response.set_error(managarm::posix::Errors::SUCCESS);

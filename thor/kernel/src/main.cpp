@@ -388,13 +388,19 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
 
+	case kHelCallCreateUniverse: {
+		HelHandle handle;
+		*image.error() = helCreateUniverse(&handle);
+		*image.out0() = handle;
+	} break;
+
 	case kHelCallCreateThread: {
 //		infoLogger->log() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"
 //				<< frigg::EndLog();
 		HelHandle handle;
-		*image.error() = helCreateThread((HelHandle)arg0,
-				(HelHandle)arg1, (int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
+		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
+				(HelHandle)arg2, (int)arg3, (void *)arg4, (void *)arg5, (uint32_t)arg6, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallYield: {

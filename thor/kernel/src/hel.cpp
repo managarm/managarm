@@ -454,18 +454,42 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 	return kHelErrNone;
 }
 
-HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
+HelError helCreateUniverse(HelHandle *handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
+
+	auto new_universe = frigg::makeShared<Universe>(*kernelAlloc);
+	
+	{
+		Universe::Guard universe_guard(&this_universe->lock);
+		*handle = this_universe->attachDescriptor(universe_guard,
+				UniverseDescriptor(frigg::move(new_universe)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
+		HelHandle directory_handle,
 		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 
-	if(flags & ~(kHelThreadNewUniverse | kHelThreadExclusive | kHelThreadTrapsAreFatal))
+	if(flags & ~(kHelThreadExclusive | kHelThreadTrapsAreFatal))
 		return kHelErrIllegalArgs;
 
+	frigg::SharedPtr<Universe> universe;
 	frigg::SharedPtr<AddressSpace> space;
 	frigg::SharedPtr<RdFolder> directory;
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
+		
+		auto universe_wrapper = this_universe->getDescriptor(universe_guard, universe_handle);
+		if(!universe_wrapper)
+			return kHelErrNoDescriptor;
+		if(!universe_wrapper->is<UniverseDescriptor>())
+			return kHelErrBadDescriptor;
+		universe = universe_wrapper->get<UniverseDescriptor>().universe;
 
 		if(space_handle == kHelNullHandle) {
 			space = this_thread->getAddressSpace().toShared();
@@ -489,13 +513,6 @@ HelError helCreateThread(HelHandle space_handle, HelHandle directory_handle,
 			auto &dir_desc = dir_wrapper->get<RdDescriptor>();
 			directory = dir_desc.getFolder().toShared();
 		}
-	}
-
-	KernelSharedPtr<Universe> universe;
-	if(flags & kHelThreadNewUniverse) {
-		universe = frigg::makeShared<Universe>(*kernelAlloc);
-	}else{
-		universe = this_universe.toShared();
 	}
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),

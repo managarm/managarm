@@ -313,10 +313,13 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	// finally create a new thread to run the executable
 	helx::Directory directory = Process::runServer(process);
 
+	HelHandle universe;
+	HEL_CHECK(helCreateUniverse(&universe));
+
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(process->vmSpace, directory.getHandle(),
+	HEL_CHECK(helCreateThread(universe, process->vmSpace, directory.getHandle(),
 			kHelAbiSystemV, (void *)interpreterEntry, (char *)stack_base + p,
-			kHelThreadNewUniverse, &thread));
+			0, &thread));
 
 	auto action = frigg::await<void(HelError)>([=] (auto callback) {
 		int64_t async_id;

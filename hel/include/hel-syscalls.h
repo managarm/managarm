@@ -147,9 +147,15 @@ DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
 	DO_SYSCALL(Loadahead)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateThread, HelHandle address_space, HelHandle directory,
+DEFINE_SYSCALL(CreateUniverse, HelHandle *handle)
+	DO_SYSCALL(CreateUniverse)
+	OUT(0, HelHandle, handle)
+END_SYSCALL()
+
+DEFINE_SYSCALL(CreateThread, HelHandle universe, HelHandle address_space, HelHandle directory,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle)
-	IN(0, address_space) IN(1, directory) IN(2, abi) IN(3, ip) IN(4, sp) IN(5, flags)
+	IN(0, universe) IN(1, address_space) IN(2, directory) IN(3, abi)
+		IN(4, ip) IN(5, sp) IN(6, flags)
 	DO_SYSCALL(CreateThread)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()

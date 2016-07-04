@@ -23,6 +23,13 @@ struct AddressSpaceDescriptor {
 // Threading related descriptors
 // --------------------------------------------------------
 
+struct UniverseDescriptor {
+	UniverseDescriptor(frigg::SharedPtr<Universe> universe)
+	: universe(frigg::move(universe)) { }
+
+	frigg::SharedPtr<Universe> universe;
+};
+
 struct ThreadDescriptor {
 	ThreadDescriptor(frigg::SharedPtr<Thread, ThreadRunControl> thread)
 	: thread(frigg::move(thread)) { }
@@ -111,6 +118,7 @@ struct IoDescriptor {
 typedef frigg::Variant<
 	MemoryAccessDescriptor,
 	AddressSpaceDescriptor,
+	UniverseDescriptor,
 	ThreadDescriptor,
 	EventHubDescriptor,
 	RingDescriptor,

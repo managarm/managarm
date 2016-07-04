@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 62,
+	kHelNumCalls = 64,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -31,7 +31,9 @@ enum {
 	kHelCallSubmitLockMemory = 48,
 	kHelCallLoadahead = 49,
 	
-	kHelCallCreateThread = 59,
+	kHelCallCreateUniverse = 62,
+	
+	kHelCallCreateThread = 63,
 	kHelCallYield = 34,
 	kHelCallSubmitObserve = 60,
 	kHelCallResume = 61,
@@ -170,7 +172,6 @@ enum HelMapFlags {
 };
 
 enum HelThreadFlags {
-	kHelThreadNewUniverse = 1,
 	kHelThreadExclusive = 2,
 	kHelThreadTrapsAreFatal = 8
 };
@@ -217,7 +218,9 @@ HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handl
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 
-HEL_C_LINKAGE HelError helCreateThread(HelHandle address_space,
+HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
+
+HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelHandle directory, HelAbi abi, void *ip, void *sp,
 		uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
