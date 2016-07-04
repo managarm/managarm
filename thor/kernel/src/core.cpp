@@ -143,27 +143,26 @@ void EndpointRwControl::decrement() {
 // --------------------------------------------------------
 
 Universe::Universe()
-: p_descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc),
-		p_nextHandle(1) { }
+: _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
 	assert(guard.protects(&lock));
 
-	Handle handle = p_nextHandle++;
-	p_descriptorMap.insert(handle, frigg::move(descriptor));
+	Handle handle = _nextHandle++;
+	_descriptorMap.insert(handle, frigg::move(descriptor));
 	return handle;
 }
 
 AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
 
-	return p_descriptorMap.get(handle);
+	return _descriptorMap.get(handle);
 }
 
 frigg::Optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
 	
-	return p_descriptorMap.remove(handle);
+	return _descriptorMap.remove(handle);
 }
 
 } // namespace thor

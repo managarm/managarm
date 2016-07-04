@@ -263,6 +263,8 @@ extern InitFuncPtr __init_array_start[];
 extern InitFuncPtr __init_array_end[];
 
 int main() {
+	helx::Pipe superior(kHelThisUniverse);
+
 	// we're using no libc, so we have to run constructors manually
 	size_t init_count = __init_array_end - __init_array_start;
 	for(size_t i = 0; i < init_count; i++)
@@ -273,14 +275,14 @@ int main() {
 	allocator.initialize(virtualAlloc);
 	
 	// connect to mbus
-	const char *mbus_path = "local/mbus";
+	HelError mbus_recv_error;
 	HelHandle mbus_handle;
-	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
+	superior.recvDescriptorRespSync(eventHub, 1001, 0, mbus_recv_error, mbus_handle);
+	HEL_CHECK(mbus_recv_error);
+
 	helx::Client mbus_client(mbus_handle);
-	HelError mbus_error;
-	mbus_client.connectSync(eventHub, mbus_error, mbusPipe);
-	HEL_CHECK(mbus_error);
-	mbus_client.reset();
+	HelError mbus_connect_error;
+	mbus_client.connectSync(eventHub, mbus_connect_error, mbusPipe);
 	
 	frigg::runClosure<MbusClosure>(*allocator);
 
@@ -351,23 +353,10 @@ int main() {
 	helx::Server server;
 	helx::Client client;
 	helx::Server::createServer(server, client);
-/*
-	const char *parent_path = "local/parent";
-	HelHandle parent_handle;
-	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-	HEL_CHECK(helSendDescriptor(parent_handle, client.getHandle(), 0, 0, kHelRequest));
-	HEL_CHECK(helCloseDescriptor(parent_handle));
-*/
-	const char *parent_path = "local/parent";
-	HelHandle parent_handle;
-	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
 	
-	helx::Pipe parent_pipe(parent_handle);
 	HelError send_error;
-	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub,
-			0, 0, kHelRequest, send_error);	
+	superior.sendDescriptorReqSync(client.getHandle(), eventHub, 0, 0, send_error);
 	HEL_CHECK(send_error);
-	parent_pipe.reset();
 	client.reset();
 
 	while(true)

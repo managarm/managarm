@@ -21,7 +21,7 @@
 #include "ld-server.frigg_pb.hpp"
 #include "posix.frigg_pb.hpp"
 
-void loadImage(const char *path, HelHandle directory, bool exclusive) {
+HelHandle loadImage(const char *path, HelHandle directory, bool exclusive) {
 	// open and map the executable image into this address space
 	HelHandle image_handle;
 	HEL_CHECK(helRdOpen(path, strlen(path), &image_handle));
@@ -114,6 +114,8 @@ void loadImage(const char *path, HelHandle directory, bool exclusive) {
 	HEL_CHECK(helCreateThread(universe, space, directory, kHelAbiSystemV,
 			(void *)ehdr->e_entry, (char *)stack_base + stack_size, thread_flags, &thread));
 	HEL_CHECK(helCloseDescriptor(space));
+
+	return universe;
 }
 
 helx::EventHub eventHub = helx::EventHub::create();
@@ -142,21 +144,19 @@ void startMbus() {
 }
 
 void startAcpi() {
-	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
-
-	auto local_directory = helx::Directory::create();
-	local_directory.publish(child_pipe.getHandle(), "parent");
-	local_directory.publish(mbusConnect.getHandle(), "mbus");
-	
 	auto directory = helx::Directory::create();
-	directory.mount(local_directory.getHandle(), "local");
-	loadImage("initrd/acpi", directory.getHandle(), true);
+	HelHandle universe = loadImage("initrd/acpi", directory.getHandle(), true);
+	helx::Pipe pipe(universe);
 	
+	// TODO: use a real protocol here!
+	HelError mbus_error;
+	pipe.sendDescriptorRespSync(mbusConnect.getHandle(), eventHub, 1001, 0, mbus_error);
+	HEL_CHECK(mbus_error);
+
 	// receive a client handle from the child process
 	HelError recv_error;
 	HelHandle connect_handle;
-	parent_pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
+	pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
 	acpiConnect = helx::Client(connect_handle);

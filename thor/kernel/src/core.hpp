@@ -56,7 +56,7 @@ enum Error {
 	kErrClosedRemotely
 };
 
-typedef uint64_t Handle;
+typedef int64_t Handle;
 
 class Universe;
 class Memory;
@@ -189,6 +189,14 @@ public:
 	typedef frigg::LockGuard<frigg::TicketLock> Guard;
 
 	Universe();
+
+	// these channels can be used to send/receive packets to/from
+	// an inferior/superior universe.
+	Channel &inferiorSendChannel() { return _channels[0]; }
+	Channel &inferiorRecvChannel() { return _channels[1]; }
+
+	Channel &superiorSendChannel() { return _channels[1]; }
+	Channel &superiorRecvChannel() { return _channels[0]; }
 	
 	Handle attachDescriptor(Guard &guard, AnyDescriptor &&descriptor);
 
@@ -199,9 +207,11 @@ public:
 	Lock lock;
 
 private:
+	Channel _channels[2];
+
 	frigg::Hashmap<Handle, AnyDescriptor,
-			frigg::DefaultHasher<Handle>, KernelAlloc> p_descriptorMap;
-	Handle p_nextHandle;
+			frigg::DefaultHasher<Handle>, KernelAlloc> _descriptorMap;
+	Handle _nextHandle;
 };
 
 } // namespace thor

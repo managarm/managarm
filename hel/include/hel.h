@@ -93,11 +93,15 @@ enum {
 
 typedef int HelError;
 typedef int HelAbi;
-typedef uint64_t HelHandle;
+typedef int64_t HelHandle;
 typedef int64_t HelNanotime;
 
 enum {
 	kHelNullHandle = 0,
+	kHelThisUniverse = -1
+};
+
+enum {
 	kHelAnyRequest = -1,
 	kHelAnySequence = -1,
 	kHelNoFunction = 0,
