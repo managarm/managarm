@@ -189,7 +189,7 @@ void StatClosure::operator() () {
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 	// FIXME: use chains instead of sync calls
-	infoLogger->log() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::EndLog();
+	frigg::infoLogger.log() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::EndLog();
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
@@ -262,7 +262,7 @@ void ReadClosure::operator() () {
 		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
 		// FIXME: use chains instead of sync calls
-		infoLogger->log() << "[thor/initrd/src/main] ReadClosure:() sendStringResp" << frigg::EndLog();
+		frigg::infoLogger.log() << "[thor/initrd/src/main] ReadClosure:() sendStringResp" << frigg::EndLog();
 		HelError send_read_error;
 		connection.getPipe().sendStringRespSync(serialized.data(), serialized.size(),
 				eventHub, responseId, 0, send_read_error);
@@ -404,8 +404,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 
-	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering initrd" << frigg::EndLog();
+	frigg::infoLogger.log() << "Entering initrd" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
 	// connect to mbus

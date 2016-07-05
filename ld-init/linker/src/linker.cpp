@@ -111,7 +111,7 @@ void doInitialize(SharedObject *object) {
 	}
 
 	if(verbose)
-		infoLogger->log() << "Initialize " << object->name << frigg::EndLog();
+		frigg::infoLogger.log() << "Initialize " << object->name << frigg::EndLog();
 	
 	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
@@ -302,7 +302,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	assert(object->isMainObject);
 	if(verbose)
-		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
+		frigg::infoLogger.log() << "Loading " << object->name << frigg::EndLog();
 	
 	object->entry = entry_pointer;
 
@@ -460,7 +460,7 @@ HelHandle posixMmap(int fd) {
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
-		infoLogger->log() << "Loading " << object->name << frigg::EndLog();
+		frigg::infoLogger.log() << "Loading " << object->name << frigg::EndLog();
 	
 	frigg::String<Allocator> initrd_prefix(*allocator, "/initrd/");
 	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
@@ -595,7 +595,7 @@ void Loader::buildInitialTls() {
 		runtimeTlsMap->initialObjects.push(object);
 		
 		if(verbose)
-			infoLogger->log() << "TLS of " << object->name
+			frigg::infoLogger.log() << "TLS of " << object->name
 					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
 					<< ", size: " << object->tlsSegmentSize
 					<< ", alignment: " << object->tlsAlignment << frigg::EndLog();

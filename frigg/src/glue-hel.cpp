@@ -22,7 +22,6 @@ void InfoSink::print(const char *str) {
 }
 
 InfoSink infoSink;
-frigg::LazyInitializer<InfoLogger> infoLogger;
 
 void friggPrintCritical(char c) {
 	infoSink.print(c);

@@ -13,9 +13,7 @@ public:
 	void print(const char *str);
 };
 
-typedef frigg::DefaultLogger<InfoSink> InfoLogger;
 extern InfoSink infoSink;
-extern frigg::LazyInitializer<InfoLogger> infoLogger;
 
 struct VirtualAlloc {
 public:

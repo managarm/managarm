@@ -213,7 +213,7 @@ void Memory::loadMemory(uintptr_t offset, size_t size) {
 			}
 			
 			// submit a load request for the page
-//			infoLogger->log() << "LoadOrder(" << (offset + chunk_offset) << ", " << chunk_size
+//			frigg::infoLogger.log() << "LoadOrder(" << (offset + chunk_offset) << ", " << chunk_size
 //					<< ")" << frigg::EndLog();
 			LoadOrder load_order(offset + chunk_offset, chunk_size);
 			if(!processQueue.empty()) {
@@ -580,7 +580,7 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 Mapping *AddressSpace::allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
-//	infoLogger->log() << "Allocate virtual memory area"
+//	frigg::infoLogger.log() << "Allocate virtual memory area"
 //			<< ", size: 0x" << frigg::logHex(length) << frigg::EndLog();
 
 	if(p_root->largestHole < length)
@@ -1173,14 +1173,14 @@ bool AddressSpace::checkInvariant(Mapping *mapping, int &black_depth,
 		hole = mapping->rightPtr->largestHole;
 	
 	if(mapping->largestHole != hole) {
-		infoLogger->log() << "largestHole violation" << frigg::EndLog();
+		frigg::infoLogger.log() << "largestHole violation" << frigg::EndLog();
 		return false;
 	}
 
 	// check alternating colors invariant
 	if(mapping->color == Mapping::kColorRed)
 		if(!isBlack(mapping->leftPtr) || !isBlack(mapping->rightPtr)) {
-			infoLogger->log() << "Alternating colors violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Alternating colors violation" << frigg::EndLog();
 			return false;
 		}
 	
@@ -1195,16 +1195,16 @@ bool AddressSpace::checkInvariant(Mapping *mapping, int &black_depth,
 
 		// check search tree invariant
 		if(mapping->baseAddress < predecessor->baseAddress + predecessor->length) {
-			infoLogger->log() << "Search tree (left) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Search tree (left) violation" << frigg::EndLog();
 			return false;
 		}
 		
 		// check predecessor invariant
 		if(predecessor->higherPtr != mapping) {
-			infoLogger->log() << "Linked list (predecessor, forward) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Linked list (predecessor, forward) violation" << frigg::EndLog();
 			return false;
 		}else if(mapping->lowerPtr != predecessor) {
-			infoLogger->log() << "Linked list (predecessor, backward) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Linked list (predecessor, backward) violation" << frigg::EndLog();
 			return false;
 		}
 	}else{
@@ -1218,16 +1218,16 @@ bool AddressSpace::checkInvariant(Mapping *mapping, int &black_depth,
 		
 		// check search tree invariant
 		if(mapping->baseAddress + mapping->length > successor->baseAddress) {
-			infoLogger->log() << "Search tree (right) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Search tree (right) violation" << frigg::EndLog();
 			return false;
 		}
 
 		// check successor invariant
 		if(mapping->higherPtr != successor) {
-			infoLogger->log() << "Linked list (successor, forward) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Linked list (successor, forward) violation" << frigg::EndLog();
 			return false;
 		}else if(successor->lowerPtr != mapping) {
-			infoLogger->log() << "Linked list (successor, backward) violation" << frigg::EndLog();
+			frigg::infoLogger.log() << "Linked list (successor, backward) violation" << frigg::EndLog();
 			return false;
 		}
 	}else{
@@ -1236,7 +1236,7 @@ bool AddressSpace::checkInvariant(Mapping *mapping, int &black_depth,
 	
 	// check black-depth invariant
 	if(left_black_depth != right_black_depth) {
-		infoLogger->log() << "Black-depth violation" << frigg::EndLog();
+		frigg::infoLogger.log() << "Black-depth violation" << frigg::EndLog();
 		return false;
 	}
 

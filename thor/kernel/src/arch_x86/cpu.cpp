@@ -192,7 +192,7 @@ void initializeThisProcessor() {
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
 	switchExecutor(cpu_data->idleThread);
-	infoLogger->log() << "we got here" << frigg::EndLog();
+	frigg::infoLogger.log() << "we got here" << frigg::EndLog();
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
@@ -256,10 +256,10 @@ extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
 	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
-	infoLogger->log() << "Hello world from CPU #" << getLocalApicId() << frigg::EndLog();	
+	frigg::infoLogger.log() << "Hello world from CPU #" << getLocalApicId() << frigg::EndLog();	
 	initializeThisProcessor();
 
-	infoLogger->log() << "Start scheduling on AP" << frigg::EndLog();
+	frigg::infoLogger.log() << "Start scheduling on AP" << frigg::EndLog();
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(frigg::move(schedule_guard));
 }
@@ -289,13 +289,13 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	asm volatile ( "" : : : "memory" );
 	
 	// wait until the ap wakes up
-	infoLogger->log() << "Waiting for AP to wake up" << frigg::EndLog();
+	frigg::infoLogger.log() << "Waiting for AP to wake up" << frigg::EndLog();
 	while(frigg::volatileRead<uint32_t>(status_ptr) == 0) {
 		frigg::pause();
 	}
 	
 	// allow ap code to initialize the processor
-	infoLogger->log() << "AP is booting" << frigg::EndLog();
+	frigg::infoLogger.log() << "AP is booting" << frigg::EndLog();
 	frigg::volatileWrite<uint32_t>(status_ptr, 2);
 	
 	// wait until the secondary processor completed its boot process
@@ -303,7 +303,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	while(!frigg::volatileRead<bool>(&secondaryBootComplete)) {
 		frigg::pause();
 	}
-	infoLogger->log() << "AP finished booting" << frigg::EndLog();
+	frigg::infoLogger.log() << "AP finished booting" << frigg::EndLog();
 }
 
 } // namespace thor

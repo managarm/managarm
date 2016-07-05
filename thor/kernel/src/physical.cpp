@@ -253,7 +253,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	PhysicalAddr result = allocateInLevel(p_root, size, 0,
 			0, Chunk::numEntriesInLevel(0));
 	if(result == 0) {
-		infoLogger->log() << "Physical allocation failed!\n"
+		frigg::infoLogger.log() << "Physical allocation failed!\n"
 				<< "    Requested size: 0x" << frigg::logHex(size) << "\n"
 				<< "    Used pages: " << p_usedPages
 					<< ",  free pages: " << p_freePages << frigg::EndLog();

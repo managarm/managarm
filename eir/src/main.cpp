@@ -27,9 +27,7 @@ void BochsSink::print(const char *str) {
 		arch::ioOutByte(0xE9, *str++);
 }
 
-typedef frigg::DefaultLogger<BochsSink> InfoLogger;
 BochsSink infoSink;
-frigg::LazyInitializer<InfoLogger> infoLogger;
 
 void friggPrintCritical(char c) {
 	infoSink.print(c);
@@ -264,9 +262,7 @@ struct MbMemoryMap {
 };
 
 extern "C" void eirMain(MbInfo *mb_info) {
-	infoLogger.initialize(infoSink);
-
-	infoLogger->log() << "Starting Eir" << frigg::EndLog();
+	frigg::infoLogger.log() << "Starting Eir" << frigg::EndLog();
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
@@ -274,7 +270,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
 	memcpy(&vendor_str[8], &vendor_res[2], 4);
 	vendor_str[12] = 0;
-	infoLogger->log() << "CPU vendor: " << (const char *)vendor_str << frigg::EndLog();
+	frigg::infoLogger.log() << "CPU vendor: " << (const char *)vendor_str << frigg::EndLog();
 	
 	// make sure everything we require is supported by the CPU
 	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
@@ -298,7 +294,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	}
 	bootAlign(0x1000);
 	
-	infoLogger->log() << "Bootstrap memory at "
+	frigg::infoLogger.log() << "Bootstrap memory at "
 			<< (void *)bootstrapPointer << ", length: "
 			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << frigg::EndLog();
 	
@@ -320,14 +316,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	bootstrapBase = bootstrapPointer;
 	
 	assert((mb_info->flags & kMbInfoMemoryMap) != 0);
-	infoLogger->log() << "Memory map:" << frigg::EndLog();
+	frigg::infoLogger.log() << "Memory map:" << frigg::EndLog();
 	size_t offset = 0;
 	while(offset < mb_info->memoryMapLength) {
 		MbMemoryMap *map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr
 				+ offset);
 		
 		if(map->type == 1)
-			infoLogger->log() << "   Base: " << (void *)map->baseAddress
+			frigg::infoLogger.log() << "   Base: " << (void *)map->baseAddress
 					<< ", length: " << (map->length / 1024) << " KiB" << frigg::EndLog();
 
 		offset += map->size + 4;
@@ -381,7 +377,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info->bootstrapPhysical = bootstrapPointer;
 	info->bootstrapLength = bootstrapLimit - bootstrapPointer;
 
-	infoLogger->log() << "Leaving Eir and entering the real kernel" << frigg::EndLog();
+	frigg::infoLogger.log() << "Leaving Eir and entering the real kernel" << frigg::EndLog();
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
 			physical_window + thor_stack_base + thor_stack_length, info);
 }

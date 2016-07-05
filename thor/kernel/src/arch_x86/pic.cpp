@@ -40,7 +40,7 @@ void initLocalApicOnTheSystem() {
 	assert((apic_info & (1 << 11)) != 0); // local APIC is enabled
 	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
 
-	infoLogger->log() << "Booting on CPU #" << getLocalApicId() << frigg::EndLog();
+	frigg::infoLogger.log() << "Booting on CPU #" << getLocalApicId() << frigg::EndLog();
 }
 
 void initLocalApicPerCpu() {
@@ -66,7 +66,7 @@ void calibrateApicTimer() {
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
 	apicTicksPerMilli = elapsed / millis;
 	
-	infoLogger->log() << "Local elapsed ticks: " << elapsed << frigg::EndLog();
+	frigg::infoLogger.log() << "Local elapsed ticks: " << elapsed << frigg::EndLog();
 }
 
 void preemptThisCpu(uint64_t slice_nano) {
@@ -133,7 +133,7 @@ void setupIoApic(PhysicalAddr address) {
 	maskLegacyPic();
 
 	int num_ints = ((readIoApic(kIoApicVersion) >> 16) & 0xFF) + 1;
-	infoLogger->log() << "I/O APIC supports " << num_ints << " interrupts" << frigg::EndLog();
+	frigg::infoLogger.log() << "I/O APIC supports " << num_ints << " interrupts" << frigg::EndLog();
 
 	for(int i = 0; i < num_ints; i++) {
 		uint32_t vector = 64 + i;

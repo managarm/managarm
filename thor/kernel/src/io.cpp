@@ -23,7 +23,7 @@ void IrqRelay::setup(Guard&guard, uint32_t flags) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
 
-	infoLogger->log() << "setup(" << flags << ")" << frigg::EndLog();
+	frigg::infoLogger.log() << "setup(" << flags << ")" << frigg::EndLog();
 	p_flags = flags;
 }
 

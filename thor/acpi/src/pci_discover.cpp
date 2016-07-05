@@ -104,32 +104,32 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	
 	uint8_t header_type = readPciByte(bus, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
-		infoLogger->log() << "    Function " << function << ": Device" << frigg::EndLog();
+		frigg::infoLogger.log() << "    Function " << function << ": Device" << frigg::EndLog();
 	}else if((header_type & 0x7F) == 1) {
 		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
-		infoLogger->log() << "    Function " << function
+		frigg::infoLogger.log() << "    Function " << function
 				<< ": PCI-to-PCI bridge to bus " << secondary << frigg::EndLog();
 	}else{
-		infoLogger->log() << "    Function " << function
+		frigg::infoLogger.log() << "    Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F) << frigg::EndLog();
 	}
 
 	uint16_t device_id = readPciHalf(bus, slot, function, kPciDevice);
 	uint8_t revision = readPciByte(bus, slot, function, kPciRevision);
-	infoLogger->log() << "        Vendor: 0x" << frigg::logHex(vendor)
+	frigg::infoLogger.log() << "        Vendor: 0x" << frigg::logHex(vendor)
 			<< ", device ID: 0x" << frigg::logHex(device_id)
 			<< ", revision: " << revision << frigg::EndLog();
 	
 	uint8_t class_code = readPciByte(bus, slot, function, kPciClassCode);
 	uint8_t sub_class = readPciByte(bus, slot, function, kPciSubClass);
 	uint8_t interface = readPciByte(bus, slot, function, kPciInterface);
-	infoLogger->log() << "        Class: " << class_code
+	frigg::infoLogger.log() << "        Class: " << class_code
 			<< ", subclass: " << sub_class << ", interface: " << interface << frigg::EndLog();
 	
 	if((header_type & 0x7F) == 0) {
 		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
 		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
-		infoLogger->log() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
+		frigg::infoLogger.log() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
 				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::EndLog();
 
 		if(readPciHalf(bus, slot, function, kPciStatus) & 0x10) {
@@ -139,13 +139,13 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint8_t capability = readPciByte(bus, slot, function, offset);
 				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
 				
-				auto dump = infoLogger->log() << "        Capability 0x"
+				auto dump = frigg::infoLogger.log() << "        Capability 0x"
 						<< frigg::logHex(capability) << frigg::EndLog();
 				
 				if(capability == 0x09) {
 					uint8_t size = readPciByte(bus, slot, function, offset + 2);
 
-					auto dump = infoLogger->log() << "            Bytes: ";
+					auto dump = frigg::infoLogger.log() << "            Bytes: ";
 					for(size_t i = 2; i < size; i++) {
 						if(i > 2)
 							dump << ", ";
@@ -187,7 +187,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
-				infoLogger->log() << "        I/O space BAR #" << i
+				frigg::infoLogger.log() << "        I/O space BAR #" << i
 						<< " at 0x" << frigg::logHex(address)
 						<< ", length: " << length << " ports" << frigg::EndLog();
 			}else if(((bar >> 1) & 3) == 0) {
@@ -204,7 +204,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
 
-				infoLogger->log() << "        32-bit memory BAR #" << i
+				frigg::infoLogger.log() << "        32-bit memory BAR #" << i
 						<< " at 0x" << frigg::logHex(address)
 						<< ", length: " << length << " bytes" << frigg::EndLog();
 			}else if(((bar >> 1) & 3) == 2) {
@@ -246,7 +246,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		response.ParseFromArray(buffer, length);
 		
 		device->mbusId = response.object_id();
-		infoLogger->log() << "        ObjectID " << response.object_id() << frigg::EndLog();
+		frigg::infoLogger.log() << "        ObjectID " << response.object_id() << frigg::EndLog();
 
 		allDevices.push(device);
 	}
@@ -257,7 +257,7 @@ void checkPciDevice(uint32_t bus, uint32_t slot) {
 	if(vendor == 0xFFFF)
 		return;
 	
-	infoLogger->log() << "Bus: " << bus << ", slot " << slot << frigg::EndLog();
+	frigg::infoLogger.log() << "Bus: " << bus << ", slot " << slot << frigg::EndLog();
 	
 	uint8_t header_type = readPciByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {

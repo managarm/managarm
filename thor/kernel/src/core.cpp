@@ -16,7 +16,6 @@ int64_t allocAsyncId() {
 // --------------------------------------------------------
 
 BochsSink infoSink;
-frigg::LazyInitializer<frigg::DefaultLogger<BochsSink>> infoLogger;
 
 // --------------------------------------------------------
 // Memory management

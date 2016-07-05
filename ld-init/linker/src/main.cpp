@@ -53,7 +53,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	if(!p)
 		frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol" << frigg::EndLog();
 
-	//infoLogger->log() << "Lazy relocation to " << symbol_str
+	//frigg::infoLogger.log() << "Lazy relocation to " << symbol_str
 	//		<< " resolved to " << pointer << frigg::EndLog();
 	
 	*(uint64_t *)(object->baseAddress + reloc->r_offset) = p->virtualAddress();
@@ -65,8 +65,7 @@ frigg::LazyInitializer<helx::Pipe> posixPipe;
 
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
-	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering ld-init" << frigg::EndLog();
+	frigg::infoLogger.log() << "Entering ld-init" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 
@@ -138,7 +137,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	allocateTcb();
 	globalLoader->initObjects();
 
-	infoLogger->log() << "Leaving ld-init" << frigg::EndLog();
+	frigg::infoLogger.log() << "Leaving ld-init" << frigg::EndLog();
 	return executable->entry;
 }
 

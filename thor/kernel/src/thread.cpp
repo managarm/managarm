@@ -13,7 +13,7 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 : flags(0), _runState(kRunActive), // FIXME: do not use the active run state here
 		_pendingSignal(kSigNone), _runCount(1),
 		p_universe(universe), p_addressSpace(address_space), p_directory(directory) {
-//	infoLogger->log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
+//	frigg::infoLogger.log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
 }
 
 Thread::~Thread() {

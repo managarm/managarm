@@ -303,8 +303,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 
-	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Entering user_boot" << frigg::EndLog();
+	frigg::infoLogger.log() << "Entering user_boot" << frigg::EndLog();
 	allocator.initialize(virtualAlloc);
 	
 	startMbus();
@@ -318,7 +317,7 @@ int main() {
 	startPosixSubsystem();
 	runPosixInit();
 	
-	infoLogger->log() << "user_boot completed successfully" << frigg::EndLog();
+	frigg::infoLogger.log() << "user_boot completed successfully" << frigg::EndLog();
 	HEL_CHECK(helExitThisThread());
 	__builtin_unreachable();
 }

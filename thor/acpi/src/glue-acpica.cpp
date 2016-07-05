@@ -236,7 +236,7 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	infoLogger->log() << "Handle int " << interrupt << frigg::EndLog();
+	frigg::infoLogger.log() << "Handle int " << interrupt << frigg::EndLog();
 	//NOT_IMPLEMENTED();
 	return AE_OK;
 }

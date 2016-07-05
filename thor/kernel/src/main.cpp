@@ -102,7 +102,7 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	thread.control().increment();
 
 	// finally run the module by scheduling
-	infoLogger->log() << "Exiting Thor!" << frigg::EndLog();
+	frigg::infoLogger.log() << "Exiting Thor!" << frigg::EndLog();
 	
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	enqueueInSchedule(schedule_guard, frigg::move(thread));
@@ -110,13 +110,12 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 }
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	infoLogger.initialize(infoSink);
-	infoLogger->log() << "Starting Thor" << frigg::EndLog();
+	frigg::infoLogger.log() << "Starting Thor" << frigg::EndLog();
 
 	initializeProcessorEarly();
 	
 	auto info = accessPhysical<EirInfo>(info_paddr);
-	infoLogger->log() << "Bootstrap memory at "
+	frigg::infoLogger.log() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::EndLog();
 
@@ -158,7 +157,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
-		infoLogger->log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
+		frigg::infoLogger.log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << frigg::EndLog();
 
 		MemoryAccessDescriptor mod_descriptor(frigg::move(mod_memory));
@@ -186,7 +185,7 @@ extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
-	infoLogger->log() << "Debug fault at "
+	frigg::infoLogger.log() << "Debug fault at "
 			<< (void *)*image.ip() << frigg::EndLog();
 }
 
@@ -281,7 +280,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
-	infoLogger->log() << "IRQ #" << number << frigg::EndLog();
+	frigg::infoLogger.log() << "IRQ #" << number << frigg::EndLog();
 	
 	if(number == 2)
 		timerInterrupt();
@@ -298,7 +297,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 extern "C" void handleSyscall(SyscallImageAccessor image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 //	if(index != kHelCallLog)
-//		infoLogger->log() << "syscall #" << index << frigg::EndLog();
+//		frigg::infoLogger.log() << "syscall #" << index << frigg::EndLog();
 
 	Word arg0 = *image.in0();
 	Word arg1 = *image.in1();
@@ -315,7 +314,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLog((const char *)arg0, (size_t)arg1);
 	} break;
 	case kHelCallPanic: {
-		infoLogger->log() << "User space panic:" << frigg::EndLog();
+		frigg::infoLogger.log() << "User space panic:" << frigg::EndLog();
 		helLog((const char *)arg0, (size_t)arg1);
 		
 		while(true) { }
@@ -325,7 +324,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
 	} break;
 	case kHelCallCloseDescriptor: {
-//		infoLogger->log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
+//		frigg::infoLogger.log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
 		*image.error() = helCloseDescriptor((HelHandle)arg0);
 	} break;
 
@@ -395,7 +394,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 
 	case kHelCallCreateThread: {
-//		infoLogger->log() << "[" << this_thread->globalThreadId << "]"
+//		frigg::infoLogger.log() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"
 //				<< frigg::EndLog();
 		HelHandle handle;
@@ -428,14 +427,14 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 
 	case kHelCallCreateEventHub: {
-//			infoLogger->log() << "helCreateEventHub" << frigg::EndLog();
+//			frigg::infoLogger.log() << "helCreateEventHub" << frigg::EndLog();
 		HelHandle handle;
 		*image.error() = helCreateEventHub(&handle);
-//			infoLogger->log() << "    -> " << handle << frigg::EndLog();
+//			frigg::infoLogger.log() << "    -> " << handle << frigg::EndLog();
 		*image.out0() = handle;
 	} break;
 	case kHelCallWaitForEvents: {
-//			infoLogger->log() << "helWaitForEvents(" << (HelHandle)arg0
+//			frigg::infoLogger.log() << "helWaitForEvents(" << (HelHandle)arg0
 //					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
 //					<< ", " << (HelNanotime)arg3 << ")" << frigg::EndLog();
 
@@ -587,7 +586,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 			*image.error() = kHelErrNone;
 		}else if(subsystem == kThorSubDebug) {
 			if(interface == kThorIfDebugMemory) {
-				infoLogger->log() << "Memory info:\n"
+				frigg::infoLogger.log() << "Memory info:\n"
 						<< "    Physical pages: Used: " << physicalAllocator->numUsedPages()
 						<< ", free: " << physicalAllocator->numFreePages() << "\n"
 						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
