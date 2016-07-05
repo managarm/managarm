@@ -5,6 +5,8 @@
 
 namespace thor {
 
+frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+
 void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
@@ -89,8 +91,7 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	thorRtInvalidateSpace();
 
 	// create a thread for the module
-	auto universe = frigg::makeShared<Universe>(*kernelAlloc);
-	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
+	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	
@@ -100,14 +101,10 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 
 	// increment the reference counter so that the threads stays alive forever
 	thread.control().increment();
-
-	// finally run the module by scheduling
-	frigg::infoLogger.log() << "Exiting Thor!" << frigg::EndLog();
-	
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, frigg::move(thread));
-	doSchedule(frigg::move(schedule_guard));
 }
+
+// TODO: move this declaration to a header file
+void runService();
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger.log() << "Starting Thor" << frigg::EndLog();
@@ -169,8 +166,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
 
+	// create a root universe and run a kernel thread to communicate with the universe 
+	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
+	runService();
+
 	// finally we lauch the user_boot program
 	executeModule(frigg::move(root_directory), modules[0].physicalBase);
+
+	frigg::infoLogger.log() << "Exiting Thor!" << frigg::EndLog();
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	doSchedule(frigg::move(schedule_guard));
 }
 
 extern "C" void handleStubInterrupt() {
