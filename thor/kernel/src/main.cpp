@@ -101,6 +101,9 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 
 	// increment the reference counter so that the threads stays alive forever
 	thread.control().increment();
+
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
 
 // TODO: move this declaration to a header file

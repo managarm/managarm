@@ -92,6 +92,10 @@ void PlatformExecutor::enableIoPort(uintptr_t port) {
 	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
+frigg::UnsafePtr<Thread> activeExecutor() {
+	return frigg::staticPtrCast<Thread>(getCpuData()->activeExecutor);
+}
+
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	assert(!intsAreEnabled());
 	
@@ -115,8 +119,28 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	});
 }
 
-frigg::UnsafePtr<Thread> activeExecutor() {
-	return frigg::staticPtrCast<Thread>(getCpuData()->activeExecutor);
+extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, uint16_t cs, uint16_t ss);
+
+[[ gnu::section(".text.stubs") ]] void restoreExecutor() {
+	UniqueExecutorImage &image = activeExecutor()->image;
+
+	uint16_t cs, ss;
+	if(*image.kernel()) {
+		cs = selectorFor(kSegExecutorKernelCode, false);
+		ss = selectorFor(kSegExecutorKernelData, false);
+	}else{
+		cs = selectorFor(kSegExecutorUserCode, true);
+		ss = selectorFor(kSegExecutorUserData, true);
+	}
+
+	// TODO: use wr{fs,gs}base if it is available
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, image._general()->clientFs);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image._general()->clientGs);
+	
+	if(!*image.kernel())
+		asm volatile ( "swapgs" : : : "memory" );
+
+	_restoreExecutorRegisters(image._pointer, cs, ss);
 }
 
 // --------------------------------------------------------

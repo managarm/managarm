@@ -296,50 +296,17 @@ forkExecutor:
 	mov $1, %rax
 	ret
 
+# arguments: void *pointer, uint16_t cs, uint16_t ss
 .section .text.stubs
-.global restoreExecutor
-restoreExecutor:
-	mov %gs:.L_gsActiveExecutor, %rsi
-	mov .L_executorImagePtr(%rsi), %rdi
-
-	# restore the gs segment.
-	# we do a swapgs later if we restore a client context
-	mov .L_imageClientGs(%rdi), %rax
-	mov .L_imageClientGs(%rdi), %rdx
-	shr $32, %rdx
-	mov $.L_msrIndexKernelGsBase, %rcx
-	wrmsr
-	
-	testb $1, .L_imageKernel(%rdi)
-	jnz .L_restore_system
-
-.L_restore_client_user: # we restore to client/user mode
+.global _restoreExecutorRegisters
+_restoreExecutorRegisters:
 	# setup the IRET frame
-	pushq $.L_userDataSelector
+	pushq %rdx
 	pushq .L_imageRsp(%rdi)
 	pushq .L_imageRflags(%rdi)
-	pushq $.L_userCode64Selector
+	pushq %rsi
 	pushq .L_imageRip(%rdi)
 	
-	swapgs
-	jmp .L_complete_restore
-
-.L_restore_system: # we restore to kernel mode
-	# setup the IRET frame
-	pushq $.L_kernelDataSelector
-	pushq .L_imageRsp(%rdi)
-	pushq .L_imageRflags(%rdi)
-	pushq $.L_kernelCodeSelector
-	pushq .L_imageRip(%rdi)
-
-.L_complete_restore:
-	# restore the fs segment
-	mov .L_imageClientFs(%rdi), %rax
-	mov .L_imageClientFs(%rdi), %rdx
-	shr $32, %rdx
-	mov $.L_msrIndexFsBase, %rcx
-	wrmsr
-
 	# restore the general purpose registers except for rdi
 	mov .L_imageRax(%rdi), %rax
 	mov .L_imageRbx(%rdi), %rbx

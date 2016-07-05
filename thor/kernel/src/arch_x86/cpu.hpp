@@ -181,6 +181,7 @@ private:
 
 struct UniqueExecutorImage {
 	friend void saveExecutorFromFault(FaultImageAccessor accessor);
+	friend void restoreExecutor();
 
 	static size_t determineSize();
 
@@ -317,7 +318,7 @@ extern "C" [[ gnu::returns_twice ]] int forkExecutor();
 
 // restores the current executor from its saved image.
 // this is functions does the heavy lifting during task switch.
-extern "C" [[ noreturn ]] void restoreExecutor();
+[[ noreturn ]] void restoreExecutor();
 
 size_t getStateSize();
 

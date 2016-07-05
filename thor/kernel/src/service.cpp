@@ -12,7 +12,7 @@ void serviceMain() {
 }
 
 void runService() {
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
+/*	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	space->setupDefaultMappings();
 
@@ -41,7 +41,7 @@ void runService() {
 	thread.control().increment();
 
 	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, frigg::move(thread));
+	enqueueInSchedule(schedule_guard, frigg::move(thread));*/
 }
 
 }
