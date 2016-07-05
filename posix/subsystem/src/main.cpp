@@ -851,30 +851,41 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 	managarm::mbus::SvrRequest<Allocator> svr_request(*allocator);
 	svr_request.ParseFromArray(buffer, length);
 
-	infoLogger->log() << "[posix/subsystem/src/main] recvdBroadcast" << frigg::EndLog();
 	if(hasCapability(svr_request, "file-system")) {
-		managarm::mbus::CntRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-		request.set_object_id(svr_request.object_id());
+		auto action = frigg::compose([=] (managarm::mbus::SvrRequest<Allocator> *svr_request_ptr, 
+				frigg::String<Allocator> *serialized) {
+			managarm::mbus::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+			request.set_object_id(svr_request_ptr->object_id());
 
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-
-		infoLogger->log() << "[posix/subsystem/src/main] file-system sendStringReq" << frigg::EndLog();
-		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 1, 0);
-
-		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
+			request.SerializeToString(serialized);
+	
+			return mbusPipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 1, 0)
+			+ frigg::apply([=] (HelError error) { 
+				HEL_CHECK(error);
+				frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
+			});
+		}, frigg::move(svr_request), frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}else if(hasCapability(svr_request, "network")) {
-		managarm::mbus::CntRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-		request.set_object_id(svr_request.object_id());
+		auto action = frigg::compose([=] (managarm::mbus::SvrRequest<Allocator> *svr_request_ptr,
+				frigg::String<Allocator> *serialized) {
+			managarm::mbus::CntRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+			request.set_object_id(svr_request_ptr->object_id());
 
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		infoLogger->log() << "[posix/subsystem/src/main] network sendStringReq" << frigg::EndLog();
-		mbusPipe.sendStringReq(serialized.data(), serialized.size(), 2, 0);
-
-		frigg::runClosure<QueryDeviceIfClosure>(*allocator, 2);
+			request.SerializeToString(serialized);
+			
+			infoLogger->log() << "[posix/subsystem/src/main] network sendStringReq" << frigg::EndLog();
+			return mbusPipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 2, 0)
+			+ frigg::apply([=] (HelError error) { 
+				HEL_CHECK(error); 
+				frigg::runClosure<QueryDeviceIfClosure>(*allocator, 2);
+			});
+		}, frigg::move(svr_request), frigg::String<Allocator>(*allocator));
+		
+		frigg::run(frigg::move(action), allocator.get());
 	}
 
 	(*this)();

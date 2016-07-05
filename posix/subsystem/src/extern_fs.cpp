@@ -186,7 +186,7 @@ void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
 		}, frigg::String<Allocator>(*allocator))
 		// FIXME: fix request id
 		+ connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0)
-		+ frigg::await<void(HelError, int64_t, int64_t, size_t)>(
+		+ frigg::await<void(HelError, int64_t, int64_t, HelHandle)>(
 				[this, buffer] (auto callback, HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {		
 			HEL_CHECK(error);
 

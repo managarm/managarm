@@ -85,20 +85,24 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 		if(other.get() == object->connection.get())
 			continue;
 
-		managarm::mbus::SvrRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::mbus::SvrReqType::BROADCAST);
-		request.set_object_id(object->objectId);
-		
-		for(size_t i = 0; i < object->caps.size(); i++) {
-			managarm::mbus::Capability<Allocator> capability(*allocator);
-			capability.set_name(object->caps[i].name);
-			request.add_caps(frigg::move(capability));
-		}
+		auto action = frigg::compose([=] (frigg::String<Allocator> *serialized) {
+			managarm::mbus::SvrRequest<Allocator> request(*allocator);
+			request.set_req_type(managarm::mbus::SvrReqType::BROADCAST);
+			request.set_object_id(object->objectId);
+			
+			for(size_t i = 0; i < object->caps.size(); i++) {
+				managarm::mbus::Capability<Allocator> capability(*allocator);
+				capability.set_name(object->caps[i].name);
+				request.add_caps(frigg::move(capability));
+			}
+			
+			request.SerializeToString(serialized);
 
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		infoLogger->log() << "[mbus/src/main] broadcastRegister sendStringReq" << frigg::EndLog();
-		other->pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
+			return other->pipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 0, 0)
+			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		}, frigg::String<Allocator>(*allocator));
+
+		frigg::run(frigg::move(action), allocator.get());
 	}
 }
 
@@ -160,12 +164,11 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 					eventHub, msg_request, 0)
 			+ frigg::apply([=] (HelError error) {
 				HEL_CHECK(error);
+				broadcastRegister(object);
 			});
 		}, frigg::move(recvd_request), frigg::String<Allocator>(*allocator));
 
 		frigg::run(frigg::move(action), allocator.get());
-		/*broadcastRegister(frigg::move(object));
-		*/
 	} break;
 	case managarm::mbus::CntReqType::ENUMERATE: {
 		frigg::SharedPtr<Object> found;
