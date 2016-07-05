@@ -1,6 +1,6 @@
 
-#ifndef FRIGG_APPLY_HPP
-#define FRIGG_APPLY_HPP
+#ifndef FRIGG_LIFT_HPP
+#define FRIGG_LIFT_HPP
 
 #include <frigg/traits.hpp>
 #include <frigg/chain-common.hpp>
@@ -20,7 +20,7 @@ struct SwitchOnResult<void> {
 };
 
 template<typename Functor>
-struct ApplyUnary {
+struct LiftUnary {
 private:
 	template<typename P>
 	struct Resolve;
@@ -51,7 +51,7 @@ public:
 	template<typename... Args, typename Next>
 	struct Chain<void(Args...), Next, EnableNullary<Args...>> {
 		template<typename... E>
-		Chain(const ApplyUnary &bp, E &&...emplace)
+		Chain(const LiftUnary &bp, E &&...emplace)
 		: _functor(bp._functor), _next(forward<E>(emplace)...) { }
 
 		void operator() (Args &&... args) {
@@ -67,7 +67,7 @@ public:
 	template<typename... Args, typename Next>
 	struct Chain<void(Args...), Next, EnableUnary<Args...>> {
 		template<typename... E>
-		Chain(const ApplyUnary &bp, E &&...emplace)
+		Chain(const LiftUnary &bp, E &&...emplace)
 		: _functor(bp._functor), _next(forward<E>(emplace)...) { }
 
 		void operator() (Args &&... args) {
@@ -79,7 +79,7 @@ public:
 		Next _next;
 	};
 
-	ApplyUnary(Functor functor)
+	LiftUnary(Functor functor)
 	: _functor(move(functor)) { }
 
 private:
@@ -87,15 +87,15 @@ private:
 };
 
 template<typename Functor>
-struct CanSequence<ApplyUnary<Functor>>
+struct CanSequence<LiftUnary<Functor>>
 : public TrueType { };
 
 template<typename Functor>
-ApplyUnary<Functor> apply(Functor functor) {
-	return ApplyUnary<Functor>(move(functor));
+LiftUnary<Functor> lift(Functor functor) {
+	return LiftUnary<Functor>(move(functor));
 }
 
 } // namespace frigg
 
-#endif // FRIGG_APPLY_HPP
+#endif // FRIGG_LIFT_HPP
 

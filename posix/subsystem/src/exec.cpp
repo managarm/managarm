@@ -327,7 +327,7 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				&async_id));
 	})
-	+ frigg::apply([=](HelError error) {
+	+ frigg::lift([=](HelError error) {
 		frigg::infoLogger.log() << "Observe triggered" << frigg::EndLog();
 		HEL_CHECK(helResume(thread));
 	});

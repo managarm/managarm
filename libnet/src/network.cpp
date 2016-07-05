@@ -112,7 +112,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	request.ParseFromArray(buffer, length);
 	
 	if(request.req_type() == managarm::fs::CntReqType::OPEN) {
-		auto action = libchain::apply([this, request, msg_request] () {
+		auto action = libchain::lift([this, request, msg_request] () {
 			managarm::fs::SvrResponse response;
 
 			if(request.path() == "ip+udp") {
@@ -132,7 +132,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	
 		libchain::run(action);
 	}else if(request.req_type() == managarm::fs::CntReqType::CONNECT) {
-		auto action = libchain::apply([this, request, msg_request] () {
+		auto action = libchain::lift([this, request, msg_request] () {
 			managarm::fs::SvrResponse response;
 			
 			auto file = getOpenFile(request.fd());
@@ -155,7 +155,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 				HEL_CHECK(pipe.recvStringReq(&(*buffer)[0], request.size(), eventHub, msg_request, 1,
 						libchainToFrigg(callback)));
 			})
-			+ libchain::apply([this, request, msg_request, buffer] (HelError error,
+			+ libchain::lift([this, request, msg_request, buffer] (HelError error,
 					int64_t msg_request, int64_t msg_seq, size_t length) {
 				HEL_CHECK(error);
 				assert(length == (size_t)request.size());

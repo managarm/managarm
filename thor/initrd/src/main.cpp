@@ -281,14 +281,14 @@ void ReadClosure::operator() () {
 		
 		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 				eventHub, responseId, 0)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	}, frigg::String<Allocator>(*allocator))
 	+ frigg::compose([=] () {
 		char *ptr = open_file->image + open_file->offset;
 		open_file->offset += read_size;
 
 		return connection.getPipe().sendStringResp(ptr, read_size, eventHub, responseId, 1)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	});
 
 	frigg::run(frigg::move(action), allocator.get());
@@ -338,11 +338,11 @@ void MapClosure::operator() () {
 		
 		return connection.getPipe().sendStringResp(resp_buffer->data(), resp_buffer->size(),
 				eventHub, responseId, 0)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	}, frigg::String<Allocator>(*allocator))
 	+ frigg::compose([=] () {
 		return connection.getPipe().sendDescriptorResp(open_file->fileMemory, eventHub, responseId, 1)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	});
 
 	frigg::run(frigg::move(action), allocator.get()); 

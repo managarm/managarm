@@ -4,7 +4,7 @@
 
 #include <frigg/chain-run.hpp>
 
-#include <frigg/chain-apply.hpp>
+#include <frigg/chain-lift.hpp>
 #include <frigg/chain-await.hpp>
 #include <frigg/chain-branch.hpp>
 #include <frigg/chain-compose.hpp>

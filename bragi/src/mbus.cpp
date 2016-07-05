@@ -114,8 +114,8 @@ void Connection::RegisterClosure::operator() () {
 		request.SerializeToString(serialized);
 
 		return connection.mbusPipe.sendStringReq(serialized->data(), serialized->size(), connection.eventHub, 1, 0)
-		+ libchain::apply([=] (HelError error) { HEL_CHECK(error); })
-		+ libchain::apply([=] () {
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ libchain::lift([=] () {
 			HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
 					CALLBACK_MEMBER(this, &RegisterClosure::recvdResponse)));
 		});
@@ -157,8 +157,8 @@ void Connection::EnumerateClosure::operator() () {
 		request.SerializeToString(serialized);
 		return connection.mbusPipe.sendStringReq(serialized->data(), serialized->size(),
 				connection.eventHub, 1, 0)
-		+ libchain::apply([=] (HelError error) { HEL_CHECK(error); })
-		+ libchain::apply([=] () {
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ libchain::lift([=] () {
 			HEL_CHECK(connection.mbusPipe.recvStringResp(buffer, 128, connection.eventHub, 1, 0,
 					CALLBACK_MEMBER(this, &EnumerateClosure::recvdResponse)));
 		});
@@ -198,9 +198,9 @@ void Connection::QueryIfClosure::operator() () {
 		//printf("[bragi/src/mbus] Connection:QueryIfClosure() sendStringReq\n");
 		return connection.mbusPipe.sendStringReq(serialized->data(), serialized->size(),
 				connection.eventHub, 1, 0)
-		+ libchain::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
 	}, std::string())
-	+ libchain::apply([=] () {
+	+ libchain::lift([=] () {
 		connection.mbusPipe.recvDescriptorResp(connection.eventHub, 1, 1,
 				CALLBACK_MEMBER(this, &QueryIfClosure::recvdDescriptor));
 	});
@@ -231,7 +231,7 @@ void Connection::RequireIfClosure::operator() () {
 
 void Connection::RequireIfClosure::requiredIf(HelHandle handle) {
 	auto action = connection.mbusPipe.sendDescriptorResp(handle, connection.eventHub, requestId, 1)
-			+ libchain::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
 	libchain::run(std::move(action));
 	delete this;
 }

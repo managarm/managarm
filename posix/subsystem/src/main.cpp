@@ -83,7 +83,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
@@ -130,7 +130,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) {
+			+ frigg::lift([=] (HelError error) {
 				HEL_CHECK(error);
 			});
 		}, frigg::String<Allocator>(*allocator));
@@ -148,7 +148,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator));
 
 			frigg::run(action, allocator.get());
@@ -176,7 +176,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
@@ -193,7 +193,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
@@ -204,7 +204,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::await<void(FileStats)>([=] (auto callback) {
 				(*file)->fstat(callback);
@@ -231,7 +231,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator)),
 
 			frigg::compose([=] (auto serialized) {
@@ -241,7 +241,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator))
 		);
 
@@ -270,7 +270,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		})
 		+ frigg::compose([=] (StdSharedPtr<VfsOpenFile> file) {
 			return frigg::ifThenElse(
-				frigg::apply([=] () {
+				frigg::lift([=] () {
 					// NOTE: this is a hack that works around a bug in GCC
 					auto f = file;
 					return (bool)f;
@@ -292,7 +292,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					
 					return pipe->sendStringResp(serialized->data(), serialized->size(),
 							eventHub, msg_request2, 0)
-					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+					+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 				}, frigg::String<Allocator>(*allocator)),
 
 				frigg::compose([=] (auto serialized) {
@@ -300,7 +300,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 					return pipe->sendStringResp(serialized->data(), serialized->size(),
 							eventHub, msg_request, 0)
-					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+					+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 				}, frigg::String<Allocator>(*allocator))
 			);
 		});
@@ -313,7 +313,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 	
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::await<void()>([=] (auto callback) {
 				(*file)->connect(callback);
@@ -325,7 +325,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator)),
 
 			frigg::compose([=] (auto serialized) {
@@ -335,7 +335,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator))
 		);
 
@@ -347,7 +347,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			auto file = process->allOpenFiles.get(request.fd());
 			
 			auto action = frigg::ifThenElse(
-				frigg::apply([=] () { return file; }),
+				frigg::lift([=] () { return file; }),
 
 				frigg::await<void()>([=] (auto callback) {
 					(*file)->write(request.buffer().data(), request.buffer().size(), callback);
@@ -359,7 +359,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 					return pipe->sendStringResp(serialized->data(), serialized->size(),
 							eventHub, msg_request, 0)
-					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+					+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 				}, frigg::String<Allocator>(*allocator)),
 				
 				frigg::compose([=] (auto serialized) {
@@ -369,7 +369,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 					return pipe->sendStringResp(serialized->data(), serialized->size(),
 								eventHub, msg_request, 0)
-					+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+					+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 				}, frigg::String<Allocator>(*allocator))
 			);
 
@@ -381,7 +381,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::compose([=] (frigg::String<Allocator> *buffer) {
 				return frigg::await<void(VfsError error, size_t actual_size)>([=] (auto callback) {
@@ -393,7 +393,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					auto msg_request2 = msg_request;
 					
 					return frigg::ifThenElse(
-						frigg::apply([=] () { return error == kVfsEndOfFile; }),
+						frigg::lift([=] () { return error == kVfsEndOfFile; }),
 
 						frigg::compose([=] (auto serialized) {
 							managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -402,7 +402,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 							
 							return pipe->sendStringResp(serialized->data(), serialized->size(),
 									eventHub, msg_request2, 0)
-							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+							+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 						}, frigg::String<Allocator>(*allocator)),
 
 						frigg::compose([=] (auto serialized) {
@@ -415,10 +415,10 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 							return pipe->sendStringResp(serialized->data(), serialized->size(),
 									eventHub, msg_request2, 0)
-							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); })
+							+ frigg::lift([=] (HelError error) { HEL_CHECK(error); })
 							+ pipe->sendStringResp(buffer->data(), actual_size,
 									eventHub, msg_request2, 1)
-							+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+							+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 						}, frigg::String<Allocator>(*allocator))
 					);
 				});
@@ -431,7 +431,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator))
 		);
 
@@ -445,7 +445,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::await<void(uint64_t offset)>([=] (auto callback) {
 				if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
@@ -467,7 +467,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator)),
 
 			frigg::compose([=] (auto serialized) {
@@ -477,7 +477,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 			}, frigg::String<Allocator>(*allocator))
 		);
 
@@ -489,7 +489,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 		
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::await<void(HelHandle handle)>([=] (auto callback) {
 				(*file)->mmap(callback);
@@ -501,11 +501,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);
 				})
 				+ pipe->sendDescriptorResp(handle, eventHub, msg_request, 1)
-				+ frigg::apply([=] (HelError error) {
+				+ frigg::lift([=] (HelError error) {
 					HEL_CHECK(error);
 					HEL_CHECK(helCloseDescriptor(handle));
 				});
@@ -518,7 +518,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { HEL_CHECK(error);	});
+				+ frigg::lift([=] (HelError error) { HEL_CHECK(error);	});
 			}, frigg::String<Allocator>(*allocator))
 		);
 
@@ -544,7 +544,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
@@ -571,7 +571,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
@@ -582,7 +582,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file = process->allOpenFiles.get(request.fd());
 		
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file; }),
+			frigg::lift([=] () { return file; }),
 
 			frigg::compose([=] (auto serialized) {
 				frigg::Optional<frigg::String<Allocator>> result = (*file)->ttyName();
@@ -599,7 +599,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator)),
@@ -611,7 +611,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator))
@@ -631,7 +631,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file_wrapper; }),
+			frigg::lift([=] () { return file_wrapper; }),
 
 			frigg::compose([=] (auto serialized) {
 				auto file = *file_wrapper;
@@ -643,7 +643,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator)),
@@ -655,7 +655,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator))
@@ -669,7 +669,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		
 		auto action = frigg::ifThenElse(
-			frigg::apply([=] () { return file_wrapper; }),
+			frigg::lift([=] () { return file_wrapper; }),
 
 			frigg::compose([=] (auto serialized) {
 				auto file = *file_wrapper;
@@ -682,7 +682,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator)),
@@ -694,7 +694,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				
 				return pipe->sendStringResp(serialized->data(), serialized->size(),
 						eventHub, msg_request, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error);	
 				});
 			}, frigg::String<Allocator>(*allocator))
@@ -709,7 +709,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			
 			return pipe->sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) { 
+			+ frigg::lift([=] (HelError error) { 
 				HEL_CHECK(error);	
 			});
 		}, frigg::String<Allocator>(*allocator));
@@ -861,7 +861,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 			request.SerializeToString(serialized);
 	
 			return mbusPipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 1, 0)
-			+ frigg::apply([=] (HelError error) { 
+			+ frigg::lift([=] (HelError error) { 
 				HEL_CHECK(error);
 				frigg::runClosure<QueryDeviceIfClosure>(*allocator, 1);
 			});
@@ -879,7 +879,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 			
 			infoLogger->log() << "[posix/subsystem/src/main] network sendStringReq" << frigg::EndLog();
 			return mbusPipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 2, 0)
-			+ frigg::apply([=] (HelError error) { 
+			+ frigg::lift([=] (HelError error) { 
 				HEL_CHECK(error); 
 				frigg::runClosure<QueryDeviceIfClosure>(*allocator, 2);
 			});

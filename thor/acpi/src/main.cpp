@@ -246,7 +246,7 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 		requireObject(request.object_id(), frigg::move(local));
 		
 		auto action = mbusPipe.sendDescriptorResp(remote.getHandle(), eventHub, msg_request, 1)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		
 		frigg::run(frigg::move(action), allocator.get());
 	}

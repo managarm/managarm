@@ -32,7 +32,7 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
 			// FIXME: fix request id
 			return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
 		})
-		+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
 
 			managarm::fs::SvrResponse<Allocator> response(*allocator);
@@ -78,7 +78,7 @@ void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
 			// FIXME: fix request id
 			return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
 		})
-		+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
 
 			managarm::fs::SvrResponse<Allocator> response(*allocator);
@@ -110,7 +110,7 @@ void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()>
 			// FIXME: fix request id
 			return connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0);
 		})
-		+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
 
 			managarm::fs::SvrResponse<Allocator> response(*allocator);
@@ -137,7 +137,7 @@ void OpenFile::read(void *buffer, size_t max_length, frigg::CallbackPtr<void(Vfs
 			request.SerializeToString(serialized);
 			
 			return connection.getPipe().sendStringReq(serialized->data(), serialized->size(), eventHub, 1, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator))
 			// FIXME: fix request id
 		+ connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0)
@@ -148,9 +148,9 @@ void OpenFile::read(void *buffer, size_t max_length, frigg::CallbackPtr<void(Vfs
 			response.ParseFromArray(respBuffer->data(), length);
 
 			return frigg::ifThenElse(
-				frigg::apply([=] () { return response.error() == managarm::fs::Errors::END_OF_FILE; }),
+				frigg::lift([=] () { return response.error() == managarm::fs::Errors::END_OF_FILE; }),
 
-				frigg::apply([=] () {
+				frigg::lift([=] () {
 					complete(kVfsEndOfFile, 0);
 				}),
 
@@ -159,7 +159,7 @@ void OpenFile::read(void *buffer, size_t max_length, frigg::CallbackPtr<void(Vfs
 					// FIXME: fix request id
 					return connection.getPipe().recvStringResp(buffer, max_length2, eventHub, 1, 1);
 				})
-				+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+				+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 					HEL_CHECK(error);
 
 					complete(kVfsSuccess, length);
@@ -182,7 +182,7 @@ void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
 			request.SerializeToString(serialized);
 
 			return connection.getPipe().sendStringReq(serialized->data(), serialized->size(), eventHub, 1, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator))
 		// FIXME: fix request id
 		+ connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0)
@@ -197,7 +197,7 @@ void OpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> complete) {
 			// FIXME: fix request id
 			connection.getPipe().recvDescriptorResp(eventHub, 1, 1, callback);
 		})
-		+ frigg::apply([this] (HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle ) {	
+		+ frigg::lift([this] (HelError error, int64_t msg_request, int64_t msg_seq, HelHandle handle ) {	
 			HEL_CHECK(error);
 
 			return handle;
@@ -229,11 +229,11 @@ void OpenFile::seek(int64_t rel_offset, VfsSeek whence,	frigg::CallbackPtr<void(
 			request.SerializeToString(serialized);
 			
 			return connection.getPipe().sendStringReq(serialized->data(), serialized->size(), eventHub, 1, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator))
 		// FIXME: fix request id
 		+ connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0)
-		+ frigg::apply([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
+		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
 
 			managarm::fs::SvrResponse<Allocator> response(*allocator);

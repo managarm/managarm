@@ -48,7 +48,7 @@ void DeviceClosure::operator() () {
 			response.add_bars(frigg::move(bar_response));
 
 			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
-			+ frigg::apply([=] (HelError error) { HEL_SOFT_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_SOFT_CHECK(error); });
 			
 			frigg::run(frigg::move(action), allocator.get());
 		}else if(device->bars[k].type == PciDevice::kBarMemory) {
@@ -59,7 +59,7 @@ void DeviceClosure::operator() () {
 			response.add_bars(frigg::move(bar_response));
 
 			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
-			+ frigg::apply([=] (HelError error) { HEL_SOFT_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_SOFT_CHECK(error); });
 			
 			frigg::run(frigg::move(action), allocator.get());
 		}else{
@@ -76,7 +76,7 @@ void DeviceClosure::operator() () {
 		response->SerializeToString(serialized);
 		
 		return pipe.sendStringResp(serialized->data(), serialized->size(), eventHub, 1, 0)
-		+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	}, frigg::String<Allocator>(*allocator), frigg::move(response));
 
 	frigg::run(frigg::move(action), allocator.get());

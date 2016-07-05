@@ -99,7 +99,7 @@ void broadcastRegister(frigg::SharedPtr<Object> object) {
 			request.SerializeToString(serialized);
 
 			return other->pipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 0, 0)
-			+ frigg::apply([=] (HelError error) { HEL_CHECK(error); });
+			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, frigg::String<Allocator>(*allocator));
 
 		frigg::run(frigg::move(action), allocator.get());
@@ -162,7 +162,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 			
 			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) {
+			+ frigg::lift([=] (HelError error) {
 				HEL_CHECK(error);
 				broadcastRegister(object);
 			});
@@ -194,7 +194,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 			
 			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
 					eventHub, msg_request, 0)
-			+ frigg::apply([=] (HelError error) {
+			+ frigg::lift([=] (HelError error) {
 				HEL_CHECK(error);
 			});
 		}, frigg::String<Allocator>(*allocator));
@@ -216,7 +216,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 			
 				return (*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
 							eventHub, require_request_id, 0)
-				+ frigg::apply([=] (HelError error) { 
+				+ frigg::lift([=] (HelError error) { 
 					HEL_CHECK(error); 
 				});
 			}, frigg::String<Allocator>(*allocator))
@@ -229,7 +229,7 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 				HEL_CHECK(error);
 				
 				return connection->pipe.sendDescriptorResp(handle, eventHub, msg_request, 1)
-				+ frigg::apply([=] (HelError error) {
+				+ frigg::lift([=] (HelError error) {
 					HEL_CHECK(error);
 					HEL_CHECK(helCloseDescriptor(handle));
 				});
