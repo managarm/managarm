@@ -168,8 +168,9 @@ private:
 } // namespace thor
 
 #include "descriptor.hpp"
-#include "usermem.hpp"
+#include "accessors.hpp"
 #include "event.hpp"
+#include "usermem.hpp"
 #include "thread.hpp"
 #include "ring-buffer.hpp"
 #include "ipc.hpp"
@@ -177,6 +178,30 @@ private:
 #include "io.hpp"
 
 namespace thor {
+
+template<typename T>
+T *DirectSpaceLock<T>::get() {
+	assert(_space);
+	size_t misalign = (VirtualAddr)_address % kPageSize;
+	AddressSpace::Guard guard(&_space->lock);
+	PhysicalAddr page = _space->grabPhysical(guard, (VirtualAddr)_address - misalign);
+	return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
+}
+
+inline void ForeignSpaceLock::copyTo(void *pointer, size_t size) {
+	AddressSpace::Guard guard(&_space->lock);
+	
+	size_t offset = 0;
+	while(offset < size) {
+		VirtualAddr write = (VirtualAddr)_address + offset;
+		size_t misalign = (VirtualAddr)write % kPageSize;
+		size_t chunk = frigg::min(kPageSize - misalign, size - offset);
+
+		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+		memcpy(physicalToVirtual(page + misalign), (char *)pointer + offset, chunk);
+		offset += chunk;
+	}
+}
 
 // --------------------------------------------------------
 // Process related classes

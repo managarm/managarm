@@ -8,7 +8,7 @@ namespace thor {
 // --------------------------------------------------------
 
 Memory::Memory(Type type)
-: flags(0), loadState(*kernelAlloc), processQueue(*kernelAlloc), loadQueue(*kernelAlloc),
+: flags(0), loadState(*kernelAlloc), loadQueue(*kernelAlloc),
 		lockQueue(*kernelAlloc), waitQueue(*kernelAlloc),
 		p_type(type), p_physicalPages(*kernelAlloc) { }
 
@@ -137,6 +137,15 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 	__builtin_unreachable();
 }
 
+void Memory::submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load) {
+	if(!loadQueue.empty()) {
+		Memory::LoadOrder load_order = loadQueue.removeFront();
+		processLoad(frigg::move(handle_load), load_order);
+	}else{
+		_handleLoadQueue.addBack(frigg::move(handle_load));
+	}
+}
+
 size_t Memory::numPages() {
 	return p_physicalPages.size();
 }
@@ -216,9 +225,9 @@ void Memory::loadMemory(uintptr_t offset, size_t size) {
 //			frigg::infoLogger.log() << "LoadOrder(" << (offset + chunk_offset) << ", " << chunk_size
 //					<< ")" << frigg::EndLog();
 			LoadOrder load_order(offset + chunk_offset, chunk_size);
-			if(!processQueue.empty()) {
-				ProcessRequest process_request = processQueue.removeFront();
-				performLoad(&process_request, &load_order);
+			if(!_handleLoadQueue.empty()) {
+				frigg::SharedPtr<AsyncHandleLoad> handle_load = _handleLoadQueue.removeFront();
+				processLoad(frigg::move(handle_load), load_order);
 			}else{
 				loadQueue.addBack(load_order);
 			}
@@ -233,15 +242,11 @@ void Memory::loadMemory(uintptr_t offset, size_t size) {
 	}
 }
 
-void Memory::performLoad(ProcessRequest *process_request, LoadOrder *load_order) {
-	AsyncEvent user_event(kEventMemoryLoad, process_request->submitInfo);
-	user_event.offset = load_order->offset;
-	user_event.length = load_order->size;
+void Memory::processLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load, LoadOrder load_order) {
+	handle_load->offset = load_order.offset;
+	handle_load->length = load_order.size;
 
-	EventHub::Guard hub_guard(&process_request->eventHub->lock);
-	assert(!"Fix memory load event");
-//	process_request->eventHub->raiseEvent(hub_guard, frigg::move(user_event));
-	hub_guard.unlock();
+	AsyncOperation::complete(frigg::move(handle_load));
 }
 
 bool Memory::checkLock(LockRequest *lock_request) {

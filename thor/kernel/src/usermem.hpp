@@ -61,6 +61,8 @@ public:
 
 	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			size_t offset);
+	
+	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load);
 
 	size_t numPages();
 	
@@ -70,8 +72,8 @@ public:
 	// submits a load request for a certain chunk of memory
 	void loadMemory(uintptr_t offset, size_t size);
 
-	// raises an event for the ProcessRequest
-	void performLoad(ProcessRequest *process_request, LoadOrder *load_order);
+	void processLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load,
+			LoadOrder load_order);
 
 	bool checkLock(LockRequest *lock_request);
 
@@ -85,8 +87,6 @@ public:
 	// TODO: make this private?
 	frigg::Vector<LoadState, KernelAlloc> loadState;
 	
-	frigg::LinkedList<ProcessRequest, KernelAlloc> processQueue;
-	
 	frigg::LinkedList<LoadOrder, KernelAlloc> loadQueue;
 	
 	frigg::LinkedList<LockRequest, KernelAlloc> lockQueue;
@@ -97,6 +97,11 @@ public:
 private:
 	Type p_type;
 	frigg::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncHandleLoad,
+		&AsyncHandleLoad::processQueueItem
+	> _handleLoadQueue;
 };
 
 struct Mapping {
@@ -248,176 +253,6 @@ private:
 	
 	Mapping *p_root;
 	PageSpace p_pageSpace;
-};
-
-// directly accesses an object in an arbitrary address space.
-// requires the object's address to be naturally aligned
-// so that the object cannot cross a page boundary.
-// requires the object to be smaller than a page for the same reason.
-template<typename T>
-struct DirectSpaceLock {
-	static DirectSpaceLock acquire(frigg::SharedPtr<AddressSpace> space, T *address) {
-		assert(sizeof(T) <= kPageSize);
-		assert((VirtualAddr)address % sizeof(T) == 0);
-		// TODO: actually lock the memory + make sure the memory is mapped as writeable
-		// TODO: return an empty lock if the acquire fails
-		return DirectSpaceLock(frigg::move(space), address);
-	}
-
-	friend void swap(DirectSpaceLock &a, DirectSpaceLock &b) {
-		frigg::swap(a._space, b._space);
-		frigg::swap(a._address, b._address);
-	}
-
-	DirectSpaceLock() = default;
-
-	DirectSpaceLock(const DirectSpaceLock &other) = delete;
-
-	DirectSpaceLock(DirectSpaceLock &&other)
-	: DirectSpaceLock() {
-		swap(*this, other);
-	}
-	
-	DirectSpaceLock &operator= (DirectSpaceLock other) {
-		swap(*this, other);
-		return *this;
-	}
-	
-	frigg::UnsafePtr<AddressSpace> space() {
-		return _space;
-	}
-	void *foreignAddress() {
-		return _address;
-	}
-
-	T *get() {
-		assert(_space);
-		size_t misalign = (VirtualAddr)_address % kPageSize;
-		AddressSpace::Guard guard(&_space->lock);
-		PhysicalAddr page = _space->grabPhysical(guard, (VirtualAddr)_address - misalign);
-		return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
-	}
-
-	T &operator* () {
-		return *get();
-	}
-	T *operator-> () {
-		return get();
-	}
-
-private:
-	DirectSpaceLock(frigg::SharedPtr<AddressSpace> space, T *address)
-	: _space(frigg::move(space)), _address(address) { }
-
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_address;
-};
-
-struct ForeignSpaceLock {
-	static ForeignSpaceLock acquire(frigg::SharedPtr<AddressSpace> space,
-			void *address, size_t length) {
-		// TODO: actually lock the memory + make sure the memory is mapped as writeable
-		// TODO: return an empty lock if the acquire fails
-		return ForeignSpaceLock(frigg::move(space), address, length);
-	}
-
-	friend void swap(ForeignSpaceLock &a, ForeignSpaceLock &b) {
-		frigg::swap(a._space, b._space);
-		frigg::swap(a._address, b._address);
-		frigg::swap(a._length, b._length);
-	}
-
-	ForeignSpaceLock() = default;
-
-	ForeignSpaceLock(const ForeignSpaceLock &other) = delete;
-
-	ForeignSpaceLock(ForeignSpaceLock &&other)
-	: ForeignSpaceLock() {
-		swap(*this, other);
-	}
-	
-	ForeignSpaceLock &operator= (ForeignSpaceLock other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	frigg::UnsafePtr<AddressSpace> space() {
-		return _space;
-	}
-	size_t length() {
-		return _length;
-	}
-
-	void copyTo(void *pointer, size_t size) {
-		AddressSpace::Guard guard(&_space->lock);
-		
-		size_t offset = 0;
-		while(offset < size) {
-			VirtualAddr write = (VirtualAddr)_address + offset;
-			size_t misalign = (VirtualAddr)write % kPageSize;
-			size_t chunk = frigg::min(kPageSize - misalign, size - offset);
-
-			PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-			memcpy(physicalToVirtual(page + misalign), (char *)pointer + offset, chunk);
-			offset += chunk;
-		}
-	}
-
-private:
-	ForeignSpaceLock(frigg::SharedPtr<AddressSpace> space,
-			void *address, size_t length)
-	: _space(frigg::move(space)), _address(address), _length(length) { }
-
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_address;
-	size_t _length;
-};
-
-template<typename T>
-struct DirectSelfAccessor {
-	static DirectSelfAccessor acquire(T *address) {
-		// TODO: actually lock the memory + make sure the memory is mapped as writeable
-		// TODO: return an empty lock if the acquire fails
-		return DirectSelfAccessor(address);
-	}
-
-	friend void swap(DirectSelfAccessor &a, DirectSelfAccessor &b) {
-		frigg::swap(a._address, b._address);
-	}
-
-	DirectSelfAccessor()
-	: _address(nullptr) { }
-
-	DirectSelfAccessor(const DirectSelfAccessor &other) = delete;
-
-	DirectSelfAccessor(DirectSelfAccessor &&other)
-	: DirectSelfAccessor() {
-		swap(*this, other);
-	}
-	
-	DirectSelfAccessor &operator= (DirectSelfAccessor other) {
-		swap(*this, other);
-		return *this;
-	}
-	
-	T *get() {
-		assert(_address);
-		return _address;
-	}
-
-	T &operator* () {
-		return *get();
-	}
-	T *operator-> () {
-		return get();
-	}
-
-private:
-	DirectSelfAccessor(T *address)
-	: _address(address) { }
-
-	frigg::SharedPtr<AddressSpace> _space;
-	T *_address;
 };
 
 } // namespace thor

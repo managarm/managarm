@@ -54,6 +54,18 @@ struct AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
+struct AsyncHandleLoad : public AsyncOperation {
+	AsyncHandleLoad(AsyncData data)
+	: AsyncOperation(frigg::move(data)) { }
+	
+	AsyncEvent getEvent() override;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncHandleLoad> processQueueItem;
+
+	size_t offset;
+	size_t length;
+};
+
 struct AsyncObserve : public AsyncOperation {
 	AsyncObserve(AsyncData data)
 	: AsyncOperation(frigg::move(data)) { }

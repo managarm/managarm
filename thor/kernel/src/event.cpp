@@ -10,6 +10,13 @@ namespace thor {
 AsyncEvent::AsyncEvent(EventType type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
+AsyncEvent AsyncHandleLoad::getEvent() {
+	AsyncEvent event(kEventMemoryLoad, submitInfo);
+	event.error = kErrSuccess;
+	event.offset = offset;
+	event.length = length;
+	return event;
+}
 AsyncEvent AsyncObserve::getEvent() {
 	AsyncEvent event(kEventObserve, submitInfo);
 	event.error = kErrSuccess;

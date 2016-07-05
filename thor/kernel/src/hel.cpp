@@ -333,15 +333,15 @@ HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
-
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	Memory::ProcessRequest process_request(frigg::move(event_hub), submit_info);
-
-	if(!memory->loadQueue.empty()) {
-		Memory::LoadOrder load_order = memory->loadQueue.removeFront();
-		memory->performLoad(&process_request, &load_order);
-	}else{
-		memory->processQueue.addBack(frigg::move(process_request));
+	
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+	
+	auto handle_load = frigg::makeShared<AsyncHandleLoad>(*kernelAlloc,
+			frigg::move(data));
+	{
+		// TODO: protect memory object with a guard
+		memory->submitHandleLoad(frigg::move(handle_load));
 	}
 
 	return kHelErrNone;
