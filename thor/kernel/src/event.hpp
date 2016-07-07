@@ -66,6 +66,21 @@ struct AsyncHandleLoad : public AsyncOperation {
 	size_t length;
 };
 
+struct AsyncInitiateLoad : public AsyncOperation {
+	AsyncInitiateLoad(AsyncData data, size_t offset, size_t length)
+	: AsyncOperation(frigg::move(data)), offset(offset), length(length), progress(0) { }
+
+	size_t offset;
+	size_t length;
+
+	// byte offset for which AsyncHandleLoads have already been issued
+	size_t progress;
+	
+	AsyncEvent getEvent() override;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncInitiateLoad> processQueueItem;
+};
+
 struct AsyncObserve : public AsyncOperation {
 	AsyncObserve(AsyncData data)
 	: AsyncOperation(frigg::move(data)) { }

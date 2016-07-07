@@ -49,7 +49,7 @@ int main() {
 	}
 	
 	// TODO: this is a very ugly hack to wait until the fs is ready
-	for(int i = 0; i < 10000; i++)
+/*	for(int i = 0; i < 10000; i++)
 		sched_yield();
 	
 	printf("Testing network API!\n");
@@ -61,6 +61,10 @@ int main() {
 	address.sin_port = 7;
 	address.sin_addr.s_addr = (10 << 24) | (85 << 16) | (1 << 8) | 1;
 	connect(socket, (struct sockaddr *)&address, sizeof(struct sockaddr_in));
-	write(socket, "hello", 5);
+	write(socket, "hello", 5);*/
+
+	// FIXME: work around kernel bug
+	while(true)
+		sched_yield();
 }
 

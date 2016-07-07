@@ -17,6 +17,11 @@ AsyncEvent AsyncHandleLoad::getEvent() {
 	event.length = length;
 	return event;
 }
+AsyncEvent AsyncInitiateLoad::getEvent() {
+	AsyncEvent event(kEventMemoryLock, submitInfo);
+	event.error = kErrSuccess;
+	return event;
+}
 AsyncEvent AsyncObserve::getEvent() {
 	AsyncEvent event(kEventObserve, submitInfo);
 	event.error = kErrSuccess;

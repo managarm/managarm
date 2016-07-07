@@ -23,30 +23,6 @@ public:
 		kStateLoaded
 	};
 
-	struct ProcessRequest {
-		ProcessRequest(frigg::SharedPtr<EventHub> event_hub, SubmitInfo submit_info);
-		
-		frigg::SharedPtr<EventHub> eventHub;
-		SubmitInfo submitInfo;
-	};
-
-	struct LoadOrder {
-		LoadOrder(uintptr_t offset, size_t size);
-		
-		uintptr_t offset;
-		size_t size;
-	};
-
-	struct LockRequest {
-		LockRequest(uintptr_t offset, size_t size,
-				frigg::SharedPtr<EventHub> event_hub, SubmitInfo submit_info);
-		
-		uintptr_t offset;
-		size_t size;
-		frigg::SharedPtr<EventHub> eventHub;
-		SubmitInfo submitInfo;
-	};
-
 	Memory(Type type);
 	~Memory();
 
@@ -62,23 +38,18 @@ public:
 	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			size_t offset);
 	
-	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load);
+	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle);
+	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate);
+	void _progressLoads();
+	void completeLoad(size_t offset, size_t length);
+	bool _isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate);
 
 	size_t numPages();
 	
 	void zeroPages();
 	void copyTo(size_t offset, void *source, size_t length);
 
-	// submits a load request for a certain chunk of memory
-	void loadMemory(uintptr_t offset, size_t size);
-
-	void processLoad(frigg::SharedPtr<AsyncHandleLoad> handle_load,
-			LoadOrder load_order);
-
-	bool checkLock(LockRequest *lock_request);
-
-	// raises an event for the LockRequest
-	void performLock(LockRequest *lock_request);
+//	bool checkLock(LockRequest *lock_request);
 
 	uint32_t flags;
 
@@ -87,16 +58,22 @@ public:
 	// TODO: make this private?
 	frigg::Vector<LoadState, KernelAlloc> loadState;
 	
-	frigg::LinkedList<LoadOrder, KernelAlloc> loadQueue;
-	
-	frigg::LinkedList<LockRequest, KernelAlloc> lockQueue;
-
 	// threads blocking until a load request is finished
 	frigg::LinkedList<frigg::SharedPtr<Thread>, KernelAlloc> waitQueue;
 
 private:
 	Type p_type;
 	frigg::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncInitiateLoad,
+		&AsyncInitiateLoad::processQueueItem
+	> _initiateLoadQueue;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncInitiateLoad,
+		&AsyncInitiateLoad::processQueueItem
+	> _pendingLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncHandleLoad,

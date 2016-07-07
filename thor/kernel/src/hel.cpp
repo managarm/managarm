@@ -337,11 +337,11 @@ HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = data.asyncId;
 	
-	auto handle_load = frigg::makeShared<AsyncHandleLoad>(*kernelAlloc,
+	auto initiate_load = frigg::makeShared<AsyncHandleLoad>(*kernelAlloc,
 			frigg::move(data));
 	{
 		// TODO: protect memory object with a guard
-		memory->submitHandleLoad(frigg::move(handle_load));
+		memory->submitHandleLoad(frigg::move(initiate_load));
 	}
 
 	return kHelErrNone;
@@ -365,30 +365,9 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	// mark the page as loaded
-	for(uintptr_t page = 0; page < length; page += kPageSize)
-		memory->loadState[(offset + page) / kPageSize] = Memory::kStateLoaded;
 
-	// complete all memory locks
-	for(auto it = memory->lockQueue.frontIter(); it.okay(); ++it) {
-		Memory::LockRequest *lock_request = &(*it);
-		if(!memory->checkLock(lock_request))
-			continue;
-		
-		memory->performLock(lock_request);
-		memory->lockQueue.remove(it);
-	}
+	memory->completeLoad(offset, length);
 
-	// resume all waiting threads
-	while(!memory->waitQueue.empty()) {
-		KernelSharedPtr<Thread> waiting = memory->waitQueue.removeFront();
-
-		{
-			ScheduleGuard schedule_guard(scheduleLock.get());
-			enqueueInSchedule(schedule_guard, waiting);
-		}
-	}
-	
 	return kHelErrNone;
 }
 
@@ -417,15 +396,25 @@ HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
 			return kHelErrBadDescriptor;
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
+	
+	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = data.asyncId;
+	
+	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
+			frigg::move(data), offset, size);
+	{
+		// TODO: protect memory object with a guard
+		memory->submitInitiateLoad(frigg::move(handle_load));
+	}
 
-	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
+/*	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
 	Memory::LockRequest lock_request(offset, size, frigg::move(event_hub), submit_info);
 	if(memory->checkLock(&lock_request)) {
 		memory->performLock(&lock_request);
 	}else{
 		memory->loadMemory(offset, size);
 		memory->lockQueue.addBack(frigg::move(lock_request));
-	}
+	}*/
 
 	return kHelErrNone;
 }
@@ -448,8 +437,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	if(memory->getType() == Memory::kTypeBacked)
-		memory->loadMemory(offset, length);
+	frigg::infoLogger.log() << "helLoadahead() is implemented as no-op" << frigg::EndLog();
 	
 	return kHelErrNone;
 }
