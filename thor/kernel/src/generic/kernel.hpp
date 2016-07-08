@@ -30,12 +30,12 @@ typedef uint64_t VirtualAddr;
 typedef uint64_t VirtualOffset;
 
 #include "physical.hpp"
-#include "arch_x86/cpu.hpp"
-#include "arch_x86/ints.hpp"
-#include "arch_x86/paging.hpp"
-#include "arch_x86/pic.hpp"
-#include "arch_x86/hpet.hpp"
-#include "arch_x86/system.hpp"
+#include "arch/x86/cpu.hpp"
+#include "arch/x86/ints.hpp"
+#include "arch/x86/paging.hpp"
+#include "arch/x86/pic.hpp"
+#include "arch/x86/hpet.hpp"
+#include "arch/x86/system.hpp"
 
 #include "core.hpp"
 #include "schedule.hpp"

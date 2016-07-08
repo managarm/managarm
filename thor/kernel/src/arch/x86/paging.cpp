@@ -1,5 +1,5 @@
 
-#include "../kernel.hpp"
+#include "generic/kernel.hpp"
 
 enum {
 	kPagePresent = 0x1,
