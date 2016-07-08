@@ -47,6 +47,16 @@ UniqueExecutorImage::~UniqueExecutorImage() {
 	kernelAlloc->free(_pointer);
 }
 
+void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp) {
+	memset(_pointer, 0, getStateSize());
+
+	_general()->rip = ip;
+	_general()->cs = kSelExecutorUserCode;
+	_general()->rflags = 0x200;
+	_general()->rsp = sp;
+	_general()->ss = kSelExecutorUserData;
+}
+
 void saveExecutorFromFault(FaultImageAccessor accessor) {
 	UniqueExecutorImage &image = activeExecutor()->image;
 
@@ -67,10 +77,11 @@ void saveExecutorFromFault(FaultImageAccessor accessor) {
 	image._general()->r14 = accessor._frame()->r14;
 	image._general()->r15 = accessor._frame()->r15;
 	
-	image._general()->rsp = accessor._frame()->rsp;
 	image._general()->rip = accessor._frame()->rip;
+	image._general()->cs = accessor._frame()->cs;
 	image._general()->rflags = accessor._frame()->rflags;
-	image._general()->kernel = 0;
+	image._general()->rsp = accessor._frame()->rsp;
+	image._general()->ss = accessor._frame()->ss;
 	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	image._general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	
@@ -119,28 +130,21 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	});
 }
 
-extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, uint16_t cs, uint16_t ss);
+extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 [[ gnu::section(".text.stubs") ]] void restoreExecutor() {
 	UniqueExecutorImage &image = activeExecutor()->image;
-
-	uint16_t cs, ss;
-	if(*image.kernel()) {
-		cs = selectorFor(kSegExecutorKernelCode, false);
-		ss = selectorFor(kSegExecutorKernelData, false);
-	}else{
-		cs = selectorFor(kSegExecutorUserCode, true);
-		ss = selectorFor(kSegExecutorUserData, true);
-	}
 
 	// TODO: use wr{fs,gs}base if it is available
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, image._general()->clientFs);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image._general()->clientGs);
 	
-	if(!*image.kernel())
+	uint16_t cs = image._general()->cs;
+	assert(cs == kSelExecutorKernelCode || cs == kSelExecutorUserCode);
+	if(cs == kSelExecutorUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
-	_restoreExecutorRegisters(image._pointer, cs, ss);
+	_restoreExecutorRegisters(image._pointer);
 }
 
 // --------------------------------------------------------
@@ -216,7 +220,6 @@ void initializeThisProcessor() {
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
 	switchExecutor(cpu_data->idleThread);
-	frigg::infoLogger.log() << "we got here" << frigg::EndLog();
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)

@@ -9,6 +9,38 @@ namespace thor {
 // Global runtime functions
 // --------------------------------------------------------
 
+enum {
+	kSegNull = 0,
+
+	kSegSystemGeneralCode = 1,
+	
+	// note that the TSS consumes two entries in the GDT.
+	// we put it into the second GDT entry so that it is properly aligned.
+	kSegTask = 2,
+
+	kSegSystemIrqCode = 4,
+
+	// the order of the following segments should not change
+	// because syscall/sysret demands this layout
+	kSegExecutorKernelCode = 5,
+	kSegExecutorKernelData = 6,
+	kSegExecutorUserCompat = 7,
+	kSegExecutorUserData = 8,
+	kSegExecutorUserCode = 9
+};
+
+constexpr uint16_t selectorFor(uint16_t segment, bool user) {
+	return (segment << 3) | (user ? 3 : 0);
+}
+
+enum {
+	kSelExecutorKernelCode = selectorFor(kSegExecutorKernelCode, false),
+	kSelExecutorKernelData = selectorFor(kSegExecutorKernelData, false),
+	
+	kSelExecutorUserCode = selectorFor(kSegExecutorUserCode, true),
+	kSelExecutorUserData = selectorFor(kSegExecutorUserData, true)
+};
+
 struct UniqueKernelStack {
 	static constexpr size_t kSize = 0x2000;
 
@@ -214,7 +246,8 @@ struct UniqueExecutorImage {
 
 	Word *ip() { return &_general()->rip; }
 	Word *sp() { return &_general()->rsp; }
-	uint8_t *kernel() { return &_general()->kernel; }
+
+	void initSystemVAbi(Word ip, Word sp);
 
 private:
 	// note: this struct is accessed from assembly.
@@ -237,16 +270,13 @@ private:
 		Word r14;			// offset 0x68
 		Word r15;			// offset 0x70
 		
-		Word rsp;			// offset 0x78
-		Word rip;			// offset 0x80
+		Word rip;			// offset 0x78
+		Word cs;			// offset 0x80
 		Word rflags;		// offset 0x88
-		// 0 = thread saved in user mode
-		// 1 = thread saved in kernel mode
-		uint8_t kernel;		// offset 0x90
-		uint8_t padding[7];
-		Word clientFs;		// offset 0x98
-		Word clientGs;		// offset 0xA0
-		Word padding2;
+		Word rsp;			// offset 0x90
+		Word ss;			// offset 0x98
+		Word clientFs;		// offset 0xA0
+		Word clientGs;		// offset 0xA8
 	};
 	static_assert(sizeof(General) == 0xB0, "Bad sizeof(General)");
 
@@ -346,30 +376,6 @@ struct Thread;
 void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
 frigg::UnsafePtr<Thread> activeExecutor();
-
-enum {
-	kSegNull = 0,
-
-	kSegSystemGeneralCode = 1,
-	
-	// note that the TSS consumes two entries in the GDT.
-	// we put it into the second GDT entry so that it is properly aligned.
-	kSegTask = 2,
-
-	kSegSystemIrqCode = 4,
-
-	// the order of the following segments should not change
-	// because syscall/sysret demands this layout
-	kSegExecutorKernelCode = 5,
-	kSegExecutorKernelData = 6,
-	kSegExecutorUserCompat = 7,
-	kSegExecutorUserData = 8,
-	kSegExecutorUserCode = 9
-};
-
-inline uint16_t selectorFor(uint16_t segment, bool user) {
-	return (segment << 3) | (user ? 3 : 0);
-}
 
 // note: this struct is accessed from assembly.
 // do not change the field offsets!

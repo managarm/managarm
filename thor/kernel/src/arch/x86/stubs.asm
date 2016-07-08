@@ -24,20 +24,15 @@
 .set .L_imageR14, 0x68
 .set .L_imageR15, 0x70
 
-.set .L_imageRsp, 0x78
-.set .L_imageRip, 0x80
+.set .L_imageRip, 0x78
+.set .L_imageCs, 0x80
 .set .L_imageRflags, 0x88
-.set .L_imageKernel, 0x90
-.set .L_imageClientFs, 0x98
-.set .L_imageClientGs, 0xA0
+.set .L_imageRsp, 0x90
+.set .L_imageSs, 0x98
+.set .L_imageClientFs, 0xA0
+.set .L_imageClientGs, 0xA8
 
 .set .L_imageFxSave, 0xB0
-
-# GDT selectors for various descriptors
-.set .L_kernelCodeSelector, (5 << 3)
-.set .L_kernelDataSelector, (6 << 3)
-.set .L_userDataSelector, (8 << 3) | 3
-.set .L_userCode64Selector, (9 << 3) | 3
 
 .set .L_msrIndexFsBase, 0xC0000100
 .set .L_msrIndexGsBase, 0xC0000101
@@ -284,27 +279,30 @@ forkExecutor:
 	fxsaveq .L_imageFxSave(%rdi)
 	
 	# setup the state for the second return
-	pushfq
-	popq .L_imageRflags(%rdi)
 	mov (%rsp), %rdx
 	mov %rdx, .L_imageRip(%rdi)
+	mov %cs, %rsi
+	mov %rsi, .L_imageCs(%rdi)
+	pushfq
+	popq .L_imageRflags(%rdi)
 	leaq 8(%rsp), %rcx
 	mov %rcx, .L_imageRsp(%rdi)
-	movb $1, .L_imageKernel(%rdi)
-	movq $0, .L_imageRax(%rdi)
+	mov %ss, %rsi
+	mov %rsi, .L_imageSs(%rdi)
 
+	movq $0, .L_imageRax(%rdi)
 	mov $1, %rax
 	ret
 
-# arguments: void *pointer, uint16_t cs, uint16_t ss
+# arguments: void *pointer
 .section .text.stubs
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:
 	# setup the IRET frame
-	pushq %rdx
+	pushq .L_imageSs(%rdi)
 	pushq .L_imageRsp(%rdi)
 	pushq .L_imageRflags(%rdi)
-	pushq %rsi
+	pushq .L_imageCs(%rdi)
 	pushq .L_imageRip(%rdi)
 	
 	# restore the general purpose registers except for rdi
