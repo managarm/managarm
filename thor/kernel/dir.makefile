@@ -23,7 +23,7 @@ all-$c: $($c_BINDIR)/thor
 install-$c-headers:
 	install $($d_HEADER_PATHS) $(SYSROOT_PATH)/usr/include
 
-$c_CXX = x86_64-managarm-g++
+$c_CXX = $(ELF_CXX)
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include \
@@ -36,10 +36,10 @@ $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
-$c_AS := x86_64-managarm-as
+$c_AS := $(ELF_AS)
 $c_ASFLAGS :=
 
-$c_LD := x86_64-managarm-ld
+$c_LD := $(ELF_LD)
 $c_LDFLAGS := -nostdlib -z max-page-size=0x1000 -T $($c_SRCDIR)/arch/x86/link.x
 
 $($c_BINDIR)/thor: $($c_OBJECT_PATHS) $($c_SRCDIR)/arch/x86/link.x | $($c_BINDIR)
