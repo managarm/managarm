@@ -644,8 +644,12 @@ void StatClosure::inodeReady() {
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+
+	printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");	
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection.getFs().eventHub, responseId, 0)
+	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	libchain::run(std::move(action));
 }
 
 // --------------------------------------------------------
@@ -670,11 +674,15 @@ void OpenClosure::operator() () {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
+		
 		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:() \n");
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				responseId, 0);
-
-		delete this;
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			delete this;
+		});
+		libchain::run(std::move(action));
 	}else{
 		processSegment();
 	}
@@ -702,12 +710,16 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
+		
 		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:foundEntry \n");
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				responseId, 0);
-
-		delete this;
-		return;
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) {
+			HEL_CHECK(error);
+			delete this;
+			return;
+		});
+		libchain::run(std::move(action));
 	}
 	
 	auto inode = connection.getFs().accessInode(entry->inode);
@@ -787,14 +799,19 @@ void ReadClosure::inodeReady() {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
+		
 		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-		connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
-				read_size, responseId, 1);
-
-		openFile->offset += read_size;
-
-		delete this;
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
+				read_size, connection.getFs().eventHub, responseId, 1)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error);
+			openFile->offset += read_size;
+			delete this;
+		});
+		libchain::run(std::move(action));
 	}else{
 		size_t read_size = std::min(size_t(request.size()),
 				openFile->inode->fileSize - openFile->offset);
