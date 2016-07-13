@@ -291,7 +291,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 
-	frigg::infoLogger.log() << "Entering mbus" << frigg::EndLog();
+	frigg::infoLogger() << "Entering mbus" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	allConnections.initialize(*allocator);
 

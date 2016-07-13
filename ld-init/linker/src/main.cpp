@@ -51,10 +51,10 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	SymbolRef r(object, *symbol);
 	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
 	if(!p)
-		frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol" << frigg::EndLog();
+		frigg::panicLogger() << "Unresolved JUMP_SLOT symbol" << frigg::endLog;
 
-	//frigg::infoLogger.log() << "Lazy relocation to " << symbol_str
-	//		<< " resolved to " << pointer << frigg::EndLog();
+	//frigg::infoLogger() << "Lazy relocation to " << symbol_str
+	//		<< " resolved to " << pointer << frigg::endLog;
 	
 	*(uint64_t *)(object->baseAddress + reloc->r_offset) = p->virtualAddress();
 	return (void *)p->virtualAddress();
@@ -65,7 +65,7 @@ frigg::LazyInitializer<helx::Pipe> posixPipe;
 
 extern "C" void *interpreterMain(void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
-	frigg::infoLogger.log() << "Entering ld-init" << frigg::EndLog();
+	frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 
@@ -137,7 +137,7 @@ extern "C" void *interpreterMain(void *phdr_pointer,
 	allocateTcb();
 	globalLoader->initObjects();
 
-	frigg::infoLogger.log() << "Leaving ld-init" << frigg::EndLog();
+	frigg::infoLogger() << "Leaving ld-init" << frigg::endLog;
 	return executable->entry;
 }
 
@@ -153,8 +153,8 @@ extern "C" __attribute__ (( visibility("default") ))
 void *__tls_get_addr(TlsEntry *entry) {
 	assert(entry->object->tlsModel == SharedObject::kTlsInitial);
 	
-//	frigg::infoLogger.log() << "__tls_get_addr(" << entry->object->name
-//			<< ", " << entry->offset << ")" << frigg::EndLog();
+//	frigg::infoLogger() << "__tls_get_addr(" << entry->object->name
+//			<< ", " << entry->offset << ")" << frigg::endLog;
 	
 	char *tp;
 	asm ( "mov %%fs:(0), %0" : "=r" (tp) );

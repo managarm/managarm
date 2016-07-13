@@ -78,8 +78,8 @@ HelHandle loadImage(const char *path, HelHandle directory, bool exclusive) {
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				map_flags |= kHelMapReadExecute;
 			}else{
-				frigg::panicLogger.log() << "Illegal combination of segment permissions"
-						<< frigg::EndLog();
+				frigg::panicLogger() << "Illegal combination of segment permissions"
+						<< frigg::endLog;
 			}
 
 			void *actual_ptr;
@@ -303,7 +303,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 
-	frigg::infoLogger.log() << "Entering user_boot" << frigg::EndLog();
+	frigg::infoLogger() << "Entering user_boot" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	
 	startMbus();
@@ -317,7 +317,7 @@ int main() {
 	startPosixSubsystem();
 	runPosixInit();
 	
-	frigg::infoLogger.log() << "user_boot completed successfully" << frigg::EndLog();
+	frigg::infoLogger() << "user_boot completed successfully" << frigg::endLog;
 	HEL_CHECK(helExitThisThread());
 	__builtin_unreachable();
 }
@@ -333,4 +333,3 @@ int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
 }
 
 void *__dso_handle;
-

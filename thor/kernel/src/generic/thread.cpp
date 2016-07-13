@@ -13,7 +13,7 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 : flags(0), _runState(kRunActive), // FIXME: do not use the active run state here
 		_pendingSignal(kSigNone), _runCount(1),
 		p_universe(universe), p_addressSpace(address_space), p_directory(directory) {
-//	frigg::infoLogger.log() << "[" << globalThreadId << "] New thread!" << frigg::EndLog();
+//	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
 }
 
 Thread::~Thread() {
@@ -37,7 +37,7 @@ void Thread::signalKill() {
 	if(_runState == kRunActive)
 		return;
 
-	frigg::panicLogger.log() << "Thread killed in inactive state" << frigg::EndLog();
+	frigg::panicLogger() << "Thread killed in inactive state" << frigg::endLog;
 }
 
 auto Thread::pendingSignal() -> Signal {

@@ -166,7 +166,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 				*this, msg_request, frigg::move(request));
 		(*closure)();
 	}else{
-		frigg::panicLogger.log() << "Illegal request type" << frigg::EndLog();
+		frigg::panicLogger() << "Illegal request type" << frigg::endLog;
 	}
 
 	(*this)();
@@ -189,7 +189,7 @@ void StatClosure::operator() () {
 	frigg::String<Allocator> serialized(*allocator);
 	response.SerializeToString(&serialized);
 	// FIXME: use chains instead of sync calls
-	frigg::infoLogger.log() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::EndLog();
+	frigg::infoLogger() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::endLog;
 	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 }
 
@@ -262,7 +262,7 @@ void ReadClosure::operator() () {
 		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
 		// FIXME: use chains instead of sync calls
-		frigg::infoLogger.log() << "[thor/initrd/src/main] ReadClosure:() sendStringResp" << frigg::EndLog();
+		frigg::infoLogger() << "[thor/initrd/src/main] ReadClosure:() sendStringResp" << frigg::endLog;
 		HelError send_read_error;
 		connection.getPipe().sendStringRespSync(serialized.data(), serialized.size(),
 				eventHub, responseId, 0, send_read_error);
@@ -404,7 +404,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 
-	frigg::infoLogger.log() << "Entering initrd" << frigg::EndLog();
+	frigg::infoLogger() << "Entering initrd" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	
 	// connect to mbus

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <algorithm>
+#include <libchain/all.hpp>
 
 #include "ext2fs.hpp"
 
@@ -643,7 +644,12 @@ void StatClosure::inodeReady() {
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+
+	printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");	
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection.getFs().eventHub, responseId, 0)
+	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	libchain::run(std::move(action));
 }
 
 // --------------------------------------------------------
@@ -668,10 +674,15 @@ void OpenClosure::operator() () {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				responseId, 0);
-
-		delete this;
+		
+		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:() \n");
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			delete this;
+		});
+		libchain::run(std::move(action));
 	}else{
 		processSegment();
 	}
@@ -699,11 +710,16 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				responseId, 0);
-
-		delete this;
-		return;
+		
+		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:foundEntry \n");
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) {
+			HEL_CHECK(error);
+			delete this;
+			return;
+		});
+		libchain::run(std::move(action));
 	}
 	
 	auto inode = connection.getFs().accessInode(entry->inode);
@@ -725,9 +741,13 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				responseId, 0);
-
+		
+		auto action = connection.getPipe().sendStringResp(serialized.data(),
+				serialized.size(), connection.getFs().eventHub,
+				responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		libchain::run(std::move(action));
+	
 		delete this;
 	}else{
 		assert(entry->fileType == kTypeDirectory);
@@ -760,8 +780,12 @@ void ReadClosure::inodeReady() {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
 		
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		libchain::run(std::move(action));
+
 		delete this;
 		return;
 	}
@@ -775,13 +799,19 @@ void ReadClosure::inodeReady() {
 
 		std::string serialized;
 		response.SerializeToString(&serialized);
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-		connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
-				read_size, responseId, 1);
-
-		openFile->offset += read_size;
-
-		delete this;
+		
+		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
+				read_size, connection.getFs().eventHub, responseId, 1)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error);
+			openFile->offset += read_size;
+			delete this;
+		});
+		libchain::run(std::move(action));
 	}else{
 		size_t read_size = std::min(size_t(request.size()),
 				openFile->inode->fileSize - openFile->offset);
@@ -825,15 +855,20 @@ void ReadClosure::lockedMemory() {
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-	connection.getPipe().sendStringResp((char *)cache_ptr + misalign, read_size, responseId, 1);
-
-	openFile->offset += read_size;
-
-	// unmap the page cache
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, cache_ptr, map_size));
-
-	delete this;
+	
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection.getFs().eventHub, responseId, 0)
+	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+	+ connection.getPipe().sendStringResp((char *)cache_ptr + misalign, read_size,
+			connection.getFs().eventHub, responseId, 1)
+	+ libchain::lift([=] (HelError error) { 
+		HEL_CHECK(error); 
+		openFile->offset += read_size;
+		// unmap the page cache
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, cache_ptr, map_size));
+		delete this;
+	});
+	libchain::run(std::move(action));
 }
 
 // --------------------------------------------------------
@@ -865,7 +900,11 @@ void SeekClosure::operator() () {
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection.getFs().eventHub, responseId, 0)
+	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	libchain::run(std::move(action));
 }
 
 // --------------------------------------------------------
@@ -891,8 +930,13 @@ void MapClosure::inodeReady() {
 
 	std::string serialized;
 	response.SerializeToString(&serialized);
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-	connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory, responseId, 1);
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection.getFs().eventHub, responseId, 0)
+	+ libchain::lift([=] (HelError error) {	HEL_CHECK(error); })
+	+ connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory,
+				connection.getFs().eventHub, responseId, 1)
+	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	libchain::run(std::move(action));
 	
 	delete this;
 }

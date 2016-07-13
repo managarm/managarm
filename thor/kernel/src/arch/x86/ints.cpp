@@ -44,29 +44,29 @@ uint32_t earlyGdt[3 * 2];
 uint32_t earlyIdt[256 * 4];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
-	frigg::panicLogger.log() << "Division by zero during boot\n"
-			<< "Faulting IP: " << rip << frigg::EndLog();
+	frigg::panicLogger() << "Division by zero during boot\n"
+			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
 extern "C" void handleEarlyOpcodeFault(void *rip) {
-	frigg::panicLogger.log() << "Invalid opcode during boot\n"
-			<< "Faulting IP: " << rip << frigg::EndLog();
+	frigg::panicLogger() << "Invalid opcode during boot\n"
+			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
 extern "C" void handleEarlyDoubleFault(uint64_t errcode, void *rip) {
-	frigg::panicLogger.log() << "Double fault during boot\n"
-			<< "Faulting IP: " << rip << frigg::EndLog();
+	frigg::panicLogger() << "Double fault during boot\n"
+			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
 extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
-	frigg::panicLogger.log() << "Protection fault during boot\n"
+	frigg::panicLogger() << "Protection fault during boot\n"
 			<< "Segment: " << errcode << "\n"
-			<< "Faulting IP: " << rip << frigg::EndLog();
+			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
-	frigg::panicLogger.log() << "Page fault during boot\n"
-			<< "Faulting IP: " << rip << frigg::EndLog();
+	frigg::panicLogger() << "Page fault during boot\n"
+			<< "Faulting IP: " << rip << frigg::endLog;
 }
 
 void initializeProcessorEarly() {
@@ -147,8 +147,8 @@ void handleIrq(IrqImageAccessor image, int number);
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 
-	frigg::infoLogger.log() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
-			<< ", ip: " << (void *)*image.ip() << frigg::EndLog();
+	frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
+			<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
 	assert(!inStub(*image.ip()));
 	assert(cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
@@ -165,7 +165,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handlePageFault(image, address);
 	} break;
 	default:
-		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
+		frigg::panicLogger() << "Unexpected fault number " << number << frigg::endLog;
 	}
 	
 	if(cs == kSelClientUserCode)

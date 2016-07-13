@@ -9,7 +9,7 @@ extern frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 void serviceMain() {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 
-	frigg::infoLogger.log() << "In service thread" << frigg::EndLog();
+	frigg::infoLogger() << "In service thread" << frigg::endLog;
 
 	while(true) {
 		disableInts();

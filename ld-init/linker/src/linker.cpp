@@ -111,7 +111,7 @@ void doInitialize(SharedObject *object) {
 	}
 
 	if(verbose)
-		frigg::infoLogger.log() << "Initialize " << object->name << frigg::EndLog();
+		frigg::infoLogger() << "Initialize " << object->name << frigg::endLog;
 	
 	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
@@ -302,7 +302,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	assert(object->isMainObject);
 	if(verbose)
-		frigg::infoLogger.log() << "Loading " << object->name << frigg::EndLog();
+		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
 	
 	object->entry = entry_pointer;
 
@@ -460,7 +460,7 @@ HelHandle posixMmap(int fd) {
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
-		frigg::infoLogger.log() << "Loading " << object->name << frigg::EndLog();
+		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
 	
 	frigg::String<Allocator> initrd_prefix(*allocator, "/initrd/");
 	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
@@ -470,7 +470,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	if(!fd)
 		fd = posixOpen(lib_prefix + file);
 	if(!fd)
-		frigg::panicLogger.log() << "Could not find library " << file << frigg::EndLog();
+		frigg::panicLogger() << "Could not find library " << file << frigg::endLog;
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
@@ -518,8 +518,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 							(void *)map_address, phdr->p_offset, map_length,
 							kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
 				}else{
-					frigg::panicLogger.log() << "Illegal combination of segment permissions"
-							<< frigg::EndLog();
+					frigg::panicLogger() << "Illegal combination of segment permissions"
+							<< frigg::endLog;
 				}
 			}else{
 				// setup the segment with write permission and copy data
@@ -541,8 +541,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 					HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
 							0, map_length, kHelMapReadWrite, &map_pointer));
 				}else{
-					frigg::panicLogger.log() << "Illegal combination of segment permissions"
-							<< frigg::EndLog();
+					frigg::panicLogger() << "Illegal combination of segment permissions"
+							<< frigg::endLog;
 				}
 			}
 		}else if(phdr->p_type == PT_TLS) {
@@ -595,10 +595,10 @@ void Loader::buildInitialTls() {
 		runtimeTlsMap->initialObjects.push(object);
 		
 		if(verbose)
-			frigg::infoLogger.log() << "TLS of " << object->name
+			frigg::infoLogger() << "TLS of " << object->name
 					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
 					<< ", size: " << object->tlsSegmentSize
-					<< ", alignment: " << object->tlsAlignment << frigg::EndLog();
+					<< ", alignment: " << object->tlsAlignment << frigg::endLog;
 	}
 }
 
@@ -675,8 +675,8 @@ void Loader::parseDynamic(SharedObject *object) {
 		case DT_VERNEED: case DT_VERNEEDNUM:
 			break;
 		default:
-			frigg::panicLogger.log() << "Unexpected dynamic entry "
-					<< (void *)dynamic->d_tag << " in object" << frigg::EndLog();
+			frigg::panicLogger() << "Unexpected dynamic entry "
+					<< (void *)dynamic->d_tag << " in object" << frigg::endLog;
 		}
 	}
 }
@@ -725,12 +725,12 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 		p = object->loadScope->resolveSymbol(r, 0);
 		if(!p) {
 			if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-				frigg::panicLogger.log() << "Unresolved load-time symbol "
-						<< r.getString() << " in object " << object->name << frigg::EndLog();
+				frigg::panicLogger() << "Unresolved load-time symbol "
+						<< r.getString() << " in object " << object->name << frigg::endLog;
 			
 			if(verbose)
-				frigg::infoLogger.log() << "Unresolved weak load-time symbol "
-						<< r.getString() << " in object " << object->name << frigg::EndLog();
+				frigg::infoLogger() << "Unresolved weak load-time symbol "
+						<< r.getString() << " in object " << object->name << frigg::endLog;
 		}
 	}
 
@@ -774,8 +774,8 @@ void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {
 		*((uint64_t *)rel_addr) = p->object->tlsOffset + p->symbol.st_value;
 	} break;
 	default:
-		frigg::panicLogger.log() << "Unexpected relocation type "
-				<< (void *)type << frigg::EndLog();
+		frigg::panicLogger() << "Unexpected relocation type "
+				<< (void *)type << frigg::endLog;
 	}
 }
 
@@ -837,12 +837,12 @@ void Loader::processLazyRelocations(SharedObject *object) {
 			frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
 			if(!p) {
 				if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-					frigg::panicLogger.log() << "Unresolved JUMP_SLOT symbol "
-							<< r.getString() << " in object " << object->name << frigg::EndLog();
+					frigg::panicLogger() << "Unresolved JUMP_SLOT symbol "
+							<< r.getString() << " in object " << object->name << frigg::endLog;
 				
 				if(verbose)
-					frigg::infoLogger.log() << "Unresolved weak JUMP_SLOT symbol "
-							<< r.getString() << " in object " << object->name << frigg::EndLog();
+					frigg::infoLogger() << "Unresolved weak JUMP_SLOT symbol "
+							<< r.getString() << " in object " << object->name << frigg::endLog;
 				*((uint64_t *)rel_addr) = 0;
 			}else{
 				*((uint64_t *)rel_addr) = p->virtualAddress();

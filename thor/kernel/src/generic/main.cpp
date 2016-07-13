@@ -65,8 +65,8 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
-				frigg::panicLogger.log() << "Illegal combination of segment permissions"
-						<< frigg::EndLog();
+				frigg::panicLogger() << "Illegal combination of segment permissions"
+						<< frigg::endLog;
 			}
 			space_guard.unlock();
 			thorRtInvalidateSpace();
@@ -107,14 +107,14 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 void runService();
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	frigg::infoLogger.log() << "Starting Thor" << frigg::EndLog();
+	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
 	initializeProcessorEarly();
 	
 	auto info = accessPhysical<EirInfo>(info_paddr);
-	frigg::infoLogger.log() << "Bootstrap memory at "
+	frigg::infoLogger() << "Bootstrap memory at "
 			<< (void *)info->bootstrapPhysical
-			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::EndLog();
+			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::endLog;
 
 	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
@@ -154,8 +154,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
-		frigg::infoLogger.log() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
-				<< ", length: " << modules[i].length << frigg::EndLog();
+		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
+				<< ", length: " << modules[i].length << frigg::endLog;
 
 		MemoryAccessDescriptor mod_descriptor(frigg::move(mod_memory));
 		mod_directory->publish(name_ptr, modules[i].nameLength,
@@ -173,45 +173,45 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	// finally we lauch the user_boot program
 	executeModule(frigg::move(root_directory), modules[0].physicalBase);
 
-	frigg::infoLogger.log() << "Exiting Thor!" << frigg::EndLog();
+	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(frigg::move(schedule_guard));
 }
 
 extern "C" void handleStubInterrupt() {
-	frigg::panicLogger.log() << "Fault or IRQ from stub" << frigg::EndLog();
+	frigg::panicLogger() << "Fault or IRQ from stub" << frigg::endLog;
 }
 extern "C" void handleBadDomain() {
-	frigg::panicLogger.log() << "Fault or IRQ from bad domain" << frigg::EndLog();
+	frigg::panicLogger() << "Fault or IRQ from bad domain" << frigg::endLog;
 }
 
 extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
-	frigg::panicLogger.log() << "Divide by zero" << frigg::EndLog();
+	frigg::panicLogger() << "Divide by zero" << frigg::endLog;
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
-	frigg::infoLogger.log() << "Debug fault at "
-			<< (void *)*image.ip() << frigg::EndLog();
+	frigg::infoLogger() << "Debug fault at "
+			<< (void *)*image.ip() << frigg::endLog;
 }
 
 extern "C" void handleOpcodeFault(FaultImageAccessor image) {
-	frigg::panicLogger.log() << "Invalid opcode" << frigg::EndLog();
+	frigg::panicLogger() << "Invalid opcode" << frigg::endLog;
 }
 
 extern "C" void handleNoFpuFault(FaultImageAccessor image) {
-	frigg::panicLogger.log() << "FPU invoked at "
-			<< (void *)*image.ip() << frigg::EndLog();
+	frigg::panicLogger() << "FPU invoked at "
+			<< (void *)*image.ip() << frigg::endLog;
 }
 
 extern "C" void handleDoubleFault(FaultImageAccessor image) {
-	frigg::panicLogger.log() << "Double fault at "
-			<< (void *)*image.ip() << frigg::EndLog();
+	frigg::panicLogger() << "Double fault at "
+			<< (void *)*image.ip() << frigg::endLog;
 }
 
 extern "C" void handleProtectionFault(FaultImageAccessor image) {
-	frigg::panicLogger.log() << "General protection fault\n"
+	frigg::panicLogger() << "General protection fault\n"
 			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
-			<< "    Faulting segment: " << (void *)*image.code() << frigg::EndLog();
+			<< "    Faulting segment: " << (void *)*image.code() << frigg::endLog;
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
@@ -234,7 +234,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	space_guard.unlock();
 	
 	if(!handled) {
-		auto msg = frigg::panicLogger.log();
+		auto msg = frigg::panicLogger();
 		msg << "Page fault"
 				<< " at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << "\n";
@@ -256,7 +256,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		}else{
 			msg << " (Read)";
 		}
-		msg << frigg::EndLog();
+		msg << frigg::endLog;
 	}
 }
 
@@ -267,12 +267,12 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 	switch(fault) {
 	case kFaultBreakpoint: name = "breakpoint"; break;
 	default:
-		frigg::panicLogger.log() << "Unexpected fault code" << frigg::EndLog();
+		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
 	}
 
 	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-		frigg::infoLogger.log() << "traps-are-fatal thread killed by " << name << " fault.\n"
-				<< "Last ip: " << (void *)*image.ip() << frigg::EndLog();
+		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n"
+				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
 	}else{
 		this_thread->transitionToFault();
 		saveExecutorFromFault(image);
@@ -285,7 +285,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
-	frigg::infoLogger.log() << "IRQ #" << number << frigg::EndLog();
+	frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
 	
 	if(number == 2)
 		timerInterrupt();
@@ -302,7 +302,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 extern "C" void handleSyscall(SyscallImageAccessor image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 //	if(index != kHelCallLog)
-//		frigg::infoLogger.log() << "syscall #" << index << frigg::EndLog();
+//		frigg::infoLogger() << "syscall #" << index << frigg::endLog;
 
 	Word arg0 = *image.in0();
 	Word arg1 = *image.in1();
@@ -319,7 +319,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLog((const char *)arg0, (size_t)arg1);
 	} break;
 	case kHelCallPanic: {
-		frigg::infoLogger.log() << "User space panic:" << frigg::EndLog();
+		frigg::infoLogger() << "User space panic:" << frigg::endLog;
 		helLog((const char *)arg0, (size_t)arg1);
 		
 		while(true) { }
@@ -329,7 +329,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
 	} break;
 	case kHelCallCloseDescriptor: {
-//		frigg::infoLogger.log() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::EndLog();
+//		frigg::infoLogger() << "helCloseDescriptor(" << (HelHandle)arg0 << ")" << frigg::endLog;
 		*image.error() = helCloseDescriptor((HelHandle)arg0);
 	} break;
 
@@ -399,9 +399,9 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 
 	case kHelCallCreateThread: {
-//		frigg::infoLogger.log() << "[" << this_thread->globalThreadId << "]"
+//		frigg::infoLogger() << "[" << this_thread->globalThreadId << "]"
 //				<< " helCreateThread()"
-//				<< frigg::EndLog();
+//				<< frigg::endLog;
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
 				(HelHandle)arg2, (int)arg3, (void *)arg4, (void *)arg5, (uint32_t)arg6, &handle);
@@ -432,16 +432,16 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 
 	case kHelCallCreateEventHub: {
-//			frigg::infoLogger.log() << "helCreateEventHub" << frigg::EndLog();
+//			frigg::infoLogger() << "helCreateEventHub" << frigg::endLog;
 		HelHandle handle;
 		*image.error() = helCreateEventHub(&handle);
-//			frigg::infoLogger.log() << "    -> " << handle << frigg::EndLog();
+//			frigg::infoLogger() << "    -> " << handle << frigg::endLog;
 		*image.out0() = handle;
 	} break;
 	case kHelCallWaitForEvents: {
-//			frigg::infoLogger.log() << "helWaitForEvents(" << (HelHandle)arg0
+//			frigg::infoLogger() << "helWaitForEvents(" << (HelHandle)arg0
 //					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
-//					<< ", " << (HelNanotime)arg3 << ")" << frigg::EndLog();
+//					<< ", " << (HelNanotime)arg3 << ")" << frigg::endLog;
 
 		size_t num_items;
 		*image.error() = helWaitForEvents((HelHandle)arg0,
@@ -591,11 +591,11 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 			*image.error() = kHelErrNone;
 		}else if(subsystem == kThorSubDebug) {
 			if(interface == kThorIfDebugMemory) {
-				frigg::infoLogger.log() << "Memory info:\n"
+				frigg::infoLogger() << "Memory info:\n"
 						<< "    Physical pages: Used: " << physicalAllocator->numUsedPages()
 						<< ", free: " << physicalAllocator->numFreePages() << "\n"
 						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
-						<< frigg::EndLog();
+						<< frigg::endLog;
 				*image.error() = kHelErrNone;
 			}else{
 				assert(!"Illegal debug interface");
