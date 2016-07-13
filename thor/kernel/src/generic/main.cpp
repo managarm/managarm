@@ -94,7 +94,7 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
-	thread->image.initSystemVAbi(ehdr->e_entry, stack_base + stack_size);
+	thread->image.initSystemVAbi(ehdr->e_entry, stack_base + stack_size, false);
 
 	// increment the reference counter so that the threads stays alive forever
 	thread.control().increment();

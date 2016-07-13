@@ -510,7 +510,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(flags & kHelThreadTrapsAreFatal)
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 	
-	new_thread->image.initSystemVAbi((Word)ip, (Word)sp);
+	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
 	
 	// we increment the owning refcount here.
 	// it is decremented when the thread is killed.

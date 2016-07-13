@@ -103,7 +103,7 @@ void setupIdt(uint32_t *table) {
 	using frigg::arch_x86::makeIdt64IntSystemGate;
 	using frigg::arch_x86::makeIdt64IntUserGate;
 	
-	int fault_selector = selectorFor(kSegExecutorKernelCode, false);
+	int fault_selector = kSelExecutorFaultCode;
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
@@ -113,7 +113,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 13, fault_selector, (void *)&faultStubProtection, 0);
 	makeIdt64IntSystemGate(table, 14, fault_selector, (void *)&faultStubPage, 0);
 
-	int irq_selector = selectorFor(kSegSystemIrqCode, false);
+	int irq_selector = kSelSystemIrqCode;
 	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);
 	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 1);
 	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 1);
@@ -145,13 +145,14 @@ void handleOtherFault(FaultImageAccessor image, Fault fault);
 void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	uint16_t cs = *image.cs();
+
+	frigg::infoLogger.log() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
+			<< ", ip: " << (void *)*image.ip() << frigg::EndLog();
+
 	assert(!inStub(*image.ip()));
-
-	uint16_t client_cs = selectorFor(kSegExecutorUserCode, true);
-	uint16_t kernel_cs = selectorFor(kSegExecutorKernelCode, false);
-	assert(*image.cs() == client_cs || *image.cs() == kernel_cs);
-
-	if(*image.cs() == client_cs)
+	assert(cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	switch(number) {
@@ -167,23 +168,21 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		frigg::panicLogger.log() << "Unexpected fault number " << number << frigg::EndLog();
 	}
 	
-	if(*image.cs() == client_cs)
+	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	assert(!inStub(*image.ip()));
 
-	uint16_t client_cs = selectorFor(kSegExecutorUserCode, true);
-	uint16_t kernel_cs = selectorFor(kSegExecutorKernelCode, false);
-	assert(*image.cs() == client_cs || *image.cs() == kernel_cs);
-
-	if(*image.cs() == client_cs)
+	uint16_t cs = *image.cs();
+	assert(cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	handleIrq(image, number);
 	
-	if(*image.cs() == client_cs)
+	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 }
 

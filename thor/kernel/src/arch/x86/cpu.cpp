@@ -47,14 +47,20 @@ UniqueExecutorImage::~UniqueExecutorImage() {
 	kernelAlloc->free(_pointer);
 }
 
-void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp) {
+void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp, bool supervisor) {
 	memset(_pointer, 0, getStateSize());
 
 	_general()->rip = ip;
-	_general()->cs = kSelExecutorUserCode;
 	_general()->rflags = 0x200;
 	_general()->rsp = sp;
-	_general()->ss = kSelExecutorUserData;
+
+	if(supervisor) {
+		_general()->cs = kSelExecutorSyscallCode;
+		_general()->ss = kSelExecutorKernelData;
+	}else{
+		_general()->cs = kSelClientUserCode;
+		_general()->ss = kSelClientUserData;
+	}
 }
 
 void saveExecutorFromFault(FaultImageAccessor accessor) {
@@ -119,9 +125,9 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 		CpuData *cpu_data = getCpuData();
 		executor->tss.ist1 = (Word)cpu_data->irqStack.base();
 		
-		frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kSegTask,
+		frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
 				&executor->tss, sizeof(frigg::arch_x86::Tss64));
-		asm volatile ( "ltr %w0" : : "r" (selectorFor(kSegTask, false)) );
+		asm volatile ( "ltr %w0" : : "r" (kSelTask) );
 
 		// finally update the active executor register.
 		// we do this after setting up the address space and TSS
@@ -140,8 +146,8 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image._general()->clientGs);
 	
 	uint16_t cs = image._general()->cs;
-	assert(cs == kSelExecutorKernelCode || cs == kSelExecutorUserCode);
-	if(cs == kSelExecutorUserCode)
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
+	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	_restoreExecutorRegisters(image._pointer);
@@ -154,17 +160,18 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 PlatformCpuData::PlatformCpuData() {
 	// setup the gdt
 	// note: the tss requires two slots in the gdt
-	frigg::arch_x86::makeGdtNullSegment(gdt, kSegNull);
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegSystemGeneralCode);
-	frigg::arch_x86::makeGdtTss64Descriptor(gdt, kSegTask, nullptr, 0);
-	
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegSystemIrqCode);
+	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexInitialCode);
 
-	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kSegExecutorKernelCode);
-	frigg::arch_x86::makeGdtFlatData32SystemSegment(gdt, kSegExecutorKernelData);
-	frigg::arch_x86::makeGdtNullSegment(gdt, kSegExecutorUserCompat);
-	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kSegExecutorUserData);
-	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kSegExecutorUserCode);
+	frigg::arch_x86::makeGdtTss64Descriptor(gdt, kGdtIndexTask, nullptr, 0);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIrqCode);
+
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorFaultCode);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorSyscallCode);
+	frigg::arch_x86::makeGdtFlatData32SystemSegment(gdt, kGdtIndexExecutorKernelData);
+	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexClientUserCompat);
+	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
+	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
 }
 
 // --------------------------------------------------------
@@ -208,14 +215,14 @@ void initializeThisProcessor() {
 			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 10 * 8;
+	gdtr.limit = 11 * 8;
 	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq %0\n"
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
-			".L_reloadCs:" : : "i" (selectorFor(kSegSystemGeneralCode, false)) );
+			".L_reloadCs:" : : "i" (kSelInitialCode) );
 
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
@@ -254,12 +261,9 @@ void initializeThisProcessor() {
 			efer | frigg::arch_x86::kMsrSyscallEnable);
 
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrLstar, (uintptr_t)&syscallStub);
-	// user mode cs = 0x18, kernel mode cs = 0x08
 	// set user mode rpl bits to work around a qemu bug
-	uint64_t user_selector = selectorFor(kSegExecutorUserCompat, true);
-	uint64_t supervisor_selector = selectorFor(kSegExecutorKernelCode, false);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar,
-			(user_selector << 48) | (supervisor_selector << 32));
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrStar, (uint64_t(kSelClientUserCompat) << 48)
+			| (uint64_t(kSelExecutorSyscallCode) << 32));
 	// mask interrupt and trap flag
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrFmask, 0x300);
 

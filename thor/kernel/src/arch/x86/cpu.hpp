@@ -10,35 +10,42 @@ namespace thor {
 // --------------------------------------------------------
 
 enum {
-	kSegNull = 0,
+	kGdtIndexNull = 0,
 
-	kSegSystemGeneralCode = 1,
+	kGdtIndexInitialCode = 1,
 	
 	// note that the TSS consumes two entries in the GDT.
 	// we put it into the second GDT entry so that it is properly aligned.
-	kSegTask = 2,
+	kGdtIndexTask = 2,
 
-	kSegSystemIrqCode = 4,
-
+	kGdtIndexSystemIrqCode = 4,
+	
+	kGdtIndexExecutorFaultCode = 5,
 	// the order of the following segments should not change
 	// because syscall/sysret demands this layout
-	kSegExecutorKernelCode = 5,
-	kSegExecutorKernelData = 6,
-	kSegExecutorUserCompat = 7,
-	kSegExecutorUserData = 8,
-	kSegExecutorUserCode = 9
+	kGdtIndexExecutorSyscallCode = 6,
+	kGdtIndexExecutorKernelData = 7,
+	kGdtIndexClientUserCompat = 8,
+	kGdtIndexClientUserData = 9,
+	kGdtIndexClientUserCode = 10
 };
 
-constexpr uint16_t selectorFor(uint16_t segment, bool user) {
-	return (segment << 3) | (user ? 3 : 0);
+constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
+	return (segment << 3) | rpl;
 }
 
 enum {
-	kSelExecutorKernelCode = selectorFor(kSegExecutorKernelCode, false),
-	kSelExecutorKernelData = selectorFor(kSegExecutorKernelData, false),
-	
-	kSelExecutorUserCode = selectorFor(kSegExecutorUserCode, true),
-	kSelExecutorUserData = selectorFor(kSegExecutorUserData, true)
+	kSelInitialCode = selectorFor(kGdtIndexInitialCode, 0),
+
+	kSelTask = selectorFor(kGdtIndexTask, 0),
+	kSelSystemIrqCode = selectorFor(kGdtIndexSystemIrqCode, 0),
+
+	kSelExecutorFaultCode = selectorFor(kGdtIndexExecutorFaultCode, 0),
+	kSelExecutorSyscallCode = selectorFor(kGdtIndexExecutorSyscallCode, 0),
+	kSelExecutorKernelData = selectorFor(kGdtIndexExecutorKernelData, 0),
+	kSelClientUserCompat = selectorFor(kGdtIndexClientUserCompat, 3),
+	kSelClientUserData = selectorFor(kGdtIndexClientUserData, 3),
+	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3)
 };
 
 struct UniqueKernelStack {
@@ -247,7 +254,7 @@ struct UniqueExecutorImage {
 	Word *ip() { return &_general()->rip; }
 	Word *sp() { return &_general()->rsp; }
 
-	void initSystemVAbi(Word ip, Word sp);
+	void initSystemVAbi(Word ip, Word sp, bool supervisor);
 
 private:
 	// note: this struct is accessed from assembly.
@@ -386,7 +393,7 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
-	uint32_t gdt[10 * 2];
+	uint32_t gdt[11 * 2];
 	uint32_t idt[256 * 4];
 	UniqueKernelStack irqStack;
 	UniqueKernelStack detachedStack;
