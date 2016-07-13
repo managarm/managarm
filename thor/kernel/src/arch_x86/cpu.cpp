@@ -192,7 +192,7 @@ void initializeThisProcessor() {
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
 	switchExecutor(cpu_data->idleThread);
-	frigg::infoLogger.log() << "we got here" << frigg::EndLog();
+	frigg::infoLogger() << "we got here" << frigg::endLog;
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)
@@ -208,8 +208,8 @@ void initializeThisProcessor() {
 	// FIXME: does not seem to work under qemu
 //	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
 //			& frigg::arch_x86::kCpuFlagFsGsBase))
-//		frigg::panicLogger.log() << "CPU does not support wrfsbase / wrgsbase"
-//				<< frigg::EndLog();
+//		frigg::panicLogger() << "CPU does not support wrfsbase / wrgsbase"
+//				<< frigg::endLog;
 	
 //	uint64_t cr4;
 //	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
@@ -219,8 +219,8 @@ void initializeThisProcessor() {
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]
 			& frigg::arch_x86::kCpuFlagSyscall) == 0)
-		frigg::panicLogger.log() << "CPU does not support the syscall instruction"
-				<< frigg::EndLog();
+		frigg::panicLogger() << "CPU does not support the syscall instruction"
+				<< frigg::endLog;
 	
 	uint64_t efer = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrEfer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrEfer,
@@ -256,10 +256,10 @@ extern "C" void thorRtSecondaryEntry() {
 	// inform the bsp that we do not need the trampoline area anymore
 	frigg::volatileWrite<bool>(&secondaryBootComplete, true);
 
-	frigg::infoLogger.log() << "Hello world from CPU #" << getLocalApicId() << frigg::EndLog();	
+	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
 	initializeThisProcessor();
 
-	frigg::infoLogger.log() << "Start scheduling on AP" << frigg::EndLog();
+	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(frigg::move(schedule_guard));
 }
@@ -289,13 +289,13 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	asm volatile ( "" : : : "memory" );
 	
 	// wait until the ap wakes up
-	frigg::infoLogger.log() << "Waiting for AP to wake up" << frigg::EndLog();
+	frigg::infoLogger() << "Waiting for AP to wake up" << frigg::endLog;
 	while(frigg::volatileRead<uint32_t>(status_ptr) == 0) {
 		frigg::pause();
 	}
 	
 	// allow ap code to initialize the processor
-	frigg::infoLogger.log() << "AP is booting" << frigg::EndLog();
+	frigg::infoLogger() << "AP is booting" << frigg::endLog;
 	frigg::volatileWrite<uint32_t>(status_ptr, 2);
 	
 	// wait until the secondary processor completed its boot process
@@ -303,7 +303,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	while(!frigg::volatileRead<bool>(&secondaryBootComplete)) {
 		frigg::pause();
 	}
-	frigg::infoLogger.log() << "AP finished booting" << frigg::EndLog();
+	frigg::infoLogger() << "AP finished booting" << frigg::endLog;
 }
 
 } // namespace thor

@@ -14,7 +14,7 @@ PanicLogger panicLogger;
 // InfoLogger
 // --------------------------------------------------------
 
-InfoLogger::Printer InfoLogger::log() {
+InfoLogger::Printer InfoLogger::operator() () {
 	return Printer();
 }
 
@@ -22,7 +22,7 @@ InfoLogger::Printer InfoLogger::log() {
 // PanicLogger
 // --------------------------------------------------------
 
-PanicLogger::Printer PanicLogger::log() {
+PanicLogger::Printer PanicLogger::operator() () {
 	friggPrintCritical("Panic!\n");
 	return Printer();
 }
@@ -65,9 +65,9 @@ void PanicLogger::Printer::finish() {
 void assertionFail(const char *message, const char *function,
 		const char *file, int line) {
 	PanicLogger logger;
-	logger.log() << "Assertion failed: " << message << "\n"
+	logger() << "Assertion failed: " << message << "\n"
 			<< "In function " << function
-			<< " at " << file << ":" << line << EndLog();
+			<< " at " << file << ":" << line << endLog;
 }
 
 } // namespace frigg
@@ -77,14 +77,14 @@ void assertionFail(const char *message, const char *function,
 extern "C" void __assert_fail(const char *assertion, const char *file,
 		unsigned int line, const char *function) {
 	frigg::PanicLogger logger;
-	logger.log() << "Assertion failed: " << assertion << "\n"
+	logger() << "Assertion failed: " << assertion << "\n"
 			<< "In function " << function
-			<< " at " << file << ":" << line << frigg::EndLog();
+			<< " at " << file << ":" << line << frigg::endLog;
 }
 
 extern "C" void __cxa_pure_virtual() {
 	frigg::PanicLogger logger;
-	logger.log() << "Pure virtual call" << frigg::EndLog();
+	logger() << "Pure virtual call" << frigg::endLog;
 }
 
 #endif // FRIGG_NO_LIBC

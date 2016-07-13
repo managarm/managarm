@@ -45,6 +45,7 @@ void printUInt(P &printer, T number, int radix) {
 
 
 class EndLog { };
+static constexpr EndLog endLog;
 
 template<typename T>
 struct LogHex {
@@ -172,7 +173,7 @@ public:
 		void finish();
 	};
 
-	Printer log();
+	Printer operator() ();
 };
 
 class PanicLogger {
@@ -187,7 +188,7 @@ public:
 		void finish();
 	};
 
-	Printer log();
+	Printer operator() ();
 };
 
 extern InfoLogger infoLogger;

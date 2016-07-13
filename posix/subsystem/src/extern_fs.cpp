@@ -26,7 +26,7 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
 
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
-			frigg::infoLogger.log() << "[posix/subsystem/src/extern-fs] OpenFile:fstat sendStringReq" << frigg::EndLog();
+			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:fstat sendStringReq" << frigg::endLog;
 			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 			
 			// FIXME: fix request id
@@ -72,7 +72,7 @@ void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
 
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
-			frigg::infoLogger.log() << "[posix/subsystem/src/extern-fs] OpenFile:connect sendStringReq" << frigg::EndLog();
+			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:connect sendStringReq" << frigg::endLog;
 			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 
 			// FIXME: fix request id
@@ -103,7 +103,7 @@ void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()>
 
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
-			frigg::infoLogger.log() << "[posix/subsystem/src/extern-fs] OpenFile:write sendStringReq" << frigg::EndLog();
+			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:write sendStringReq" << frigg::endLog;
 			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 			connection.getPipe().sendStringReq(buffer, size, 1, 1);
 			
@@ -223,7 +223,7 @@ void OpenFile::seek(int64_t rel_offset, VfsSeek whence,	frigg::CallbackPtr<void(
 			}else if(whence == kSeekEof) {
 				request.set_req_type(managarm::fs::CntReqType::SEEK_EOF);
 			}else{
-				frigg::panicLogger.log() << "Illegal whence argument" << frigg::EndLog();
+				frigg::panicLogger() << "Illegal whence argument" << frigg::endLog;
 			}
 
 			request.SerializeToString(serialized);
@@ -323,7 +323,7 @@ void OpenClosure::recvOpenResponse(HelError error, int64_t msg_request, int64_t 
 
 		frigg::String<Allocator> serialized(*allocator);
 		request.SerializeToString(&serialized);
-		frigg::infoLogger.log() << "[posix/subsystem/src/extern-fs] OpenClosure:recvOpenResponse sendStringReq" << frigg::EndLog();
+		frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenClosure:recvOpenResponse sendStringReq" << frigg::endLog;
 		connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 		
 		// FIXME: fix request id
@@ -373,7 +373,7 @@ void OpenClosure::recvReadData(HelError error, int64_t msg_request, int64_t msg_
 
 	frigg::String<Allocator> serialized(*allocator);
 	request.SerializeToString(&serialized);
-	frigg::infoLogger.log() << "[posix/subsystem/src/extern-fs] OpenClosure:recvReadData sendStringReq" << frigg::EndLog();
+	frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenClosure:recvReadData sendStringReq" << frigg::endLog;
 	connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 	
 	// FIXME: fix request id

@@ -83,9 +83,9 @@ struct HpetEntry {
 } __attribute__ (( packed ));
 
 void acpicaCheckFailed(const char *expr, const char *file, int line) {
-	frigg::panicLogger.log() << "ACPICA_CHECK failed: "
+	frigg::panicLogger() << "ACPICA_CHECK failed: "
 			<< expr << "\nIn file " << file << " on line " << line
-			<< frigg::EndLog();
+			<< frigg::endLog;
 }
 
 #define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
@@ -116,7 +116,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	name_buffer.Length = 5;
 	ACPICA_CHECK(AcpiGetName(object, ACPI_SINGLE_NAME, &name_buffer));
 
-	auto log_type = frigg::infoLogger.log();
+	auto log_type = frigg::infoLogger();
 	for(int i = 0; i < depth; i++)
 		log_type << "    ";
 	if(type == ACPI_TYPE_DEVICE) {
@@ -132,7 +132,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	}else{
 		log_type << "(Unknown type 0x" << frigg::logHex(type) << ") ";
 	}
-	log_type << (const char *)segment << frigg::EndLog();
+	log_type << (const char *)segment << frigg::endLog;
 	
 	if(strcmp(segment, "PCI0") == 0) {
 		ACPI_BUFFER rt_buffer;
@@ -140,7 +140,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 		rt_buffer.Length = ACPI_ALLOCATE_BUFFER;
 
 		ACPICA_CHECK(AcpiGetIrqRoutingTable(object, &rt_buffer));
-		frigg::infoLogger.log() << "Routing table:" << frigg::EndLog();
+		frigg::infoLogger() << "Routing table:" << frigg::endLog;
 
 		size_t offset = 0;
 		while(true) {
@@ -148,8 +148,8 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 			auto entry = (ACPI_PCI_ROUTING_TABLE *)((char *)rt_buffer.Pointer + offset);
 			if(entry->Length == 0)
 				break;
-			frigg::infoLogger.log() << "Pin: " << entry->Pin
-					<< ", source: " << (const char *)entry->Source << frigg::EndLog();
+			frigg::infoLogger() << "Pin: " << entry->Pin
+					<< ", source: " << (const char *)entry->Source << frigg::endLog;
 			offset += entry->Length;
 		}
 
@@ -159,7 +159,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	frigg::Vector<ACPI_HANDLE, Allocator> methods(*allocator);
 	findChildrenByType(object, ACPI_TYPE_METHOD, methods);
 	if(!methods.empty()) {
-		auto log_methods = frigg::infoLogger.log();
+		auto log_methods = frigg::infoLogger();
 		for(int i = 0; i < depth; i++)
 			log_methods << "    ";
 		log_methods << "    Methods: ";
@@ -172,7 +172,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 
 			log_methods << (const char *)method_name << " ";
 		}
-		log_methods << frigg::EndLog();
+		log_methods << frigg::endLog;
 	}
 	
 	frigg::Vector<ACPI_HANDLE, Allocator> literals(*allocator);
@@ -181,7 +181,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	findChildrenByType(object, ACPI_TYPE_BUFFER, literals);
 	findChildrenByType(object, ACPI_TYPE_PACKAGE, literals);
 	if(!literals.empty()) {
-		auto log_literals = frigg::infoLogger.log();
+		auto log_literals = frigg::infoLogger();
 		for(int i = 0; i < depth; i++)
 			log_literals << "    ";
 		log_literals << "    Literals: ";
@@ -194,7 +194,7 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 
 			log_literals << (const char *)literal_name << " ";
 		}
-		log_literals << frigg::EndLog();
+		log_literals << frigg::endLog;
 	}
 
 	frigg::Vector<ACPI_HANDLE, Allocator> children(*allocator);
@@ -270,7 +270,7 @@ int main() {
 	for(size_t i = 0; i < init_count; i++)
 		__init_array_start[i]();
 	
-	frigg::infoLogger.log() << "Entering ACPI driver" << frigg::EndLog();
+	frigg::infoLogger() << "Entering ACPI driver" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	
 	// connect to mbus
@@ -293,7 +293,7 @@ int main() {
 	ACPICA_CHECK(AcpiLoadTables());
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	frigg::infoLogger.log() << "ACPI initialized successfully" << frigg::EndLog();
+	frigg::infoLogger() << "ACPI initialized successfully" << frigg::endLog;
 	
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;
@@ -313,8 +313,8 @@ int main() {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt_table + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
-			frigg::infoLogger.log() << "    Local APIC id: "
-					<< entry->localApicId << frigg::EndLog();
+			frigg::infoLogger() << "    Local APIC id: "
+					<< entry->localApicId << frigg::endLog;
 
 			if(seen_bsp)
 				helControlKernel(kThorSubArch, kThorIfBootSecondary,
@@ -322,24 +322,24 @@ int main() {
 			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
-			frigg::infoLogger.log() << "    I/O APIC id: " << entry->ioApicId
+			frigg::infoLogger() << "    I/O APIC id: " << entry->ioApicId
 					<< ", sytem interrupt base: " << entry->systemIntBase
-					<< frigg::EndLog();
+					<< frigg::endLog;
 			
 			uint64_t address = entry->mmioAddress;
 			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			frigg::infoLogger.log() << "    Int override: bus " << entry->bus
+			frigg::infoLogger() << "    Int override: bus " << entry->bus
 					<< ", irq " << entry->sourceIrq << " -> " << entry->systemInt
-					<< frigg::EndLog();
+					<< frigg::endLog;
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
-			frigg::infoLogger.log() << "    Local APIC NMI: processor " << entry->processorId
-					<< ", lint: " << entry->localInt << frigg::EndLog();
+			frigg::infoLogger() << "    Local APIC NMI: processor " << entry->processorId
+					<< ", lint: " << entry->localInt << frigg::endLog;
 		}else{
-			frigg::infoLogger.log() << "    Unexpected MADT entry of type "
-					<< generic->type << frigg::EndLog();
+			frigg::infoLogger() << "    Unexpected MADT entry of type "
+					<< generic->type << frigg::endLog;
 		}
 		offset += generic->length;
 	}

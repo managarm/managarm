@@ -437,7 +437,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	frigg::infoLogger.log() << "helLoadahead() is implemented as no-op" << frigg::EndLog();
+	frigg::infoLogger() << "helLoadahead() is implemented as no-op" << frigg::endLog;
 	
 	return kHelErrNone;
 }

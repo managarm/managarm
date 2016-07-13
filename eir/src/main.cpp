@@ -182,7 +182,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 			|| ehdr->e_ident[1] != 'E'
 			|| ehdr->e_ident[2] != 'L'
 			|| ehdr->e_ident[3] != 'F') {
-		frigg::panicLogger.log() << "Illegal magic fields" << frigg::EndLog();
+		frigg::panicLogger() << "Illegal magic fields" << frigg::endLog;
 	}
 	assert(ehdr->e_type == ET_EXEC);
 	
@@ -205,8 +205,8 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 			map_flags |= kAccessExecute;
 		}else{
-			frigg::panicLogger.log() << "Illegal combination of segment permissions"
-					<< frigg::EndLog();
+			frigg::panicLogger() << "Illegal combination of segment permissions"
+					<< frigg::endLog;
 		}
 
 		uint32_t page = 0;
@@ -262,7 +262,7 @@ struct MbMemoryMap {
 };
 
 extern "C" void eirMain(MbInfo *mb_info) {
-	frigg::infoLogger.log() << "Starting Eir" << frigg::EndLog();
+	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);
 	char vendor_str[13];
@@ -270,14 +270,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	memcpy(&vendor_str[4], &vendor_res[3], 4);
 	memcpy(&vendor_str[8], &vendor_res[2], 4);
 	vendor_str[12] = 0;
-	frigg::infoLogger.log() << "CPU vendor: " << (const char *)vendor_str << frigg::EndLog();
+	frigg::infoLogger() << "CPU vendor: " << (const char *)vendor_str << frigg::endLog;
 	
 	// make sure everything we require is supported by the CPU
 	frigg::Array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
 	if((extended[3] & arch::kCpuFlagLongMode) == 0)
-		frigg::panicLogger.log() << "Long mode is not supported on this CPU" << frigg::EndLog();
+		frigg::panicLogger() << "Long mode is not supported on this CPU" << frigg::endLog;
 	if((extended[3] & arch::kCpuFlagNx) == 0)
-		frigg::panicLogger.log() << "NX bit is not supported on this CPU" << frigg::EndLog();
+		frigg::panicLogger() << "NX bit is not supported on this CPU" << frigg::endLog;
 	
 	// compute the bootstrap memory base
 	assert((mb_info->flags & kMbInfoPlainMemory) != 0);
@@ -294,9 +294,9 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	}
 	bootAlign(0x1000);
 	
-	frigg::infoLogger.log() << "Bootstrap memory at "
+	frigg::infoLogger() << "Bootstrap memory at "
 			<< (void *)bootstrapPointer << ", length: "
-			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << frigg::EndLog();
+			<< (bootstrapLimit - bootstrapPointer) / 1024 << " KiB" << frigg::endLog;
 	
 	// trash boostrap memory for debugging purposes
 #ifdef EIR_TRASH_MEMORY
@@ -316,15 +316,15 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	bootstrapBase = bootstrapPointer;
 	
 	assert((mb_info->flags & kMbInfoMemoryMap) != 0);
-	frigg::infoLogger.log() << "Memory map:" << frigg::EndLog();
+	frigg::infoLogger() << "Memory map:" << frigg::endLog;
 	size_t offset = 0;
 	while(offset < mb_info->memoryMapLength) {
 		MbMemoryMap *map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr
 				+ offset);
 		
 		if(map->type == 1)
-			frigg::infoLogger.log() << "   Base: " << (void *)map->baseAddress
-					<< ", length: " << (map->length / 1024) << " KiB" << frigg::EndLog();
+			frigg::infoLogger() << "   Base: " << (void *)map->baseAddress
+					<< ", length: " << (map->length / 1024) << " KiB" << frigg::endLog;
 
 		offset += map->size + 4;
 	}
@@ -377,7 +377,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info->bootstrapPhysical = bootstrapPointer;
 	info->bootstrapLength = bootstrapLimit - bootstrapPointer;
 
-	frigg::infoLogger.log() << "Leaving Eir and entering the real kernel" << frigg::EndLog();
+	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
 			physical_window + thor_stack_base + thor_stack_length, info);
 }

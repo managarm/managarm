@@ -49,23 +49,23 @@ typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
 frigg::LazyInitializer<TimerQueue> timerQueue;
 
 void setupHpet(PhysicalAddr address) {
-	frigg::infoLogger.log() << "HPET at " << (void *)address << frigg::EndLog();
+	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
 	hpetRegs = accessPhysical<uint64_t>(address);
 
 	uint64_t caps = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenCapsAndId]);
 	if((caps & kHpet64BitCounter) == 0)
-		frigg::infoLogger.log() << "HPET only has a 32-bit counter" << frigg::EndLog();
+		frigg::infoLogger() << "HPET only has a 32-bit counter" << frigg::endLog;
 	if((caps & kHpet64BitCounter) == 0)
-		frigg::infoLogger.log() << "HPET only has a 32-bit counter" << frigg::EndLog();
+		frigg::infoLogger() << "HPET only has a 32-bit counter" << frigg::endLog;
 
 	hpetFrequency = caps >> 32;
-	frigg::infoLogger.log() << "HPET frequency: " << hpetFrequency << frigg::EndLog();
+	frigg::infoLogger() << "HPET frequency: " << hpetFrequency << frigg::endLog;
 	
 	uint64_t config = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenConfig]);
 	config |= kHpetEnable;
 	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetGenConfig], config);
 	
-	frigg::infoLogger.log() << "Enabled HPET" << frigg::EndLog();
+	frigg::infoLogger() << "Enabled HPET" << frigg::endLog;
 	
 	// disable the legacy PIT (i.e. program to one-shot mode)
 	frigg::arch_x86::ioOutByte(kPitCommand, kPitOnTerminalCount | kPitLowHigh);

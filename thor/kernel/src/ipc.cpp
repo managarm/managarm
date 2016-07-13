@@ -241,7 +241,7 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 		ring_buffer->doTransfer(frigg::move(send), frigg::move(recv));
 		return true;
 	}else{
-		frigg::panicLogger.log() << "Illegal request type" << frigg::EndLog();
+		frigg::panicLogger() << "Illegal request type" << frigg::endLog;
 		__builtin_unreachable();
 	}
 }

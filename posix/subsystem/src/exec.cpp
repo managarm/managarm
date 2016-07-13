@@ -75,7 +75,7 @@ void LoadClosure::operator() () {
 void LoadClosure::openedFile(frigg::SharedPtr<VfsOpenFile> open_file) {
 	// FIXME: return an error
 	if(!open_file)
-		frigg::panicLogger.log() << "Could not open " << path << frigg::EndLog();
+		frigg::panicLogger() << "Could not open " << path << frigg::endLog;
 	openFile = frigg::move(open_file);
 
 	openFile->mmap(CALLBACK_MEMBER(this, &LoadClosure::mmapFile));
@@ -148,8 +148,8 @@ void LoadClosure::processPhdr() {
 						(void *)map_address, phdr->p_offset, map_length,
 						kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
 			}else{
-				frigg::panicLogger.log() << "Illegal combination of segment permissions"
-						<< frigg::EndLog();
+				frigg::panicLogger() << "Illegal combination of segment permissions"
+						<< frigg::endLog;
 			}
 		
 			currentPhdr++;
@@ -168,8 +168,8 @@ void LoadClosure::processPhdr() {
 				HEL_CHECK(helMapMemory(segment_memory, process->vmSpace, (void *)map_address,
 						0, map_length, kHelMapReadWrite, &map_pointer));
 			}else{
-				frigg::panicLogger.log() << "Illegal combination of segment permissions"
-						<< frigg::EndLog();
+				frigg::panicLogger() << "Illegal combination of segment permissions"
+						<< frigg::endLog;
 			}
 			HEL_CHECK(helCloseDescriptor(segment_memory));
 
@@ -328,7 +328,7 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 				&async_id));
 	})
 	+ frigg::lift([=](HelError error) {
-		frigg::infoLogger.log() << "Observe triggered" << frigg::EndLog();
+		frigg::infoLogger() << "Observe triggered" << frigg::endLog;
 		HEL_CHECK(helResume(thread));
 	});
 

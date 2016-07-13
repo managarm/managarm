@@ -15,8 +15,8 @@ extern "C" {
 #include <acpi.h>
 }
 
-#define NOT_IMPLEMENTED() do { frigg::panicLogger.log() << "ACPI interface function " \
-		<< __func__ << " is not implemented!" << frigg::EndLog(); } while(0)
+#define NOT_IMPLEMENTED() do { frigg::panicLogger() << "ACPI interface function " \
+		<< __func__ << " is not implemented!" << frigg::endLog; } while(0)
 
 // --------------------------------------------------------
 // Initialization and shutdown
@@ -33,8 +33,8 @@ ACPI_STATUS AcpiOsTerminate() {
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 	ACPI_SIZE pointer;
 	if(AcpiFindRootPointer(&pointer) != AE_OK)
-		frigg::panicLogger.log() << "Could not find ACPI RSDP table"
-				<< frigg::EndLog();
+		frigg::panicLogger() << "Could not find ACPI RSDP table"
+				<< frigg::endLog;
 	return pointer;
 }
 
@@ -236,7 +236,7 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	frigg::infoLogger.log() << "Handle int " << interrupt << frigg::EndLog();
+	frigg::infoLogger() << "Handle int " << interrupt << frigg::endLog;
 	//NOT_IMPLEMENTED();
 	return AE_OK;
 }

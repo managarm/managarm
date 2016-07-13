@@ -138,7 +138,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::GET_PID) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] GET_PID" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] GET_PID" << frigg::endLog;
 
 			auto action = frigg::compose([=] (auto serialized) {
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -154,7 +154,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] FORK" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] FORK" << frigg::endLog;
 
 		auto action = frigg::compose([=] (auto serialized) {
 			StdSharedPtr<Process> new_process = process->fork();
@@ -182,7 +182,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] EXEC" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] EXEC" << frigg::endLog;
 
 		auto action = frigg::compose([=] (auto serialized) {
 			execute(process, request.path());
@@ -199,7 +199,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::FSTAT) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] FSTAT" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] FSTAT" << frigg::endLog;
 		
 		auto file = process->allOpenFiles.get(request.fd());
 
@@ -211,7 +211,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			})
 			+ frigg::compose([=] (FileStats stats, auto serialized) {
 				if(traceRequests)
-					frigg::infoLogger.log() << "[" << process->pid << "] FSTAT response" << frigg::EndLog();
+					frigg::infoLogger() << "[" << process->pid << "] FSTAT response" << frigg::endLog;
 
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
 				response.set_error(managarm::posix::Errors::SUCCESS);
@@ -248,7 +248,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get()); 
 	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] OPEN" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] OPEN" << frigg::endLog;
 
 		// NOTE: this is a hack that works around a segfault in GCC
 		auto msg_request2 = msg_request;
@@ -283,7 +283,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 					process->allOpenFiles.insert(fd, frigg::move(file));
 
 					if(traceRequests)
-						frigg::infoLogger.log() << "[" << process->pid << "] OPEN response" << frigg::EndLog();
+						frigg::infoLogger() << "[" << process->pid << "] OPEN response" << frigg::endLog;
 
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
 					response.set_error(managarm::posix::Errors::SUCCESS);
@@ -308,7 +308,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CONNECT) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] CONNECT" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] CONNECT" << frigg::endLog;
 	
 		auto file = process->allOpenFiles.get(request.fd());
 	
@@ -342,7 +342,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] WRITE" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] WRITE" << frigg::endLog;
 
 			auto file = process->allOpenFiles.get(request.fd());
 			
@@ -376,7 +376,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] READ" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] READ" << frigg::endLog;
 
 		auto file = process->allOpenFiles.get(request.fd());
 
@@ -440,7 +440,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_REL
 			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] SEEK" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] SEEK" << frigg::endLog;
 
 		auto file = process->allOpenFiles.get(request.fd());
 
@@ -455,7 +455,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
 					(*file)->seek(request.rel_offset(), kSeekEof, callback);
 				}else{
-					frigg::panicLogger.log() << "Illegal SEEK request" << frigg::EndLog();
+					frigg::panicLogger() << "Illegal SEEK request" << frigg::endLog;
 				}
 			})
 
@@ -484,7 +484,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::MMAP) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] MMAP" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] MMAP" << frigg::endLog;
 
 		auto file = process->allOpenFiles.get(request.fd());
 		
@@ -525,7 +525,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] CLOSE" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] CLOSE" << frigg::endLog;
 
 		
 		auto action = frigg::compose([=] (auto serialized) {
@@ -550,7 +550,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] DUP2" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] DUP2" << frigg::endLog;
 
 
 		auto action = frigg::compose([=] (auto serialized) {
@@ -577,7 +577,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::TTY_NAME) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] TTY_NAME" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] TTY_NAME" << frigg::endLog;
 
 		auto file = process->allOpenFiles.get(request.fd());
 		
@@ -620,7 +620,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(action, allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] HELFD_ATTACH" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] HELFD_ATTACH" << frigg::endLog;
 
 		HelError error;
 		HelHandle handle;
@@ -664,7 +664,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		frigg::run(frigg::move(action), allocator.get());
 	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
 		if(traceRequests)
-			frigg::infoLogger.log() << "[" << process->pid << "] HELFD_CLONE" << frigg::EndLog();
+			frigg::infoLogger() << "[" << process->pid << "] HELFD_CLONE" << frigg::endLog;
 
 		auto file_wrapper = process->allOpenFiles.get(request.fd());
 		
@@ -673,7 +673,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 			frigg::compose([=] (auto serialized) {
 				auto file = *file_wrapper;
-				frigg::infoLogger.log() << "[posix/subsystem/src/main] HELFD_CLONE sendDescriptorResp" << frigg::EndLog();
+				frigg::infoLogger() << "[posix/subsystem/src/main] HELFD_CLONE sendDescriptorResp" << frigg::endLog;
 				pipe->sendDescriptorResp(file->getHelfd(), msg_request, 1);
 				
 				managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -808,15 +808,15 @@ void QueryDeviceIfClosure::recvdPipe(HelError error, int64_t msg_request, int64_
 		HelHandle handle) {
 	auto fs = frigg::construct<extern_fs::MountPoint>(*allocator, helx::Pipe(handle));
 	if(requestId == 1) { // FIXME: UGLY HACK
-		frigg::infoLogger.log() << "/ is ready!" << frigg::EndLog();
+		frigg::infoLogger() << "/ is ready!" << frigg::endLog;
 		auto path = frigg::String<Allocator>(*allocator, "");
 		initMountSpace->allMounts.insert(path, fs);
 	}else if(requestId == 2) {
-		frigg::infoLogger.log() << "/dev/network is ready!" << frigg::EndLog();
+		frigg::infoLogger() << "/dev/network is ready!" << frigg::endLog;
 		auto path = frigg::String<Allocator>(*allocator, "/dev/network");
 		initMountSpace->allMounts.insert(path, fs);
 	}else{
-		frigg::panicLogger.log() << "Unexpected requestId" << frigg::EndLog();
+		frigg::panicLogger() << "Unexpected requestId" << frigg::endLog;
 	}
 }
 
@@ -877,7 +877,7 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 
 			request.SerializeToString(serialized);
 			
-			frigg::infoLogger.log() << "[posix/subsystem/src/main] network sendStringReq" << frigg::EndLog();
+			frigg::infoLogger() << "[posix/subsystem/src/main] network sendStringReq" << frigg::endLog;
 			return mbusPipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 2, 0)
 			+ frigg::lift([=] (HelError error) { 
 				HEL_CHECK(error); 
@@ -900,7 +900,7 @@ extern InitFuncPtr __init_array_start[];
 extern InitFuncPtr __init_array_end[];
 
 int main() {
-	frigg::infoLogger.log() << "Starting posix-subsystem" << frigg::EndLog();
+	frigg::infoLogger() << "Starting posix-subsystem" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 
 	// we're using no libc, so we have to run constructors manually
