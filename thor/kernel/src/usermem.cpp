@@ -105,8 +105,6 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 				waitQueue.addBack(this_thread.toShared());
 			
 				// TODO: make sure we do not hold any locks here!
-				assert(!"Fix page fault blocking");
-				//resetCurrentThread(restore_state);
 				ScheduleGuard schedule_guard(scheduleLock.get());
 				doSchedule(frigg::move(schedule_guard));
 				// note: doSchedule() takes care of the schedule_guard lock
