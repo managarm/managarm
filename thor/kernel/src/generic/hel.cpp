@@ -334,11 +334,11 @@ HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto initiate_load = frigg::makeShared<AsyncHandleLoad>(*kernelAlloc,
-			frigg::move(data));
+			frigg::move(completer));
 	{
 		// TODO: protect memory object with a guard
 		memory->submitHandleLoad(frigg::move(initiate_load));
@@ -397,11 +397,11 @@ HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
-			frigg::move(data), offset, size);
+			frigg::move(completer), offset, size);
 	{
 		// TODO: protect memory object with a guard
 		memory->submitInitiateLoad(frigg::move(handle_load));
@@ -572,11 +572,11 @@ HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto observe = frigg::makeShared<AsyncObserve>(*kernelAlloc,
-			frigg::move(data));
+			frigg::move(completer));
 	{
 		// TODO: protect the thread with a lock!
 		thread->submitObserve(frigg::move(observe));
@@ -781,11 +781,11 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 
 	auto ring_item = frigg::makeShared<AsyncRingItem>(*kernelAlloc,
-			frigg::move(data), frigg::move(space_lock), buffer_size);
+			frigg::move(completer), frigg::move(space_lock), buffer_size);
 	ring->submitBuffer(frigg::move(ring_item));
 	
 	return kHelErrNone;
@@ -864,11 +864,11 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), user_buffer, length);
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendString>(*kernelAlloc,
-			frigg::move(data), msg_request, msg_sequence);
+			frigg::move(completer), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->kernelBuffer = frigg::move(kernel_buffer);
 	
@@ -944,11 +944,11 @@ HelError helSubmitSendDescriptor(HelHandle handle, HelHandle hub_handle,
 	if(flags & kHelResponse)
 		send_flags |= Channel::kFlagResponse;
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto send = frigg::makeShared<AsyncSendDescriptor>(*kernelAlloc,
-			frigg::move(data), msg_request, msg_sequence);
+			frigg::move(completer), msg_request, msg_sequence);
 	send->flags = send_flags;
 	send->descriptor = frigg::move(send_descriptor);
 
@@ -1008,10 +1008,10 @@ HelError helSubmitRecvString(HelHandle handle,
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 	auto space_lock = ForeignSpaceLock::acquire(frigg::move(space), user_buffer, max_length);
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(completer),
 			AsyncRecvString::kTypeNormal, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->spaceLock = frigg::move(space_lock);
@@ -1077,10 +1077,10 @@ HelError helSubmitRecvStringToRing(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 
-	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(data),
+	auto recv = frigg::makeShared<AsyncRecvString>(*kernelAlloc, frigg::move(completer),
 			AsyncRecvString::kTypeToRing, filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	recv->ringBuffer = frigg::move(ring);
@@ -1150,10 +1150,10 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	if(flags & kHelResponse)
 		recv_flags |= Channel::kFlagResponse;
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 
-	auto recv = frigg::makeShared<AsyncRecvDescriptor>(*kernelAlloc, frigg::move(data),
+	auto recv = frigg::makeShared<AsyncRecvDescriptor>(*kernelAlloc, frigg::move(completer),
 			this_universe.toWeak(), filter_request, filter_sequence);
 	recv->flags = recv_flags;
 	
@@ -1213,11 +1213,11 @@ HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc,
-			frigg::move(data), universe.toWeak());
+			frigg::move(completer), universe.toWeak());
 	{
 		Server::Guard server_guard(&server->lock);
 		server->submitAccept(server_guard, frigg::move(request));
@@ -1251,11 +1251,11 @@ HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
 	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc,
-			frigg::move(data), universe.toWeak());
+			frigg::move(completer), universe.toWeak());
 	{
 		Server::Guard server_guard(&server->lock);
 		server->submitConnect(server_guard, frigg::move(request));
@@ -1481,10 +1481,10 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	AsyncData data(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = data.asyncId;
+	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
+	*async_id = completer.submitInfo.asyncId;
 	
-	auto wait = frigg::makeShared<AsyncIrq>(*kernelAlloc, frigg::move(data));
+	auto wait = frigg::makeShared<AsyncIrq>(*kernelAlloc, frigg::move(completer));
 	{
 		IrqLine::Guard guard(&line->lock);
 		line->submitWait(guard, frigg::move(wait));

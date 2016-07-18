@@ -58,8 +58,8 @@ void runService() {
 	// increment the reference counter so that the threads stays alive forever
 	thread.control().increment();
 
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, frigg::move(thread));
+//	ScheduleGuard schedule_guard(scheduleLock.get());
+//	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
 
 } // namespace thor

@@ -3,9 +3,9 @@
 
 namespace thor {
 
-AsyncRingItem::AsyncRingItem(AsyncData data,
+AsyncRingItem::AsyncRingItem(AsyncCompleter completer,
 		DirectSpaceLock<HelRingBuffer> space_lock, size_t buffer_size)
-: AsyncOperation(frigg::move(data)),
+: AsyncOperation(frigg::move(completer)),
 		spaceLock(frigg::move(space_lock)), bufferSize(buffer_size), offset(0) { }
 
 RingBuffer::RingBuffer() { }

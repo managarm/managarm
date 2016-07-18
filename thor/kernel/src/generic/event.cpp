@@ -11,35 +11,35 @@ AsyncEvent::AsyncEvent(EventType type, SubmitInfo submit_info)
 		: type(type), submitInfo(submit_info) { }
 
 AsyncEvent AsyncHandleLoad::getEvent() {
-	AsyncEvent event(kEventMemoryLoad, submitInfo);
+	AsyncEvent event(kEventMemoryLoad, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	event.offset = offset;
 	event.length = length;
 	return event;
 }
 AsyncEvent AsyncInitiateLoad::getEvent() {
-	AsyncEvent event(kEventMemoryLock, submitInfo);
+	AsyncEvent event(kEventMemoryLock, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
 AsyncEvent AsyncObserve::getEvent() {
-	AsyncEvent event(kEventObserve, submitInfo);
+	AsyncEvent event(kEventObserve, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
 AsyncEvent AsyncSendString::getEvent() {
-	AsyncEvent event(kEventSendString, submitInfo);
+	AsyncEvent event(kEventSendString, completer.get<PostEventCompleter>().submitInfo);
 	event.error = error;
 	return event;
 }
 AsyncEvent AsyncSendDescriptor::getEvent() {
-	AsyncEvent event(kEventSendDescriptor, submitInfo);
+	AsyncEvent event(kEventSendDescriptor, completer.get<PostEventCompleter>().submitInfo);
 	event.error = error;
 	return event;
 }
 AsyncEvent AsyncRecvString::getEvent() {
 	if(type == kTypeNormal) {
-		AsyncEvent event(kEventRecvString, submitInfo);
+		AsyncEvent event(kEventRecvString, completer.get<PostEventCompleter>().submitInfo);
 		event.error = error;
 		event.msgRequest = msgRequest;
 		event.msgSequence = msgSequence;
@@ -48,7 +48,7 @@ AsyncEvent AsyncRecvString::getEvent() {
 	}else{
 		assert(type == kTypeToRing);
 		
-		AsyncEvent event(kEventRecvStringToRing, submitInfo);
+		AsyncEvent event(kEventRecvStringToRing, completer.get<PostEventCompleter>().submitInfo);
 		event.error = error;
 		event.msgRequest = msgRequest;
 		event.msgSequence = msgSequence;
@@ -58,7 +58,7 @@ AsyncEvent AsyncRecvString::getEvent() {
 	}
 }
 AsyncEvent AsyncRecvDescriptor::getEvent() {
-	AsyncEvent event(kEventRecvDescriptor, submitInfo);
+	AsyncEvent event(kEventRecvDescriptor, completer.get<PostEventCompleter>().submitInfo);
 	event.error = error;
 	event.msgRequest = msgRequest;
 	event.msgSequence = msgSequence;
@@ -66,20 +66,20 @@ AsyncEvent AsyncRecvDescriptor::getEvent() {
 	return event;
 }
 AsyncEvent AsyncAccept::getEvent() {
-	AsyncEvent event(kEventAccept, submitInfo);
+	AsyncEvent event(kEventAccept, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	event.handle = handle;
 	return event;
 }
 AsyncEvent AsyncConnect::getEvent() {
-	AsyncEvent event(kEventConnect, submitInfo);
+	AsyncEvent event(kEventConnect, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	event.handle = handle;
 	return event;
 }
 AsyncEvent AsyncRingItem::getEvent() { assert(false); }
 AsyncEvent AsyncIrq::getEvent() {
-	AsyncEvent event(kEventIrq, submitInfo);
+	AsyncEvent event(kEventIrq, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	return event;
 }
@@ -89,11 +89,25 @@ AsyncEvent AsyncIrq::getEvent() {
 // --------------------------------------------------------
 
 void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
-	frigg::SharedPtr<EventHub> event_hub = operation->eventHub.grab();
-	assert(event_hub);
+	AsyncCompleter &completer = operation->completer;
+	switch(completer.tag()) {
+	case AsyncCompleter::tagOf<PostEventCompleter>(): {
+		auto event_hub = completer.get<PostEventCompleter>().eventHub.grab();
+		assert(event_hub);
 
-	EventHub::Guard hub_guard(&event_hub->lock);
-	event_hub->raiseEvent(hub_guard, frigg::move(operation));
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->raiseEvent(hub_guard, frigg::move(operation));
+	} break;
+	case AsyncCompleter::tagOf<ReturnFromForkCompleter>(): {
+		auto thread = completer.get<ReturnFromForkCompleter>().thread.grab();
+		assert(thread);
+
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, frigg::move(thread));
+	} break;
+	default:
+		assert(!"Unexpected AsyncCompleter");
+	}
 }
 
 // --------------------------------------------------------

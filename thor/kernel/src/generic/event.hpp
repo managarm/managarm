@@ -39,24 +39,27 @@ struct AsyncEvent {
 	Handle handle;
 };
 
+typedef frigg::Variant<
+	PostEventCompleter,
+	ReturnFromForkCompleter
+> AsyncCompleter;
+
 struct AsyncOperation {
 	static void complete(frigg::SharedPtr<AsyncOperation> operation);
 
-	AsyncOperation(AsyncData data)
-	: eventHub(frigg::move(data.eventHub)),
-		submitInfo(data.asyncId, data.submitFunction, data.submitObject) { }
+	AsyncOperation(AsyncCompleter completer)
+	: completer(frigg::move(completer)) { }
 
 	virtual AsyncEvent getEvent() = 0;
 
-	frigg::WeakPtr<EventHub> eventHub;
-	SubmitInfo submitInfo;
+	AsyncCompleter completer;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
 struct AsyncHandleLoad : public AsyncOperation {
-	AsyncHandleLoad(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncHandleLoad(AsyncCompleter completer)
+	: AsyncOperation(frigg::move(completer)) { }
 	
 	AsyncEvent getEvent() override;
 	
@@ -67,8 +70,8 @@ struct AsyncHandleLoad : public AsyncOperation {
 };
 
 struct AsyncInitiateLoad : public AsyncOperation {
-	AsyncInitiateLoad(AsyncData data, size_t offset, size_t length)
-	: AsyncOperation(frigg::move(data)), offset(offset), length(length), progress(0) { }
+	AsyncInitiateLoad(AsyncCompleter completer, size_t offset, size_t length)
+	: AsyncOperation(frigg::move(completer)), offset(offset), length(length), progress(0) { }
 
 	size_t offset;
 	size_t length;
@@ -82,8 +85,8 @@ struct AsyncInitiateLoad : public AsyncOperation {
 };
 
 struct AsyncObserve : public AsyncOperation {
-	AsyncObserve(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncObserve(AsyncCompleter completer)
+	: AsyncOperation(frigg::move(completer)) { }
 	
 	AsyncEvent getEvent() override;
 	
@@ -91,8 +94,8 @@ struct AsyncObserve : public AsyncOperation {
 };
 
 struct AsyncSendString : public AsyncOperation {
-	AsyncSendString(AsyncData data, int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+	AsyncSendString(AsyncCompleter completer, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(completer)), msgRequest(msg_request), msgSequence(msg_sequence),
 			flags(0) { }
 	
 	AsyncEvent getEvent() override;
@@ -108,8 +111,8 @@ struct AsyncSendString : public AsyncOperation {
 };
 
 struct AsyncSendDescriptor : public AsyncOperation {
-	AsyncSendDescriptor(AsyncData data, int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(data)), msgRequest(msg_request), msgSequence(msg_sequence),
+	AsyncSendDescriptor(AsyncCompleter completer, int64_t msg_request, int64_t msg_sequence)
+	: AsyncOperation(frigg::move(completer)), msgRequest(msg_request), msgSequence(msg_sequence),
 			flags(0) { }
 	
 	AsyncEvent getEvent() override;
@@ -130,9 +133,9 @@ struct AsyncRecvString : public AsyncOperation {
 		kTypeToRing
 	};
 
-	AsyncRecvString(AsyncData data, Type type,
+	AsyncRecvString(AsyncCompleter completer, Type type,
 			int64_t filter_request, int64_t filter_sequence)
-	: AsyncOperation(frigg::move(data)), type(type),
+	: AsyncOperation(frigg::move(completer)), type(type),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
 	AsyncEvent getEvent() override;
@@ -158,9 +161,9 @@ struct AsyncRecvString : public AsyncOperation {
 };
 
 struct AsyncRecvDescriptor : public AsyncOperation {
-	AsyncRecvDescriptor(AsyncData data, frigg::WeakPtr<Universe> universe,
+	AsyncRecvDescriptor(AsyncCompleter completer, frigg::WeakPtr<Universe> universe,
 			int64_t filter_request, int64_t filter_sequence)
-	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)),
+	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)),
 			filterRequest(filter_request), filterSequence(filter_sequence) { }
 	
 	AsyncEvent getEvent() override;
@@ -179,8 +182,8 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 };
 
 struct AsyncAccept : public AsyncOperation {
-	AsyncAccept(AsyncData data, frigg::WeakPtr<Universe> universe)
-	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
+	AsyncAccept(AsyncCompleter completer, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)) { }
 	
 	AsyncEvent getEvent() override;
 	
@@ -192,8 +195,8 @@ struct AsyncAccept : public AsyncOperation {
 };
 
 struct AsyncConnect : public AsyncOperation {
-	AsyncConnect(AsyncData data, frigg::WeakPtr<Universe> universe)
-	: AsyncOperation(frigg::move(data)), universe(frigg::move(universe)) { }
+	AsyncConnect(AsyncCompleter completer, frigg::WeakPtr<Universe> universe)
+	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)) { }
 	
 	AsyncEvent getEvent() override;
 	
@@ -205,7 +208,7 @@ struct AsyncConnect : public AsyncOperation {
 };
 
 struct AsyncRingItem : public AsyncOperation {
-	AsyncRingItem(AsyncData data, DirectSpaceLock<HelRingBuffer> space_lock,
+	AsyncRingItem(AsyncCompleter completer, DirectSpaceLock<HelRingBuffer> space_lock,
 			size_t buffer_size);
 	
 	AsyncEvent getEvent() override;
@@ -219,8 +222,8 @@ struct AsyncRingItem : public AsyncOperation {
 };
 
 struct AsyncIrq : public AsyncOperation {
-	AsyncIrq(AsyncData data)
-	: AsyncOperation(frigg::move(data)) { }
+	AsyncIrq(AsyncCompleter completer)
+	: AsyncOperation(frigg::move(completer)) { }
 	
 	AsyncEvent getEvent() override;
 	

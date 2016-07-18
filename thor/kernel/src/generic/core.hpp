@@ -99,16 +99,21 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-struct AsyncData {
-	AsyncData(frigg::WeakPtr<EventHub> event_hub, int64_t async_id,
+struct ReturnFromForkCompleter {
+	ReturnFromForkCompleter(frigg::WeakPtr<Thread> thread)
+	: thread(frigg::move(thread)) { }
+
+	frigg::WeakPtr<Thread> thread;
+};
+
+struct PostEventCompleter {
+	PostEventCompleter(frigg::WeakPtr<EventHub> event_hub, int64_t async_id,
 			uintptr_t submit_function, uintptr_t submit_object)
-	: eventHub(frigg::move(event_hub)), asyncId(async_id),
-			submitFunction(submit_function), submitObject(submit_object) { }
+	: eventHub(frigg::move(event_hub)),
+			submitInfo(async_id, submit_function, submit_object) { }
 	
 	frigg::WeakPtr<EventHub> eventHub;
-	int64_t asyncId;
-	uintptr_t submitFunction;
-	uintptr_t submitObject;
+	SubmitInfo submitInfo;
 };
 
 // this is a base class for async request classes

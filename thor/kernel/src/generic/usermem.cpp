@@ -90,18 +90,19 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 		// submit a load request for the page
 		size_t page_index = offset / kPageSize;
 		if(loadState[page_index] != kStateLoaded) {
-			frigg::SharedBlock<AsyncInitiateLoad, KernelAlloc> block(*kernelAlloc,
-					AsyncData(frigg::WeakPtr<EventHub>(), 0, 0, 0),
-					offset, kPageSize);
+			KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+
+			struct NullAllocator {
+				void free(void *) { }
+			};
+			NullAllocator null_allocator;
+
+			frigg::SharedBlock<AsyncInitiateLoad, NullAllocator> block(null_allocator,
+					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
 			submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad>(frigg::adoptShared, &block));
-		}
-
-		// wait until the page is loaded
-		while(loadState[page_index] != kStateLoading) {
+			
 			assert(!intsAreEnabled());
-
 			if(forkExecutor()) {
-				KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 				waitQueue.addBack(this_thread.toShared());
 			
 				// TODO: make sure we do not hold any locks here!

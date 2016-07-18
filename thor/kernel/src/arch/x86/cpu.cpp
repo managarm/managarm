@@ -146,7 +146,8 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image._general()->clientGs);
 	
 	uint16_t cs = image._general()->cs;
-	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
+	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelClientUserCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
