@@ -53,13 +53,14 @@ void runService() {
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	
 	thread->image.initSystemVAbi((uintptr_t)&serviceMain,
-			stack_base + stack_size, true);
+//			stack_base + stack_size, true);
+			(uintptr_t)thread->kernelStack.base(), true);
 
 	// increment the reference counter so that the threads stays alive forever
 	thread.control().increment();
 
-//	ScheduleGuard schedule_guard(scheduleLock.get());
-//	enqueueInSchedule(schedule_guard, frigg::move(thread));
+	ScheduleGuard schedule_guard(scheduleLock.get());
+	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
 
 } // namespace thor
