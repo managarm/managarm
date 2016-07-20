@@ -40,6 +40,7 @@ struct AsyncEvent {
 };
 
 typedef frigg::Variant<
+	NullCompleter,
 	PostEventCompleter,
 	ReturnFromForkCompleter
 > AsyncCompleter;

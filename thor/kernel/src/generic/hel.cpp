@@ -399,22 +399,13 @@ HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
 	
 	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = completer.submitInfo.asyncId;
-	
+
 	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
 			frigg::move(completer), offset, size);
 	{
 		// TODO: protect memory object with a guard
 		memory->submitInitiateLoad(frigg::move(handle_load));
 	}
-
-/*	SubmitInfo submit_info(allocAsyncId(), submit_function, submit_object);
-	Memory::LockRequest lock_request(offset, size, frigg::move(event_hub), submit_info);
-	if(memory->checkLock(&lock_request)) {
-		memory->performLock(&lock_request);
-	}else{
-		memory->loadMemory(offset, size);
-		memory->lockQueue.addBack(frigg::move(lock_request));
-	}*/
 
 	return kHelErrNone;
 }
@@ -437,7 +428,12 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	frigg::infoLogger() << "helLoadahead() is implemented as no-op" << frigg::endLog;
+	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
+			NullCompleter(), offset, length);
+	{
+		// TODO: protect memory object with a guard
+		memory->submitInitiateLoad(frigg::move(handle_load));
+	}
 	
 	return kHelErrNone;
 }

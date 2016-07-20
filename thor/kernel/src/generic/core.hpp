@@ -99,11 +99,8 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-struct ReturnFromForkCompleter {
-	ReturnFromForkCompleter(frigg::WeakPtr<Thread> thread)
-	: thread(frigg::move(thread)) { }
+struct NullCompleter {
 
-	frigg::WeakPtr<Thread> thread;
 };
 
 struct PostEventCompleter {
@@ -114,6 +111,13 @@ struct PostEventCompleter {
 	
 	frigg::WeakPtr<EventHub> eventHub;
 	SubmitInfo submitInfo;
+};
+
+struct ReturnFromForkCompleter {
+	ReturnFromForkCompleter(frigg::WeakPtr<Thread> thread)
+	: thread(frigg::move(thread)) { }
+
+	frigg::WeakPtr<Thread> thread;
 };
 
 // this is a base class for async request classes

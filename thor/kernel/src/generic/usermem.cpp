@@ -146,19 +146,27 @@ void Memory::submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
 	assert((initiate->offset % kPageSize) == 0);
 	assert((initiate->length % kPageSize) == 0);
 	assert((initiate->offset + initiate->length) / kPageSize <= p_physicalPages.size());
+	
+	// FIXME: this is a workaround until the memory code is refactored
+	if(p_type != Memory::kTypeBacked) {
+		AsyncOperation::complete(frigg::move(initiate));
+		return;
+	}
 
 	_initiateLoadQueue.addBack(frigg::move(initiate));
 	_progressLoads();
 }
 
 void Memory::_progressLoads() {
+	assert(p_type == kTypeBacked);
+
 	// TODO: this function could issue loads > a single kPageSize
 	while(!_initiateLoadQueue.empty()) {
 		frigg::UnsafePtr<AsyncInitiateLoad> initiate = _initiateLoadQueue.front();
 
 		size_t page_index = (initiate->offset + initiate->progress) / kPageSize;
 		if(loadState[page_index] == kStateMissing) {
-			if(_initiateLoadQueue.empty())
+			if(_handleLoadQueue.empty())
 				break;
 
 			assert(p_physicalPages[page_index] == PhysicalAddr(-1));
@@ -172,7 +180,7 @@ void Memory::_progressLoads() {
 			loadState[page_index] = kStateLoading;
 
 			frigg::SharedPtr<AsyncHandleLoad> handle = _handleLoadQueue.removeFront();
-			handle->offset = initiate->offset;
+			handle->offset = initiate->offset + initiate->progress;
 			handle->length = kPageSize;
 			AsyncOperation::complete(frigg::move(handle));
 
@@ -205,9 +213,10 @@ void Memory::completeLoad(size_t offset, size_t length) {
 		loadState[page_index] = kStateLoaded;
 	}
 
-	for(auto it = _pendingLoadQueue.frontIter(); it; ++it) {
-		if(_isComplete(*it))
-			AsyncOperation::complete(_pendingLoadQueue.remove(it));
+	for(auto it = _pendingLoadQueue.frontIter(); it; ) {
+		auto it_copy = it++;
+		if(_isComplete(*it_copy))
+			AsyncOperation::complete(_pendingLoadQueue.remove(it_copy));
 	}
 }
 

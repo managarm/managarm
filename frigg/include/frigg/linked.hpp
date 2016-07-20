@@ -26,6 +26,11 @@ struct IntrusiveSharedLinkedList {
 			_current = ((*_current).*Ptr).next;
 			return *this;
 		}
+		Iterator operator++ (int) {
+			auto copy = *this;
+			++(*this);
+			return copy;
+		}
 
 	private:
 		Iterator(UnsafePtr<T> current)

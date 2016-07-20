@@ -91,6 +91,8 @@ AsyncEvent AsyncIrq::getEvent() {
 void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
 	AsyncCompleter &completer = operation->completer;
 	switch(completer.tag()) {
+	case AsyncCompleter::tagOf<NullCompleter>():
+		break;
 	case AsyncCompleter::tagOf<PostEventCompleter>(): {
 		auto event_hub = completer.get<PostEventCompleter>().eventHub.grab();
 		assert(event_hub);
