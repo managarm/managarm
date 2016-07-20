@@ -26,6 +26,7 @@
 #include <bragi/mbus.hpp>
 #include <libcompose.hpp>
 #include <libterminal.hpp>
+#include <libchain/all.hpp>
 #include <posix.pb.h>
 #include <input.pb.h>
 
@@ -281,10 +282,16 @@ void ReadMasterClosure::doRead() {
 
 	std::string serialized;
 	request.SerializeToString(&serialized);
-	pipe.sendStringReq(serialized.data(), serialized.size(), 0, 0);
-	
-	HEL_CHECK(pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
-			CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse)));
+
+	printf("[drivers/vga_terminal/src/main] sendStringReq & recvStringResp\n");
+	auto action = pipe.sendStringReq(serialized.data(), serialized.size(),
+			eventHub, 0, 0)
+	+ libchain::lift([=] (HelError error) { 
+		HEL_CHECK(error); 
+		HEL_CHECK(pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
+				CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse)));
+	});
+	libchain::run(frigg::move(action));
 }
 
 void ReadMasterClosure::recvdResponse(HelError error,

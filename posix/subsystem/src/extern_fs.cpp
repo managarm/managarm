@@ -26,11 +26,15 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
 
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
-			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:fstat sendStringReq" << frigg::endLog;
-			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
 			
-			// FIXME: fix request id
-			return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
+			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:fstat sendStringReq" << frigg::endLog;
+			return connection.getPipe().sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 1, 0)
+			+ frigg::compose([=] (HelError error) {
+				HEL_CHECK(error);
+				// FIXME: fix request id
+				return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
+			});
 		})
 		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
@@ -73,10 +77,14 @@ void OpenFile::connect(frigg::CallbackPtr<void()> complete) {
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
 			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:connect sendStringReq" << frigg::endLog;
-			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
+			return connection.getPipe().sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 1, 0)
+			+frigg::compose([=] (HelError error) {
+				HEL_CHECK(error);
+				// FIXME: fix request id
+				return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
+			});
 
-			// FIXME: fix request id
-			return connection.getPipe().recvStringResp(buffer->data(), 128, eventHub, 1, 0);
 		})
 		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);
@@ -104,11 +112,18 @@ void OpenFile::write(const void *buffer, size_t size, frigg::CallbackPtr<void()>
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
 			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:write sendStringReq" << frigg::endLog;
-			connection.getPipe().sendStringReq(serialized.data(), serialized.size(), 1, 0);
-			connection.getPipe().sendStringReq(buffer, size, 1, 1);
-			
-			// FIXME: fix request id
-			return connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0);
+			return connection.getPipe().sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 1, 0)
+			+ frigg::compose([=] (HelError error) {
+				HEL_CHECK(error);
+				return connection.getPipe().sendStringReq(buffer, size,
+						eventHub, 1, 1)
+				+ frigg::compose([=] (HelError error) {
+					HEL_CHECK(error);
+					// FIXME: fix request id
+					return connection.getPipe().recvStringResp(respBuffer->data(), 128, eventHub, 1, 0);
+				});
+			});
 		})
 		+ frigg::lift([=] (HelError error, int64_t msg_request, int64_t msg_seq, size_t length) {	
 			HEL_CHECK(error);

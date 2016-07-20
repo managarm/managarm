@@ -190,7 +190,10 @@ void StatClosure::operator() () {
 	response.SerializeToString(&serialized);
 	// FIXME: use chains instead of sync calls
 	frigg::infoLogger() << "[thor/initrd/src/main] StatClosure:() sendStringResp" << frigg::endLog;
-	connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
+	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+			eventHub, responseId, 0)
+	+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });		
+	frigg::run(frigg::move(action), allocator.get()); 
 }
 
 // --------------------------------------------------------
@@ -215,8 +218,13 @@ void OpenClosure::operator() () {
 		frigg::String<Allocator> serialized(*allocator);
 		response.SerializeToString(&serialized);
 		// FIXME: use chains instead of sync calls
-		connection.getPipe().sendStringResp(serialized.data(), serialized.size(), responseId, 0);
-		return;
+		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
+				eventHub, responseId, 0)
+		+ frigg::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			return;
+		});
+		frigg::run(frigg::move(action), allocator.get());
 	}
 	HEL_CHECK(image_error);
 

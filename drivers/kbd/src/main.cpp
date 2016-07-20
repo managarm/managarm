@@ -13,6 +13,7 @@
 #include <frigg/arch_x86/machine.hpp>
 #include <bragi/mbus.hpp>
 #include <input.pb.h>
+#include <libchain/all.hpp>
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
@@ -82,7 +83,12 @@ void handleMouseData(uint8_t data) {
 
 				std::string serialized;
 				request.SerializeToString(&serialized);
-				mouseServerPipes[i].sendStringReq(serialized.data(), serialized.size() , 0, 0);
+
+				printf("[drivers/kbd/src/main] handleMouseData sendStringReq\n");
+				auto action = mouseServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 0, 0)
+				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+				libchain::run(frigg::move(action)); 
 			}
 			
 			mouseByte = kMouseByte0;
@@ -257,7 +263,12 @@ void keyAction(std::string code, bool pressed) {
 		
 			std::string serialized;
 			request.SerializeToString(&serialized);
-			kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size() , 0, 0);
+
+			printf("[drivers/kbd/src/main] keyAction sendStringReq1\n");
+			auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 0, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			libchain::run(frigg::move(action));
 		}
 	}else if(pressed && code == "CapsLock") {
 		capsState = !capsState;
@@ -270,7 +281,12 @@ void keyAction(std::string code, bool pressed) {
 		
 			std::string serialized;
 			request.SerializeToString(&serialized);
-			kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size() , 0, 0);
+			
+			printf("[drivers/kbd/src/main] keyAction sendStringReq2\n");
+			auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
+					eventHub, 0, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			libchain::run(frigg::move(action));
 		}
 	}
 	
@@ -286,8 +302,12 @@ void keyAction(std::string code, bool pressed) {
 		
 		std::string serialized;
 		request.SerializeToString(&serialized);
-		kbdServerPipes[i].sendStringReq(serialized.data(), 
-				serialized.size() , 0, 0);
+		
+		printf("[drivers/kbd/src/main] keyAction sendStringReq3\n");
+		auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
+				eventHub, 0, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		libchain::run(frigg::move(action));
 	}
 
 	//updateLed();
