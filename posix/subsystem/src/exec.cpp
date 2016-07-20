@@ -298,15 +298,42 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
 	size_t p = stack_size;
-	auto pushWord = [&] (uint64_t value) {
-		p -= sizeof(uint64_t);
-		memcpy((char *)stack_window + p, &value, sizeof(uint64_t));
+	auto storeItem = [&] (auto value) {
+		p -= sizeof(value);
+		memcpy((char *)stack_window + p, &value, sizeof(value));
 	};
 
-	pushWord(phdrPointer);
-	pushWord(phdrEntrySize);
-	pushWord(phdrCount);
-	pushWord(programEntry);
+	enum {
+		AT_NULL = 0,
+		AT_PHDR = 3,
+		AT_PHENT = 4,
+		AT_PHNUM = 5,
+		AT_ENTRY = 9
+	};
+
+	struct Auxiliary {
+		Auxiliary(int type)
+		: type(type) { }
+
+		Auxiliary(int type, long value)
+		: type(type), longValue(value) { }
+
+		Auxiliary(int type, void *value)
+		: type(type), pointerValue(value) { }
+
+		int type;
+		union {
+			long longValue;
+			void *pointerValue;
+		};
+	};
+
+	storeItem(Auxiliary(AT_NULL));
+	storeItem(Auxiliary(AT_PHDR, phdrPointer));
+	storeItem(Auxiliary(AT_PHENT, phdrEntrySize));
+	storeItem(Auxiliary(AT_PHNUM, phdrCount));
+	storeItem(Auxiliary(AT_ENTRY, programEntry));
+	frigg::infoLogger() << "entry at exec " << programEntry << frigg::endLog;
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, stack_window, stack_size));
 

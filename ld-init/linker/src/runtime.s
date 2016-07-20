@@ -1,10 +1,7 @@
 
 .global _start
 _start:
-	pop %rcx
-	pop %rdx
-	pop %rsi
-	pop %rdi
+	mov %rsp, %rdi
 	call interpreterMain
 
 	jmp *%rax

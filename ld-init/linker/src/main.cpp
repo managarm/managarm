@@ -63,11 +63,62 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 frigg::LazyInitializer<helx::EventHub> eventHub;
 frigg::LazyInitializer<helx::Pipe> posixPipe;
 
-extern "C" void *interpreterMain(void *phdr_pointer,
-		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
+template<typename T>
+T loadItem(char *&sp) {
+	T item;
+	memcpy(&item, sp, sizeof(T));
+	sp += sizeof(T);
+	return item;
+}
+
+extern "C" void *interpreterMain(char *sp) {
 	frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
+
+	enum {
+		// this value is not part of the ABI
+		AT_ILLEGAL = -1,
+
+		AT_NULL = 0,
+		AT_PHDR = 3,
+		AT_PHENT = 4,
+		AT_PHNUM = 5,
+		AT_ENTRY = 9
+	};
+
+	struct Auxiliary {
+		Auxiliary()
+		: type(AT_ILLEGAL) { }
+
+		int type;
+		union {
+			long longValue;
+			void *pointerValue;
+		};
+	};
+
+	void *phdr_pointer;
+	size_t phdr_entry_size;
+	size_t phdr_count;
+	void *entry_pointer;
+
+	while(true) {
+		auto aux = loadItem<Auxiliary>(sp);
+		if(aux.type == AT_NULL)
+			break;
+		
+		switch(aux.type) {
+			case AT_PHDR: phdr_pointer = aux.pointerValue; break;
+			case AT_PHENT: phdr_entry_size = aux.longValue; break;
+			case AT_PHNUM: phdr_count = aux.longValue; break;
+			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
+		default:
+			frigg::panicLogger() << "Unexpected auxiliary item type "
+					<< aux.type << frigg::endLog;
+		}
+	}
+	frigg::infoLogger() << "entry at loader " << entry_pointer << frigg::endLog;
 
 	// FIXME: read own SONAME
 	interpreter.initialize("ld-init.so", false);
