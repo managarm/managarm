@@ -614,41 +614,42 @@ void StatClosure::operator() () {
 }
 
 void StatClosure::inodeReady() {
-	managarm::fs::SvrResponse response;
-	response.set_error(managarm::fs::Errors::SUCCESS);
-	
-	switch(openFile->inode->fileType) {
-	case kTypeRegular:
-		response.set_file_type(managarm::fs::FileType::REGULAR); break;
-	case kTypeDirectory:
-		response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
-	case kTypeSymlink:
-		response.set_file_type(managarm::fs::FileType::SYMLINK); break;
-	default:
-		assert(!"Unexpected file type");
-	}
-	
-	response.set_inode_num(openFile->inode->number);
-	response.set_mode(openFile->inode->mode);
-	response.set_num_links(openFile->inode->numLinks);
-	response.set_uid(openFile->inode->uid);
-	response.set_gid(openFile->inode->gid);
-	response.set_file_size(openFile->inode->fileSize);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		
+		switch(openFile->inode->fileType) {
+		case kTypeRegular:
+			response.set_file_type(managarm::fs::FileType::REGULAR); break;
+		case kTypeDirectory:
+			response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
+		case kTypeSymlink:
+			response.set_file_type(managarm::fs::FileType::SYMLINK); break;
+		default:
+			assert(!"Unexpected file type");
+		}
+		
+		response.set_inode_num(openFile->inode->number);
+		response.set_mode(openFile->inode->mode);
+		response.set_num_links(openFile->inode->numLinks);
+		response.set_uid(openFile->inode->uid);
+		response.set_gid(openFile->inode->gid);
+		response.set_file_size(openFile->inode->fileSize);
 
-	response.set_atime_secs(openFile->inode->atime.tv_sec);
-	response.set_atime_nanos(openFile->inode->atime.tv_nsec);
-	response.set_mtime_secs(openFile->inode->mtime.tv_sec);
-	response.set_mtime_nanos(openFile->inode->mtime.tv_nsec);
-	response.set_ctime_secs(openFile->inode->ctime.tv_sec);
-	response.set_ctime_nanos(openFile->inode->ctime.tv_nsec);
+		response.set_atime_secs(openFile->inode->atime.tv_sec);
+		response.set_atime_nanos(openFile->inode->atime.tv_nsec);
+		response.set_mtime_secs(openFile->inode->mtime.tv_sec);
+		response.set_mtime_nanos(openFile->inode->mtime.tv_nsec);
+		response.set_ctime_secs(openFile->inode->ctime.tv_sec);
+		response.set_ctime_nanos(openFile->inode->ctime.tv_nsec);
 
-	std::string serialized;
-	response.SerializeToString(&serialized);
+		response.SerializeToString(serialized);
 
-	printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");	
-	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-			connection.getFs().eventHub, responseId, 0)
-	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");	
+		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	}, std::string());
 	libchain::run(std::move(action));
 }
 
@@ -665,23 +666,24 @@ void OpenClosure::operator() () {
 	directory = connection.getFs().accessRoot();
 
 	if(tailPath.empty()) {
-		int handle = connection.attachOpenFile(new OpenFile(directory));
+		auto action = libchain::compose([=] (std::string *serialized) {
+			int handle = connection.attachOpenFile(new OpenFile(directory));
 
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_fd(handle);
-		response.set_file_type(managarm::fs::FileType::DIRECTORY);
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::SUCCESS);
+			response.set_fd(handle);
+			response.set_file_type(managarm::fs::FileType::DIRECTORY);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:() \n");
-		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection.getFs().eventHub, responseId, 0)
-		+ libchain::lift([=] (HelError error) { 
-			HEL_CHECK(error); 
-			delete this;
-		});
+			response.SerializeToString(serialized);
+			
+			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:() \n");
+			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+					connection.getFs().eventHub, responseId, 0)
+			+ libchain::lift([=] (HelError error) { 
+				HEL_CHECK(error); 
+				delete this;
+			});
+		}, std::string());
 		libchain::run(std::move(action));
 	}else{
 		processSegment();
@@ -705,47 +707,49 @@ void OpenClosure::processSegment() {
 
 void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 	if(!entry) {
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+		auto action = libchain::compose([=] (std::string *serialized) {
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:foundEntry \n");
-		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection.getFs().eventHub, responseId, 0)
-		+ libchain::lift([=] (HelError error) {
-			HEL_CHECK(error);
-			delete this;
-			return;
-		});
+			response.SerializeToString(serialized);
+			
+			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:foundEntry \n");
+			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+					connection.getFs().eventHub, responseId, 0)
+			+ libchain::lift([=] (HelError error) {
+				HEL_CHECK(error);
+				delete this;
+				return;
+			});
+		}, std::string());
 		libchain::run(std::move(action));
 	}
 	
 	auto inode = connection.getFs().accessInode(entry->inode);
 	if(tailPath.empty()) {
-		int handle = connection.attachOpenFile(new OpenFile(inode));
+		auto action = libchain::compose([=] (std::string *serialized) {
+			int handle = connection.attachOpenFile(new OpenFile(inode));
 
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_fd(handle);
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::SUCCESS);
+			response.set_fd(handle);
 
-		switch(entry->fileType) {
-		case kTypeRegular:
-			response.set_file_type(managarm::fs::FileType::REGULAR); break;
-		case kTypeSymlink:
-			response.set_file_type(managarm::fs::FileType::SYMLINK); break;
-		default:
-			assert(!"Unexpected file type");
-		}
+			switch(entry->fileType) {
+			case kTypeRegular:
+				response.set_file_type(managarm::fs::FileType::REGULAR); break;
+			case kTypeSymlink:
+				response.set_file_type(managarm::fs::FileType::SYMLINK); break;
+			default:
+				assert(!"Unexpected file type");
+			}
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		auto action = connection.getPipe().sendStringResp(serialized.data(),
-				serialized.size(), connection.getFs().eventHub,
-				responseId, 0)
-		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			response.SerializeToString(serialized);
+			
+			return connection.getPipe().sendStringResp(serialized->data(),
+					serialized->size(), connection.getFs().eventHub,
+					responseId, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		}, std::string());	
 		libchain::run(std::move(action));
 	
 		delete this;
@@ -775,15 +779,16 @@ void ReadClosure::operator() () {
 
 void ReadClosure::inodeReady() {
 	if(openFile->offset >= openFile->inode->fileSize) {
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::END_OF_FILE);
+		auto action = libchain::compose([=] (std::string *serialized) {
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::END_OF_FILE);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection.getFs().eventHub, responseId, 0)
-		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			response.SerializeToString(serialized);
+			
+			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+					connection.getFs().eventHub, responseId, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		}, std::string());
 		libchain::run(std::move(action));
 
 		delete this;
@@ -791,26 +796,27 @@ void ReadClosure::inodeReady() {
 	}
 	
 	if(openFile->inode->fileType == kTypeSymlink && openFile->inode->fileSize <= 60) {
-		size_t read_size = std::min({ size_t(request.size()),
-				size_t(openFile->inode->fileSize - openFile->offset) });
+		auto action = libchain::compose([=] (std::string *serialized) {
+			size_t read_size = std::min({ size_t(request.size()),
+					size_t(openFile->inode->fileSize - openFile->offset) });
 
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
+			managarm::fs::SvrResponse response;
+			response.set_error(managarm::fs::Errors::SUCCESS);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		printf("[libfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
-		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection.getFs().eventHub, responseId, 0)
-		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
-		+ connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
-				read_size, connection.getFs().eventHub, responseId, 1)
-		+ libchain::lift([=] (HelError error) { 
-			HEL_CHECK(error);
-			openFile->offset += read_size;
-			delete this;
-		});
+			response.SerializeToString(serialized);
+			
+			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
+			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+					connection.getFs().eventHub, responseId, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+			+ connection.getPipe().sendStringResp(openFile->inode->fileData.embedded + openFile->offset,
+					read_size, connection.getFs().eventHub, responseId, 1)
+			+ libchain::lift([=] (HelError error) { 
+				HEL_CHECK(error);
+				openFile->offset += read_size;
+				delete this;
+			});
+		}, std::string());
 		libchain::run(std::move(action));
 	}else{
 		size_t read_size = std::min(size_t(request.size()),
@@ -834,40 +840,41 @@ void ReadClosure::inodeReady() {
 }
 
 void ReadClosure::lockedMemory() {
-	size_t read_size = std::min(size_t(request.size()),
-			openFile->inode->fileSize - openFile->offset);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		size_t read_size = std::min(size_t(request.size()),
+				openFile->inode->fileSize - openFile->offset);
 
-	// map the page cache into memory
-	size_t misalign = openFile->offset % 0x1000;
-	size_t map_offset = openFile->offset - misalign;
+		// map the page cache into memory
+		size_t misalign = openFile->offset % 0x1000;
+		size_t map_offset = openFile->offset - misalign;
 
-	size_t map_size = read_size + misalign;
-	if(map_size % 0x1000 != 0)
-		map_size += 0x1000 - map_size % 0x1000;
+		size_t map_size = read_size + misalign;
+		if(map_size % 0x1000 != 0)
+			map_size += 0x1000 - map_size % 0x1000;
 
-	void *cache_ptr;
-	HEL_CHECK(helMapMemory(openFile->inode->fileMemory, kHelNullHandle,
-		nullptr, map_offset, map_size, kHelMapReadWrite | kHelMapBacking, &cache_ptr));
+		void *cache_ptr;
+		HEL_CHECK(helMapMemory(openFile->inode->fileMemory, kHelNullHandle,
+			nullptr, map_offset, map_size, kHelMapReadWrite | kHelMapBacking, &cache_ptr));
 
-	// send cached data to the client
-	managarm::fs::SvrResponse response;
-	response.set_error(managarm::fs::Errors::SUCCESS);
+		// send cached data to the client
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
 
-	std::string serialized;
-	response.SerializeToString(&serialized);
-	
-	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-			connection.getFs().eventHub, responseId, 0)
-	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
-	+ connection.getPipe().sendStringResp((char *)cache_ptr + misalign, read_size,
-			connection.getFs().eventHub, responseId, 1)
-	+ libchain::lift([=] (HelError error) { 
-		HEL_CHECK(error); 
-		openFile->offset += read_size;
-		// unmap the page cache
-		HEL_CHECK(helUnmapMemory(kHelNullHandle, cache_ptr, map_size));
-		delete this;
-	});
+		response.SerializeToString(serialized);
+		
+		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ connection.getPipe().sendStringResp((char *)cache_ptr + misalign, read_size,
+				connection.getFs().eventHub, responseId, 1)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			openFile->offset += read_size;
+			// unmap the page cache
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, cache_ptr, map_size));
+			delete this;
+		});
+	}, std::string());
 	libchain::run(std::move(action));
 }
 
@@ -880,30 +887,31 @@ SeekClosure::SeekClosure(Connection &connection, int64_t response_id,
 : connection(connection), responseId(response_id), request(std::move(request)) { }
 
 void SeekClosure::operator() () {
-	openFile = connection.getOpenFile(request.fd());
-	assert(openFile->inode->isReady);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		openFile = connection.getOpenFile(request.fd());
+		assert(openFile->inode->isReady);
 
-	if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-		openFile->offset = request.rel_offset();
-	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-		openFile->offset += request.rel_offset();
-	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-		openFile->offset = openFile->inode->fileSize;
-	}else{
-		printf("Illegal SEEK request");
-		abort();
-	}
-	
-	managarm::fs::SvrResponse response;
-	response.set_error(managarm::fs::Errors::SUCCESS);
-	response.set_offset(openFile->offset);
+		if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+			openFile->offset = request.rel_offset();
+		}else if(request.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+			openFile->offset += request.rel_offset();
+		}else if(request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+			openFile->offset = openFile->inode->fileSize;
+		}else{
+			printf("Illegal SEEK request");
+			abort();
+		}
+		
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
+		response.set_offset(openFile->offset);
 
-	std::string serialized;
-	response.SerializeToString(&serialized);
-	
-	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-			connection.getFs().eventHub, responseId, 0)
-	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		response.SerializeToString(serialized);
+		
+		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	}, std::string());
 	libchain::run(std::move(action));
 }
 
@@ -925,17 +933,18 @@ void MapClosure::operator() () {
 }
 
 void MapClosure::inodeReady() {
-	managarm::fs::SvrResponse response;
-	response.set_error(managarm::fs::Errors::SUCCESS);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		managarm::fs::SvrResponse response;
+		response.set_error(managarm::fs::Errors::SUCCESS);
 
-	std::string serialized;
-	response.SerializeToString(&serialized);
-	auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-			connection.getFs().eventHub, responseId, 0)
-	+ libchain::lift([=] (HelError error) {	HEL_CHECK(error); })
-	+ connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory,
-				connection.getFs().eventHub, responseId, 1)
-	+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		response.SerializeToString(serialized);
+		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+				connection.getFs().eventHub, responseId, 0)
+		+ libchain::lift([=] (HelError error) {	HEL_CHECK(error); })
+		+ connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory,
+					connection.getFs().eventHub, responseId, 1)
+		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+	}, std::string());
 	libchain::run(std::move(action));
 	
 	delete this;

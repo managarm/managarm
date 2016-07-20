@@ -373,7 +373,7 @@ void onMouseInterrupt(void * object, HelError error) {
 	readDeviceData();
 
 //	HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle()));
-//	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
+	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
 }
 
 void onKbdInterrupt(void * object, HelError error) {
@@ -382,7 +382,7 @@ void onKbdInterrupt(void * object, HelError error) {
 	readDeviceData();
 
 //	HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle()));
-//	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
+	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
 }
 
 // --------------------------------------------------------
@@ -461,8 +461,8 @@ int main() {
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
-	kbdIrq.subscribe(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
-	mouseIrq.subscribe(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
+	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
+	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
 
 	// disable both devices
 	frigg::arch_x86::ioOutByte(0x64, 0xAD);

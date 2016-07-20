@@ -212,19 +212,21 @@ void OpenClosure::operator() () {
 	HelError image_error = helRdOpen(full_path.data(), full_path.size(), &image_memory);
 
 	if(image_error == kHelErrNoSuchPath) {
-		managarm::fs::SvrResponse<Allocator> response(*allocator);
-		response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-
-		frigg::String<Allocator> serialized(*allocator);
-		response.SerializeToString(&serialized);
 		// FIXME: use chains instead of sync calls
-		auto action = connection.getPipe().sendStringResp(serialized.data(), serialized.size(),
-				eventHub, responseId, 0)
-		+ frigg::lift([=] (HelError error) { 
-			HEL_CHECK(error); 
-			return;
-		});
+		auto action = frigg::compose([=] (frigg::String<Allocator> *serialized) {
+			managarm::fs::SvrResponse<Allocator> response(*allocator);
+			response.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+			response.SerializeToString(serialized);
+			
+			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
+					eventHub, responseId, 0)
+			+ frigg::lift([=] (HelError error) { 
+				HEL_CHECK(error); 
+			});
+		}, frigg::String<Allocator>(*allocator));
 		frigg::run(frigg::move(action), allocator.get());
+		
+		return;
 	}
 	HEL_CHECK(image_error);
 

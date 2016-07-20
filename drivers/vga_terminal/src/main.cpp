@@ -275,22 +275,23 @@ void ReadMasterClosure::connected(HelError error, HelHandle handle) {
 }
 
 void ReadMasterClosure::doRead() {
-	managarm::posix::ClientRequest request;
-	request.set_request_type(managarm::posix::ClientRequestType::READ);
-	request.set_fd(masterFd);
-	request.set_size(128);
+	auto action = libchain::compose([=] (std::string *serialized) {
+		managarm::posix::ClientRequest request;
+		request.set_request_type(managarm::posix::ClientRequestType::READ);
+		request.set_fd(masterFd);
+		request.set_size(128);
 
-	std::string serialized;
-	request.SerializeToString(&serialized);
+		request.SerializeToString(serialized);
 
-	printf("[drivers/vga_terminal/src/main] sendStringReq & recvStringResp\n");
-	auto action = pipe.sendStringReq(serialized.data(), serialized.size(),
-			eventHub, 0, 0)
-	+ libchain::lift([=] (HelError error) { 
-		HEL_CHECK(error); 
-		HEL_CHECK(pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
-				CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse)));
-	});
+		printf("[drivers/vga_terminal/src/main] sendStringReq & recvStringResp\n");
+		return pipe.sendStringReq(serialized->data(), serialized->size(),
+				eventHub, 0, 0)
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			HEL_CHECK(pipe.recvStringResp(buffer, 128, eventHub, 0, 0,
+					CALLBACK_MEMBER(this, &ReadMasterClosure::recvdResponse)));
+		});
+	}, std::string());
 	libchain::run(frigg::move(action));
 }
 
@@ -301,7 +302,7 @@ void ReadMasterClosure::recvdResponse(HelError error,
 	managarm::posix::ServerResponse response;
 	response.ParseFromArray(buffer, length);
 	assert(response.error() == managarm::posix::Errors::SUCCESS);
-	
+	printf("recvdResponse()!\n");	
 	HEL_CHECK(pipe.recvStringResp(data, 128, eventHub, 0, 1,
 			CALLBACK_MEMBER(this, &ReadMasterClosure::recvdData)));
 }
@@ -312,6 +313,7 @@ void ReadMasterClosure::recvdData(HelError error,
 
 	emulator.printString(std::string(data, length));
 
+	printf("recvdData()!\n");
 	doRead();
 }
 

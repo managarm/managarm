@@ -613,13 +613,6 @@ public:
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
 	}
 
-	inline void subscribe(EventHub &event_hub,
-			frigg::CallbackPtr<void(HelError)> callback) {
-		int64_t async_id;
-		HEL_CHECK(helSubscribeIrq(p_handle, event_hub.getHandle(),
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
-	}
-
 private:
 	HelHandle p_handle;
 };

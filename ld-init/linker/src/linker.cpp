@@ -333,6 +333,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
+	frigg::infoLogger() << "Opening path: " << path << frigg::endLog;
 	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
 	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
 	open_request.set_path(path);
