@@ -12,21 +12,23 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 
 void doSchedule(ScheduleGuard &&guard) {
 	assert(!intsAreEnabled());
-	assert(guard.protects(scheduleLock.get()));
-
-	// FIXME: make sure that we only schedule from
-	// a executor-indepedent domain.
 	
-	if(!scheduleQueue->empty()) {
-		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
+	// this function might destroy the currrent thread and thus deallocate
+	// its kernel stack; make sure we're running from a per-cpu stack.
+	runDetached([&] (ScheduleGuard guard) {
+		assert(guard.protects(scheduleLock.get()));
 		
-		guard.unlock();
-		switchExecutor(thread);
-		restoreExecutor();
-	}else{
-		assert(!"Fix idle implementation");
-		guard.unlock();
-	}
+		if(!scheduleQueue->empty()) {
+			KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
+			
+			guard.unlock();
+			switchExecutor(thread);
+			restoreExecutor();
+		}else{
+			assert(!"Fix idle implementation");
+			guard.unlock();
+		}
+	}, frigg::move(guard));
 }
 
 // FIXME: this function should get a parameter of type IrqImagePtr

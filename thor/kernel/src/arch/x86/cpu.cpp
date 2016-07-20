@@ -116,24 +116,20 @@ frigg::UnsafePtr<Thread> activeExecutor() {
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	assert(!intsAreEnabled());
 	
-	// this function might destroy the currrent thread and thus deallocate
-	// its kernel stack; make sure we're running from a per-cpu stack.
-	runDetached([&] () {
-		executor->getAddressSpace()->activate();
+	executor->getAddressSpace()->activate();
 
-		// setup the thread's tss segment
-		CpuData *cpu_data = getCpuData();
-		executor->tss.ist1 = (Word)cpu_data->irqStack.base();
-		
-		frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
-				&executor->tss, sizeof(frigg::arch_x86::Tss64));
-		asm volatile ( "ltr %w0" : : "r" (kSelTask) );
+	// setup the thread's tss segment
+	CpuData *cpu_data = getCpuData();
+	executor->tss.ist1 = (Word)cpu_data->irqStack.base();
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
+			&executor->tss, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ( "ltr %w0" : : "r" (kSelTask) );
 
-		// finally update the active executor register.
-		// we do this after setting up the address space and TSS
-		// so that these structures are always valid.
-		cpu_data->activeExecutor = executor;
-	});
+	// finally update the active executor register.
+	// we do this after setting up the address space and TSS
+	// so that these structures are always valid.
+	cpu_data->activeExecutor = executor;
 }
 
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);

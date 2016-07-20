@@ -406,14 +406,21 @@ CpuData *getCpuData();
 bool intsAreAllowed();
 void allowInts();
 
-template<typename F>
-void runDetached(F functor) {
-	auto wrapper = [] (void *argument) {
-		F stolen = frigg::move(*static_cast<F *>(argument));
-		stolen();
+template<typename F, typename... Args>
+void runDetached(F functor, Args... args) {
+	struct Context {
+		Context(F functor, Args... args)
+		: functor(frigg::move(functor)), args(frigg::move(args)...) { }
+
+		F functor;
+		frigg::Tuple<Args...> args;
 	};
 
-	doRunDetached(wrapper, &functor);
+	Context original(frigg::move(functor), frigg::forward<Args>(args)...);
+	doRunDetached([] (void *context) {
+		Context stolen = frigg::move(*static_cast<Context *>(context));
+		frigg::applyToFunctor(frigg::move(stolen.functor), frigg::move(stolen.args));
+	}, &original);
 }
 
 // calls the given function on the per-cpu stack
