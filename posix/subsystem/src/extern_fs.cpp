@@ -27,7 +27,6 @@ void OpenFile::fstat(frigg::CallbackPtr<void(FileStats)> complete) {
 			frigg::String<Allocator> serialized(*allocator);
 			request.SerializeToString(&serialized);
 			
-			frigg::infoLogger() << "[posix/subsystem/src/extern-fs] OpenFile:fstat sendStringReq" << frigg::endLog;
 			return connection.getPipe().sendStringReq(serialized.data(), serialized.size(),
 					eventHub, 1, 0)
 			+ frigg::compose([=] (HelError error) {

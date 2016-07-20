@@ -256,57 +256,59 @@ void keyAction(std::string code, bool pressed) {
 		numState = !numState;
 
 		for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-			managarm::input::ServerRequest request;
-			request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
-			request.set_state(numState);
-			request.set_code(code);
-		
-			std::string serialized;
-			request.SerializeToString(&serialized);
+			auto action = libchain::compose([=] (std::string *serialized) {
+				managarm::input::ServerRequest request;
+				request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
+				request.set_state(numState);
+				request.set_code(code);
+			
+				request.SerializeToString(serialized);
 
-			printf("[drivers/kbd/src/main] keyAction sendStringReq1\n");
-			auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
-					eventHub, 0, 0)
-			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+				printf("[drivers/kbd/src/main] keyAction sendStringReq1\n");
+				return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
+						eventHub, 0, 0)
+				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			}, std::string());
 			libchain::run(frigg::move(action));
 		}
 	}else if(pressed && code == "CapsLock") {
 		capsState = !capsState;
 
 		for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-			managarm::input::ServerRequest request;
-			request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
-			request.set_state(capsState);
-			request.set_code(code);
-		
-			std::string serialized;
-			request.SerializeToString(&serialized);
+			auto action = libchain::compose([=] (std::string *serialized) {
+				managarm::input::ServerRequest request;
+				request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
+				request.set_state(capsState);
+				request.set_code(code);
 			
-			printf("[drivers/kbd/src/main] keyAction sendStringReq2\n");
-			auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
-					eventHub, 0, 0)
-			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+				request.SerializeToString(serialized);
+				
+				printf("[drivers/kbd/src/main] keyAction sendStringReq2\n");
+				return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
+						eventHub, 0, 0)
+				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			}, std::string());
 			libchain::run(frigg::move(action));
 		}
 	}
 	
 	for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-		managarm::input::ServerRequest request;
-		
-		if(pressed) {
-			request.set_request_type(managarm::input::RequestType::DOWN);
-		}else{	
-			request.set_request_type(managarm::input::RequestType::UP);
-		}
-		request.set_code(code);
-		
-		std::string serialized;
-		request.SerializeToString(&serialized);
-		
-		printf("[drivers/kbd/src/main] keyAction sendStringReq3\n");
-		auto action = kbdServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
-				eventHub, 0, 0)
-		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		auto action = libchain::compose([=] (std::string *serialized) {
+			managarm::input::ServerRequest request;
+			
+			if(pressed) {
+				request.set_request_type(managarm::input::RequestType::DOWN);
+			}else{	
+				request.set_request_type(managarm::input::RequestType::UP);
+			}
+			request.set_code(code);
+			
+			request.SerializeToString(serialized);
+			
+			return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
+					eventHub, 0, 0)
+			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		}, std::string());
 		libchain::run(frigg::move(action));
 	}
 

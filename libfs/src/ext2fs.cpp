@@ -645,7 +645,6 @@ void StatClosure::inodeReady() {
 
 		response.SerializeToString(serialized);
 
-		printf("[libfs/src/ext2fs] sendStringResp StatClosure:inodeReady \n");	
 		return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 				connection.getFs().eventHub, responseId, 0)
 		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
@@ -676,7 +675,6 @@ void OpenClosure::operator() () {
 
 			response.SerializeToString(serialized);
 			
-			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:() \n");
 			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 					connection.getFs().eventHub, responseId, 0)
 			+ libchain::lift([=] (HelError error) { 
@@ -713,16 +711,15 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 
 			response.SerializeToString(serialized);
 			
-			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:foundEntry \n");
 			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 					connection.getFs().eventHub, responseId, 0)
 			+ libchain::lift([=] (HelError error) {
 				HEL_CHECK(error);
 				delete this;
-				return;
 			});
 		}, std::string());
 		libchain::run(std::move(action));
+		return;
 	}
 	
 	auto inode = connection.getFs().accessInode(entry->inode);
@@ -787,11 +784,12 @@ void ReadClosure::inodeReady() {
 			
 			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 					connection.getFs().eventHub, responseId, 0)
-			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+			+ libchain::lift([=] (HelError error) { 
+				HEL_CHECK(error); 
+				delete this;
+			});
 		}, std::string());
 		libchain::run(std::move(action));
-
-		delete this;
 		return;
 	}
 	
@@ -943,11 +941,12 @@ void MapClosure::inodeReady() {
 		+ libchain::lift([=] (HelError error) {	HEL_CHECK(error); })
 		+ connection.getPipe().sendDescriptorResp(openFile->inode->fileMemory,
 					connection.getFs().eventHub, responseId, 1)
-		+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
+		+ libchain::lift([=] (HelError error) { 
+			HEL_CHECK(error); 
+			delete this;
+		});
 	}, std::string());
 	libchain::run(std::move(action));
-	
-	delete this;
 }
 
 

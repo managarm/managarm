@@ -283,7 +283,6 @@ void ReadMasterClosure::doRead() {
 
 		request.SerializeToString(serialized);
 
-		printf("[drivers/vga_terminal/src/main] sendStringReq & recvStringResp\n");
 		return pipe.sendStringReq(serialized->data(), serialized->size(),
 				eventHub, 0, 0)
 		+ libchain::lift([=] (HelError error) { 
@@ -302,7 +301,6 @@ void ReadMasterClosure::recvdResponse(HelError error,
 	managarm::posix::ServerResponse response;
 	response.ParseFromArray(buffer, length);
 	assert(response.error() == managarm::posix::Errors::SUCCESS);
-	printf("recvdResponse()!\n");	
 	HEL_CHECK(pipe.recvStringResp(data, 128, eventHub, 0, 1,
 			CALLBACK_MEMBER(this, &ReadMasterClosure::recvdData)));
 }
@@ -313,7 +311,6 @@ void ReadMasterClosure::recvdData(HelError error,
 
 	emulator.printString(std::string(data, length));
 
-	printf("recvdData()!\n");
 	doRead();
 }
 

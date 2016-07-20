@@ -48,7 +48,8 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
 	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors, callback);
-	assert(pendingRequests.empty());
+//	FIXME: is this assertion still nesecarry?
+//	assert(pendingRequests.empty());
 	if(!requestIsReady(user_request)) {
 		pendingRequests.push(user_request);
 	}else{

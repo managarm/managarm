@@ -296,7 +296,6 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 				}, frigg::String<Allocator>(*allocator)),
 
 				frigg::compose([=] (auto serialized) {
-					frigg::infoLogger() << "posix: return FILE_NOT_FOUND" << frigg::endLog;
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
 					response.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 					response.SerializeToString(serialized);
@@ -363,7 +362,6 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 							eventHub, msg_request, 0)
 					+ frigg::lift([=] (HelError error) { 
 						HEL_CHECK(error);
-						frigg::infoLogger() << "WRITE END" << frigg::endLog;
 					});
 				}, frigg::String<Allocator>(*allocator)),
 				
