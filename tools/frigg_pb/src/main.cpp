@@ -1,6 +1,7 @@
 
 #include <assert.h>
 
+#include <iostream>
 #include <sstream>
 
 #include <google/protobuf/descriptor.h>

@@ -7,6 +7,12 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--sysroot', required=True)
 parser.add_argument('--protoc', required=True)
+parser.add_argument('--host-cxx', required=True)
+parser.add_argument('--host-cppflags', required=True)
+parser.add_argument('--host-ldflags', required=True)
+parser.add_argument('--elf-cxx', required=True)
+parser.add_argument('--elf-as', required=True)
+parser.add_argument('--elf-ld', required=True)
 
 args = parser.parse_args()
 
@@ -14,7 +20,14 @@ script_dir = os.path.dirname(sys.argv[0])
 make_cfg = { "TREE_PATH": os.path.relpath(os.path.realpath(script_dir)),
 	"BUILD_PATH": os.path.relpath(os.path.realpath(os.getcwd())),
 	"SYSROOT_PATH": os.path.relpath(os.path.realpath(args.sysroot)),
-	"PROTOC": args.protoc }
+	"PROTOC": args.protoc,
+	"HOST_CXX": args.host_cxx,
+	"HOST_CPPFLAGS": args.host_cppflags,
+	"HOST_LDFLAGS": args.host_ldflags,
+	"ELF_CXX": args.elf_cxx,
+	"ELF_AS": args.elf_as,
+	"ELF_LD": args.elf_ld
+}
 
 make_fd = open('makefile', 'w')
 for k, v in make_cfg.iteritems():
