@@ -388,20 +388,14 @@ private:
 	uint8_t buffer[128];
 };
 
-struct StatClosure {
-	StatClosure(Connection &connection, int64_t response_id,
+void processStatRequest(Connection *connection, int64_t response_id,
 			managarm::fs::CntRequest request);
 
-	void operator() ();
+void processSeekRequest(Connection *connection, int64_t response_id,
+			managarm::fs::CntRequest request);
 
-	void inodeReady();
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
-
-	OpenFile *openFile;
-};
+void processMapRequest(Connection *connection, int64_t response_id,
+			managarm::fs::CntRequest request);
 
 struct OpenClosure {
 	OpenClosure(Connection &connection, int64_t response_id,
@@ -428,34 +422,6 @@ struct ReadClosure {
 
 	void inodeReady();
 	void lockedMemory();
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
-
-	OpenFile *openFile;
-};
-
-struct SeekClosure {
-	SeekClosure(Connection &connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-	void operator() ();
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
-
-	OpenFile *openFile;
-};
-
-struct MapClosure {
-	MapClosure(Connection &connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-	void operator() ();
-
-	void inodeReady();
 
 	Connection &connection;
 	int64_t responseId;
