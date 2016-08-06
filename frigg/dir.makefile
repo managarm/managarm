@@ -1,7 +1,7 @@
 
 $(call standard_dirs)
 
-$c_HEADERS := frigg/c-support.h frigg/cxx-support.hpp frigg/traits.hpp \
+$c_HEADERS := frigg/c-support.h frigg/cxx-support.hpp frigg/support.hpp frigg/traits.hpp \
 		frigg/initializer.hpp frigg/debug.hpp frigg/printf.hpp frigg/algorithm.hpp \
 		frigg/callback.hpp frigg/optional.hpp frigg/tuple.hpp \
 		frigg/memory.hpp frigg/memory-slab.hpp \
