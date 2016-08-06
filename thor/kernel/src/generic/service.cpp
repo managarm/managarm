@@ -23,20 +23,25 @@ void serviceMain() {
 }
 
 void runService() {
+	// FIXME: reactive this after memory is reworked
+	return;
+
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	space->setupDefaultMappings();
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-	stack_memory->resize(stack_size / kPageSize);
+	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
+			AllocatedMemory(stack_size));
+	assert(!"Pre-populate the stack to prevent us entering an infinite loop of page faults");
 
 	{
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+		assert(!"Fix setPageAt()");
+/*		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 		for(size_t i = 0; i < stack_memory->numPages(); i++)
 			stack_memory->setPageAt(i * kPageSize,
-					physicalAllocator->allocate(physical_guard, kPageSize));
+					physicalAllocator->allocate(physical_guard, kPageSize));*/
 	}
 
 	VirtualAddr stack_base;
@@ -56,11 +61,12 @@ void runService() {
 //			stack_base + stack_size, true);
 			(uintptr_t)thread->kernelStack.base(), true);
 
-	// increment the reference counter so that the threads stays alive forever
+	// see helCreateThread for the reasoning here
+	thread.control().increment();
 	thread.control().increment();
 
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, frigg::move(thread));
+//	ScheduleGuard schedule_guard(scheduleLock.get());
+//	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
 
 } // namespace thor

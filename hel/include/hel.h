@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 64,
+	kHelNumCalls = 65,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -19,6 +19,7 @@ enum {
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
+	kHelCallCreateManagedMemory = 64,
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSpace = 27,
 	kHelCallForkSpace = 33,
@@ -171,8 +172,10 @@ enum HelMapFlags {
 	kHelMapReadOnly = 1,
 	kHelMapReadWrite = 2,
 	kHelMapReadExecute = 4,
-	kHelMapShareOnFork = 8,
-	kHelMapBacking = 16
+	kHelMapDropAtFork = 32,
+	kHelMapShareAtFork = 8,
+	kHelMapCopyOnWriteAtFork = 64,
+	kHelMapDontRequireBacking = 128
 };
 
 enum HelThreadFlags {
@@ -204,6 +207,8 @@ HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorI
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
+		HelHandle *backing_handle, HelHandle *frontal_handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
 		size_t size, HelHandle *handle);
 HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);

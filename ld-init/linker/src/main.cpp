@@ -118,7 +118,8 @@ extern "C" void *interpreterMain(char *sp) {
 					<< aux.type << frigg::endLog;
 		}
 	}
-	frigg::infoLogger() << "entry at loader " << entry_pointer << frigg::endLog;
+
+	frigg::infoLogger() << "phdrs at " << phdr_pointer << frigg::endLog;
 
 	// FIXME: read own SONAME
 	interpreter.initialize("ld-init.so", false);

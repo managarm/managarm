@@ -1,84 +1,189 @@
 
 namespace thor {
 
-class Memory {
-public:
-	enum Type {
-		kTypeNone,
-		kTypePhysical,
-		kTypeAllocated,
-		kTypeOnDemand,
-		kTypeBacked,
-		kTypeCopyOnWrite
-	};
+struct Memory;
 
-	enum Flags : uint32_t {
+using GrabIntent = uint32_t;
+enum : GrabIntent {
+	kGrabQuery = GrabIntent(1) << 0,
+	kGrabFetch = GrabIntent(1) << 1,
+	kGrabRead = GrabIntent(1) << 2,
+	kGrabWrite = GrabIntent(1) << 3,
+	kGrabDontRequireBacking = GrabIntent(1) << 4
+};
+
+struct HardwareMemory {
+	HardwareMemory(PhysicalAddr base, size_t length);
 	
-	};
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+
+private:
+	PhysicalAddr _base;
+	size_t _length;
+};
+
+struct AllocatedMemory {
+	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
+			size_t chunk_align = kPageSize);
 	
-	// page state for kTypeBacked regions
+	size_t getLength();
+
+	// TODO: add a method to populate the memory
+	
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+
+private:
+	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
+	size_t _chunkSize, _chunkAlign;
+};
+
+struct ManagedSpace {
 	enum LoadState {
 		kStateMissing,
 		kStateLoading,
 		kStateLoaded
 	};
 
-	Memory(Type type);
-	~Memory();
-
-	Type getType();
-
-	void resize(size_t length);
-
-	void setPageAt(size_t offset, PhysicalAddr page);
-	PhysicalAddr getPageAt(size_t offset);
-
-	PhysicalAddr resolveOriginalAt(size_t offset);
-
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			size_t offset);
+	ManagedSpace(size_t length);
 	
-	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle);
-	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate);
-	void _progressLoads();
-	void completeLoad(size_t offset, size_t length);
-	bool _isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate);
+	void progressLoads();
+	bool isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate);
 
-	size_t numPages();
-	
-	void zeroPages();
-	void copyTo(size_t offset, void *source, size_t length);
-
-//	bool checkLock(LockRequest *lock_request);
-
-	uint32_t flags;
-
-	KernelSharedPtr<Memory> master;
-
-	// TODO: make this private?
+	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frigg::Vector<LoadState, KernelAlloc> loadState;
-	
-	// threads blocking until a load request is finished
-	frigg::LinkedList<frigg::SharedPtr<Thread>, KernelAlloc> waitQueue;
-
-private:
-	Type p_type;
-	frigg::Vector<PhysicalAddr, KernelAlloc> p_physicalPages;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncInitiateLoad,
 		&AsyncInitiateLoad::processQueueItem
-	> _initiateLoadQueue;
+	> initiateLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncInitiateLoad,
 		&AsyncInitiateLoad::processQueueItem
-	> _pendingLoadQueue;
+	> pendingLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncHandleLoad,
 		&AsyncHandleLoad::processQueueItem
-	> _handleLoadQueue;
+	> handleLoadQueue;
+};
+
+struct BackingMemory {
+public:
+	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
+	: _managed(frigg::move(managed)) { }
+
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+	
+	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle);
+	void completeLoad(size_t offset, size_t length);
+
+private:
+	frigg::SharedPtr<ManagedSpace> _managed;
+};
+
+struct FrontalMemory {
+public:
+	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
+	: _managed(frigg::move(managed)) { }
+
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+	
+	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate);
+
+private:
+	frigg::SharedPtr<ManagedSpace> _managed;
+};
+
+struct CopyOnWriteMemory {
+	CopyOnWriteMemory(frigg::SharedPtr<Memory> origin);
+
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+
+private:
+	frigg::SharedPtr<Memory> _origin;
+
+	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalPages;
+};
+
+struct Memory {
+	typedef frigg::Variant<
+		HardwareMemory,
+		AllocatedMemory,
+		BackingMemory,
+		FrontalMemory,
+		CopyOnWriteMemory
+	> MemoryVariant;
+
+	Memory(MemoryVariant variant);
+		
+	size_t getLength() {
+		return _variant.apply([&] (auto &unboxed) {
+			return unboxed.getLength();
+		});
+	}
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_flags, size_t offset) {
+		assert((grab_flags & kGrabQuery) || (grab_flags & kGrabFetch));
+		assert(!((grab_flags & kGrabQuery) && (grab_flags & kGrabFetch)));
+		return _variant.apply([&] (auto &unboxed) {
+			return unboxed.grabPage(physical_guard, grab_flags, offset);
+		});
+	}
+	
+	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
+		switch(_variant.tag()) {
+		case MemoryVariant::tagOf<FrontalMemory>():
+			_variant.get<FrontalMemory>().submitInitiateLoad(frigg::move(initiate));
+			break;
+		case MemoryVariant::tagOf<HardwareMemory>():
+		case MemoryVariant::tagOf<AllocatedMemory>():
+			AsyncOperation::complete(frigg::move(initiate));
+			break;
+		case MemoryVariant::tagOf<CopyOnWriteMemory>():
+			assert(!"Not implemented yet");
+		default:
+			assert(!"Not supported");
+		}
+	}
+
+	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle) {
+		switch(_variant.tag()) {
+		case MemoryVariant::tagOf<BackingMemory>():
+			_variant.get<BackingMemory>().submitHandleLoad(frigg::move(handle));
+			break;
+		default:
+			assert(!"Not supported");
+		}
+	}
+	void completeLoad(size_t offset, size_t length) {
+		switch(_variant.tag()) {
+		case MemoryVariant::tagOf<BackingMemory>():
+			_variant.get<BackingMemory>().completeLoad(offset, length);
+			break;
+		default:
+			assert(!"Not supported");
+		}
+	}
+
+	void copyFrom(size_t offset, void *pointer, size_t length);
+
+private:
+	MemoryVariant _variant;
 };
 
 struct Mapping {
@@ -88,6 +193,7 @@ struct Mapping {
 		kTypeMemory
 	};
 
+
 	enum Color {
 		kColorNone,
 		kColorRed,
@@ -95,7 +201,10 @@ struct Mapping {
 	};
 
 	enum Flags : uint32_t {
-		kFlagShareOnFork = 0x01
+		kFlagDropAtFork = 0x01,
+		kFlagShareAtFork = 0x02,
+		kFlagCopyOnWriteAtFork = 0x04,
+		kFlagDontRequireBacking = 0x08
 	};
 
 	Mapping(Type type, VirtualAddr base_address, size_t length);
@@ -138,8 +247,10 @@ public:
 		kMapReadOnly = 0x08,
 		kMapReadWrite = 0x10,
 		kMapReadExecute = 0x20,
-		kMapShareOnFork = 0x40,
-		kMapBacking = 0x80
+		kMapDropAtFork = 0x40,
+		kMapShareAtFork = 0x80,
+		kMapCopyOnWriteAtFork = 0x100,
+		kMapDontRequireBacking = 0x200,
 	};
 
 	enum FaultFlags : uint32_t {
@@ -161,8 +272,6 @@ public:
 	bool handleFault(Guard &guard, VirtualAddr address, uint32_t flags);
 	
 	KernelSharedPtr<AddressSpace> fork(Guard &guard);
-	
-	PhysicalAddr getPhysical(Guard &guard, VirtualAddr address);
 	
 	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
 	

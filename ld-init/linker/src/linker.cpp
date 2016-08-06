@@ -516,7 +516,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(file_memory, kHelNullHandle,
 							(void *)map_address, phdr->p_offset, map_length,
-							kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
+							kHelMapReadExecute | kHelMapShareAtFork, &map_pointer));
 				}else{
 					frigg::panicLogger() << "Illegal combination of segment permissions"
 							<< frigg::endLog;
@@ -528,7 +528,7 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 				void *write_ptr;
 				HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						0, map_length, kHelMapReadWrite, &write_ptr));
+						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
 
 				memset(write_ptr, 0, map_length);
 				posixSeek(*fd, phdr->p_offset);
@@ -539,7 +539,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-							0, map_length, kHelMapReadWrite, &map_pointer));
+							0, map_length, kHelMapReadWrite | kHelMapCopyOnWriteAtFork,
+							&map_pointer));
 				}else{
 					frigg::panicLogger() << "Illegal combination of segment permissions"
 							<< frigg::endLog;
@@ -605,6 +606,9 @@ void Loader::buildInitialTls() {
 void Loader::linkObjects() {
 	while(!p_linkQueue.empty()) {
 		SharedObject *object = p_linkQueue.front();
+		if(verbose)
+			frigg::infoLogger() << "Linking " << object->name << frigg::endLog;
+
 		object->loadScope = p_scope;
 
 		processStaticRelocations(object);
@@ -817,7 +821,6 @@ void Loader::processLazyRelocations(SharedObject *object) {
 		assert(object->lazyRelocTableOffset == 0);
 		return;
 	}
-
 	object->globalOffsetTable[1] = object;
 	object->globalOffsetTable[2] = (void *)&pltRelocateStub;
 	

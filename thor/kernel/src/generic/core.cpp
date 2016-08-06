@@ -107,7 +107,10 @@ void ThreadRunControl::decrement() {
 	frigg::fetchDec(&_thread->_runCount, previous_ref_count);
 	if(previous_ref_count == 1) {
 		// FIXME: protect this with a lock
+		frigg::infoLogger() << "Make sure thread going out of scope works correctly"
+				<< frigg::endLog;
 		_thread->signalKill();
+		_counter->decrement();
 	}
 }
 

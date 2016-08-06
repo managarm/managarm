@@ -17,7 +17,9 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 }
 
 Thread::~Thread() {
-	assert(_observeQueue.empty());
+	assert(!"Thread destructed");
+	if(!_observeQueue.empty())
+		frigg::infoLogger() << "Fix thread destructor!" << frigg::endLog;
 }
 
 KernelUnsafePtr<Universe> Thread::getUniverse() {

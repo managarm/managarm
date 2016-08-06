@@ -146,7 +146,7 @@ void LoadClosure::processPhdr() {
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(fileMemory, process->vmSpace,
 						(void *)map_address, phdr->p_offset, map_length,
-						kHelMapReadExecute | kHelMapShareOnFork, &map_pointer));
+						kHelMapReadExecute | kHelMapShareAtFork, &map_pointer));
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
@@ -166,7 +166,7 @@ void LoadClosure::processPhdr() {
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				void *map_pointer;
 				HEL_CHECK(helMapMemory(segment_memory, process->vmSpace, (void *)map_address,
-						0, map_length, kHelMapReadWrite, &map_pointer));
+						0, map_length, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &map_pointer));
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
@@ -289,7 +289,7 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, process->vmSpace, nullptr,
-			0, stack_size, kHelMapReadWrite, &stack_base));
+			0, stack_size, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up
 	void *stack_window;
@@ -333,7 +333,6 @@ void ExecuteClosure::loadedInterpreter(uintptr_t entry, uintptr_t phdr_pointer,
 	storeItem(Auxiliary(AT_PHENT, phdrEntrySize));
 	storeItem(Auxiliary(AT_PHNUM, phdrCount));
 	storeItem(Auxiliary(AT_ENTRY, programEntry));
-	frigg::infoLogger() << "entry at exec " << programEntry << frigg::endLog;
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, stack_window, stack_size));
 

@@ -4,274 +4,313 @@
 namespace thor {
 
 // --------------------------------------------------------
-// Memory
+// HardwareMemory
 // --------------------------------------------------------
 
-Memory::Memory(Type type)
-: flags(0), loadState(*kernelAlloc), waitQueue(*kernelAlloc),
-		p_type(type), p_physicalPages(*kernelAlloc) { }
-
-Memory::~Memory() {
-	if(p_type == kTypePhysical) {
-		// do nothing
-	}else if(p_type == kTypeAllocated || p_type == kTypeOnDemand
-			|| p_type == kTypeCopyOnWrite) {
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		for(size_t i = 0; i < p_physicalPages.size(); i++) {
-			if(p_physicalPages[i] != PhysicalAddr(-1))
-				physicalAllocator->free(physical_guard, p_physicalPages[i]);
-		}
-		physical_guard.unlock();
-	}else{
-		assert(!"Illegal memory type");
-	}
+HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length)
+: _base(base), _length(length) {
+	assert(base % kPageSize == 0);
+	assert(length % kPageSize == 0);
 }
 
-auto Memory::getType() -> Type {
-	return p_type;
+size_t HardwareMemory::getLength() {
+	return _length;
 }
 
-void Memory::resize(size_t num_pages) {
-	assert(p_physicalPages.size() < num_pages);
-	p_physicalPages.resize(num_pages, -1);
-}
-
-void Memory::setPageAt(size_t offset, PhysicalAddr page) {
-	p_physicalPages[offset / kPageSize] = page;
-}
-
-PhysicalAddr Memory::getPageAt(size_t offset) {
+PhysicalAddr HardwareMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_intent, size_t offset) {
 	assert(offset % kPageSize == 0);
-	assert(offset / kPageSize < p_physicalPages.size());
-
-	return p_physicalPages[offset / kPageSize];
+	assert(offset + kPageSize <= _length);
+	return _base + offset;
 }
 
-PhysicalAddr Memory::resolveOriginalAt(size_t offset) {
-	assert(offset % kPageSize == 0);
+// --------------------------------------------------------
+// AllocatedMemory
+// --------------------------------------------------------
 
-	if(p_type == Memory::kTypeAllocated) {
-		PhysicalAddr page = p_physicalPages[offset / kPageSize];
-		assert(page != PhysicalAddr(-1));
-		return page;
-	}else if(p_type == Memory::kTypeOnDemand) {
-		return p_physicalPages[offset / kPageSize];
-	}else if(p_type == Memory::kTypeCopyOnWrite) {
-		PhysicalAddr page = p_physicalPages[offset / kPageSize];
-		if(page != PhysicalAddr(-1))
-			return page;
-		return master->resolveOriginalAt(offset);
-	}else{
-		assert(!"Unexpected memory type");
-		__builtin_unreachable();
-	}
+AllocatedMemory::AllocatedMemory(size_t length, size_t chunk_size, size_t chunk_align)
+: _physicalChunks(*kernelAlloc), _chunkSize(chunk_size), _chunkAlign(chunk_align) {
+	assert(_chunkSize % kPageSize == 0);
+	assert(_chunkAlign % kPageSize == 0);
+	assert(_chunkSize % _chunkAlign == 0);
+	assert(length % _chunkSize == 0);
+	_physicalChunks.resize(length / _chunkSize, PhysicalAddr(-1));
 }
 
-PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-		size_t offset) {
+size_t AllocatedMemory::getLength() {
+	return _physicalChunks.size() * _chunkSize;
+}
+
+PhysicalAddr AllocatedMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_intent, size_t offset) {
 	assert(offset % kPageSize == 0);
+	
+	size_t index = offset / _chunkSize;
+	size_t disp = offset % _chunkSize;
+	assert(index < _physicalChunks.size());
 
-	if(p_type == Memory::kTypeAllocated) {
-		return getPageAt(offset);
-	}else if(p_type == Memory::kTypeOnDemand) {
-		PhysicalAddr current_physical = getPageAt(offset);
-		if(current_physical != PhysicalAddr(-1))
-			return current_physical;
-
-		// allocate a new page
+	if(_physicalChunks[index] == PhysicalAddr(-1)) {
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
-		PhysicalAddr new_physical = physicalAllocator->allocate(physical_guard, kPageSize);
-		memset(physicalToVirtual(new_physical), 0, kPageSize);
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, _chunkSize);
+		assert(physical % _chunkAlign == 0);
+		memset(physicalToVirtual(physical), 0, _chunkSize);
+		_physicalChunks[index] = physical;
+	}
 
-		setPageAt(offset, new_physical);
-		return new_physical;
-	}else if(p_type == Memory::kTypeBacked) {
-		// submit a load request for the page
-		size_t page_index = offset / kPageSize;
-		if(loadState[page_index] != kStateLoaded) {
-			KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	return _physicalChunks[index] + disp;
+}
+
+// --------------------------------------------------------
+// ManagedSpace
+// --------------------------------------------------------
+
+ManagedSpace::ManagedSpace(size_t length)
+: physicalPages(*kernelAlloc), loadState(*kernelAlloc) {
+	assert(length % kPageSize == 0);
+	physicalPages.resize(length / kPageSize, PhysicalAddr(-1));
+	loadState.resize(length / kPageSize, kStateMissing);
+}
+
+void ManagedSpace::progressLoads() {
+	// TODO: this function could issue loads > a single kPageSize
+	while(!initiateLoadQueue.empty()) {
+		frigg::UnsafePtr<AsyncInitiateLoad> initiate = initiateLoadQueue.front();
+
+		size_t index = (initiate->offset + initiate->progress) / kPageSize;
+		if(loadState[index] == kStateMissing) {
+			if(handleLoadQueue.empty())
+				break;
+
+			loadState[index] = kStateLoading;
+
+			frigg::SharedPtr<AsyncHandleLoad> handle = handleLoadQueue.removeFront();
+			handle->offset = initiate->offset + initiate->progress;
+			handle->length = kPageSize;
+			AsyncOperation::complete(frigg::move(handle));
+
+			initiate->progress += kPageSize;
+		}else if(loadState[index] == kStateLoading) {
+			initiate->progress += kPageSize;
+		}else{
+			assert(loadState[index] == kStateLoaded);
+			initiate->progress += kPageSize;
+		}
+
+		if(initiate->progress == initiate->length) {
+			if(isComplete(initiate)) {
+				AsyncOperation::complete(initiateLoadQueue.removeFront());
+			}else{
+				pendingLoadQueue.addBack(initiateLoadQueue.removeFront());
+			}
+		}
+	}
+}
+
+bool ManagedSpace::isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate) {
+	for(size_t p = 0; p < initiate->length; p += kPageSize) {
+		size_t index = (initiate->offset + p) / kPageSize;
+		if(loadState[index] != kStateLoaded)
+			return false;
+	}
+	return true;
+}
+
+// --------------------------------------------------------
+// BackingMemory
+// --------------------------------------------------------
+
+size_t BackingMemory::getLength() {
+	return _managed->physicalPages.size() * kPageSize;
+}
+
+PhysicalAddr BackingMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_intent, size_t offset) {
+	assert(offset % kPageSize == 0);
+	
+	size_t index = offset / kPageSize;
+	assert(index < _managed->physicalPages.size());
+
+	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
+		if(!physical_guard.isLocked())
+			physical_guard.lock();
+		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
+		memset(physicalToVirtual(physical), 0, kPageSize);
+		_managed->physicalPages[index] = physical;
+	}
+
+	return _managed->physicalPages[index];
+}
+
+void BackingMemory::submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle) {
+	_managed->handleLoadQueue.addBack(frigg::move(handle));
+	_managed->progressLoads();
+}
+
+void BackingMemory::completeLoad(size_t offset, size_t length) {
+	assert((offset % kPageSize) == 0);
+	assert((length % kPageSize) == 0);
+	assert((offset + length) / kPageSize <= _managed->physicalPages.size());
+
+/*	assert(length == kPageSize);
+	auto inspect = (unsigned char *)physicalToVirtual(_managed->physicalPages[offset / kPageSize]);
+	auto log = frigg::infoLogger() << "dump";
+	for(size_t b = 0; b < kPageSize; b += 16) {
+		log << frigg::logHex(offset + b) << "   ";
+		for(size_t i = 0; i < 16; i++)
+			log << " " << frigg::logHex(inspect[b + i]);
+		log << "\n";
+	}
+	log << frigg::endLog;*/
+
+	for(size_t p = 0; p < length; p += kPageSize) {
+		size_t index = (offset + p) / kPageSize;
+		assert(_managed->loadState[index] == ManagedSpace::kStateLoading);
+		_managed->loadState[index] = ManagedSpace::kStateLoaded;
+	}
+
+	for(auto it = _managed->pendingLoadQueue.frontIter(); it; ) {
+		auto it_copy = it++;
+		if(_managed->isComplete(*it_copy))
+			AsyncOperation::complete(_managed->pendingLoadQueue.remove(it_copy));
+	}
+}
+
+// --------------------------------------------------------
+// FrontalMemory
+// --------------------------------------------------------
+
+size_t FrontalMemory::getLength() {
+	return _managed->physicalPages.size() * kPageSize;
+}
+
+PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_intent, size_t offset) {
+	assert(offset % kPageSize == 0);
+
+	size_t index = offset / kPageSize;
+	assert(index < _managed->physicalPages.size());
+
+	if(grab_intent & kGrabQuery) {
+		if(_managed->loadState[index] != ManagedSpace::kStateLoaded)
+			return PhysicalAddr(-1);
+		return _managed->physicalPages[index];
+	}else{
+		assert(grab_intent & kGrabFetch);
+
+		if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
+			assert(!(grab_intent & kGrabDontRequireBacking));
 
 			struct NullAllocator {
 				void free(void *) { }
 			};
 			NullAllocator null_allocator;
 
+			KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 			frigg::SharedBlock<AsyncInitiateLoad, NullAllocator> block(null_allocator,
 					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
-			submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad>(frigg::adoptShared, &block));
+			frigg::SharedPtr<AsyncInitiateLoad> initiate(frigg::adoptShared, &block);
+			_managed->initiateLoadQueue.addBack(frigg::move(initiate));
+			_managed->progressLoads();
 			
 			assert(!intsAreEnabled());
 			if(forkExecutor()) {
-				waitQueue.addBack(this_thread.toShared());
-			
 				// TODO: make sure we do not hold any locks here!
 				ScheduleGuard schedule_guard(scheduleLock.get());
 				doSchedule(frigg::move(schedule_guard));
 				// note: doSchedule() takes care of the schedule_guard lock
 			}
 		}
-	
-		// map the page into the address space
-		PhysicalAddr physical = getPageAt(offset);
+
+		PhysicalAddr physical = _managed->physicalPages[index];
 		assert(physical != PhysicalAddr(-1));
 		return physical;
-	}else if(p_type == Memory::kTypeCopyOnWrite) {
-		PhysicalAddr current_physical = getPageAt(offset);
-		if(current_physical != PhysicalAddr(-1))
-			return current_physical;
+	}
+}
 
-		// allocate a new page and copy content from the master page
+void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
+	assert(initiate->offset % kPageSize == 0);
+	assert(initiate->length % kPageSize == 0);
+	assert((initiate->offset + initiate->length) / kPageSize
+			<= _managed->physicalPages.size());
+	
+	_managed->initiateLoadQueue.addBack(frigg::move(initiate));
+	_managed->progressLoads();
+}
+
+// --------------------------------------------------------
+// CopyOnWriteMemory
+// --------------------------------------------------------
+
+CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<Memory> origin)
+: _origin(frigg::move(origin)), _physicalPages(*kernelAlloc) {
+	assert(_origin->getLength() % kPageSize == 0);
+	_physicalPages.resize(_origin->getLength() / kPageSize, PhysicalAddr(-1));
+}
+
+size_t CopyOnWriteMemory::getLength() {
+	return _physicalPages.size() * kPageSize;
+}
+
+PhysicalAddr CopyOnWriteMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_intent, size_t offset) {
+	assert(offset % kPageSize == 0);
+	
+	size_t index = offset / kPageSize;
+	assert(index < _physicalPages.size());
+
+	// TODO: only copy on write grabs
+
+	if(_physicalPages[index] == PhysicalAddr(-1)) {
+		PhysicalAddr origin_physical = _origin->grabPage(physical_guard,
+				kGrabFetch | kGrabRead, offset);
+		assert(origin_physical != PhysicalAddr(-1));
+
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
-		PhysicalAddr copy_physical = physicalAllocator->allocate(physical_guard, kPageSize);
-		PhysicalAddr origin = master->resolveOriginalAt(offset);
-		assert(origin != PhysicalAddr(-1)); // TODO: implement copy-on-write of on-demand pages
-		memcpy(physicalToVirtual(copy_physical), physicalToVirtual(origin), kPageSize);
-
-		setPageAt(offset, copy_physical);
-		return copy_physical;
+		PhysicalAddr own_physical = physicalAllocator->allocate(physical_guard, kPageSize);
+		memcpy(physicalToVirtual(own_physical), physicalToVirtual(origin_physical), kPageSize);
+		_physicalPages[index] = own_physical;
 	}
 
-	assert(!"Unexpected situation");
-	__builtin_unreachable();
+	return _physicalPages[index];
 }
 
-void Memory::submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle) {
-	_handleLoadQueue.addBack(frigg::move(handle));
-	_progressLoads();
-}
+// --------------------------------------------------------
+// Memory
+// --------------------------------------------------------
 
-void Memory::submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
-	assert((initiate->offset % kPageSize) == 0);
-	assert((initiate->length % kPageSize) == 0);
-	assert((initiate->offset + initiate->length) / kPageSize <= p_physicalPages.size());
+Memory::Memory(MemoryVariant variant)
+: _variant(frigg::move(variant)) { }
+
+void Memory::copyFrom(size_t offset, void *source, size_t length) {
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
+			frigg::dontLock);
 	
-	// FIXME: this is a workaround until the memory code is refactored
-	if(p_type != Memory::kTypeBacked) {
-		AsyncOperation::complete(frigg::move(initiate));
-		return;
-	}
+	size_t progress = 0;
 
-	_initiateLoadQueue.addBack(frigg::move(initiate));
-	_progressLoads();
-}
-
-void Memory::_progressLoads() {
-	assert(p_type == kTypeBacked);
-
-	// TODO: this function could issue loads > a single kPageSize
-	while(!_initiateLoadQueue.empty()) {
-		frigg::UnsafePtr<AsyncInitiateLoad> initiate = _initiateLoadQueue.front();
-
-		size_t page_index = (initiate->offset + initiate->progress) / kPageSize;
-		if(loadState[page_index] == kStateMissing) {
-			if(_handleLoadQueue.empty())
-				break;
-
-			assert(p_physicalPages[page_index] == PhysicalAddr(-1));
-			{
-				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-				PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
-				memset(physicalToVirtual(physical), 0, kPageSize);
-				p_physicalPages[page_index] = physical;
-			}
-
-			loadState[page_index] = kStateLoading;
-
-			frigg::SharedPtr<AsyncHandleLoad> handle = _handleLoadQueue.removeFront();
-			handle->offset = initiate->offset + initiate->progress;
-			handle->length = kPageSize;
-			AsyncOperation::complete(frigg::move(handle));
-
-			initiate->progress += kPageSize;
-		}else if(loadState[page_index] == kStateLoading) {
-			initiate->progress += kPageSize;
-		}else{
-			assert(loadState[page_index] == kStateLoaded);
-			initiate->progress += kPageSize;
-		}
-
-		if(initiate->progress == initiate->length) {
-			if(_isComplete(initiate)) {
-				AsyncOperation::complete(_initiateLoadQueue.removeFront());
-			}else{
-				_pendingLoadQueue.addBack(_initiateLoadQueue.removeFront());
-			}
-		}
-	}
-}
-
-void Memory::completeLoad(size_t offset, size_t length) {
-	assert((offset % kPageSize) == 0);
-	assert((length % kPageSize) == 0);
-	assert((offset + length) / kPageSize <= p_physicalPages.size());
-
-	for(size_t p = 0; p < length; p += kPageSize) {
-		size_t page_index = (offset + p) / kPageSize;
-		assert(loadState[page_index] == kStateLoading);
-		loadState[page_index] = kStateLoaded;
-	}
-
-	for(auto it = _pendingLoadQueue.frontIter(); it; ) {
-		auto it_copy = it++;
-		if(_isComplete(*it_copy))
-			AsyncOperation::complete(_pendingLoadQueue.remove(it_copy));
-	}
-}
-
-bool Memory::_isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate) {
-	for(size_t p = 0; p < initiate->length; p += kPageSize) {
-		size_t page_index = (initiate->offset + p) / kPageSize;
-		if(loadState[page_index] != kStateLoaded)
-			return false;
-	}
-	return true;
-}
-
-size_t Memory::numPages() {
-	return p_physicalPages.size();
-}
-
-void Memory::zeroPages() {
-	assert(p_type == kTypeAllocated);
-	
-	for(size_t i = 0; i < p_physicalPages.size(); i++) {
-		PhysicalAddr page = p_physicalPages[i];
-		assert(page != PhysicalAddr(-1));
-		memset(physicalToVirtual(page), 0, kPageSize);
-	}
-}
-
-void Memory::copyTo(size_t offset, void *source, size_t length) {
-	assert(p_type == kTypeAllocated);
-	
-	size_t disp = 0;
-	size_t index = offset / kPageSize;
-	
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = p_physicalPages[index];
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset - misalign);
 		assert(page != PhysicalAddr(-1));
 		memcpy((uint8_t *)physicalToVirtual(page) + misalign, source, prefix);
-		disp += prefix;
-		index++;
+		progress += prefix;
 	}
 
-	while(length - disp >= kPageSize) {
-		assert(((offset + disp) % kPageSize) == 0);
-		PhysicalAddr page = p_physicalPages[index];
+	while(length - progress >= kPageSize) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)source + disp, kPageSize);
-		disp += kPageSize;
-		index++;
+		memcpy(physicalToVirtual(page), (uint8_t *)source + progress, kPageSize);
+		progress += kPageSize;
 	}
 
-	if(length - disp > 0) {
-		PhysicalAddr page = p_physicalPages[index];
+	if(length - progress > 0) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)source + disp, length - disp);
+		memcpy(physicalToVirtual(page), (uint8_t *)source + progress, length - progress);
 	}
 }
 
@@ -315,10 +354,12 @@ void AddressSpace::map(Guard &guard,
 		KernelUnsafePtr<Memory> memory, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
+	assert(length != 0);
 	assert((length % kPageSize) == 0);
 
 	Mapping *mapping;
 	if((flags & kMapFixed) != 0) {
+		assert(address != 0);
 		assert((address % kPageSize) == 0);
 		mapping = allocateAt(address, length);
 	}else{
@@ -343,53 +384,31 @@ void AddressSpace::map(Guard &guard,
 		assert((flags & mask) == kMapReadOnly);
 	}
 
-	if(flags & kMapShareOnFork)
-		mapping->flags |= Mapping::kFlagShareOnFork;
+	if(flags & kMapDropAtFork) {
+		mapping->flags |= Mapping::kFlagDropAtFork;
+	}else if(flags & kMapShareAtFork) {
+		mapping->flags |= Mapping::kFlagShareAtFork;
+	}else if(flags & kMapCopyOnWriteAtFork) {
+		mapping->flags |= Mapping::kFlagCopyOnWriteAtFork;
+	}
+	
+	if(flags & kMapDontRequireBacking)
+		mapping->flags |= Mapping::kFlagDontRequireBacking;
 
-	if(memory->getType() == Memory::kTypeAllocated
-			|| memory->getType() == Memory::kTypePhysical
-			|| memory->getType() == Memory::kTypeOnDemand) {
+	{
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 		for(size_t page = 0; page < length; page += kPageSize) {
 			VirtualAddr vaddr = mapping->baseAddress + page;
 			assert(!p_pageSpace.isMapped(vaddr));
 
-			PhysicalAddr physical = memory->getPageAt(offset + page);
-			if(physical == PhysicalAddr(-1))
-				continue;
-			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
-		}
-		if(physical_guard.isLocked())
-			physical_guard.unlock();
-	}else if(memory->getType() == Memory::kTypeBacked
-			&& (flags & kMapBacking)) {
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-		for(size_t page = 0; page < length; page += kPageSize) {
-			VirtualAddr vaddr = mapping->baseAddress + page;
-			assert(!p_pageSpace.isMapped(vaddr));
+			GrabIntent grab_flags = kGrabQuery | kGrabWrite;
+			if(mapping->flags & Mapping::kFlagDontRequireBacking)
+				grab_flags |= kGrabDontRequireBacking;
 
-			PhysicalAddr physical = memory->getPageAt(offset + page);
-			assert(physical != PhysicalAddr(-1));
-			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+			PhysicalAddr physical = memory->grabPage(physical_guard, grab_flags, offset + page);
+			if(physical != PhysicalAddr(-1))
+				p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
 		}
-		if(physical_guard.isLocked())
-			physical_guard.unlock();
-	}else if(memory->getType() == Memory::kTypeBacked) {
-		// map non-loaded pages inside the page fault handler
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-		for(size_t page = 0; page < length; page += kPageSize) {
-			VirtualAddr vaddr = mapping->baseAddress + page;
-			assert(!p_pageSpace.isMapped(vaddr));
-			
-			if(memory->loadState[(offset + page) / kPageSize] != Memory::kStateLoaded)
-				continue;
-
-			PhysicalAddr physical = memory->getPageAt(offset + page);
-			assert(physical != PhysicalAddr(-1));
-			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
-		}
-	}else{
-		frigg::panicLogger() << "Illegal memory type" << frigg::endLog;
 	}
 
 	*actual_address = mapping->baseAddress;
@@ -473,8 +492,12 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	
 	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 
+	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
+	if(mapping->flags & Mapping::kFlagDontRequireBacking)
+		grab_flags |= kGrabDontRequireBacking;
+
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
-	PhysicalAddr physical = memory->grabPage(physical_guard,
+	PhysicalAddr physical = memory->grabPage(physical_guard, grab_flags,
 			mapping->memoryOffset + page_offset);
 	assert(physical != PhysicalAddr(-1));
 
@@ -497,26 +520,6 @@ KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 
 	return frigg::move(forked);
 }
-	
-PhysicalAddr AddressSpace::getPhysical(Guard &guard, VirtualAddr address) {
-	assert(guard.protects(&lock));
-	assert((address % kPageSize) == 0);
-
-	Mapping *mapping = getMapping(address);
-	assert(mapping);
-	assert(mapping->type == Mapping::kTypeMemory);
-	assert(mapping->memoryRegion->getType() == Memory::kTypeAllocated
-			|| mapping->memoryRegion->getType() == Memory::kTypeOnDemand
-			|| mapping->memoryRegion->getType() == Memory::kTypeBacked
-			|| mapping->memoryRegion->getType() == Memory::kTypeCopyOnWrite);
-
-	// TODO: allocate missing pages for OnDemand or CopyOnWrite pages
-
-	auto page = address - mapping->baseAddress;
-	PhysicalAddr physical = mapping->memoryRegion->getPageAt(mapping->memoryOffset + page);
-	assert(physical != PhysicalAddr(-1));
-	return physical;
-}
 
 PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 	assert(guard.protects(&lock));
@@ -525,17 +528,17 @@ PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 	Mapping *mapping = getMapping(address);
 	assert(mapping);
 	assert(mapping->type == Mapping::kTypeMemory);
-	assert(mapping->memoryRegion->getType() == Memory::kTypeAllocated
-			|| mapping->memoryRegion->getType() == Memory::kTypeOnDemand
-			|| mapping->memoryRegion->getType() == Memory::kTypeBacked
-			|| mapping->memoryRegion->getType() == Memory::kTypeCopyOnWrite);
 
 	// TODO: allocate missing pages for OnDemand or CopyOnWrite pages
+
+	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
+	if(mapping->flags & Mapping::kFlagDontRequireBacking)
+		grab_flags |= kGrabDontRequireBacking;
 
 	auto page = address - mapping->baseAddress;
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 	PhysicalAddr physical = mapping->memoryRegion->grabPage(physical_guard,
-			mapping->memoryOffset + page);
+			grab_flags, mapping->memoryOffset + page);
 	assert(physical != PhysicalAddr(-1));
 	return physical;
 }
@@ -618,25 +621,35 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 	if(mapping->type == Mapping::kTypeHole) {
 		// holes do not require additional handling
 	}else if(mapping->type == Mapping::kTypeMemory
-			&& (mapping->flags & Mapping::kFlagShareOnFork)) {
+			&& (mapping->flags & Mapping::kFlagDropAtFork)) {
+		// TODO: merge this hole into adjacent holes
+	}else if(mapping->type == Mapping::kTypeMemory
+			&& (mapping->flags & Mapping::kFlagShareAtFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-		assert(memory->getType() == Memory::kTypeAllocated
-				|| memory->getType() == Memory::kTypePhysical
-				|| memory->getType() == Memory::kTypeBacked);
 
 		uint32_t page_flags = 0;
 		if(mapping->writePermission)
 			page_flags |= PageSpace::kAccessWrite;
-		if(mapping->executePermission);
+		if(mapping->executePermission)
 			page_flags |= PageSpace::kAccessExecute;
 
 		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock, frigg::dontLock);
 		for(size_t page = 0; page < dest_mapping->length; page += kPageSize) {
-			PhysicalAddr physical = memory->getPageAt(mapping->memoryOffset + page);
-			if(physical == PhysicalAddr(-1))
-				continue;
+			// TODO: do not grab pages that are unavailable
+			// TODO: respect some defer-write-access flag?
+			PhysicalAddr physical;
+			if(mapping->writePermission) {
+				physical = memory->grabPage(physical_guard, kGrabQuery | kGrabWrite,
+					mapping->memoryOffset + page);
+			}else{
+				physical = memory->grabPage(physical_guard, kGrabQuery | kGrabRead,
+					mapping->memoryOffset + page);
+			}
+
 			VirtualAddr vaddr = dest_mapping->baseAddress + page;
-			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+			if(physical != PhysicalAddr(-1))
+				dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical,
+						true, page_flags);
 		}
 		if(physical_guard.isLocked())
 			physical_guard.unlock();
@@ -645,11 +658,9 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_mapping->memoryOffset = mapping->memoryOffset;
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
-	}else if(mapping->type == Mapping::kTypeMemory) {
+	}else if(mapping->type == Mapping::kTypeMemory
+			&& (mapping->flags & Mapping::kFlagCopyOnWriteAtFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-		assert(memory->getType() == Memory::kTypeAllocated
-				|| memory->getType() == Memory::kTypeOnDemand
-				|| memory->getType() == Memory::kTypeCopyOnWrite);
 
 		// don't set the write flag to enable copy-on-write
 		uint32_t page_flags = 0;
@@ -657,40 +668,36 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			page_flags |= PageSpace::kAccessExecute;
 		
 		// create a copy-on-write region for the original space
-		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
-		src_memory->resize(memory->numPages());
-		src_memory->master = memory.toShared();
+		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc,
+				CopyOnWriteMemory(memory.toShared()));
+		{
+			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+			for(size_t page = 0; page < mapping->length; page += kPageSize) {
+				PhysicalAddr physical = src_memory->grabPage(physical_guard,
+						kGrabQuery | kGrabRead, mapping->memoryOffset + page);
+				assert(physical != PhysicalAddr(-1));
+				VirtualAddr vaddr = mapping->baseAddress + page;
+				p_pageSpace.unmapSingle4k(vaddr);
+				p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+			}
+		}
 		mapping->memoryRegion = frigg::move(src_memory);
 		
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		for(size_t page = 0; page < mapping->length; page += kPageSize) {
-			PhysicalAddr physical = memory->resolveOriginalAt(mapping->memoryOffset + page);
-			if(physical == PhysicalAddr(-1))
-				continue;
-			VirtualAddr vaddr = mapping->baseAddress + page;
-			p_pageSpace.unmapSingle4k(vaddr);
-			p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
-		}
-		// we need to release the lock before calling makeShared()
-		if(physical_guard.isLocked())
-			physical_guard.unlock();
-		
 		// create a copy-on-write region for the forked space
-		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeCopyOnWrite);
-		dest_memory->resize(memory->numPages());
-		dest_memory->master = memory.toShared();
-		dest_mapping->memoryRegion = frigg::move(dest_memory);
-		
-		for(size_t page = 0; page < mapping->length; page += kPageSize) {
-			PhysicalAddr physical = memory->resolveOriginalAt(mapping->memoryOffset + page);
-			if(physical == PhysicalAddr(-1))
-				continue;
-			VirtualAddr vaddr = mapping->baseAddress + page;
-			dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
+				CopyOnWriteMemory(memory.toShared()));
+		{
+			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+			for(size_t page = 0; page < mapping->length; page += kPageSize) {
+				PhysicalAddr physical = dest_memory->grabPage(physical_guard,
+						kGrabQuery | kGrabRead, mapping->memoryOffset + page);
+				assert(physical != PhysicalAddr(-1));
+				VirtualAddr vaddr = mapping->baseAddress + page;
+				dest_space->p_pageSpace.mapSingle4k(physical_guard, vaddr, physical,
+						true, page_flags);
+			}
 		}
-		if(physical_guard.isLocked())
-			physical_guard.unlock();
-		
+		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
 		dest_mapping->memoryOffset = mapping->memoryOffset;

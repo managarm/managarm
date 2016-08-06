@@ -87,6 +87,6 @@ int main() {
 	(*closure)();
 
 	while(true)
-		eventHub.defaultProcessEvents();	
+		eventHub.defaultProcessEvents();
 }
 

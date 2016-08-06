@@ -21,11 +21,21 @@ template<typename T>
 T declval();
 
 namespace _detail {
-	template<typename S>
-	struct ResultOfHelper;
+	template<typename... T>
+	struct ToVoidHelper {
+		using Type = void;
+	};
+};
+
+template<typename... T>
+using ToVoid = typename _detail::ToVoidHelper<T...>::Type;
+
+namespace _detail {
+	template<typename S, typename = void>
+	struct ResultOfHelper { };
 
 	template<typename F, typename... Args>
-	struct ResultOfHelper<F(Args...)> {
+	struct ResultOfHelper<F(Args...), ToVoid<decltype(declval<F>() (declval<Args>()...))>> {
 		using Type = decltype(declval<F>() (declval<Args>()...));
 	};
 };

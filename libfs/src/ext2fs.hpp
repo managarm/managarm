@@ -184,7 +184,8 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	std::vector<frigg::CallbackPtr<void()>> readyQueue;
 
 	// page cache that stores the contents of this file
-	HelHandle fileMemory;
+	HelHandle backingMemory;
+	HelHandle frontalMemory;
 	
 	// NOTE: The following fields are only meaningful if the isReady is true
 

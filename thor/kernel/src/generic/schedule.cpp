@@ -15,19 +15,25 @@ void doSchedule(ScheduleGuard &&guard) {
 	
 	// this function might destroy the currrent thread and thus deallocate
 	// its kernel stack; make sure we're running from a per-cpu stack.
-	runDetached([&] (ScheduleGuard guard) {
+	runDetached([] (ScheduleGuard guard) {
 		assert(guard.protects(scheduleLock.get()));
-		
-		if(!scheduleQueue->empty()) {
-			KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
-			
+	
+		// TODO: this should be replaced by a proper "reschedule after IRQ" strategy
+		while(scheduleQueue->empty()) {
 			guard.unlock();
-			switchExecutor(thread);
-			restoreExecutor();
-		}else{
-			assert(!"Fix idle implementation");
-			guard.unlock();
+			enableInts();
+
+			halt();
+
+			disableInts();
+			guard.lock();
 		}
+
+		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
+		
+		guard.unlock();
+		switchExecutor(thread);
+		restoreExecutor();
 	}, frigg::move(guard));
 }
 

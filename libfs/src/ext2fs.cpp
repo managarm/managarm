@@ -123,15 +123,15 @@ void FindEntryClosure::inodeReady() {
 
 	auto cb = CALLBACK_MEMBER(this, &FindEntryClosure::lockedMemory);
 	int64_t async_id;
-	HEL_CHECK(helSubmitLockMemory(inode->fileMemory,
+	HEL_CHECK(helSubmitLockMemory(inode->frontalMemory,
 			inode->fs.eventHub.getHandle(), 0, mapSize,
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 }
 
 void FindEntryClosure::lockedMemory() {
 	// map the page cache into the address space
-	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
-		nullptr, 0, mapSize, kHelMapReadWrite | kHelMapBacking, &cachePtr));
+	HEL_CHECK(helMapMemory(inode->frontalMemory, kHelNullHandle,
+		nullptr, 0, mapSize, kHelMapReadWrite | kHelMapDontRequireBacking, &cachePtr));
 
 	// read the directory structure
 	uintptr_t offset = 0;
@@ -193,10 +193,8 @@ PageClosure::PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t 
 : inode(std::move(inode)), offset(offset), length(length) { }
 
 void PageClosure::operator() () {
-//	printf("Page in (%lu, %lu)\n", offset, length);
-
-	HEL_CHECK(helMapMemory(inode->fileMemory, kHelNullHandle,
-		nullptr, offset, length, kHelMapReadWrite | kHelMapBacking, &mapping));
+	HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
+			offset, length, kHelMapReadWrite, &mapping));
 
 	assert(offset < inode->fileSize);
 	size_t read_size = std::min(length, inode->fileSize - offset);
@@ -210,7 +208,7 @@ void PageClosure::operator() () {
 }
 
 void PageClosure::readComplete() {
-	HEL_CHECK(helCompleteLoad(inode->fileMemory, offset, length));
+	HEL_CHECK(helCompleteLoad(inode->backingMemory, offset, length));
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping, length));
 
@@ -225,7 +223,7 @@ void Inode::onLoadRequest(HelError error, uintptr_t offset, size_t length) {
 	
 	auto cb = CALLBACK_MEMBER(this, &Inode::onLoadRequest);
 	int64_t async_id;
-	HEL_CHECK(helSubmitProcessLoad(fileMemory, fs.eventHub.getHandle(),
+	HEL_CHECK(helSubmitProcessLoad(backingMemory, fs.eventHub.getHandle(),
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 }
 
@@ -370,11 +368,12 @@ void FileSystem::ReadInodeClosure::readSector() {
 	size_t cache_size = inode->fileSize;
 	if(cache_size % 0x1000)
 		cache_size += 0x1000 - cache_size % 0x1000;
-	HEL_CHECK(helAllocateMemory(cache_size, kHelAllocBacked, &inode->fileMemory));
+	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
+			&inode->backingMemory, &inode->frontalMemory));
 
 	auto cb = CALLBACK_MEMBER(inode.get(), &Inode::onLoadRequest);
 	int64_t async_id;
-	HEL_CHECK(helSubmitProcessLoad(inode->fileMemory, ext2fs.eventHub.getHandle(),
+	HEL_CHECK(helSubmitProcessLoad(inode->backingMemory, ext2fs.eventHub.getHandle(),
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 	
 	inode->isReady = true;
@@ -797,8 +796,6 @@ void OpenClosure::foundEntry(std::experimental::optional<DirEntry> entry) {
 			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
 		}, std::string());	
 		libchain::run(std::move(action));
-	
-		delete this;
 	}else{
 		assert(entry->fileType == kTypeDirectory);
 		directory = inode;
@@ -880,7 +877,7 @@ void ReadClosure::inodeReady() {
 
 		auto cb = CALLBACK_MEMBER(this, &ReadClosure::lockedMemory);
 		int64_t async_id;
-		HEL_CHECK(helSubmitLockMemory(openFile->inode->fileMemory,
+		HEL_CHECK(helSubmitLockMemory(openFile->inode->frontalMemory,
 				connection.getFs().eventHub.getHandle(), map_offset, map_size,
 				(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
 	}
@@ -900,8 +897,8 @@ void ReadClosure::lockedMemory() {
 			map_size += 0x1000 - map_size % 0x1000;
 
 		void *cache_ptr;
-		HEL_CHECK(helMapMemory(openFile->inode->fileMemory, kHelNullHandle,
-			nullptr, map_offset, map_size, kHelMapReadWrite | kHelMapBacking, &cache_ptr));
+		HEL_CHECK(helMapMemory(openFile->inode->frontalMemory, kHelNullHandle, nullptr,
+				map_offset, map_size, kHelMapReadWrite | kHelMapDontRequireBacking, &cache_ptr));
 
 		// send cached data to the client
 		managarm::fs::SvrResponse response;
@@ -974,7 +971,7 @@ void processMapRequest(Connection *connection, int64_t response_id,
 				serialized.size(), connection->getFs().eventHub, response_id, 0));
 		HEL_CHECK(resp_error);
 
-		HelError data_error = cofiber_await(connection->getPipe().sendDescriptorResp(open_file->inode->fileMemory,
+		HelError data_error = cofiber_await(connection->getPipe().sendDescriptorResp(open_file->inode->frontalMemory,
 					connection->getFs().eventHub, response_id, 1));
 		HEL_CHECK(data_error);
 	});

@@ -147,7 +147,7 @@ frigg::SharedPtr<AsyncOperation> EventHub::dequeueEvent(Guard &guard) {
 void EventHub::blockCurrentThread(Guard &guard) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
-
+	
 	if(forkExecutor()) {
 		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 		p_waitingThreads.addBack(this_thread.toWeak());

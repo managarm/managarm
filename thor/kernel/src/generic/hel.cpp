@@ -65,40 +65,46 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 
 	frigg::SharedPtr<Memory> memory;
 	if(flags & kHelAllocContinuous) {
-		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-		memory->resize(size / kPageSize);
-
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		PhysicalAddr address = physicalAllocator->allocate(physical_guard, size);
-		physical_guard.unlock();
-		
-		for(size_t i = 0; i < memory->numPages(); i++)
-			memory->setPageAt(i * kPageSize, address + i * kPageSize);
-		memory->zeroPages();
+		memory = frigg::makeShared<Memory>(*kernelAlloc,
+				AllocatedMemory(size, size, kPageSize));
 	}else if(flags & kHelAllocOnDemand) {
-		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
-		memory->resize(size / kPageSize);
-	}else if(flags & kHelAllocBacked) {
-		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeBacked);
-		memory->resize(size / kPageSize);
-		memory->loadState.resize(size / kPageSize);
+		memory = frigg::makeShared<Memory>(*kernelAlloc,
+				AllocatedMemory(size));
 	}else{
-		memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-		memory->resize(size / kPageSize);
-
-		PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-		for(size_t i = 0; i < memory->numPages(); i++)
-			memory->setPageAt(i * kPageSize,
-					physicalAllocator->allocate(physical_guard, kPageSize));
-		physical_guard.unlock();
-
-		memory->zeroPages();
+		// TODO: 
+		memory = frigg::makeShared<Memory>(*kernelAlloc, AllocatedMemory(size));
 	}
 	
-	Universe::Guard universe_guard(&universe->lock);
-	*handle = universe->attachDescriptor(universe_guard,
-			MemoryAccessDescriptor(frigg::move(memory)));
-	universe_guard.unlock();
+	{
+		Universe::Guard universe_guard(&universe->lock);
+		*handle = universe->attachDescriptor(universe_guard,
+				MemoryAccessDescriptor(frigg::move(memory)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helCreateManagedMemory(size_t size, uint32_t flags,
+		HelHandle *backing_handle, HelHandle *frontal_handle) {
+	assert(size > 0);
+	assert(size % kPageSize == 0);
+
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+
+	auto managed = frigg::makeShared<ManagedSpace>(*kernelAlloc, size);
+	auto backing_memory = frigg::makeShared<Memory>(*kernelAlloc,
+			BackingMemory(managed));
+	auto frontal_memory = frigg::makeShared<Memory>(*kernelAlloc,
+			FrontalMemory(frigg::move(managed)));
+	
+	{
+		Universe::Guard universe_guard(&universe->lock);
+		*backing_handle = universe->attachDescriptor(universe_guard,
+				MemoryAccessDescriptor(frigg::move(backing_memory)));
+		*frontal_handle = universe->attachDescriptor(universe_guard,
+				MemoryAccessDescriptor(frigg::move(frontal_memory)));
+	}
 
 	return kHelErrNone;
 }
@@ -109,16 +115,13 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
-	memory->resize(size / kPageSize);
-	for(size_t i = 0; i < memory->numPages(); i++)
-		memory->setPageAt(i * kPageSize, physical + i * kPageSize);
-	
-	Universe::Guard universe_guard(&universe->lock);
-	*handle = universe->attachDescriptor(universe_guard,
-			MemoryAccessDescriptor(frigg::move(memory)));
-	universe_guard.unlock();
+
+	auto memory = frigg::makeShared<Memory>(*kernelAlloc, HardwareMemory(physical, size));
+	{
+		Universe::Guard universe_guard(&universe->lock);
+		*handle = universe->attachDescriptor(universe_guard,
+				MemoryAccessDescriptor(frigg::move(memory)));
+	}
 
 	return kHelErrNone;
 }
@@ -230,10 +233,16 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapReadOnly;
 	}
 
-	if(flags & kHelMapShareOnFork)
-		map_flags |= AddressSpace::kMapShareOnFork;
-	if(flags & kHelMapBacking)
-		map_flags |= AddressSpace::kMapBacking;
+	if(flags & kHelMapDropAtFork) {
+		map_flags |= AddressSpace::kMapDropAtFork;
+	}else if(flags & kHelMapShareAtFork) {
+		map_flags |= AddressSpace::kMapShareAtFork;
+	}else if(flags & kHelMapCopyOnWriteAtFork) {
+		map_flags |= AddressSpace::kMapCopyOnWriteAtFork;
+	}
+
+	if(flags & kHelMapDontRequireBacking)
+		map_flags |= AddressSpace::kMapDontRequireBacking;
 	
 	VirtualAddr actual_address;
 	AddressSpace::Guard space_guard(&space->lock);
@@ -281,9 +290,11 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	auto address = (VirtualAddr)pointer;
 	auto misalign = address % kPageSize;
 
-	AddressSpace::Guard space_guard(&space->lock);
-	PhysicalAddr page_physical = space->getPhysical(space_guard, address - misalign);
-	space_guard.unlock();
+	PhysicalAddr page_physical;
+	{
+		AddressSpace::Guard space_guard(&space->lock);
+		page_physical = space->grabPhysical(space_guard, address - misalign);
+	}
 
 	*physical = page_physical + misalign;
 
@@ -306,7 +317,7 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 		memory = wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	*size = memory->numPages() * kPageSize;
+	*size = memory->getLength();
 	return kHelErrNone;
 }
 
@@ -428,12 +439,12 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
 	}
 
-	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
+/*	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
 			NullCompleter(), offset, length);
 	{
 		// TODO: protect memory object with a guard
 		memory->submitInitiateLoad(frigg::move(handle_load));
-	}
+	}*/
 	
 	return kHelErrNone;
 }
@@ -508,8 +519,10 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	
 	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
 	
-	// we increment the owning refcount here.
-	// it is decremented when the thread is killed.
+	// we increment the owning refcount twice here.
+	// it is decremented when all ThreadRunControl pointers go out of scope
+	// AND when the thread is finally killed.
+	new_thread.control().increment();
 	new_thread.control().increment();
 	frigg::SharedPtr<Thread, ThreadRunControl> run_ptr(frigg::adoptShared, new_thread.get(),
 			ThreadRunControl(new_thread.get(), new_thread.control().counter()));

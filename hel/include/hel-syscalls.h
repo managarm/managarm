@@ -80,6 +80,14 @@ DEFINE_SYSCALL(AllocateMemory, size_t size, uint32_t flags, HelHandle *handle)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
+DEFINE_SYSCALL(CreateManagedMemory, size_t size, uint32_t flags,
+		HelHandle *backing_handle, HelHandle *frontal_handle)
+	IN(0, size) IN(1, flags)
+	DO_SYSCALL(CreateManagedMemory)
+	OUT(0, HelHandle, backing_handle)
+	OUT(1, HelHandle, frontal_handle)
+END_SYSCALL()
+
 DEFINE_SYSCALL(AccessPhysical, uintptr_t physical, size_t size, HelHandle *handle)
 	IN(0, physical) IN(1, size)
 	DO_SYSCALL(AccessPhysical)

@@ -39,20 +39,11 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeAllocated);
-			memory->resize(virt_length / kPageSize);
+			auto memory = frigg::makeShared<Memory>(*kernelAlloc,
+					AllocatedMemory(virt_length));
 
-			// FIXME: setPageAt should be deleted! copy the pages instead?
-			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-			for(size_t i = 0; i < memory->numPages(); i++)
-				memory->setPageAt(i * kPageSize,
-						physicalAllocator->allocate(physical_guard, 0x1000));
-			physical_guard.unlock();
-			
 			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
-			memory->zeroPages();
-			memory->copyTo(virt_disp, (void *)((uintptr_t)image_ptr + phdr->p_offset),
-					phdr->p_filesz);
+			memory->copyFrom(virt_disp, (char *)image_ptr + phdr->p_offset, phdr->p_filesz);
 
 			VirtualAddr actual_address;
 			space_guard.lock();
@@ -80,8 +71,8 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypeOnDemand);
-	stack_memory->resize(stack_size / kPageSize);
+	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
+			AllocatedMemory(stack_size));
 
 	VirtualAddr stack_base;
 	space_guard.lock();
@@ -96,7 +87,8 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi(ehdr->e_entry, stack_base + stack_size, false);
 
-	// increment the reference counter so that the threads stays alive forever
+	// see helCreateThread for the reasoning here
+	thread.control().increment();
 	thread.control().increment();
 
 	ScheduleGuard schedule_guard(scheduleLock.get());
@@ -147,10 +139,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		assert((virt_length % kPageSize) == 0);
 
 		// TODO: free module memory if it is not used anymore
-		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc, Memory::kTypePhysical);
-		mod_memory->resize(virt_length / kPageSize);
-		for(size_t j = 0; j < mod_memory->numPages(); j++)
-			mod_memory->setPageAt(j * kPageSize, modules[i].physicalBase + j * kPageSize);
+		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc,
+				HardwareMemory(modules[i].physicalBase, virt_length));
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);
@@ -278,6 +268,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 		saveExecutorFromFault(image);
 	}
 
+	frigg::infoLogger() << "schedule after fault" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	doSchedule(frigg::move(schedule_guard));
 }
@@ -301,8 +292,9 @@ extern "C" void thorImplementNoThreadIrqs() {
 
 extern "C" void handleSyscall(SyscallImageAccessor image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-//	if(index != kHelCallLog)
-//		frigg::infoLogger() << "syscall #" << index << frigg::endLog;
+//	if(*image.number() != kHelCallLog)
+//		frigg::infoLogger() << this_thread.get()
+//				<< " syscall #" << *image.number() << frigg::endLog;
 
 	Word arg0 = *image.in0();
 	Word arg1 = *image.in1();
@@ -337,6 +329,13 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		HelHandle handle;
 		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
 		*image.out0() = handle;
+	} break;
+	case kHelCallCreateManagedMemory: {
+		HelHandle backing_handle, frontal_handle;
+		*image.error() = helCreateManagedMemory((size_t)arg0, (uint32_t)arg1,
+				&backing_handle, &frontal_handle);
+		*image.out0() = backing_handle;
+		*image.out1() = frontal_handle;
 	} break;
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
@@ -609,12 +608,15 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	}
 
 	if(this_thread->pendingSignal() == Thread::kSigKill) {
-		this_thread.control().decrement();
+		frigg::infoLogger() << "Fix thread collection" << frigg::endLog;
+//		this_thread.control().decrement();
 
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		doSchedule(frigg::move(schedule_guard));
 	}
 	assert(!this_thread->pendingSignal());
+
+//	frigg::infoLogger() << "exit syscall" << frigg::endLog;
 }
 
 } // namespace thor
