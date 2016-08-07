@@ -26,7 +26,8 @@ install-$c-headers:
 $c_CXX = x86_64-managarm-g++
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
-	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include -iquote $($c_SRCDIR)
+	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include \
+	-I$($c_GENDIR) -iquote $($c_SRCDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -O2
@@ -60,4 +61,11 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm | $($c_ARCH_OBJDIR)
 	$($d_AS) -o $@ $($d_ASFLAGS) $<
+
+# generate protobuf
+gen-$c: $($c_GENDIR)/xuniverse.frigg_pb.hpp
+
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
+	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 

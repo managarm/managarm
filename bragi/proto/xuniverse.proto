@@ -1,0 +1,29 @@
+
+syntax = "proto2";
+package managarm.xuniverse;
+option optimize_for = LITE_RUNTIME;
+
+enum Errors {
+	SUCCESS = 0;
+}
+
+enum CntReqType {
+	NONE = 0;
+	GET_PROFILE = 1;
+	GET_SERVER = 2;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+
+	// used by GET_SERVER
+	optional string server = 2;
+}
+
+message SvrResponse {
+	optional Errors error = 1;
+
+	// used by GET_PROFILE
+	optional string profile = 2;
+}
+

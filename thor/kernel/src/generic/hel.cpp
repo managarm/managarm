@@ -865,7 +865,7 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 		return kHelErrIllegalArgs;
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
 	// TODO: check userspace page access rights
 	
@@ -873,16 +873,21 @@ HelError helSubmitSendString(HelHandle handle, HelHandle hub_handle,
 	frigg::SharedPtr<EventHub> event_hub;
 	AnyDescriptor send_descriptor;
 	{
-		Universe::Guard universe_guard(&universe->lock);
+		Universe::Guard universe_guard(&this_universe->lock);
 
-		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!end_wrapper)
-			return kHelErrNoDescriptor;
-		if(!end_wrapper->is<EndpointDescriptor>())
-			return kHelErrBadDescriptor;
-		channel = Endpoint::writeChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
-		
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+		if(handle == kHelThisUniverse) {
+			channel = frigg::SharedPtr<Channel>(this_universe.toShared(),
+					&this_universe->inferiorSendChannel());
+		}else{
+			auto end_wrapper = this_universe->getDescriptor(universe_guard, handle);
+			if(!end_wrapper)
+				return kHelErrNoDescriptor;
+			if(!end_wrapper->is<EndpointDescriptor>())
+				return kHelErrBadDescriptor;
+			channel = Endpoint::writeChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
+		}
+
+		auto hub_wrapper = this_universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
 			return kHelErrNoDescriptor;
 		if(!hub_wrapper->is<EventHubDescriptor>())
@@ -1012,21 +1017,26 @@ HelError helSubmitRecvString(HelHandle handle,
 		return kHelErrIllegalArgs;
 
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
 	frigg::SharedPtr<Channel> channel;
 	frigg::SharedPtr<EventHub> event_hub;
 	{
-		Universe::Guard universe_guard(&universe->lock);
+		Universe::Guard universe_guard(&this_universe->lock);
 
-		auto end_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!end_wrapper)
-			return kHelErrNoDescriptor;
-		if(!end_wrapper->is<EndpointDescriptor>())
-			return kHelErrBadDescriptor;
-		channel = Endpoint::readChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
+		if(handle == kHelThisUniverse) {
+			channel = frigg::SharedPtr<Channel>(this_universe.toShared(),
+					&this_universe->inferiorRecvChannel());
+		}else{
+			auto end_wrapper = this_universe->getDescriptor(universe_guard, handle);
+			if(!end_wrapper)
+				return kHelErrNoDescriptor;
+			if(!end_wrapper->is<EndpointDescriptor>())
+				return kHelErrBadDescriptor;
+			channel = Endpoint::readChannel(end_wrapper->get<EndpointDescriptor>().endpoint);
+		}
 
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
+		auto hub_wrapper = this_universe->getDescriptor(universe_guard, hub_handle);
 		if(!hub_wrapper)
 			return kHelErrNoDescriptor;
 		if(!hub_wrapper->is<EventHubDescriptor>())

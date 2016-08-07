@@ -23,6 +23,7 @@
 #include <frigg/glue-hel.hpp>
 
 #include "linker.hpp"
+#include <xuniverse.frigg_pb.hpp>
 
 #define HIDDEN  __attribute__ ((visibility ("hidden")))
 #define EXPORT  __attribute__ ((visibility ("default")))
@@ -119,8 +120,6 @@ extern "C" void *interpreterMain(char *sp) {
 		}
 	}
 
-	frigg::infoLogger() << "phdrs at " << phdr_pointer << frigg::endLog;
-
 	// FIXME: read own SONAME
 	interpreter.initialize("ld-init.so", false);
 	interpreter->baseAddress = (uintptr_t)_DYNAMIC
@@ -156,8 +155,54 @@ extern "C" void *interpreterMain(char *sp) {
 	eventHub.initialize(helx::EventHub::create());
 	posixPipe.initialize();
 	
-	// connect to ld-server
-	const char *posix_path = "local/posix";
+	helx::Pipe superior(kHelThisUniverse);
+
+	// determine the profile we are running in
+	{
+		managarm::xuniverse::CntRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::xuniverse::CntReqType::GET_PROFILE);
+
+		frigg::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+
+		HelError error;
+		superior.sendStringReqSync(serialized.data(), serialized.size(), *eventHub,
+				0, 0, error);
+		HEL_CHECK(error);
+	}
+	{
+		uint8_t buffer[128];
+		HelError error;
+		size_t length;
+		superior.recvStringRespSync(buffer, 128, *eventHub,
+				0, 0, error, length);
+		HEL_CHECK(error);
+	}
+	
+	{
+		managarm::xuniverse::CntRequest<Allocator> request(*allocator);
+		request.set_req_type(managarm::xuniverse::CntReqType::GET_SERVER);
+		request.set_server(frigg::String<Allocator>(*allocator, "fs"));
+
+		frigg::String<Allocator> serialized(*allocator);
+		request.SerializeToString(&serialized);
+
+		HelError error;
+		superior.sendStringReqSync(serialized.data(), serialized.size(), *eventHub,
+				0, 0, error);
+		HEL_CHECK(error);
+	}
+	{
+		HelError error;
+		HelHandle handle;
+		superior.recvDescriptorRespSync(*eventHub,
+				0, 0, error, handle);
+		HEL_CHECK(error);
+	}
+
+	frigg::infoLogger() << "got the profile" << frigg::endLog;
+
+	/*const char *posix_path = "local/posix";
 	HelHandle posix_handle;
 	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
 	
@@ -168,7 +213,7 @@ extern "C" void *interpreterMain(char *sp) {
 
 	HelError posix_error;
 	eventHub->waitForConnect(posix_async_id, posix_error, *posixPipe);
-	HEL_CHECK(posix_error);
+	HEL_CHECK(posix_error);*/
 	
 	// perform the initial dynamic linking
 	globalScope.initialize();
