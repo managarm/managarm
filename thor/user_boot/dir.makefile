@@ -1,7 +1,7 @@
 
 $(call standard_dirs)
 
-$c_OBJECTS := main.o frigg-glue-hel.o frigg-debug.o frigg-libc.o
+$c_OBJECTS := main.o frigg-glue-hel.o frigg-debug.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 all-$c: $($c_BINDIR)/user_boot
@@ -12,10 +12,10 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include
 $c_INCLUDES += -I$($c_GENDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
-$c_CXXFLAGS += -DFRIGG_NO_LIBC
+$c_CXXFLAGS += -std=c++14 -Wall
+$c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LDFLAGS := -nostdlib
+$c_LDFLAGS :=
 
 $($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
 	install $< $@

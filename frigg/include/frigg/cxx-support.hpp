@@ -10,6 +10,12 @@ inline void *operator new (size_t size, void *pointer) {
 	return pointer;
 }
 
+#elif defined(FRIGG_HAVE_LIBC)
+
+#include <new>
+
+#else
+#error "Define either FRIGG_HAVE_LIBC or FRIGG_NO_LIBC"
 #endif // FRIGG_NO_LIBC
 
 namespace frigg {

@@ -293,16 +293,7 @@ extern "C" void exit(int status) {
 	HEL_CHECK(helExitThisThread());
 }
 
-typedef void (*InitFuncPtr) ();
-extern InitFuncPtr __init_array_start[];
-extern InitFuncPtr __init_array_end[];
-
 int main() {
-	// we're using no libc, so we have to run constructors manually
-	size_t init_count = __init_array_end - __init_array_start;
-	for(size_t i = 0; i < init_count; i++)
-		__init_array_start[i]();
-
 	frigg::infoLogger() << "Entering user_boot" << frigg::endLog;
 	allocator.initialize(virtualAlloc);
 	
@@ -322,14 +313,3 @@ int main() {
 	__builtin_unreachable();
 }
 
-asm ( ".global _start\n"
-		"_start:\n"
-		"\tcall main\n"
-		"\tud2" );
-
-extern "C"
-int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
-	return 0;
-}
-
-void *__dso_handle;

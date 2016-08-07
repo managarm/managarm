@@ -8,12 +8,38 @@ namespace thor {
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
-frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+struct Module {
+	Module(frigg::StringView filename, PhysicalAddr physical)
+	: filename(filename), physical(physical) { }
 
-void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
-	space->setupDefaultMappings();
+	frigg::StringView filename;
+	PhysicalAddr physical;
+};
+
+frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
+
+Module *getModule(frigg::StringView filename) {
+	for(size_t i = 0; i < allModules->size(); i++)
+		if((*allModules)[i].filename == filename)
+			return &(*allModules)[i];
+	return nullptr;
+}
+
+struct ImageInfo {
+	ImageInfo()
+	: entryIp(nullptr) { }
+
+	void *entryIp;
+	void *phdrPtr;
+	size_t phdrEntrySize;
+	size_t phdrCount;
+	frigg::StringView interpreter;
+};
+
+ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
+		VirtualAddr base, PhysicalAddr image_paddr) {
+	ImageInfo info;
 
 	void *image_ptr = physicalToVirtual(image_paddr);
 	
@@ -23,9 +49,10 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	assert(ehdr->e_type == ET_EXEC);
 
-	AddressSpace::Guard space_guard(&space->lock, frigg::dontLock);
+	info.entryIp = (void *)(base + ehdr->e_entry);
+	info.phdrEntrySize = ehdr->e_phentsize;
+	info.phdrCount = ehdr->e_phnum;
 
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
@@ -49,46 +76,90 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			memory->copyFrom(virt_disp, (char *)image_ptr + phdr->p_offset, phdr->p_filesz);
 
 			VirtualAddr actual_address;
-			space_guard.lock();
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				space->map(space_guard, memory, virt_address, 0, virt_length,
+				AddressSpace::Guard space_guard(&space->lock);
+				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				space->map(space_guard, memory, virt_address, 0, virt_length,
+				AddressSpace::Guard space_guard(&space->lock);
+				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
 			}
-			space_guard.unlock();
 			thorRtInvalidateSpace();
-		}else if(phdr->p_type == PT_GNU_EH_FRAME
+		}else if(phdr->p_type == PT_INTERP) {
+			info.interpreter = frigg::StringView((char *)image_ptr + phdr->p_offset,
+					phdr->p_filesz);
+		}else if(phdr->p_type == PT_PHDR) {
+			info.phdrPtr = (char *)base + phdr->p_vaddr;
+		}else if(phdr->p_type == PT_DYNAMIC
+				|| phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
 			assert(!"Unexpected PHDR");
 		}
 	}
-	
+
+	return info;
+}
+
+void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
+	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	space->setupDefaultMappings();
+
+	ImageInfo exec_info = loadModuleImage(space, 0, image_paddr);
+
+	// FIXME: use actual interpreter name here
+	Module *interp_module = getModule("ld-init.so");
+	assert(interp_module);
+	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
+
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
 			AllocatedMemory(stack_size));
+	enum {
+		AT_NULL = 0,
+		AT_PHDR = 3,
+		AT_PHENT = 4,
+		AT_PHNUM = 5,
+		AT_ENTRY = 9
+	};
+
+	uintptr_t stack_image[] = {
+		AT_ENTRY,
+		(uintptr_t)exec_info.entryIp,
+		AT_PHDR,
+		(uintptr_t)exec_info.phdrPtr,
+		AT_PHENT,
+		exec_info.phdrEntrySize,
+		AT_PHNUM,
+		exec_info.phdrCount,
+		AT_NULL,
+		0
+	};
+	stack_memory->copyFrom(stack_size - sizeof(stack_image), stack_image, sizeof(stack_image));
 
 	VirtualAddr stack_base;
-	space_guard.lock();
-	space->map(space_guard, stack_memory, 0, 0, stack_size,
-			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
-	space_guard.unlock();
+	{
+		AddressSpace::Guard space_guard(&space->lock);
+		space->map(space_guard, stack_memory, 0, 0, stack_size,
+				AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
+	}
 	thorRtInvalidateSpace();
 
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
-	thread->image.initSystemVAbi(ehdr->e_entry, stack_base + stack_size, false);
+	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
+			stack_base + stack_size - sizeof(stack_image), false);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();
@@ -135,7 +206,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
-	auto mod_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
+	allModules.initialize(*kernelAlloc);
 	for(size_t i = 1; i < info->numModules; i++) {
 		size_t virt_length = modules[i].length + (kPageSize - (modules[i].length % kPageSize));
 		assert((virt_length % kPageSize) == 0);
@@ -149,20 +220,17 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << frigg::endLog;
 
-		MemoryAccessDescriptor mod_descriptor(frigg::move(mod_memory));
-		mod_directory->publish(name_ptr, modules[i].nameLength,
-				AnyDescriptor(frigg::move(mod_descriptor)));
+		Module module(frigg::StringView(name_ptr, modules[i].nameLength),
+				modules[i].physicalBase);
+		allModules->push(module);
 	}
 	
-	const char *mod_path = "initrd";
-	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
-	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
-
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 	runService();
 
 	// finally we lauch the user_boot program
+	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	executeModule(frigg::move(root_directory), modules[0].physicalBase);
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
