@@ -210,16 +210,11 @@ PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &physical_gua
 			frigg::SharedBlock<AsyncInitiateLoad, NullAllocator> block(null_allocator,
 					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
 			frigg::SharedPtr<AsyncInitiateLoad> initiate(frigg::adoptShared, &block);
-			_managed->initiateLoadQueue.addBack(frigg::move(initiate));
-			_managed->progressLoads();
 			
-			assert(!intsAreEnabled());
-			if(forkExecutor()) {
-				// TODO: make sure we do not hold any locks here!
-				ScheduleGuard schedule_guard(scheduleLock.get());
-				doSchedule(frigg::move(schedule_guard));
-				// note: doSchedule() takes care of the schedule_guard lock
-			}
+			forkAndSchedule([&] () {
+				_managed->initiateLoadQueue.addBack(frigg::move(initiate));
+				_managed->progressLoads();
+			});
 		}
 
 		PhysicalAddr physical = _managed->physicalPages[index];

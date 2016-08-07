@@ -725,15 +725,11 @@ HelError helWaitForEvents(HelHandle handle,
 	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
 			ReturnFromForkCompleter(this_thread.toWeak()), -1);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
-	{
+
+	forkAndSchedule([&] () {
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
-	}
-
-	if(forkExecutor()) {
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	}
+	});
 
 	// TODO: support more than one event per transaction
 	assert(max_items > 0);
@@ -770,15 +766,11 @@ HelError helWaitForCertainEvent(HelHandle handle, int64_t async_id,
 	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
 			ReturnFromForkCompleter(this_thread.toWeak()), async_id);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
-	{
+
+	forkAndSchedule([&] () {
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
-	}
-
-	if(forkExecutor()) {
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	}
+	});
 
 	assert(wait->event.submitInfo.asyncId == async_id);
 	translateToUserEvent(wait->event, user_event);
