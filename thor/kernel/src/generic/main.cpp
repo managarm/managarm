@@ -276,7 +276,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
-	frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
+	//frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
 	
 	if(number == 2)
 		timerInterrupt();

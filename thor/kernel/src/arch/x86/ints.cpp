@@ -147,8 +147,9 @@ void handleIrq(IrqImageAccessor image, int number);
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 
-	frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
-			<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+	if(number != 14)
+		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
 	assert(!inStub(*image.ip()));
 	assert(cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
