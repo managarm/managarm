@@ -652,6 +652,51 @@ HelError helCreateEventHub(HelHandle *handle) {
 	return kHelErrNone;
 }
 
+// TODO: move this to a private namespace?
+static void translateToUserEvent(AsyncEvent event, HelEvent *user_event) {
+	int type;
+	switch(event.type) {
+	case kEventMemoryLoad: type = kHelEventLoadMemory; break;
+	case kEventMemoryLock: type = kHelEventLockMemory; break;
+	case kEventObserve: type = kHelEventObserve; break;
+	case kEventSendString: type = kHelEventSendString; break;
+	case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
+	case kEventRecvString: type = kHelEventRecvString; break;
+	case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
+	case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
+	case kEventAccept: type = kHelEventAccept; break;
+	case kEventConnect: type = kHelEventConnect; break;
+	case kEventIrq: type = kHelEventIrq; break;
+	default:
+		assert(!"Unexpected event type");
+		__builtin_unreachable();
+	}
+
+	HelError error;
+	switch(event.error) {
+	case kErrSuccess: error = kHelErrNone; break;
+	case kErrClosedLocally: error = kHelErrClosedLocally; break;
+	case kErrClosedRemotely: error = kHelErrClosedRemotely; break;
+	case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
+	default:
+		assert(!"Unexpected error");
+		__builtin_unreachable();
+	}
+
+	auto accessor = DirectSelfAccessor<HelEvent>::acquire(user_event);
+	accessor->type = type;
+	accessor->error = error;
+	accessor->asyncId = event.submitInfo.asyncId;
+	accessor->submitFunction = event.submitInfo.submitFunction;
+	accessor->submitObject = event.submitInfo.submitObject;
+
+	accessor->msgRequest = event.msgRequest;
+	accessor->msgSequence = event.msgSequence;
+	accessor->offset = event.offset;
+	accessor->length = event.length;
+	accessor->handle = event.handle;
+}
+
 HelError helWaitForEvents(HelHandle handle,
 		HelEvent *user_list, size_t max_items,
 		HelNanotime max_nanotime, size_t *num_items) {
@@ -670,77 +715,73 @@ HelError helWaitForEvents(HelHandle handle,
 		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	// TODO: check userspace page access rights
+	assert(max_nanotime == kHelWaitInfinite);
 
-	EventHub::Guard hub_guard(&event_hub->lock);
-	if(max_nanotime == kHelWaitInfinite) {
-		while(!event_hub->hasEvent(hub_guard))
-			event_hub->blockCurrentThread(hub_guard);
-	}else if(max_nanotime > 0) {
-		uint64_t deadline = currentTicks() + durationToTicks(0, 0, 0, max_nanotime);
-
-		Timer timer(deadline);
-		timer.thread = this_thread.toWeak();
-		installTimer(frigg::move(timer));
-
-		while(!event_hub->hasEvent(hub_guard) && currentTicks() < deadline)
-			event_hub->blockCurrentThread(hub_guard);
-	}else if(max_nanotime < 0) {
-		assert(!"Illegal time parameter");
+	struct NullAllocator {
+		void free(void *) { }
+	};
+	NullAllocator null_allocator;
+		
+	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
+			ReturnFromForkCompleter(this_thread.toWeak()), -1);
+	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
+	{
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->submitWaitForEvent(hub_guard, wait);
 	}
 
-	size_t count; 
-	for(count = 0; count < max_items; count++) {
-		if(!event_hub->hasEvent(hub_guard))
-			break;
-		frigg::SharedPtr<AsyncOperation> operation = event_hub->dequeueEvent(hub_guard);
-		AsyncEvent event = operation->getEvent();
-
-		int type;
-		switch(event.type) {
-		case kEventMemoryLoad: type = kHelEventLoadMemory; break;
-		case kEventMemoryLock: type = kHelEventLockMemory; break;
-		case kEventObserve: type = kHelEventObserve; break;
-		case kEventSendString: type = kHelEventSendString; break;
-		case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
-		case kEventRecvString: type = kHelEventRecvString; break;
-		case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
-		case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
-		case kEventAccept: type = kHelEventAccept; break;
-		case kEventConnect: type = kHelEventConnect; break;
-		case kEventIrq: type = kHelEventIrq; break;
-		default:
-			assert(!"Unexpected event type");
-			__builtin_unreachable();
-		}
-
-		HelError error;
-		switch(event.error) {
-		case kErrSuccess: error = kHelErrNone; break;
-		case kErrClosedLocally: error = kHelErrClosedLocally; break;
-		case kErrClosedRemotely: error = kHelErrClosedRemotely; break;
-		case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
-		default:
-			assert(!"Unexpected error");
-			__builtin_unreachable();
-		}
-
-		auto accessor = DirectSelfAccessor<HelEvent>::acquire(&user_list[count]);
-		accessor->type = type;
-		accessor->error = error;
-		accessor->asyncId = event.submitInfo.asyncId;
-		accessor->submitFunction = event.submitInfo.submitFunction;
-		accessor->submitObject = event.submitInfo.submitObject;
-
-		accessor->msgRequest = event.msgRequest;
-		accessor->msgSequence = event.msgSequence;
-		accessor->offset = event.offset;
-		accessor->length = event.length;
-		accessor->handle = event.handle;
+	if(forkExecutor()) {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
 	}
-	hub_guard.unlock();
 
-	*num_items = count;
+	// TODO: support more than one event per transaction
+	assert(max_items > 0);
+	translateToUserEvent(wait->event, &user_list[0]);
+	*num_items = 1;
+
+	return kHelErrNone;
+}
+
+HelError helWaitForCertainEvent(HelHandle handle, int64_t async_id,
+		HelEvent *user_event, HelNanotime max_nanotime) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	frigg::SharedPtr<EventHub> event_hub;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto hub_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!hub_wrapper)
+			return kHelErrNoDescriptor;
+		if(!hub_wrapper->is<EventHubDescriptor>())
+			return kHelErrBadDescriptor;
+		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
+	}
+
+	assert(max_nanotime == kHelWaitInfinite);
+	
+	struct NullAllocator {
+		void free(void *) { }
+	};
+	NullAllocator null_allocator;
+
+	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
+			ReturnFromForkCompleter(this_thread.toWeak()), async_id);
+	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
+	{
+		EventHub::Guard hub_guard(&event_hub->lock);
+		event_hub->submitWaitForEvent(hub_guard, wait);
+	}
+
+	if(forkExecutor()) {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
+	}
+
+	assert(wait->event.submitInfo.asyncId == async_id);
+	translateToUserEvent(wait->event, user_event);
 
 	return kHelErrNone;
 }

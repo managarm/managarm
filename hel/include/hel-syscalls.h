@@ -211,6 +211,12 @@ DEFINE_SYSCALL(WaitForEvents, HelHandle handle,
 	OUT(0, size_t, num_items)
 END_SYSCALL()
 
+DEFINE_SYSCALL(WaitForCertainEvent, HelHandle handle,
+		int64_t async_id, struct HelEvent *event, HelNanotime max_time)
+	IN(0, handle) IN(1, async_id) IN(2, event) IN(3, max_time)
+	DO_SYSCALL(WaitForCertainEvent)
+END_SYSCALL()
+
 DEFINE_SYSCALL(CreateRing, size_t max_chunk_size, HelHandle *handle)
 	IN(0, max_chunk_size);
 	DO_SYSCALL(CreateRing)

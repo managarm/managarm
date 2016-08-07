@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 65,
+	kHelNumCalls = 66,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -44,6 +44,7 @@ enum {
 
 	kHelCallCreateEventHub = 13,
 	kHelCallWaitForEvents = 45,
+	kHelCallWaitForCertainEvent = 65,
 	
 	kHelCallCreateRing = 56,
 	kHelCallSubmitRing = 57,
@@ -244,6 +245,8 @@ HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);
 HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 		struct HelEvent *list, size_t max_items,
 		HelNanotime max_time, size_t *num_items);
+HEL_C_LINKAGE HelError helWaitForCertainEvent(HelHandle handle,
+		int64_t async_id, struct HelEvent *event, HelNanotime max_time);
 
 HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);
 HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,

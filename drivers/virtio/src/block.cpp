@@ -1,11 +1,14 @@
 
 #include <stdlib.h>
+#include <stdio.h>
 #include "block.hpp"
 
 extern helx::EventHub eventHub;
 
 namespace virtio {
 namespace block {
+
+static bool logInitiateRetire = false;
 
 // --------------------------------------------------------
 // UserRequest
@@ -69,6 +72,9 @@ void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t by
 
 	user_request->sectorsRead += user_request->numSubmitted;
 	user_request->numSubmitted = 0;
+	
+	if(logInitiateRetire)
+		printf("Initiate %p\n", user_request);
 
 	// re-submit the request if it is not complete yet
 	if(user_request->sectorsRead < user_request->numSectors) {
@@ -90,6 +96,10 @@ void Device::afterRetrieve() {
 	while(!completeStack.empty()) {
 		UserRequest *user_request = completeStack.back();
 		user_request->callback();
+
+		if(logInitiateRetire)
+			printf("Retire %p\n", user_request);
+
 		delete user_request;
 		completeStack.pop_back();
 	}

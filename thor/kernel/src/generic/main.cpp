@@ -448,6 +448,10 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				&num_items);
 		*image.out0() = num_items;
 	} break;
+	case kHelCallWaitForCertainEvent: {
+		*image.error() = helWaitForCertainEvent((HelHandle)arg0,
+				(int64_t)arg1, (HelEvent *)arg2, (HelNanotime)arg3);
+	} break;
 	
 	case kHelCallCreateRing: {
 		HelHandle handle;

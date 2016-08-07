@@ -80,9 +80,12 @@ CpuData::CpuData() {
 // SubmitInfo
 // --------------------------------------------------------
 
+SubmitInfo::SubmitInfo()
+: asyncId(0), submitFunction(0), submitObject(0) { }
+
 SubmitInfo::SubmitInfo(int64_t async_id,
 		uintptr_t submit_function, uintptr_t submit_object)
-	: asyncId(async_id), submitFunction(submit_function),
+: asyncId(async_id), submitFunction(submit_function),
 		submitObject(submit_object) { }
 
 // --------------------------------------------------------

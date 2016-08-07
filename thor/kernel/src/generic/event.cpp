@@ -7,8 +7,11 @@ namespace thor {
 // AsyncEvent
 // --------------------------------------------------------
 
+AsyncEvent::AsyncEvent()
+: type(kEventNone) { }
+
 AsyncEvent::AsyncEvent(EventType type, SubmitInfo submit_info)
-		: type(type), submitInfo(submit_info) { }
+: type(type), submitInfo(submit_info) { }
 
 AsyncEvent AsyncHandleLoad::getEvent() {
 	AsyncEvent event(kEventMemoryLoad, completer.get<PostEventCompleter>().submitInfo);
@@ -26,6 +29,9 @@ AsyncEvent AsyncObserve::getEvent() {
 	AsyncEvent event(kEventObserve, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;
 	return event;
+}
+AsyncEvent AsyncWaitForEvent::getEvent() {
+	assert(false);
 }
 AsyncEvent AsyncSendString::getEvent() {
 	AsyncEvent event(kEventSendString, completer.get<PostEventCompleter>().submitInfo);
@@ -116,23 +122,45 @@ void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
 // EventHub
 // --------------------------------------------------------
 
-EventHub::EventHub() : p_waitingThreads(*kernelAlloc) { }
+EventHub::EventHub() { }
 
 void EventHub::raiseEvent(Guard &guard, frigg::SharedPtr<AsyncOperation> operation) {
 	assert(guard.protects(&lock));
 
-	_eventQueue.addBack(frigg::move(operation));
+	for(auto it = _waitQueue.frontIter(); it; ) {
+		auto it_copy = it++;
 
-	while(!p_waitingThreads.empty()) {
-		KernelSharedPtr<Thread> waiting = p_waitingThreads.removeFront().grab();
-
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, waiting);
-		schedule_guard.unlock();
+		auto submit_info = operation->completer.get<PostEventCompleter>().submitInfo;
+		if((*it_copy)->filterAsyncId == -1 || (*it_copy)->filterAsyncId == submit_info.asyncId) {
+			auto wait = _waitQueue.remove(it_copy);
+			wait->event = operation->getEvent();
+			AsyncOperation::complete(frigg::move(wait));
+			return;
+		}
 	}
+
+	_eventQueue.addBack(frigg::move(operation));
 }
 
-bool EventHub::hasEvent(Guard &guard) {
+void EventHub::submitWaitForEvent(Guard &guard, frigg::SharedPtr<AsyncWaitForEvent> wait) {
+	assert(guard.protects(&lock));
+
+	for(auto it = _eventQueue.frontIter(); it; ) {
+		auto it_copy = it++;
+
+		auto submit_info = (*it_copy)->completer.get<PostEventCompleter>().submitInfo;
+		if(wait->filterAsyncId == -1 || wait->filterAsyncId == submit_info.asyncId) {
+			auto operation = _eventQueue.remove(it_copy);
+			wait->event = operation->getEvent();
+			AsyncOperation::complete(frigg::move(wait));
+			return;
+		}
+	}
+
+	_waitQueue.addBack(frigg::move(wait));
+}
+
+/*bool EventHub::hasEvent(Guard &guard) {
 	assert(guard.protects(&lock));
 
 	return !_eventQueue.empty();
@@ -162,7 +190,7 @@ void EventHub::blockCurrentThread(Guard &guard) {
 	
 	// the guard lock was released during the first return of saveThisThread()
 	guard.lock();
-}
+}*/
 
 } // namespace thor
 

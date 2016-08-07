@@ -17,6 +17,8 @@ enum EventType {
 };
 
 struct AsyncEvent {
+	AsyncEvent();
+
 	AsyncEvent(EventType type, SubmitInfo submit_info);
 
 	EventType type;
@@ -92,6 +94,19 @@ struct AsyncObserve : public AsyncOperation {
 	AsyncEvent getEvent() override;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncObserve> processQueueItem;
+};
+
+struct AsyncWaitForEvent : public AsyncOperation {
+	AsyncWaitForEvent(AsyncCompleter completer, int64_t filter_async_id)
+	: AsyncOperation(frigg::move(completer)), filterAsyncId(filter_async_id) { }
+	
+	AsyncEvent getEvent() override;
+
+	int64_t filterAsyncId;
+	
+	frigg::IntrusiveSharedLinkedItem<AsyncWaitForEvent> processQueueItem;
+
+	AsyncEvent event;
 };
 
 struct AsyncSendString : public AsyncOperation {
@@ -242,11 +257,7 @@ public:
 
 	void raiseEvent(Guard &guard, frigg::SharedPtr<AsyncOperation> operation);
 
-	bool hasEvent(Guard &guard);
-
-	frigg::SharedPtr<AsyncOperation> dequeueEvent(Guard &guard);
-
-	void blockCurrentThread(Guard &guard);
+	void submitWaitForEvent(Guard &guard, frigg::SharedPtr<AsyncWaitForEvent> wait);
 
 	Lock lock;
 
@@ -255,8 +266,11 @@ private:
 		AsyncOperation,
 		&AsyncOperation::hubItem
 	> _eventQueue;
-	
-	frigg::LinkedList<KernelWeakPtr<Thread>, KernelAlloc> p_waitingThreads;
+
+	frigg::IntrusiveSharedLinkedList<
+		AsyncWaitForEvent,
+		&AsyncWaitForEvent::processQueueItem
+	> _waitQueue;
 };
 
 } // namespace thor

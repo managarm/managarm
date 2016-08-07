@@ -146,17 +146,11 @@ public:
 	}
 
 	inline HelEvent waitForEvent(int64_t async_id) {
-		while(true) {
-			HelEvent event;
-			size_t num_items;
-			HEL_CHECK(helWaitForEvents(p_handle, &event, 1,
-					kHelWaitInfinite, &num_items));
-
-			if(num_items == 0)
-				continue;
-			assert(event.asyncId == async_id);
-			return event;
-		}
+		HelEvent event;
+		HEL_CHECK(helWaitForCertainEvent(p_handle, async_id, &event,
+				kHelWaitInfinite));
+		assert(event.asyncId == async_id);
+		return event;
 	}
 
 	inline void waitForSendString(int64_t async_id, HelError &error);
