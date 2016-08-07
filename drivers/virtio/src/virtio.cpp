@@ -24,8 +24,9 @@ uint8_t GenericDevice::readConfig8(size_t offset) {
 	return frigg::readIo<uint16_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
 }
 
-void GenericDevice::setupDevice(uint16_t base_port) {
+void GenericDevice::setupDevice(uint16_t base_port, helx::Irq the_interrupt) {
 	basePort = base_port;
+	interrupt = std::move(the_interrupt);
 
 	// reset the device
 	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS, 0);

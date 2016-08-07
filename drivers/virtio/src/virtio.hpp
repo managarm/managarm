@@ -77,7 +77,7 @@ struct GenericDevice {
 
 	GenericDevice();
 
-	void setupDevice(uint16_t base_port);
+	void setupDevice(uint16_t base_port, helx::Irq the_interrupt);
 
 	uint16_t readIsr();
 
@@ -94,6 +94,9 @@ struct GenericDevice {
 
 private:
 	uint16_t basePort;
+
+protected:
+	helx::Irq interrupt;
 };
 
 // --------------------------------------------------------

@@ -99,8 +99,7 @@ void Device::doInitialize() {
 	assert((uintptr_t)receiveBuffer % 2048 == 0);
 	
 	// setup an interrupt for the device
-	irq = helx::Irq::access(11);
-	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 }
 
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
@@ -144,7 +143,7 @@ void Device::onInterrupt(HelError error) {
 	receiveQueue.processInterrupt();
 	transmitQueue.processInterrupt();
 
-	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 }
 
 } } // namespace virtio::net

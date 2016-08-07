@@ -73,7 +73,13 @@ void InitClosure::queriredDevice(HelHandle handle) {
 
 	assert(acquire_response.bars(0).io_type() == managarm::hw::IoType::PORT);
 	HEL_CHECK(helEnableIo(bar_handle));
-	device.setupDevice(acquire_response.bars(0).address());
+
+	HelError irq_error;
+	HelHandle irq_handle;
+	device_pipe.recvDescriptorRespSync(eventHub, 1, 7, irq_error, irq_handle);
+	HEL_CHECK(irq_error);
+
+	device.setupDevice(acquire_response.bars(0).address(), helx::Irq(irq_handle));
 }
 
 // --------------------------------------------------------

@@ -34,8 +34,7 @@ void Device::doInitialize() {
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
 	
 	// setup an interrupt for the device
-	irq = helx::Irq::access(11);
-	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 
 	libfs::runDevice(eventHub, this);
 }
@@ -102,7 +101,7 @@ void Device::onInterrupt(HelError error) {
 	readIsr();
 	requestQueue.processInterrupt();
 
-	irq.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
 }
 
 bool Device::requestIsReady(UserRequest *user_request) {

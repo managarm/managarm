@@ -76,6 +76,8 @@ void DeviceClosure::operator() () {
 		response->SerializeToString(serialized);
 		
 		return pipe.sendStringResp(serialized->data(), serialized->size(), eventHub, 1, 0)
+		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); })
+		+ pipe.sendDescriptorResp(device->interrupt.getHandle(), eventHub, 1, 7)
 		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
 	}, frigg::String<Allocator>(*allocator), frigg::move(response));
 
@@ -213,7 +215,12 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				assert(!"Unexpected BAR type");
 			}
 		}
-		
+
+		// determine the interrupt line
+		uint8_t line_number = readPciByte(bus, slot, function, kPciRegularInterruptLine);
+		frigg::infoLogger() << "        Interrupt line: " << line_number << frigg::endLog;
+		device->interrupt = helx::Irq::access(line_number);
+
 		managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::REGISTER);
 		

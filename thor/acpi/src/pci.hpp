@@ -40,6 +40,8 @@ struct PciDevice {
 	uint8_t classCode;
 	uint8_t subClass;
 	uint8_t interface;
+
+	helx::Irq interrupt;
 	
 	// device configuration
 	Bar bars[6];
@@ -61,6 +63,7 @@ enum {
 	kPciRegularSubsystemVendor = 0x2C,
 	kPciRegularSubsystemDevice = 0x2E,
 	kPciRegularCapabilities = 0x34,
+	kPciRegularInterruptLine = 0x3C,
 
 	// PCI-to-PCI bridge header fields
 	kPciBridgeSecondary = 0x19

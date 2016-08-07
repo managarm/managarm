@@ -2,6 +2,7 @@
 #include <frigg/cxx-support.hpp>
 
 #include <hel.h>
+#include <helx.hpp>
 
 #include "pci.hpp"
 
