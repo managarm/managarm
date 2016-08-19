@@ -23,7 +23,9 @@ void doSchedule(ScheduleGuard &&guard) {
 			guard.unlock();
 			enableInts();
 
-			halt();
+			// TODO: we cannot halt() here because if an interrupt we are awaiting
+			// happens before we halt() the halt might never terminate.
+			//halt();
 
 			disableInts();
 			guard.lock();

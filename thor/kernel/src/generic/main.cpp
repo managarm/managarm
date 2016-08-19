@@ -5,6 +5,8 @@
 
 namespace thor {
 
+static constexpr bool logEveryIrq = true;
+
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
 void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
@@ -276,7 +278,8 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
-	//frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
+	if(logEveryIrq)
+		frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
 	
 	if(number == 2)
 		timerInterrupt();
