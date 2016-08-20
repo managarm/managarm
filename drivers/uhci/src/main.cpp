@@ -17,44 +17,37 @@ bragi_mbus::Connection mbusConnection(eventHub);
 
 // Alignment makes sure that a packet doesnt cross a page boundary
 struct alignas(8) SetupPacket {
-	struct RequestType {
-		enum DataDirection {
-			kHostToDevice = 0,
-			kDeviceToHost = 1
-		};
-
-		enum Type {
-			kStandard = 0,
-			kClass = 1,
-			kVendor = 2,
-			kReserved = 3
-		};
-
-		enum Recipient {
-			kDevice = 0,
-			kInterface = 1,
-			kEndpoint = 2,
-			kOther = 3
-		};
-
-		static constexpr uint8_t RecipientBits = 0;
-		static constexpr uint8_t TypeBits = 5;
-		static constexpr uint8_t DirectionBit = 7;
-
-		RequestType(uint8_t recipient, uint8_t type, uint8_t data_direction)
-		: _request((uint8_t(recipient) << RecipientBits)
-				| (uint8_t(type) << TypeBits)
-				| (uint8_t(data_direction) << DirectionBit)) {
-			
-		}
-
-		uint8_t _request;
+	enum DataDirection {
+		kDirToDevice = 0,
+		kDirToHost = 1
 	};
 
-	SetupPacket(RequestType req_type, uint8_t breq, uint16_t wval, uint16_t wid, uint16_t wlen)
-	: bmRequestType(req_type), bRequest(breq), wValue(wval), wIndex(wid), wLength(wlen) { }
+	enum Recipient {
+		kDestDevice = 0,
+		kDestInterface = 1,
+		kDestEndpoint = 2,
+		kDestOther = 3
+	};
 
-	RequestType bmRequestType;
+	enum Type {
+		kStandard = 0,
+		kClass = 1,
+		kVendor = 2,
+		kReserved = 3
+	};
+
+	static constexpr uint8_t RecipientBits = 0;
+	static constexpr uint8_t TypeBits = 5;
+	static constexpr uint8_t DirectionBit = 7;
+
+	SetupPacket(DataDirection data_direction, Recipient recipient, Type type,
+			uint8_t breq, uint16_t wval, uint16_t wid, uint16_t wlen)
+	: bmRequestType((uint8_t(recipient) << RecipientBits)
+				| (uint8_t(type) << TypeBits)
+				| (uint8_t(data_direction) << DirectionBit)),
+		bRequest(breq), wValue(wval), wIndex(wid), wLength(wlen) { }
+
+	uint8_t bmRequestType;
 	uint8_t bRequest;
 	uint16_t wValue;
 	uint16_t wIndex;
@@ -62,29 +55,94 @@ struct alignas(8) SetupPacket {
 };
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
 
-struct FrameListPointer {
-	static constexpr uint32_t TerminateBit = 0;
-	static constexpr uint32_t QhSelectBit = 1;
-	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
+struct TransferStatus {
+	enum {
+		kActiveBit = 23,
+		kStalledBit = 22,
+		kDataBufferErrorBit = 21,
+		kBabbleDetectedBit = 20,
+		kNakReceivedBit = 19,
+		kTimeOutErrorBit = 18,
+		kBitstuffErrorBit = 17
+	};
 
-	FrameListPointer(uint32_t pointer, bool is_queue)
-	: _bits(pointer
-			| (is_queue << QhSelectBit)) {
-		assert(pointer % 16 == 0);
+	static constexpr uint32_t ActLenBits = 0;
+	static constexpr uint32_t StatusBits = 16;
+	static constexpr uint32_t InterruptOnCompleteBits = 24;
+	static constexpr uint32_t IsochronSelectBits = 25;
+	static constexpr uint32_t LowSpeedBits = 26;
+	static constexpr uint32_t NumErrorsBits = 27;
+	static constexpr uint32_t ShortPacketDetectBits = 29;
+
+	TransferStatus(bool ioc, bool isochron, bool spd)
+	: _bits((uint32_t(1) << kActiveBit) 
+			| (uint32_t(ioc) << InterruptOnCompleteBits) 
+			| (uint32_t(isochron) << IsochronSelectBits) 
+			| (uint32_t(spd) << ShortPacketDetectBits)) {
+	
 	}
-
-	bool isQueue() { return _bits & (1 << QhSelectBit); }
-	bool isTerminate() { return _bits & (1 << TerminateBit); }
-	uint32_t actualPointer() { return _bits & PointerMask; }
+	
+	bool isActive() { return _bits & (1 << kActiveBit); }
+	bool isStalled() { return _bits & (1 << kStalledBit); }
+	bool isDataBufferError() { return _bits & (1 << kDataBufferErrorBit); }
+	bool isBabbleDetected() { return _bits & (1 << kBabbleDetectedBit); }
+	bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
+	bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
+	bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
 
 	uint32_t _bits;
 };
 
-struct FrameList {
-	FrameListPointer entries[1024];
+struct TransferToken {
+	enum PacketId {
+		kPacketIn = 0x69,
+		kPacketOut = 0xE1,
+		kPacketSetup = 0x2D
+	};
+
+	enum DataToggle {
+		kData0 = 0,
+		kData1 = 1
+	};
+
+	static constexpr uint32_t PidBits = 0;
+	static constexpr uint32_t DeviceAddressBits = 8;
+	static constexpr uint32_t EndpointBits = 15;
+	static constexpr uint32_t DataToggleBit = 19;
+	static constexpr uint32_t MaxLenBits = 21;
+	
+	TransferToken(PacketId packet_id, DataToggle data_toggle,
+			uint8_t device_address, uint8_t endpoint_address, uint16_t max_length) 
+	: _bits((uint32_t(packet_id) << PidBits)
+			| (uint32_t(device_address) << DeviceAddressBits)
+			| (uint32_t(endpoint_address) << EndpointBits)
+			| (uint32_t(data_toggle) << DataToggleBit)
+			| (uint32_t((max_length ? max_length - 1 : 0x7FF)) << MaxLenBits)) {
+		assert(device_address < 128);
+		assert(max_length < 2048);
+	}
+
+	uint32_t _bits;
 };
 
-struct alignas(16) TransferDescriptor {
+struct TransferBufferPointer {
+	static TransferBufferPointer from(void *item) {
+		uintptr_t physical;
+		HEL_CHECK(helPointerPhysical(item, &physical));
+		assert((physical & 0xFFFFFFFF) == physical);
+		return TransferBufferPointer(physical);
+	}
+
+	TransferBufferPointer(uint32_t pointer)
+	: _bits(pointer) { }
+
+private:
+	uint32_t _bits;
+};
+
+// UHCI mandates 16 byte alignment. we align at 32 bytes
+// to make sure that the TransferDescriptor does not cross a page boundary.
+struct alignas(32) TransferDescriptor {
 	struct LinkPointer {
 		static constexpr uint32_t TerminateBit = 0;
 		static constexpr uint32_t QhSelectBit = 1;
@@ -109,91 +167,31 @@ struct alignas(16) TransferDescriptor {
 		uint32_t _bits;
 	};
 
-	struct ControlStatus {
-		enum {
-			kActiveBit = 23,
-			kStalledBit = 22,
-			kDataBufferErrorBit = 21,
-			kBabbleDetectedBit = 20,
-			kNakReceivedBit = 19,
-			kTimeOutErrorBit = 18,
-			kBitstuffErrorBit = 17
-		};
+	TransferDescriptor(TransferStatus control_status,
+			TransferToken token, TransferBufferPointer buffer_pointer)
+	: _controlStatus(control_status),
+			_token(token), _bufferPointer(buffer_pointer) { }
 
-		static constexpr uint32_t ActLenBits = 0;
-		static constexpr uint32_t StatusBits = 16;
-		static constexpr uint32_t InterruptOnCompleteBits = 24;
-		static constexpr uint32_t IsochronSelectBits = 25;
-		static constexpr uint32_t LowSpeedBits = 26;
-		static constexpr uint32_t NumErrorsBits = 27;
-		static constexpr uint32_t ShortPacketDetectBits = 29;
-
-		ControlStatus(bool ioc, bool isochron, bool spd)
-		: _bits((uint32_t(1) << kActiveBit) 
-				| (uint32_t(ioc) << InterruptOnCompleteBits) 
-				| (uint32_t(isochron) << IsochronSelectBits) 
-				| (uint32_t(spd) << ShortPacketDetectBits)) {
-		
-		}
-		
-		bool isActive() { return _bits & (1 << kActiveBit); }
-		bool isStalled() { return _bits & (1 << kStalledBit); }
-		bool isDataBufferError() { return _bits & (1 << kDataBufferErrorBit); }
-		bool isBabbleDetected() { return _bits & (1 << kBabbleDetectedBit); }
-		bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
-		bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
-		bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
-
-		uint32_t _bits;
-	};
-
-	struct Token {
-		enum PacketId {
-			kPacketIn = 0x69,
-			kPacketOut = 0xE1,
-			kPacketSetup = 0x2D
-		};
-
-		enum DataPid {
-			kData0 = 0,
-			kData1 = 1
-		};
-
-		static constexpr uint32_t PidBits = 0;
-		static constexpr uint32_t DeviceAddressBits = 8;
-		static constexpr uint32_t EndpointBits = 15;
-		static constexpr uint32_t DataToggleBit = 19;
-		static constexpr uint32_t MaxLenBits = 21;
-		
-		Token(PacketId packet_id, uint8_t device_address, uint8_t endpoint_address,
-				DataPid data_pid, uint16_t max_length) 
-		: _bits((uint32_t(packet_id) << PidBits)
-				| (uint32_t(device_address) << DeviceAddressBits)
-				| (uint32_t(endpoint_address) << EndpointBits)
-				| (uint32_t(data_pid) << DataToggleBit)
-				| (uint32_t((max_length ? max_length - 1 : 0x7FF)) << MaxLenBits)) {
-			assert(device_address < 128);
-			assert(max_length < 2048);
-		}
-
-		uint32_t _bits;
-	};
-
-	TransferDescriptor(LinkPointer link_pointer, ControlStatus control_status,
-			Token token, uint32_t buffer_pointer)
-	: _linkPointer(link_pointer), _controlStatus(control_status),
-			_token(token), _bufferPointer(buffer_pointer) {
-	
+	void link(TransferDescriptor *other) {
+		assert(!"Implement this");
 	}
 
 	LinkPointer _linkPointer;
-	ControlStatus _controlStatus;
-	Token _token;
-	uint32_t _bufferPointer;
+	TransferStatus _controlStatus;
+	TransferToken _token;
+	TransferBufferPointer _bufferPointer;
 };
 
 struct alignas(16) QueueHead {
 	struct Pointer {
+		static Pointer from(TransferDescriptor *item) {
+			uintptr_t physical;
+			HEL_CHECK(helPointerPhysical(item, &physical));
+			assert(physical % sizeof(*item) == 0);
+			assert((physical & 0xFFFFFFFF) == physical);
+			return Pointer(physical, false);
+		}
+
 		static constexpr uint32_t TerminateBit = 0;
 		static constexpr uint32_t QhSelectBit = 1;
 		static constexpr uint32_t PointerMask = 0xFFFFFFF0;
@@ -216,14 +214,39 @@ struct alignas(16) QueueHead {
 
 	typedef Pointer LinkPointer;
 	typedef Pointer ElementPointer;
-
-	QueueHead(LinkPointer link_pointer, ElementPointer element_pointer)
-	: _linkPointer(link_pointer), _elementPointer(element_pointer) {
-
-	}
 	
 	LinkPointer _linkPointer;
 	ElementPointer _elementPointer;
+};
+
+struct FrameListPointer {
+	static constexpr uint32_t TerminateBit = 0;
+	static constexpr uint32_t QhSelectBit = 1;
+	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
+
+	static FrameListPointer from(QueueHead *item) {
+		uintptr_t physical;
+		HEL_CHECK(helPointerPhysical(item, &physical));
+		assert(physical % sizeof(*item) == 0);
+		assert((physical & 0xFFFFFFFF) == physical);
+		return FrameListPointer(physical, true);
+	}
+
+	FrameListPointer(uint32_t pointer, bool is_queue)
+	: _bits(pointer
+			| (is_queue << QhSelectBit)) {
+		assert(pointer % 16 == 0);
+	}
+
+	bool isQueue() { return _bits & (1 << QhSelectBit); }
+	bool isTerminate() { return _bits & (1 << TerminateBit); }
+	uint32_t actualPointer() { return _bits & PointerMask; }
+
+	uint32_t _bits;
+};
+
+struct FrameList {
+	FrameListPointer entries[1024];
 };
 
 // --------------------------------------------------------
@@ -339,32 +362,17 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	assert(!(postenable_status & kStatusError));
 
 	// create a setup packet
-/*	SetupPacket::RequestType req_type(
-			SetupPacket::RequestType::Recipient::kDevice,
-			SetupPacket::RequestType::Type::kStandard,
-			SetupPacket::RequestType::DataDirection::kDeviceToHost);
-	SetupPacket setup_packet(req_type, 6, 0x0100, 0, 18);*/
+	SetupPacket setup_packet(SetupPacket::kDirToDevice, SetupPacket::kDestDevice,
+			SetupPacket::kStandard, 0x05, 1, 0, 0);
 
-	SetupPacket::RequestType req_type(
-			SetupPacket::RequestType::Recipient::kDevice,
-			SetupPacket::RequestType::Type::kStandard,
-			SetupPacket::RequestType::DataDirection::kHostToDevice);
-	SetupPacket setup_packet(req_type, 0x05, 1, 0, 0);
-
-	uintptr_t setup_buffer;
-	HEL_CHECK(helPointerPhysical(&setup_packet, &setup_buffer));
-	assert(setup_buffer % 8 == 0);
-	TransferDescriptor transfer1(TransferDescriptor::LinkPointer(),
-			TransferDescriptor::ControlStatus(true, false, false),
-			TransferDescriptor::Token(TransferDescriptor::Token::PacketId::kPacketSetup,
-					0, 0, TransferDescriptor::Token::DataPid::kData0, sizeof(SetupPacket)),
-			setup_buffer);
+	TransferDescriptor transfer1(TransferStatus(true, false, false),
+			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+					0, 0, sizeof(SetupPacket)),
+			TransferBufferPointer::from(&setup_packet));
 
 	// create a queue head
-	uintptr_t element_physical;
-	HEL_CHECK(helPointerPhysical(&transfer1, &element_physical));
-	QueueHead queue_head(QueueHead::LinkPointer(),
-			QueueHead::ElementPointer(element_physical, false));
+	QueueHead queue_head;
+	queue_head._elementPointer = QueueHead::ElementPointer::from(&transfer1);
 
 	// setup the frame list
 	HelHandle list_handle;
@@ -374,11 +382,8 @@ void InitClosure::queriredDevice(HelHandle handle) {
 			nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
 	
 	auto list_pointer = (FrameList *)list_mapping;
-	
-	uintptr_t queue_physical;
-	HEL_CHECK(helPointerPhysical(&queue_head, &queue_physical));
 	for(int i = 0; i < 1024; i++)
-		list_pointer->entries[i] = FrameListPointer(queue_physical, true);
+		list_pointer->entries[i] = FrameListPointer::from(&queue_head);
 		
 	// pass the frame list to the controller and run it
 	uintptr_t list_physical;
