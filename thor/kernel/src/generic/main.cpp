@@ -6,6 +6,7 @@
 namespace thor {
 
 static constexpr bool logEveryIrq = true;
+static constexpr bool logEverySyscall = false;
 
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
@@ -295,9 +296,9 @@ extern "C" void thorImplementNoThreadIrqs() {
 
 extern "C" void handleSyscall(SyscallImageAccessor image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-//	if(*image.number() != kHelCallLog)
-//		frigg::infoLogger() << this_thread.get()
-//				<< " syscall #" << *image.number() << frigg::endLog;
+	if(logEverySyscall && *image.number() != kHelCallLog)
+		frigg::infoLogger() << this_thread.get()
+				<< " syscall #" << *image.number() << frigg::endLog;
 
 	Word arg0 = *image.in0();
 	Word arg1 = *image.in1();

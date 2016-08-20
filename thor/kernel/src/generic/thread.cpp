@@ -12,7 +12,8 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 		KernelSharedPtr<RdFolder> directory)
 : flags(0), _runState(kRunActive), // FIXME: do not use the active run state here
 		_pendingSignal(kSigNone), _runCount(1),
-		p_universe(universe), p_addressSpace(address_space), p_directory(directory) {
+		_context(kernelStack.base()),
+		_universe(universe), _addressSpace(address_space), _directory(directory) {
 //	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
 }
 
@@ -22,14 +23,18 @@ Thread::~Thread() {
 		frigg::infoLogger() << "Fix thread destructor!" << frigg::endLog;
 }
 
+Context &Thread::getContext() {
+	return _context;
+}
+
 KernelUnsafePtr<Universe> Thread::getUniverse() {
-	return p_universe;
+	return _universe;
 }
 KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
-	return p_addressSpace;
+	return _addressSpace;
 }
 KernelUnsafePtr<RdFolder> Thread::getDirectory() {
-	return p_directory;
+	return _directory;
 }
 
 void Thread::signalKill() {

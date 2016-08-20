@@ -95,18 +95,39 @@ void saveExecutorFromFault(FaultImageAccessor accessor) {
 }
 
 // --------------------------------------------------------
+// PlatformContext
+// --------------------------------------------------------
+
+PlatformContext::PlatformContext(void *kernel_stack_base) {
+	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::initializeTss64(&tss);
+	tss.rsp0 = (Word)kernel_stack_base;
+}
+
+void PlatformContext::enableIoPort(uintptr_t port) {
+	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
+}
+
+void switchContext(Context *context) {
+	assert(!intsAreEnabled());
+	CpuData *cpu_data = getCpuData();
+	
+//	context->getAddressSpace()->activate();
+
+	// setup the thread's tss segment
+	context->tss.ist1 = (Word)cpu_data->irqStack.base();
+	
+	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
+			&context->tss, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ( "ltr %w0" : : "r" (kSelTask) );
+}
+
+// --------------------------------------------------------
 // PlatformExecutor
 // --------------------------------------------------------
 
 PlatformExecutor::PlatformExecutor()
 : AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()) {
-	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
-	frigg::arch_x86::initializeTss64(&tss);
-	tss.rsp0 = (Word)kernelStack.base();
-}
-
-void PlatformExecutor::enableIoPort(uintptr_t port) {
-	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
@@ -115,17 +136,8 @@ frigg::UnsafePtr<Thread> activeExecutor() {
 
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	assert(!intsAreEnabled());
-	
-	executor->getAddressSpace()->activate();
-
-	// setup the thread's tss segment
 	CpuData *cpu_data = getCpuData();
-	executor->tss.ist1 = (Word)cpu_data->irqStack.base();
 	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
-			&executor->tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" (kSelTask) );
-
 	// finally update the active executor register.
 	// we do this after setting up the address space and TSS
 	// so that these structures are always valid.
@@ -223,7 +235,7 @@ void initializeThisProcessor() {
 
 	// we enter the idle thread before setting up the IDT.
 	// this gives us a valid TSS segment in case an NMI or fault happens here.
-	switchExecutor(cpu_data->idleThread);
+	switchContext(&cpu_data->context);
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)

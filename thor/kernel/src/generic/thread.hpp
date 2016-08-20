@@ -20,12 +20,8 @@ public:
 		// disables preemption for this thread
 		kFlagExclusive = 1,
 
-		// thread is not enqueued in the scheduling queue
-		// e.g. this is set for the per-cpu idle threads
-		kFlagNotScheduled = 2,
-
 		// traps kill the process instead of just halting it
-		kFlagTrapsAreFatal = 4
+		kFlagTrapsAreFatal = 2
 	};
 
 	Thread(KernelSharedPtr<Universe> universe,
@@ -33,6 +29,7 @@ public:
 			KernelSharedPtr<RdFolder> directory);
 	~Thread();
 
+	Context &getContext();
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 	KernelUnsafePtr<RdFolder> getDirectory();
@@ -66,9 +63,11 @@ private:
 	// the thread is killed when this counter reaches zero.
 	int _runCount;
 
-	KernelSharedPtr<Universe> p_universe;
-	KernelSharedPtr<AddressSpace> p_addressSpace;
-	KernelSharedPtr<RdFolder> p_directory;
+	Context _context;
+
+	KernelSharedPtr<Universe> _universe;
+	KernelSharedPtr<AddressSpace> _addressSpace;
+	KernelSharedPtr<RdFolder> _directory;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncObserve,

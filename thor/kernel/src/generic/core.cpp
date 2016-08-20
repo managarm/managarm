@@ -66,15 +66,8 @@ frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 // CpuData class
 // --------------------------------------------------------
 
-CpuData::CpuData() {
-	auto address_space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
-	auto thread = frigg::makeShared<Thread>(*kernelAlloc, KernelSharedPtr<Universe>(),
-			frigg::move(address_space), KernelSharedPtr<RdFolder>());
-	thread->flags |= Thread::kFlagNotScheduled;
-
-	idleThread = frigg::move(thread);
-}
+CpuData::CpuData()
+: context(nullptr) { }
 
 // --------------------------------------------------------
 // SubmitInfo

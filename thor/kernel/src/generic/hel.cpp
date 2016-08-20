@@ -548,8 +548,7 @@ HelError helYield() {
 
 	if(forkExecutor()) {
 		ScheduleGuard schedule_guard(scheduleLock.get());
-		if(!(this_thread->flags & Thread::kFlagNotScheduled))
-			enqueueInSchedule(schedule_guard, this_thread);
+		enqueueInSchedule(schedule_guard, this_thread);
 		doSchedule(frigg::move(schedule_guard));
 	}
 
@@ -1578,7 +1577,7 @@ HelError helEnableFullIo() {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 
 	for(uintptr_t port = 0; port < 0x10000; port++)
-		this_thread->enableIoPort(port);
+		this_thread->getContext().enableIoPort(port);
 
 	return kHelErrNone;
 }

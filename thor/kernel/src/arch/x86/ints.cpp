@@ -40,6 +40,8 @@ extern "C" void thorRtIsrPreempted();
 
 namespace thor {
 
+static constexpr bool logEveryFault = true;
+
 uint32_t earlyGdt[3 * 2];
 uint32_t earlyIdt[256 * 4];
 
@@ -147,7 +149,7 @@ void handleIrq(IrqImageAccessor image, int number);
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 
-	if(number != 14)
+	if(logEveryFault || number != 14)
 		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 

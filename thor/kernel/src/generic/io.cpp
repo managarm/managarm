@@ -106,7 +106,7 @@ void IoSpace::addPort(uintptr_t port) {
 
 void IoSpace::enableInThread(KernelUnsafePtr<Thread> thread) {
 	for(size_t i = 0; i < p_ports.size(); i++)
-		thread->enableIoPort(p_ports[i]);
+		thread->getContext().enableIoPort(p_ports[i]);
 }
 
 } // namespace thor

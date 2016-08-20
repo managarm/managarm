@@ -359,6 +359,19 @@ extern "C" [[ gnu::returns_twice ]] int forkExecutor();
 
 size_t getStateSize();
 
+struct PlatformContext {
+	PlatformContext(void *kernel_stack_base);
+
+	void enableIoPort(uintptr_t port);
+
+	frigg::arch_x86::Tss64 tss;
+};
+
+// switches the active context.
+// i.e. install the context's TSS.
+struct Context;
+void switchContext(Context *context);
+
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyExecutor {
@@ -371,14 +384,10 @@ struct AssemblyExecutor {
 
 struct PlatformExecutor : public AssemblyExecutor {
 	PlatformExecutor();
-
-	void enableIoPort(uintptr_t port);
-
-	frigg::arch_x86::Tss64 tss;
 };
 
-// switches the active executor. this does install the executor's
-// address space and TSS but does not restore its state.
+// switches the active executor.
+// does NOT restore the executor's state.
 struct Thread;
 void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
