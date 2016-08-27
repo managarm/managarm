@@ -7,10 +7,45 @@ namespace thor {
 // Thread
 // --------------------------------------------------------
 
+void Thread::deferCurrent() {
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunDeferred;
+
+	assert(!intsAreEnabled());
+	if(forkExecutor()) {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, this_thread);
+		doSchedule(frigg::move(schedule_guard));
+	}
+}
+
+void Thread::blockCurrent(void *argument, void (*function) (void *)) {
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunBlocked;
+
+	assert(!intsAreEnabled());
+	if(forkExecutor()) {
+		function(argument);
+
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
+	}
+}
+
+void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
+	assert(other_thread->_runState == kRunSuspended
+			|| other_thread->_runState == kRunDeferred
+			|| other_thread->_runState == kRunBlocked);
+	other_thread->_runState = kRunActive;
+}
+
 Thread::Thread(KernelSharedPtr<Universe> universe,
 		KernelSharedPtr<AddressSpace> address_space,
 		KernelSharedPtr<RdFolder> directory)
-: flags(0), _runState(kRunActive), // FIXME: do not use the active run state here
+: flags(0), _runState(kRunSuspended),
+		_numTicks(0), _activationTick(0),
 		_pendingSignal(kSigNone), _runCount(1),
 		_context(kernelStack.base()),
 		_universe(universe), _addressSpace(address_space), _directory(directory) {

@@ -20,16 +20,5 @@ void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread);
 // FIXME: do we still use this?
 void idleRoutine();
 
-template<typename F>
-void forkAndSchedule(F functor) {
-	assert(!intsAreEnabled());
-	if(forkExecutor()) {
-		functor();
-
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	}
-}
-
 } // namespace thor
 

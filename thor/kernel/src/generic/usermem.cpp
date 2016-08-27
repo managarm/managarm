@@ -211,7 +211,7 @@ PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &physical_gua
 					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
 			frigg::SharedPtr<AsyncInitiateLoad> initiate(frigg::adoptShared, &block);
 			
-			forkAndSchedule([&] () {
+			Thread::blockCurrent([&] () {
 				_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 				_managed->progressLoads();
 			});

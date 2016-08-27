@@ -544,13 +544,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 HelError helYield() {
 	assert(!intsAreEnabled());
 
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-
-	if(forkExecutor()) {
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, this_thread);
-		doSchedule(frigg::move(schedule_guard));
-	}
+	Thread::deferCurrent();
 
 	return kHelErrNone;
 }
@@ -725,7 +719,7 @@ HelError helWaitForEvents(HelHandle handle,
 			ReturnFromForkCompleter(this_thread.toWeak()), -1);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
 
-	forkAndSchedule([&] () {
+	Thread::blockCurrent([&] () {
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
 	});
@@ -766,7 +760,7 @@ HelError helWaitForCertainEvent(HelHandle handle, int64_t async_id,
 			ReturnFromForkCompleter(this_thread.toWeak()), async_id);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
 
-	forkAndSchedule([&] () {
+	Thread::blockCurrent([&] () {
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
 	});

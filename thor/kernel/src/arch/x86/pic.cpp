@@ -57,6 +57,10 @@ uint32_t getLocalApicId() {
 	return (frigg::volatileRead<uint32_t>(&localApicRegs[kLApicId]) >> 24) & 0xFF;
 }
 
+uint64_t localTicks() {
+	return frigg::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
+}
+
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
 	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0xFFFFFFFF);

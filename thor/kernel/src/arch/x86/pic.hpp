@@ -10,6 +10,8 @@ void initLocalApicPerCpu();
 
 uint32_t getLocalApicId();
 
+uint64_t localTicks();
+
 void calibrateApicTimer();
 
 void preemptThisCpu(uint64_t slice_nanos);

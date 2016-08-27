@@ -34,6 +34,7 @@ void doSchedule(ScheduleGuard &&guard) {
 		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
 		
 		guard.unlock();
+		Thread::activateOther(thread);
 		thread->getAddressSpace()->activate();
 		switchContext(&thread->getContext());
 		switchExecutor(thread);
