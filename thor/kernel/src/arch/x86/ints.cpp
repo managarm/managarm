@@ -40,7 +40,7 @@ extern "C" void thorRtIsrPreempted();
 
 namespace thor {
 
-static constexpr bool logEveryFault = true;
+static constexpr bool logEveryFault = false;
 
 uint32_t earlyGdt[3 * 2];
 uint32_t earlyIdt[256 * 4];

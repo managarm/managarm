@@ -133,6 +133,10 @@ struct TransferBufferPointer {
 		return TransferBufferPointer(physical);
 	}
 
+	TransferBufferPointer() {
+		_bits = 0;
+	}
+
 	TransferBufferPointer(uint32_t pointer)
 	: _bits(pointer) { }
 
@@ -144,6 +148,14 @@ private:
 // to make sure that the TransferDescriptor does not cross a page boundary.
 struct alignas(32) TransferDescriptor {
 	struct LinkPointer {
+		static LinkPointer from(TransferDescriptor *item) {
+			uintptr_t physical;
+			HEL_CHECK(helPointerPhysical(item, &physical));
+			assert(physical % sizeof(*item) == 0);
+			assert((physical & 0xFFFFFFFF) == physical);
+			return LinkPointer(physical, true, false);
+		}
+
 		static constexpr uint32_t TerminateBit = 0;
 		static constexpr uint32_t QhSelectBit = 1;
 		static constexpr uint32_t VfSelectBit = 2;
@@ -172,8 +184,14 @@ struct alignas(32) TransferDescriptor {
 	: _controlStatus(control_status),
 			_token(token), _bufferPointer(buffer_pointer) { }
 
-	void link(TransferDescriptor *other) {
-		assert(!"Implement this");
+	void dumpStatus() {
+		if(_controlStatus.isActive()) printf("active");
+		if(_controlStatus.isStalled()) printf("stalled");
+		if(_controlStatus.isDataBufferError()) printf("data buffer error");
+		if(_controlStatus.isBabbleDetected()) printf("babble detected");
+		if(_controlStatus.isNakReceived()) printf("nak received");
+		if(_controlStatus.isTimeOutError()) printf("time out error");
+		if(_controlStatus.isBitstuffError()) printf("bitstuff error");
 	}
 
 	LinkPointer _linkPointer;
@@ -247,6 +265,23 @@ struct FrameListPointer {
 
 struct FrameList {
 	FrameListPointer entries[1024];
+};
+
+struct alignas(32) DeviceDescriptor {
+	uint8_t _length;
+	uint8_t _descriptorType;
+	uint16_t _bcdUsb;
+	uint8_t _deviceClass;
+	uint8_t _deviceSubclass;
+	uint8_t _deviceProtocol;
+	uint8_t _maxPacketSize;
+	uint16_t _idVendor;
+	uint16_t _idProduct;
+	uint16_t _bcdDevice;
+	uint8_t _manufacturer;
+	uint8_t _product;
+	uint8_t _serialNumber;
+	uint8_t _numConfigs;
 };
 
 // --------------------------------------------------------
@@ -362,13 +397,27 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	assert(!(postenable_status & kStatusError));
 
 	// create a setup packet
-	SetupPacket setup_packet(SetupPacket::kDirToDevice, SetupPacket::kDestDevice,
-			SetupPacket::kStandard, 0x05, 1, 0, 0);
+	SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+			SetupPacket::kStandard, 0x06, 0x0100, 0, 18);
 
 	TransferDescriptor transfer1(TransferStatus(true, false, false),
 			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
 					0, 0, sizeof(SetupPacket)),
 			TransferBufferPointer::from(&setup_packet));
+	
+	DeviceDescriptor in_descriptor;
+
+	TransferDescriptor transfer2(TransferStatus(true, false, false),
+			TransferToken(TransferToken::kPacketIn, TransferToken::kData0,
+					0, 0, sizeof(TransferDescriptor)),
+			TransferBufferPointer::from(&in_descriptor));
+	transfer1._linkPointer = TransferDescriptor::LinkPointer::from(&transfer2);
+	
+	TransferDescriptor transfer3(TransferStatus(true, false, false),
+			TransferToken(TransferToken::kPacketOut, TransferToken::kData0,
+					0, 0, sizeof(TransferDescriptor)),
+			TransferBufferPointer());
+	transfer2._linkPointer = TransferDescriptor::LinkPointer::from(&transfer3);
 
 	// create a queue head
 	QueueHead queue_head;
@@ -414,14 +463,19 @@ void InitClosure::queriredDevice(HelHandle handle) {
 		printf("    low speed device: %d\n", port_status & (1 << 8));
 		printf("    port reset: %d\n", port_status & (1 << 9));
 		printf("    suspend: %d\n", port_status & (1 << 12));*/
-		printf("transfer descriptor 1 status:\n");
-		printf("    active: %d\n", transfer1._controlStatus.isActive());
-		printf("    stalled: %d\n", transfer1._controlStatus.isStalled());
-		printf("    data buffer error: %d\n", transfer1._controlStatus.isDataBufferError());
-		printf("    babble detected: %d\n", transfer1._controlStatus.isBabbleDetected());
-		printf("    nak received: %d\n", transfer1._controlStatus.isNakReceived());
-		printf("    time out error: %d\n", transfer1._controlStatus.isTimeOutError());
-		printf("    bitstuff error: %d\n", transfer1._controlStatus.isBitstuffError());
+		printf("transfer descriptor 1 (setup) status:\n");
+		transfer1.dumpStatus();
+		printf("transfer descriptor 2 (in) status:\n");
+		transfer2.dumpStatus();
+		printf("transfer descriptor 3 (out) status:\n");
+		transfer3.dumpStatus();
+		printf("   length: %d\n", in_descriptor._length); 
+		printf("   descriptor type: %d\n", in_descriptor._descriptorType); 
+		printf("   bcdUsb: %d\n", in_descriptor._bcdUsb); 
+		printf("   device class: %d\n", in_descriptor._deviceClass); 
+		printf("   device subclass: %d\n", in_descriptor._deviceSubclass); 
+		printf("   device protocol: %d\n", in_descriptor._deviceProtocol); 
+		printf("   max packet size: %d\n", in_descriptor._maxPacketSize); 
 	}
 }
 
