@@ -283,6 +283,64 @@ struct alignas(32) DeviceDescriptor {
 	uint8_t _serialNumber;
 	uint8_t _numConfigs;
 };
+//FIXME: remove alignas
+//static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");
+
+// --------------------------------------------------------
+
+struct Transaction {
+	Transaction()
+	: _setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+			SetupPacket::kStandard, 0x06, 0x0100, 0, 18) { }
+
+	void buildQueue(void *buffer, size_t length) {
+		std::allocator<TransferDescriptor> allocator;
+
+		_numTransfers = (length + 7) / 8;
+		_transfers = allocator.allocate(_numTransfers + 2);
+		
+		new (&_transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+						0, 0, sizeof(SetupPacket)),
+				TransferBufferPointer::from(&_setup));
+		_transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[1]);
+
+		size_t progress = 0;
+		for(size_t i = 0; i < _numTransfers; i++) {
+			size_t chunk = std::min((size_t)8, length - progress);
+			new (&_transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(TransferToken::kPacketIn,
+						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+						0, 0, chunk),
+				TransferBufferPointer::from((char *)buffer + progress));
+			_transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[i + 2]);
+			progress += chunk;
+		}
+
+		new (&_transfers[_numTransfers + 1]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(TransferToken::kPacketOut, TransferToken::kData0,
+						0, 0, 0),
+				TransferBufferPointer());
+	}
+
+	TransferDescriptor *head() {
+		return &_transfers[0];
+	}
+
+	void dumpStatus() {
+		for(size_t i = 0; i < _numTransfers + 2; i++) {
+			printf("Status[%lu]: ", i);
+			_transfers[i].dumpStatus();
+			printf("\n");
+		}
+	}
+
+private:
+	size_t _numTransfers;
+
+	SetupPacket _setup;
+	TransferDescriptor *_transfers;
+};
 
 // --------------------------------------------------------
 // InitClosure
@@ -397,31 +455,14 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	assert(!(postenable_status & kStatusError));
 
 	// create a setup packet
-	SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-			SetupPacket::kStandard, 0x06, 0x0100, 0, 18);
-
-	TransferDescriptor transfer1(TransferStatus(true, false, false),
-			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-					0, 0, sizeof(SetupPacket)),
-			TransferBufferPointer::from(&setup_packet));
-	
 	DeviceDescriptor in_descriptor;
 
-	TransferDescriptor transfer2(TransferStatus(true, false, false),
-			TransferToken(TransferToken::kPacketIn, TransferToken::kData0,
-					0, 0, sizeof(TransferDescriptor)),
-			TransferBufferPointer::from(&in_descriptor));
-	transfer1._linkPointer = TransferDescriptor::LinkPointer::from(&transfer2);
-	
-	TransferDescriptor transfer3(TransferStatus(true, false, false),
-			TransferToken(TransferToken::kPacketOut, TransferToken::kData0,
-					0, 0, sizeof(TransferDescriptor)),
-			TransferBufferPointer());
-	transfer2._linkPointer = TransferDescriptor::LinkPointer::from(&transfer3);
+	Transaction transaction;
+	transaction.buildQueue(&in_descriptor, 18);
 
 	// create a queue head
 	QueueHead queue_head;
-	queue_head._elementPointer = QueueHead::ElementPointer::from(&transfer1);
+	queue_head._elementPointer = QueueHead::ElementPointer::from(transaction.head());
 
 	// setup the frame list
 	HelHandle list_handle;
@@ -463,12 +504,7 @@ void InitClosure::queriredDevice(HelHandle handle) {
 		printf("    low speed device: %d\n", port_status & (1 << 8));
 		printf("    port reset: %d\n", port_status & (1 << 9));
 		printf("    suspend: %d\n", port_status & (1 << 12));*/
-		printf("transfer descriptor 1 (setup) status:\n");
-		transfer1.dumpStatus();
-		printf("transfer descriptor 2 (in) status:\n");
-		transfer2.dumpStatus();
-		printf("transfer descriptor 3 (out) status:\n");
-		transfer3.dumpStatus();
+		transaction.dumpStatus();
 		printf("   length: %d\n", in_descriptor._length); 
 		printf("   descriptor type: %d\n", in_descriptor._descriptorType); 
 		printf("   bcdUsb: %d\n", in_descriptor._bcdUsb); 
@@ -476,6 +512,8 @@ void InitClosure::queriredDevice(HelHandle handle) {
 		printf("   device subclass: %d\n", in_descriptor._deviceSubclass); 
 		printf("   device protocol: %d\n", in_descriptor._deviceProtocol); 
 		printf("   max packet size: %d\n", in_descriptor._maxPacketSize); 
+		printf("   vendor: %d\n", in_descriptor._idVendor); 
+		printf("   num configs: %d\n", in_descriptor._numConfigs); 
 	}
 }
 
