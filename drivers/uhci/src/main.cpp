@@ -36,6 +36,27 @@ struct alignas(8) SetupPacket {
 		kReserved = 3
 	};
 
+	enum Request {
+		kGetStatus = 0x00,
+		kClearFeature = 0x01,
+		kSetFeature = 0x03,
+		kSetAddress = 0x05,
+		kGetDescriptor = 0x06,
+		kSetDescriptor = 0x07,
+		kGetConfig = 0x08,
+		kSetConfig = 0x09
+	};
+
+	enum DescriptorType {
+		kDescDevice = 0x0100,
+		kDescConfig = 0x0200,
+		kDescString = 0x0300,
+		kDescInterface = 0x0400,
+		kDescEndpoint = 0x0500
+	};
+
+
+
 	static constexpr uint8_t RecipientBits = 0;
 	static constexpr uint8_t TypeBits = 5;
 	static constexpr uint8_t DirectionBit = 7;
@@ -267,7 +288,7 @@ struct FrameList {
 	FrameListPointer entries[1024];
 };
 
-struct alignas(32) DeviceDescriptor {
+struct DeviceDescriptor {
 	uint8_t _length;
 	uint8_t _descriptorType;
 	uint16_t _bcdUsb;
@@ -289,14 +310,13 @@ struct alignas(32) DeviceDescriptor {
 // --------------------------------------------------------
 
 struct Transaction {
-	Transaction()
-	: _setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-			SetupPacket::kStandard, 0x06, 0x0100, 0, 18) { }
+	Transaction(SetupPacket setup)
+	: _setup(setup) { }
 
-	void buildQueue(void *buffer, size_t length) {
+	void buildQueue(void *buffer) {
 		std::allocator<TransferDescriptor> allocator;
 
-		_numTransfers = (length + 7) / 8;
+		_numTransfers = (_setup.wLength + 7) / 8;
 		_transfers = allocator.allocate(_numTransfers + 2);
 		
 		new (&_transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
@@ -307,7 +327,7 @@ struct Transaction {
 
 		size_t progress = 0;
 		for(size_t i = 0; i < _numTransfers; i++) {
-			size_t chunk = std::min((size_t)8, length - progress);
+			size_t chunk = std::min((size_t)8, _setup.wLength - progress);
 			new (&_transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
 				TransferToken(TransferToken::kPacketIn,
 						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
@@ -340,6 +360,17 @@ private:
 
 	SetupPacket _setup;
 	TransferDescriptor *_transfers;
+};
+
+struct ConfigDescriptor {
+	uint8_t _length;
+	uint8_t _descriptorType;
+	uint16_t _totalLength;
+	uint8_t _numInterfaces;
+	uint8_t _configValue;
+	uint8_t _iConfig;
+	uint8_t _bmAttributes;
+	uint8_t _maxPower;
 };
 
 // --------------------------------------------------------
@@ -455,14 +486,33 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	assert(!(postenable_status & kStatusError));
 
 	// create a setup packet
-	DeviceDescriptor in_descriptor;
+	alignas(32) uint8_t dev_buffer[18];
+	SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+			SetupPacket::kStandard, SetupPacket::kGetDescriptor,
+			SetupPacket::kDescDevice, 0, 18);
 
-	Transaction transaction;
-	transaction.buildQueue(&in_descriptor, 18);
+	Transaction transaction(setup_packet);
+	transaction.buildQueue(dev_buffer);
 
 	// create a queue head
 	QueueHead queue_head;
 	queue_head._elementPointer = QueueHead::ElementPointer::from(transaction.head());
+
+
+
+	//create get config request
+	alignas(64) uint8_t config_buffer[34];
+	SetupPacket setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+			SetupPacket::kStandard, SetupPacket::kGetDescriptor,
+			SetupPacket::kDescConfig, 0, 34);
+	
+	Transaction action(setup);
+	action.buildQueue(config_buffer);
+
+	QueueHead head;
+	head._elementPointer = QueueHead::ElementPointer::from(action.head());
+
+
 
 	// setup the frame list
 	HelHandle list_handle;
@@ -472,8 +522,12 @@ void InitClosure::queriredDevice(HelHandle handle) {
 			nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
 	
 	auto list_pointer = (FrameList *)list_mapping;
-	for(int i = 0; i < 1024; i++)
+	
+	// -> evtl fixen <-
+	for(int i = 0; i < 1024; i = i + 2) {
 		list_pointer->entries[i] = FrameListPointer::from(&queue_head);
+		list_pointer->entries[i + 1] = FrameListPointer::from(&head);	
+	}
 		
 	// pass the frame list to the controller and run it
 	uintptr_t list_physical;
@@ -505,15 +559,27 @@ void InitClosure::queriredDevice(HelHandle handle) {
 		printf("    port reset: %d\n", port_status & (1 << 9));
 		printf("    suspend: %d\n", port_status & (1 << 12));*/
 		transaction.dumpStatus();
-		printf("   length: %d\n", in_descriptor._length); 
-		printf("   descriptor type: %d\n", in_descriptor._descriptorType); 
-		printf("   bcdUsb: %d\n", in_descriptor._bcdUsb); 
-		printf("   device class: %d\n", in_descriptor._deviceClass); 
-		printf("   device subclass: %d\n", in_descriptor._deviceSubclass); 
-		printf("   device protocol: %d\n", in_descriptor._deviceProtocol); 
-		printf("   max packet size: %d\n", in_descriptor._maxPacketSize); 
-		printf("   vendor: %d\n", in_descriptor._idVendor); 
-		printf("   num configs: %d\n", in_descriptor._numConfigs); 
+		auto dev_desc = (DeviceDescriptor *) dev_buffer;
+		printf("   length: %d\n", dev_desc->_length); 
+		printf("   descriptor type: %d\n", dev_desc->_descriptorType); 
+		printf("   bcdUsb: %d\n", dev_desc->_bcdUsb); 
+		printf("   device class: %d\n", dev_desc->_deviceClass); 
+		printf("   device subclass: %d\n", dev_desc->_deviceSubclass); 
+		printf("   device protocol: %d\n", dev_desc->_deviceProtocol); 
+		printf("   max packet size: %d\n", dev_desc->_maxPacketSize); 
+		printf("   vendor: %d\n", dev_desc->_idVendor); 
+		printf("   num configs: %d\n", dev_desc->_numConfigs); 
+		printf("++++++++++++++++++++++++++++++++++++++++++++\n");
+		action.dumpStatus();
+		auto config_desc = (ConfigDescriptor *) config_buffer;
+		printf("   length: %d\n", config_desc->_length); 
+		printf("   descriptor type: %d\n", config_desc->_descriptorType); 
+		printf("   total length: %d\n", config_desc->_totalLength); 
+		printf("   num interfaces: %d\n", config_desc->_numInterfaces); 
+		printf("   config value: %d\n", config_desc->_configValue); 
+		printf("   id config: %d\n", config_desc->_iConfig); 
+		printf("   bitmap attributes: %d\n", config_desc->_bmAttributes); 
+		printf("   max power: %d\n", config_desc->_maxPower); 
 	}
 }
 
