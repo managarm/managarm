@@ -373,6 +373,188 @@ struct ConfigDescriptor {
 	uint8_t _maxPower;
 };
 
+enum RegisterOffset {
+	kRegCommand = 0x00,
+	kRegStatus = 0x02,
+	kRegInterruptEnable = 0x04,
+	kRegFrameNumber = 0x06,
+	kRegFrameListBaseAddr = 0x08,
+	kRegStartFrameModify = 0x0C,
+	kRegPort1StatusControl = 0x10,
+	kRegPort2StatusControl = 0x12
+};
+
+enum {
+	kStatusInterrupt = 0x01,
+	kStatusError = 0x02
+};
+
+struct Controller {
+	Controller(uint16_t base, helx::Irq irq)
+	: _base(base), _irq(frigg::move(irq)) { }
+
+	void initialize() {
+		auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(initial_status & kStatusInterrupt));
+		assert(!(initial_status & kStatusError));
+
+		enum {
+			kRootConnected = 0x0001,
+			kRootConnectChange = 0x0002,
+			kRootEnabled = 0x0004,
+			kRootEnableChange = 0x0008,
+			kRootReset = 0x0200
+		};
+		
+		// global reset, then deassert reset and stop running the frame list
+		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x04);
+		frigg::writeIo<uint16_t>(_base + kRegCommand, 0);
+
+		// enable interrupts
+		frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
+
+		// disable both ports and clear their connected/enabled changed bits
+		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl,
+				kRootConnectChange | kRootEnableChange);
+		frigg::writeIo<uint16_t>(_base + kRegPort2StatusControl,
+				kRootConnectChange | kRootEnableChange);
+
+		// enable the first port and wait until it is available
+		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled);
+		while(true) {
+			auto port_status = frigg::readIo<uint16_t>(_base + kRegPort1StatusControl);
+			if((port_status & kRootEnabled))
+				break;
+		}
+
+		// reset the first port
+		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled | kRootReset);
+		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled);
+		
+		auto postenable_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(postenable_status & kStatusInterrupt));
+		assert(!(postenable_status & kStatusError));
+
+		// create a setup packet
+		SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+				SetupPacket::kStandard, SetupPacket::kGetDescriptor,
+				SetupPacket::kDescDevice, 0, 18);
+
+		_transaction = new Transaction(setup_packet);
+		_transaction->buildQueue(_buffer);
+
+		// create a queue head
+		_queueHead._elementPointer = QueueHead::ElementPointer::from(_transaction->head());
+
+/*
+		//create get config request
+		alignas(64) uint8_t config_buffer[34];
+		SetupPacket setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
+				SetupPacket::kStandard, SetupPacket::kGetDescriptor,
+				SetupPacket::kDescConfig, 0, 34);
+		
+		Transaction action(setup);
+		action.buildQueue(config_buffer);
+
+		QueueHead head;
+		head._elementPointer = QueueHead::ElementPointer::from(action.head());
+*/
+
+		// setup the frame list
+		HelHandle list_handle;
+		HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
+		void *list_mapping;
+		HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
+				nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
+		
+		auto list_pointer = (FrameList *)list_mapping;
+		
+		for(int i = 0; i < 1024; i++) {
+			list_pointer->entries[i] = FrameListPointer::from(&_queueHead);
+		}
+			
+		// pass the frame list to the controller and run it
+		uintptr_t list_physical;
+		HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
+		assert((list_physical % 0x1000) == 0);
+		frigg::writeIo<uint32_t>(_base + kRegFrameListBaseAddr, list_physical);
+		
+		auto prerun_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(prerun_status & kStatusInterrupt));
+		assert(!(prerun_status & kStatusError));
+		
+		uint16_t command_bits = 0x1;
+		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
+
+/*
+		while(true) {
+			printf("----------------------------------------\n");
+			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+			printf("usb status register: %d \n", status);
+			auto port_status = frigg::readIo<uint16_t>(_base + 0x10);
+			printf("port status/control register:\n");
+			printf("    current connect status: %d\n", port_status & (1 << 0));
+			printf("    connect status change: %d\n", port_status & (1 << 1));
+			printf("    port enabled: %d\n", port_status & (1 << 2));
+			printf("    port enable change: %d\n", port_status & (1 << 3));
+			printf("    line status: %d\n", port_status & 0x30);
+			printf("    resume detect: %d\n", port_status & (1 << 6));
+			printf("    always 1: %d\n", port_status & (1 << 7));
+			printf("    low speed device: %d\n", port_status & (1 << 8));
+			printf("    port reset: %d\n", port_status & (1 << 9));
+			printf("    suspend: %d\n", port_status & (1 << 12));
+			_transaction->dumpStatus();
+			auto dev_desc = (DeviceDescriptor *) _buffer;
+			printf("   length: %d\n", dev_desc->_length); 
+			printf("   descriptor type: %d\n", dev_desc->_descriptorType); 
+			printf("   bcdUsb: %d\n", dev_desc->_bcdUsb); 
+			printf("   device class: %d\n", dev_desc->_deviceClass); 
+			printf("   device subclass: %d\n", dev_desc->_deviceSubclass); 
+			printf("   device protocol: %d\n", dev_desc->_deviceProtocol); 
+			printf("   max packet size: %d\n", dev_desc->_maxPacketSize); 
+			printf("   vendor: %d\n", dev_desc->_idVendor); 
+			printf("   num configs: %d\n", dev_desc->_numConfigs); 
+	
+		}
+*/
+		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+	}
+
+	void onIrq(HelError error) {
+		HEL_CHECK(error);
+
+		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(status & kStatusError));
+		
+		if(status & kStatusInterrupt) {
+			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt);
+			printf("zomg usb irq!111\n");
+			
+			printf("++++++++++++++++++++++++++++++++++++++++++++\n");
+			_transaction->dumpStatus();
+			auto config_desc = (ConfigDescriptor *) _buffer;
+			printf("   length: %d\n", config_desc->_length); 
+			printf("   descriptor type: %d\n", config_desc->_descriptorType); 
+			printf("   total length: %d\n", config_desc->_totalLength); 
+			printf("   num interfaces: %d\n", config_desc->_numInterfaces); 
+			printf("   config value: %d\n", config_desc->_configValue); 
+			printf("   id config: %d\n", config_desc->_iConfig); 
+			printf("   bitmap attributes: %d\n", config_desc->_bmAttributes); 
+			printf("   max power: %d\n", config_desc->_maxPower); 
+		}
+
+		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+	}
+
+private:
+	uint16_t _base;
+	helx::Irq _irq;
+
+	QueueHead _queueHead;
+	Transaction *_transaction;
+	alignas(32) uint8_t _buffer[18];
+};
+
 // --------------------------------------------------------
 // InitClosure
 // --------------------------------------------------------
@@ -402,17 +584,6 @@ void InitClosure::enumeratedDevice(std::vector<bragi_mbus::ObjectId> objects) {
 }
 
 void InitClosure::queriredDevice(HelHandle handle) {
-	enum RegisterOffset {
-		kRegCommand = 0x00,
-		kRegStatus = 0x02,
-		kRegInterruptEnable = 0x04,
-		kRegFrameNumber = 0x06,
-		kRegFrameListBaseAddr = 0x08,
-		kRegStartFrameModify = 0x0C,
-		kRegPort1StatusControl = 0x10,
-		kRegPort2StatusControl = 0x12
-	};
-
 	helx::Pipe device_pipe(handle);
 
 	// acquire the device's resources
@@ -440,147 +611,9 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	device_pipe.recvDescriptorRespSync(eventHub, 1, 7, irq_error, irq_handle);
 	HEL_CHECK(irq_error);
 	
-	uint16_t base = acquire_response.bars(4).address();
-
-	enum {
-		kStatusInterrupt = 0x01,
-		kStatusError = 0x02
-	};
-
-	auto initial_status = frigg::readIo<uint16_t>(base + kRegStatus);
-	assert(!(initial_status & kStatusInterrupt));
-	assert(!(initial_status & kStatusError));
-
-	enum {
-		kRootConnected = 0x0001,
-		kRootConnectChange = 0x0002,
-		kRootEnabled = 0x0004,
-		kRootEnableChange = 0x0008,
-		kRootReset = 0x0200
-	};
-	
-	// global reset, then deassert reset and stop running the frame list
-	frigg::writeIo<uint16_t>(base + kRegCommand, 0x04);
-	frigg::writeIo<uint16_t>(base + kRegCommand, 0);
-
-	// disable both ports and clear their connected/enabled changed bits
-	frigg::writeIo<uint16_t>(base + kRegPort1StatusControl,
-			kRootConnectChange | kRootEnableChange);
-	frigg::writeIo<uint16_t>(base + kRegPort2StatusControl,
-			kRootConnectChange | kRootEnableChange);
-
-	// enable the first port and wait until it is available
-	frigg::writeIo<uint16_t>(base + kRegPort1StatusControl, kRootEnabled);
-	while(true) {
-		auto port_status = frigg::readIo<uint16_t>(base + kRegPort1StatusControl);
-		if((port_status & kRootEnabled))
-			break;
-	}
-
-	// reset the first port
-	frigg::writeIo<uint16_t>(base + kRegPort1StatusControl, kRootEnabled | kRootReset);
-	frigg::writeIo<uint16_t>(base + kRegPort1StatusControl, kRootEnabled);
-	
-	auto postenable_status = frigg::readIo<uint16_t>(base + kRegStatus);
-	assert(!(postenable_status & kStatusInterrupt));
-	assert(!(postenable_status & kStatusError));
-
-	// create a setup packet
-	alignas(32) uint8_t dev_buffer[18];
-	SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-			SetupPacket::kStandard, SetupPacket::kGetDescriptor,
-			SetupPacket::kDescDevice, 0, 18);
-
-	Transaction transaction(setup_packet);
-	transaction.buildQueue(dev_buffer);
-
-	// create a queue head
-	QueueHead queue_head;
-	queue_head._elementPointer = QueueHead::ElementPointer::from(transaction.head());
-
-
-
-	//create get config request
-	alignas(64) uint8_t config_buffer[34];
-	SetupPacket setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-			SetupPacket::kStandard, SetupPacket::kGetDescriptor,
-			SetupPacket::kDescConfig, 0, 34);
-	
-	Transaction action(setup);
-	action.buildQueue(config_buffer);
-
-	QueueHead head;
-	head._elementPointer = QueueHead::ElementPointer::from(action.head());
-
-
-
-	// setup the frame list
-	HelHandle list_handle;
-	HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
-	void *list_mapping;
-	HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
-			nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
-	
-	auto list_pointer = (FrameList *)list_mapping;
-	
-	// -> evtl fixen <-
-	for(int i = 0; i < 1024; i = i + 2) {
-		list_pointer->entries[i] = FrameListPointer::from(&queue_head);
-		list_pointer->entries[i + 1] = FrameListPointer::from(&head);	
-	}
-		
-	// pass the frame list to the controller and run it
-	uintptr_t list_physical;
-	HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
-	assert((list_physical % 0x1000) == 0);
-	frigg::writeIo<uint32_t>(base + kRegFrameListBaseAddr, list_physical);
-	
-	auto prerun_status = frigg::readIo<uint16_t>(base + kRegStatus);
-	assert(!(prerun_status & kStatusInterrupt));
-	assert(!(prerun_status & kStatusError));
-	
-	uint16_t command_bits = 0x1;
-	frigg::writeIo<uint16_t>(base + kRegCommand, command_bits);
-
-	while(true) {
-		printf("----------------------------------------\n");
-		auto status = frigg::readIo<uint16_t>(base + kRegStatus);
-		printf("usb status register: %d \n", status);
-/*		auto port_status = frigg::readIo<uint16_t>(base + 0x10);
-		printf("port status/control register:\n");
-		printf("    current connect status: %d\n", port_status & (1 << 0));
-		printf("    connect status change: %d\n", port_status & (1 << 1));
-		printf("    port enabled: %d\n", port_status & (1 << 2));
-		printf("    port enable change: %d\n", port_status & (1 << 3));
-		printf("    line status: %d\n", port_status & 0x30);
-		printf("    resume detect: %d\n", port_status & (1 << 6));
-		printf("    always 1: %d\n", port_status & (1 << 7));
-		printf("    low speed device: %d\n", port_status & (1 << 8));
-		printf("    port reset: %d\n", port_status & (1 << 9));
-		printf("    suspend: %d\n", port_status & (1 << 12));*/
-		transaction.dumpStatus();
-		auto dev_desc = (DeviceDescriptor *) dev_buffer;
-		printf("   length: %d\n", dev_desc->_length); 
-		printf("   descriptor type: %d\n", dev_desc->_descriptorType); 
-		printf("   bcdUsb: %d\n", dev_desc->_bcdUsb); 
-		printf("   device class: %d\n", dev_desc->_deviceClass); 
-		printf("   device subclass: %d\n", dev_desc->_deviceSubclass); 
-		printf("   device protocol: %d\n", dev_desc->_deviceProtocol); 
-		printf("   max packet size: %d\n", dev_desc->_maxPacketSize); 
-		printf("   vendor: %d\n", dev_desc->_idVendor); 
-		printf("   num configs: %d\n", dev_desc->_numConfigs); 
-		printf("++++++++++++++++++++++++++++++++++++++++++++\n");
-		action.dumpStatus();
-		auto config_desc = (ConfigDescriptor *) config_buffer;
-		printf("   length: %d\n", config_desc->_length); 
-		printf("   descriptor type: %d\n", config_desc->_descriptorType); 
-		printf("   total length: %d\n", config_desc->_totalLength); 
-		printf("   num interfaces: %d\n", config_desc->_numInterfaces); 
-		printf("   config value: %d\n", config_desc->_configValue); 
-		printf("   id config: %d\n", config_desc->_iConfig); 
-		printf("   bitmap attributes: %d\n", config_desc->_bmAttributes); 
-		printf("   max power: %d\n", config_desc->_maxPower); 
-	}
+	Controller *controller = new Controller(acquire_response.bars(4).address(),
+			helx::Irq(irq_handle));
+	controller->initialize();
 }
 
 // --------------------------------------------------------
