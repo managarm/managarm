@@ -112,6 +112,15 @@ struct TransferStatus {
 	bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
 	bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
 	bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
+	bool isAnyError() { 
+		return isStalled() 
+		|| isDataBufferError()
+		|| isBabbleDetected() 
+		|| isNakReceived() 
+		|| isTimeOutError() 
+		|| isBitstuffError(); 
+	}
+
 
 	uint32_t _bits;
 };
@@ -320,7 +329,7 @@ struct DeviceDescriptor {
 
 struct Transaction {
 	Transaction(SetupPacket setup)
-	: _setup(setup) { }
+	: _completeCounter(0), _setup(setup) { }
 
 	void buildQueue(void *buffer) {
 		std::allocator<TransferDescriptor> transfer_allocator;
@@ -373,10 +382,23 @@ struct Transaction {
 		}
 	}
 
+	bool progress() {
+		while(_completeCounter < _numTransfers) {
+			TransferDescriptor *transfer = &_transfers[_completeCounter];
+			if(transfer->_controlStatus.isActive())
+				return false;
+			assert(!transfer->_controlStatus.isAnyError());
+			_completeCounter++;
+		}
+		printf("Transfer complete!\n");
+		return true;
+	}
+
 	boost::intrusive::list_member_hook<> scheduleHook;
 
 private:
 	size_t _numTransfers;
+	size_t _completeCounter;
 
 	SetupPacket _setup;
 	QueueHead *_queue;
@@ -563,6 +585,28 @@ struct Controller {
 		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
 		assert(!(status & kStatusError));
 		
+		Transaction *incomplete = nullptr;
+
+		auto it = scheduleList.begin();
+		while(it != scheduleList.end()) {
+			auto copy = it;
+			++it;
+			if(copy->progress()) {
+				scheduleList.erase(copy);
+
+				QueueHead::LinkPointer link;
+				if(it != scheduleList.end())
+					link = it->head();
+				if(incomplete) {
+					incomplete->linkNext(link);
+				}else{
+					_initialQh._linkPointer = link;
+				}
+			}else {
+				incomplete = &(*copy);
+			}
+		}
+
 		if(status & kStatusInterrupt) {
 			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt);
 			printf("zomg usb irq!111\n");
