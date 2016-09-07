@@ -9,6 +9,8 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
+#include <boost/intrusive/list.hpp>
+
 #include <bragi/mbus.hpp>
 #include <hw.pb.h>
 
@@ -230,6 +232,13 @@ struct alignas(16) QueueHead {
 			assert((physical & 0xFFFFFFFF) == physical);
 			return Pointer(physical, false);
 		}
+		static Pointer from(QueueHead *item) {
+			uintptr_t physical;
+			HEL_CHECK(helPointerPhysical(item, &physical));
+			assert(physical % sizeof(*item) == 0);
+			assert((physical & 0xFFFFFFFF) == physical);
+			return Pointer(physical, true);
+		}
 
 		static constexpr uint32_t TerminateBit = 0;
 		static constexpr uint32_t QhSelectBit = 1;
@@ -314,11 +323,16 @@ struct Transaction {
 	: _setup(setup) { }
 
 	void buildQueue(void *buffer) {
-		std::allocator<TransferDescriptor> allocator;
+		std::allocator<TransferDescriptor> transfer_allocator;
+		std::allocator<QueueHead> queue_allocator;
 
 		_numTransfers = (_setup.wLength + 7) / 8;
-		_transfers = allocator.allocate(_numTransfers + 2);
-		
+		_queue = queue_allocator.allocate(1);
+		_transfers = transfer_allocator.allocate(_numTransfers + 2);
+	
+		new (_queue) QueueHead;
+		_queue->_elementPointer = QueueHead::ElementPointer::from(&_transfers[0]);
+
 		new (&_transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
 				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
 						0, 0, sizeof(SetupPacket)),
@@ -343,8 +357,12 @@ struct Transaction {
 				TransferBufferPointer());
 	}
 
-	TransferDescriptor *head() {
-		return &_transfers[0];
+	QueueHead::LinkPointer head() {
+		return QueueHead::LinkPointer::from(_queue);
+	}
+
+	void linkNext(QueueHead::LinkPointer link) {
+		_queue->_linkPointer = link;
 	}
 
 	void dumpStatus() {
@@ -355,12 +373,24 @@ struct Transaction {
 		}
 	}
 
+	boost::intrusive::list_member_hook<> scheduleHook;
+
 private:
 	size_t _numTransfers;
 
 	SetupPacket _setup;
+	QueueHead *_queue;
 	TransferDescriptor *_transfers;
 };
+
+boost::intrusive::list<
+	Transaction, 
+	boost::intrusive::member_hook<
+		Transaction,
+		boost::intrusive::list_member_hook<>,
+		&Transaction::scheduleHook
+	>
+> scheduleList;
 
 struct ConfigDescriptor {
 	uint8_t _length;
@@ -435,17 +465,12 @@ struct Controller {
 		assert(!(postenable_status & kStatusInterrupt));
 		assert(!(postenable_status & kStatusError));
 
-		// create a setup packet
+//XXXXXXXXXXXXXXXX
 		SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
 				SetupPacket::kStandard, SetupPacket::kGetDescriptor,
 				SetupPacket::kDescDevice, 0, 18);
-
-		_transaction = new Transaction(setup_packet);
-		_transaction->buildQueue(_buffer);
-
-		// create a queue head
-		_queueHead._elementPointer = QueueHead::ElementPointer::from(_transaction->head());
-
+		controlTransfer(setup_packet, _buffer);
+		controlTransfer(setup_packet, _buffer2);
 /*
 		//create get config request
 		alignas(64) uint8_t config_buffer[34];
@@ -470,7 +495,7 @@ struct Controller {
 		auto list_pointer = (FrameList *)list_mapping;
 		
 		for(int i = 0; i < 1024; i++) {
-			list_pointer->entries[i] = FrameListPointer::from(&_queueHead);
+			list_pointer->entries[i] = FrameListPointer::from(&_initialQh);
 		}
 			
 		// pass the frame list to the controller and run it
@@ -520,6 +545,18 @@ struct Controller {
 		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
 	}
 
+	void controlTransfer(SetupPacket setupPacket, void *buffer) {
+		_transaction = new Transaction(setupPacket);
+		_transaction->buildQueue(buffer);
+
+		if(scheduleList.empty()) {
+			_initialQh._linkPointer = _transaction->head();
+		}else{
+			scheduleList.back().linkNext(_transaction->head());
+		}
+		scheduleList.push_back(*_transaction);
+	}
+
 	void onIrq(HelError error) {
 		HEL_CHECK(error);
 
@@ -550,9 +587,10 @@ private:
 	uint16_t _base;
 	helx::Irq _irq;
 
-	QueueHead _queueHead;
+	QueueHead _initialQh;
 	Transaction *_transaction;
 	alignas(32) uint8_t _buffer[18];
+	alignas(32) uint8_t _buffer2[18];
 };
 
 // --------------------------------------------------------
