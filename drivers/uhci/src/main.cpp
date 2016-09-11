@@ -1,6 +1,8 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <functional>
+#include <memory>
 
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
@@ -14,322 +16,24 @@
 #include <bragi/mbus.hpp>
 #include <hw.pb.h>
 
+#include "usb.hpp"
+#include "uhci.hpp"
+
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 
-// Alignment makes sure that a packet doesnt cross a page boundary
-struct alignas(8) SetupPacket {
-	enum DataDirection {
-		kDirToDevice = 0,
-		kDirToHost = 1
-	};
-
-	enum Recipient {
-		kDestDevice = 0,
-		kDestInterface = 1,
-		kDestEndpoint = 2,
-		kDestOther = 3
-	};
-
-	enum Type {
-		kStandard = 0,
-		kClass = 1,
-		kVendor = 2,
-		kReserved = 3
-	};
-
-	enum Request {
-		kGetStatus = 0x00,
-		kClearFeature = 0x01,
-		kSetFeature = 0x03,
-		kSetAddress = 0x05,
-		kGetDescriptor = 0x06,
-		kSetDescriptor = 0x07,
-		kGetConfig = 0x08,
-		kSetConfig = 0x09
-	};
-
-	enum DescriptorType {
-		kDescDevice = 0x0100,
-		kDescConfig = 0x0200,
-		kDescString = 0x0300,
-		kDescInterface = 0x0400,
-		kDescEndpoint = 0x0500
-	};
-
-
-
-	static constexpr uint8_t RecipientBits = 0;
-	static constexpr uint8_t TypeBits = 5;
-	static constexpr uint8_t DirectionBit = 7;
-
-	SetupPacket(DataDirection data_direction, Recipient recipient, Type type,
-			uint8_t breq, uint16_t wval, uint16_t wid, uint16_t wlen)
-	: bmRequestType((uint8_t(recipient) << RecipientBits)
-				| (uint8_t(type) << TypeBits)
-				| (uint8_t(data_direction) << DirectionBit)),
-		bRequest(breq), wValue(wval), wIndex(wid), wLength(wlen) { }
-
-	uint8_t bmRequestType;
-	uint8_t bRequest;
-	uint16_t wValue;
-	uint16_t wIndex;
-	uint16_t wLength;
-};
-static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
-
-struct TransferStatus {
-	enum {
-		kActiveBit = 23,
-		kStalledBit = 22,
-		kDataBufferErrorBit = 21,
-		kBabbleDetectedBit = 20,
-		kNakReceivedBit = 19,
-		kTimeOutErrorBit = 18,
-		kBitstuffErrorBit = 17
-	};
-
-	static constexpr uint32_t ActLenBits = 0;
-	static constexpr uint32_t StatusBits = 16;
-	static constexpr uint32_t InterruptOnCompleteBits = 24;
-	static constexpr uint32_t IsochronSelectBits = 25;
-	static constexpr uint32_t LowSpeedBits = 26;
-	static constexpr uint32_t NumErrorsBits = 27;
-	static constexpr uint32_t ShortPacketDetectBits = 29;
-
-	TransferStatus(bool ioc, bool isochron, bool spd)
-	: _bits((uint32_t(1) << kActiveBit) 
-			| (uint32_t(ioc) << InterruptOnCompleteBits) 
-			| (uint32_t(isochron) << IsochronSelectBits) 
-			| (uint32_t(spd) << ShortPacketDetectBits)) {
-	
-	}
-	
-	bool isActive() { return _bits & (1 << kActiveBit); }
-	bool isStalled() { return _bits & (1 << kStalledBit); }
-	bool isDataBufferError() { return _bits & (1 << kDataBufferErrorBit); }
-	bool isBabbleDetected() { return _bits & (1 << kBabbleDetectedBit); }
-	bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
-	bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
-	bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
-	bool isAnyError() { 
-		return isStalled() 
-		|| isDataBufferError()
-		|| isBabbleDetected() 
-		|| isNakReceived() 
-		|| isTimeOutError() 
-		|| isBitstuffError(); 
-	}
-
-
-	uint32_t _bits;
+struct Endpoint {
+	size_t maxPacketSize;	
 };
 
-struct TransferToken {
-	enum PacketId {
-		kPacketIn = 0x69,
-		kPacketOut = 0xE1,
-		kPacketSetup = 0x2D
-	};
-
-	enum DataToggle {
-		kData0 = 0,
-		kData1 = 1
-	};
-
-	static constexpr uint32_t PidBits = 0;
-	static constexpr uint32_t DeviceAddressBits = 8;
-	static constexpr uint32_t EndpointBits = 15;
-	static constexpr uint32_t DataToggleBit = 19;
-	static constexpr uint32_t MaxLenBits = 21;
-	
-	TransferToken(PacketId packet_id, DataToggle data_toggle,
-			uint8_t device_address, uint8_t endpoint_address, uint16_t max_length) 
-	: _bits((uint32_t(packet_id) << PidBits)
-			| (uint32_t(device_address) << DeviceAddressBits)
-			| (uint32_t(endpoint_address) << EndpointBits)
-			| (uint32_t(data_toggle) << DataToggleBit)
-			| (uint32_t((max_length ? max_length - 1 : 0x7FF)) << MaxLenBits)) {
-		assert(device_address < 128);
-		assert(max_length < 2048);
-	}
-
-	uint32_t _bits;
+struct Device {
+	uint8_t address;
+	Endpoint endpoints[32];
 };
-
-struct TransferBufferPointer {
-	static TransferBufferPointer from(void *item) {
-		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(item, &physical));
-		assert((physical & 0xFFFFFFFF) == physical);
-		return TransferBufferPointer(physical);
-	}
-
-	TransferBufferPointer() {
-		_bits = 0;
-	}
-
-	TransferBufferPointer(uint32_t pointer)
-	: _bits(pointer) { }
-
-private:
-	uint32_t _bits;
-};
-
-// UHCI mandates 16 byte alignment. we align at 32 bytes
-// to make sure that the TransferDescriptor does not cross a page boundary.
-struct alignas(32) TransferDescriptor {
-	struct LinkPointer {
-		static LinkPointer from(TransferDescriptor *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return LinkPointer(physical, true, false);
-		}
-
-		static constexpr uint32_t TerminateBit = 0;
-		static constexpr uint32_t QhSelectBit = 1;
-		static constexpr uint32_t VfSelectBit = 2;
-		static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-		LinkPointer()
-		: _bits(1 << TerminateBit) { }
-
-		LinkPointer(uint32_t pointer, bool is_vf, bool is_queue)
-		: _bits(pointer
-				| (is_vf << VfSelectBit)
-				| (is_queue << QhSelectBit)) {
-			assert(pointer % 16 == 0);
-		}
-
-		bool isVf() { return _bits & (1 << VfSelectBit); }
-		bool isQueue() { return _bits & (1 << QhSelectBit); }
-		bool isTerminate() { return _bits & (1 << TerminateBit); }
-		uint32_t actualPointer() { return _bits & PointerMask; }
-
-		uint32_t _bits;
-	};
-
-	TransferDescriptor(TransferStatus control_status,
-			TransferToken token, TransferBufferPointer buffer_pointer)
-	: _controlStatus(control_status),
-			_token(token), _bufferPointer(buffer_pointer) { }
-
-	void dumpStatus() {
-		if(_controlStatus.isActive()) printf("active");
-		if(_controlStatus.isStalled()) printf("stalled");
-		if(_controlStatus.isDataBufferError()) printf("data buffer error");
-		if(_controlStatus.isBabbleDetected()) printf("babble detected");
-		if(_controlStatus.isNakReceived()) printf("nak received");
-		if(_controlStatus.isTimeOutError()) printf("time out error");
-		if(_controlStatus.isBitstuffError()) printf("bitstuff error");
-	}
-
-	LinkPointer _linkPointer;
-	TransferStatus _controlStatus;
-	TransferToken _token;
-	TransferBufferPointer _bufferPointer;
-};
-
-struct alignas(16) QueueHead {
-	struct Pointer {
-		static Pointer from(TransferDescriptor *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return Pointer(physical, false);
-		}
-		static Pointer from(QueueHead *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return Pointer(physical, true);
-		}
-
-		static constexpr uint32_t TerminateBit = 0;
-		static constexpr uint32_t QhSelectBit = 1;
-		static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-		Pointer()
-		: _bits(1 << TerminateBit) { }
-
-		Pointer(uint32_t pointer, bool is_queue)
-		: _bits(pointer
-				| (is_queue << QhSelectBit)) {
-			assert(pointer % 16 == 0);
-		}
-
-		bool isQueue() { return _bits & (1 << QhSelectBit);	}
-		bool isTerminate() { return _bits & (1 << TerminateBit); }
-		uint32_t actualPointer() { return _bits & PointerMask; }
-
-		uint32_t _bits;
-	};
-
-	typedef Pointer LinkPointer;
-	typedef Pointer ElementPointer;
-	
-	LinkPointer _linkPointer;
-	ElementPointer _elementPointer;
-};
-
-struct FrameListPointer {
-	static constexpr uint32_t TerminateBit = 0;
-	static constexpr uint32_t QhSelectBit = 1;
-	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-	static FrameListPointer from(QueueHead *item) {
-		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(item, &physical));
-		assert(physical % sizeof(*item) == 0);
-		assert((physical & 0xFFFFFFFF) == physical);
-		return FrameListPointer(physical, true);
-	}
-
-	FrameListPointer(uint32_t pointer, bool is_queue)
-	: _bits(pointer
-			| (is_queue << QhSelectBit)) {
-		assert(pointer % 16 == 0);
-	}
-
-	bool isQueue() { return _bits & (1 << QhSelectBit); }
-	bool isTerminate() { return _bits & (1 << TerminateBit); }
-	uint32_t actualPointer() { return _bits & PointerMask; }
-
-	uint32_t _bits;
-};
-
-struct FrameList {
-	FrameListPointer entries[1024];
-};
-
-struct DeviceDescriptor {
-	uint8_t _length;
-	uint8_t _descriptorType;
-	uint16_t _bcdUsb;
-	uint8_t _deviceClass;
-	uint8_t _deviceSubclass;
-	uint8_t _deviceProtocol;
-	uint8_t _maxPacketSize;
-	uint16_t _idVendor;
-	uint16_t _idProduct;
-	uint16_t _bcdDevice;
-	uint8_t _manufacturer;
-	uint8_t _product;
-	uint8_t _serialNumber;
-	uint8_t _numConfigs;
-};
-//FIXME: remove alignas
-//static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");
-
-// --------------------------------------------------------
 
 struct Transaction {
-	Transaction(SetupPacket setup)
-	: _completeCounter(0), _setup(setup) { }
+	Transaction(std::shared_ptr<Device> device, int endpoint, SetupPacket setup, std::function<void()> callback)
+	: _device(device), _endpoint(endpoint), _completeCounter(0), _setup(setup), _callback(callback) { }
 
 	void buildQueue(void *buffer) {
 		std::allocator<TransferDescriptor> transfer_allocator;
@@ -391,16 +95,19 @@ struct Transaction {
 			_completeCounter++;
 		}
 		printf("Transfer complete!\n");
+		_callback();
 		return true;
 	}
 
 	boost::intrusive::list_member_hook<> scheduleHook;
 
 private:
-	size_t _numTransfers;
+	std::shared_ptr<Device> _device;
+	int _endpoint;
 	size_t _completeCounter;
-
 	SetupPacket _setup;
+	std::function<void()> _callback;
+	size_t _numTransfers;
 	QueueHead *_queue;
 	TransferDescriptor *_transfers;
 };
@@ -414,31 +121,27 @@ boost::intrusive::list<
 	>
 > scheduleList;
 
-struct ConfigDescriptor {
-	uint8_t _length;
-	uint8_t _descriptorType;
-	uint16_t _totalLength;
-	uint8_t _numInterfaces;
-	uint8_t _configValue;
-	uint8_t _iConfig;
-	uint8_t _bmAttributes;
-	uint8_t _maxPower;
+enum XferFlags {
+	kXferToDevice = 0,
+	kXferToHost = 1,
 };
 
-enum RegisterOffset {
-	kRegCommand = 0x00,
-	kRegStatus = 0x02,
-	kRegInterruptEnable = 0x04,
-	kRegFrameNumber = 0x06,
-	kRegFrameListBaseAddr = 0x08,
-	kRegStartFrameModify = 0x0C,
-	kRegPort1StatusControl = 0x10,
-	kRegPort2StatusControl = 0x12
-};
+struct ControlTransfer {
+	ControlTransfer(std::shared_ptr<Device> device, int endpoint, XferFlags flags, ControlRecipient recipient,
+			ControlType type, uint8_t request, uint16_t arg0, uint16_t arg1, void *buffer, size_t length)
+	: device(device), endpoint(endpoint), flags(flags), recipient(recipient), type(type),
+			request(request), arg0(arg0), arg1(arg1), buffer(buffer), length(length) { }
 
-enum {
-	kStatusInterrupt = 0x01,
-	kStatusError = 0x02
+	std::shared_ptr<Device> device;
+	int endpoint;
+	XferFlags flags;
+	ControlRecipient recipient;
+	ControlType type;
+	uint8_t request;
+	uint16_t arg0;
+	uint16_t arg1;
+	void *buffer;
+	size_t length;
 };
 
 struct Controller {
@@ -487,12 +190,24 @@ struct Controller {
 		assert(!(postenable_status & kStatusInterrupt));
 		assert(!(postenable_status & kStatusError));
 
-//XXXXXXXXXXXXXXXX
-		SetupPacket setup_packet(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-				SetupPacket::kStandard, SetupPacket::kGetDescriptor,
-				SetupPacket::kDescDevice, 0, 18);
-		controlTransfer(setup_packet, _buffer);
-		controlTransfer(setup_packet, _buffer2);
+		auto device = std::make_shared<Device>();
+		device->address = 0;
+		int endpoint = 0;
+
+		ControlTransfer control1(device, endpoint, kXferToHost, kDestDevice, kStandard,
+				SetupPacket::kGetDescriptor, SetupPacket::kDescDevice,
+				0, _buffer, 18);
+		
+		transfer(device, endpoint, control1, [this, device, endpoint](){
+			printf("callback control1\n");
+			ControlTransfer control2(device, endpoint, kXferToHost, kDestDevice, kStandard,
+					SetupPacket::kGetDescriptor, SetupPacket::kDescDevice,
+					0, _buffer2, 18);
+			transfer(device, endpoint, control2, [](){
+				printf("callback control2\n");		
+			});
+		});
+;
 /*
 		//create get config request
 		alignas(64) uint8_t config_buffer[34];
@@ -550,7 +265,7 @@ struct Controller {
 			printf("    low speed device: %d\n", port_status & (1 << 8));
 			printf("    port reset: %d\n", port_status & (1 << 9));
 			printf("    suspend: %d\n", port_status & (1 << 12));
-			_transaction->dumpStatus();
+			transaction->dumpStatus();
 			auto dev_desc = (DeviceDescriptor *) _buffer;
 			printf("   length: %d\n", dev_desc->_length); 
 			printf("   descriptor type: %d\n", dev_desc->_descriptorType); 
@@ -567,16 +282,18 @@ struct Controller {
 		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
 	}
 
-	void controlTransfer(SetupPacket setupPacket, void *buffer) {
-		_transaction = new Transaction(setupPacket);
-		_transaction->buildQueue(buffer);
+	void transfer(std::shared_ptr<Device> device, int endpoint, ControlTransfer control, std::function<void()> callback) {
+		Transaction *transaction = new Transaction(device, endpoint, SetupPacket(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
+				control.recipient, control.type, control.request, control.arg0, control.arg1, control.length),
+				callback);
+		transaction->buildQueue(control.buffer);
 
 		if(scheduleList.empty()) {
-			_initialQh._linkPointer = _transaction->head();
+			_initialQh._linkPointer = transaction->head();
 		}else{
-			scheduleList.back().linkNext(_transaction->head());
+			scheduleList.back().linkNext(transaction->head());
 		}
-		scheduleList.push_back(*_transaction);
+		scheduleList.push_back(*transaction);
 	}
 
 	void onIrq(HelError error) {
@@ -584,44 +301,32 @@ struct Controller {
 
 		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
 		assert(!(status & kStatusError));
-		
-		Transaction *incomplete = nullptr;
-
-		auto it = scheduleList.begin();
-		while(it != scheduleList.end()) {
-			auto copy = it;
-			++it;
-			if(copy->progress()) {
-				scheduleList.erase(copy);
-
-				QueueHead::LinkPointer link;
-				if(it != scheduleList.end())
-					link = it->head();
-				if(incomplete) {
-					incomplete->linkNext(link);
-				}else{
-					_initialQh._linkPointer = link;
-				}
-			}else {
-				incomplete = &(*copy);
-			}
-		}
 
 		if(status & kStatusInterrupt) {
 			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt);
 			printf("zomg usb irq!111\n");
-			
-			printf("++++++++++++++++++++++++++++++++++++++++++++\n");
-			_transaction->dumpStatus();
-			auto config_desc = (ConfigDescriptor *) _buffer;
-			printf("   length: %d\n", config_desc->_length); 
-			printf("   descriptor type: %d\n", config_desc->_descriptorType); 
-			printf("   total length: %d\n", config_desc->_totalLength); 
-			printf("   num interfaces: %d\n", config_desc->_numInterfaces); 
-			printf("   config value: %d\n", config_desc->_configValue); 
-			printf("   id config: %d\n", config_desc->_iConfig); 
-			printf("   bitmap attributes: %d\n", config_desc->_bmAttributes); 
-			printf("   max power: %d\n", config_desc->_maxPower); 
+		
+		Transaction *incomplete = nullptr;
+
+		auto it = scheduleList.begin();
+			while(it != scheduleList.end()) {
+				auto copy = it;
+				++it;
+				if(copy->progress()) {
+					scheduleList.erase(copy);
+
+					QueueHead::LinkPointer link;
+					if(it != scheduleList.end())
+						link = it->head();
+					if(incomplete) {
+						incomplete->linkNext(link);
+					}else{
+						_initialQh._linkPointer = link;
+					}
+				}else {
+					incomplete = &(*copy);
+				}
+			}
 		}
 
 		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
@@ -632,7 +337,6 @@ private:
 	helx::Irq _irq;
 
 	QueueHead _initialQh;
-	Transaction *_transaction;
 	alignas(32) uint8_t _buffer[18];
 	alignas(32) uint8_t _buffer2[18];
 };
