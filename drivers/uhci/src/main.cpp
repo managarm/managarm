@@ -11,6 +11,7 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 
+#include <cofiber.hpp>
 #include <boost/intrusive/list.hpp>
 
 #include <bragi/mbus.hpp>
@@ -22,6 +23,11 @@
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 
+enum XferFlags {
+	kXferToDevice = 1,
+	kXferToHost = 2,
+};
+
 struct Endpoint {
 	size_t maxPacketSize;	
 };
@@ -32,14 +38,17 @@ struct Device {
 };
 
 struct Transaction {
-	Transaction(std::shared_ptr<Device> device, int endpoint, SetupPacket setup, std::function<void()> callback)
-	: _device(device), _endpoint(endpoint), _completeCounter(0), _setup(setup), _callback(callback) { }
+	Transaction(std::shared_ptr<Device> device, int endpoint, XferFlags flags, SetupPacket setup, std::function<void()> callback)
+	: _device(device), _endpoint(endpoint), _flags(flags), _completeCounter(0), _setup(setup), _callback(callback) { }
 
 	void buildQueue(void *buffer) {
+		assert((_flags & kXferToDevice) || (_flags & kXferToHost));
+
 		std::allocator<TransferDescriptor> transfer_allocator;
 		std::allocator<QueueHead> queue_allocator;
 
-		_numTransfers = (_setup.wLength + 7) / 8;
+		size_t max_size = _device->endpoints[_endpoint].maxPacketSize;
+		_numTransfers = (_setup.wLength + max_size - 1) / max_size;
 		_queue = queue_allocator.allocate(1);
 		_transfers = transfer_allocator.allocate(_numTransfers + 2);
 	
@@ -48,25 +57,25 @@ struct Transaction {
 
 		new (&_transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
 				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-						0, 0, sizeof(SetupPacket)),
+						_device->address, _endpoint, sizeof(SetupPacket)),
 				TransferBufferPointer::from(&_setup));
 		_transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[1]);
 
 		size_t progress = 0;
 		for(size_t i = 0; i < _numTransfers; i++) {
-			size_t chunk = std::min((size_t)8, _setup.wLength - progress);
+			size_t chunk = std::min(max_size, _setup.wLength - progress);
 			new (&_transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(TransferToken::kPacketIn,
+				TransferToken(_flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
 						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-						0, 0, chunk),
+						_device->address, _endpoint, chunk),
 				TransferBufferPointer::from((char *)buffer + progress));
 			_transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[i + 2]);
 			progress += chunk;
 		}
 
 		new (&_transfers[_numTransfers + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(TransferToken::kPacketOut, TransferToken::kData0,
-						0, 0, 0),
+				TransferToken(_flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
+						TransferToken::kData0, _device->address, _endpoint, 0),
 				TransferBufferPointer());
 	}
 
@@ -78,22 +87,38 @@ struct Transaction {
 		_queue->_linkPointer = link;
 	}
 
-	void dumpStatus() {
-		for(size_t i = 0; i < _numTransfers + 2; i++) {
-			printf("Status[%lu]: ", i);
-			_transfers[i].dumpStatus();
+	void dumpTransfer() {
+		printf("    Setup stage:");
+		_transfers[0].dumpStatus();
+		printf("\n");
+		
+		for(size_t i = 0; i < _numTransfers; i++) {
+			printf("    Data stage [%lu]:", i);
+			_transfers[i + 1].dumpStatus();
 			printf("\n");
 		}
+
+		printf("    Status stage:");
+		_transfers[_numTransfers + 1].dumpStatus();
+		printf("\n");
 	}
 
 	bool progress() {
-		while(_completeCounter < _numTransfers) {
+//		dumpTransfer();
+		
+		while(_completeCounter < _numTransfers + 2) {
 			TransferDescriptor *transfer = &_transfers[_completeCounter];
 			if(transfer->_controlStatus.isActive())
 				return false;
-			assert(!transfer->_controlStatus.isAnyError());
+
+			if(transfer->_controlStatus.isAnyError()) {
+				printf("Transfer error!\n");
+				return true;
+			}
+			
 			_completeCounter++;
 		}
+
 		printf("Transfer complete!\n");
 		_callback();
 		return true;
@@ -104,6 +129,7 @@ struct Transaction {
 private:
 	std::shared_ptr<Device> _device;
 	int _endpoint;
+	XferFlags _flags;
 	size_t _completeCounter;
 	SetupPacket _setup;
 	std::function<void()> _callback;
@@ -121,14 +147,12 @@ boost::intrusive::list<
 	>
 > scheduleList;
 
-enum XferFlags {
-	kXferToDevice = 0,
-	kXferToHost = 1,
-};
-
+// arg0 = wValue in the USB spec
+// arg1 = wIndex in the USB spec
 struct ControlTransfer {
-	ControlTransfer(std::shared_ptr<Device> device, int endpoint, XferFlags flags, ControlRecipient recipient,
-			ControlType type, uint8_t request, uint16_t arg0, uint16_t arg1, void *buffer, size_t length)
+	ControlTransfer(std::shared_ptr<Device> device, int endpoint, XferFlags flags,
+			ControlRecipient recipient, ControlType type, uint8_t request,
+			uint16_t arg0, uint16_t arg1, void *buffer, size_t length)
 	: device(device), endpoint(endpoint), flags(flags), recipient(recipient), type(type),
 			request(request), arg0(arg0), arg1(arg1), buffer(buffer), length(length) { }
 
@@ -190,38 +214,6 @@ struct Controller {
 		assert(!(postenable_status & kStatusInterrupt));
 		assert(!(postenable_status & kStatusError));
 
-		auto device = std::make_shared<Device>();
-		device->address = 0;
-		int endpoint = 0;
-
-		ControlTransfer control1(device, endpoint, kXferToHost, kDestDevice, kStandard,
-				SetupPacket::kGetDescriptor, SetupPacket::kDescDevice,
-				0, _buffer, 18);
-		
-		transfer(device, endpoint, control1, [this, device, endpoint](){
-			printf("callback control1\n");
-			ControlTransfer control2(device, endpoint, kXferToHost, kDestDevice, kStandard,
-					SetupPacket::kGetDescriptor, SetupPacket::kDescDevice,
-					0, _buffer2, 18);
-			transfer(device, endpoint, control2, [](){
-				printf("callback control2\n");		
-			});
-		});
-;
-/*
-		//create get config request
-		alignas(64) uint8_t config_buffer[34];
-		SetupPacket setup(SetupPacket::kDirToHost, SetupPacket::kDestDevice,
-				SetupPacket::kStandard, SetupPacket::kGetDescriptor,
-				SetupPacket::kDescConfig, 0, 34);
-		
-		Transaction action(setup);
-		action.buildQueue(config_buffer);
-
-		QueueHead head;
-		head._elementPointer = QueueHead::ElementPointer::from(action.head());
-*/
-
 		// setup the frame list
 		HelHandle list_handle;
 		HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
@@ -248,44 +240,17 @@ struct Controller {
 		uint16_t command_bits = 0x1;
 		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
 
-/*
-		while(true) {
-			printf("----------------------------------------\n");
-			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-			printf("usb status register: %d \n", status);
-			auto port_status = frigg::readIo<uint16_t>(_base + 0x10);
-			printf("port status/control register:\n");
-			printf("    current connect status: %d\n", port_status & (1 << 0));
-			printf("    connect status change: %d\n", port_status & (1 << 1));
-			printf("    port enabled: %d\n", port_status & (1 << 2));
-			printf("    port enable change: %d\n", port_status & (1 << 3));
-			printf("    line status: %d\n", port_status & 0x30);
-			printf("    resume detect: %d\n", port_status & (1 << 6));
-			printf("    always 1: %d\n", port_status & (1 << 7));
-			printf("    low speed device: %d\n", port_status & (1 << 8));
-			printf("    port reset: %d\n", port_status & (1 << 9));
-			printf("    suspend: %d\n", port_status & (1 << 12));
-			transaction->dumpStatus();
-			auto dev_desc = (DeviceDescriptor *) _buffer;
-			printf("   length: %d\n", dev_desc->_length); 
-			printf("   descriptor type: %d\n", dev_desc->_descriptorType); 
-			printf("   bcdUsb: %d\n", dev_desc->_bcdUsb); 
-			printf("   device class: %d\n", dev_desc->_deviceClass); 
-			printf("   device subclass: %d\n", dev_desc->_deviceSubclass); 
-			printf("   device protocol: %d\n", dev_desc->_deviceProtocol); 
-			printf("   max packet size: %d\n", dev_desc->_maxPacketSize); 
-			printf("   vendor: %d\n", dev_desc->_idVendor); 
-			printf("   num configs: %d\n", dev_desc->_numConfigs); 
-	
-		}
-*/
 		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
 	}
 
-	void transfer(std::shared_ptr<Device> device, int endpoint, ControlTransfer control, std::function<void()> callback) {
-		Transaction *transaction = new Transaction(device, endpoint, SetupPacket(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
-				control.recipient, control.type, control.request, control.arg0, control.arg1, control.length),
-				callback);
+	void transfer(ControlTransfer control, std::function<void()> callback) {
+		assert((control.flags & kXferToDevice) || (control.flags & kXferToHost));
+		
+		SetupPacket setup(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
+				control.recipient, control.type, control.request,
+				control.arg0, control.arg1, control.length);
+		Transaction *transaction = new Transaction(std::move(control.device), control.endpoint,
+				control.flags, setup, callback);
 		transaction->buildQueue(control.buffer);
 
 		if(scheduleList.empty()) {
@@ -296,35 +261,40 @@ struct Controller {
 		scheduleList.push_back(*transaction);
 	}
 
+	auto erase(Transaction *transaction) {
+		auto it = scheduleList.iterator_to(*transaction);
+
+		QueueHead::LinkPointer link;
+		if(std::next(it) != scheduleList.end())
+			link = std::next(it)->head();
+
+		if(it == scheduleList.begin()) {
+			_initialQh._linkPointer = link;
+		}else{
+			std::prev(it)->linkNext(link);
+		}
+
+		return scheduleList.erase(it);
+	}
+
 	void onIrq(HelError error) {
 		HEL_CHECK(error);
 
 		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(status & kStatusError));
-
-		if(status & kStatusInterrupt) {
-			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt);
-			printf("zomg usb irq!111\n");
-		
-		Transaction *incomplete = nullptr;
-
-		auto it = scheduleList.begin();
+		assert(!(status & 0x10));
+		assert(!(status & 0x08));
+		if(status & (kStatusInterrupt | kStatusError)) {
+			if(status & kStatusError)
+				printf("uhci: Error interrupt\n");
+			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
+			
+			printf("uhci: Processing transfers.\n");
+			auto it = scheduleList.begin();
 			while(it != scheduleList.end()) {
-				auto copy = it;
-				++it;
-				if(copy->progress()) {
-					scheduleList.erase(copy);
-
-					QueueHead::LinkPointer link;
-					if(it != scheduleList.end())
-						link = it->head();
-					if(incomplete) {
-						incomplete->linkNext(link);
-					}else{
-						_initialQh._linkPointer = link;
-					}
-				}else {
-					incomplete = &(*copy);
+				if(it->progress()) {
+					it = erase(&(*it));
+				}else{
+					++it;
 				}
 			}
 		}
@@ -340,6 +310,69 @@ private:
 	alignas(32) uint8_t _buffer[18];
 	alignas(32) uint8_t _buffer2[18];
 };
+
+struct WaitForXfer {
+	friend auto cofiber_awaiter(WaitForXfer action) {
+		struct Awaiter {
+			Awaiter(std::shared_ptr<Controller> controller, ControlTransfer xfer)
+			: _controller(std::move(controller)), _xfer(std::move(xfer)) { }
+
+			bool await_ready() { return false; }
+			void await_resume() { }
+
+			void await_suspend(cofiber::coroutine_handle<> handle) {
+				_controller->transfer(std::move(_xfer), [handle] () {
+					handle.resume();
+				});
+			}
+
+		private:
+			std::shared_ptr<Controller> _controller;
+			ControlTransfer _xfer;
+		};
+	
+		return Awaiter(std::move(action._controller), std::move(action._xfer));
+	}
+
+	WaitForXfer(std::shared_ptr<Controller> controller, ControlTransfer xfer)
+	: _controller(std::move(controller)), _xfer(std::move(xfer)) { }
+
+private:
+	std::shared_ptr<Controller> _controller;
+	ControlTransfer _xfer;
+};
+
+COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=], {
+	auto device = std::make_shared<Device>();
+	device->address = 0;
+	device->endpoints[0].maxPacketSize = 8;
+
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
+			nullptr, 0));
+	device->address = 1;
+
+	DeviceDescriptor descriptor;
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescDevice, 0,
+			&descriptor, 8));
+	device->endpoints[0].maxPacketSize = descriptor.maxPacketSize;
+	
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescDevice, 0,
+			&descriptor, sizeof(DeviceDescriptor)));
+	
+	ConfigDescriptor config;
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescConfig, 0,
+			&config, sizeof(ConfigDescriptor)));
+
+	auto buffer = (uint8_t *)malloc(config._totalLength);
+	
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescConfig, 0,
+			&buffer, config._totalLength));
+});
 
 // --------------------------------------------------------
 // InitClosure
@@ -397,9 +430,11 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	device_pipe.recvDescriptorRespSync(eventHub, 1, 7, irq_error, irq_handle);
 	HEL_CHECK(irq_error);
 	
-	Controller *controller = new Controller(acquire_response.bars(4).address(),
+	auto controller = std::make_shared<Controller>(acquire_response.bars(4).address(),
 			helx::Irq(irq_handle));
 	controller->initialize();
+
+	runHidDevice(controller);
 }
 
 // --------------------------------------------------------

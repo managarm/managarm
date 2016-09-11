@@ -59,20 +59,20 @@ struct alignas(8) SetupPacket {
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
 
 struct DeviceDescriptor {
-	uint8_t _length;
-	uint8_t _descriptorType;
-	uint16_t _bcdUsb;
-	uint8_t _deviceClass;
-	uint8_t _deviceSubclass;
-	uint8_t _deviceProtocol;
-	uint8_t _maxPacketSize;
-	uint16_t _idVendor;
-	uint16_t _idProduct;
-	uint16_t _bcdDevice;
-	uint8_t _manufacturer;
-	uint8_t _product;
-	uint8_t _serialNumber;
-	uint8_t _numConfigs;
+	uint8_t length;
+	uint8_t descriptorType;
+	uint16_t bcdUsb;
+	uint8_t deviceClass;
+	uint8_t deviceSubclass;
+	uint8_t deviceProtocol;
+	uint8_t maxPacketSize;
+	uint16_t idVendor;
+	uint16_t idProduct;
+	uint16_t bcdDevice;
+	uint8_t manufacturer;
+	uint8_t product;
+	uint8_t serialNumber;
+	uint8_t numConfigs;
 };
 //FIXME: remove alignas
 //static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");

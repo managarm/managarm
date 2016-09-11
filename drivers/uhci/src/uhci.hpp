@@ -33,13 +33,14 @@ struct TransferStatus {
 	bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
 	bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
 	bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
+
 	bool isAnyError() { 
 		return isStalled() 
-		|| isDataBufferError()
-		|| isBabbleDetected() 
-		|| isNakReceived() 
-		|| isTimeOutError() 
-		|| isBitstuffError(); 
+			|| isDataBufferError()
+			|| isBabbleDetected() 
+			|| isNakReceived() 
+			|| isTimeOutError() 
+			|| isBitstuffError(); 
 	}
 
 
@@ -106,7 +107,7 @@ struct alignas(32) TransferDescriptor {
 			HEL_CHECK(helPointerPhysical(item, &physical));
 			assert(physical % sizeof(*item) == 0);
 			assert((physical & 0xFFFFFFFF) == physical);
-			return LinkPointer(physical, true, false);
+			return LinkPointer(physical, false, false);
 		}
 
 		static constexpr uint32_t TerminateBit = 0;
@@ -138,13 +139,13 @@ struct alignas(32) TransferDescriptor {
 			_token(token), _bufferPointer(buffer_pointer) { }
 
 	void dumpStatus() {
-		if(_controlStatus.isActive()) printf("active");
-		if(_controlStatus.isStalled()) printf("stalled");
-		if(_controlStatus.isDataBufferError()) printf("data buffer error");
-		if(_controlStatus.isBabbleDetected()) printf("babble detected");
-		if(_controlStatus.isNakReceived()) printf("nak received");
-		if(_controlStatus.isTimeOutError()) printf("time out error");
-		if(_controlStatus.isBitstuffError()) printf("bitstuff error");
+		if(_controlStatus.isActive()) printf(" active");
+		if(_controlStatus.isStalled()) printf(" stalled");
+		if(_controlStatus.isDataBufferError()) printf(" data-buffer-error");
+		if(_controlStatus.isBabbleDetected()) printf(" babble-detected");
+		if(_controlStatus.isNakReceived()) printf(" nak");
+		if(_controlStatus.isTimeOutError()) printf(" time-out");
+		if(_controlStatus.isBitstuffError()) printf(" bitstuff-error");
 	}
 
 	LinkPointer _linkPointer;
