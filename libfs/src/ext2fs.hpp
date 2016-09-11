@@ -389,15 +389,6 @@ private:
 	uint8_t buffer[128];
 };
 
-void processStatRequest(Connection *connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-void processSeekRequest(Connection *connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-void processMapRequest(Connection *connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
 struct OpenClosure {
 	OpenClosure(Connection &connection, int64_t response_id,
 			managarm::fs::CntRequest request);

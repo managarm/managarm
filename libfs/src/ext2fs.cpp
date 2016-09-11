@@ -626,6 +626,15 @@ OpenFile *Connection::getOpenFile(int handle) {
 	return fileHandles.at(handle);
 }
 
+cofiber::no_future processStatRequest(Connection *connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+cofiber::no_future processSeekRequest(Connection *connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
+cofiber::no_future processMapRequest(Connection *connection, int64_t response_id,
+			managarm::fs::CntRequest request);
+
 void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_seq,
 		size_t length) {
 	HEL_CHECK(error);
@@ -655,50 +664,48 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 	(*this)();
 }
 
-void processStatRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request) {
-	cofiber_routine<cofiber::no_future>([=] () {
-		// wait until the requested inode is ready
-		auto open_file = connection->getOpenFile(request.fd());
-		if(!open_file->inode->isReady)
-			cofiber_await(WaitForInode(open_file->inode));
+COFIBER_ROUTINE(cofiber::no_future, processStatRequest(Connection *connection, int64_t response_id,
+		managarm::fs::CntRequest request), [=], {
+	// wait until the requested inode is ready
+	auto open_file = connection->getOpenFile(request.fd());
+	if(!open_file->inode->isReady)
+		COFIBER_AWAIT WaitForInode(open_file->inode);
 
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		
-		switch(open_file->inode->fileType) {
-		case kTypeRegular:
-			response.set_file_type(managarm::fs::FileType::REGULAR); break;
-		case kTypeDirectory:
-			response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
-		case kTypeSymlink:
-			response.set_file_type(managarm::fs::FileType::SYMLINK); break;
-		default:
-			assert(!"Unexpected file type");
-		}
-		
-		response.set_inode_num(open_file->inode->number);
-		response.set_mode(open_file->inode->mode);
-		response.set_num_links(open_file->inode->numLinks);
-		response.set_uid(open_file->inode->uid);
-		response.set_gid(open_file->inode->gid);
-		response.set_file_size(open_file->inode->fileSize);
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
+	
+	switch(open_file->inode->fileType) {
+	case kTypeRegular:
+		response.set_file_type(managarm::fs::FileType::REGULAR); break;
+	case kTypeDirectory:
+		response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
+	case kTypeSymlink:
+		response.set_file_type(managarm::fs::FileType::SYMLINK); break;
+	default:
+		assert(!"Unexpected file type");
+	}
+	
+	response.set_inode_num(open_file->inode->number);
+	response.set_mode(open_file->inode->mode);
+	response.set_num_links(open_file->inode->numLinks);
+	response.set_uid(open_file->inode->uid);
+	response.set_gid(open_file->inode->gid);
+	response.set_file_size(open_file->inode->fileSize);
 
-		response.set_atime_secs(open_file->inode->atime.tv_sec);
-		response.set_atime_nanos(open_file->inode->atime.tv_nsec);
-		response.set_mtime_secs(open_file->inode->mtime.tv_sec);
-		response.set_mtime_nanos(open_file->inode->mtime.tv_nsec);
-		response.set_ctime_secs(open_file->inode->ctime.tv_sec);
-		response.set_ctime_nanos(open_file->inode->ctime.tv_nsec);
+	response.set_atime_secs(open_file->inode->atime.tv_sec);
+	response.set_atime_nanos(open_file->inode->atime.tv_nsec);
+	response.set_mtime_secs(open_file->inode->mtime.tv_sec);
+	response.set_mtime_nanos(open_file->inode->mtime.tv_nsec);
+	response.set_ctime_secs(open_file->inode->ctime.tv_sec);
+	response.set_ctime_nanos(open_file->inode->ctime.tv_nsec);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
+	std::string serialized;
+	response.SerializeToString(&serialized);
 
-		HelError resp_error = cofiber_await(connection->getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection->getFs().eventHub, response_id, 0));
-		HEL_CHECK(resp_error);
-	});
-}
+	HelError resp_error = COFIBER_AWAIT connection->getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection->getFs().eventHub, response_id, 0);
+	HEL_CHECK(resp_error);
+});
 
 // --------------------------------------------------------
 // OpenClosure
@@ -922,60 +929,56 @@ void ReadClosure::lockedMemory() {
 	libchain::run(std::move(action));
 }
 
-void processSeekRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request) {
-	cofiber_routine<cofiber::no_future>([=] () {
-		auto open_file = connection->getOpenFile(request.fd());
-		assert(open_file->inode->isReady);
+COFIBER_ROUTINE(cofiber::no_future, processSeekRequest(Connection *connection, int64_t response_id,
+		managarm::fs::CntRequest request), [=], {
+	auto open_file = connection->getOpenFile(request.fd());
+	assert(open_file->inode->isReady);
 
-		if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-			open_file->offset = request.rel_offset();
-		}else if(request.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-			open_file->offset += request.rel_offset();
-		}else if(request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-			open_file->offset = open_file->inode->fileSize;
-		}else{
-			printf("Illegal SEEK request");
-			abort();
-		}
-		
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
-		response.set_offset(open_file->offset);
+	if(request.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+		open_file->offset = request.rel_offset();
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+		open_file->offset += request.rel_offset();
+	}else if(request.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+		open_file->offset = open_file->inode->fileSize;
+	}else{
+		printf("Illegal SEEK request");
+		abort();
+	}
+	
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
+	response.set_offset(open_file->offset);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		HelError resp_error = cofiber_await(connection->getPipe().sendStringResp(serialized.data(), serialized.size(),
-				connection->getFs().eventHub, response_id, 0));
-		HEL_CHECK(resp_error);
-	});
-}
+	std::string serialized;
+	response.SerializeToString(&serialized);
+	
+	HelError resp_error = COFIBER_AWAIT connection->getPipe().sendStringResp(serialized.data(), serialized.size(),
+			connection->getFs().eventHub, response_id, 0);
+	HEL_CHECK(resp_error);
+});
 
-void processMapRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request) {
-	cofiber_routine<cofiber::no_future>([=] () {
-		// wait until the requested inode is ready
-		auto open_file = connection->getOpenFile(request.fd());
-		if(!open_file->inode->isReady)
-			cofiber_await(WaitForInode(open_file->inode));
+COFIBER_ROUTINE(cofiber::no_future, processMapRequest(Connection *connection, int64_t response_id,
+		managarm::fs::CntRequest request), [=], {
+	// wait until the requested inode is ready
+	auto open_file = connection->getOpenFile(request.fd());
+	if(!open_file->inode->isReady)
+		COFIBER_AWAIT WaitForInode(open_file->inode);
 
-		// send the response to the client
-		managarm::fs::SvrResponse response;
-		response.set_error(managarm::fs::Errors::SUCCESS);
+	// send the response to the client
+	managarm::fs::SvrResponse response;
+	response.set_error(managarm::fs::Errors::SUCCESS);
 
-		std::string serialized;
-		response.SerializeToString(&serialized);
-		
-		HelError resp_error = cofiber_await(connection->getPipe().sendStringResp(serialized.data(),
-				serialized.size(), connection->getFs().eventHub, response_id, 0));
-		HEL_CHECK(resp_error);
+	std::string serialized;
+	response.SerializeToString(&serialized);
+	
+	HelError resp_error = COFIBER_AWAIT connection->getPipe().sendStringResp(serialized.data(),
+			serialized.size(), connection->getFs().eventHub, response_id, 0);
+	HEL_CHECK(resp_error);
 
-		HelError data_error = cofiber_await(connection->getPipe().sendDescriptorResp(open_file->inode->frontalMemory,
-					connection->getFs().eventHub, response_id, 1));
-		HEL_CHECK(data_error);
-	});
-}
+	HelError data_error = COFIBER_AWAIT connection->getPipe().sendDescriptorResp(open_file->inode->frontalMemory,
+				connection->getFs().eventHub, response_id, 1);
+	HEL_CHECK(data_error);
+});
 
 } } // namespace libfs::ext2fs
 
