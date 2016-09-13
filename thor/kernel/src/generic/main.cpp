@@ -1,5 +1,6 @@
 
 #include "kernel.hpp"
+#include "module.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 
@@ -7,14 +8,6 @@ namespace thor {
 
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
-
-struct Module {
-	Module(frigg::StringView filename, PhysicalAddr physical)
-	: filename(filename), physical(physical) { }
-
-	frigg::StringView filename;
-	PhysicalAddr physical;
-};
 
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
@@ -221,7 +214,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				<< ", length: " << modules[i].length << frigg::endLog;
 
 		Module module(frigg::StringView(name_ptr, modules[i].nameLength),
-				modules[i].physicalBase);
+				modules[i].physicalBase, modules[i].length);
 		allModules->push(module);
 	}
 	

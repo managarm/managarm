@@ -153,6 +153,5 @@ extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 // --------------------------------------------------------
 
 extern frigg::LazyInitializer<helx::EventHub> eventHub;
-extern frigg::LazyInitializer<helx::Pipe> serverPipe;
-extern frigg::LazyInitializer<helx::Pipe> posixPipe;
+extern frigg::LazyInitializer<helx::Pipe> fsPipe;
 

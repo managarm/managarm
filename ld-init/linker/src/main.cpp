@@ -62,7 +62,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 }
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Pipe> posixPipe;
+frigg::LazyInitializer<helx::Pipe> fsPipe;
 
 template<typename T>
 T loadItem(char *&sp) {
@@ -153,7 +153,6 @@ extern "C" void *interpreterMain(char *sp) {
 	}
 
 	eventHub.initialize(helx::EventHub::create());
-	posixPipe.initialize();
 	
 	helx::Pipe superior(kHelThisUniverse);
 
@@ -179,6 +178,7 @@ extern "C" void *interpreterMain(char *sp) {
 		HEL_CHECK(error);
 	}
 	
+	// get the fs server so that we can load dependencies later.
 	{
 		managarm::xuniverse::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::xuniverse::CntReqType::GET_SERVER);
@@ -198,23 +198,10 @@ extern "C" void *interpreterMain(char *sp) {
 		superior.recvDescriptorRespSync(*eventHub,
 				0, 0, error, handle);
 		HEL_CHECK(error);
+
+		fsPipe.initialize(handle);
 	}
 
-	frigg::infoLogger() << "got the profile" << frigg::endLog;
-
-	/*const char *posix_path = "local/posix";
-	HelHandle posix_handle;
-	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
-	
-	int64_t posix_async_id;
-	HEL_CHECK(helSubmitConnect(posix_handle, eventHub->getHandle(),
-			kHelNoFunction, kHelNoObject, &posix_async_id));
-	HEL_CHECK(helCloseDescriptor(posix_handle));
-
-	HelError posix_error;
-	eventHub->waitForConnect(posix_async_id, posix_error, *posixPipe);
-	HEL_CHECK(posix_error);*/
-	
 	// perform the initial dynamic linking
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
