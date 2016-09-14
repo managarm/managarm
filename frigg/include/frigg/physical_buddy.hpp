@@ -2,70 +2,79 @@
 #include <limits.h>
 
 #include <frigg/optional.hpp>
+#include <frigg/variant.hpp>
 
 namespace frigg {
 
 namespace _buddy {
-//	typedef unsigned int BitElement;
-
-//	constexpr int kBitsInElement = sizeof(BitElement) * CHAR_BIT;
-
-/*	struct BitLayer {
-		BitLayer(int shift, size_t num_bits)
-		: shift(shift), numBits(num_bits),
-				fullSet(nullptr), partialSet(nullptr) { }
-
-		// each bit in the sets below represents a memory region of size (size_t(1) << shift).
-		int shift;
-
-		// number of bits in the sets below.
-		size_t numBits;
-
-		// bitset. a one bit in this set means that the whole corresponding region
-		// is available for allocation.
-		BitElement *fullSet;
-
-		// bitset. a one bit in this set means that parts of the corresponding region
-		// are available for allocation.
-		BitElement *partialSet;
-	};*/
-
 	inline unsigned long ceilTo2Power(unsigned long x) {
 		assert(x && x <= (ULONG_MAX / 2) + 1);
 		return 1 << (sizeof(unsigned long) * CHAR_BIT - __builtin_clzl(x - 1));
 	}
+	
+	// ----------------------------------------------------
+	// Facet code
+	// ----------------------------------------------------
 
-	struct CoverLayer {
-		CoverLayer(int shift, size_t num_pages, int *elements)
-		: shift(shift), numPages(num_pages), elements(elements) { }
+	struct BitFacet {
+		typedef unsigned int BitElement;
+
+		static constexpr int kBitsInElement = sizeof(BitElement) * CHAR_BIT;
+
+		BitFacet(BitElement *elements)
+		: elements(elements) { }
+	
+		bool testBit(uintptr_t b) {
+			uintptr_t e = b / kBitsInElement;
+			BitElement m = BitElement(1) << (b % kBitsInElement);
+			return elements[e] & m;
+		}
+		bool clearBit(uintptr_t b) {
+			uintptr_t e = b / kBitsInElement;
+			BitElement m = BitElement(1) << (b % kBitsInElement);
+			return elements[e] &= ~m;
+		}
+
+		// bitset. a one bit in this set means that the corresponding page
+		// is available for allocation.
+		BitElement *elements;
+	};
+
+	struct AggregateFacet {
+		AggregateFacet(int *elements)
+		: elements(elements) { }
 		
-		int shift;
-
-		size_t numPages;
-
 		int *elements;
 	};
 
-/*	inline bool testBit(BitElement *set, uintptr_t b) {
-		uintptr_t e = b / kBitsInElement;
-		BitElement m = BitElement(1) << (b % kBitsInElement);
-		return set[e] & m;
-	}
-	inline bool testSomeBits(BitElement *set, uintptr_t f, size_t n) {
-		for(size_t i = 0; i < n; i++)
-			if(testBit(set, f + i))
-				return true;
-		return false;
-	}
+	// ----------------------------------------------------
+	// Layer, Chunk and Allocator code
+	// ----------------------------------------------------
 
-	inline bool clearBit(BitElement *set, uintptr_t b) {
-		uintptr_t e = b / kBitsInElement;
-		BitElement m = BitElement(1) << (b % kBitsInElement);
-		return set[e] &= ~m;
-	}*/
+	using AnyFacet = Variant<
+		BitFacet,
+		AggregateFacet
+	>;
 
+	struct Layer {
+		Layer(int shift, size_t num_pages, AnyFacet facet)
+		: shift(shift), numPages(num_pages), facet(facet) { }
+		
+		// each page in this layer has a size of (size_t(1) << shift).
+		int shift;
+
+		// number of pages in this layer.
+		size_t numPages;
+
+		// facet that stores which pages are allocated/free.
+		AnyFacet facet;
+	};
+
+	// a chunk describes a contiguous region of memory.
+	// this memory is managed by multiple layers that divide the chunk
+	// into pages at multiple granularities.
 	struct Chunk {
-		Chunk(uintptr_t base, int num_levels, CoverLayer *layer)
+		Chunk(uintptr_t base, int num_levels, Layer *layer)
 		: base(base), numLevels(num_levels), layers(layer) { }
 
 		// base address of the memory region represented by this chunk.
@@ -75,7 +84,7 @@ namespace _buddy {
 		int numLevels;
 
 		// array of layers that represent this chunk.
-		CoverLayer *layers;
+		Layer *layers;
 	};
 
 	inline void *reserve(void *&intern, void *limit, size_t size) {
@@ -99,12 +108,15 @@ namespace _buddy {
 			size_t overhead = sizeof(Chunk);
 			for(int s = fine_shift; s <= coarse_shift; s++) {
 				size_t num_pages = chunk_length >> s;
-//------------------------------------------------
-//				size_t num_elements = ((chunk_length >> s)
-//							+ kBitsInElement - 1) / kBitsInElement;
-//				overhead += sizeof(BitLayer) + 2 * sizeof(BitElement) * num_elements;
-//------------------------------------------------
-				overhead += sizeof(CoverLayer) + sizeof(int) * num_pages;
+
+				// the finest layer is stored as a bitset.
+				if(s == fine_shift) {
+					size_t num_elements = (num_pages + BitFacet::kBitsInElement - 1)
+							/ BitFacet::kBitsInElement;
+					overhead += sizeof(Layer) + sizeof(BitFacet::BitElement) * num_elements;
+				}else{
+					overhead += sizeof(Layer) + sizeof(int) * num_pages;
+				}
 			}
 			return overhead;
 		}
@@ -121,33 +133,28 @@ namespace _buddy {
 					fine_shift, coarse_shift);
 
 			int num_levels = coarse_shift - fine_shift + 1;
-//------------------------------------------
-/*			auto layers = (BitLayer *)reserve(intern, limit, sizeof(BitLayer) * num_levels);
+			auto layers = (Layer *)reserve(intern, limit, sizeof(Layer) * num_levels);
 
 			for(int i = 0; i < num_levels; i++) {
-				size_t shift = fine_shift + i;
-				size_t num_bits = chunk_length >> shift;
-				auto layer = new (&layers[i]) BitLayer(shift, num_bits);
-				
-				size_t num_elements = (num_bits + kBitsInElement - 1) / kBitsInElement;
-				size_t set_size = sizeof(BitElement) * num_elements;
-				layer->fullSet = (BitElement *)reserve(intern, limit, set_size);
-				layer->partialSet = (BitElement *)reserve(intern, limit, set_size);
-				memset(layer->fullSet, 0xFF, set_size);
-				memset(layer->partialSet, 0xFF, set_size);
-			}
-*/
-//------------------------------------------
-			auto layers = (CoverLayer *)reserve(intern, limit, sizeof(CoverLayer) * num_levels);
-			for(int i = 0; i < num_levels; i++) {
-				size_t shift = coarse_shift - i;
+				int shift = coarse_shift - i;
 				size_t num_pages = chunk_length >> shift;
 
-				auto elements = (int *)reserve(intern, limit, sizeof(int) * num_pages);
-				for(size_t e = 0; e < num_pages; e++)
-					elements[e] = shift;
-				
-				new (&layers[i]) CoverLayer(shift, num_pages, elements);
+				// the finest layer is stored as a bitset.
+				if(shift == fine_shift) {
+					size_t num_elements = (num_pages + BitFacet::kBitsInElement - 1)
+							/ BitFacet::kBitsInElement;
+					size_t set_size = sizeof(BitFacet::BitElement) * num_elements;
+					auto elements = (BitFacet::BitElement *)reserve(intern, limit, set_size);
+					memset(elements, 0xFF, set_size);
+
+					new (&layers[i]) Layer(shift, num_pages, BitFacet(elements));
+				}else{
+					auto elements = (int *)reserve(intern, limit, sizeof(int) * num_pages);
+					for(size_t e = 0; e < num_pages; e++)
+						elements[e] = shift;
+					
+					new (&layers[i]) Layer(shift, num_pages, AggregateFacet(elements));
+				}
 			}
 			
 			assert(!_singleChunk);
@@ -179,86 +186,66 @@ namespace _buddy {
 			uintptr_t f = bank_offset >> layer->shift;
 			size_t n = bank_size >> layer->shift;
 
-//------------------------------------------
-/*			BitLayer *layer = &chunk->layers[level];
-
-			if(size == size_t(1) << layer->shift) {
-				// we allocate a memory region from this layer.
-				// first we allocate a bit from the given bank.
+			switch(layer->facet.tag()) {
+			case AnyFacet::tagOf<BitFacet>(): {
+				auto facet = &layer->facet.get<BitFacet>();
+				assert(size == size_t(1) << layer->shift);
+				
 				size_t k = 0;
-				while(k < n && !testBit(layer->fullSet, f + k))
+				while(k < n && !facet->testBit(f + k))
 					k++;
 
 				// note that this can only happen in the first level.
-				assert(k < n);
-//				if(k == n)
-//					return nullOpt;
+				if(k == n)
+					return nullOpt;
 			
-				clearBit(layer->fullSet, f + k);
-				clearBit(layer->partialSet, f + k);
+				facet->clearBit(f + k);
 
-				return AllocateSuccess(!testSomeBits(layer->partialSet, f, n),
-						uintptr_t(f + k) << layer->shift);
-			}else{
-				size_t k = 0;
-				while(k < n && !testBit(layer->partialSet, f + k))
-					k++;
+				return AllocateSuccess(uintptr_t(f + k) << layer->shift, 0);
+			}
+			case AnyFacet::tagOf<AggregateFacet>(): {
+				auto facet = &layer->facet.get<AggregateFacet>();
+				if(size == size_t(1) << layer->shift) {
+					size_t k = 0;
+					while(k < n && (size_t(1) << facet->elements[f + k]) < size)
+						k++;
 
-				// note that this can only happen in the first level.
-				if(k == n)
-					return nullOpt;
+					// note that this can only happen in the first level.
+					if(k == n)
+						return nullOpt;
 
-				// note: we can be sure that this allocation succeeds;
-				// otherwise the corresponding region would have been marked as allocated.
-				auto result = _allocateInLayer(size, chunk, level + 1,
-						uintptr_t(f + k) << layer->shift, size_t(1) << layer->shift);
-				assert(result);
-				
-				clearBit(layer->fullSet, f + k);
-				if(result->bankFull)
-					clearBit(layer->partialSet, f + k);
+					assert(facet->elements[f + k] == layer->shift);
+					facet->elements[f + k] = 0;
+					
+					int bank_shift = 0;
+					for(size_t i = 0; i < n; i++)
+						bank_shift = max(bank_shift, facet->elements[f + i]);
+					return AllocateSuccess(uintptr_t(f + k) << layer->shift, bank_shift);
+				}else{
+					size_t k = 0;
+					while(k < n && (size_t(1) << facet->elements[f + k]) < size)
+						k++;
 
-				return AllocateSuccess(!testSomeBits(layer->partialSet, f, n),
-						result->offset);
-			}*/
-//------------------------------------------
-			if(size == size_t(1) << layer->shift) {
-				size_t k = 0;
-				while(k < n && (size_t(1) << layer->elements[f + k]) < size)
-					k++;
+					// note that this can only happen in the first level.
+					if(k == n)
+						return nullOpt;
 
-				// note that this can only happen in the first level.
-				if(k == n)
-					return nullOpt;
-
-				assert(layer->elements[f + k] == layer->shift);
-				layer->elements[f + k] = 0;
-				
-				int bank_shift = 0;
-				for(size_t i = 0; i < n; i++)
-					bank_shift = max(bank_shift, layer->elements[f + i]);
-				return AllocateSuccess(uintptr_t(f + k) << layer->shift, bank_shift);
-			}else{
-				size_t k = 0;
-				while(k < n && (size_t(1) << layer->elements[f + k]) < size)
-					k++;
-
-				// note that this can only happen in the first level.
-				if(k == n)
-					return nullOpt;
-
-				// note: we can be sure that this allocation succeeds;
-				// otherwise the corresponding region would have been marked as allocated.
-				auto result = _allocateInLayer(size, chunk, level + 1,
-						uintptr_t(f + k) << layer->shift, size_t(1) << layer->shift);
-				assert(result);
-				
-				layer->elements[f + k] = result->bankShift;
-	
-				int bank_shift = 0;
-				for(size_t i = 0; i < n; i++)
-					bank_shift = max(bank_shift, layer->elements[f + i]);
-				return AllocateSuccess(result->offset, bank_shift);
+					// note: we can be sure that this allocation succeeds;
+					// otherwise the corresponding region would have been marked as allocated.
+					auto result = _allocateInLayer(size, chunk, level + 1,
+							uintptr_t(f + k) << layer->shift, size_t(1) << layer->shift);
+					assert(result);
+					
+					facet->elements[f + k] = result->bankShift;
+		
+					int bank_shift = 0;
+					for(size_t i = 0; i < n; i++)
+						bank_shift = max(bank_shift, facet->elements[f + i]);
+					return AllocateSuccess(result->offset, bank_shift);
+				}
+			}
+			default:
+				assert(!"AnyFacet: Unexpected tag");
 			}
 		}
 
