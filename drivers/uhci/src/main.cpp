@@ -20,6 +20,33 @@
 #include "usb.hpp"
 #include "uhci.hpp"
 
+struct ContiguousPolicy {
+public:
+	uintptr_t map(size_t length) {
+		assert((length % 0x1000) == 0);
+
+		HelHandle memory;
+		void *actual_ptr;
+		HEL_CHECK(helAllocateMemory(length, kHelAllocContinuous, &memory));
+		HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, length,
+				kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &actual_ptr));
+		HEL_CHECK(helCloseDescriptor(memory));
+		return (uintptr_t)actual_ptr;
+	}
+
+	void unmap(uintptr_t address, size_t length) {
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, (void *)address, length));
+	}
+};
+
+using ContiguousAllocator = frigg::SlabAllocator<
+	ContiguousPolicy,
+	frigg::TicketLock
+>;
+
+ContiguousPolicy contiguousPolicy;
+ContiguousAllocator contiguousAllocator(contiguousPolicy);
+
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 
@@ -49,7 +76,7 @@ struct Transaction {
 
 		size_t max_size = _device->endpoints[_endpoint].maxPacketSize;
 		_numTransfers = (_setup.wLength + max_size - 1) / max_size;
-		_queue = queue_allocator.allocate(1);
+		_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
 		_transfers = transfer_allocator.allocate(_numTransfers + 2);
 	
 		new (_queue) QueueHead;

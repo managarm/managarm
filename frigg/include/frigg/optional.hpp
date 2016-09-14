@@ -141,10 +141,15 @@ expected_impl::ErrorConstructor<typename RemoveRef<E>::type> error(E &&error) {
 	return expected_impl::ErrorConstructor<typename RemoveRef<E>::type>(forward<E>(error));
 }
 
+struct NullOpt { };
+static constexpr NullOpt nullOpt;
+
 template<typename T>
 class Optional {
 public:
 	Optional() : p_hasOptional(false) { }
+	
+	Optional(NullOpt) : p_hasOptional(false) { }
 
 	Optional(const T &object) : p_hasOptional(true) {
 		new (&p_union.object) T(object);

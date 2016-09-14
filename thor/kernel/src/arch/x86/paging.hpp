@@ -14,7 +14,8 @@ T *accessPhysicalN(PhysicalAddr address, int n) {
 }
 
 enum {
-	kPageSize = 0x1000
+	kPageSize = 0x1000,
+	kPageShift = 12
 };
 
 class PageSpace {

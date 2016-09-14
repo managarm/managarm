@@ -112,7 +112,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::endLog;
 
 	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
-	physicalAllocator->addChunk(info->bootstrapPhysical, info->bootstrapLength);
 	physicalAllocator->bootstrap();
 
 	PhysicalAddr pml4_ptr;

@@ -8,6 +8,7 @@
 #include <frigg/initializer.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory.hpp>
+#include <frigg/physical_buddy.hpp>
 #include <frigg/optional.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/string.hpp>
