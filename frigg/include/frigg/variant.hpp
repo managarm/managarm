@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_VARIANT_HPP
+#define FRIGG_VARIANT_HPP
+
 #include <frigg/traits.hpp>
 
 namespace frigg {
@@ -242,4 +245,5 @@ private:
 
 } // namespace frigg
 
+#endif // FRIGG_VARIANT_HPP
 
