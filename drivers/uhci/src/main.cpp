@@ -19,6 +19,7 @@
 
 #include "usb.hpp"
 #include "uhci.hpp"
+#include "hid.hpp"
 
 struct ContiguousPolicy {
 public:
@@ -71,13 +72,10 @@ struct Transaction {
 	void buildQueue(void *buffer) {
 		assert((_flags & kXferToDevice) || (_flags & kXferToHost));
 
-		std::allocator<TransferDescriptor> transfer_allocator;
-		std::allocator<QueueHead> queue_allocator;
-
 		size_t max_size = _device->endpoints[_endpoint].maxPacketSize;
 		_numTransfers = (_setup.wLength + max_size - 1) / max_size;
 		_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
-		_transfers = transfer_allocator.allocate(_numTransfers + 2);
+		_transfers = (TransferDescriptor *)contiguousAllocator.allocate((_numTransfers + 2) * sizeof(TransferDescriptor));
 	
 		new (_queue) QueueHead;
 		_queue->_elementPointer = QueueHead::ElementPointer::from(&_transfers[0]);
@@ -369,6 +367,83 @@ private:
 	ControlTransfer _xfer;
 };
 
+uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
+	uint32_t x = 0;
+	for(int i = 0; i < n; i++) {
+		x = (x << 8) | *p++;
+		assert(p <= limit);
+	}
+	return x;
+}
+
+COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Controller> controller,
+		std::shared_ptr<Device> device), [=], {
+	size_t length = 52;
+	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestInterface, kStandard, SetupPacket::kGetDescriptor, 34 << 8, 0,
+			buffer, length));
+
+	uint8_t *p = buffer;
+	uint8_t *limit = buffer + length;
+	while(p < limit) {
+		uint8_t token = fetch(p, limit);
+		uint32_t data = fetch(p, limit, token & 0x03);
+		switch(token & 0xFC) {
+		// Main items
+		case 0xC0:
+			printf("End Collection: 0x%x\n", data);
+			break;
+
+		case 0xA0:
+			printf("Collection: 0x%x\n", data);
+			break;
+
+		case 0x80:
+			printf("Input: 0x%x\n", data);
+			break;
+
+		// Global items
+		case 0x94:
+			printf("Report Count: 0x%x\n", data);
+			break;
+		
+		case 0x74:
+			printf("Report Size: 0x%x\n", data);
+			break;
+		
+		case 0x24:
+			printf("Logical Maximum: 0x%x\n", data);
+			break;
+		
+		case 0x14:
+			printf("Logical Minimum: 0x%x\n", data);
+			break;
+		
+		case 0x04:
+			printf("Usage Page: 0x%x\n", data);
+			break;
+
+		// Local items
+		case 0x28:
+			printf("Usage Maximum: 0x%x\n", data);
+			break;
+		
+		case 0x18:
+			printf("Usage Minimum: 0x%x\n", data);
+			break;
+			
+		case 0x08:
+			printf("Usage: 0x%x\n", data);
+			break;
+
+		default:
+			printf("Unexpected token: 0x%x\n", token & 0xFC);
+			abort();
+		}
+	}
+})
+
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=], {
 	auto device = std::make_shared<Device>();
 	device->address = 0;
@@ -379,27 +454,76 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 			nullptr, 0));
 	device->address = 1;
 
-	DeviceDescriptor descriptor;
+	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescDevice, 0,
-			&descriptor, 8));
-	device->endpoints[0].maxPacketSize = descriptor.maxPacketSize;
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+			descriptor, 8));
+	device->endpoints[0].maxPacketSize = descriptor->maxPacketSize;
 	
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescDevice, 0,
-			&descriptor, sizeof(DeviceDescriptor)));
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+			descriptor, sizeof(DeviceDescriptor)));
+	assert(descriptor->length == sizeof(DeviceDescriptor));
 	
-	ConfigDescriptor config;
+	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescConfig, 0,
-			&config, sizeof(ConfigDescriptor)));
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			config, sizeof(ConfigDescriptor)));
+	assert(config->length == sizeof(ConfigDescriptor));
 
-	auto buffer = (uint8_t *)malloc(config._totalLength);
-	
+	auto buffer = (uint8_t *)contiguousAllocator.allocate(config->totalLength);
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, SetupPacket::kDescConfig, 0,
-			&buffer, config._totalLength));
-});
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			buffer, config->totalLength));
+
+	auto p = buffer + config->length;
+	auto limit = buffer + config->totalLength;
+	while(p < limit) {
+		auto base = (DescriptorBase *)p;
+		p += base->length;
+
+		if(base->descriptorType == kDescriptorInterface) {
+			auto desc = (InterfaceDescriptor *)base;
+			assert(desc->length == sizeof(InterfaceDescriptor));
+
+			printf("Interface:\n");
+			printf("   if num:%d \n", desc->interfaceNumber);	
+			printf("   alternate setting:%d \n", desc->alternateSetting);	
+			printf("   num endpoints:%d \n", desc->numEndpoints);	
+			printf("   if class:%d \n", desc->interfaceClass);	
+			printf("   if sub class:%d \n", desc->interfaceSubClass);	
+			printf("   if protocoll:%d \n", desc->interfaceProtocoll);	
+			printf("   if id:%d \n", desc->iInterface);	
+		}else if(base->descriptorType == kDescriptorEndpoint) {
+			auto desc = (EndpointDescriptor *)base;
+			assert(desc->length == sizeof(EndpointDescriptor));
+
+			printf("Endpoint:\n");
+			printf("   endpoint address:%d \n", desc->endpointAddress);	
+			printf("   attributes:%d \n", desc->attributes);	
+			printf("   max packet size:%d \n", desc->maxPacketSize);	
+			printf("   interval:%d \n", desc->interval);
+		}else if(base->descriptorType == kDescriptorHid) {
+			auto desc = (HidDescriptor *)base;
+			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
+			
+			printf("HID:\n");
+			printf("   hid class:%d \n", desc->hidClass);
+			printf("   country code:%d \n", desc->countryCode);
+			printf("   num descriptors:%d \n", desc->numDescriptors);
+			printf("   Entries:\n");
+			for(size_t entry = 0; entry < desc->numDescriptors; entry++) {
+				printf("        Entry %lu:\n", entry);
+				printf("        length:%d\n", desc->entries[entry].descriptorLength);
+				printf("        type:%d\n", desc->entries[entry].descriptorType);
+			}
+		}else{
+			printf("Unexpected descriptor type: %d!\n", base->descriptorType);
+		}
+	}
+
+	parseReportDescriptor(controller, device);
+})
 
 // --------------------------------------------------------
 // InitClosure

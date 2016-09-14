@@ -18,6 +18,15 @@ enum ControlType {
 	kReserved = 3
 };
 
+enum DescriptorType {
+	kDescriptorDevice = 0x01,
+	kDescriptorConfig = 0x02,
+	kDescriptorString = 0x03,
+	kDescriptorInterface = 0x04,
+	kDescriptorEndpoint = 0x05,
+	kDescriptorHid = 0x21
+};
+
 // Alignment makes sure that a packet doesnt cross a page boundary
 struct alignas(8) SetupPacket {
 	enum Request {
@@ -29,14 +38,6 @@ struct alignas(8) SetupPacket {
 		kSetDescriptor = 0x07,
 		kGetConfig = 0x08,
 		kSetConfig = 0x09
-	};
-
-	enum DescriptorType {
-		kDescDevice = 0x0100,
-		kDescConfig = 0x0200,
-		kDescString = 0x0300,
-		kDescInterface = 0x0400,
-		kDescEndpoint = 0x0500
 	};
 
 	static constexpr uint8_t RecipientBits = 0;
@@ -58,9 +59,12 @@ struct alignas(8) SetupPacket {
 };
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
 
-struct DeviceDescriptor {
+struct DescriptorBase {
 	uint8_t length;
 	uint8_t descriptorType;
+};
+
+struct DeviceDescriptor : public DescriptorBase {
 	uint16_t bcdUsb;
 	uint8_t deviceClass;
 	uint8_t deviceSubclass;
@@ -77,14 +81,29 @@ struct DeviceDescriptor {
 //FIXME: remove alignas
 //static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");
 
-struct ConfigDescriptor {
-	uint8_t _length;
-	uint8_t _descriptorType;
-	uint16_t _totalLength;
-	uint8_t _numInterfaces;
-	uint8_t _configValue;
-	uint8_t _iConfig;
-	uint8_t _bmAttributes;
-	uint8_t _maxPower;
+struct [[ gnu::packed ]] ConfigDescriptor : public DescriptorBase {
+	uint16_t totalLength;
+	uint8_t numInterfaces;
+	uint8_t configValue;
+	uint8_t iConfig;
+	uint8_t bmAttributes;
+	uint8_t maxPower;
+};
+
+struct InterfaceDescriptor : public DescriptorBase {
+	uint8_t interfaceNumber;
+	uint8_t alternateSetting;
+	uint8_t numEndpoints;
+	uint8_t interfaceClass;
+	uint8_t interfaceSubClass;
+	uint8_t interfaceProtocoll;
+	uint8_t iInterface;
+};
+
+struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
+	uint8_t endpointAddress;
+	uint8_t attributes;
+	uint16_t maxPacketSize;
+	uint8_t interval;
 };
 
