@@ -172,7 +172,7 @@ public:
 		second = Pipe(second_handle);
 	}
 
-	inline Pipe() : p_handle(kHelNullHandle) { }
+	inline Pipe() : _handle(kHelNullHandle) { }
 
 	inline Pipe(Pipe &&other)
 	: Pipe() {
@@ -181,10 +181,11 @@ public:
 
 	inline Pipe(const Pipe &other) = delete;
 
-	explicit inline Pipe(HelHandle handle) : p_handle(handle) { }
+	explicit inline Pipe(HelHandle handle) : _handle(handle) { }
 
 	inline ~Pipe() {
-		reset();
+		if(_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(_handle));
 	}
 
 	inline Pipe &operator= (Pipe other) {
@@ -192,19 +193,17 @@ public:
 		return *this;
 	}
 
-	inline void reset() {
-		if(p_handle != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(p_handle));
-		p_handle = kHelNullHandle;
+	inline void release() {
+		_handle = kHelNullHandle;
 	}
 
 	friend inline void swap(Pipe &a, Pipe &b) {
 		using frigg::swap;
-		swap(a.p_handle, b.p_handle);
+		swap(a._handle, b._handle);
 	}
 
 	inline HelHandle getHandle() {
-		return p_handle;
+		return _handle;
 	}
 
 	inline void sendString(const void *buffer, size_t length,
@@ -225,7 +224,7 @@ public:
 		HelHandle hub_handle = event_hub.getHandle();
 		return frigg::await<void(HelError)>([=] (auto callback) {
 			int64_t async_id;
-			HEL_CHECK(helSubmitSendString(p_handle, hub_handle, 
+			HEL_CHECK(helSubmitSendString(_handle, hub_handle, 
 					buffer, length, msg_request, msg_seq,
 					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 					flags, &async_id));
@@ -244,7 +243,7 @@ public:
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitSendString(p_handle, event_hub.getHandle(),
+		HEL_CHECK(helSubmitSendString(_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, length, msg_request, msg_seq,
 				0, 0, flags, &async_id));
 		event_hub.waitForSendString(async_id, error);
@@ -281,7 +280,7 @@ public:
 		HelHandle hub_handle = event_hub.getHandle();
 		return frigg::await<void(HelError)>([=] (auto callback) {
 			int64_t async_id;
-			HEL_CHECK(helSubmitSendDescriptor(p_handle, hub_handle,
+			HEL_CHECK(helSubmitSendDescriptor(_handle, hub_handle,
 					send_handle, msg_request, msg_seq,
 					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 					flags, &async_id));
@@ -300,7 +299,7 @@ public:
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitSendDescriptor(p_handle, event_hub.getHandle(),
+		HEL_CHECK(helSubmitSendDescriptor(_handle, event_hub.getHandle(),
 				send_handle, msg_request, msg_seq,
 				0, 0, flags, &async_id));
 		event_hub.waitForSendString(async_id, error);
@@ -320,7 +319,7 @@ public:
 		HelHandle hub_handle = event_hub.getHandle();
 		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([=] (auto callback) {
 			int64_t async_id;
-			HEL_CHECK(helSubmitRecvString(p_handle, hub_handle,
+			HEL_CHECK(helSubmitRecvString(_handle, hub_handle,
 					(uint8_t *)buffer, max_length, msg_request, msg_seq,
 					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 					flags, &async_id));
@@ -341,7 +340,7 @@ public:
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t)> callback,
 			uint32_t flags) {
 		int64_t async_id;
-		return helSubmitRecvString(p_handle, event_hub.getHandle(),
+		return helSubmitRecvString(_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
@@ -351,7 +350,7 @@ public:
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, size_t, size_t, size_t)> callback,
 			uint32_t flags) {
 		int64_t async_id;
-		return helSubmitRecvStringToRing(p_handle, event_hub.getHandle(),
+		return helSubmitRecvStringToRing(_handle, event_hub.getHandle(),
 				ring_handle, msg_request, msg_seq,
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id);
@@ -379,7 +378,7 @@ public:
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error, size_t &length) {
 		int64_t async_id;
-		HelError submit_error = helSubmitRecvString(p_handle, event_hub.getHandle(),
+		HelError submit_error = helSubmitRecvString(_handle, event_hub.getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
 				0, 0, flags, &async_id);
 		if(submit_error != kHelErrNone) {
@@ -406,7 +405,7 @@ public:
 			frigg::CallbackPtr<void(HelError, int64_t, int64_t, HelHandle)> callback,
 			uint32_t flags) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
+		HEL_CHECK(helSubmitRecvDescriptor(_handle, event_hub.getHandle(),
 				msg_request, msg_seq,
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
 				flags, &async_id));
@@ -426,7 +425,7 @@ public:
 			int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error, HelHandle &handle) {
 		int64_t async_id;
-		HEL_CHECK(helSubmitRecvDescriptor(p_handle, event_hub.getHandle(),
+		HEL_CHECK(helSubmitRecvDescriptor(_handle, event_hub.getHandle(),
 				msg_request, msg_seq, 0, 0, flags, &async_id));
 		event_hub.waitForRecvDescriptor(async_id, error, handle);
 	}
@@ -444,7 +443,7 @@ public:
 	}
 
 private:
-	HelHandle p_handle;
+	HelHandle _handle;
 };
 
 class Client {

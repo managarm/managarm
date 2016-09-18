@@ -202,6 +202,8 @@ extern "C" void *interpreterMain(char *sp) {
 		fsPipe.initialize(handle);
 	}
 
+	superior.release();
+
 	// perform the initial dynamic linking
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
