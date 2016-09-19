@@ -665,7 +665,7 @@ void Connection::recvRequest(HelError error, int64_t msg_request, int64_t msg_se
 }
 
 COFIBER_ROUTINE(cofiber::no_future, processStatRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request), [=], {
+		managarm::fs::CntRequest request), [=] () {
 	// wait until the requested inode is ready
 	auto open_file = connection->getOpenFile(request.fd());
 	if(!open_file->inode->isReady)
@@ -930,7 +930,7 @@ void ReadClosure::lockedMemory() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, processSeekRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request), [=], {
+		managarm::fs::CntRequest request), [=] () {
 	auto open_file = connection->getOpenFile(request.fd());
 	assert(open_file->inode->isReady);
 
@@ -958,7 +958,7 @@ COFIBER_ROUTINE(cofiber::no_future, processSeekRequest(Connection *connection, i
 });
 
 COFIBER_ROUTINE(cofiber::no_future, processMapRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request), [=], {
+		managarm::fs::CntRequest request), [=] () {
 	// wait until the requested inode is ready
 	auto open_file = connection->getOpenFile(request.fd());
 	if(!open_file->inode->isReady)

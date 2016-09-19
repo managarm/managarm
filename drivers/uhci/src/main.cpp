@@ -377,7 +377,7 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Controller> controller,
-		std::shared_ptr<Device> device), [=], {
+		std::shared_ptr<Device> device), [=] () {
 	size_t length = 52;
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
@@ -444,7 +444,7 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 	}
 })
 
-COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=], {
+COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=] () {
 	auto device = std::make_shared<Device>();
 	device->address = 0;
 	device->endpoints[0].maxPacketSize = 8;
