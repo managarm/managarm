@@ -155,3 +155,9 @@ extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 extern frigg::LazyInitializer<helx::EventHub> eventHub;
 extern frigg::LazyInitializer<helx::Pipe> fsPipe;
 
+// --------------------------------------------------------
+// RTDL interface
+// --------------------------------------------------------
+
+void *rtdl_auxvector();
+

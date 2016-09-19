@@ -63,6 +63,15 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
 frigg::LazyInitializer<helx::Pipe> fsPipe;
+void *auxiliaryPtr;
+
+extern "C" [[ gnu::visibility("default") ]] void *__rtdl_auxvector() {
+	return auxiliaryPtr;
+}
+
+extern "C" [[ gnu::visibility("default") ]] void __rtdl_setupTcb() {
+	allocateTcb();
+}
 
 template<typename T>
 T loadItem(char *&sp) {
@@ -74,6 +83,7 @@ T loadItem(char *&sp) {
 
 extern "C" void *interpreterMain(char *sp) {
 	frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
+	auxiliaryPtr = sp;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 
@@ -85,7 +95,10 @@ extern "C" void *interpreterMain(char *sp) {
 		AT_PHDR = 3,
 		AT_PHENT = 4,
 		AT_PHNUM = 5,
-		AT_ENTRY = 9
+		AT_ENTRY = 9,
+		
+		AT_OPENFILES = 0x1001,
+		AT_FS_SERVER = 0x1102
 	};
 
 	struct Auxiliary {
@@ -114,6 +127,12 @@ extern "C" void *interpreterMain(char *sp) {
 			case AT_PHENT: phdr_entry_size = aux.longValue; break;
 			case AT_PHNUM: phdr_count = aux.longValue; break;
 			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
+			case AT_FS_SERVER:
+				fsPipe.initialize(aux.longValue);
+				break;
+			case AT_OPENFILES:
+				// ignore these auxiliary vector entries.
+				break;
 		default:
 			frigg::panicLogger() << "Unexpected auxiliary item type "
 					<< aux.type << frigg::endLog;
@@ -153,56 +172,6 @@ extern "C" void *interpreterMain(char *sp) {
 	}
 
 	eventHub.initialize(helx::EventHub::create());
-	
-	helx::Pipe superior(kHelThisUniverse);
-
-	// determine the profile we are running in
-	{
-		managarm::xuniverse::CntRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::xuniverse::CntReqType::GET_PROFILE);
-
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-
-		HelError error;
-		superior.sendStringReqSync(serialized.data(), serialized.size(), *eventHub,
-				0, 0, error);
-		HEL_CHECK(error);
-	}
-	{
-		uint8_t buffer[128];
-		HelError error;
-		size_t length;
-		superior.recvStringRespSync(buffer, 128, *eventHub,
-				0, 0, error, length);
-		HEL_CHECK(error);
-	}
-	
-	// get the fs server so that we can load dependencies later.
-	{
-		managarm::xuniverse::CntRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::xuniverse::CntReqType::GET_SERVER);
-		request.set_server(frigg::String<Allocator>(*allocator, "fs"));
-
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-
-		HelError error;
-		superior.sendStringReqSync(serialized.data(), serialized.size(), *eventHub,
-				0, 0, error);
-		HEL_CHECK(error);
-	}
-	{
-		HelError error;
-		HelHandle handle;
-		superior.recvDescriptorRespSync(*eventHub,
-				0, 0, error, handle);
-		HEL_CHECK(error);
-
-		fsPipe.initialize(handle);
-	}
-
-	superior.release();
 
 	// perform the initial dynamic linking
 	globalScope.initialize();

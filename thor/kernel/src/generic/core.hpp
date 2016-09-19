@@ -242,7 +242,7 @@ public:
 	Channel &superiorSendChannel() { return _channels[1]; }
 	Channel &superiorRecvChannel() { return _channels[0]; }
 	
-	Handle attachDescriptor(Guard &guard, AnyDescriptor &&descriptor);
+	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
 
 	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
 	

@@ -11,10 +11,10 @@ $c_CXX = x86_64-managarm-g++
 $c_INCLUDES := -I$($c_GENDIR) -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
-$c_CXXFLAGS += -DFRIGG_NO_LIBC
+$c_CXXFLAGS += -std=c++1y -Wall
+$c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LDFLAGS := -nostdlib
+$c_LDFLAGS :=
 
 $($c_BINDIR)/mbus: $($c_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS)

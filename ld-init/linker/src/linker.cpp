@@ -331,7 +331,7 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	processDependencies(object);
 }
 
-frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
+frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	managarm::fs::CntRequest<Allocator> open_request(*allocator);
 	open_request.set_req_type(managarm::fs::CntReqType::OPEN);
 	open_request.set_path(path);
@@ -354,29 +354,34 @@ frigg::Optional<int> posixOpen(frigg::String<Allocator> path) {
 	open_response.ParseFromArray(open_buffer, open_length);
 
 	if(open_response.error() == managarm::fs::Errors::FILE_NOT_FOUND)
-		return frigg::Optional<int>();
+		return frigg::nullOpt;
 	assert(open_response.error() == managarm::fs::Errors::SUCCESS);
-	return open_response.fd();
+	
+	HelError handle_error;
+	HelHandle file_handle;
+	fsPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, file_handle);
+	HEL_CHECK(handle_error);
+
+	return helx::Pipe(file_handle);
 }
 
-void posixSeek(int fd, int64_t offset) {
+void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	managarm::fs::CntRequest<Allocator> seek_request(*allocator);
 	seek_request.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
-	seek_request.set_fd(fd);
 	seek_request.set_rel_offset(offset);
 	
 	frigg::String<Allocator> seek_serialized(*allocator);
 	seek_request.SerializeToString(&seek_serialized);
 
 	HelError send_seek_error;
-	fsPipe->sendStringReqSync(seek_serialized.data(), seek_serialized.size(),
+	pipe.sendStringReqSync(seek_serialized.data(), seek_serialized.size(),
 			*eventHub, 0, 0, send_seek_error);
 	HEL_CHECK(send_seek_error);
 
 	uint8_t seek_buffer[128];
 	HelError recv_seek_error;
 	size_t seek_length;
-	fsPipe->recvStringRespSync(seek_buffer, 128, *eventHub, 0, 0, recv_seek_error, seek_length);
+	pipe.recvStringRespSync(seek_buffer, 128, *eventHub, 0, 0, recv_seek_error, seek_length);
 	HEL_CHECK(recv_seek_error);
 	
 	managarm::fs::SvrResponse<Allocator> seek_response(*allocator);
@@ -384,28 +389,27 @@ void posixSeek(int fd, int64_t offset) {
 	assert(seek_response.error() == managarm::fs::Errors::SUCCESS);
 }
 
-void posixRead(int fd, void *buffer, size_t length) {
+void posixRead(helx::Pipe &pipe, void *buffer, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		size_t chunk_size = length - offset;
 
 		managarm::fs::CntRequest<Allocator> read_request(*allocator);
 		read_request.set_req_type(managarm::fs::CntReqType::READ);
-		read_request.set_fd(fd);
 		read_request.set_size(chunk_size);
 
 		frigg::String<Allocator> read_serialized(*allocator);
 		read_request.SerializeToString(&read_serialized);
 
 		HelError send_read_error;
-		fsPipe->sendStringReqSync(read_serialized.data(), read_serialized.size(),
+		pipe.sendStringReqSync(read_serialized.data(), read_serialized.size(),
 				*eventHub, 0, 0, send_read_error);
 		HEL_CHECK(send_read_error);
 
 		uint8_t read_buffer[128];
 		HelError recv_read_error;
 		size_t read_length;
-		fsPipe->recvStringRespSync(read_buffer, 128,
+		pipe.recvStringRespSync(read_buffer, 128,
 				*eventHub, 0, 0, recv_read_error, read_length);
 		HEL_CHECK(recv_read_error);
 		
@@ -415,7 +419,7 @@ void posixRead(int fd, void *buffer, size_t length) {
 
 		HelError data_error;
 		size_t data_length;
-		fsPipe->recvStringRespSync((char *)buffer + offset, chunk_size,
+		pipe.recvStringRespSync((char *)buffer + offset, chunk_size,
 				*eventHub, 0, 1, data_error, data_length);
 		HEL_CHECK(data_error);
 		offset += data_length;
@@ -423,23 +427,22 @@ void posixRead(int fd, void *buffer, size_t length) {
 	assert(offset == length);
 }
 
-HelHandle posixMmap(int fd) {
+HelHandle posixMmap(helx::Pipe &pipe) {
 	managarm::fs::CntRequest<Allocator> mmap_request(*allocator);
 	mmap_request.set_req_type(managarm::fs::CntReqType::MMAP);
-	mmap_request.set_fd(fd);
 	
 	frigg::String<Allocator> mmap_serialized(*allocator);
 	mmap_request.SerializeToString(&mmap_serialized);
 
 	HelError send_mmap_error;
-	fsPipe->sendStringReqSync(mmap_serialized.data(), mmap_serialized.size(),
+	pipe.sendStringReqSync(mmap_serialized.data(), mmap_serialized.size(),
 			*eventHub, 0, 0, send_mmap_error);
 	HEL_CHECK(send_mmap_error);
 
 	uint8_t mmap_buffer[128];
 	HelError recv_mmap_error;
 	size_t mmap_length;
-	fsPipe->recvStringRespSync(mmap_buffer, 128, *eventHub, 0, 0, recv_mmap_error, mmap_length);
+	pipe.recvStringRespSync(mmap_buffer, 128, *eventHub, 0, 0, recv_mmap_error, mmap_length);
 	HEL_CHECK(recv_mmap_error);
 	
 	managarm::fs::SvrResponse<Allocator> mmap_response(*allocator);
@@ -448,7 +451,7 @@ HelHandle posixMmap(int fd) {
 
 	HelError handle_error;
 	HelHandle memory_handle;
-	fsPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, memory_handle);
+	pipe.recvDescriptorRespSync(*eventHub, 0, 1, handle_error, memory_handle);
 	HEL_CHECK(handle_error);
 	return memory_handle;
 }
@@ -463,15 +466,15 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
 
 	// open the object file
-	frigg::Optional<int> fd = posixOpen(initrd_prefix + file);
-	if(!fd)
-		fd = posixOpen(lib_prefix + file);
-	if(!fd)
+	frigg::Optional<helx::Pipe> pipe = posixOpen(initrd_prefix + file);
+	if(!pipe)
+		pipe = posixOpen(lib_prefix + file);
+	if(!pipe)
 		frigg::panicLogger() << "Could not find library " << file << frigg::endLog;
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
-	posixRead(*fd, &ehdr, sizeof(Elf64_Ehdr));
+	posixRead(*pipe, &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -481,11 +484,11 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	// read the elf program headers
 	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	posixSeek(*fd, ehdr.e_phoff);
-	posixRead(*fd, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(*pipe, ehdr.e_phoff);
+	posixRead(*pipe, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	// mmap the file so we can map read-only segments instead of copying them
-	HelHandle file_memory = posixMmap(*fd);
+	HelHandle file_memory = posixMmap(*pipe);
 
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -528,8 +531,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
 
 				memset(write_ptr, 0, map_length);
-				posixSeek(*fd, phdr->p_offset);
-				posixRead(*fd, (char *)write_ptr + misalign, phdr->p_filesz);
+				posixSeek(*pipe, phdr->p_offset);
+				posixRead(*pipe, (char *)write_ptr + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 				// map the segment with correct permissions

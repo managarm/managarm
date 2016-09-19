@@ -479,12 +479,16 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
 		
-		auto universe_wrapper = this_universe->getDescriptor(universe_guard, universe_handle);
-		if(!universe_wrapper)
-			return kHelErrNoDescriptor;
-		if(!universe_wrapper->is<UniverseDescriptor>())
-			return kHelErrBadDescriptor;
-		universe = universe_wrapper->get<UniverseDescriptor>().universe;
+		if(universe_handle == kHelNullHandle) {
+			universe = this_thread->getUniverse().toShared();
+		}else{
+			auto universe_wrapper = this_universe->getDescriptor(universe_guard, universe_handle);
+			if(!universe_wrapper)
+				return kHelErrNoDescriptor;
+			if(!universe_wrapper->is<UniverseDescriptor>())
+				return kHelErrBadDescriptor;
+			universe = universe_wrapper->get<UniverseDescriptor>().universe;
+		}
 
 		if(space_handle == kHelNullHandle) {
 			space = this_thread->getAddressSpace().toShared();

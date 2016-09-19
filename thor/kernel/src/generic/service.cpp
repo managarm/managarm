@@ -10,7 +10,7 @@
 namespace thor {
 
 // TODO: move this to a header file
-extern frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+extern frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
 
 namespace xuniverse = managarm::xuniverse;
 namespace fs = managarm::fs;
@@ -74,16 +74,6 @@ void serviceRecv(frigg::SharedPtr<Channel> channel, void *buffer, size_t max_len
 	assert(error == kErrSuccess);
 }
 
-frigg::SharedPtr<Channel> rootRecvChannel() {
-	return frigg::SharedPtr<Channel>(*rootUniverse,
-			&(*rootUniverse)->superiorRecvChannel());
-}
-
-frigg::SharedPtr<Channel> rootSendChannel() {
-	return frigg::SharedPtr<Channel>(*rootUniverse,
-			&(*rootUniverse)->superiorSendChannel());
-}
-
 struct AllocatorPolicy {
 	uintptr_t map(size_t length) {
 		assert((length % 0x1000) == 0);
@@ -120,70 +110,28 @@ namespace initrd {
 		size_t offset;
 	};
 
-	struct Connection {
-		Connection(ServiceAllocator &allocator,
+	// ----------------------------------------------------
+	// File handling.
+	// ----------------------------------------------------
+
+	struct FileConnection {
+		FileConnection(ServiceAllocator &allocator, OpenFile *file,
 				frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
-		: endpoint(frigg::move(endpoint)), fileHandles(frigg::DefaultHasher<int>(), allocator),
-				nextHandle(1) { }
+		: file(file), endpoint(frigg::move(endpoint)) { }
 
+		OpenFile *file;
 		frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint;
-
-		frigg::Hashmap<int, OpenFile *,
-				frigg::DefaultHasher<int>, ServiceAllocator> fileHandles;
-		int nextHandle;
-	};
-
-	struct OpenClosure {
-		OpenClosure(ServiceAllocator &allocator, frigg::SharedPtr<Connection> connection,
-				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
-				uint64_t request_id)
-		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
-				_req(frigg::move(request)), _requestId(request_id), _buffer(allocator) { }
-
-		void operator() () {
-			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
-			Module *module = getModule(_req.path());
-			assert(module);
-
-			auto file = frigg::construct<OpenFile>(_allocator, module);
-			int fd = _connection->nextHandle++;
-			_connection->fileHandles.insert(fd, file);
-
-			fs::SvrResponse<ServiceAllocator> resp(_allocator);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_fd(fd);
-			resp.set_file_type(managarm::fs::FileType::REGULAR);
-			resp.SerializeToString(&_buffer);
-			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 0,
-					_buffer.data(), _buffer.size(), _hub,
-					CALLBACK_MEMBER(this, &OpenClosure::onSend));
-		}
-
-	private:
-		void onSend(AsyncEvent event) {
-			assert(event.error == kErrSuccess);
-		}
-
-		ServiceAllocator &_allocator;
-		frigg::SharedPtr<Connection> _connection;
-		frigg::SharedPtr<EventHub> _hub;
-		fs::CntRequest<ServiceAllocator> _req;
-		uint64_t _requestId;
-
-		frigg::String<ServiceAllocator> _buffer;
 	};
 	
 	struct SeekClosure {
-		SeekClosure(ServiceAllocator &allocator, frigg::SharedPtr<Connection> connection,
+		SeekClosure(ServiceAllocator &allocator, frigg::SharedPtr<FileConnection> connection,
 				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
 				uint64_t request_id)
 		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
 				_req(frigg::move(request)), _requestId(request_id), _buffer(allocator) { }
 
 		void operator() () {
-			auto file = _connection->fileHandles.get(_req.fd());
-			assert(file);
-			(*file)->offset = _req.rel_offset();
+			_connection->file->offset = _req.rel_offset();
 
 			fs::SvrResponse<ServiceAllocator> resp(_allocator);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -199,7 +147,7 @@ namespace initrd {
 		}
 
 		ServiceAllocator &_allocator;
-		frigg::SharedPtr<Connection> _connection;
+		frigg::SharedPtr<FileConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
 		fs::CntRequest<ServiceAllocator> _req;
 		uint64_t _requestId;
@@ -208,7 +156,7 @@ namespace initrd {
 	};
 	
 	struct ReadClosure {
-		ReadClosure(ServiceAllocator &allocator, frigg::SharedPtr<Connection> connection,
+		ReadClosure(ServiceAllocator &allocator, frigg::SharedPtr<FileConnection> connection,
 				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
 				uint64_t request_id)
 		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
@@ -216,14 +164,12 @@ namespace initrd {
 				_buffer(allocator), _payload(allocator) { }
 
 		void operator() () {
-			auto file = _connection->fileHandles.get(_req.fd());
-			assert(file);
-
-			size_t remaining = (*file)->module->length - (*file)->offset;
+			size_t remaining = _connection->file->module->length - _connection->file->offset;
 			assert(remaining);
 
 			_payload.resize(frigg::min(size_t(_req.size()), remaining));
-			void *src = physicalToVirtual((*file)->module->physical + (*file)->offset);
+			void *src = physicalToVirtual(_connection->file->module->physical
+					+ _connection->file->offset);
 			memcpy(_payload.data(), src, _payload.size());
 
 			fs::SvrResponse<ServiceAllocator> resp(_allocator);
@@ -231,24 +177,24 @@ namespace initrd {
 			resp.SerializeToString(&_buffer);
 			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 0,
 					_buffer.data(), _buffer.size(), _hub,
-					CALLBACK_MEMBER(this, &ReadClosure::onSendBuffer));
+					CALLBACK_MEMBER(this, &ReadClosure::onSendResp));
 		}
 
 	private:
-		void onSendBuffer(AsyncEvent event) {
+		void onSendResp(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 			
 			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 1,
 					_payload.data(), _payload.size(), _hub,
-					CALLBACK_MEMBER(this, &ReadClosure::onSendPayload));
+					CALLBACK_MEMBER(this, &ReadClosure::onSendData));
 		}
 		
-		void onSendPayload(AsyncEvent event) {
+		void onSendData(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 		}
 
 		ServiceAllocator &_allocator;
-		frigg::SharedPtr<Connection> _connection;
+		frigg::SharedPtr<FileConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
 		fs::CntRequest<ServiceAllocator> _req;
 		uint64_t _requestId;
@@ -258,37 +204,31 @@ namespace initrd {
 	};
 	
 	struct MapClosure {
-		MapClosure(ServiceAllocator &allocator, frigg::SharedPtr<Connection> connection,
+		MapClosure(ServiceAllocator &allocator, frigg::SharedPtr<FileConnection> connection,
 				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
 				uint64_t request_id)
 		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
 				_req(frigg::move(request)), _requestId(request_id), _buffer(allocator) { }
 
 		void operator() () {
-			auto file = _connection->fileHandles.get(_req.fd());
-			assert(file);
-
 			fs::SvrResponse<ServiceAllocator> resp(_allocator);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.SerializeToString(&_buffer);
 			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 0,
 					_buffer.data(), _buffer.size(), _hub,
-					CALLBACK_MEMBER(this, &MapClosure::onSendBuffer));
+					CALLBACK_MEMBER(this, &MapClosure::onSendResp));
 		}
 
 	private:
-		void onSendBuffer(AsyncEvent event) {
+		void onSendResp(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 			
-			auto file = _connection->fileHandles.get(_req.fd());
-			assert(file);
-
-			size_t virt_length = (*file)->module->length;
+			size_t virt_length = _connection->file->module->length;
 			if(virt_length % kPageSize)
 				virt_length += kPageSize - (virt_length % kPageSize);
 
 			auto memory = frigg::makeShared<Memory>(*kernelAlloc,
-					HardwareMemory((*file)->module->physical, virt_length));
+					HardwareMemory(_connection->file->module->physical, virt_length));
 			serviceSendDescriptor(Endpoint::writeChannel(_connection->endpoint), _requestId, 1,
 					MemoryAccessDescriptor(frigg::move(memory)),
 					_hub, CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
@@ -299,7 +239,7 @@ namespace initrd {
 		}
 
 		ServiceAllocator &_allocator;
-		frigg::SharedPtr<Connection> _connection;
+		frigg::SharedPtr<FileConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
 		fs::CntRequest<ServiceAllocator> _req;
 		uint64_t _requestId;
@@ -307,18 +247,21 @@ namespace initrd {
 		frigg::String<ServiceAllocator> _buffer;
 	};
 
-	struct RequestClosure {
-		RequestClosure(ServiceAllocator &allocator, frigg::SharedPtr<Connection> connection,
+	struct FileRequestClosure {
+		FileRequestClosure(ServiceAllocator &allocator,
+				frigg::SharedPtr<FileConnection> connection,
 				frigg::SharedPtr<EventHub> hub)
 		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)) { }
 
 		void operator() () {
 			serviceRecv(Endpoint::readChannel(_connection->endpoint), _buffer, 128,
-					_hub, CALLBACK_MEMBER(this, &RequestClosure::onReceive));
+					_hub, CALLBACK_MEMBER(this, &FileRequestClosure::onReceive));
 		}
 
 	private:
 		void onReceive(AsyncEvent event) {
+			if(event.error == kErrClosedRemotely)
+				return;
 			assert(event.error == kErrSuccess);
 
 			fs::CntRequest<ServiceAllocator> request(_allocator);
@@ -328,11 +271,7 @@ namespace initrd {
 				auto closure = frigg::construct<StatClosure>(*allocator,
 						*this, msg_request, frigg::move(request));
 				(*closure)();
-			}else*/ if(request.req_type() == managarm::fs::CntReqType::OPEN) {
-				auto closure = frigg::construct<OpenClosure>(_allocator, _allocator,
-						_connection, _hub, frigg::move(request), event.msgRequest);
-				(*closure)();
-			}else if(request.req_type() == managarm::fs::CntReqType::READ) {
+			}else*/ if(request.req_type() == managarm::fs::CntReqType::READ) {
 				auto closure = frigg::construct<ReadClosure>(_allocator, _allocator,
 						_connection, _hub, frigg::move(request), event.msgRequest);
 				(*closure)();
@@ -352,127 +291,117 @@ namespace initrd {
 		}
 
 		ServiceAllocator &_allocator;
-		frigg::SharedPtr<Connection> _connection;
+		frigg::SharedPtr<FileConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
 
 		uint8_t _buffer[128];
 	};
-}
 
-namespace general {
-	struct GetProfileClosure {
-		GetProfileClosure(ServiceAllocator &allocator,
-				frigg::SharedPtr<EventHub> hub,
-				xuniverse::CntRequest<ServiceAllocator> request,
+	// ----------------------------------------------------
+	// Server handling.
+	// ----------------------------------------------------
+
+	struct ServerConnection {
+		ServerConnection(ServiceAllocator &allocator,
+				frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
+		: endpoint(frigg::move(endpoint)) { }
+
+		frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint;
+	};
+
+	struct OpenClosure {
+		OpenClosure(ServiceAllocator &allocator, frigg::SharedPtr<ServerConnection> connection,
+				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
 				uint64_t request_id)
-		: _allocator(allocator), _hub(frigg::move(hub)), _req(frigg::move(request)),
-				_requestId(request_id), _buffer(allocator) { }
+		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
+				_req(frigg::move(request)), _requestId(request_id), _buffer(allocator) { }
 
 		void operator() () {
-			xuniverse::SvrResponse<ServiceAllocator> resp(_allocator);
-			resp.set_profile(frigg::String<ServiceAllocator>(_allocator, "minimal"));
-			resp.set_error(xuniverse::Errors::SUCCESS);
+			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
+			fs::SvrResponse<ServiceAllocator> resp(_allocator);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_file_type(managarm::fs::FileType::REGULAR);
 			resp.SerializeToString(&_buffer);
-			serviceSend(rootSendChannel(), _requestId, 0, _buffer.data(), _buffer.size(),
-					_hub, CALLBACK_MEMBER(this, &GetProfileClosure::onSend));
+			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 0,
+					_buffer.data(), _buffer.size(), _hub,
+					CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
 		}
 
 	private:
-		void onSend(AsyncEvent event) {
+		void onSendResp(AsyncEvent event) {
+			assert(event.error == kErrSuccess);
+			
+			// TODO: this should not be handled here!
+			Module *module = getModule(_req.path());
+			assert(module);
+
+			// we increment the owning reference count twice here. it is decremented
+			// each time one of the EndpointRwControl references is decremented to zero.
+			auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+			pipe.control().increment();
+			pipe.control().increment();
+			frigg::SharedPtr<Endpoint, EndpointRwControl> file_server(frigg::adoptShared,
+					&pipe->endpoint(0),
+					EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
+			frigg::SharedPtr<Endpoint, EndpointRwControl> file_client(frigg::adoptShared,
+					&pipe->endpoint(1),
+					EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
+
+			auto connection = frigg::makeShared<initrd::FileConnection>(_allocator, _allocator,
+					frigg::construct<OpenFile>(_allocator, module), frigg::move(file_server));
+			auto closure = frigg::construct<initrd::FileRequestClosure>(_allocator, _allocator,
+					frigg::move(connection), _hub);
+			(*closure)();
+			
+			serviceSendDescriptor(Endpoint::writeChannel(_connection->endpoint), _requestId, 1,
+					EndpointDescriptor(frigg::move(file_client)),
+					_hub, CALLBACK_MEMBER(this, &OpenClosure::onSendHandle));
+		}
+
+		void onSendHandle(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 		}
 
 		ServiceAllocator &_allocator;
+		frigg::SharedPtr<ServerConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
-		xuniverse::CntRequest<ServiceAllocator> _req;
+		fs::CntRequest<ServiceAllocator> _req;
 		uint64_t _requestId;
 
 		frigg::String<ServiceAllocator> _buffer;
 	};
 
-	struct GetServerClosure {
-		GetServerClosure(ServiceAllocator &allocator,
-				frigg::SharedPtr<EventHub> hub,
-				xuniverse::CntRequest<ServiceAllocator> request,
-				uint64_t request_id)
-		: _allocator(allocator), _hub(frigg::move(hub)), _req(frigg::move(request)),
-				_requestId(request_id), _buffer(allocator) { }
-
-		void operator() () {
-			if(_req.server() == "fs") {
-				auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
-
-				// we increment the owning reference count twice here. it is decremented
-				// each time one of the EndpointRwControl references is decremented to zero.
-				pipe.control().increment();
-				pipe.control().increment();
-				frigg::SharedPtr<Endpoint, EndpointRwControl> local_end(frigg::adoptShared,
-						&pipe->endpoint(0),
-						EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
-				frigg::SharedPtr<Endpoint, EndpointRwControl> remote_end(frigg::adoptShared,
-						&pipe->endpoint(1),
-						EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
-
-				auto connection = frigg::makeShared<initrd::Connection>(_allocator, _allocator,
-						frigg::move(local_end));
-				auto closure = frigg::construct<initrd::RequestClosure>(_allocator, _allocator,
-						frigg::move(connection), _hub);
-				(*closure)();
-
-				serviceSendDescriptor(rootSendChannel(), _requestId, 0,
-						EndpointDescriptor(frigg::move(remote_end)),
-						_hub, CALLBACK_MEMBER(this, &GetServerClosure::onSend));
-			}else{
-				assert(!"Unexpected server for GET_SERVER");
-			}
-		}
-
-	private:
-		void onSend(AsyncEvent event) {
-			assert(event.error == kErrSuccess);
-		}
-
-		ServiceAllocator &_allocator;
-		frigg::SharedPtr<EventHub> _hub;
-		xuniverse::CntRequest<ServiceAllocator> _req;
-		uint64_t _requestId;
-
-		frigg::String<ServiceAllocator> _buffer;
-	};
-
-	struct RequestClosure {
-		RequestClosure(ServiceAllocator &allocator,
+	struct ServerRequestClosure {
+		ServerRequestClosure(ServiceAllocator &allocator,
+				frigg::SharedPtr<ServerConnection> connection,
 				frigg::SharedPtr<EventHub> hub)
-		: _allocator(allocator), _hub(frigg::move(hub)) { }
+		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)) { }
 
 		void operator() () {
-			serviceRecv(rootRecvChannel(), _buffer, 128,
-					_hub, CALLBACK_MEMBER(this, &RequestClosure::onReceive));
+			serviceRecv(Endpoint::readChannel(_connection->endpoint), _buffer, 128,
+					_hub, CALLBACK_MEMBER(this, &ServerRequestClosure::onReceive));
 		}
-	
+
 	private:
 		void onReceive(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 
-			xuniverse::CntRequest<ServiceAllocator> request(_allocator);
+			fs::CntRequest<ServiceAllocator> request(_allocator);
 			request.ParseFromArray(_buffer, event.length);
-		
-			if(request.req_type() == xuniverse::CntReqType::GET_PROFILE) {
-				auto closure = frigg::construct<GetProfileClosure>(_allocator, _allocator,
-						_hub, frigg::move(request), event.msgRequest);
-				(*closure)();
-			}else if(request.req_type() == xuniverse::CntReqType::GET_SERVER) {
-				auto closure = frigg::construct<GetServerClosure>(_allocator, _allocator,
-						_hub, frigg::move(request), event.msgRequest);
+
+			if(request.req_type() == managarm::fs::CntReqType::OPEN) {
+				auto closure = frigg::construct<OpenClosure>(_allocator, _allocator,
+						_connection, _hub, frigg::move(request), event.msgRequest);
 				(*closure)();
 			}else{
-				assert(!"Illegal request type");
+				frigg::panicLogger() << "Illegal request type" << frigg::endLog;
 			}
 
 			(*this)();
 		}
 
 		ServiceAllocator &_allocator;
+		frigg::SharedPtr<ServerConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
 
 		uint8_t _buffer[128];
@@ -488,7 +417,11 @@ void serviceMain() {
 
 	frigg::SharedPtr<EventHub> hub = frigg::makeShared<EventHub>(*kernelAlloc);
 
-	auto closure = frigg::construct<general::RequestClosure>(allocator, allocator, hub);
+	// start the initrd server.
+	auto connection = frigg::makeShared<initrd::ServerConnection>(allocator, allocator,
+			frigg::move(*initrdServer));
+	auto closure = frigg::construct<initrd::ServerRequestClosure>(allocator, allocator,
+			frigg::move(connection), hub);
 	(*closure)();
 
 	while(true) {

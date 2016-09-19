@@ -9,8 +9,14 @@ namespace thor {
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
+// TODO: get rid of the rootUniverse/initrdServer global variables.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
+
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
+
+// TODO: move this declaration to a header file
+void runService();
 
 Module *getModule(frigg::StringView filename) {
 	for(size_t i = 0; i < allModules->size(); i++)
@@ -90,6 +96,7 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 		}else if(phdr->p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
 		}else if(phdr->p_type == PT_DYNAMIC
+				|| phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
@@ -99,6 +106,17 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 	}
 
 	return info;
+}
+
+template<typename T>
+uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
+	uintptr_t misalign = stack_image.size() % alignof(data);
+	if(misalign)
+		stack_image.resize(alignof(data) - misalign);
+	uintptr_t offset = stack_image.size();
+	stack_image.resize(stack_image.size() + sizeof(data));
+	memcpy(&stack_image[offset], &data, sizeof(data));
+	return offset;
 }
 
 void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
@@ -113,31 +131,33 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	assert(interp_module);
 	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
 
+	// start relevant services.
+
+	// we increment the owning reference count twice here. it is decremented
+	// each time one of the EndpointRwControl references is decremented to zero.
+	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+	pipe.control().increment();
+	pipe.control().increment();
+	initrdServer.initialize(frigg::adoptShared,
+			&pipe->endpoint(0),
+			EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> initrd_client(frigg::adoptShared,
+			&pipe->endpoint(1),
+			EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
+
+	Handle initrd_handle;
+	{
+		Universe::Guard lock(&(*rootUniverse)->lock);
+		initrd_handle = (*rootUniverse)->attachDescriptor(lock,
+				EndpointDescriptor(frigg::move(initrd_client)));
+	}
+
+	runService();
+
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
 			AllocatedMemory(stack_size));
-	enum {
-		AT_NULL = 0,
-		AT_PHDR = 3,
-		AT_PHENT = 4,
-		AT_PHNUM = 5,
-		AT_ENTRY = 9
-	};
-
-	uintptr_t stack_image[] = {
-		AT_ENTRY,
-		(uintptr_t)exec_info.entryIp,
-		AT_PHDR,
-		(uintptr_t)exec_info.phdrPtr,
-		AT_PHENT,
-		exec_info.phdrEntrySize,
-		AT_PHNUM,
-		exec_info.phdrCount,
-		AT_NULL,
-		0
-	};
-	stack_memory->copyFrom(stack_size - sizeof(stack_image), stack_image, sizeof(stack_image));
 
 	VirtualAddr stack_base;
 	{
@@ -147,12 +167,60 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	}
 	thorRtInvalidateSpace();
 
+	// build the stack data area (containing program arguments,
+	// environment strings and related data).
+	struct AuxFileData {
+		AuxFileData(int fd, HelHandle pipe)
+		: fd(fd), pipe(pipe) { }
+
+		int fd;
+		HelHandle pipe;
+	};
+
+	frigg::String<KernelAlloc> data_area(*kernelAlloc);
+//	auto fd0_offset = copyToStack<AuxFileData>(data_area, { 1, stdout_handle });
+
+	uintptr_t data_disp = stack_size - data_area.size();
+	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
+
+	// build the stack tail area (containing the aux vector).
+	enum {
+		AT_NULL = 0,
+		AT_PHDR = 3,
+		AT_PHENT = 4,
+		AT_PHNUM = 5,
+		AT_ENTRY = 9,
+
+		AT_OPENFILES = 0x1001,
+		AT_POSIX_SERVER = 0x1101,
+		AT_FS_SERVER = 0x1102
+	};
+
+	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
+	copyToStack<uintptr_t>(tail_area, AT_ENTRY);
+	copyToStack<uintptr_t>(tail_area, (uintptr_t)exec_info.entryIp);
+	copyToStack<uintptr_t>(tail_area, AT_PHDR);
+	copyToStack<uintptr_t>(tail_area, (uintptr_t)exec_info.phdrPtr);
+	copyToStack<uintptr_t>(tail_area, AT_PHENT);
+	copyToStack<uintptr_t>(tail_area, exec_info.phdrEntrySize);
+	copyToStack<uintptr_t>(tail_area, AT_PHNUM);
+	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
+//	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
+//	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
+	copyToStack<uintptr_t>(tail_area, AT_FS_SERVER);
+	copyToStack<uintptr_t>(tail_area, initrd_handle);
+	copyToStack<uintptr_t>(tail_area, AT_NULL);
+	copyToStack<uintptr_t>(tail_area, 0);
+
+	uintptr_t tail_disp = data_disp - tail_area.size();
+	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
+
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
-			stack_base + stack_size - sizeof(stack_image), false);
+			stack_base + tail_disp, false);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();
@@ -161,9 +229,6 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
-
-// TODO: move this declaration to a header file
-void runService();
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
@@ -220,7 +285,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
-	runService();
 
 	// finally we lauch the user_boot program
 	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);

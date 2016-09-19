@@ -363,11 +363,11 @@ extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError er
 #define HEL_STRINGIFY_AUX(x) #x
 #define HEL_STRINGIFY(x) HEL_STRINGIFY_AUX(x)
 
-#define HEL_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
-		_helCheckFailed(_error, "HEL_CHECK failed: " #expr "\n" \
+#define HEL_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
+		_helCheckFailed(__error, "HEL_CHECK failed: " #expr "\n" \
 		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 1); } while(0)
-#define HEL_SOFT_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
-		_helCheckFailed(_error, "HEL_SOFT_CHECK failed: " #expr "\n" \
+#define HEL_SOFT_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
+		_helCheckFailed(__error, "HEL_SOFT_CHECK failed: " #expr "\n" \
 		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); } while(0)
 
 #endif // HEL_H

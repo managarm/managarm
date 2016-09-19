@@ -144,7 +144,7 @@ void EndpointRwControl::decrement() {
 Universe::Universe()
 : _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
 
-Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
+Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
 	assert(guard.protects(&lock));
 
 	Handle handle = _nextHandle++;

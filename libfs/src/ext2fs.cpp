@@ -570,7 +570,7 @@ void Client::ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
 	helx::Pipe local, remote;
 	helx::Pipe::createFullPipe(local, remote);
 	callback(remote.getHandle());
-	remote.reset();
+	remote = helx::Pipe();
 
 	auto closure = new Connection(client.eventHub, client.fs, std::move(local));
 	(*closure)();
