@@ -128,9 +128,14 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 
 template<typename VirtualAlloc, typename Mutex>
 void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_length) {
-	LockGuard<Mutex> guard(&p_mutex);
+	if(!pointer) {
+		return allocate(new_length);
+	}else if(!new_length) {
+		free(pointer);
+		return nullptr;
+	}
 
-	assert(pointer && new_length > 0);
+	LockGuard<Mutex> guard(&p_mutex);
 	uintptr_t address = (uintptr_t)pointer;
 
 	VirtualArea *current = p_root;
