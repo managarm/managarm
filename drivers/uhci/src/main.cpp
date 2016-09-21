@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <functional>
 #include <memory>
+#include <experimental/optional>
+#include <deque>
 
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
@@ -20,6 +22,25 @@
 #include "usb.hpp"
 #include "uhci.hpp"
 #include "hid.hpp"
+
+struct Field {
+	int bitOffset;
+	int bitSize;
+	uint16_t usagePage;
+	uint16_t usageId;
+};
+
+std::vector<uint32_t> parse(std::vector<Field> fields, uint8_t *report) {
+	std::vector<uint32_t> values;
+	for(Field &f : fields) {
+		int b = f.bitOffset / 8;
+		uint32_t raw = uint32_t(report[b]) | (uint32_t(report[b + 1]) << 8)
+				| (uint32_t(report[b + 2]) << 16) | (uint32_t(report[b + 3]) << 24);
+		uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
+		values.push_back((raw >> (f.bitOffset % 8)) & mask);
+	}
+	return values;
+}
 
 struct ContiguousPolicy {
 public:
@@ -384,11 +405,22 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 			kDestInterface, kStandard, SetupPacket::kGetDescriptor, 34 << 8, 0,
 			buffer, length));
 
+	std::vector<Field> fields;
+	int bit_offset = 0;
+
+	std::experimental::optional<int> report_count;
+	std::experimental::optional<int> report_size;
+	std::experimental::optional<uint16_t> usage_page;
+	std::deque<uint32_t> usage;
+	std::experimental::optional<uint32_t> usage_min;
+	std::experimental::optional<uint32_t> usage_max;
+
 	uint8_t *p = buffer;
 	uint8_t *limit = buffer + length;
 	while(p < limit) {
 		uint8_t token = fetch(p, limit);
-		uint32_t data = fetch(p, limit, token & 0x03);
+		int size = (token & 0x03) == 3 ? 4 : (token & 0x03);
+		uint32_t data = fetch(p, limit, size);
 		switch(token & 0xFC) {
 		// Main items
 		case 0xC0:
@@ -397,19 +429,60 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 
 		case 0xA0:
 			printf("Collection: 0x%x\n", data);
+			usage.clear();
+			usage_min = std::experimental::nullopt;
+			usage_max = std::experimental::nullopt;
 			break;
 
 		case 0x80:
 			printf("Input: 0x%x\n", data);
+			if(!report_size || !report_count)
+				throw std::runtime_error("Missing Report Size/Count");
+				
+			if(!usage_min != !usage_max)
+				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
+			
+			if(!usage.empty() && (usage_min || usage_max))
+				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
+
+			if(usage.empty() && !usage_min && !usage_max) {
+				// this field is just padding
+				bit_offset += (*report_size) * (*report_count);
+			}else{
+				for(auto i = 0; i < *report_count; i++) {
+					uint16_t actual_id;
+					if(!usage.empty()) {
+						actual_id = usage.front();
+						usage.pop_front();
+					}else{
+						actual_id = *usage_min + i;
+					}
+
+					Field field;
+					field.bitOffset = bit_offset;
+					field.bitSize = *report_size;
+					field.usagePage = *usage_page;
+					field.usageId = actual_id;
+					fields.push_back(field);
+					
+					bit_offset += *report_size;
+				}
+
+				usage.clear();
+				usage_min = std::experimental::nullopt;
+				usage_max = std::experimental::nullopt;
+			}
 			break;
 
 		// Global items
 		case 0x94:
 			printf("Report Count: 0x%x\n", data);
+			report_count = data;
 			break;
 		
 		case 0x74:
 			printf("Report Size: 0x%x\n", data);
+			report_size = data;
 			break;
 		
 		case 0x24:
@@ -422,25 +495,50 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 		
 		case 0x04:
 			printf("Usage Page: 0x%x\n", data);
+			usage_page = data;
 			break;
 
 		// Local items
 		case 0x28:
 			printf("Usage Maximum: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage_max = data;
 			break;
 		
 		case 0x18:
 			printf("Usage Minimum: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage_min = data;
 			break;
 			
 		case 0x08:
 			printf("Usage: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage.push_back(data);
 			break;
 
 		default:
 			printf("Unexpected token: 0x%x\n", token & 0xFC);
 			abort();
 		}
+	}
+	
+	size_t rep_length = (bit_offset + 7) / 8;
+	auto rep_buffer = (uint8_t *)contiguousAllocator.allocate(rep_length);
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestInterface, kClass, SetupPacket::kGetReport, 0x01 << 8, 0,
+			rep_buffer, rep_length));
+
+	auto values = parse(fields, rep_buffer);
+	int counter = 0;
+	for(uint32_t val : values) {
+		printf("value %d: %x\n", counter, val);
+		counter++;
+	}
+
+	for(auto f : fields) {
+		printf("usagePage: %x\n", f.usagePage);
+		printf("    usageId: %x\n", f.usageId);
 	}
 })
 
