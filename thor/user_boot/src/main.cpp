@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
+#include <sys/auxv.h>
 #include <string>
 
 #include <hel.h>
@@ -125,15 +126,18 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 		bool exclusive) {
 	constexpr size_t stack_size = 0x10000;
 
-	// setup the auxiliary vector and copy it to the target stack.
-	enum {
-		AT_NULL = 0,
-		AT_PHDR = 3,
-		AT_PHENT = 4,
-		AT_PHNUM = 5,
-		AT_ENTRY = 9
-	};
+	// TODO: we should use some dup request here to avoid requestId clashes.
+	unsigned long fs_server;
+	if(peekauxval(AT_FS_SERVER, &fs_server))
+		throw std::runtime_error("No AT_FS_SERVER specified");
 
+	HelHandle universe;
+	HEL_CHECK(helCreateUniverse(&universe));
+
+	HelHandle remote_fs;
+	HEL_CHECK(helTransferDescriptor(fs_server, universe, &remote_fs));
+
+	// setup the auxiliary vector and copy it to the target stack.
 	uintptr_t stack_image[] = {
 		AT_ENTRY,
 		(uintptr_t)exec_info.entryIp,
@@ -143,6 +147,8 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 		exec_info.phdrEntrySize,
 		AT_PHNUM,
 		exec_info.phdrCount,
+		AT_FS_SERVER,
+		(uintptr_t)remote_fs,
 		AT_NULL,
 		0
 	};
@@ -162,9 +168,6 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
 			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
-	
-	HelHandle universe;
-	HEL_CHECK(helCreateUniverse(&universe));
 
 	HelHandle thread;
 	uint32_t thread_flags = kHelThreadTrapsAreFatal;

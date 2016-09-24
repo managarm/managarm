@@ -445,6 +445,17 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		while(true) { }
 	} break;
 
+	case kHelCallCreateUniverse: {
+		HelHandle handle;
+		*image.error() = helCreateUniverse(&handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallTransferDescriptor: {
+		HelHandle out_handle;
+		*image.error() = helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
+				&out_handle);
+		*image.out0() = out_handle;
+	} break;
 	case kHelCallDescriptorInfo: {
 		*image.error() = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
 	} break;
@@ -517,12 +528,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
-	} break;
-
-	case kHelCallCreateUniverse: {
-		HelHandle handle;
-		*image.error() = helCreateUniverse(&handle);
-		*image.out0() = handle;
 	} break;
 
 	case kHelCallCreateThread: {

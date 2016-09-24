@@ -11,6 +11,53 @@ HelError helLog(const char *string, size_t length) {
 }
 
 
+HelError helCreateUniverse(HelHandle *handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
+
+	auto new_universe = frigg::makeShared<Universe>(*kernelAlloc);
+	
+	{
+		Universe::Guard universe_guard(&this_universe->lock);
+		*handle = this_universe->attachDescriptor(universe_guard,
+				UniverseDescriptor(frigg::move(new_universe)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
+		HelHandle *out_handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
+	
+	AnyDescriptor descriptor;
+	frigg::SharedPtr<Universe> universe;
+	{
+		Universe::Guard lock(&this_universe->lock);
+
+		auto descriptor_it = this_universe->getDescriptor(lock, handle);
+		if(!descriptor_it)
+			return kHelErrNoDescriptor;
+		descriptor = *descriptor_it;
+
+		auto universe_it = this_universe->getDescriptor(lock, universe_handle);
+		if(!universe_it)
+			return kHelErrNoDescriptor;
+		if(!universe_it->is<UniverseDescriptor>())
+			return kHelErrBadDescriptor;
+		universe = universe_it->get<UniverseDescriptor>().universe;
+	}
+	
+	// TODO: make sure the descriptor is copyable.
+
+	{
+		Universe::Guard lock(&universe->lock);
+		*out_handle = universe->attachDescriptor(lock, frigg::move(descriptor));
+	}
+	return kHelErrNone;
+}
+
 HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
@@ -446,21 +493,6 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		memory->submitInitiateLoad(frigg::move(handle_load));
 	}*/
 	
-	return kHelErrNone;
-}
-
-HelError helCreateUniverse(HelHandle *handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
-
-	auto new_universe = frigg::makeShared<Universe>(*kernelAlloc);
-	
-	{
-		Universe::Guard universe_guard(&this_universe->lock);
-		*handle = this_universe->attachDescriptor(universe_guard,
-				UniverseDescriptor(frigg::move(new_universe)));
-	}
-
 	return kHelErrNone;
 }
 

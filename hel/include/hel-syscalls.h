@@ -64,6 +64,18 @@ extern inline void helPanic(const char *string, size_t length) {
 	__builtin_unreachable();
 }
 
+DEFINE_SYSCALL(CreateUniverse, HelHandle *handle)
+	DO_SYSCALL(CreateUniverse)
+	OUT(0, HelHandle, handle)
+END_SYSCALL()
+
+DEFINE_SYSCALL(TransferDescriptor, HelHandle handle, HelHandle universe_handle,
+		HelHandle *out_handle)
+	IN(0, handle) IN(1, universe_handle)
+	DO_SYSCALL(TransferDescriptor)
+	OUT(0, HelHandle, out_handle)
+END_SYSCALL()
+
 DEFINE_SYSCALL(DescriptorInfo, HelHandle handle, struct HelDescriptorInfo *info)
 	IN(0, handle) IN(1, info)
 	DO_SYSCALL(DescriptorInfo)
@@ -153,11 +165,6 @@ END_SYSCALL()
 DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
 	IN(0, handle) IN(1, offset) IN(2, length)
 	DO_SYSCALL(Loadahead)
-END_SYSCALL()
-
-DEFINE_SYSCALL(CreateUniverse, HelHandle *handle)
-	DO_SYSCALL(CreateUniverse)
-	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
 DEFINE_SYSCALL(CreateThread, HelHandle universe, HelHandle address_space, HelHandle directory,
