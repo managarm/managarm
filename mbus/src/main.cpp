@@ -1,19 +1,14 @@
 
+#include <stdio.h>
+
 #include <frigg/callback.hpp>
 #include <frigg/smart_ptr.hpp>
-
-#include <frigg/glue-hel.hpp>
-#include <frigg/protobuf.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
-#include <frigg/hashmap.hpp>
-#include <frigg/chain-all.hpp>
 
 #include <helx.hpp>
 
 #include <mbus.frigg_pb.hpp>
 
-helx::EventHub eventHub = helx::EventHub::create();
+/*helx::EventHub eventHub = helx::EventHub::create();
 
 // --------------------------------------------------------
 // Capability
@@ -275,15 +270,15 @@ void AcceptClosure::accepted(HelError error, HelHandle handle) {
 	allConnections->push(frigg::WeakPtr<Connection>(connection));
 	frigg::runClosure<RequestClosure>(*allocator, frigg::move(connection));
 	(*this)();
-}
+}*/
 
 // --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
 
 int main() {
-	frigg::infoLogger() << "Entering mbus" << frigg::endLog;
-	allocator.initialize(virtualAlloc);
+	printf("Entering mbus\n");
+	/*allocator.initialize(virtualAlloc);
 	allConnections.initialize(*allocator);
 
 	// start our server
@@ -305,6 +300,6 @@ int main() {
 	client = helx::Client();
 
 	while(true)
-		eventHub.defaultProcessEvents();
+		eventHub.defaultProcessEvents();*/
 }
 

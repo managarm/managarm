@@ -987,8 +987,8 @@ int main() {
 			kHelRequest, send_error);
 	HEL_CHECK(send_error);
 
-	parent_pipe.reset();
-	client.reset();
+	parent_pipe = helx::Pipe();
+	client = helx::Client();
 	
 	while(true) {
 		eventHub.defaultProcessEvents();

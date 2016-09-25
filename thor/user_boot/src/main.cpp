@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/auxv.h>
 #include <string>
+#include <functional>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -118,13 +119,63 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 	return info;
 }
 
+using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
+Dispatcher dispatcher(helix::createHub());
+
+COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe pipe),
+		std::bind([=] (helix::UniquePipe pipe) {
+	while(true) {
+		char req_buffer[128];
+		Dispatcher::RecvString recv_req(dispatcher, pipe, req_buffer, 128,
+				kHelAnyRequest, 0, kHelRequest);
+		COFIBER_AWAIT recv_req.future();
+
+		//FIXME: actually parse the protocol.
+
+		char data_buffer[128];
+		Dispatcher::RecvString recv_data(dispatcher, pipe, data_buffer, 128,
+				recv_req.requestId(), 1, kHelRequest);
+		COFIBER_AWAIT recv_data.future();
+
+		helLog(data_buffer, recv_data.actualLength());
+
+		// send the success response.
+		// FIXME: send an actually valid answer.
+		Dispatcher::SendString send_resp(dispatcher, pipe, nullptr, 0,
+				recv_req.requestId(), 0, kHelResponse);
+		COFIBER_AWAIT send_resp.future();
+	}
+}, std::move(pipe)))
+
 COFIBER_ROUTINE(cofiber::no_future, monitorUniverse(HelHandle handle), [=] () {
 
 })
 
+template<typename T>
+size_t copyToString(std::string &string, const T *p, size_t n) {
+	static_assert(std::is_trivially_copyable<T>::value, "Need trivially copyable type");
+	size_t misalign = string.size() % alignof(T);
+	if(misalign)
+		string.resize(string.size() + alignof(T) - misalign);
+	size_t offset = string.size();
+	string.resize(string.size() + sizeof(T) * n);
+	memcpy(&string[offset], p, sizeof(T) * n);
+	return offset;
+}
+
+template<typename T>
+size_t copyToString(std::string &string, T value) {
+	return copyToString(string, &value, 1);
+}
+
 void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 		bool exclusive) {
 	constexpr size_t stack_size = 0x10000;
+	
+	// TODO: we should use separate stdin/out/err pipes.
+	helix::UniquePipe server, client;
+	std::tie(server, client) = helix::createFullPipe();
+	serveStdout(std::move(server));
 
 	// TODO: we should use some dup request here to avoid requestId clashes.
 	unsigned long fs_server;
@@ -134,8 +185,43 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
 
+	HelHandle remote_stdout;
 	HelHandle remote_fs;
+	HEL_CHECK(helTransferDescriptor(client.getHandle(), universe, &remote_stdout));
 	HEL_CHECK(helTransferDescriptor(fs_server, universe, &remote_fs));
+	
+	// allocate a stack and map it into the new address space.	
+	HelHandle stack_memory;
+	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
+	void *stack_base;
+	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
+			0, stack_size, kHelMapReadWrite, &stack_base));
+
+	// map the stack into our address space and set it up.
+	void *write_ptr;
+	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr, 0, stack_size,
+			kHelMapReadWrite, &write_ptr));
+
+	struct FileEntry {
+		int fd;
+		HelHandle pipe;
+	};
+
+	FileEntry files[] = {
+		{ 0, remote_stdout },
+		{ 1, remote_stdout },
+		{ 2, remote_stdout },
+		{ -1, kHelNullHandle }
+	};
+
+	// setup the stack data area.
+	std::string data_image;
+	size_t files_offset = copyToString(data_image, files, 4);
+
+	// TODO: make sure the data area is properly aligned.
+	size_t data_disp = stack_size - data_image.size();
+	memcpy((char *)write_ptr + data_disp,
+			&data_image[0], data_image.size());
 
 	// setup the auxiliary vector and copy it to the target stack.
 	uintptr_t stack_image[] = {
@@ -147,35 +233,29 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 		exec_info.phdrEntrySize,
 		AT_PHNUM,
 		exec_info.phdrCount,
+		AT_OPENFILES,
+		(uintptr_t)stack_base + data_disp + files_offset,
 		AT_FS_SERVER,
 		(uintptr_t)remote_fs,
 		AT_NULL,
 		0
 	};
 	
-	HelHandle stack_memory;
-	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
-	
-	void *write_ptr;
-	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr, 0, stack_size,
-			kHelMapReadWrite, &write_ptr));
-	memcpy((char *)write_ptr + stack_size - sizeof(stack_image),
+	size_t tail_disp = data_disp - sizeof(stack_image);
+	memcpy((char *)write_ptr + tail_disp,
 			&stack_image, sizeof(stack_image));
+	
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, stack_size));
-
-	// map the stack into the new address space.
-	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
-			0, stack_size, kHelMapReadWrite, &stack_base));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
+	// finally create a thread for the program.
 	HelHandle thread;
 	uint32_t thread_flags = kHelThreadTrapsAreFatal;
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
 	auto directory = helx::Directory::create();
 	HEL_CHECK(helCreateThread(universe, space, directory.getHandle(), kHelAbiSystemV,
-			interp_info.entryIp, (char *)stack_base + stack_size - sizeof(stack_image),
+			interp_info.entryIp, (char *)stack_base + tail_disp,
 			thread_flags, &thread));
 	HEL_CHECK(helCloseDescriptor(space));
 
@@ -197,7 +277,6 @@ void startMbus() {
 	ImageInfo exec_info = loadImage(space, "mbus", 0);
 	// TODO: actually use the correct interpreter
 	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
-	printf("Ready to run\n");
 	runProgram(space, exec_info, interp_info, true);
 	
 	// receive a client handle from the child process
@@ -355,39 +434,7 @@ void runPosixInit() {
 	assert(exec_response.error() == managarm::posix::Errors::SUCCESS);
 }*/
 
-using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
-Dispatcher dispatcher(helix::createHub());
-
-#include <functional>
-
-helix::UniquePipe server, client;
-
 extern "C" void __rtdl_setupTcb();
-
-COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe pipe),
-		std::bind([=] (helix::UniquePipe pipe) {
-	while(true) {
-		char req_buffer[128];
-		Dispatcher::RecvString recv_req(dispatcher, pipe, req_buffer, 128,
-				kHelAnyRequest, 0, kHelRequest);
-		COFIBER_AWAIT recv_req.future();
-
-		//FIXME: actually parse the protocol.
-
-		char data_buffer[128];
-		Dispatcher::RecvString recv_data(dispatcher, pipe, data_buffer, 128,
-				recv_req.requestId(), 1, kHelRequest);
-		COFIBER_AWAIT recv_data.future();
-
-		helLog(data_buffer, recv_data.actualLength());
-
-		// send the success response.
-		// FIXME: send an actually valid answer.
-		Dispatcher::SendString send_resp(dispatcher, pipe, nullptr, 0,
-				recv_req.requestId(), 0, kHelResponse);
-		COFIBER_AWAIT send_resp.future();
-	}
-}, std::move(pipe)))
 
 void serveMain() {
 	// we use the raw managarm thread API so we have to setup
@@ -395,24 +442,26 @@ void serveMain() {
 	assert(__rtdl_setupTcb);
 	__rtdl_setupTcb();
 
-	serveStdout(std::move(server));
-
 	while(true)
 		dispatcher();
 	__builtin_trap();
 }
 
 int main() {
-	// first we start an internal server that gives us an stdout stream.
+	// we need a second thread to serve stdout.
+	// this cannot be done in this thread as libc uses blocking calls.
 	HelHandle thread_handle;
 	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, kHelNullHandle,
 			kHelAbiSystemV, (void *)serveMain, (char *)malloc(0x10000) + 0x10000,
 			kHelThreadExclusive, &thread_handle));
-
+	
+	// TODO: we should use separate stdin/out/err pipes.
+	helix::UniquePipe server, client;
 	std::tie(server, client) = helix::createFullPipe();
 	__mlibc_pushFd(client.getHandle());
 	__mlibc_pushFd(client.getHandle());
 	__mlibc_pushFd(client.getHandle());
+	serveStdout(std::move(server));
 //	client.release();
 
 	printf("Entering user_boot\n");
