@@ -268,9 +268,6 @@ helx::Client acpiConnect;
 helx::Pipe posixPipe;
 
 void startMbus() {
-	helix::UniquePipe parent_pipe, child_pipe;
-	std::tie(parent_pipe, child_pipe) = helix::createFullPipe();
-		
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
@@ -288,8 +285,16 @@ void startMbus() {
 	mbusConnect = helx::Client(connect_handle);*/
 }
 
-/*void startAcpi() {
-	auto directory = helx::Directory::create();
+void startAcpi() {
+	HelHandle space;
+	HEL_CHECK(helCreateSpace(&space));
+
+	ImageInfo exec_info = loadImage(space, "acpi", 0);
+	// TODO: actually use the correct interpreter
+	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
+	runProgram(space, exec_info, interp_info, true);
+
+/*	auto directory = helx::Directory::create();
 	HelHandle universe = loadImage("initrd/acpi", directory.getHandle(), true);
 	helx::Pipe pipe(universe);
 	
@@ -304,10 +309,10 @@ void startMbus() {
 	pipe.recvDescriptorReqSync(eventHub, kHelAnyRequest, kHelAnySequence,
 			recv_error, connect_handle);
 	HEL_CHECK(recv_error);
-	acpiConnect = helx::Client(connect_handle);
+	acpiConnect = helx::Client(connect_handle);*/
 }
 
-void startInitrd() {
+/*void startInitrd() {
 	helx::Pipe parent_pipe, child_pipe;
 	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
@@ -467,7 +472,7 @@ int main() {
 	printf("Entering user_boot\n");
 	
 	startMbus();
-//	startAcpi();
+	startAcpi();
 //	startInitrd();
 
 	// hack to synchronize posix subsystem and initrd

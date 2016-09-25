@@ -1,12 +1,10 @@
 
-#include <frigg/types.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/debug.hpp>
-#include <frigg/libc.hpp>
-#include <frigg/initializer.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/memory.hpp>
-#include <frigg/glue-hel.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <stdexcept>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -15,8 +13,7 @@ extern "C" {
 #include <acpi.h>
 }
 
-#define NOT_IMPLEMENTED() do { frigg::panicLogger() << "ACPI interface function " \
-		<< __func__ << " is not implemented!" << frigg::endLog; } while(0)
+#define NOT_IMPLEMENTED() do { assert(!"Fix this"); /* frigg::panicLogger() << "ACPI interface function " << __func__ << " is not implemented!" << frigg::endLog;*/ } while(0)
 
 // --------------------------------------------------------
 // Initialization and shutdown
@@ -33,8 +30,7 @@ ACPI_STATUS AcpiOsTerminate() {
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 	ACPI_SIZE pointer;
 	if(AcpiFindRootPointer(&pointer) != AE_OK)
-		frigg::panicLogger() << "Could not find ACPI RSDP table"
-				<< frigg::endLog;
+		throw std::runtime_error("Could not find ACPI RSDP table");
 	return pointer;
 }
 
@@ -50,7 +46,8 @@ void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf (const char *format, ...) {
 }
 
 void AcpiOsVprintf (const char *format, va_list args) {
-	while(*format != 0) {
+	assert(!"Fix this");
+/*	while(*format != 0) {
 		if(*format != '%') {
 			infoSink.print(*format);
 			++format;
@@ -127,7 +124,7 @@ void AcpiOsVprintf (const char *format, va_list args) {
 			}
 			++format;
 		}
-	}
+	}*/
 }
 
 // --------------------------------------------------------
@@ -160,7 +157,7 @@ void AcpiOsReleaseLock(ACPI_SPINLOCK spinlock, ACPI_CPU_FLAGS flags) {
 
 ACPI_STATUS AcpiOsCreateSemaphore(UINT32 max_units, UINT32 initial_units,
 		ACPI_SEMAPHORE *out_handle) {
-	auto semaphore = frigg::construct<AcpiSemaphore>(*allocator);
+	auto semaphore = new AcpiSemaphore;
 	semaphore->counter = initial_units;
 	*out_handle = semaphore;
 	return AE_OK;
@@ -223,11 +220,11 @@ void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
 // --------------------------------------------------------
 
 void *AcpiOsAllocate(ACPI_SIZE size) {
-	return allocator->allocate(size);
+	return malloc(size);
 }
 
 void AcpiOsFree(void *pointer) {
-	allocator->free(pointer);
+	free(pointer);
 }
 
 // --------------------------------------------------------
@@ -236,7 +233,8 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	frigg::infoLogger() << "Handle int " << interrupt << frigg::endLog;
+	assert(!"Fix this");
+//	frigg::infoLogger() << "Handle int " << interrupt << frigg::endLog;
 	//NOT_IMPLEMENTED();
 	return AE_OK;
 }

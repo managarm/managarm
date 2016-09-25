@@ -2,19 +2,19 @@
 $(call standard_dirs)
 $(call define_objdir,ACPICA_OBJ,$(BUILD_PATH)/$c/acpica-obj)
 
-$c_CC := x86_64-managarm-gcc
 $c_INCLUDE := -I$($c_GENDIR)
 $c_INCLUDE += -I$(TREE_PATH)/$c/acpica/source/include -I$(TREE_PATH)/frigg/include
+
+$c_CC := x86_64-managarm-gcc
 $c_CCFLAGS := $($c_INCLUDE)
 
 $c_CXX := x86_64-managarm-g++
-$c_CXXFLAGS := -std=c++14 -fno-rtti -fno-exceptions $($c_INCLUDE)
-$c_CXXFLAGS += -DFRIGG_NO_LIBC
+$c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
+$c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LDFLAGS := -nostdlib
+$c_LDFLAGS :=
 
-$c_OBJECTS := main.o pci_io.o pci_discover.o \
-	glue-acpica.o frigg-glue-hel.o frigg-debug.o frigg-libc.o
+$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths
@@ -32,9 +32,6 @@ $(call decl_targets,$c_ACPICA_OBJDIR/%)
 
 all-$c: $($c_BINDIR)/acpi
 
-$($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
-	install $< $@
-
 $($c_ACPICA_SUBDIR_PATHS):
 	mkdir -p $@
 
@@ -42,11 +39,6 @@ $($c_BINDIR)/acpi: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
-	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
-
-# compile frigg
-$($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 

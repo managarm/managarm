@@ -1,5 +1,7 @@
 
-#include <frigg/cxx-support.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <hel.h>
 #include <helx.hpp>

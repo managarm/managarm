@@ -1,11 +1,8 @@
 
-#include <frigg/cxx-support.hpp>
-#include <frigg/glue-hel.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
-#include <frigg/protobuf.hpp>
-#include <frigg/chain-all.hpp>
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -13,10 +10,10 @@
 
 #include "common.hpp"
 #include "pci.hpp"
-#include <mbus.frigg_pb.hpp>
-#include <hw.frigg_pb.hpp>
+//#include <mbus.frigg_pb.hpp>
+//#include <hw.frigg_pb.hpp>
 
-frigg::Vector<PciDevice *, Allocator> allDevices(*allocator.unsafeGet());
+/*frigg::Vector<PciDevice *, Allocator> allDevices(*allocator.unsafeGet());
 
 // --------------------------------------------------------
 // DeviceClosure
@@ -292,14 +289,15 @@ void checkPciDevice(uint32_t bus, uint32_t slot) {
 void checkPciBus(uint32_t bus) {
 	for(uint32_t slot = 0; slot < 32; slot++)
 		checkPciDevice(bus, slot);
-}
+}*/
 
 void pciDiscover() {
-	uintptr_t ports[] = { 0xCF8, 0xCF9, 0xCFA, 0xCFB, 0xCFC, 0xCFD, 0xCFE, 0xCFF };
+	assert(!"Fix this");
+/*	uintptr_t ports[] = { 0xCF8, 0xCF9, 0xCFA, 0xCFB, 0xCFC, 0xCFD, 0xCFE, 0xCFF };
 	HelHandle io_handle;
 	HEL_CHECK(helAccessIo(ports, 8, &io_handle));
 	HEL_CHECK(helEnableIo(io_handle));
 
-	checkPciBus(0);
+	checkPciBus(0);*/
 }
 
