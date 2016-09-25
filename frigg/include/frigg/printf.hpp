@@ -2,6 +2,8 @@
 #ifndef FRIGG_PRINTF_HPP
 #define FRIGG_PRINTF_HPP
 
+#include <frigg/optional.hpp>
+
 namespace frigg {
 
 template<typename P>
@@ -50,11 +52,9 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		}
 
-		assert(!left_justify);
 		assert(!always_sign);
 		assert(!plus_becomes_space);
 		assert(!alt_conversion);
-		assert(!fill_zeros);
 
 		int minimum_width = 0;
 		while(*format >= '0' && *format <= '9') {
@@ -63,27 +63,24 @@ void printf(P &printer, const char *format, va_list args) {
 			assert(*format);
 		}
 
-		assert(minimum_width == 0);
-		
-		bool has_precision = false;
-		int precision = 0;
+		Optional<int> precision;
 		if(*format == '.') {
 			++format;
 			assert(*format);
 
-			has_precision = true;
-			
 			if(*format == '*') {
 				++format;
 				assert(*format);
 				precision = va_arg(args, int);
 			}else{
+				int value = 0;
 				assert(*format >= '0' && *format <= '9');
 				while(*format >= '0' && *format <= '9') {
-					precision = precision * 10 + (*format - '0');
+					value = value * 10 + (*format - '0');
 					++format;
 					assert(*format);
 				}
+				precision = value;
 			}
 		}
 		
@@ -95,49 +92,85 @@ void printf(P &printer, const char *format, va_list args) {
 
 		switch(*format) {
 		case '%':
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
 			printer.print('%');
 			break;
 		case 'c':
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
 			assert(!l_prefix);
-			assert(precision == 0);
+			assert(!precision);
 			printer.print((char)va_arg(args, int));
 			break;
-		case 's':
+		case 's': {
+			assert(!fill_zeros);
 			assert(!l_prefix);
-			if(has_precision) {
-				const char *s = va_arg(args, const char *);
-				for(int i = 0; i < precision && s[i]; i++)
+
+			auto s = va_arg(args, const char *);
+			int length = strlen(s);
+			if(precision && *precision < length)
+				length = *precision;
+
+			if(left_justify) {
+				for(int i = 0; i < *precision && s[i]; i++)
 					printer.print(s[i]);
+				for(int i = length; i < minimum_width; i++)
+					printer.print(' ');
 			}else{
-				printer.print(va_arg(args, const char *));
+				for(int i = 0; i < *precision && s[i]; i++)
+					printer.print(s[i]);
+				for(int i = length; i < minimum_width; i++)
+					printer.print(' ');
 			}
-			break;
+		} break;
 		case 'd':
 		case 'i': {
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
 			assert(!l_prefix);
-			assert(precision == 0);
 			int number = va_arg(args, int);
-			if(number < 0) {
+			if(precision && *precision == 0 && !number) {
+				// print nothing in this case
+			}else if(number < 0) {
+				// FIXME: this is horribly broken!
 				printer.print('-');
-				printUInt(printer, -number, 10);
+				printUInt(printer, -number, 10, minimum_width,
+						precision ? *precision : 1, fill_zeros ? '0' : ' ');
 			}else{
-				printUInt(printer, number, 10);
+				printUInt(printer, number, 10, minimum_width,
+						precision ? *precision : 1, fill_zeros ? '0' : ' ');
 			}
 		} break;
 		case 'o': assert(!"Not implemented");
 		case 'x':
 			// TODO: Implement this correctly
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
 			assert(!l_prefix);
-			assert(precision == 0);
+			assert(!precision);
 			printUInt(printer, va_arg(args, unsigned int), 16);
 			break;
-		case 'X':
+		case 'X': {
+			assert(!left_justify);
 			assert(!l_prefix);
-			assert(precision == 0);
-			printUInt(printer, va_arg(args, unsigned int), 16);
-			break;
+			auto number = va_arg(args, unsigned int);
+			if(precision && *precision == 0 && !number) {
+				// print nothing in this case
+			}else{
+				printUInt(printer, number, 16, minimum_width,
+						precision ? *precision : 1, fill_zeros ? '0' : ' ');
+			}
+		} break;
 		case 'u': {
-			assert(precision == 0);
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
+			assert(!precision);
 			if(l_prefix) {
 				printUInt(printer, va_arg(args, unsigned long), 10);
 			}else{
@@ -145,6 +178,9 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		} break;
 		case 'p':
+			assert(!fill_zeros);
+			assert(!left_justify);
+			assert(minimum_width == 0);
 			printer.print("0x");
 			printUInt(printer, (uintptr_t)va_arg(args, void *), 16);
 			break;

@@ -1,11 +1,12 @@
 
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <fcntl.h>
 #include <sys/auxv.h>
-#include <string>
 #include <functional>
+#include <iostream>
+#include <string>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -93,8 +94,7 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				map_flags |= kHelMapReadExecute;
 			}else{
-				printf("Illegal combination of segment permissions\n");
-				abort();
+				throw std::runtime_error("Illegal combination of segment permissions");
 			}
 
 			void *actual_ptr;
@@ -111,8 +111,7 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
-			printf("Unexpected PHDR");
-			abort();
+			throw std::runtime_error("Unexpected PHDR");
 		}
 	}
 
@@ -469,7 +468,7 @@ int main() {
 	serveStdout(std::move(server));
 //	client.release();
 
-	printf("Entering user_boot\n");
+	std::cout << "Entering user_boot" << std::endl;
 	
 	startMbus();
 	startAcpi();
@@ -482,6 +481,6 @@ int main() {
 //	startPosixSubsystem();
 //	runPosixInit();
 	
-	printf("user_boot completed successfully\n");
+	std::cout << "user_boot completed successfully" << std::endl;
 }
 

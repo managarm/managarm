@@ -3,6 +3,7 @@
 #define FRIGG_OPTIONAL_HPP
 
 #include <frigg/cxx-support.hpp>
+#include <frigg/algorithm.hpp>
 
 namespace frigg {
 

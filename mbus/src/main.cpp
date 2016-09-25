@@ -1,8 +1,5 @@
 
-#include <stdio.h>
-
-#include <frigg/callback.hpp>
-#include <frigg/smart_ptr.hpp>
+#include <iostream>
 
 #include <helx.hpp>
 
@@ -277,7 +274,7 @@ void AcceptClosure::accepted(HelError error, HelHandle handle) {
 // --------------------------------------------------------
 
 int main() {
-	printf("Entering mbus\n");
+	std::cout << "Entering mbus" << std::endl;
 	/*allocator.initialize(virtualAlloc);
 	allConnections.initialize(*allocator);
 

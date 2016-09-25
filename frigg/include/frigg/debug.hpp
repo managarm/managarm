@@ -17,30 +17,30 @@ public:
 // Logging
 // --------------------------------------------------------
 
+// width: Minimum width of the output (padded with spaces by default).
+// precision: Minimum number of digits in the ouput (always padded with zeros).
 template<typename P, typename T>
-void printUInt(P &printer, T number, int radix) {
-	if(number == 0) {
-		printer.print('0');
-		return;
-	}
+void printUInt(P &printer, T number, int radix, int width = 0,
+		int precision = 1, char padding = ' ') {
 	const char *digits = "0123456789abcdef";
-	int logarithm = 0;
-	T rem = number;
-	while(1) {
-		rem /= radix;
-		if(rem == 0)
-			break;
-		logarithm++;
-	}
-	T p = 1;
-	for(int i = 0; i < logarithm; i++)
-		p *= radix;
-	while(p > 0) {
-		int d = number / p;
-		printer.print(digits[d]);
-		number %= p;
-		p /= radix;
-	}
+
+	// print the number in reverse order and determine #digits.
+	char buffer[32];
+	int k = 0; // number of digits
+	do {
+		assert(k < 32); // TODO: variable number of digits
+		buffer[k++] = digits[number % radix];
+		number /= radix;
+	} while(number);
+
+	if(max(k, precision) < width)
+		for(int i = 0; i < width - max(k, precision); i++)
+			printer.print(padding);
+	if(k < precision)
+		for(int i = 0; i < precision - k; i++)
+			printer.print('0');
+	for(int i = k - 1; i >= 0; i--)
+		printer.print(buffer[i]);
 }
 
 

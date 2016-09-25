@@ -2,7 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdio.h>
+#include <iostream>
 #include <vector>
 
 #include <hel.h>
@@ -251,7 +251,7 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 // --------------------------------------------------------
 
 int main() {
-	printf("Entering ACPI driver\n");
+	std::cout << "Entering ACPI driver" << std::endl;
 	
 	// connect to mbus
 	/*HelError mbus_recv_error;
@@ -273,7 +273,7 @@ int main() {
 	ACPICA_CHECK(AcpiLoadTables());
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	printf("ACPI initialized successfully\n");
+	std::cout << "ACPI initialized successfully" << std::endl;
 	
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;

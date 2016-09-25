@@ -3,7 +3,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <assert.h>
+#include <iostream>
 #include <stdexcept>
 
 #include <hel.h>
@@ -38,93 +40,16 @@ ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer() {
 // Logging
 // --------------------------------------------------------
 
-void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf (const char *format, ...) {
+void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf(const char *format, ...) {
 	va_list args;
 	va_start(args, format);
 	AcpiOsVprintf(format, args);
 	va_end(args);
 }
 
-void AcpiOsVprintf (const char *format, va_list args) {
-	assert(!"Fix this");
-/*	while(*format != 0) {
-		if(*format != '%') {
-			infoSink.print(*format);
-			++format;
-		}else{
-			++format;
-			assert(*format != 0);
-			
-			bool left_justify = false;
-			bool always_sign = false;
-			bool plus_becomes_space = false;
-			bool alt_conversion = false;
-			bool fill_zeros = false;
-
-			while(true) {
-				if(*format == '-') {
-					left_justify = true;
-					++format;
-					assert(*format != 0);
-				}else if(*format == '+') {
-					always_sign = true;
-					++format;
-					assert(*format != 0);
-				}else if(*format == ' ') {
-					plus_becomes_space = true;
-					++format;
-					assert(*format != 0);
-				}else if(*format == '#') {
-					alt_conversion = true;
-					++format;
-					assert(*format != 0);
-				}else if(*format == '0') {
-					fill_zeros = true;
-					++format;
-					assert(*format != 0);
-				}else{
-					break;
-				}
-			}
-
-			int minimum_width = 0;
-			while(*format >= '0' && *format <= '9') {
-				minimum_width = minimum_width * 10 + (*format - '0');
-				++format;
-				assert(*format != 0);
-			}
-			
-			int precision = 0;
-			if(*format == '.') {
-				++format;
-				assert(*format != 0);
-
-				while(*format >= '0' && *format <= '9') {
-					precision = precision * 10 + (*format - '0');
-					++format;
-					assert(*format != 0);
-				}
-			}
-
-			switch(*format) {
-			case 'd':
-				infoSink.print("(int)");
-				break;
-			case 'u':
-				infoSink.print("(unsigned)");
-				break;
-			case 'X':
-				infoSink.print("(hex)");
-				break;
-			case 's':
-				infoSink.print("(string)");
-				break;
-			default:
-				assert(!"Illegal printf modifier");
-			}
-			++format;
-		}
-	}*/
+void AcpiOsVprintf(const char *format, va_list args) {
+	if(vprintf(format, args))
+		throw std::runtime_error("vprintf failed");
 }
 
 // --------------------------------------------------------
@@ -233,9 +158,8 @@ void AcpiOsFree(void *pointer) {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
 		ACPI_OSD_HANDLER handler, void *context) {
-	assert(!"Fix this");
-//	frigg::infoLogger() << "Handle int " << interrupt << frigg::endLog;
-	//NOT_IMPLEMENTED();
+	std::cout << "ACPICA was to install a handler for interrupt " << interrupt
+			<< ". This is currently a no-op!" << std::endl;
 	return AE_OK;
 }
 
