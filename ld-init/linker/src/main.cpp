@@ -97,6 +97,7 @@ extern "C" void *interpreterMain(char *sp) {
 		AT_PHNUM = 5,
 		AT_ENTRY = 9,
 		
+		AT_XPIPE = 0x1000,
 		AT_OPENFILES = 0x1001,
 		AT_FS_SERVER = 0x1102
 	};
@@ -130,6 +131,7 @@ extern "C" void *interpreterMain(char *sp) {
 			case AT_FS_SERVER:
 				fsPipe.initialize(aux.longValue);
 				break;
+			case AT_XPIPE:
 			case AT_OPENFILES:
 				// ignore these auxiliary vector entries.
 				break;

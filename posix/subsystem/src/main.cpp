@@ -1,26 +1,17 @@
 
-#include <frigg/types.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/algorithm.hpp>
-#include <frigg/debug.hpp>
-#include <frigg/initializer.hpp>
-#include <frigg/libc.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/memory.hpp>
-#include <frigg/smart_ptr.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
-#include <frigg/optional.hpp>
-#include <frigg/tuple.hpp>
-#include <frigg/hashmap.hpp>
-#include <frigg/protobuf.hpp>
-#include <frigg/chain-all.hpp>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/auxv.h>
+#include <iostream>
 
-#include <frigg/glue-hel.hpp>
-
+#include <cofiber.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
 
 #include "common.hpp"
 #include "device.hpp"
@@ -31,19 +22,20 @@
 #include "pts_fs.hpp"
 #include "sysfile_fs.hpp"
 #include "extern_fs.hpp"
-
-#include "posix.frigg_pb.hpp"
-#include "mbus.frigg_pb.hpp"
+#include <posix.pb.h>
 
 bool traceRequests = false;
 
-helx::EventHub eventHub = helx::EventHub::create();
-helx::Client mbusConnect;
-helx::Pipe ldServerPipe;
-helx::Pipe mbusPipe;
+using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
+Dispatcher dispatcher(helix::createHub());
+
+//FIXME: helx::EventHub eventHub = helx::EventHub::create();
+//FIXME: helx::Client mbusConnect;
+//FIXME: helx::Pipe ldServerPipe;
+//FIXME: helx::Pipe mbusPipe;
 
 // TODO: this could be handled better
-helx::Pipe initrdPipe;
+//FIXME: helx::Pipe initrdPipe;
 
 // TODO: this is a ugly hack
 MountSpace *initMountSpace;
@@ -51,7 +43,7 @@ MountSpace *initMountSpace;
 HelHandle ringBuffer;
 HelRingBuffer *ringItem;
 
-// --------------------------------------------------------
+/*// --------------------------------------------------------
 // RequestClosure
 // --------------------------------------------------------
 
@@ -71,10 +63,10 @@ private:
 	StdSharedPtr<Process> process;
 	int iteration;
 };
+*/
 
-void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> request,
-		int64_t msg_request) {
-	// check the iteration number to prevent this process from being hijacked
+COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p), [pipe = std::move(p)] {
+/*	// check the iteration number to prevent this process from being hijacked
 	if(process && iteration != process->iteration) {
 		auto action = frigg::compose([=] (auto serialized) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -88,10 +80,19 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		
 		frigg::run(frigg::move(action), allocator.get());
 		return;
-	}
+	}*/
+	char req_buffer[128];
+	Dispatcher::RecvString recv_req(dispatcher, pipe, req_buffer, 128,
+			kHelAnyRequest, 0, kHelRequest);
+	COFIBER_AWAIT recv_req.future();
+	if(recv_req.error() == kHelErrClosedRemotely)
+		return; // TODO: do we need to do something on close?
+	HEL_CHECK(recv_req.error());
 
-	if(request.request_type() == managarm::posix::ClientRequestType::INIT) {
-		assert(!process);
+	managarm::posix::ClientRequest req;
+	req.ParseFromArray(req_buffer, recv_req.actualLength());
+	if(req.request_type() == managarm::posix::ClientRequestType::INIT) {
+		/*assert(!process);
 
 		auto action = frigg::compose([=] (auto serialized) {
 			process = Process::init();
@@ -135,8 +136,8 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			});
 		}, frigg::String<Allocator>(*allocator));
 		
-		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::GET_PID) {
+		frigg::run(frigg::move(action), allocator.get());*/
+	/*}else if(req.request_type() == managarm::posix::ClientRequestType::GET_PID) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] GET_PID" << frigg::endLog;
 
@@ -152,7 +153,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			}, frigg::String<Allocator>(*allocator));
 
 			frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::FORK) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::FORK) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] FORK" << frigg::endLog;
 
@@ -166,7 +167,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 			HelHandle thread;
 			HEL_CHECK(helCreateThread(universe, new_process->vmSpace, directory.getHandle(),
-					kHelAbiSystemV, (void *)request.child_ip(), (void *)request.child_sp(),
+					kHelAbiSystemV, (void *)req.child_ip(), (void *)req.child_sp(),
 					0, &thread));
 
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -180,12 +181,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::EXEC) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::EXEC) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] EXEC" << frigg::endLog;
 
 		auto action = frigg::compose([=] (auto serialized) {
-			execute(process, request.path());
+			execute(process, req.path());
 			
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 			response.set_error(managarm::posix::Errors::SUCCESS);
@@ -197,11 +198,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::FSTAT) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::FSTAT) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] FSTAT" << frigg::endLog;
 		
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
@@ -246,7 +247,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(action, allocator.get()); 
-	}else if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::OPEN) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] OPEN" << frigg::endLog;
 
@@ -255,14 +256,14 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 
 		auto action = frigg::await<void(StdSharedPtr<VfsOpenFile> file)>([=] (auto callback) {
 			uint32_t open_flags = 0;
-			if((request.flags() & managarm::posix::OpenFlags::CREAT) != 0)
+			if((req.flags() & managarm::posix::OpenFlags::CREAT) != 0)
 				open_flags |= MountSpace::kOpenCreat;
 
 			uint32_t open_mode = 0;
-			if((request.mode() & managarm::posix::OpenMode::HELFD) != 0)
+			if((req.mode() & managarm::posix::OpenMode::HELFD) != 0)
 				open_mode |= MountSpace::kOpenHelfd;
 			
-			frigg::String<Allocator> path = concatenatePath("/", request.path());
+			frigg::String<Allocator> path = concatenatePath("/", req.path());
 			frigg::String<Allocator> normalized = normalizePath(path);
 
 			MountSpace *mount_space = process->mountSpace;
@@ -307,11 +308,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		});
 		
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::CONNECT) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::CONNECT) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] CONNECT" << frigg::endLog;
 	
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 	
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
@@ -341,17 +342,17 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::WRITE) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::WRITE) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] WRITE" << frigg::endLog;
 
-			auto file = process->allOpenFiles.get(request.fd());
+			auto file = process->allOpenFiles.get(req.fd());
 			
 			auto action = frigg::ifThenElse(
 				frigg::lift([=] () { return file; }),
 
 				frigg::await<void()>([=] (auto callback) {
-					(*file)->write(request.buffer().data(), request.buffer().size(), callback);
+					(*file)->write(req.buffer().data(), req.buffer().size(), callback);
 				})
 				+ frigg::compose([=] (auto serialized) {
 					managarm::posix::ServerResponse<Allocator> response(*allocator);
@@ -377,19 +378,19 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 			);
 
 			frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::READ) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::READ) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] READ" << frigg::endLog;
 
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
 
 			frigg::compose([=] (frigg::String<Allocator> *buffer) {
 				return frigg::await<void(VfsError error, size_t actual_size)>([=] (auto callback) {
-					buffer->resize(request.size());
-					(*file)->read(buffer->data(), request.size(), callback);
+					buffer->resize(req.size());
+					(*file)->read(buffer->data(), req.size(), callback);
 				})
 				+ frigg::compose([=] (VfsError error, size_t actual_size) {
 					// FIXME: hack to work around a GCC bug
@@ -411,7 +412,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 						frigg::compose([=] (auto serialized) {
 							assert(error == kVfsSuccess);
 							
-							// TODO: make request.size() unsigned
+							// TODO: make req.size() unsigned
 							managarm::posix::ServerResponse<Allocator> response(*allocator);
 							response.set_error(managarm::posix::Errors::SUCCESS);
 							response.SerializeToString(serialized);
@@ -439,24 +440,24 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS
-			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_REL
-			|| request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::SEEK_ABS
+			|| req.request_type() == managarm::posix::ClientRequestType::SEEK_REL
+			|| req.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] SEEK" << frigg::endLog;
 
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
 
 			frigg::await<void(uint64_t offset)>([=] (auto callback) {
-				if(request.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
-					(*file)->seek(request.rel_offset(), kSeekAbs, callback);
-				}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_REL) {
-					(*file)->seek(request.rel_offset(), kSeekRel, callback);
-				}else if(request.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
-					(*file)->seek(request.rel_offset(), kSeekEof, callback);
+				if(req.request_type() == managarm::posix::ClientRequestType::SEEK_ABS) {
+					(*file)->seek(req.rel_offset(), kSeekAbs, callback);
+				}else if(req.request_type() == managarm::posix::ClientRequestType::SEEK_REL) {
+					(*file)->seek(req.rel_offset(), kSeekRel, callback);
+				}else if(req.request_type() == managarm::posix::ClientRequestType::SEEK_EOF) {
+					(*file)->seek(req.rel_offset(), kSeekEof, callback);
 				}else{
 					frigg::panicLogger() << "Illegal SEEK request" << frigg::endLog;
 				}
@@ -485,11 +486,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::MMAP) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::MMAP) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] MMAP" << frigg::endLog;
 
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 		
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
@@ -526,7 +527,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::CLOSE) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::CLOSE) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] CLOSE" << frigg::endLog;
 
@@ -534,7 +535,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto action = frigg::compose([=] (auto serialized) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 
-			int32_t fd = request.fd();
+			int32_t fd = req.fd();
 			auto file_wrapper = process->allOpenFiles.get(fd);
 			if(file_wrapper){
 				process->allOpenFiles.remove(fd);
@@ -551,7 +552,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::DUP2) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::DUP2) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] DUP2" << frigg::endLog;
 
@@ -559,8 +560,8 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		auto action = frigg::compose([=] (auto serialized) {
 			managarm::posix::ServerResponse<Allocator> response(*allocator);
 
-			int32_t oldfd = request.fd();
-			int32_t newfd = request.newfd();
+			int32_t oldfd = req.fd();
+			int32_t newfd = req.newfd();
 			auto file_wrapper = process->allOpenFiles.get(oldfd);
 			if(file_wrapper){
 				auto file = *file_wrapper;
@@ -578,11 +579,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}, frigg::String<Allocator>(*allocator));
 		
 		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::TTY_NAME) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::TTY_NAME) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] TTY_NAME" << frigg::endLog;
 
-		auto file = process->allOpenFiles.get(request.fd());
+		auto file = process->allOpenFiles.get(req.fd());
 		
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file; }),
@@ -621,7 +622,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 			
 		frigg::run(action, allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::HELFD_ATTACH) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] HELFD_ATTACH" << frigg::endLog;
 
@@ -631,7 +632,7 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		pipe->recvDescriptorReqSync(eventHub, msg_request, 1, error, handle);
 		HEL_CHECK(error);
 
-		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		auto file_wrapper = process->allOpenFiles.get(req.fd());
 		
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file_wrapper; }),
@@ -665,11 +666,11 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		);
 
 		frigg::run(frigg::move(action), allocator.get());
-	}else if(request.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
+	}else if(req.request_type() == managarm::posix::ClientRequestType::HELFD_CLONE) {
 		if(traceRequests)
 			frigg::infoLogger() << "[" << process->pid << "] HELFD_CLONE" << frigg::endLog;
 
-		auto file_wrapper = process->allOpenFiles.get(request.fd());
+		auto file_wrapper = process->allOpenFiles.get(req.fd());
 		
 		auto action = frigg::ifThenElse(
 			frigg::lift([=] () { return file_wrapper; }),
@@ -718,9 +719,12 @@ void RequestClosure::processRequest(managarm::posix::ClientRequest<Allocator> re
 		}, frigg::String<Allocator>(*allocator));
 
 		frigg::run(frigg::move(action), allocator.get());
+	}*/
+	}else{
+		throw std::runtime_error("Fix this!");
 	}
-}
-
+})
+/*
 void RequestClosure::operator() () {
 	HelError error = pipe->recvStringReqToRing(ringBuffer, eventHub, kHelAnyRequest, 0,
 			CALLBACK_MEMBER(this, &RequestClosure::recvRequest));
@@ -892,118 +896,83 @@ void MbusClosure::recvdBroadcast(HelError error, int64_t msg_request, int64_t ms
 	}
 
 	(*this)();
-}
+}*/
 
 // --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
 
-typedef void (*InitFuncPtr) ();
-extern InitFuncPtr __init_array_start[];
-extern InitFuncPtr __init_array_end[];
-
 int main() {
-	frigg::infoLogger() << "Starting posix-subsystem" << frigg::endLog;
-	allocator.initialize(virtualAlloc);
-
-	// we're using no libc, so we have to run constructors manually
-	size_t init_count = __init_array_end - __init_array_start;
-	for(size_t i = 0; i < init_count; i++)
-		__init_array_start[i]();
+	std::cout << "Starting posix-subsystem" << std::endl;
 	
-	ringItem = (HelRingBuffer *)allocator->allocate(sizeof(HelRingBuffer) + 0x10000);
+	ringItem = (HelRingBuffer *)malloc(sizeof(HelRingBuffer) + 0x10000);
 	
 	// initialize our string queue
 	HEL_CHECK(helCreateRing(0x1000, &ringBuffer));
 	int64_t async_id;
-	HEL_CHECK(helSubmitRing(ringBuffer, eventHub.getHandle(),
+	HEL_CHECK(helSubmitRing(ringBuffer, dispatcher.getHub().getHandle(),
 			ringItem, 0x10000, 0, 0, &async_id));
 
 	// connect to mbus
-	const char *mbus_path = "local/mbus";
-	HelHandle mbus_handle;
-	HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
-	mbusConnect = helx::Client(mbus_handle);
+	//FIXME const char *mbus_path = "local/mbus";
+	//FIXME HelHandle mbus_handle;
+	//FIXME HEL_CHECK(helRdOpen(mbus_path, strlen(mbus_path), &mbus_handle));
+	//FIXME mbusConnect = helx::Client(mbus_handle);
 	
-	HelError mbus_connect_error;
-	mbusConnect.connectSync(eventHub, mbus_connect_error, mbusPipe);
-	HEL_CHECK(mbus_connect_error);
+	//FIXME HelError mbus_connect_error;
+	//FIXME mbusConnect.connectSync(eventHub, mbus_connect_error, mbusPipe);
+	//FIXME HEL_CHECK(mbus_connect_error);
 
 	// enumerate the initrd object
-	managarm::mbus::CntRequest<Allocator> enum_request(*allocator);
-	enum_request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
+	//FIXME managarm::mbus::CntRequest<Allocator> enum_request(*allocator);
+	//FIXME enum_request.set_req_type(managarm::mbus::CntReqType::ENUMERATE);
 	
-	managarm::mbus::Capability<Allocator> cap(*allocator);
-	cap.set_name(frigg::String<Allocator>(*allocator, "initrd"));
-	enum_request.add_caps(frigg::move(cap));
+	//FIXME managarm::mbus::Capability<Allocator> cap(*allocator);
+	//FIXME cap.set_name(frigg::String<Allocator>(*allocator, "initrd"));
+	//FIXME enum_request.add_caps(frigg::move(cap));
 
-	HelError enumerate_error;
-	frigg::String<Allocator> enum_serialized(*allocator);
-	enum_request.SerializeToString(&enum_serialized);
-	mbusPipe.sendStringReqSync(enum_serialized.data(), enum_serialized.size(),
-			eventHub, 0, 0, enumerate_error);
+	//FIXME HelError enumerate_error;
+	//FIXME frigg::String<Allocator> enum_serialized(*allocator);
+	//FIXME enum_request.SerializeToString(&enum_serialized);
+	//FIXME mbusPipe.sendStringReqSync(enum_serialized.data(), enum_serialized.size(),
+	//FIXME 		eventHub, 0, 0, enumerate_error);
 
-	uint8_t enum_buffer[128];
-	HelError enum_error;
-	size_t enum_length;
-	mbusPipe.recvStringRespSync(enum_buffer, 128, eventHub, 0, 0, enum_error, enum_length);
-	HEL_CHECK(enum_error);
+	//FIXME uint8_t enum_buffer[128];
+	//FIXME HelError enum_error;
+	//FIXME size_t enum_length;
+	//FIXME mbusPipe.recvStringRespSync(enum_buffer, 128, eventHub, 0, 0, enum_error, enum_length);
+	//FIXME HEL_CHECK(enum_error);
 	
-	managarm::mbus::SvrResponse<Allocator> enum_response(*allocator);
-	enum_response.ParseFromArray(enum_buffer, enum_length);
+	//FIXME managarm::mbus::SvrResponse<Allocator> enum_response(*allocator);
+	//FIXME enum_response.ParseFromArray(enum_buffer, enum_length);
 	
 	// query the initrd object
-	managarm::mbus::CntRequest<Allocator> query_request(*allocator);
-	query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-	query_request.set_object_id(enum_response.object_id());
+	//FIXME managarm::mbus::CntRequest<Allocator> query_request(*allocator);
+	//FIXME query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
+	//FIXME query_request.set_object_id(enum_response.object_id());
 
-	HelError send_query_error;
-	frigg::String<Allocator> query_serialized(*allocator);
-	query_request.SerializeToString(&query_serialized);
-	mbusPipe.sendStringReqSync(query_serialized.data(), query_serialized.size(),
-			eventHub, 0, 0, send_query_error);
+	//FIXME HelError send_query_error;
+	//FIXME frigg::String<Allocator> query_serialized(*allocator);
+	//FIXME query_request.SerializeToString(&query_serialized);
+	//FIXME mbusPipe.sendStringReqSync(query_serialized.data(), query_serialized.size(),
+	//FIXME 		eventHub, 0, 0, send_query_error);
 	
-	HelError recv_query_error;
-	HelHandle query_handle;
-	mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, recv_query_error, query_handle);
-	HEL_CHECK(recv_query_error);
-	initrdPipe = helx::Pipe(query_handle);
+	//FIXME HelError recv_query_error;
+	//FIXME HelHandle query_handle;
+	//FIXME mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, recv_query_error, query_handle);
+	//FIXME HEL_CHECK(recv_query_error);
+	//FIXME initrdPipe = helx::Pipe(query_handle);
 
-	frigg::runClosure<MbusClosure>(*allocator);
+	//FIXME frigg::runClosure<MbusClosure>(*allocator);
 
 	// start our own server
-	helx::Server server;
-	helx::Client client;
-	helx::Server::createServer(server, client);
-	acceptLoop(frigg::move(server), StdSharedPtr<Process>(), 0);
+	unsigned long xpipe;
+	if(peekauxval(AT_XPIPE, &xpipe))
+		throw std::runtime_error("No AT_XPIPE specified");
 
-	const char *parent_path = "local/parent";
-	HelHandle parent_handle;
-	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
+	serve(helix::UniquePipe(xpipe));
 	
-	helx::Pipe parent_pipe(parent_handle);
-	HelError send_error;
-	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub, 0, 0, 
-			kHelRequest, send_error);
-	HEL_CHECK(send_error);
-
-	parent_pipe = helx::Pipe();
-	client = helx::Client();
-	
-	while(true) {
-		eventHub.defaultProcessEvents();
-	}
+	while(true)
+		dispatcher();
 }
-
-asm ( ".global _start\n"
-		"_start:\n"
-		"\tcall main\n"
-		"\tud2" );
-
-extern "C"
-int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
-	return 0;
-}
-
-void *__dso_handle;
 

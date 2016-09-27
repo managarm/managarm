@@ -8,11 +8,8 @@
 #include <iostream>
 #include <string>
 
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
-#include <frigg/elf.hpp>
 #include <cofiber.hpp>
+#include <frigg/elf.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 
@@ -21,6 +18,13 @@
 // TODO: remove/rename those functions from mlibc
 HelHandle __raw_map(int fd);
 int __mlibc_pushFd(HelHandle handle);
+
+using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
+Dispatcher dispatcher(helix::createHub());
+
+// --------------------------------------------------------
+// ELF parsing and loading.
+// --------------------------------------------------------
 
 struct ImageInfo {
 	ImageInfo()
@@ -107,6 +111,7 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 			info.interpreter = std::string((char *)image_ptr + phdr->p_offset,
 					phdr->p_filesz);
 		}else if(phdr->p_type == PT_DYNAMIC
+				|| phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
@@ -118,16 +123,19 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 	return info;
 }
 
-using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
-Dispatcher dispatcher(helix::createHub());
+// --------------------------------------------------------
+// Utilities
+// --------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe pipe),
-		std::bind([=] (helix::UniquePipe pipe) {
+COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
+		[pipe = std::move(p)] () {
 	while(true) {
 		char req_buffer[128];
 		Dispatcher::RecvString recv_req(dispatcher, pipe, req_buffer, 128,
 				kHelAnyRequest, 0, kHelRequest);
 		COFIBER_AWAIT recv_req.future();
+		if(recv_req.error() == kHelErrClosedRemotely)
+			return;
 
 		//FIXME: actually parse the protocol.
 
@@ -144,11 +152,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe pipe),
 				recv_req.requestId(), 0, kHelResponse);
 		COFIBER_AWAIT send_resp.future();
 	}
-}, std::move(pipe)))
-
-COFIBER_ROUTINE(cofiber::no_future, monitorUniverse(HelHandle handle), [=] () {
-
 })
+
+// --------------------------------------------------------
+// Process image construction.
+// --------------------------------------------------------
 
 template<typename T>
 size_t copyToString(std::string &string, const T *p, size_t n) {
@@ -167,16 +175,15 @@ size_t copyToString(std::string &string, T value) {
 	return copyToString(string, &value, 1);
 }
 
-void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
-		bool exclusive) {
+void runProgram(HelHandle space, helix::UniquePipe xpipe,
+		ImageInfo exec_info, ImageInfo interp_info, bool exclusive) {
 	constexpr size_t stack_size = 0x10000;
 	
 	// TODO: we should use separate stdin/out/err pipes.
-	helix::UniquePipe server, client;
-	std::tie(server, client) = helix::createFullPipe();
-	serveStdout(std::move(server));
+	helix::UniquePipe stdout_server, stdout_client;
+	std::tie(stdout_server, stdout_client) = helix::createFullPipe();
+	serveStdout(std::move(stdout_server));
 
-	// TODO: we should use some dup request here to avoid requestId clashes.
 	unsigned long fs_server;
 	if(peekauxval(AT_FS_SERVER, &fs_server))
 		throw std::runtime_error("No AT_FS_SERVER specified");
@@ -184,9 +191,11 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
 
+	HelHandle remote_xpipe;
 	HelHandle remote_stdout;
 	HelHandle remote_fs;
-	HEL_CHECK(helTransferDescriptor(client.getHandle(), universe, &remote_stdout));
+	HEL_CHECK(helTransferDescriptor(xpipe.getHandle(), universe, &remote_xpipe));
+	HEL_CHECK(helTransferDescriptor(stdout_client.getHandle(), universe, &remote_stdout));
 	HEL_CHECK(helTransferDescriptor(fs_server, universe, &remote_fs));
 	
 	// allocate a stack and map it into the new address space.	
@@ -206,6 +215,7 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 		HelHandle pipe;
 	};
 
+	// TODO: we should use some dup request here to avoid requestId clashes.
 	FileEntry files[] = {
 		{ 0, remote_stdout },
 		{ 1, remote_stdout },
@@ -225,17 +235,19 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 	// setup the auxiliary vector and copy it to the target stack.
 	uintptr_t stack_image[] = {
 		AT_ENTRY,
-		(uintptr_t)exec_info.entryIp,
+		uintptr_t(exec_info.entryIp),
 		AT_PHDR,
-		(uintptr_t)exec_info.phdrPtr,
+		uintptr_t(exec_info.phdrPtr),
 		AT_PHENT,
 		exec_info.phdrEntrySize,
 		AT_PHNUM,
 		exec_info.phdrCount,
+		AT_XPIPE,
+		uintptr_t(remote_xpipe),
 		AT_OPENFILES,
-		(uintptr_t)stack_base + data_disp + files_offset,
+		uintptr_t(stack_base) + data_disp + files_offset,
 		AT_FS_SERVER,
-		(uintptr_t)remote_fs,
+		uintptr_t(remote_fs),
 		AT_NULL,
 		0
 	};
@@ -252,19 +264,15 @@ void runProgram(HelHandle space, ImageInfo exec_info, ImageInfo interp_info,
 	uint32_t thread_flags = kHelThreadTrapsAreFatal;
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
-	auto directory = helx::Directory::create();
-	HEL_CHECK(helCreateThread(universe, space, directory.getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(universe, space, kHelNullHandle, kHelAbiSystemV,
 			interp_info.entryIp, (char *)stack_base + tail_disp,
 			thread_flags, &thread));
 	HEL_CHECK(helCloseDescriptor(space));
-
-	monitorUniverse(universe);
 }
 
-helx::EventHub eventHub = helx::EventHub::create();
-helx::Client mbusConnect;
-helx::Client acpiConnect;
-helx::Pipe posixPipe;
+// --------------------------------------------------------
+// Individual services handling.
+// --------------------------------------------------------
 
 void startMbus() {
 	HelHandle space;
@@ -273,7 +281,7 @@ void startMbus() {
 	ImageInfo exec_info = loadImage(space, "mbus", 0);
 	// TODO: actually use the correct interpreter
 	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
-	runProgram(space, exec_info, interp_info, true);
+	runProgram(space, helix::UniquePipe(), exec_info, interp_info, true);
 	
 	// receive a client handle from the child process
 	/*HelError recv_error;
@@ -291,7 +299,7 @@ void startAcpi() {
 	ImageInfo exec_info = loadImage(space, "acpi", 0);
 	// TODO: actually use the correct interpreter
 	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
-	runProgram(space, exec_info, interp_info, true);
+	runProgram(space, helix::UniquePipe(), exec_info, interp_info, true);
 
 /*	auto directory = helx::Directory::create();
 	HelHandle universe = loadImage("initrd/acpi", directory.getHandle(), true);
@@ -311,28 +319,19 @@ void startAcpi() {
 	acpiConnect = helx::Client(connect_handle);*/
 }
 
-/*void startInitrd() {
-	helx::Pipe parent_pipe, child_pipe;
-	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
-
-	auto local_directory = helx::Directory::create();
-	local_directory.publish(child_pipe.getHandle(), "parent");
-	local_directory.publish(mbusConnect.getHandle(), "mbus");
-	
-	auto directory = helx::Directory::create();
-	directory.mount(local_directory.getHandle(), "local");
-	directory.remount("initrd/#this", "initrd");
-	loadImage("initrd/initrd", directory.getHandle(), true);
-	
-	// wait until the initrd driver is ready
-	HelError error;
-	size_t length;
-	parent_pipe.recvStringReqSync(nullptr, 0, eventHub, 0, 0, error, length);
-	HEL_CHECK(error);
-}
-
 void startPosixSubsystem() {
-	helx::Pipe parent_pipe, child_pipe;
+	HelHandle space;
+	HEL_CHECK(helCreateSpace(&space));
+	
+	helix::UniquePipe xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+
+	ImageInfo exec_info = loadImage(space, "posix-subsystem", 0);
+	// TODO: actually use the correct interpreter
+	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
+	runProgram(space, std::move(xpipe_remote), exec_info, interp_info, true);
+
+/*	helx::Pipe parent_pipe, child_pipe;
 	helx::Pipe::createFullPipe(child_pipe, parent_pipe);
 
 	auto local_directory = helx::Directory::create();
@@ -354,9 +353,10 @@ void startPosixSubsystem() {
 	helx::Client posix_connect(connect_handle);
 	HelError connect_error;
 	posix_connect.connectSync(eventHub, connect_error, posixPipe);
-	HEL_CHECK(connect_error);
+	HEL_CHECK(connect_error);*/
 }
 
+/*
 void posixDoRequest(managarm::posix::ClientRequest<Allocator> &request,
 		managarm::posix::ServerResponse<Allocator> &response, int64_t request_id) {
 
@@ -459,28 +459,23 @@ int main() {
 			kHelAbiSystemV, (void *)serveMain, (char *)malloc(0x10000) + 0x10000,
 			kHelThreadExclusive, &thread_handle));
 	
-	// TODO: we should use separate stdin/out/err pipes.
 	helix::UniquePipe server, client;
 	std::tie(server, client) = helix::createFullPipe();
-	__mlibc_pushFd(client.getHandle());
-	__mlibc_pushFd(client.getHandle());
-	__mlibc_pushFd(client.getHandle());
 	serveStdout(std::move(server));
-//	client.release();
+	
+	// TODO: we should use separate stdin/out/err pipes.
+	__mlibc_pushFd(client.getHandle());
+	__mlibc_pushFd(client.getHandle());
+	__mlibc_pushFd(client.getHandle());
+	client.release();
 
 	std::cout << "Entering user_boot" << std::endl;
 	
-	startMbus();
-	startAcpi();
-//	startInitrd();
-
-	// hack to synchronize posix subsystem and initrd
-	for(int i = 0; i < 10000; i++)
-		HEL_CHECK(helYield());
-
-//	startPosixSubsystem();
+//	startMbus();
+//	startAcpi();
+	startPosixSubsystem();
 //	runPosixInit();
-	
+
 	std::cout << "user_boot completed successfully" << std::endl;
 }
 

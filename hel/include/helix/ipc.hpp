@@ -11,13 +11,64 @@
 namespace helix {
 
 struct UniqueDescriptor {
+	friend void swap(UniqueDescriptor &a, UniqueDescriptor &b) {
+		using std::swap;
+		swap(a._handle, b._handle);
+	}
+
 	UniqueDescriptor()
 	: _handle(kHelNullHandle) { }
+	
+	UniqueDescriptor(const UniqueDescriptor &other) = delete;
+
+	UniqueDescriptor(UniqueDescriptor &&other)
+	: UniqueDescriptor() {
+		swap(*this, other);
+	}
 
 	explicit UniqueDescriptor(HelHandle handle)
 	: _handle(handle) { }
 
-	HelHandle getHandle() {
+	~UniqueDescriptor() {
+		if(_handle != kHelNullHandle)
+			HEL_CHECK(helCloseDescriptor(_handle));
+	}
+
+	UniqueDescriptor &operator= (UniqueDescriptor other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	HelHandle getHandle() const {
+		return _handle;
+	}
+
+	void release() {
+		_handle = kHelNullHandle;
+	}
+
+private:
+	HelHandle _handle;
+};
+
+struct BorrowedDescriptor {
+	BorrowedDescriptor()
+	: _handle(kHelNullHandle) { }
+	
+	BorrowedDescriptor(const BorrowedDescriptor &other) = default;
+	BorrowedDescriptor(BorrowedDescriptor &&other) = default;
+
+	explicit BorrowedDescriptor(HelHandle handle)
+	: _handle(handle) { }
+	
+	BorrowedDescriptor(const UniqueDescriptor &other)
+	: BorrowedDescriptor(other.getHandle()) { }
+
+	~BorrowedDescriptor() = default;
+
+	BorrowedDescriptor &operator= (const BorrowedDescriptor &) = default;
+
+	HelHandle getHandle() const {
 		return _handle;
 	}
 
@@ -25,29 +76,49 @@ private:
 	HelHandle _handle;
 };
 
-struct UniqueHub : public UniqueDescriptor {
-	UniqueHub(UniqueDescriptor descriptor)
+template<typename Tag>
+struct UniqueResource : UniqueDescriptor {
+	UniqueResource() = default;
+
+	explicit UniqueResource(HelHandle handle)
+	: UniqueDescriptor(handle) { }
+
+	UniqueResource(UniqueDescriptor descriptor)
 	: UniqueDescriptor(std::move(descriptor)) { }
 };
+
+template<typename Tag>
+struct BorrowedResource : BorrowedDescriptor {
+	BorrowedResource() = default;
+
+	explicit BorrowedResource(HelHandle handle)
+	: BorrowedDescriptor(handle) { }
+
+	BorrowedResource(BorrowedDescriptor descriptor)
+	: BorrowedDescriptor(descriptor) { }
+
+	BorrowedResource(const UniqueResource<Tag> &other)
+	: BorrowedDescriptor(other) { }
+};
+
+struct Hub { };
+using UniqueHub = UniqueResource<Hub>;
+using BorrowedHub = BorrowedResource<Hub>;
 
 inline UniqueHub createHub() {
 	HelHandle handle;
 	HEL_CHECK(helCreateEventHub(&handle));
-	return UniqueHub(UniqueDescriptor(handle));
+	return UniqueHub(handle);
 }
 
-struct UniquePipe : public UniqueDescriptor {
-	UniquePipe() = default;
-
-	UniquePipe(UniqueDescriptor descriptor)
-	: UniqueDescriptor(std::move(descriptor)) { }
-};
+struct Pipe { };
+using UniquePipe = UniqueResource<Pipe>;
+using BorrowedPipe = BorrowedResource<Pipe>;
 
 inline std::pair<UniquePipe, UniquePipe> createFullPipe() {
 	HelHandle first_handle, second_handle;
 	HEL_CHECK(helCreateFullPipe(&first_handle, &second_handle));
-	return { UniquePipe(UniqueDescriptor(first_handle)),
-			UniquePipe(UniqueDescriptor(second_handle)) };
+	return { UniquePipe(first_handle), UniquePipe(second_handle) };
 }
 
 template<typename M>
@@ -113,12 +184,16 @@ namespace ops {
 	struct RecvString : public OperationBase, public RecvStringResult, public CompletableBase<M> {
 		friend class Dispatcher<M>;
 
-		RecvString(Dispatcher<M> &dispatcher, UniquePipe &pipe, void *buffer, size_t max_length,
+		RecvString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
 				int64_t msg_request, int64_t msg_seq, uint32_t flags)
 		: OperationBase(dispatcher._hub.getHandle()) {
-			HEL_CHECK(helSubmitRecvString(pipe.getHandle(), _hub,
+			auto error = helSubmitRecvString(pipe.getHandle(), _hub,
 					(uint8_t *)buffer, max_length, msg_request, msg_seq,
-					0, (uintptr_t)this, flags, &_asyncId));
+					0, (uintptr_t)this, flags, &_asyncId);
+			if(error) {
+				_error = error;
+				CompletableBase<M>::_completer();
+			}
 		}
 	};
 
@@ -126,12 +201,16 @@ namespace ops {
 	struct SendString : public OperationBase, public SendStringResult, public CompletableBase<M> {
 		friend class Dispatcher<M>;
 
-		SendString(Dispatcher<M> &dispatcher, UniquePipe &pipe, const void *buffer, size_t length,
+		SendString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
 				int64_t msg_request, int64_t msg_seq, uint32_t flags)
 		: OperationBase(dispatcher._hub.getHandle()) {
-			HEL_CHECK(helSubmitSendString(pipe.getHandle(), _hub,
+			auto error = helSubmitSendString(pipe.getHandle(), _hub,
 					(const uint8_t *)buffer, length, msg_request, msg_seq,
-					0, (uintptr_t)this, flags, &_asyncId));
+					0, (uintptr_t)this, flags, &_asyncId);
+			if(error) {
+				_error = error;
+				CompletableBase<M>::_completer();
+			}
 		}
 	};
 } // namespace ops
@@ -146,6 +225,10 @@ struct Dispatcher {
 
 	Dispatcher(UniqueHub hub)
 	: _hub(std::move(hub)) { }
+
+	BorrowedHub getHub() const {
+		return _hub;
+	}
 
 	void operator() () {
 		static constexpr int kEventsPerCall = 16;

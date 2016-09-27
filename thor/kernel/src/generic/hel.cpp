@@ -1103,11 +1103,14 @@ HelError helSubmitRecvString(HelHandle handle,
 		error = channel->submitRecvString(channel_guard, frigg::move(recv));
 	}
 
-	if(error == kErrClosedLocally)
+	if(error == kErrClosedLocally) {
 		return kHelErrClosedLocally;
-
-	assert(error == kErrSuccess);
-	return kHelErrNone;
+	}else if(error == kErrClosedRemotely) {
+		return kHelErrClosedRemotely;
+	}else{
+		assert(error == kErrSuccess);
+		return kHelErrNone;
+	}
 }
 
 HelError helSubmitRecvStringToRing(HelHandle handle,
