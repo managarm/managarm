@@ -139,9 +139,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 
 		//FIXME: actually parse the protocol.
 
-		char data_buffer[128];
-		helix::RecvString<M> recv_data(helix::Dispatcher::global(), pipe, data_buffer, 128,
-				recv_req.requestId(), 1, kHelRequest);
+		char data_buffer[1024];
+		helix::RecvString<M> recv_data(helix::Dispatcher::global(), pipe,
+				data_buffer, 1024, recv_req.requestId(), 1, kHelRequest);
 		COFIBER_AWAIT recv_data.future();
 
 		helLog(data_buffer, recv_data.actualLength());
@@ -300,10 +300,13 @@ void startAcpi() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
+	helix::UniquePipe xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+
 	ImageInfo exec_info = loadImage(space, "acpi", 0);
 	// TODO: actually use the correct interpreter
 	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
-	runProgram(space, helix::UniquePipe(), exec_info, interp_info, true);
+	runProgram(space, std::move(xpipe_remote), exec_info, interp_info, true);
 
 /*	auto directory = helx::Directory::create();
 	HelHandle universe = loadImage("initrd/acpi", directory.getHandle(), true);
