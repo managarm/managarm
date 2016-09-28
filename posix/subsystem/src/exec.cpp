@@ -7,6 +7,7 @@
 
 #include <cofiber.hpp>
 #include <cofiber/stash.hpp>
+#include <cofiber/future.hpp>
 #include <frigg/elf.hpp>
 
 #include "common.hpp"
@@ -45,9 +46,8 @@ COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 	promise.set_value(helix::UniquePipe(recv_file.descriptor()));
 }))
 
-// FIXME: we use stash<int> here because stash<void> does not work!
-COFIBER_ROUTINE(cofiber::no_future, fsSeek(helix::BorrowedPipe file,
-		uintptr_t offset, cofiber::stash<int> &promise), ([file, offset, &promise] {
+COFIBER_ROUTINE(cofiber::future<void>, fsSeek(helix::BorrowedPipe file,
+		uintptr_t offset), ([=] {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
 	req.set_rel_offset(offset);
@@ -67,13 +67,12 @@ COFIBER_ROUTINE(cofiber::no_future, fsSeek(helix::BorrowedPipe file,
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	promise.set_value(0);
+
+	COFIBER_RETURN();
 }))
 
-// FIXME: we use stash<int> here because stash<void> does not work!
-COFIBER_ROUTINE(cofiber::no_future, fsRead(helix::BorrowedPipe file,
-		void *data, size_t length, cofiber::stash<int> &promise),
-		([file, data, length, &promise] {
+COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
+		void *data, size_t length), ([=] {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
 	req.set_size(length);
@@ -99,7 +98,8 @@ COFIBER_ROUTINE(cofiber::no_future, fsRead(helix::BorrowedPipe file,
 	COFIBER_AWAIT recv_data.future();
 	HEL_CHECK(recv_data.error());
 	assert(recv_data.actualLength() == length);
-	promise.set_value(0);
+
+	COFIBER_RETURN();
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
@@ -158,9 +158,7 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 
 	// read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	cofiber::stash<int> read_ehdr;
-	fsRead(*file, &ehdr, sizeof(Elf64_Ehdr), read_ehdr);
-	COFIBER_AWAIT read_ehdr;
+	COFIBER_AWAIT fsRead(*file, &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -174,14 +172,8 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 
 	// read the elf program headers and load them into the address space.
 	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
-	
-	cofiber::stash<int> seek_phdrs;
-	fsSeek(*file, ehdr.e_phoff, seek_phdrs);
-	COFIBER_AWAIT seek_phdrs;
-	
-	cofiber::stash<int> read_phdrs;
-	fsRead(*file, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize), read_phdrs);
-	COFIBER_AWAIT read_phdrs;
+	COFIBER_AWAIT fsSeek(*file, ehdr.e_phoff);
+	COFIBER_AWAIT fsRead(*file, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
@@ -232,16 +224,8 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
-				
-				cofiber::stash<int> seek_segment;
-				fsSeek(*file, phdr->p_offset, seek_segment);
-				COFIBER_AWAIT seek_segment;
-				
-				cofiber::stash<int> read_segment;
-				fsRead(*file, (char *)window + misalign, phdr->p_filesz, read_segment);
-				COFIBER_AWAIT read_segment;
-				
-				// unmap the segment from this address space.
+				COFIBER_AWAIT fsSeek(*file, phdr->p_offset);
+				COFIBER_AWAIT fsRead(*file, (char *)window + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
