@@ -2,7 +2,7 @@
 #ifndef POSIX_SUBSYSTEM_PROCESS_HPP
 #define POSIX_SUBSYSTEM_PROCESS_HPP
 
-#include <frigg/hashmap.hpp>
+#include <memory>
 
 class VfsOpenFile;
 class MountSpace;
@@ -11,14 +11,14 @@ typedef int ProcessId;
 
 struct Process {
 	// creates a new process to run the "init" program
-	static StdSharedPtr<Process> init();
+	static std::shared_ptr<Process> init();
 	
-	static helx::Directory runServer(StdSharedPtr<Process> process);
+	static void runServer(std::shared_ptr<Process> process);
 
 	Process(ProcessId pid);
 
 	// creates a new process by forking an old one
-	StdSharedPtr<Process> fork();
+	std::shared_ptr<Process> fork();
 
 	// unix pid of this process
 	ProcessId pid;
@@ -30,10 +30,6 @@ struct Process {
 	// mount namespace and virtual memory space of this process
 	MountSpace *mountSpace;
 	HelHandle vmSpace;
-
-	frigg::Hashmap<int, StdSharedPtr<VfsOpenFile>,
-			frigg::DefaultHasher<int>, Allocator> allOpenFiles;
-	int nextFd;
 };
 
 #endif // POSIX_SUBSYSTEM_PROCESS_HPP

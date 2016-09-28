@@ -4,7 +4,7 @@
 
 #include "process.hpp"
 
-void execute(StdSharedPtr<Process> process, frigg::String<Allocator> path);
+void execute(std::shared_ptr<Process> process, std::string path);
 
 #endif // POSIX_SUBSYSTEM_EXEC_HPP
 

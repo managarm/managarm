@@ -7,35 +7,28 @@
 #include <iostream>
 
 #include <cofiber.hpp>
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
-#include <helix/ipc.hpp>
-#include <helix/await.hpp>
 
 #include "common.hpp"
-#include "device.hpp"
-#include "vfs.hpp"
+//FIXME #include "device.hpp"
+//FIXME #include "vfs.hpp"
 #include "process.hpp"
 #include "exec.hpp"
-#include "dev_fs.hpp"
-#include "pts_fs.hpp"
-#include "sysfile_fs.hpp"
-#include "extern_fs.hpp"
+//FIXME #include "dev_fs.hpp"
+//FIXME #include "pts_fs.hpp"
+//FIXME #include "sysfile_fs.hpp"
+//FIXME #include "extern_fs.hpp"
 #include <posix.pb.h>
 
 bool traceRequests = false;
 
-using Dispatcher = helix::Dispatcher<helix::AwaitMechanism>;
 Dispatcher dispatcher(helix::createHub());
+
+helix::BorrowedPipe fsPipe;
 
 //FIXME: helx::EventHub eventHub = helx::EventHub::create();
 //FIXME: helx::Client mbusConnect;
 //FIXME: helx::Pipe ldServerPipe;
 //FIXME: helx::Pipe mbusPipe;
-
-// TODO: this could be handled better
-//FIXME: helx::Pipe initrdPipe;
 
 // TODO: this is a ugly hack
 MountSpace *initMountSpace;
@@ -946,24 +939,11 @@ int main() {
 	//FIXME managarm::mbus::SvrResponse<Allocator> enum_response(*allocator);
 	//FIXME enum_response.ParseFromArray(enum_buffer, enum_length);
 	
-	// query the initrd object
-	//FIXME managarm::mbus::CntRequest<Allocator> query_request(*allocator);
-	//FIXME query_request.set_req_type(managarm::mbus::CntReqType::QUERY_IF);
-	//FIXME query_request.set_object_id(enum_response.object_id());
-
-	//FIXME HelError send_query_error;
-	//FIXME frigg::String<Allocator> query_serialized(*allocator);
-	//FIXME query_request.SerializeToString(&query_serialized);
-	//FIXME mbusPipe.sendStringReqSync(query_serialized.data(), query_serialized.size(),
-	//FIXME 		eventHub, 0, 0, send_query_error);
-	
-	//FIXME HelError recv_query_error;
-	//FIXME HelHandle query_handle;
-	//FIXME mbusPipe.recvDescriptorRespSync(eventHub, 0, 1, recv_query_error, query_handle);
-	//FIXME HEL_CHECK(recv_query_error);
-	//FIXME initrdPipe = helx::Pipe(query_handle);
-
-	//FIXME frigg::runClosure<MbusClosure>(*allocator);
+	// query the fs server
+	unsigned long fs_server;
+	if(peekauxval(AT_FS_SERVER, &fs_server))
+		throw std::runtime_error("No AT_FS_SERVER specified");
+	fsPipe = helix::BorrowedPipe(fs_server);
 
 	// start our own server
 	unsigned long xpipe;
@@ -971,7 +951,9 @@ int main() {
 		throw std::runtime_error("No AT_XPIPE specified");
 
 	serve(helix::UniquePipe(xpipe));
-	
+
+	execute(nullptr, "posix-init");
+
 	while(true)
 		dispatcher();
 }

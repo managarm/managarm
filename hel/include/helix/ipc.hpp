@@ -175,6 +175,28 @@ namespace ops {
 		int64_t _requestId;
 		int64_t _sequenceId;
 	};
+	
+	struct RecvDescriptorResult : public ResultBase {
+		UniqueDescriptor descriptor() {
+			UniqueDescriptor descriptor(_handle);
+			_handle = kHelNullHandle;
+			return descriptor;
+		}
+
+		int64_t requestId() {
+			HEL_CHECK(_error);
+			return _requestId;
+		}
+		int64_t sequenceId() {
+			HEL_CHECK(_error);
+			return _sequenceId;
+		}
+
+	protected:
+		HelHandle _handle;
+		int64_t _requestId;
+		int64_t _sequenceId;
+	};
 
 	struct SendStringResult : public ResultBase {
 
@@ -186,10 +208,26 @@ namespace ops {
 
 		RecvString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
 				int64_t msg_request, int64_t msg_seq, uint32_t flags)
-		: OperationBase(dispatcher._hub.getHandle()) {
+		: OperationBase(dispatcher.getHub().getHandle()) {
 			auto error = helSubmitRecvString(pipe.getHandle(), _hub,
 					(uint8_t *)buffer, max_length, msg_request, msg_seq,
 					0, (uintptr_t)this, flags, &_asyncId);
+			if(error) {
+				_error = error;
+				CompletableBase<M>::_completer();
+			}
+		}
+	};
+
+	template<typename M>
+	struct RecvDescriptor : public OperationBase, public RecvDescriptorResult, public CompletableBase<M> {
+		friend class Dispatcher<M>;
+
+		RecvDescriptor(Dispatcher<M> &dispatcher, BorrowedPipe pipe,
+				int64_t msg_request, int64_t msg_seq, uint32_t flags)
+		: OperationBase(dispatcher.getHub().getHandle()) {
+			auto error = helSubmitRecvDescriptor(pipe.getHandle(), _hub,
+					msg_request, msg_seq, 0, (uintptr_t)this, flags, &_asyncId);
 			if(error) {
 				_error = error;
 				CompletableBase<M>::_completer();
@@ -203,7 +241,7 @@ namespace ops {
 
 		SendString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
 				int64_t msg_request, int64_t msg_seq, uint32_t flags)
-		: OperationBase(dispatcher._hub.getHandle()) {
+		: OperationBase(dispatcher.getHub().getHandle()) {
 			auto error = helSubmitSendString(pipe.getHandle(), _hub,
 					(const uint8_t *)buffer, length, msg_request, msg_seq,
 					0, (uintptr_t)this, flags, &_asyncId);
@@ -217,10 +255,8 @@ namespace ops {
 
 template<typename M>
 struct Dispatcher {
-	friend class ops::RecvString<M>;
-	friend class ops::SendString<M>;
-
 	using RecvString = ops::RecvString<M>;
+	using RecvDescriptor = ops::RecvDescriptor<M>;
 	using SendString = ops::SendString<M>;
 
 	Dispatcher(UniqueHub hub)
@@ -245,6 +281,14 @@ struct Dispatcher {
 				auto ptr = static_cast<RecvString *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->_actualLength = e.length;
+				ptr->_requestId = e.msgRequest;
+				ptr->_sequenceId = e.msgSequence;
+				ptr->_completer();
+			} break;
+			case kHelEventRecvDescriptor: {
+				auto ptr = static_cast<RecvDescriptor *>((void *)e.submitObject);
+				ptr->_error = e.error;
+				ptr->_handle = e.handle;
 				ptr->_requestId = e.msgRequest;
 				ptr->_sequenceId = e.msgSequence;
 				ptr->_completer();
