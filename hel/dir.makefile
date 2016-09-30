@@ -1,9 +1,20 @@
 
 $(call standard_dirs)
 
-$c_HEADERS := hel.h hel-syscalls.h helx.hpp helix/ipc.hpp helix/await.hpp
+$c_CXX = x86_64-managarm-g++
 
-install-$c: c := $c
-install-$c:
-	mkdir -p $(SYSROOT_PATH)/usr/include/helix
-	for f in $($c_HEADERS); do install $($c_HEADERDIR)/$$f $(SYSROOT_PATH)/usr/include/$$f; done
+$c_INCLUDES := -I$($c_HEADERDIR)
+
+$c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
+$c_CXXFLAGS += -std=c++14 -Wall -fPIC -O2
+
+$c_LIBS :=
+
+$(call make_so,libhelix.so,globals.o)
+$(call install_header,hel.h)
+$(call install_header,hel-syscalls.h)
+$(call install_header,helx.hpp)
+$(call install_header,helix/ipc.hpp)
+$(call install_header,helix/await.hpp)
+$(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
+

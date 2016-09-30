@@ -16,6 +16,8 @@ extern "C" {
 
 #include "common.hpp"
 
+helix::Dispatcher dispatcher(helix::createHub());
+
 struct GenericAddress {
 	uint8_t space;
 	uint8_t bitWidth;
@@ -206,9 +208,6 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 
 void pciDiscover(); // TODO: put this in a header file
 
-helx::EventHub eventHub = helx::EventHub::create();
-helx::Pipe mbusPipe;
-
 // --------------------------------------------------------
 // MbusClosure
 // --------------------------------------------------------
@@ -330,16 +329,7 @@ int main() {
 
 	pciDiscover();
 
-	helx::Server server;
-	helx::Client client;
-	helx::Server::createServer(server, client);
-	
-	HelError send_error;
-	//FIXME superior.sendDescriptorReqSync(client.getHandle(), eventHub, 0, 0, send_error);
-	HEL_CHECK(send_error);
-	client.reset();
-
 	while(true)
-		eventHub.defaultProcessEvents();
+		dispatcher();
 }
 

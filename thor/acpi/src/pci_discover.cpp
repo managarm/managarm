@@ -3,19 +3,41 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <iostream>
 #include <vector>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
+#include <helix/ipc.hpp>
+#include <mbus.hpp>
 
 #include "common.hpp"
 #include "pci.hpp"
 //#include <mbus.frigg_pb.hpp>
 //#include <hw.frigg_pb.hpp>
 
-std::vector<PciDevice *> allDevices;
+std::vector<std::shared_ptr<PciDevice>> allDevices;
+
+namespace mbus {
+	static Instance makeGlobal() {
+		unsigned long server;
+		if(peekauxval(AT_MBUS_SERVER, &server))
+			throw std::runtime_error("No AT_MBUS_SERVER specified");
+		return Instance(dispatcher.getHub().dup(), helix::BorrowedPipe(server).dup());
+	}
+
+	Instance Instance::global() {
+		static Instance instance(makeGlobal());
+		return instance;
+	}
+}
+
+COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> device), ([=] {
+	auto instance = mbus::Instance::global();
+	auto root = COFIBER_AWAIT instance.getRoot();
+}))
 
 // --------------------------------------------------------
 // DeviceClosure
@@ -170,7 +192,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		}
 
 
-		auto device = new PciDevice(bus, slot, function,
+		auto device = std::make_shared<PciDevice>(bus, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
 		
 		// determine the BARs
@@ -232,7 +254,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		std::cout << "        Interrupt line: " << (int)line_number << std::endl;
 		device->interrupt = helx::Irq::access(line_number);
 
-		std::cout << "\e[31mFIXME: Fix ACPI <-> mbus interaction!\e[0m" << std::endl;
+		registerDevice(device);
 		/*managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::REGISTER);
 		

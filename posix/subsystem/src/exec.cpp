@@ -19,19 +19,21 @@ constexpr size_t kPageSize = 0x1000;
 COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 		cofiber::stash<helix::UniquePipe> &promise),
 		([path, &promise] {
+	using M = helix::AwaitMechanism;
+
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::OPEN);
 	req.set_path(path);
 
 	auto serialized = req.SerializeAsString();
-	Dispatcher::SendString send_req(dispatcher, fsPipe, serialized.data(),
+	helix::SendString<M> send_req(dispatcher, fsPipe, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	Dispatcher::RecvString recv_resp(dispatcher, fsPipe, buffer, 128,
+	helix::RecvString<M> recv_resp(dispatcher, fsPipe, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -39,7 +41,7 @@ COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	
-	Dispatcher::RecvDescriptor recv_file(dispatcher, fsPipe,
+	helix::RecvDescriptor<M> recv_file(dispatcher, fsPipe,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_file.future();
 	HEL_CHECK(recv_file.error());
@@ -48,19 +50,21 @@ COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 
 COFIBER_ROUTINE(cofiber::future<void>, fsSeek(helix::BorrowedPipe file,
 		uintptr_t offset), ([=] {
+	using M = helix::AwaitMechanism;
+
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
 	req.set_rel_offset(offset);
 
 	auto serialized = req.SerializeAsString();
-	Dispatcher::SendString send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	Dispatcher::RecvString recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -73,19 +77,21 @@ COFIBER_ROUTINE(cofiber::future<void>, fsSeek(helix::BorrowedPipe file,
 
 COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
 		void *data, size_t length), ([=] {
+	using M = helix::AwaitMechanism;
+
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
 	req.set_size(length);
 
 	auto serialized = req.SerializeAsString();
-	Dispatcher::SendString send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	Dispatcher::RecvString recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -93,7 +99,7 @@ COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-	Dispatcher::RecvString recv_data(dispatcher, file, data, length,
+	helix::RecvString<M> recv_data(dispatcher, file, data, length,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_data.future();
 	HEL_CHECK(recv_data.error());
@@ -105,18 +111,20 @@ COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
 COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
 			cofiber::stash<helix::UniqueDescriptor> &promise),
 		([file, &promise] {
+	using M = helix::AwaitMechanism;
+
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
 	auto serialized = req.SerializeAsString();
-	Dispatcher::SendString send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	Dispatcher::RecvString recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -124,7 +132,7 @@ COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	
-	Dispatcher::RecvDescriptor recv_memory(dispatcher, file,
+	helix::RecvDescriptor<M> recv_memory(dispatcher, file,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_memory.future();
 	HEL_CHECK(recv_memory.error());

@@ -1,24 +1,30 @@
 
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/auxv.h>
+#include <algorithm>
 #include <iostream>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
-#include <helx.hpp>
+#include <cofiber.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
 
-#include <mbus.frigg_pb.hpp>
+#include "mbus.pb.h"
 
-/*helx::EventHub eventHub = helx::EventHub::create();
+helix::Dispatcher dispatcher(helix::createHub());
 
 // --------------------------------------------------------
 // Capability
 // --------------------------------------------------------
 
 struct Capability {
-	Capability();
-
-	frigg::String<Allocator> name;
+	std::string name;
 };
-
-Capability::Capability()
-: name(*allocator) { }
 
 // --------------------------------------------------------
 // Object
@@ -29,30 +35,27 @@ class Connection;
 struct Object {
 	Object(int64_t object_id);
 
-	bool hasCapability(frigg::StringView name);
+	bool hasCapability(std::string name);
 
 	const int64_t objectId;
-	frigg::SharedPtr<Connection> connection;
+	std::shared_ptr<Connection> connection;
 
-	frigg::Vector<Capability, Allocator> caps;
+	std::vector<Capability> caps;
 };
 
 Object::Object(int64_t object_id)
-: objectId(object_id), caps(*allocator) { }
+: objectId(object_id) { }
 
-bool Object::hasCapability(frigg::StringView name) {
-	for(size_t i = 0; i < caps.size(); i++)
-		if(caps[i].name == name)
-			return true;
-	
-	return false;
+bool Object::hasCapability(std::string name) {
+	return std::find_if(caps.begin(), caps.end(), [&] (const Capability &cap) {
+		return cap.name == name;
+	}) != caps.end();
 }
 
-frigg::Hashmap<int64_t, frigg::SharedPtr<Object>, frigg::DefaultHasher<int64_t>, Allocator>
-allObjects(frigg::DefaultHasher<int64_t>(), *(allocator.unsafeGet()));
-
+std::unordered_map<int64_t, Object> allObjects;
 int64_t nextObjectId = 1;
 
+/*
 // --------------------------------------------------------
 // Connection
 // --------------------------------------------------------
@@ -235,39 +238,36 @@ void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t m
 	};
 
 	(*this)();
-}
-
-// --------------------------------------------------------
-// AcceptClosure
-// --------------------------------------------------------
-
-struct AcceptClosure : frigg::BaseClosure<AcceptClosure> {
-public:
-	AcceptClosure(helx::Server server);
-
-	void operator() ();
-
-private:
-	void accepted(HelError error, HelHandle handle);
-
-	helx::Server p_server;
-};
-
-AcceptClosure::AcceptClosure(helx::Server server)
-: p_server(frigg::move(server)) { }
-
-void AcceptClosure::operator() () {
-	p_server.accept(eventHub, CALLBACK_MEMBER(this, &AcceptClosure::accepted));
-}
-
-void AcceptClosure::accepted(HelError error, HelHandle handle) {
-	HEL_CHECK(error);
-	
-	auto connection = frigg::makeShared<Connection>(*allocator, helx::Pipe(handle));
-	allConnections->push(frigg::WeakPtr<Connection>(connection));
-	frigg::runClosure<RequestClosure>(*allocator, frigg::move(connection));
-	(*this)();
 }*/
+
+COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
+		[pipe = std::move(p)] () {
+	using M = helix::AwaitMechanism;
+
+	while(true) {
+		char req_buffer[128];
+		helix::RecvString<M> recv_req(dispatcher, pipe, req_buffer, 128,
+				kHelAnyRequest, 0, kHelRequest);
+		COFIBER_AWAIT recv_req.future();
+
+		assert(!"Fix this");
+
+		//FIXME: actually parse the protocol.
+
+/*		char data_buffer[128];
+		helix::RecvString<M> recv_data(dispatcher, pipe, data_buffer, 128,
+				recv_req.requestId(), 1, kHelRequest);
+		COFIBER_AWAIT recv_data.future();
+
+		helLog(data_buffer, recv_data.actualLength());
+
+		// send the success response.
+		// FIXME: send an actually valid answer.
+		helix::SendString<M> send_resp(dispatcher, pipe, nullptr, 0,
+				recv_req.requestId(), 0, kHelResponse);
+		COFIBER_AWAIT send_resp.future();*/
+	}
+})
 
 // --------------------------------------------------------
 // main() function
@@ -275,28 +275,14 @@ void AcceptClosure::accepted(HelError error, HelHandle handle) {
 
 int main() {
 	std::cout << "Entering mbus" << std::endl;
-	/*allocator.initialize(virtualAlloc);
-	allConnections.initialize(*allocator);
+	
+	unsigned long xpipe;
+	if(peekauxval(AT_XPIPE, &xpipe))
+		throw std::runtime_error("No AT_XPIPE specified");
 
-	// start our server
-	helx::Server server;
-	helx::Client client;
-	helx::Server::createServer(server, client);
-	frigg::runClosure<AcceptClosure>(*allocator, frigg::move(server));
-
-	const char *parent_path = "local/parent";
-	HelHandle parent_handle;
-	HEL_CHECK(helRdOpen(parent_path, strlen(parent_path), &parent_handle));
-
-	helx::Pipe parent_pipe(parent_handle);
-	HelError send_error;
-	parent_pipe.sendDescriptorSync(client.getHandle(), eventHub,
-			0, 0, kHelRequest, send_error);
-	HEL_CHECK(send_error);
-	parent_pipe = helx::Pipe();
-	client = helx::Client();
+	serve(helix::UniquePipe(xpipe));
 
 	while(true)
-		eventHub.defaultProcessEvents();*/
+		dispatcher();
 }
 

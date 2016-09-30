@@ -2,6 +2,10 @@
 #ifndef HELIX_AWAIT_HPP
 #define HELIX_AWAIT_HPP
 
+#include <atomic>
+
+#include <cofiber.hpp>
+
 namespace helix {
 
 struct AwaitMechanism {

@@ -99,6 +99,12 @@ struct BorrowedResource : BorrowedDescriptor {
 
 	BorrowedResource(const UniqueResource<Tag> &other)
 	: BorrowedDescriptor(other) { }
+
+	UniqueResource<Tag> dup() {
+		HelHandle new_handle;
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
+		return UniqueResource<Tag>(new_handle);
+	}
 };
 
 struct Hub { };
@@ -121,143 +127,103 @@ inline std::pair<UniquePipe, UniquePipe> createFullPipe() {
 	return { UniquePipe(first_handle), UniquePipe(second_handle) };
 }
 
-template<typename M>
-struct Dispatcher;
+// we use a pattern similar to CRTP here to reduce code size.
+template<typename Result>
+struct OperationBase : Result {
+	friend class Dispatcher;
 
-namespace ops {
-	struct OperationBase {
-		OperationBase(HelHandle hub)
-		: _hub(hub) { }
-
-	protected:
-		// TODO: the hub should be type-safe.
-		HelHandle _hub;
-		int64_t _asyncId;
-	};
-
-	template<typename M>
-	struct CompletableBase {
-		typename M::Future future() {
-			return _completer.future();
-		}
-
-	protected:
-		typename M::Completer _completer;
-	};
-
-	struct ResultBase {
-		// TODO: replace by std::error_code
-		HelError error() {
-			return _error;
-		}
-
-	protected:
-		HelError _error;
-	};
-
-	struct RecvStringResult : public ResultBase {
-		size_t actualLength() {
-			HEL_CHECK(_error);
-			return _actualLength;
-		}
-
-		int64_t requestId() {
-			HEL_CHECK(_error);
-			return _requestId;
-		}
-		int64_t sequenceId() {
-			HEL_CHECK(_error);
-			return _sequenceId;
-		}
-
-	protected:
-		size_t _actualLength;
-		int64_t _requestId;
-		int64_t _sequenceId;
-	};
+	OperationBase(BorrowedHub hub)
+	: _hub(hub) { }
 	
-	struct RecvDescriptorResult : public ResultBase {
-		UniqueDescriptor descriptor() {
-			UniqueDescriptor descriptor(_handle);
-			_handle = kHelNullHandle;
-			return descriptor;
-		}
+	virtual ~OperationBase() { }
 
-		int64_t requestId() {
-			HEL_CHECK(_error);
-			return _requestId;
-		}
-		int64_t sequenceId() {
-			HEL_CHECK(_error);
-			return _sequenceId;
-		}
+protected:
+	virtual void complete() = 0;
 
-	protected:
-		HelHandle _handle;
-		int64_t _requestId;
-		int64_t _sequenceId;
-	};
+	BorrowedHub _hub;
+	int64_t _asyncId;
+};
 
-	struct SendStringResult : public ResultBase {
+template<typename Result, typename M>
+struct Operation : OperationBase<Result> {
+	Operation(BorrowedHub hub)
+	: OperationBase<Result>(hub) { }
 
-	};
+	typename M::Future future() {
+		return _completer.future();
+	}
 
-	template<typename M>
-	struct RecvString : public OperationBase, public RecvStringResult, public CompletableBase<M> {
-		friend class Dispatcher<M>;
+protected:
+	void complete() override final {
+		_completer();
+	}
 
-		RecvString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
-				int64_t msg_request, int64_t msg_seq, uint32_t flags)
-		: OperationBase(dispatcher.getHub().getHandle()) {
-			auto error = helSubmitRecvString(pipe.getHandle(), _hub,
-					(uint8_t *)buffer, max_length, msg_request, msg_seq,
-					0, (uintptr_t)this, flags, &_asyncId);
-			if(error) {
-				_error = error;
-				CompletableBase<M>::_completer();
-			}
-		}
-	};
+private:
+	typename M::Completer _completer;
+};
 
-	template<typename M>
-	struct RecvDescriptor : public OperationBase, public RecvDescriptorResult, public CompletableBase<M> {
-		friend class Dispatcher<M>;
+struct ResultBase {
+	// TODO: replace by std::error_code
+	HelError error() {
+		return _error;
+	}
 
-		RecvDescriptor(Dispatcher<M> &dispatcher, BorrowedPipe pipe,
-				int64_t msg_request, int64_t msg_seq, uint32_t flags)
-		: OperationBase(dispatcher.getHub().getHandle()) {
-			auto error = helSubmitRecvDescriptor(pipe.getHandle(), _hub,
-					msg_request, msg_seq, 0, (uintptr_t)this, flags, &_asyncId);
-			if(error) {
-				_error = error;
-				CompletableBase<M>::_completer();
-			}
-		}
-	};
+protected:
+	HelError _error;
+};
 
-	template<typename M>
-	struct SendString : public OperationBase, public SendStringResult, public CompletableBase<M> {
-		friend class Dispatcher<M>;
+struct RecvStringResult : ResultBase {
+	size_t actualLength() {
+		HEL_CHECK(_error);
+		return _actualLength;
+	}
 
-		SendString(Dispatcher<M> &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
-				int64_t msg_request, int64_t msg_seq, uint32_t flags)
-		: OperationBase(dispatcher.getHub().getHandle()) {
-			auto error = helSubmitSendString(pipe.getHandle(), _hub,
-					(const uint8_t *)buffer, length, msg_request, msg_seq,
-					0, (uintptr_t)this, flags, &_asyncId);
-			if(error) {
-				_error = error;
-				CompletableBase<M>::_completer();
-			}
-		}
-	};
-} // namespace ops
+	int64_t requestId() {
+		HEL_CHECK(_error);
+		return _requestId;
+	}
+	int64_t sequenceId() {
+		HEL_CHECK(_error);
+		return _sequenceId;
+	}
 
-template<typename M>
+protected:
+	size_t _actualLength;
+	int64_t _requestId;
+	int64_t _sequenceId;
+};
+
+struct RecvDescriptorResult : ResultBase {
+	UniqueDescriptor descriptor() {
+		UniqueDescriptor descriptor(_handle);
+		_handle = kHelNullHandle;
+		return descriptor;
+	}
+
+	int64_t requestId() {
+		HEL_CHECK(_error);
+		return _requestId;
+	}
+	int64_t sequenceId() {
+		HEL_CHECK(_error);
+		return _sequenceId;
+	}
+
+protected:
+	HelHandle _handle;
+	int64_t _requestId;
+	int64_t _sequenceId;
+};
+
+struct SendStringResult : ResultBase {
+};
+
 struct Dispatcher {
-	using RecvString = ops::RecvString<M>;
-	using RecvDescriptor = ops::RecvDescriptor<M>;
-	using SendString = ops::SendString<M>;
+	using RecvString = OperationBase<RecvStringResult>;
+	using RecvDescriptor = OperationBase<RecvDescriptorResult>;
+	using SendString = OperationBase<SendStringResult>;
+	
+	static Dispatcher &global();
 
 	Dispatcher(UniqueHub hub)
 	: _hub(std::move(hub)) { }
@@ -283,7 +249,7 @@ struct Dispatcher {
 				ptr->_actualLength = e.length;
 				ptr->_requestId = e.msgRequest;
 				ptr->_sequenceId = e.msgSequence;
-				ptr->_completer();
+				ptr->complete();
 			} break;
 			case kHelEventRecvDescriptor: {
 				auto ptr = static_cast<RecvDescriptor *>((void *)e.submitObject);
@@ -291,12 +257,12 @@ struct Dispatcher {
 				ptr->_handle = e.handle;
 				ptr->_requestId = e.msgRequest;
 				ptr->_sequenceId = e.msgSequence;
-				ptr->_completer();
+				ptr->complete();
 			} break;
 			case kHelEventSendString: {
 				auto ptr = static_cast<SendString *>((void *)e.submitObject);
 				ptr->_error = e.error;
-				ptr->_completer();
+				ptr->complete();
 			} break;
 			default:
 				throw std::runtime_error("Unknown event type");
@@ -306,6 +272,50 @@ struct Dispatcher {
 
 private:
 	UniqueHub _hub;
+};
+
+template<typename M>
+struct RecvString : Operation<RecvStringResult, M> {
+	RecvString(Dispatcher &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
+			int64_t msg_request, int64_t msg_seq, uint32_t flags)
+	: Operation<RecvStringResult, M>(dispatcher.getHub()) {
+		auto error = helSubmitRecvString(pipe.getHandle(), this->_hub.getHandle(),
+				(uint8_t *)buffer, max_length, msg_request, msg_seq,
+				0, (uintptr_t)this, flags, &this->_asyncId);
+		if(error) {
+			this->_error = error;
+			this->complete();
+		}
+	}
+};
+
+template<typename M>
+struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
+	RecvDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
+			int64_t msg_request, int64_t msg_seq, uint32_t flags)
+	: Operation<RecvDescriptorResult, M>(dispatcher.getHub()) {
+		auto error = helSubmitRecvDescriptor(pipe.getHandle(), this->_hub.getHandle(),
+				msg_request, msg_seq, 0, (uintptr_t)this, flags, &this->_asyncId);
+		if(error) {
+			this->_error = error;
+			this->complete();
+		}
+	}
+};
+
+template<typename M>
+struct SendString : Operation<SendStringResult, M> {
+	SendString(Dispatcher &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
+			int64_t msg_request, int64_t msg_seq, uint32_t flags)
+	: Operation<SendStringResult, M>(dispatcher.getHub()) {
+		auto error = helSubmitSendString(pipe.getHandle(), this->_hub.getHandle(),
+				(const uint8_t *)buffer, length, msg_request, msg_seq,
+				0, (uintptr_t)this, flags, &this->_asyncId);
+		if(error) {
+			this->_error = error;
+			this->complete();
+		}
+	}
 };
 
 } // namespace helix

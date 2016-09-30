@@ -99,7 +99,8 @@ extern "C" void *interpreterMain(char *sp) {
 		
 		AT_XPIPE = 0x1000,
 		AT_OPENFILES = 0x1001,
-		AT_FS_SERVER = 0x1102
+		AT_FS_SERVER = 0x1102,
+		AT_MBUS_SERVER = 0x1103
 	};
 
 	struct Auxiliary {
@@ -133,6 +134,7 @@ extern "C" void *interpreterMain(char *sp) {
 				break;
 			case AT_XPIPE:
 			case AT_OPENFILES:
+			case AT_MBUS_SERVER:
 				// ignore these auxiliary vector entries.
 				break;
 		default:

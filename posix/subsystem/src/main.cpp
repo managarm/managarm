@@ -21,7 +21,7 @@
 
 bool traceRequests = false;
 
-Dispatcher dispatcher(helix::createHub());
+helix::Dispatcher dispatcher(helix::createHub());
 
 helix::BorrowedPipe fsPipe;
 
@@ -59,6 +59,8 @@ private:
 */
 
 COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p), [pipe = std::move(p)] {
+	using M = helix::AwaitMechanism;
+
 /*	// check the iteration number to prevent this process from being hijacked
 	if(process && iteration != process->iteration) {
 		auto action = frigg::compose([=] (auto serialized) {
@@ -75,7 +77,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p), [pipe = std::mov
 		return;
 	}*/
 	char req_buffer[128];
-	Dispatcher::RecvString recv_req(dispatcher, pipe, req_buffer, 128,
+	helix::RecvString<M> recv_req(dispatcher, pipe, req_buffer, 128,
 			kHelAnyRequest, 0, kHelRequest);
 	COFIBER_AWAIT recv_req.future();
 	if(recv_req.error() == kHelErrClosedRemotely)

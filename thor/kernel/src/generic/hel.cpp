@@ -40,13 +40,17 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 		if(!descriptor_it)
 			return kHelErrNoDescriptor;
 		descriptor = *descriptor_it;
-
-		auto universe_it = this_universe->getDescriptor(lock, universe_handle);
-		if(!universe_it)
-			return kHelErrNoDescriptor;
-		if(!universe_it->is<UniverseDescriptor>())
-			return kHelErrBadDescriptor;
-		universe = universe_it->get<UniverseDescriptor>().universe;
+		
+		if(universe_handle == kHelThisUniverse) {
+			universe = this_universe.toShared();
+		}else{
+			auto universe_it = this_universe->getDescriptor(lock, universe_handle);
+			if(!universe_it)
+				return kHelErrNoDescriptor;
+			if(!universe_it->is<UniverseDescriptor>())
+				return kHelErrBadDescriptor;
+			universe = universe_it->get<UniverseDescriptor>().universe;
+		}
 	}
 	
 	// TODO: make sure the descriptor is copyable.
