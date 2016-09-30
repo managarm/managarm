@@ -4,7 +4,6 @@
 
 #include <frigg/callback.hpp>
 
-#include <xuniverse.frigg_pb.hpp>
 #include <fs.frigg_pb.hpp>
 
 namespace thor {
@@ -12,7 +11,6 @@ namespace thor {
 // TODO: move this to a header file
 extern frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
 
-namespace xuniverse = managarm::xuniverse;
 namespace fs = managarm::fs;
 
 void serviceSend(frigg::SharedPtr<Channel> channel, int64_t req_id, int64_t seq_id,

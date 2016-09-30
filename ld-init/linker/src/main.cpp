@@ -23,7 +23,6 @@
 #include <frigg/glue-hel.hpp>
 
 #include "linker.hpp"
-#include <xuniverse.frigg_pb.hpp>
 
 #define HIDDEN  __attribute__ ((visibility ("hidden")))
 #define EXPORT  __attribute__ ((visibility ("default")))

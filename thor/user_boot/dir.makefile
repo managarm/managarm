@@ -30,7 +30,7 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # generate protobuf
-gen-$c:  $($c_GENDIR)/xuniverse.pb.tag $($c_GENDIR)/posix.pb.tag
+gen-$c: $($c_GENDIR)/posix.pb.tag
 
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
