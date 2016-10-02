@@ -33,7 +33,8 @@ void advanceY() {
 }
 
 void BochsSink::print(char c) {
-//	frigg::arch_x86::ioOutByte(0xE9, c);
+	frigg::arch_x86::ioOutByte(0xE9, c);
+/*
 	if(c == '\n') {
 		advanceY();
 	}else{
@@ -47,6 +48,7 @@ void BochsSink::print(char c) {
 			advanceY();
 		}
 	}
+*/
 }
 void BochsSink::print(const char *str) {
 	while(*str != 0)
