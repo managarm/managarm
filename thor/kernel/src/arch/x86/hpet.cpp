@@ -33,6 +33,7 @@ enum : uint64_t {
 
 uint64_t *hpetRegs;
 uint64_t hpetFrequency;
+bool hpetAvailable;
 
 enum {
 	kPitChannel0 = 0x40,
@@ -47,6 +48,10 @@ enum {
 
 typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
 frigg::LazyInitializer<TimerQueue> timerQueue;
+
+bool haveTimer() {
+	return hpetAvailable;
+}
 
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
@@ -79,6 +84,8 @@ void setupHpet(PhysicalAddr address) {
 	timer_config |= kHpetEnableInt;
 	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerConfig0], timer_config);
 	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerComparator0], 0);
+
+	hpetAvailable = true;
 
 	calibrateApicTimer();
 

@@ -1,6 +1,8 @@
 
 namespace thor {
 
+bool haveTimer();
+
 void setupHpet(PhysicalAddr address);
 
 void pollSleepNano(uint64_t nanotime);

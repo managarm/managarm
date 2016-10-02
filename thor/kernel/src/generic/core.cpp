@@ -51,7 +51,8 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
-		physicalAllocator->free(physical_guard, physical);
+//	TODO: reeneable this after fixing physical memory allocator
+//		physicalAllocator->free(physical_guard, physical);
 	}
 	physical_guard.unlock();
 

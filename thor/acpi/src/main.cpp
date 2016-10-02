@@ -316,9 +316,10 @@ int main() {
 			frigg::infoLogger() << "    Local APIC id: "
 					<< entry->localApicId << frigg::endLog;
 
-			if(seen_bsp)
-				helControlKernel(kThorSubArch, kThorIfBootSecondary,
-						&entry->localApicId, nullptr);
+//	TODO: APs disabled for now
+//			if(seen_bsp)
+//				helControlKernel(kThorSubArch, kThorIfBootSecondary,
+//						&entry->localApicId, nullptr);
 			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;

@@ -7,12 +7,50 @@ namespace thor {
 // Debugging functions
 // --------------------------------------------------------
 
+int x = 0;
+int y = 0;
+
+void advanceY() {
+	y++;
+	x = 0;
+	if(y >= 25) {
+		if(haveTimer())
+			pollSleepNano(100000000);
+	
+		auto base = (volatile char *)physicalToVirtual(0xB8000);
+		for(auto i = 0; i < 24; i++) {
+			for(auto j = 0; j < 80; j++) {
+				base[(80 * i + j) * 2] = base[(80 * (i + 1) + j) * 2];
+				base[(80 * i + j) * 2 + 1] = base[(80 * (i + 1) + j) * 2 + 1];
+			}
+		}
+		for(auto j = 0; j < 80; j++) {
+			base[(80 * 24 + j) * 2] = ' ';
+			base[(80 * 24 + j) * 2 + 1] = 0x0F;
+		}
+		y = 24;
+	}
+}
+
 void BochsSink::print(char c) {
-	frigg::arch_x86::ioOutByte(0xE9, c);
+//	frigg::arch_x86::ioOutByte(0xE9, c);
+	if(c == '\n') {
+		advanceY();
+	}else{
+		auto base = (volatile char *)physicalToVirtual(0xB8000);
+
+		base[(80 * y + x) * 2] = c;
+		base[(80 * y + x) * 2 + 1] = 0x0F;
+
+		x++;
+		if(x >= 80) {
+			advanceY();
+		}
+	}
 }
 void BochsSink::print(const char *str) {
 	while(*str != 0)
-		frigg::arch_x86::ioOutByte(0xE9, *str++);
+		print(*str++);
 }
 
 // --------------------------------------------------------

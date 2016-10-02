@@ -99,6 +99,18 @@ void requireObject(int64_t object_id, helx::Pipe pipe) {
 // Discovery functionality
 // --------------------------------------------------------
 
+size_t computeBarLength(uint32_t mask) {
+	static_assert(sizeof(int) == 4, "Need long builtins");
+	
+	assert(mask);
+	size_t length_bits = __builtin_ctz(mask);
+	size_t decoded_bits = 32 - __builtin_clz(mask);
+//  TODO: This requires libgcc
+//	assert(__builtin_popcount(mask) == decoded_bits - length_bits);
+
+	return size_t(1) << length_bits;
+}
+
 void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
@@ -174,11 +186,11 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			if((bar & 1) != 0) {
 				uintptr_t address = bar & 0xFFFFFFFC;
 				
-				// write all 1s to the BAR and read it back to determine this its length
-				writePciWord(bus, slot, function, offset, 0xFFFFFFFC);
-				uint32_t mask = readPciWord(bus, slot, function, offset);
+				// write all 1s to the BAR and read it back to determine this its length.
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFFC;
 				writePciWord(bus, slot, function, offset, bar);
-				uint32_t length = ~(mask & 0xFFFFFFFC) + 1;
+				auto length = computeBarLength(mask);
 
 				frigg::Vector<uintptr_t, Allocator> ports(*allocator);
 				for(uintptr_t offset = 0; offset < length; offset++)
@@ -196,21 +208,23 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint32_t address = bar & 0xFFFFFFF0;
 				
 				// write all 1s to the BAR and read it back to determine this its length
-				writePciWord(bus, slot, function, offset, 0xFFFFFFF0);
-				uint32_t mask = readPciWord(bus, slot, function, offset);
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFF0;
 				writePciWord(bus, slot, function, offset, bar);
-				uint32_t length = ~(mask & 0xFFFFFFF0) + 1;
+				auto length = computeBarLength(mask);
 				
-				device->bars[i].type = PciDevice::kBarMemory;
+/*				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
-
+*/
 				frigg::infoLogger() << "        32-bit memory BAR #" << i
 						<< " at 0x" << frigg::logHex(address)
 						<< ", length: " << length << " bytes" << frigg::endLog;
 			}else if(((bar >> 1) & 3) == 2) {
-				assert(!"Handle 64-bit memory BARs");
+				assert(i < 5); // otherwise there is no next bar.
+				frigg::infoLogger() << "        64-bit memory BAR ignored for now!" << frigg::endLog;
+				i++;
 			}else{
 				assert(!"Unexpected BAR type");
 			}
