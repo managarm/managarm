@@ -27,8 +27,10 @@ struct Observer;
 
 struct Entity {
 	explicit Entity(int64_t id, std::weak_ptr<Group> parent,
-			std::unordered_map<std::string, std::string> descriptor)
-	: _id(id), _parent(std::move(parent)), _descriptor(std::move(descriptor)) { }
+			std::unordered_map<std::string, std::string> properties)
+	: _id(id), _parent(std::move(parent)), _properties(std::move(properties)) { }
+
+	virtual ~Entity() { }
 
 	int64_t getId() const {
 		return _id;
@@ -38,57 +40,46 @@ struct Entity {
 		return _parent.lock();
 	}
 
-	const std::unordered_map<std::string, std::string> &getDescriptor() const {
-		return _descriptor;
+	const std::unordered_map<std::string, std::string> &getProperties() const {
+		return _properties;
 	}
-
-	virtual void traverse(std::vector<std::shared_ptr<Entity>> &descendants) = 0;
-
-	virtual void linkObserver(std::shared_ptr<Observer> observer) = 0;
 
 private:
 	int64_t _id;
 	std::weak_ptr<Group> _parent;
-	std::unordered_map<std::string, std::string> _descriptor;
+	std::unordered_map<std::string, std::string> _properties;
 };
 
-struct Group : Entity {
+struct Group final : Entity {
 	explicit Group(int64_t id, std::weak_ptr<Group> parent,
-			std::unordered_map<std::string, std::string> descriptor)
-	: Entity(id, std::move(parent), std::move(descriptor)) { }
-	
-	void traverse(std::vector<std::shared_ptr<Entity>> &descendants) override {
-		for(std::shared_ptr<Entity> child : _children) {
-			descendants.push_back(std::move(child));
-			child->traverse(descendants);
-		}
+			std::unordered_map<std::string, std::string> properties)
+	: Entity(id, std::move(parent), std::move(properties)) { }
+
+	void addChild(std::shared_ptr<Entity> child) {
+		_children.insert(std::move(child));
 	}
 
-	void linkObserver(std::shared_ptr<Observer> observer) override {
+	const std::unordered_set<std::shared_ptr<Entity>> &getChildren() {
+		return _children;
+	}
+
+	void linkObserver(std::shared_ptr<Observer> observer) {
 		_observers.insert(std::move(observer));
 	}
 
-	void observeAttach(std::shared_ptr<Entity> entity);
+	void processAttach(std::shared_ptr<Entity> entity);
 
 private:
 	std::unordered_set<std::shared_ptr<Entity>> _children;
 	std::unordered_set<std::shared_ptr<Observer>> _observers;
 };
 
-struct Object : Entity {
+struct Object final : Entity {
 	explicit Object(int64_t id, std::weak_ptr<Group> parent,
-			std::unordered_map<std::string, std::string> descriptor,
+			std::unordered_map<std::string, std::string> properties,
 			helix::UniquePipe lane)
-	: Entity(id, std::move(parent), std::move(descriptor)),
+	: Entity(id, std::move(parent), std::move(properties)),
 			_lane(std::move(lane)) { }
-
-	void traverse(std::vector<std::shared_ptr<Entity>> &descendants) override {
-		// we don't have to do anything here
-	}
-
-	void linkObserver(std::shared_ptr<Observer> observer) override {
-		throw std::runtime_error("Cannot attach observer to Object");
-	}
 
 	cofiber::future<helix::UniqueDescriptor> bind();
 
@@ -123,7 +114,6 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_desc.future();
 	HEL_CHECK(recv_desc.error());
-	std::cout << "mbus: Object::bind() returns" << std::endl;
 	
 	COFIBER_RETURN(recv_desc.descriptor());
 }))
@@ -144,7 +134,9 @@ struct Observer {
 	explicit Observer(EqualsFilter filter, helix::UniquePipe lane)
 	: _filter(std::move(filter)), _lane(std::move(lane)) { }
 
-	cofiber::no_future observeAttach(std::shared_ptr<Entity> entity);
+	cofiber::no_future traverse(std::shared_ptr<Entity> root);
+
+	cofiber::no_future onAttach(std::shared_ptr<Entity> entity);
 
 private:
 	EqualsFilter _filter;
@@ -152,19 +144,48 @@ private:
 };
 
 static bool matchesFilter(const Entity *entity, const EqualsFilter &filter) {
-	auto &properties = entity->getDescriptor();
+	auto &properties = entity->getProperties();
 	auto it = properties.find(filter.getProperty());
 	if(it == properties.end())
 		return false;
 	return it->second == filter.getValue();
 }
 	
-void Group::observeAttach(std::shared_ptr<Entity> entity) {
+void Group::processAttach(std::shared_ptr<Entity> entity) {
 	for(auto &observer_ptr : _observers)
-		observer_ptr->observeAttach(entity);
+		observer_ptr->onAttach(entity);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Observer::observeAttach(std::shared_ptr<Entity> entity), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> root), ([=] {
+	using M = helix::AwaitMechanism;
+	
+	std::queue<std::shared_ptr<Entity>> entities;
+	entities.push(root);
+	while(!entities.empty()) {
+		std::shared_ptr<Entity> entity = entities.front();
+		entities.pop();
+		if(typeid(*entity) == typeid(Group)) {
+			auto group = std::static_pointer_cast<Group>(entity);
+			for(auto child : group->getChildren())
+				entities.push(std::move(child));
+		}
+
+		if(!matchesFilter(entity.get(), _filter)) 
+			continue;
+
+		managarm::mbus::SvrRequest req;
+		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
+		req.set_id(entity->getId());
+
+		auto serialized = req.SerializeAsString();
+		helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
+				serialized.data(), serialized.size(), 0, 0, kHelRequest);
+		COFIBER_AWAIT send_req.future();
+		HEL_CHECK(send_req.error());
+	}
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> entity), ([=] {
 	using M = helix::AwaitMechanism;
 	
 	if(!matchesFilter(entity.get(), _filter)) 
@@ -179,7 +200,6 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::observeAttach(std::shared_ptr<Enti
 			serialized.data(), serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
-
 }))
 
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
@@ -219,28 +239,32 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
 			auto parent = allEntities.at(req.parent_id());
-			std::unordered_map<std::string, std::string> descriptor;
-			for(auto &kv : req.descriptor().fields())
-				descriptor.insert({ kv.first, kv.second.string() });
+			if(typeid(*parent) != typeid(Group))
+				throw std::runtime_error("Objects can only be created inside groups");
+			auto group = std::static_pointer_cast<Group>(parent);
+
+			std::unordered_map<std::string, std::string> properties;
+			for(auto &kv : req.properties())
+				properties.insert({ kv.first, kv.second });
 
 			helix::UniquePipe local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createFullPipe();
-			// FIXME: this cast is not safe
-			auto entity = std::make_shared<Object>(nextEntityId++,
-					std::static_pointer_cast<Group>(parent), std::move(descriptor),
-					std::move(local_lane));
-			allEntities.insert({ entity->getId(), entity });
+			auto child = std::make_shared<Object>(nextEntityId++,
+					group, std::move(properties), std::move(local_lane));
+			allEntities.insert({ child->getId(), child });
 
-			std::shared_ptr<Group> current = std::static_pointer_cast<Group>(parent);
+			group->addChild(child);
+
+			// issue 'attach' events for all observers linked to parents of the entity.
+			std::shared_ptr<Group> current = group;
 			while(current) {
-				current->observeAttach(entity);
-				// FIXME: this cast is not safe
-				current = std::static_pointer_cast<Group>(current->getParent());
+				current->processAttach(child);
+				current = current->getParent();
 			}
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
-			resp.set_id(entity->getId());
+			resp.set_id(child->getId());
 
 			auto serialized = resp.SerializeAsString();
 			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
@@ -253,21 +277,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			COFIBER_AWAIT send_lane.future();
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
-			auto entity = allEntities.at(req.id());
+			auto parent = allEntities.at(req.id());
+			if(typeid(*parent) != typeid(Group))
+				throw std::runtime_error("Observers can only be attached to groups");
+			auto group = std::static_pointer_cast<Group>(parent);
 
 			helix::UniquePipe local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createFullPipe();
 			auto observer = std::make_shared<Observer>(decodeFilter(req.filter()),
 					std::move(local_lane));
-			entity->linkObserver(observer);
+			group->linkObserver(observer);
 
-			std::vector<std::shared_ptr<Entity>> descendants;
-			for(auto it = descendants.begin(); it != descendants.end(); ++it)
-				observer->observeAttach(std::move(*it));
+			observer->traverse(parent);
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
-			resp.set_id(entity->getId());
 
 			auto serialized = resp.SerializeAsString();
 			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
@@ -281,7 +305,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
 			auto entity = allEntities.at(req.id());
-			// FIXME: this cast is not typesafe
+			if(typeid(*entity) != typeid(Object))
+				throw std::runtime_error("Bind can only be invoked on objects");
 			auto object = std::static_pointer_cast<Object>(entity);
 
 			auto descriptor = COFIBER_AWAIT object->bind();
@@ -312,9 +337,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 int main() {
 	std::cout << "Entering mbus" << std::endl;
 
-	auto entity = std::make_shared<Group>(nextEntityId++, std::weak_ptr<Group>(),
+	auto root = std::make_shared<Group>(nextEntityId++, std::weak_ptr<Group>(),
 			std::unordered_map<std::string, std::string>());
-	allEntities.insert({ entity->getId(), entity });
+	allEntities.insert({ root->getId(), root });
 
 	unsigned long xpipe;
 	if(peekauxval(AT_XPIPE, &xpipe))

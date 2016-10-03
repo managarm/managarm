@@ -15,11 +15,6 @@ enum CntReqType {
 	BIND2 = 4;
 }
 
-message Descriptor {
-	optional string string = 1;
-	map<string, Descriptor> fields = 2;
-}
-
 message EqualsFilter {
 	optional string path = 1;
 	optional string value = 2;
@@ -35,7 +30,7 @@ message CntRequest {
 	optional CntReqType req_type = 1;
 	optional int64 id = 3;
 	optional int64 parent_id = 2;
-	optional Descriptor descriptor = 4;
+	map<string, string> properties = 6;
 	optional AnyFilter filter = 5;
 }
 

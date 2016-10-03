@@ -782,6 +782,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	auto observer = COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
+			std::cout << "uhci: Detected device" << std::endl;
 			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected event type");

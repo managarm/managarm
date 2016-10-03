@@ -65,7 +65,6 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::SvrReqType::BIND) {
 			auto descriptor = COFIBER_AWAIT handler(BindQuery());
-			std::cout << "libmbus: Sending descriptor" << std::endl;
 			
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -92,12 +91,8 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(_id);
-
-	for(auto kv : properties) {
-		managarm::mbus::Descriptor literal;
-		literal.set_string(kv.second);
-		req.mutable_descriptor()->mutable_fields()->insert({ kv.first, literal });
-	}
+	for(auto kv : properties)
+		req.mutable_properties()->insert({ kv.first, kv.second });
 
 	auto serialized = req.SerializeAsString();
 	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,
