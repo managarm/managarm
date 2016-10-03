@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <unordered_map>
 
 #include <helix/ipc.hpp>
 #include <boost/variant.hpp>
@@ -19,8 +20,13 @@ namespace mbus {
 namespace _detail {
 	using EntityId = int64_t;
 
-	struct Internal {
-		Internal(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
+	struct Observer;
+	struct AttachEvent;
+
+	using AnyEvent = boost::variant<AttachEvent>;
+
+	struct Connection {
+		Connection(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
 		: dispatcher(std::move(dispatcher)), pipe(std::move(pipe)) { }
 
 		helix::Dispatcher dispatcher;
@@ -31,17 +37,30 @@ namespace _detail {
 	// Properties.
 	// ------------------------------------------------------------------------
 
-	struct Properties {
-
-	};
+	using Properties = std::unordered_map<std::string, std::string>;	
 	
 	// ------------------------------------------------------------------------
 	// Filters.
 	// ------------------------------------------------------------------------
 
-	struct PropertyFilter { };
+	struct NoFilter { };
 
-	using AnyFilter = boost::variant<PropertyFilter>;
+	struct EqualsFilter {
+		EqualsFilter(std::string path, std::string value)
+		: _path(std::move(path)), _value(std::move(value)) { }
+
+		std::string getPath() { return _path; }
+		std::string getValue() { return _value; }
+
+	private:
+		std::string _path;
+		std::string _value;
+	};
+
+	using AnyFilter = boost::variant<
+		NoFilter,
+		EqualsFilter
+	>;
 	
 	// ------------------------------------------------------------------------
 	// mbus Instance class.
@@ -53,52 +72,80 @@ namespace _detail {
 		static Instance global();
 		
 		Instance(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
-		: _internal(std::make_shared<Internal>(std::move(dispatcher), std::move(pipe))) { }
+		: _connection(std::make_shared<Connection>(std::move(dispatcher), std::move(pipe))) { }
 
 		// attaches a root to the mbus.
 		cofiber::future<Entity> getRoot();
 
 	private:
-		std::shared_ptr<Internal> _internal;
-	};
-	
-	// ------------------------------------------------------------------------
-	// Observer related code.
-	// ------------------------------------------------------------------------
-
-	struct AttachEvent { };
-
-	using AnyEvent = boost::variant<AttachEvent>;
-
-	struct Observer {
+		std::shared_ptr<Connection> _connection;
 	};
 	
 	// ------------------------------------------------------------------------
 	// Entity related code.
 	// ------------------------------------------------------------------------
 
-	struct ConnectQuery { };
+	struct BindQuery { };
 
-	using AnyQuery = boost::variant<ConnectQuery>;
+	using AnyQuery = boost::variant<BindQuery>;
 
 	struct Entity {	
-		// attaches a child group.
-		cofiber::future<Entity> attachGroup(std::string name);
+		explicit Entity(std::shared_ptr<Connection> connection, EntityId id)
+		: _connection(std::move(connection)), _id(id) { }
 
-		// attaches a child object.
-		cofiber::future<Entity> attachObject(std::string name,
+		// creates a child group.
+		cofiber::future<Entity> createGroup(std::string name) const;
+
+		// creates a child object.
+		cofiber::future<Entity> createObject(std::string name,
 				const Properties &properties,
-				std::function<void(AnyQuery)> handler);
+				std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler) const;
 
 		// links an observer to this group.
 		cofiber::future<Observer> linkObserver(const AnyFilter &filter,
-				std::function<void(AnyEvent)> handler);
+				std::function<void(AnyEvent)> handler) const;
+
+		// bind to the device.
+		cofiber::future<helix::UniqueDescriptor> bind() const;
 
 	private:
+		std::shared_ptr<Connection> _connection;
+		EntityId _id;
+	};
+	
+	// ------------------------------------------------------------------------
+	// Observer related code.
+	// ------------------------------------------------------------------------
+
+	struct AttachEvent {
+		explicit AttachEvent(Entity entity)
+		: _entity(std::move(entity)) { }
+
+		Entity getEntity() {
+			return _entity;
+		}
+
+	private:
+		Entity _entity;
+	};
+
+	struct Observer {
 	};
 }
 
 using _detail::Instance;
+using _detail::Properties;
+
+using _detail::BindQuery;
+using _detail::AnyQuery;
+using _detail::Entity;
+
+using _detail::NoFilter;
+using _detail::EqualsFilter;
+using _detail::AnyFilter;
+using _detail::AttachEvent;
+using _detail::AnyEvent;
+using _detail::Observer;
 
 } // namespace mbus
 

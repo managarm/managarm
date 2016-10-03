@@ -21,7 +21,7 @@ $(call include_dir,libmbus)
 #$(call include_dir,drivers/bochs_vga)
 #$(call include_dir,drivers/ata)
 #$(call include_dir,drivers/virtio)
-#$(call include_dir,drivers/uhci)
+$(call include_dir,drivers/uhci)
 #$(call include_dir,zisa)
 
 $(call include_dir,tools/frigg_pb)

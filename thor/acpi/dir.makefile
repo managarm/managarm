@@ -13,7 +13,7 @@ $c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
-$c_LIBS := -lcofiber -lmbus
+$c_LIBS := -lhelix -lcofiber -lmbus
 
 $c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
@@ -49,9 +49,9 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 	$($d_CC) $($d_CCFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # generate protobuf
-gen-$c: $($c_GENDIR)/mbus.frigg_pb.hpp $($c_GENDIR)/hw.frigg_pb.hpp
+gen-$c: $($c_GENDIR)/hw.pb.tag
 
-$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
-			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
+$($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
+	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
+	touch $@
 

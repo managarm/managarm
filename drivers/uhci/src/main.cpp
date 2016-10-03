@@ -1,27 +1,25 @@
 
-#include <stdio.h>
 #include <assert.h>
-#include <functional>
-#include <memory>
-#include <experimental/optional>
+#include <stdio.h>
 #include <deque>
-
-#include <frigg/atomic.hpp>
-#include <frigg/arch_x86/machine.hpp>
-
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
+#include <experimental/optional>
+#include <functional>
+#include <iostream>
+#include <memory>
 
 #include <cofiber.hpp>
 #include <boost/intrusive/list.hpp>
-
-#include <bragi/mbus.hpp>
-#include <hw.pb.h>
+#include <frigg/atomic.hpp>
+#include <frigg/arch_x86/machine.hpp>
+#include <frigg/memory.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
+#include <mbus.hpp>
 
 #include "usb.hpp"
 #include "uhci.hpp"
 #include "hid.hpp"
+#include <hw.pb.h>
 
 struct Field {
 	int bitOffset;
@@ -68,9 +66,6 @@ using ContiguousAllocator = frigg::SlabAllocator<
 
 ContiguousPolicy contiguousPolicy;
 ContiguousAllocator contiguousAllocator(contiguousPolicy);
-
-helx::EventHub eventHub = helx::EventHub::create();
-bragi_mbus::Connection mbusConnection(eventHub);
 
 enum XferFlags {
 	kXferToDevice = 1,
@@ -270,7 +265,7 @@ struct ControlTransfer {
 };
 
 struct Controller {
-	Controller(uint16_t base, helx::Irq irq)
+	Controller(uint16_t base, helix::UniqueIrq irq)
 	: _base(base), _irq(frigg::move(irq)) { }
 
 	void initialize() {
@@ -341,7 +336,8 @@ struct Controller {
 		uint16_t command_bits = 0x1;
 		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
 
-		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+		assert(!"Fix IRQ waiting");
+//		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
 	}
 
 	void activateEntity(ScheduleEntity *entity) {
@@ -389,12 +385,13 @@ struct Controller {
 			}
 		}
 
-		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+		assert(!"Fix IRQ waiting");
+//		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
 	}
 
 private:
 	uint16_t _base;
-	helx::Irq _irq;
+	helix::UniqueIrq _irq;
 
 	QueueHead _initialQh;
 	alignas(32) uint8_t _buffer[18];
@@ -670,7 +667,7 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 	parseReportDescriptor(controller, device);
 })
 
-// --------------------------------------------------------
+/*// --------------------------------------------------------
 // InitClosure
 // --------------------------------------------------------
 
@@ -731,7 +728,26 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	controller->initialize();
 
 	runHidDevice(controller);
-}
+}*/
+
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+	auto lane = COFIBER_AWAIT device.bind();
+	std::cout << "got the device" << std::endl;
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::EqualsFilter("pci-class", "0c");
+	auto observer = COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected event type");
+		}
+	});
+}))
 
 // --------------------------------------------------------
 // main() function
@@ -740,11 +756,10 @@ void InitClosure::queriredDevice(HelHandle handle) {
 int main() {
 	printf("Starting uhci (usb-)driver\n");
 
-	auto closure = new InitClosure();
-	(*closure)();
+	observeDevices();
 
 	while(true)
-		eventHub.defaultProcessEvents();
+		helix::Dispatcher::global().dispatch();
 	
 	return 0;
 }

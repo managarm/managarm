@@ -146,15 +146,18 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		} break;
 		case 'o': assert(!"Not implemented");
-		case 'x':
+		case 'x': {
 			// TODO: Implement this correctly
-			assert(!fill_zeros);
 			assert(!left_justify);
-			assert(minimum_width == 0);
 			assert(!l_prefix);
-			assert(!precision);
-			printUInt(printer, va_arg(args, unsigned int), 16);
-			break;
+			auto number = va_arg(args, unsigned int);
+			if(precision && *precision == 0 && !number) {
+				// print nothing in this case
+			}else{
+				printUInt(printer, number, 16, minimum_width,
+						precision ? *precision : 1, fill_zeros ? '0' : ' ');
+			}
+		} break;
 		case 'X': {
 			assert(!left_justify);
 			assert(!l_prefix);

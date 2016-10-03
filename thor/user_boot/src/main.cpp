@@ -325,6 +325,19 @@ void startAcpi() {
 	acpiConnect = helx::Client(connect_handle);*/
 }
 
+void startUhci() {
+	HelHandle space;
+	HEL_CHECK(helCreateSpace(&space));
+	
+	helix::UniquePipe xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+
+	ImageInfo exec_info = loadImage(space, "uhci", 0);
+	// TODO: actually use the correct interpreter
+	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
+	runProgram(space, std::move(xpipe_remote), exec_info, interp_info, true);
+}
+
 void startPosixSubsystem() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
@@ -479,6 +492,7 @@ int main() {
 	
 	startMbus();
 	startAcpi();
+	startUhci();
 //	startPosixSubsystem();
 //	runPosixInit();
 

@@ -127,6 +127,10 @@ inline std::pair<UniquePipe, UniquePipe> createFullPipe() {
 	return { UniquePipe(first_handle), UniquePipe(second_handle) };
 }
 
+struct Irq { };
+using UniqueIrq = UniqueResource<Irq>;
+using BorrowedIrq = BorrowedResource<Irq>;
+
 // we use a pattern similar to CRTP here to reduce code size.
 template<typename Result>
 struct OperationBase : Result {
@@ -218,21 +222,25 @@ protected:
 struct SendStringResult : ResultBase {
 };
 
+struct SendDescriptorResult : ResultBase {
+};
+
 struct Dispatcher {
 	using RecvString = OperationBase<RecvStringResult>;
 	using RecvDescriptor = OperationBase<RecvDescriptorResult>;
 	using SendString = OperationBase<SendStringResult>;
+	using SendDescriptor = OperationBase<SendDescriptorResult>;
 	
 	static Dispatcher &global();
 
-	Dispatcher(UniqueHub hub)
+	explicit Dispatcher(UniqueHub hub)
 	: _hub(std::move(hub)) { }
 
 	BorrowedHub getHub() const {
 		return _hub;
 	}
 
-	void operator() () {
+	void dispatch() {
 		static constexpr int kEventsPerCall = 16;
 
 		HelEvent list[kEventsPerCall];
@@ -261,6 +269,11 @@ struct Dispatcher {
 			} break;
 			case kHelEventSendString: {
 				auto ptr = static_cast<SendString *>((void *)e.submitObject);
+				ptr->_error = e.error;
+				ptr->complete();
+			} break;
+			case kHelEventSendDescriptor: {
+				auto ptr = static_cast<SendDescriptor *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->complete();
 			} break;
@@ -310,6 +323,21 @@ struct SendString : Operation<SendStringResult, M> {
 	: Operation<SendStringResult, M>(dispatcher.getHub()) {
 		auto error = helSubmitSendString(pipe.getHandle(), this->_hub.getHandle(),
 				(const uint8_t *)buffer, length, msg_request, msg_seq,
+				0, (uintptr_t)this, flags, &this->_asyncId);
+		if(error) {
+			this->_error = error;
+			this->complete();
+		}
+	}
+};
+
+template<typename M>
+struct SendDescriptor : Operation<SendDescriptorResult, M> {
+	SendDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
+			int64_t msg_request, int64_t msg_seq, uint32_t flags)
+	: Operation<SendDescriptorResult, M>(dispatcher.getHub()) {
+		auto error = helSubmitSendDescriptor(pipe.getHandle(), this->_hub.getHandle(),
+				descriptor.getHandle(), msg_request, msg_seq,
 				0, (uintptr_t)this, flags, &this->_asyncId);
 		if(error) {
 			this->_error = error;

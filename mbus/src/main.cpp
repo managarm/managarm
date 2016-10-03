@@ -8,266 +8,302 @@
 #include <iostream>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <cofiber.hpp>
+#include <cofiber/future.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 
 #include "mbus.pb.h"
 
-helix::Dispatcher dispatcher(helix::createHub());
-
 // --------------------------------------------------------
-// Capability
+// Entity
 // --------------------------------------------------------
 
-struct Capability {
-	std::string name;
-};
+struct Group;
+struct Observer;
 
-// --------------------------------------------------------
-// Object
-// --------------------------------------------------------
+struct Entity {
+	explicit Entity(int64_t id, std::weak_ptr<Group> parent,
+			std::unordered_map<std::string, std::string> descriptor)
+	: _id(id), _parent(std::move(parent)), _descriptor(std::move(descriptor)) { }
 
-class Connection;
-
-struct Object {
-	Object(int64_t object_id);
-
-	bool hasCapability(std::string name);
-
-	const int64_t objectId;
-	std::shared_ptr<Connection> connection;
-
-	std::vector<Capability> caps;
-};
-
-Object::Object(int64_t object_id)
-: objectId(object_id) { }
-
-bool Object::hasCapability(std::string name) {
-	return std::find_if(caps.begin(), caps.end(), [&] (const Capability &cap) {
-		return cap.name == name;
-	}) != caps.end();
-}
-
-std::unordered_map<int64_t, Object> allObjects;
-int64_t nextObjectId = 1;
-
-/*
-// --------------------------------------------------------
-// Connection
-// --------------------------------------------------------
-
-struct Connection {
-	Connection(helx::Pipe pipe);
-
-	helx::Pipe pipe;
-	int64_t nextRequestId;
-};
-
-Connection::Connection(helx::Pipe pipe)
-: pipe(frigg::move(pipe)), nextRequestId(0) { }
-
-frigg::LazyInitializer<frigg::Vector<frigg::WeakPtr<Connection>, Allocator>> allConnections;
-
-void broadcastRegister(frigg::SharedPtr<Object> object) {
-	for(size_t i = 0; i < allConnections->size(); i++) {
-		frigg::SharedPtr<Connection> other = (*allConnections)[i].grab();
-		if(!other)
-			continue;
-		if(other.get() == object->connection.get())
-			continue;
-
-		auto action = frigg::compose([=] (frigg::String<Allocator> *serialized) {
-			managarm::mbus::SvrRequest<Allocator> request(*allocator);
-			request.set_req_type(managarm::mbus::SvrReqType::BROADCAST);
-			request.set_object_id(object->objectId);
-			
-			for(size_t i = 0; i < object->caps.size(); i++) {
-				managarm::mbus::Capability<Allocator> capability(*allocator);
-				capability.set_name(object->caps[i].name);
-				request.add_caps(frigg::move(capability));
-			}
-			
-			request.SerializeToString(serialized);
-
-			return other->pipe.sendStringReq(serialized->data(), serialized->size(), eventHub, 0, 0)
-			+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
-		}, frigg::String<Allocator>(*allocator));
-
-		frigg::run(frigg::move(action), allocator.get());
+	int64_t getId() const {
+		return _id;
 	}
-}
 
-// --------------------------------------------------------
-// RequestClosure
-// --------------------------------------------------------
+	std::shared_ptr<Group> getParent() const {
+		return _parent.lock();
+	}
 
-struct RequestClosure : frigg::BaseClosure<RequestClosure> {
-public:
-	RequestClosure(frigg::SharedPtr<Connection> connection);
+	const std::unordered_map<std::string, std::string> &getDescriptor() const {
+		return _descriptor;
+	}
 
-	void operator() ();
+	virtual void traverse(std::vector<std::shared_ptr<Entity>> &descendants) = 0;
+
+	virtual void linkObserver(std::shared_ptr<Observer> observer) = 0;
 
 private:
-	void recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	frigg::SharedPtr<Connection> connection;
-	uint8_t buffer[128];
+	int64_t _id;
+	std::weak_ptr<Group> _parent;
+	std::unordered_map<std::string, std::string> _descriptor;
 };
 
-RequestClosure::RequestClosure(frigg::SharedPtr<Connection> connection)
-: connection(frigg::move(connection)) { }
+struct Group : Entity {
+	explicit Group(int64_t id, std::weak_ptr<Group> parent,
+			std::unordered_map<std::string, std::string> descriptor)
+	: Entity(id, std::move(parent), std::move(descriptor)) { }
+	
+	void traverse(std::vector<std::shared_ptr<Entity>> &descendants) override {
+		for(std::shared_ptr<Entity> child : _children) {
+			descendants.push_back(std::move(child));
+			child->traverse(descendants);
+		}
+	}
 
-void RequestClosure::operator() () {
-	HEL_CHECK(connection->pipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
-			CALLBACK_MEMBER(this, &RequestClosure::recvdRequest)));
+	void linkObserver(std::shared_ptr<Observer> observer) override {
+		_observers.insert(std::move(observer));
+	}
+
+	void observeAttach(std::shared_ptr<Entity> entity);
+
+private:
+	std::unordered_set<std::shared_ptr<Entity>> _children;
+	std::unordered_set<std::shared_ptr<Observer>> _observers;
+};
+
+struct Object : Entity {
+	explicit Object(int64_t id, std::weak_ptr<Group> parent,
+			std::unordered_map<std::string, std::string> descriptor,
+			helix::UniquePipe lane)
+	: Entity(id, std::move(parent), std::move(descriptor)),
+			_lane(std::move(lane)) { }
+
+	void traverse(std::vector<std::shared_ptr<Entity>> &descendants) override {
+		// we don't have to do anything here
+	}
+
+	void linkObserver(std::shared_ptr<Observer> observer) override {
+		throw std::runtime_error("Cannot attach observer to Object");
+	}
+
+	cofiber::future<helix::UniqueDescriptor> bind();
+
+private:
+	helix::UniquePipe _lane;
+};
+
+COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
+	using M = helix::AwaitMechanism;
+	
+	managarm::mbus::SvrRequest req;
+	req.set_req_type(managarm::mbus::SvrReqType::BIND);
+
+	auto serialized = req.SerializeAsString();
+	helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
+			serialized.data(), serialized.size(), 0, 0, kHelRequest);
+	COFIBER_AWAIT send_req.future();
+	HEL_CHECK(send_req.error());
+
+	// recevie and parse the response.
+	uint8_t buffer[128];
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), _lane,
+			buffer, 128, 0, 0, kHelResponse);
+	COFIBER_AWAIT recv_resp.future();
+	HEL_CHECK(recv_resp.error());
+
+	managarm::mbus::CntResponse resp;
+	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+	
+	helix::RecvDescriptor<M> recv_desc(helix::Dispatcher::global(), _lane,
+			0, 0, kHelResponse);
+	COFIBER_AWAIT recv_desc.future();
+	HEL_CHECK(recv_desc.error());
+	std::cout << "mbus: Object::bind() returns" << std::endl;
+	
+	COFIBER_RETURN(recv_desc.descriptor());
+}))
+
+struct EqualsFilter {
+	EqualsFilter(std::string property, std::string value)
+	: _property(std::move(property)), _value(std::move(value)) { }
+
+	std::string getProperty() const { return _property; }
+	std::string getValue() const { return _value; }
+
+private:
+	std::string _property;
+	std::string _value;
+};
+
+struct Observer {
+	explicit Observer(EqualsFilter filter, helix::UniquePipe lane)
+	: _filter(std::move(filter)), _lane(std::move(lane)) { }
+
+	cofiber::no_future observeAttach(std::shared_ptr<Entity> entity);
+
+private:
+	EqualsFilter _filter;
+	helix::UniquePipe _lane;
+};
+
+static bool matchesFilter(const Entity *entity, const EqualsFilter &filter) {
+	auto &properties = entity->getDescriptor();
+	auto it = properties.find(filter.getProperty());
+	if(it == properties.end())
+		return false;
+	return it->second == filter.getValue();
+}
+	
+void Group::observeAttach(std::shared_ptr<Entity> entity) {
+	for(auto &observer_ptr : _observers)
+		observer_ptr->observeAttach(entity);
 }
 
-void RequestClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	if(error == kHelErrClosedRemotely) {
-		suicide(*allocator);
+COFIBER_ROUTINE(cofiber::no_future, Observer::observeAttach(std::shared_ptr<Entity> entity), ([=] {
+	using M = helix::AwaitMechanism;
+	
+	if(!matchesFilter(entity.get(), _filter)) 
 		return;
+
+	managarm::mbus::SvrRequest req;
+	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
+	req.set_id(entity->getId());
+
+	auto serialized = req.SerializeAsString();
+	helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
+			serialized.data(), serialized.size(), 0, 0, kHelRequest);
+	COFIBER_AWAIT send_req.future();
+	HEL_CHECK(send_req.error());
+
+}))
+
+std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
+int64_t nextEntityId = 1;
+
+static EqualsFilter decodeFilter(const managarm::mbus::AnyFilter &msg) {
+	if(msg.type_case() == managarm::mbus::AnyFilter::kEqualsFilter) {
+		return EqualsFilter(msg.equals_filter().path(),
+				msg.equals_filter().value());
+	}else{
+		throw std::runtime_error("Unexpected filter message");
 	}
-	HEL_CHECK(error);
-	
-	managarm::mbus::CntRequest<Allocator> recvd_request(*allocator);
-	recvd_request.ParseFromArray(buffer, length);
-	
-	switch(recvd_request.req_type()) {
-	case managarm::mbus::CntReqType::REGISTER: {
-		
-		auto action = frigg::compose([=] (auto request, auto serialized) {
-			auto object = frigg::makeShared<Object>(*allocator, nextObjectId++);
-			object->connection = frigg::SharedPtr<Connection>(connection);
-			allObjects.insert(object->objectId, object);
-			
-			for(size_t i = 0; i < request->caps_size(); i++) {
-				Capability capability;
-				capability.name = request->caps(i).name();
-				object->caps.push(frigg::move(capability));
-			}
-
-			managarm::mbus::SvrResponse<Allocator> response(*allocator);
-			response.set_object_id(object->objectId);
-			response.SerializeToString(serialized);
-			
-			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
-					eventHub, msg_request, 0)
-			+ frigg::lift([=] (HelError error) {
-				HEL_CHECK(error);
-				broadcastRegister(object);
-			});
-		}, frigg::move(recvd_request), frigg::String<Allocator>(*allocator));
-
-		frigg::run(frigg::move(action), allocator.get());
-	} break;
-	case managarm::mbus::CntReqType::ENUMERATE: {
-		frigg::SharedPtr<Object> found;
-		for(auto it = allObjects.iterator(); it; ++it) {
-			frigg::UnsafePtr<Object> object = it->get<1>();
-			
-			bool matching = true;
-			for(size_t i = 0; i < recvd_request.caps_size(); i++) {
-				if(!object->hasCapability(recvd_request.caps(i).name()))
-					matching = false;
-			}
-			if(matching) {
-				found = object.toShared();
-				break;
-			}
-		}
-		assert(found);
-
-		auto action = frigg::compose([=]  (auto serialized) {
-			managarm::mbus::SvrResponse<Allocator> response(*allocator);
-			response.set_object_id(found->objectId);
-			response.SerializeToString(serialized);
-			
-			return connection->pipe.sendStringResp(serialized->data(), serialized->size(),
-					eventHub, msg_request, 0)
-			+ frigg::lift([=] (HelError error) {
-				HEL_CHECK(error);
-			});
-		}, frigg::String<Allocator>(*allocator));
-
-		frigg::run(frigg::move(action), allocator.get());
-	} break;
-	case managarm::mbus::CntReqType::QUERY_IF: {
-		frigg::SharedPtr<Object> *object = allObjects.get(recvd_request.object_id());
-		assert(object);
-
-		auto action = frigg::compose([=] (auto request) {
-			int64_t require_request_id = (*object)->connection->nextRequestId++;
-			
-			return frigg::compose([=] (auto serialized) {
-				managarm::mbus::SvrRequest<Allocator> require_request(*allocator);
-				require_request.set_req_type(managarm::mbus::SvrReqType::REQUIRE_IF);
-				require_request.set_object_id(request->object_id());
-				require_request.SerializeToString(serialized);
-			
-				return (*object)->connection->pipe.sendStringReq(serialized->data(), serialized->size(),
-							eventHub, require_request_id, 0)
-				+ frigg::lift([=] (HelError error) { 
-					HEL_CHECK(error); 
-				});
-			}, frigg::String<Allocator>(*allocator))
-			+ frigg::await<void(HelError, int64_t, int64_t, HelHandle)>([=] (auto callback) {
-				(*object)->connection->pipe.recvDescriptorResp(eventHub, require_request_id, 1,
-						callback);
-			})
-			+ frigg::compose([=] (HelError error, int64_t require_msg_request,
-					int64_t require_msg_seq, HelHandle handle) {
-				HEL_CHECK(error);
-				
-				return connection->pipe.sendDescriptorResp(handle, eventHub, msg_request, 1)
-				+ frigg::lift([=] (HelError error) {
-					HEL_CHECK(error);
-					HEL_CHECK(helCloseDescriptor(handle));
-				});
-			});
-		}, frigg::move(recvd_request));
-
-		frigg::run(frigg::move(action), allocator.get());
-	} break;
-	default:
-		assert(!"Illegal request type");
-	};
-
-	(*this)();
-}*/
+}
 
 COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
-		[pipe = std::move(p)] () {
+		([pipe = std::move(p)] () {
 	using M = helix::AwaitMechanism;
 
 	while(true) {
-		char req_buffer[128];
-		helix::RecvString<M> recv_req(dispatcher, pipe, req_buffer, 128,
-				kHelAnyRequest, 0, kHelRequest);
+		char buffer[256];
+		helix::RecvString<M> recv_req(helix::Dispatcher::global(), pipe,
+				buffer, 256, 0, 0, kHelRequest);
 		COFIBER_AWAIT recv_req.future();
+		HEL_CHECK(recv_req.error());
 
-		assert(!"Fix this");
+		managarm::mbus::CntRequest req;
+		req.ParseFromArray(buffer, recv_req.actualLength());
+		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
+			managarm::mbus::SvrResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+			resp.set_id(1);
 
-		//FIXME: actually parse the protocol.
+			auto serialized = resp.SerializeAsString();
+			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
+					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
+			auto parent = allEntities.at(req.parent_id());
+			std::unordered_map<std::string, std::string> descriptor;
+			for(auto &kv : req.descriptor().fields())
+				descriptor.insert({ kv.first, kv.second.string() });
 
-/*		char data_buffer[128];
-		helix::RecvString<M> recv_data(dispatcher, pipe, data_buffer, 128,
-				recv_req.requestId(), 1, kHelRequest);
-		COFIBER_AWAIT recv_data.future();
+			helix::UniquePipe local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createFullPipe();
+			// FIXME: this cast is not safe
+			auto entity = std::make_shared<Object>(nextEntityId++,
+					std::static_pointer_cast<Group>(parent), std::move(descriptor),
+					std::move(local_lane));
+			allEntities.insert({ entity->getId(), entity });
 
-		helLog(data_buffer, recv_data.actualLength());
+			std::shared_ptr<Group> current = std::static_pointer_cast<Group>(parent);
+			while(current) {
+				current->observeAttach(entity);
+				// FIXME: this cast is not safe
+				current = std::static_pointer_cast<Group>(current->getParent());
+			}
 
-		// send the success response.
-		// FIXME: send an actually valid answer.
-		helix::SendString<M> send_resp(dispatcher, pipe, nullptr, 0,
-				recv_req.requestId(), 0, kHelResponse);
-		COFIBER_AWAIT send_resp.future();*/
+			managarm::mbus::SvrResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+			resp.set_id(entity->getId());
+
+			auto serialized = resp.SerializeAsString();
+			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
+					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+			
+			helix::SendDescriptor<M> send_lane(helix::Dispatcher::global(), pipe,
+					remote_lane, 0, 0, kHelResponse);
+			COFIBER_AWAIT send_lane.future();
+			HEL_CHECK(send_lane.error());
+		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
+			auto entity = allEntities.at(req.id());
+
+			helix::UniquePipe local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createFullPipe();
+			auto observer = std::make_shared<Observer>(decodeFilter(req.filter()),
+					std::move(local_lane));
+			entity->linkObserver(observer);
+
+			std::vector<std::shared_ptr<Entity>> descendants;
+			for(auto it = descendants.begin(); it != descendants.end(); ++it)
+				observer->observeAttach(std::move(*it));
+
+			managarm::mbus::SvrResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+			resp.set_id(entity->getId());
+
+			auto serialized = resp.SerializeAsString();
+			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
+					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+			
+			helix::SendDescriptor<M> send_lane(helix::Dispatcher::global(), pipe,
+					remote_lane, 0, 0, kHelResponse);
+			COFIBER_AWAIT send_lane.future();
+			HEL_CHECK(send_lane.error());
+		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
+			auto entity = allEntities.at(req.id());
+			// FIXME: this cast is not typesafe
+			auto object = std::static_pointer_cast<Object>(entity);
+
+			auto descriptor = COFIBER_AWAIT object->bind();
+			
+			managarm::mbus::SvrResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+
+			auto serialized = resp.SerializeAsString();
+			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
+					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+			
+			helix::SendDescriptor<M> send_desc(helix::Dispatcher::global(), pipe,
+					descriptor, 0, 0, kHelResponse);
+			COFIBER_AWAIT send_desc.future();
+			HEL_CHECK(send_desc.error());
+		}else{
+			throw std::runtime_error("Unexpected request type");
+		}
 	}
-})
+}))
 
 // --------------------------------------------------------
 // main() function
@@ -275,7 +311,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 
 int main() {
 	std::cout << "Entering mbus" << std::endl;
-	
+
+	auto entity = std::make_shared<Group>(nextEntityId++, std::weak_ptr<Group>(),
+			std::unordered_map<std::string, std::string>());
+	allEntities.insert({ entity->getId(), entity });
+
 	unsigned long xpipe;
 	if(peekauxval(AT_XPIPE, &xpipe))
 		throw std::runtime_error("No AT_XPIPE specified");
@@ -283,6 +323,6 @@ int main() {
 	serve(helix::UniquePipe(xpipe));
 
 	while(true)
-		dispatcher();
+		helix::Dispatcher::global().dispatch();
 }
 

@@ -2,8 +2,8 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
-#include <sys/auxv.h>
 #include <iostream>
 #include <vector>
 
@@ -11,32 +11,73 @@
 #include <hel-syscalls.h>
 #include <helx.hpp>
 #include <helix/ipc.hpp>
+#include <helix/await.hpp>
 #include <mbus.hpp>
 
 #include "common.hpp"
 #include "pci.hpp"
-//#include <mbus.frigg_pb.hpp>
-//#include <hw.frigg_pb.hpp>
+#include <hw.pb.h>
 
 std::vector<std::shared_ptr<PciDevice>> allDevices;
 
-namespace mbus {
-	static Instance makeGlobal() {
-		unsigned long server;
-		if(peekauxval(AT_MBUS_SERVER, &server))
-			throw std::runtime_error("No AT_MBUS_SERVER specified");
-		return Instance(dispatcher.getHub().dup(), helix::BorrowedPipe(server).dup());
-	}
+COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, handleQueries(mbus::AnyQuery query),
+		([=] {
+	using M = helix::AwaitMechanism;
 
-	Instance Instance::global() {
-		static Instance instance(makeGlobal());
-		return instance;
-	}
-}
+	helix::UniquePipe local_lane, remote_lane;
+	std::tie(local_lane, remote_lane) = helix::createFullPipe();
+	
+	COFIBER_RETURN(std::move(remote_lane));
+
+/*	while(true) {
+		char buffer[128];
+		helix::RecvString<M> recv_req(helix::Dispatcher::global(), local_lane,
+				buffer, 128, 0, 0, kHelRequest);
+		COFIBER_AWAIT recv_req.future();
+		HEL_CHECK(recv_req.error());
+
+		managarm::hw::SvrRequest req;
+		req.ParseFromArray(buffer, recv_req.actualLength());
+		if(req.req_type() == managarm::hw::SvrReqType::BIND) {
+			auto descriptor = COFIBER_AWAIT handler(BindQuery());
+			
+			helix::SendDescriptor<M> send_lane(helix::Dispatcher::global(), pipe,
+					descriptor, 0, 0, kHelResponse);
+			COFIBER_AWAIT send_lane.future();
+			HEL_CHECK(send_lane.error());
+		}else{
+			throw std::runtime_error("Unexpected request type");
+		}
+	}*/
+}))
 
 COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> device), ([=] {
-	auto instance = mbus::Instance::global();
-	auto root = COFIBER_AWAIT instance.getRoot();
+	char vendor[5], device_id[5], revision[3];
+	sprintf(vendor, "%.4x", device->vendor);
+	sprintf(device_id, "%.4x", device->deviceId);
+	sprintf(revision, "%.2x", device->revision);
+	
+	char class_code[3], sub_class[3], interface[3];
+	sprintf(class_code, "%.2x", device->classCode);
+	sprintf(sub_class, "%.2x", device->subClass);
+	sprintf(interface, "%.2x", device->interface);
+
+	std::unordered_map<std::string, std::string> descriptor {
+		{ "pci-vendor", vendor },
+		{ "pci-device", device_id },
+		{ "pci-revision", revision },
+		{ "pci-class", class_code },
+		{ "pci-subclass", sub_class },
+		{ "pci-interface", interface }
+	};
+
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	char name[9];
+	sprintf(name, "%.2x.%.2x.%.1x", device->bus, device->slot, device->function);
+	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
+			&handleQueries);
+	std::cout << "Created object " << name << std::endl;
 }))
 
 // --------------------------------------------------------

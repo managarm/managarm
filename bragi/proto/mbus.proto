@@ -4,55 +4,59 @@ option optimize_for = LITE_RUNTIME;
 
 package managarm.mbus;
 
-message Capability {
-	optional string name = 1;
-}
-
-message Interface {
-	optional string name = 1;
+enum Error {
+	SUCCESS = 0;
 }
 
 enum CntReqType {
-	REGISTER = 1;
-	ENUMERATE = 3;
-	QUERY_IF = 2;
+	GET_ROOT = 1;
+	CREATE_OBJECT = 2;
+	LINK_OBSERVER = 3;
+	BIND2 = 4;
+}
+
+message Descriptor {
+	optional string string = 1;
+	map<string, Descriptor> fields = 2;
+}
+
+message EqualsFilter {
+	optional string path = 1;
+	optional string value = 2;
+}
+
+message AnyFilter {
+	oneof type {
+		EqualsFilter equals_filter = 2;
+	}
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
-
-	// used by REGISTER / ENUMERATE
-	repeated Capability caps = 2;
-
-	// used by REGISTER
-	repeated Interface ifs = 3;
-	
-	// used by QUERY_IF
-	optional int64 object_id = 4;
+	optional int64 id = 3;
+	optional int64 parent_id = 2;
+	optional Descriptor descriptor = 4;
+	optional AnyFilter filter = 5;
 }
 
 message SvrResponse {
-	// answer to REGISTER
-	optional int64 object_id = 1;
+	optional int32 error = 1;
+	optional int64 id = 2;
 }
 
 enum SvrReqType {
-	BROADCAST = 1;
-	REQUIRE_IF = 2;
+	BIND = 1;
+	ATTACH = 2;
 }
 
 message SvrRequest {
 	optional SvrReqType req_type = 1;
 	
-	// used by BROADCAST
-	optional int64 object_id = 2;
-
-	// used by BROADCAST
-	repeated Capability caps = 3;
-	repeated Interface ifs = 4;
+	optional int64 id = 2;
 }
 
 message CntResponse {
+	optional int32 error = 1;
 
 }
 

@@ -1,7 +1,5 @@
 
-#include <helix/ipc.hpp>
+// TODO: remove this file?
 
-extern helix::Dispatcher dispatcher;
-
-void requireObject(int64_t object_id, helx::Pipe pipe);
+//void requireObject(int64_t object_id, helx::Pipe pipe);
 

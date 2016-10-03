@@ -13,7 +13,7 @@ $c_INCLUDES := -I$(TREE_PATH)/bragi/include \
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall -Wextra -fPIC -O2
 
-$c_LIBS := -lcofiber \
+$c_LIBS := -lhelix -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_so,libmbus.so,mbus.o mbus.pb.o)

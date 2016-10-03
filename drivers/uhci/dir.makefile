@@ -10,10 +10,10 @@ $c_INCLUDES := -I$($c_GENDIR) -I$(TREE_PATH)/frigg/include \
 	$(shell $($c_PKGCONF) --cflags protobuf-lite)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++1y -Wall
+$c_CXXFLAGS += -std=c++14 -Wall
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -lcofiber -lbragi_mbus \
+$c_LIBS := -lhelix -lcofiber -lmbus \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_exec,uhci,main.o hw.pb.o)

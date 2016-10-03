@@ -1,13 +1,12 @@
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <iostream>
 #include <vector>
 
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
+#include <helix/ipc.hpp>
 #include <thor.h>
 
 extern "C" {
@@ -15,8 +14,6 @@ extern "C" {
 }
 
 #include "common.hpp"
-
-helix::Dispatcher dispatcher(helix::createHub());
 
 struct GenericAddress {
 	uint8_t space;
@@ -330,6 +327,6 @@ int main() {
 	pciDiscover();
 
 	while(true)
-		dispatcher();
+		helix::Dispatcher::global().dispatch();
 }
 
