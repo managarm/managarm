@@ -407,7 +407,7 @@ int main() {
 	}
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	
-	dumpNamespace();
+	//dumpNamespace();
 
 	pciDiscover();
 

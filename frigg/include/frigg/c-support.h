@@ -2,9 +2,15 @@
 #ifndef FRIGG_C_SUPPORT_H
 #define FRIGG_C_SUPPORT_H
 
+#pragma GCC visibility push(default)
+
+#include <stddef.h>
+#include <stdint.h>
+
+#pragma GCC visibility pop
+
 #ifdef FRIGG_NO_LIBC
 
-#include <frigg/types.hpp>
 #include <frigg/libc.hpp>
 
 #ifdef __cplusplus
@@ -24,8 +30,6 @@ void __assert_fail(const char *assertion,
 
 #pragma GCC visibility push(default)
 
-#include <stddef.h>
-#include <stdint.h>
 #include <assert.h>
 #include <string.h>
 

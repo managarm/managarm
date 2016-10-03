@@ -48,7 +48,7 @@ $($c_BINDIR)/thor: $($c_OBJECT_PATHS) $($c_SRCDIR)/arch/x86/link.x | $($c_BINDIR
 $($c_GENDIR)/frigg-%.cpp: $(TREE_PATH)/frigg/src/%.cpp | $($c_GENDIR)
 	install $< $@
 
-$($c_GENDIR)/frigg-arch-%.cpp: $(TREE_PATH)/frigg/src/arch/x86/%.cpp | $($c_GENDIR)
+$($c_GENDIR)/frigg-arch-%.cpp: $(TREE_PATH)/frigg/src/arch_x86/%.cpp | $($c_GENDIR)
 	install $< $@
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_GENERIC_OBJDIR) $($c_ARCH_OBJDIR)

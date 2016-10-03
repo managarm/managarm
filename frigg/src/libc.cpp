@@ -1,6 +1,5 @@
 
-#include <frigg/types.hpp>
-#include <frigg/libc.hpp>
+#include <frigg/cxx-support.hpp>
 #include <frigg/support.hpp>
 
 int isspace(int ch) {

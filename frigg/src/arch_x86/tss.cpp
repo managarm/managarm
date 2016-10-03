@@ -1,5 +1,5 @@
 
-#include <frigg/types.hpp>
+#include <frigg/cxx-support.hpp>
 #include <frigg/arch_x86/tss.hpp>
 
 namespace frigg {
