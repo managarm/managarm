@@ -42,13 +42,12 @@ void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
 }
 
 Thread::Thread(KernelSharedPtr<Universe> universe,
-		KernelSharedPtr<AddressSpace> address_space,
-		KernelSharedPtr<RdFolder> directory)
+		KernelSharedPtr<AddressSpace> address_space)
 : flags(0), _runState(kRunSuspended),
 		_numTicks(0), _activationTick(0),
 		_pendingSignal(kSigNone), _runCount(1),
 		_context(kernelStack.base()),
-		_universe(universe), _addressSpace(address_space), _directory(directory) {
+		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
 //	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
 }
 
@@ -67,9 +66,6 @@ KernelUnsafePtr<Universe> Thread::getUniverse() {
 }
 KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return _addressSpace;
-}
-KernelUnsafePtr<RdFolder> Thread::getDirectory() {
-	return _directory;
 }
 
 void Thread::signalKill() {

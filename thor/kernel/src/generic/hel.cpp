@@ -77,15 +77,6 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
 	case AnyDescriptor::tagOf<EventHubDescriptor>():
 		user_info->type = kHelDescEventHub;
 		break;
-	case AnyDescriptor::tagOf<ServerDescriptor>():
-		user_info->type = kHelDescServer;
-		break;
-	case AnyDescriptor::tagOf<ClientDescriptor>():
-		user_info->type = kHelDescClient;
-		break;
-	case AnyDescriptor::tagOf<RdDescriptor>():
-		user_info->type = kHelDescDirectory;
-		break;
 	default:
 		assert(!"Illegal descriptor");
 	}
@@ -501,7 +492,6 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 }
 
 HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
-		HelHandle directory_handle,
 		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
@@ -511,7 +501,6 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 
 	frigg::SharedPtr<Universe> universe;
 	frigg::SharedPtr<AddressSpace> space;
-	frigg::SharedPtr<RdFolder> directory;
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
 		
@@ -536,22 +525,10 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 				return kHelErrBadDescriptor;
 			space = space_wrapper->get<AddressSpaceDescriptor>().space;
 		}
-
-		if(directory_handle == kHelNullHandle) {
-			directory = this_thread->getDirectory().toShared();
-		}else{
-			auto dir_wrapper = this_universe->getDescriptor(universe_guard, directory_handle);
-			if(!dir_wrapper)
-				return kHelErrNoDescriptor;
-			if(!dir_wrapper->is<RdDescriptor>())
-				return kHelErrBadDescriptor;
-			auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-			directory = dir_desc.getFolder().toShared();
-		}
 	}
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
-			frigg::move(space), frigg::move(directory));
+			frigg::move(space));
 	if(flags & kHelThreadExclusive)
 		new_thread->flags |= Thread::kFlagExclusive;
 	if(flags & kHelThreadTrapsAreFatal)
@@ -697,8 +674,6 @@ static void translateToUserEvent(AsyncEvent event, HelEvent *user_event) {
 	case kEventRecvString: type = kHelEventRecvString; break;
 	case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
 	case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
-	case kEventAccept: type = kHelEventAccept; break;
-	case kEventConnect: type = kHelEventConnect; break;
 	case kEventIrq: type = kHelEventIrq; break;
 	default:
 		assert(!"Unexpected event type");
@@ -1256,224 +1231,6 @@ HelError helSubmitRecvDescriptor(HelHandle handle,
 	
 	assert(error == kErrSuccess);
 	return kHelErrNone;
-}
-
-
-HelError helCreateServer(HelHandle *server_handle, HelHandle *client_handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	auto server = frigg::makeShared<Server>(*kernelAlloc);
-	KernelSharedPtr<Server> copy(server);
-
-	Universe::Guard universe_guard(&universe->lock);
-	*server_handle = universe->attachDescriptor(universe_guard,
-			ServerDescriptor(frigg::move(server)));
-	*client_handle = universe->attachDescriptor(universe_guard,
-			ClientDescriptor(frigg::move(copy)));
-	universe_guard.unlock();
-
-	return kHelErrNone;
-}
-
-HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	frigg::SharedPtr<Server> server;
-	frigg::SharedPtr<EventHub> event_hub;
-	{
-		Universe::Guard universe_guard(&universe->lock);
-
-		auto server_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!server_wrapper)
-			return kHelErrNoDescriptor;
-		if(!server_wrapper->is<ServerDescriptor>())
-			return kHelErrBadDescriptor;
-		server = server_wrapper->get<ServerDescriptor>().server;
-
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
-	}
-	
-	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = completer.submitInfo.asyncId;
-	
-	auto request = frigg::makeShared<AsyncAccept>(*kernelAlloc,
-			frigg::move(completer), universe.toWeak());
-	{
-		Server::Guard server_guard(&server->lock);
-		server->submitAccept(server_guard, frigg::move(request));
-	}
-
-	return kHelErrNone;
-}
-
-HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	frigg::SharedPtr<Server> server;
-	frigg::SharedPtr<EventHub> event_hub;
-	{
-		Universe::Guard universe_guard(&universe->lock);
-
-		auto connect_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!connect_wrapper)
-			return kHelErrNoDescriptor;
-		if(!connect_wrapper->is<ClientDescriptor>())
-			return kHelErrBadDescriptor;
-		server = connect_wrapper->get<ClientDescriptor>().server;
-
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
-	}
-
-	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = completer.submitInfo.asyncId;
-	
-	auto request = frigg::makeShared<AsyncConnect>(*kernelAlloc,
-			frigg::move(completer), universe.toWeak());
-	{
-		Server::Guard server_guard(&server->lock);
-		server->submitConnect(server_guard, frigg::move(request));
-	}
-
-	return kHelErrNone;
-}
-
-
-HelError helCreateRd(HelHandle *handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	auto folder = frigg::makeShared<RdFolder>(*kernelAlloc);
-
-	Universe::Guard universe_guard(&universe->lock);
-	*handle = universe->attachDescriptor(universe_guard,
-			RdDescriptor(frigg::move(folder)));
-	universe_guard.unlock();
-	
-	return kHelErrNone;
-}
-
-HelError helRdMount(HelHandle handle, const char *user_name,
-		size_t name_length, HelHandle mount_handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-
-	Universe::Guard universe_guard(&universe->lock);
-	auto dir_wrapper = universe->getDescriptor(universe_guard, handle);
-	if(!dir_wrapper)
-		return kHelErrNoDescriptor;
-	if(!dir_wrapper->is<RdDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> directory = dir_desc.getFolder().toShared();
-
-	auto mount_wrapper = universe->getDescriptor(universe_guard, mount_handle);
-	if(!mount_wrapper)
-		return kHelErrNoDescriptor;
-	if(!mount_wrapper->is<RdDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &mount_desc = mount_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> mount_directory = mount_desc.getFolder().toShared();
-	universe_guard.unlock();
-
-	directory->mount(user_name, name_length, frigg::move(mount_directory));
-	
-	return kHelErrNone;
-}
-
-HelError helRdPublish(HelHandle handle, const char *user_name,
-		size_t name_length, HelHandle publish_handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-
-	Universe::Guard universe_guard(&universe->lock);
-	auto dir_wrapper = universe->getDescriptor(universe_guard, handle);
-	if(!dir_wrapper)
-		return kHelErrNoDescriptor;
-	if(!dir_wrapper->is<RdDescriptor>())
-		return kHelErrBadDescriptor;
-	auto &dir_desc = dir_wrapper->get<RdDescriptor>();
-	KernelSharedPtr<RdFolder> directory = dir_desc.getFolder().toShared();
-	
-	// copy the descriptor we want to publish
-	auto publish_wrapper = universe->getDescriptor(universe_guard, publish_handle);
-	if(!publish_wrapper)
-		return kHelErrNoDescriptor;
-	AnyDescriptor publish_copy(*publish_wrapper);
-	universe_guard.unlock();
-
-	directory->publish(user_name, name_length, frigg::move(publish_copy));
-	
-	return kHelErrNone;
-}
-
-HelError helRdOpen(const char *user_name, size_t name_length, HelHandle *handle) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-
-	// TODO: verifiy access rights for user_name
-	
-	auto find_char = [] (const char *string, char c,
-			size_t start_at, size_t max_length) -> size_t {
-		for(size_t i = start_at; i < max_length; i++)
-			if(string[i] == c)
-				return i;
-		return max_length;
-	};
-	
-	KernelUnsafePtr<RdFolder> directory = this_thread->getDirectory();
-	
-	size_t search_from = 0;
-	while(true) {
-		size_t next_slash = find_char(user_name, '/', search_from, name_length);
-		frigg::StringView part(user_name + search_from, next_slash - search_from);
-		if(next_slash == name_length) {
-			if(part == frigg::StringView("#this")) {
-				// open a handle to this directory
-				Universe::Guard universe_guard(&universe->lock);
-				*handle = universe->attachDescriptor(universe_guard,
-						RdDescriptor(directory.toShared()));
-				universe_guard.unlock();
-
-				return kHelErrNone;
-			}else{
-				// read a file from this directory
-				frigg::Optional<RdFolder::Entry *> entry = directory->getEntry(part.data(), part.size());
-				if(!entry)
-					return kHelErrNoSuchPath;
-
-				AnyDescriptor copy((*entry)->descriptor);
-				
-				Universe::Guard universe_guard(&universe->lock);
-				*handle = universe->attachDescriptor(universe_guard, frigg::move(copy));
-				universe_guard.unlock();
-
-				return kHelErrNone;
-			}
-		}else{
-			// read a subdirectory of this directory
-			frigg::Optional<RdFolder::Entry *> entry = directory->getEntry(part.data(), part.size());
-			if(!entry)
-				return kHelErrNoSuchPath;
-
-			directory = (*entry)->mounted;
-		}
-		search_from = next_slash + 1;
-	}
 }
 
 

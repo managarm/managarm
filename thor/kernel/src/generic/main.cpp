@@ -119,7 +119,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
+void executeModule(PhysicalAddr image_paddr) {	
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	space->setupDefaultMappings();
@@ -217,7 +217,7 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
-			frigg::move(space), frigg::move(root_directory));
+			frigg::move(space));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
 			stack_base + tail_disp, false);
@@ -287,8 +287,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
 	// finally we lauch the user_boot program
-	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
-	executeModule(frigg::move(root_directory), modules[0].physicalBase);
+	executeModule(modules[0].physicalBase);
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());
@@ -536,7 +535,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 //				<< frigg::endLog;
 		HelHandle handle;
 		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
-				(HelHandle)arg2, (int)arg3, (void *)arg4, (void *)arg5, (uint32_t)arg6, &handle);
+				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallYield: {
@@ -644,46 +643,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				(int64_t)arg3, (int64_t)arg4,
 				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
 		*image.out0() = async_id;
-	} break;
-	
-	case kHelCallCreateServer: {
-		HelHandle server_handle;
-		HelHandle client_handle;
-		*image.error() = helCreateServer(&server_handle, &client_handle);
-		*image.out0() = server_handle;
-		*image.out1() = client_handle;
-	} break;
-	case kHelCallSubmitAccept: {
-		int64_t async_id;
-		*image.error() = helSubmitAccept((HelHandle)arg0, (HelHandle)arg1,
-				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
-	} break;
-	case kHelCallSubmitConnect: {
-		int64_t async_id;
-		*image.error() = helSubmitConnect((HelHandle)arg0, (HelHandle)arg1,
-				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
-	} break;
-
-	case kHelCallCreateRd: {
-		HelHandle handle;
-		*image.error() = helCreateRd(&handle);
-		*image.out0() = handle;
-	} break;
-	case kHelCallRdMount: {
-		*image.error() = helRdMount((HelHandle)arg0,
-				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-	} break;
-	case kHelCallRdPublish: {
-		*image.error() = helRdPublish((HelHandle)arg0,
-				(const char *)arg1, (size_t)arg2, (HelHandle)arg3);
-	} break;
-	case kHelCallRdOpen: {
-		HelHandle handle;
-		*image.error() = helRdOpen((const char *)arg0,
-				(size_t)arg1, &handle);
-		*image.out0() = handle;
 	} break;
 
 	case kHelCallAccessIrq: {

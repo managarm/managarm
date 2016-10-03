@@ -95,30 +95,5 @@ private:
 	Endpoint _endpoints[2];
 };
 
-class Server {
-public:
-	typedef frigg::TicketLock Lock;
-	typedef frigg::LockGuard<Lock> Guard;
-
-	void submitAccept(Guard &guard, frigg::SharedPtr<AsyncAccept> request);
-	void submitConnect(Guard &guard, frigg::SharedPtr<AsyncConnect> request);
-	
-	Lock lock;
-	
-private:
-	void processRequests(frigg::SharedPtr<AsyncAccept> accept,
-			frigg::SharedPtr<AsyncConnect> connect);
-	
-	frigg::IntrusiveSharedLinkedList<
-		AsyncAccept,
-		&AsyncAccept::processItem
-	> _acceptQueue;
-	
-	frigg::IntrusiveSharedLinkedList<
-		AsyncConnect,
-		&AsyncConnect::processItem
-	> _connectQueue;
-};
-
 } // namespace thor
 

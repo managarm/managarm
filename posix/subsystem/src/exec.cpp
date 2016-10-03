@@ -319,9 +319,8 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 	//FIXME helx::Directory directory = Process::runServer(process);
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(universe, space, kHelNullHandle,
-			kHelAbiSystemV, (void *)interp_info->entryIp, (char *)stack_base + d,
-			0, &thread));
+	HEL_CHECK(helCreateThread(universe, space, kHelAbiSystemV,
+			(void *)interp_info->entryIp, (char *)stack_base + d, 0, &thread));
 
 /*	auto action = frigg::await<void(HelError)>([=] (auto callback) {
 		int64_t async_id;

@@ -10,9 +10,9 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch/x86/ints.o arch/x86/pic.o arch/x86/system.o arch/x86/paging.o \
 	arch/x86/hpet.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
-	generic/core.o generic/descriptor.o generic/usermem.o generic/schedule.o \
+	generic/core.o generic/usermem.o generic/schedule.o \
 	generic/ring-buffer.o generic/ipc.o \
-	generic/event.o generic/thread.o generic/rd.o generic/io.o
+	generic/event.o generic/thread.o generic/io.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_HEADERS := thor.h

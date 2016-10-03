@@ -71,18 +71,6 @@ AsyncEvent AsyncRecvDescriptor::getEvent() {
 	event.handle = handle;
 	return event;
 }
-AsyncEvent AsyncAccept::getEvent() {
-	AsyncEvent event(kEventAccept, completer.get<PostEventCompleter>().submitInfo);
-	event.error = kErrSuccess;
-	event.handle = handle;
-	return event;
-}
-AsyncEvent AsyncConnect::getEvent() {
-	AsyncEvent event(kEventConnect, completer.get<PostEventCompleter>().submitInfo);
-	event.error = kErrSuccess;
-	event.handle = handle;
-	return event;
-}
 AsyncEvent AsyncRingItem::getEvent() { assert(false); }
 AsyncEvent AsyncIrq::getEvent() {
 	AsyncEvent event(kEventIrq, completer.get<PostEventCompleter>().submitInfo);

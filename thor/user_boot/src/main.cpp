@@ -265,9 +265,8 @@ void runProgram(HelHandle space, helix::UniquePipe xpipe,
 	uint32_t thread_flags = kHelThreadTrapsAreFatal;
 	if(exclusive)
 		thread_flags |= kHelThreadExclusive;
-	HEL_CHECK(helCreateThread(universe, space, kHelNullHandle, kHelAbiSystemV,
-			interp_info.entryIp, (char *)stack_base + d,
-			thread_flags, &thread));
+	HEL_CHECK(helCreateThread(universe, space, kHelAbiSystemV,
+			interp_info.entryIp, (char *)stack_base + d, thread_flags, &thread));
 	HEL_CHECK(helCloseDescriptor(space));
 }
 
@@ -475,7 +474,7 @@ int main() {
 	// we need a second thread to serve stdout.
 	// this cannot be done in this thread as libc uses blocking calls.
 	HelHandle thread_handle;
-	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle, kHelNullHandle,
+	HEL_CHECK(helCreateThread(kHelNullHandle, kHelNullHandle,
 			kHelAbiSystemV, (void *)serveMain, (char *)malloc(0x10000) + 0x10000,
 			kHelThreadExclusive, &thread_handle));
 	

@@ -126,14 +126,6 @@ public:
 				function((void *)evt.submitObject, evt.error,
 						evt.msgRequest, evt.msgSequence, evt.handle);
 			} break;
-			case kHelEventAccept: {
-				auto function = (AcceptFunction)evt.submitFunction;
-				function((void *)evt.submitObject, evt.error, evt.handle);
-			} break;
-			case kHelEventConnect: {
-				auto function = (ConnectFunction)evt.submitFunction;
-				function((void *)evt.submitObject, evt.error, evt.handle);
-			} break;
 			case kHelEventIrq: {
 				auto function = (IrqFunction)evt.submitFunction;
 				function((void *)evt.submitObject, evt.error);
@@ -383,116 +375,6 @@ private:
 	HelHandle _handle;
 };
 
-class Client {
-public:
-	inline Client() : p_handle(kHelNullHandle) { }
-
-	explicit inline Client(HelHandle handle) : p_handle(handle) { }
-	
-	inline Client(Client &&other)
-	: Client() {
-		swap(*this, other);
-	}
-
-	inline Client(const Client &other) = delete;
-
-	inline ~Client() {
-		reset();
-	}
-	
-	inline Client &operator= (Client other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	void reset() {
-		if(p_handle != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(p_handle));
-		p_handle = kHelNullHandle;
-	}
-
-	friend inline void swap(Client &a, Client &b) {
-		using frigg::swap;
-		swap(a.p_handle, b.p_handle);
-	}
-
-	inline HelHandle getHandle() {
-		return p_handle;
-	}
-
-	inline void connect(EventHub &event_hub,
-			frigg::CallbackPtr<void(HelError, HelHandle)> callback) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
-	}
-	
-	inline void connectSync(EventHub &event_hub, HelError &error, Pipe &pipe) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitConnect(p_handle, event_hub.getHandle(),
-				0, 0, &async_id));
-		event_hub.waitForConnect(async_id, error, pipe);
-	}
-
-private:
-	HelHandle p_handle;
-};
-
-class Server {
-public:
-	static inline void createServer(Server &server, Client &client) {
-		HelHandle server_handle, client_handle;
-		HEL_CHECK(helCreateServer(&server_handle, &client_handle));
-		server = Server(server_handle);
-		client = Client(client_handle);
-	}
-
-	inline Server() : p_handle(kHelNullHandle) { }
-
-	explicit inline Server(HelHandle handle) : p_handle(handle) { }
-	
-	inline Server(Server &&other)
-	: Server() {
-		swap(*this, other);
-	}
-
-	inline Server(const Server &other) = delete;
-
-	inline ~Server() {
-		reset();
-	}
-	
-	inline Server &operator= (Server other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	void reset() {
-		if(p_handle != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(p_handle));
-		p_handle = kHelNullHandle;
-	}
-
-	friend inline void swap(Server &a, Server &b) {
-		using frigg::swap;
-		swap(a.p_handle, b.p_handle);
-	}
-
-	inline HelHandle getHandle() {
-		return p_handle;
-	}
-
-	inline void accept(EventHub &event_hub,
-			frigg::CallbackPtr<void(HelError, HelHandle)> callback) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitAccept(p_handle, event_hub.getHandle(),
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(), &async_id));
-	}
-
-private:
-	HelHandle p_handle;
-};
-
 class Irq {
 public:
 	inline static Irq access(int number) {
@@ -547,67 +429,6 @@ private:
 	HelHandle p_handle;
 };
 
-class Directory {
-public:
-	static inline Directory create() {
-		HelHandle handle;
-		HEL_CHECK(helCreateRd(&handle));
-		return Directory(handle);
-	}
-
-	inline Directory() : p_handle(kHelNullHandle) { }
-
-	explicit inline Directory(HelHandle handle) : p_handle(handle) { }
-	
-	inline Directory(Directory &&other)
-	: Directory() {
-		swap(*this, other);
-	}
-
-	inline Directory(const Directory &other) = delete;
-
-	inline ~Directory() {
-		reset();
-	}
-	
-	inline Directory &operator= (Directory other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	void reset() {
-		if(p_handle != kHelNullHandle)
-			HEL_CHECK(helCloseDescriptor(p_handle));
-		p_handle = kHelNullHandle;
-	}
-
-	friend inline void swap(Directory &a, Directory &b) {
-		using frigg::swap;
-		swap(a.p_handle, b.p_handle);
-	}
-
-	inline HelHandle getHandle() {
-		return p_handle;
-	}
-
-	inline void mount(HelHandle mount_handle, const char *target) {
-		HEL_CHECK(helRdMount(p_handle, target, strlen(target), mount_handle));
-	}
-
-	inline void publish(HelHandle publish_handle, const char *target) {
-		HEL_CHECK(helRdPublish(p_handle, target, strlen(target), publish_handle));
-	}
-
-	void remount(const char *path, const char *target) {
-		HelHandle mount_handle;
-		HEL_CHECK(helRdOpen(path, strlen(path), &mount_handle));
-		mount(mount_handle, target);
-	}
-
-private:
-	HelHandle p_handle;
-};
-
 // --------------------------------------------------------
 // EventHub implementation
 // --------------------------------------------------------
@@ -629,11 +450,6 @@ void EventHub::waitForRecvDescriptor(int64_t async_id, HelError &error, HelHandl
 	HelEvent event = waitForEvent(async_id);
 	error = event.error;
 	handle = event.handle;
-}
-void EventHub::waitForConnect(int64_t async_id, HelError &error, Pipe &pipe) {
-	HelEvent event = waitForEvent(async_id);
-	error = event.error;
-	pipe = Pipe(event.handle);
 }
 
 } // namespace helx

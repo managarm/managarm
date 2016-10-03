@@ -43,14 +43,12 @@ public:
 	};
 
 	Thread(KernelSharedPtr<Universe> universe,
-			KernelSharedPtr<AddressSpace> address_space,
-			KernelSharedPtr<RdFolder> directory);
+			KernelSharedPtr<AddressSpace> address_space);
 	~Thread();
 
 	Context &getContext();
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
-	KernelUnsafePtr<RdFolder> getDirectory();
 
 	void signalKill();
 	Signal pendingSignal();
@@ -110,7 +108,6 @@ private:
 
 	KernelSharedPtr<Universe> _universe;
 	KernelSharedPtr<AddressSpace> _addressSpace;
-	KernelSharedPtr<RdFolder> _directory;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncObserve,

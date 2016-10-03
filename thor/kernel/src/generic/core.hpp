@@ -66,8 +66,6 @@ class RingBuffer;
 class Channel;
 class BiDirectionPipe;
 class Endpoint;
-class Server;
-class RdFolder;
 class IrqLine;
 class IoSpace;
 
@@ -194,7 +192,6 @@ private:
 #include "thread.hpp"
 #include "ring-buffer.hpp"
 #include "ipc.hpp"
-#include "rd.hpp"
 #include "io.hpp"
 
 namespace thor {

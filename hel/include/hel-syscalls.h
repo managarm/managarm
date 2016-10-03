@@ -167,10 +167,10 @@ DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
 	DO_SYSCALL(Loadahead)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateThread, HelHandle universe, HelHandle address_space, HelHandle directory,
+DEFINE_SYSCALL(CreateThread, HelHandle universe, HelHandle address_space,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle)
-	IN(0, universe) IN(1, address_space) IN(2, directory) IN(3, abi)
-		IN(4, ip) IN(5, sp) IN(6, flags)
+	IN(0, universe) IN(1, address_space) IN(2, abi)
+		IN(3, ip) IN(4, sp) IN(5, flags)
 	DO_SYSCALL(CreateThread)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
@@ -315,48 +315,6 @@ DEFINE_SYSCALL(SubmitRecvDescriptor, HelHandle handle, HelHandle hub_handle,
 	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateServer, HelHandle *server_handle, HelHandle *client_handle)
-	DO_SYSCALL(CreateServer)
-	OUT(0, HelHandle, server_handle)
-	OUT(1, HelHandle, client_handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitAccept, HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
-	DO_SYSCALL(SubmitAccept)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitConnect, HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
-	DO_SYSCALL(SubmitConnect)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(CreateRd, HelHandle *handle)
-	DO_SYSCALL(CreateRd)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(RdMount, HelHandle handle,
-		const char *name, size_t name_length, HelHandle mount_handle)
-	IN(0, handle) IN(1, name) IN(2, name_length) IN(3, mount_handle)
-	DO_SYSCALL(RdMount)
-END_SYSCALL()
-
-DEFINE_SYSCALL(RdPublish, HelHandle handle,
-		const char *name, size_t name_length, HelHandle publish_handle)
-	IN(0, handle) IN(1, name) IN(2, name_length) IN(3, publish_handle)
-	DO_SYSCALL(RdPublish)
-END_SYSCALL()
-
-DEFINE_SYSCALL(RdOpen, const char *name, size_t name_length, HelHandle *handle)
-	IN(0, name) IN(1, name_length)
-	DO_SYSCALL(RdOpen)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
 
 DEFINE_SYSCALL(AccessIrq, int number, HelHandle *handle)
 	IN(0, number)

@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 66,
+	kHelNumCalls = 68,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -34,7 +34,7 @@ enum {
 	kHelCallSubmitLockMemory = 48,
 	kHelCallLoadahead = 49,
 	
-	kHelCallCreateThread = 63,
+	kHelCallCreateThread = 67,
 	kHelCallYield = 34,
 	kHelCallSubmitObserve = 60,
 	kHelCallResume = 61,
@@ -58,16 +58,6 @@ enum {
 	kHelCallSubmitRecvStringToRing = 55,
 	kHelCallSubmitRecvDescriptor = 29,
 	
-	kHelCallCreateServer = 17,
-	kHelCallSubmitAccept = 18,
-	kHelCallSubmitConnect = 19,
-
-	kHelCallCreateRd = 21,
-	kHelCallRdMount = 25,
-	kHelCallRdPublish = 22,
-	kHelCallRdUnlink = 24,
-	kHelCallRdOpen = 23,
-
 	kHelCallAccessIrq = 14,
 	kHelCallSetupIrq = 51,
 	kHelCallAcknowledgeIrq = 50,
@@ -90,7 +80,6 @@ enum {
 	kHelErrClosedLocally = 8,
 	kHelErrClosedRemotely = 9,
 	kHelErrBufferTooSmall = 1,
-	kHelErrNoSuchPath = 3
 };
 
 typedef int HelError;
@@ -124,8 +113,6 @@ enum {
 	kHelEventRecvString = 1,
 	kHelEventRecvStringToQueue = 9,
 	kHelEventRecvDescriptor = 5,
-	kHelEventAccept = 2,
-	kHelEventConnect = 3,
 	kHelEventIrq = 4
 };
 
@@ -152,9 +139,6 @@ enum {
 	kHelDescThread = 3,
 	kHelDescEventHub = 4,
 	kHelDescEndpoint = 5,
-	kHelDescServer = 6,
-	kHelDescClient = 7,
-	kHelDescDirectory = 8,
 	kHelDescIrq = 9,
 	kHelDescIo = 10,
 };
@@ -232,8 +216,7 @@ HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handl
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
-		HelHandle directory, HelAbi abi, void *ip, void *sp,
-		uint32_t flags, HelHandle *handle);
+		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
@@ -287,25 +270,6 @@ HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_h
 		uintptr_t submit_function, uintptr_t submit_object,
 		uint32_t flags, int64_t *async_id);
 
-HEL_C_LINKAGE HelError helCreateServer(HelHandle *server_handle,
-		HelHandle *client_handle);
-HEL_C_LINKAGE HelError helSubmitAccept(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
-HEL_C_LINKAGE HelError helSubmitConnect(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
-
-HEL_C_LINKAGE HelError helCreateRd(HelHandle *handle);
-HEL_C_LINKAGE HelError helRdMount(HelHandle handle,
-		const char *name, size_t name_length,
-		HelHandle mount_handle);
-HEL_C_LINKAGE HelError helRdPublish(HelHandle handle,
-		const char *name, size_t name_length,
-		HelHandle publish_handle);
-HEL_C_LINKAGE HelError helRdUnlink(HelHandle handle,
-		const char *name, size_t name_length);
-HEL_C_LINKAGE HelError helRdOpen(const char *path,
-		size_t path_length, HelHandle *handle);
-
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetupIrq(HelHandle handle, uint32_t flags);
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle);
@@ -340,8 +304,6 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Resource closed remotely";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
-	case kHelErrNoSuchPath:
-		return "No such path";
 	default:
 		return 0;
 	}

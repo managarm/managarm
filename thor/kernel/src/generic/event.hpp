@@ -11,8 +11,6 @@ enum EventType {
 	kEventRecvString,
 	kEventRecvStringToRing,
 	kEventRecvDescriptor,
-	kEventAccept,
-	kEventConnect,
 	kEventIrq
 };
 
@@ -194,32 +192,6 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 	Error error;
 	int64_t msgRequest;
 	int64_t msgSequence;
-	Handle handle;
-};
-
-struct AsyncAccept : public AsyncOperation {
-	AsyncAccept(AsyncCompleter completer, frigg::WeakPtr<Universe> universe)
-	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)) { }
-	
-	AsyncEvent getEvent() override;
-	
-	frigg::WeakPtr<Universe> universe;
-	
-	frigg::IntrusiveSharedLinkedItem<AsyncAccept> processItem;
-
-	Handle handle;
-};
-
-struct AsyncConnect : public AsyncOperation {
-	AsyncConnect(AsyncCompleter completer, frigg::WeakPtr<Universe> universe)
-	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)) { }
-	
-	AsyncEvent getEvent() override;
-	
-	frigg::WeakPtr<Universe> universe;
-	
-	frigg::IntrusiveSharedLinkedItem<AsyncConnect> processItem;
-
 	Handle handle;
 };
 

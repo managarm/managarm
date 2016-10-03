@@ -465,7 +465,7 @@ void runService() {
 
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::SharedPtr<Universe>(),
-			frigg::move(space), frigg::SharedPtr<RdFolder>());
+			frigg::move(space));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	
 	thread->image.initSystemVAbi((uintptr_t)&serviceMain,

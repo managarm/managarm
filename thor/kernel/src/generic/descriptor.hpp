@@ -66,33 +66,6 @@ struct EndpointDescriptor {
 	frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint;
 };
 
-struct ServerDescriptor {
-	ServerDescriptor(frigg::SharedPtr<Server> server)
-	: server(frigg::move(server)) { }
-	
-	frigg::SharedPtr<Server> server;
-};
-
-struct ClientDescriptor {
-	ClientDescriptor(frigg::SharedPtr<Server> server)
-	: server(frigg::move(server)) { }
-	
-	frigg::SharedPtr<Server> server;
-};
-
-// --------------------------------------------------------
-// Resource directory related descriptors
-// --------------------------------------------------------
-
-struct RdDescriptor {
-	RdDescriptor(frigg::SharedPtr<RdFolder> &&folder);
-	
-	KernelUnsafePtr<RdFolder> getFolder();
-
-private:
-	frigg::SharedPtr<RdFolder> p_folder;
-};
-
 // --------------------------------------------------------
 // IO related descriptors
 // --------------------------------------------------------
@@ -123,9 +96,6 @@ typedef frigg::Variant<
 	EventHubDescriptor,
 	RingDescriptor,
 	EndpointDescriptor,
-	ServerDescriptor,
-	ClientDescriptor,
-	RdDescriptor,
 	IrqDescriptor,
 	IoDescriptor
 > AnyDescriptor;
