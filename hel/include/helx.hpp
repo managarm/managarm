@@ -5,7 +5,6 @@
 #include <frigg/cxx-support.hpp>
 #include <frigg/algorithm.hpp>
 #include <frigg/callback.hpp>
-#include <frigg/chain-all.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -219,26 +218,6 @@ public:
 		assert(!"Replace by async overloads");
 	}
 
-	inline auto sendString(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		HelHandle hub_handle = event_hub.getHandle();
-		return frigg::await<void(HelError)>([=] (auto callback) {
-			int64_t async_id;
-			HEL_CHECK(helSubmitSendString(_handle, hub_handle, 
-					buffer, length, msg_request, msg_seq,
-					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-					flags, &async_id));
-		});
-	}
-	inline auto sendStringReq(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		return sendString(buffer, length, event_hub, msg_request, msg_seq, kHelRequest);
-	}
-	inline auto sendStringResp(const void *buffer, size_t length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		return sendString(buffer, length, event_hub, msg_request, msg_seq, kHelResponse);
-	}
-
 	inline void sendStringSync(const void *buffer, size_t length,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error) {
@@ -275,26 +254,6 @@ public:
 		assert(!"Replace by async overloads");
 	}
 	
-	inline auto sendDescriptor(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		HelHandle hub_handle = event_hub.getHandle();
-		return frigg::await<void(HelError)>([=] (auto callback) {
-			int64_t async_id;
-			HEL_CHECK(helSubmitSendDescriptor(_handle, hub_handle,
-					send_handle, msg_request, msg_seq,
-					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-					flags, &async_id));
-		});
-	}
-	inline auto sendDescriptorReq(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		return sendDescriptor(send_handle, event_hub, msg_request, msg_seq, kHelRequest);
-	}
-	inline auto sendDescriptorResp(HelHandle send_handle,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		return sendDescriptor(send_handle, event_hub, msg_request, msg_seq, kHelResponse);
-	}
-
 	inline void sendDescriptorSync(HelHandle send_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq,
 			uint32_t flags, HelError &error) {
@@ -311,28 +270,6 @@ public:
 	inline void sendDescriptorRespSync(HelHandle send_handle,
 			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, HelError &error) {
 		sendDescriptorSync(send_handle, event_hub, msg_request, msg_seq, kHelResponse, error);
-	}
-
-
-	inline auto recvString(void *buffer, size_t max_length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		HelHandle hub_handle = event_hub.getHandle();
-		return frigg::await<void(HelError, int64_t, int64_t, size_t)>([=] (auto callback) {
-			int64_t async_id;
-			HEL_CHECK(helSubmitRecvString(_handle, hub_handle,
-					(uint8_t *)buffer, max_length, msg_request, msg_seq,
-					(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-					flags, &async_id));
-		});
-	}
-	inline auto recvStringReq(void *buffer, size_t max_length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq) {
-		return recvString(buffer, max_length, event_hub, msg_request, msg_seq, kHelRequest);
-		
-	}
-	inline auto recvStringResp(void *buffer, size_t max_length,
-			EventHub &event_hub, int64_t msg_request, int64_t msg_seq)  {
-		 return recvString(buffer, max_length, event_hub, msg_request, msg_seq, kHelResponse);
 	}
 
 	[[ deprecated ]] inline HelError recvString(void *buffer, size_t max_length,
