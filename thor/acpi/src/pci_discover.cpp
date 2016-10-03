@@ -1,103 +1,125 @@
 
-#include <frigg/cxx-support.hpp>
-#include <frigg/glue-hel.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
-#include <frigg/protobuf.hpp>
-#include <frigg/chain-all.hpp>
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <iostream>
+#include <vector>
 
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helx.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
+#include <mbus.hpp>
 
 #include "common.hpp"
 #include "pci.hpp"
-#include <mbus.frigg_pb.hpp>
-#include <hw.frigg_pb.hpp>
+#include <hw.pb.h>
 
-frigg::Vector<PciDevice *, Allocator> allDevices(*allocator.unsafeGet());
+std::vector<std::shared_ptr<PciDevice>> allDevices;
 
-// --------------------------------------------------------
-// DeviceClosure
-// --------------------------------------------------------
+COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> device,
+		helix::UniquePipe p), ([device, lane = std::move(p)] {
+	using M = helix::AwaitMechanism;
 
-struct DeviceClosure {
-	DeviceClosure(helx::Pipe pipe, PciDevice *device);
-
-	void operator() ();
-
-private:
-	helx::Pipe pipe;
-	
-	PciDevice *device;
-};
-
-DeviceClosure::DeviceClosure(helx::Pipe pipe, PciDevice *device)
-: pipe(frigg::move(pipe)), device(device) { }
-
-void DeviceClosure::operator() () {
-	managarm::hw::PciDevice<Allocator> response(*allocator);
-
+	// send the device description.
+	managarm::hw::PciDevice resp;
 	for(size_t k = 0; k < 6; k++) {
+		managarm::hw::PciBar &msg = *resp.add_bars();
 		if(device->bars[k].type == PciDevice::kBarIo) {
-			managarm::hw::PciBar<Allocator> bar_response(*allocator);
-			bar_response.set_io_type(managarm::hw::IoType::PORT);
-			bar_response.set_address(device->bars[k].address);
-			bar_response.set_length(device->bars[k].length);
-			response.add_bars(frigg::move(bar_response));
-
-			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
-			+ frigg::lift([=] (HelError error) { HEL_SOFT_CHECK(error); });
-			
-			frigg::run(frigg::move(action), allocator.get());
+			msg.set_io_type(managarm::hw::IoType::PORT);
+			msg.set_address(device->bars[k].address);
+			msg.set_length(device->bars[k].length);
 		}else if(device->bars[k].type == PciDevice::kBarMemory) {
-			managarm::hw::PciBar<Allocator> bar_response(*allocator);
-			bar_response.set_io_type(managarm::hw::IoType::MEMORY);
-			bar_response.set_address(device->bars[k].address);
-			bar_response.set_length(device->bars[k].length);
-			response.add_bars(frigg::move(bar_response));
-
-			auto action = pipe.sendDescriptorResp(device->bars[k].handle, eventHub, 1, 1 + k)
-			+ frigg::lift([=] (HelError error) { HEL_SOFT_CHECK(error); });
-			
-			frigg::run(frigg::move(action), allocator.get());
+			msg.set_io_type(managarm::hw::IoType::MEMORY);
+			msg.set_address(device->bars[k].address);
+			msg.set_length(device->bars[k].length);
 		}else{
 			assert(device->bars[k].type == PciDevice::kBarNone);
-
-			managarm::hw::PciBar<Allocator> bar_response(*allocator);
-			bar_response.set_io_type(managarm::hw::IoType::NONE);
-			response.add_bars(frigg::move(bar_response));
+			msg.set_io_type(managarm::hw::IoType::NONE);
 		}
 	}
 
-	auto action = frigg::compose([=] (frigg::String<Allocator> *serialized, 
-			managarm::hw::PciDevice<Allocator> *response) {
-		response->SerializeToString(serialized);
-		
-		return pipe.sendStringResp(serialized->data(), serialized->size(), eventHub, 1, 0)
-		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); })
-		+ pipe.sendDescriptorResp(device->interrupt.getHandle(), eventHub, 1, 7)
-		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
-	}, frigg::String<Allocator>(*allocator), frigg::move(response));
+	auto serialized = resp.SerializeAsString();
+	helix::SendString<M> send_resp(helix::Dispatcher::global(), lane,
+			serialized.data(), serialized.size(), 0, 0, kHelResponse);
+	COFIBER_AWAIT send_resp.future();
+	HEL_CHECK(send_resp.error());
 
-	frigg::run(frigg::move(action), allocator.get());
-}
-
-void requireObject(int64_t object_id, helx::Pipe pipe) {
-	for(size_t i = 0; i < allDevices.size(); i++) {
-		if(allDevices[i]->mbusId != object_id)
+	// send all BARs.
+	for(size_t k = 0; k < 6; k++) {
+		if(device->bars[k].type != PciDevice::kBarIo
+				&& device->bars[k].type != PciDevice::kBarMemory)
 			continue;
-		frigg::runClosure<DeviceClosure>(*allocator, frigg::move(pipe), allDevices[i]);
-		return;
+
+		helix::SendDescriptor<M> send_bar(helix::Dispatcher::global(), lane,
+				helix::BorrowedDescriptor(device->bars[k].handle), 0, 0, kHelResponse);
+		COFIBER_AWAIT send_bar.future();
+		HEL_CHECK(send_bar.error());
 	}
 
-	assert(!"Could not find object id");
-}
+	// send the IRQ descriptor.
+	// TODO: this helx::Irq.getHandle() is very ugly!
+	helix::SendDescriptor<M> send_irq(helix::Dispatcher::global(), lane,
+			helix::BorrowedDescriptor(device->interrupt.getHandle()), 0, 0, kHelResponse);
+	COFIBER_AWAIT send_irq.future();
+	HEL_CHECK(send_irq.error());
+}));
+
+COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> device), ([=] {
+	char vendor[5], device_id[5], revision[3];
+	sprintf(vendor, "%.4x", device->vendor);
+	sprintf(device_id, "%.4x", device->deviceId);
+	sprintf(revision, "%.2x", device->revision);
+	
+	char class_code[3], sub_class[3], interface[3];
+	sprintf(class_code, "%.2x", device->classCode);
+	sprintf(sub_class, "%.2x", device->subClass);
+	sprintf(interface, "%.2x", device->interface);
+
+	std::unordered_map<std::string, std::string> descriptor {
+		{ "pci-vendor", vendor },
+		{ "pci-device", device_id },
+		{ "pci-revision", revision },
+		{ "pci-class", class_code },
+		{ "pci-subclass", sub_class },
+		{ "pci-interface", interface }
+	};
+
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	char name[9];
+	sprintf(name, "%.2x.%.2x.%.1x", device->bus, device->slot, device->function);
+	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
+			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+		helix::UniquePipe local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createFullPipe();
+		handleDevice(device, std::move(local_lane));
+
+		cofiber::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.get_future();
+	});
+	std::cout << "Created object " << name << std::endl;
+}))
 
 // --------------------------------------------------------
 // Discovery functionality
 // --------------------------------------------------------
+
+size_t computeBarLength(uint32_t mask) {
+	static_assert(sizeof(int) == 4, "Need long builtins");
+	
+	assert(mask);
+	size_t length_bits = __builtin_ctz(mask);
+	size_t decoded_bits = 32 - __builtin_clz(mask);
+//  TODO: This requires libgcc
+//	assert(__builtin_popcount(mask) == decoded_bits - length_bits);
+
+	return size_t(1) << length_bits;
+}
 
 void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
@@ -106,33 +128,33 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	
 	uint8_t header_type = readPciByte(bus, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
-		frigg::infoLogger() << "    Function " << function << ": Device" << frigg::endLog;
+		std::cout << "    Function " << function << ": Device" << std::endl;
 	}else if((header_type & 0x7F) == 1) {
 		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
-		frigg::infoLogger() << "    Function " << function
-				<< ": PCI-to-PCI bridge to bus " << secondary << frigg::endLog;
+		std::cout << "    Function " << function
+				<< ": PCI-to-PCI bridge to bus " << (int)secondary << std::endl;
 	}else{
-		frigg::infoLogger() << "    Function " << function
-				<< ": Unexpected PCI header type " << (header_type & 0x7F) << frigg::endLog;
+		std::cout << "    Function " << function
+				<< ": Unexpected PCI header type " << (header_type & 0x7F) << std::endl;
 	}
 
 	uint16_t device_id = readPciHalf(bus, slot, function, kPciDevice);
 	uint8_t revision = readPciByte(bus, slot, function, kPciRevision);
-	frigg::infoLogger() << "        Vendor: 0x" << frigg::logHex(vendor)
-			<< ", device ID: 0x" << frigg::logHex(device_id)
-			<< ", revision: " << revision << frigg::endLog;
+	std::cout << "        Vendor: 0x" << std::hex << vendor << std::dec
+			<< ", device ID: 0x" << std::hex << device_id << std::dec
+			<< ", revision: " << (int)revision << std::endl;
 	
 	uint8_t class_code = readPciByte(bus, slot, function, kPciClassCode);
 	uint8_t sub_class = readPciByte(bus, slot, function, kPciSubClass);
 	uint8_t interface = readPciByte(bus, slot, function, kPciInterface);
-	frigg::infoLogger() << "        Class: " << class_code
-			<< ", subclass: " << sub_class << ", interface: " << interface << frigg::endLog;
+	std::cout << "        Class: " << (int)class_code
+			<< ", subclass: " << (int)sub_class << ", interface: " << (int)interface << std::endl;
 	
 	if((header_type & 0x7F) == 0) {
 		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
 		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
-		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
-				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
+		std::cout << "        Subsystem vendor: 0x" << std::hex << subsystem_vendor << std::dec
+				<< ", device: 0x" << std::hex << subsystem_device << std::dec << std::endl;
 
 		if(readPciHalf(bus, slot, function, kPciStatus) & 0x10) {
 			// NOTE: the bottom two bits of each capability offset must be masked
@@ -141,19 +163,17 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint8_t capability = readPciByte(bus, slot, function, offset);
 				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
 				
-				auto dump = frigg::infoLogger() << "        Capability 0x"
-						<< frigg::logHex(capability) << frigg::endLog;
-				
+				std::cout << "        Capability 0x"
+						<< std::hex << (int)capability << std::dec << std::endl;
 				if(capability == 0x09) {
 					uint8_t size = readPciByte(bus, slot, function, offset + 2);
 
-					auto dump = frigg::infoLogger() << "            Bytes: ";
+					std::cout << "            Bytes: ";
 					for(size_t i = 2; i < size; i++) {
-						if(i > 2)
-							dump << ", ";
-						dump << frigg::logHex(readPciByte(bus, slot, function, offset + i));
+						uint8_t byte = readPciByte(bus, slot, function, offset + i);
+						std::cout << (i > 2 ? ", " : "") << std::hex << byte << std::dec;
 					}
-					dump << frigg::endLog;
+					std::cout << std::endl;
 				}
 
 				offset = successor & 0xFC;
@@ -161,7 +181,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		}
 
 
-		auto device = frigg::construct<PciDevice>(*allocator, bus, slot, function,
+		auto device = std::make_shared<PciDevice>(bus, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
 		
 		// determine the BARs
@@ -174,43 +194,45 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			if((bar & 1) != 0) {
 				uintptr_t address = bar & 0xFFFFFFFC;
 				
-				// write all 1s to the BAR and read it back to determine this its length
-				writePciWord(bus, slot, function, offset, 0xFFFFFFFC);
-				uint32_t mask = readPciWord(bus, slot, function, offset);
+				// write all 1s to the BAR and read it back to determine this its length.
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFFC;
 				writePciWord(bus, slot, function, offset, bar);
-				uint32_t length = ~(mask & 0xFFFFFFFC) + 1;
+				auto length = computeBarLength(mask);
 
-				frigg::Vector<uintptr_t, Allocator> ports(*allocator);
+				std::vector<uintptr_t> ports;
 				for(uintptr_t offset = 0; offset < length; offset++)
-					ports.push(address + offset);
+					ports.push_back(address + offset);
 
 				device->bars[i].type = PciDevice::kBarIo;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
-				frigg::infoLogger() << "        I/O space BAR #" << i
-						<< " at 0x" << frigg::logHex(address)
-						<< ", length: " << length << " ports" << frigg::endLog;
+				std::cout << "        I/O space BAR #" << i
+						<< " at 0x" << std::hex << address << std::dec
+						<< ", length: " << length << " ports" << std::endl;
 			}else if(((bar >> 1) & 3) == 0) {
 				uint32_t address = bar & 0xFFFFFFF0;
 				
 				// write all 1s to the BAR and read it back to determine this its length
-				writePciWord(bus, slot, function, offset, 0xFFFFFFF0);
-				uint32_t mask = readPciWord(bus, slot, function, offset);
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
+				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFF0;
 				writePciWord(bus, slot, function, offset, bar);
-				uint32_t length = ~(mask & 0xFFFFFFF0) + 1;
+				auto length = computeBarLength(mask);
 				
-				device->bars[i].type = PciDevice::kBarMemory;
+/*				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
-
-				frigg::infoLogger() << "        32-bit memory BAR #" << i
-						<< " at 0x" << frigg::logHex(address)
-						<< ", length: " << length << " bytes" << frigg::endLog;
+*/
+				std::cout << "        32-bit memory BAR #" << i
+						<< " at 0x" << std::hex << address << std::dec
+						<< ", length: " << length << " bytes" << std::endl;
 			}else if(((bar >> 1) & 3) == 2) {
-				assert(!"Handle 64-bit memory BARs");
+				assert(i < 5); // otherwise there is no next bar.
+				std::cout << "        64-bit memory BAR ignored for now!" << std::endl;
+				i++;
 			}else{
 				assert(!"Unexpected BAR type");
 			}
@@ -218,10 +240,11 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 
 		// determine the interrupt line
 		uint8_t line_number = readPciByte(bus, slot, function, kPciRegularInterruptLine);
-		frigg::infoLogger() << "        Interrupt line: " << line_number << frigg::endLog;
+		std::cout << "        Interrupt line: " << (int)line_number << std::endl;
 		device->interrupt = helx::Irq::access(line_number);
 
-		managarm::mbus::CntRequest<Allocator> request(*allocator);
+		registerDevice(device);
+		/*managarm::mbus::CntRequest<Allocator> request(*allocator);
 		request.set_req_type(managarm::mbus::CntReqType::REGISTER);
 		
 		frigg::String<Allocator> vendor_str(*allocator, "pci-vendor:0x");
@@ -253,9 +276,10 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		response.ParseFromArray(buffer, length);
 		
 		device->mbusId = response.object_id();
-		frigg::infoLogger() << "        ObjectID " << response.object_id() << frigg::endLog;
+		std::cout << "        ObjectID " << response.object_id() << std::endl;
+		*/
 
-		allDevices.push(device);
+		allDevices.push_back(device);
 	}
 }
 
@@ -264,7 +288,7 @@ void checkPciDevice(uint32_t bus, uint32_t slot) {
 	if(vendor == 0xFFFF)
 		return;
 	
-	frigg::infoLogger() << "Bus: " << bus << ", slot " << slot << frigg::endLog;
+	std::cout << "Bus: " << bus << ", slot " << slot << std::endl;
 	
 	uint8_t header_type = readPciByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {

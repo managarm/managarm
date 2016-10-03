@@ -46,7 +46,7 @@ struct SharedCounter {
 	typedef void (*ControlFunction) (SharedCounter *, Action);
 
 	SharedCounter(ControlFunction function, int ref_count = 1, int weak_count = 1)
-	: _refCount(1), _weakCount(1), function(function) { }
+	: _refCount(ref_count), _weakCount(weak_count), function(function) { }
 
 	SharedCounter(const SharedCounter &other) = delete;
 

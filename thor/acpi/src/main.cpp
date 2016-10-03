@@ -1,22 +1,12 @@
 
-#include <frigg/types.hpp>
-#include <frigg/traits.hpp>
-#include <frigg/algorithm.hpp>
-#include <frigg/debug.hpp>
-#include <frigg/libc.hpp>
-#include <frigg/initializer.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/memory.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/string.hpp>
-#include <frigg/vector.hpp>
-#include <frigg/protobuf.hpp>
-#include <frigg/glue-hel.hpp>
-#include <frigg/chain-all.hpp>
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <iostream>
+#include <vector>
 
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
+#include <helix/ipc.hpp>
 #include <thor.h>
 
 extern "C" {
@@ -24,7 +14,6 @@ extern "C" {
 }
 
 #include "common.hpp"
-#include <mbus.frigg_pb.hpp>
 
 struct GenericAddress {
 	uint8_t space;
@@ -83,16 +72,17 @@ struct HpetEntry {
 } __attribute__ (( packed ));
 
 void acpicaCheckFailed(const char *expr, const char *file, int line) {
-	frigg::panicLogger() << "ACPICA_CHECK failed: "
+	assert(!"Fix this");
+/*	frigg::panicLogger() << "ACPICA_CHECK failed: "
 			<< expr << "\nIn file " << file << " on line " << line
-			<< frigg::endLog;
+			<< frigg::endLog;*/
 }
 
 #define ACPICA_CHECK(expr) do { if((expr) != AE_OK) { \
 		acpicaCheckFailed(#expr, __FILE__, __LINE__); } } while(0)
 
 void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
-		frigg::Vector<ACPI_HANDLE, Allocator> &results) {
+		std::vector<ACPI_HANDLE> &results) {
 	ACPI_HANDLE previous = nullptr;
 	while(true) {
 		ACPI_HANDLE child;
@@ -101,7 +91,7 @@ void findChildrenByType(ACPI_HANDLE parent, ACPI_OBJECT_TYPE type,
 			break;
 		ACPICA_CHECK(status);
 		
-		results.push(child);
+		results.push_back(child);
 		previous = child;
 	}
 }
@@ -116,7 +106,8 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 	name_buffer.Length = 5;
 	ACPICA_CHECK(AcpiGetName(object, ACPI_SINGLE_NAME, &name_buffer));
 
-	auto log_type = frigg::infoLogger();
+	assert(!"Fix this");
+/*	auto log_type = frigg::infoLogger();
 	for(int i = 0; i < depth; i++)
 		log_type << "    ";
 	if(type == ACPI_TYPE_DEVICE) {
@@ -209,19 +200,16 @@ void dumpNamespace(ACPI_HANDLE object, int depth) {
 				&& child_type != ACPI_TYPE_BUFFER
 				&& child_type != ACPI_TYPE_PACKAGE)
 			dumpNamespace(children[i], depth + 1);
-	}
+	}*/
 }
 
 void pciDiscover(); // TODO: put this in a header file
-
-helx::EventHub eventHub = helx::EventHub::create();
-helx::Pipe mbusPipe;
 
 // --------------------------------------------------------
 // MbusClosure
 // --------------------------------------------------------
 
-struct MbusClosure {
+/*struct MbusClosure {
 	void operator() ();
 
 private:
@@ -252,38 +240,26 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 	}
 
 	(*this)();
-}
+}*/
 
 // --------------------------------------------------------
 // main()
 // --------------------------------------------------------
 
-typedef void (*InitFuncPtr) ();
-extern InitFuncPtr __init_array_start[];
-extern InitFuncPtr __init_array_end[];
-
 int main() {
-	helx::Pipe superior(kHelThisUniverse);
-
-	// we're using no libc, so we have to run constructors manually
-	size_t init_count = __init_array_end - __init_array_start;
-	for(size_t i = 0; i < init_count; i++)
-		__init_array_start[i]();
-	
-	frigg::infoLogger() << "Entering ACPI driver" << frigg::endLog;
-	allocator.initialize(virtualAlloc);
+	std::cout << "Entering ACPI driver" << std::endl;
 	
 	// connect to mbus
-	HelError mbus_recv_error;
+	/*HelError mbus_recv_error;
 	HelHandle mbus_handle;
-	superior.recvDescriptorRespSync(eventHub, 1001, 0, mbus_recv_error, mbus_handle);
+	//FIXME superior.recvDescriptorRespSync(eventHub, 1001, 0, mbus_recv_error, mbus_handle);
 	HEL_CHECK(mbus_recv_error);
 
 	helx::Client mbus_client(mbus_handle);
 	HelError mbus_connect_error;
 	mbus_client.connectSync(eventHub, mbus_connect_error, mbusPipe);
 	
-	frigg::runClosure<MbusClosure>(*allocator);
+	frigg::runClosure<MbusClosure>(*allocator);*/
 
 	// initialize the ACPI subsystem
 	HEL_CHECK(helEnableFullIo());
@@ -293,7 +269,7 @@ int main() {
 	ACPICA_CHECK(AcpiLoadTables());
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	frigg::infoLogger() << "ACPI initialized successfully" << frigg::endLog;
+	std::cout << "ACPI initialized successfully" << std::endl;
 	
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;
@@ -313,33 +289,34 @@ int main() {
 		auto generic = (MadtGenericEntry *)((uintptr_t)madt_table + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
-			frigg::infoLogger() << "    Local APIC id: "
-					<< entry->localApicId << frigg::endLog;
+			//FIXME frigg::infoLogger() << "    Local APIC id: "
+			//FIXME 		<< entry->localApicId << frigg::endLog;
 
-			if(seen_bsp)
-				helControlKernel(kThorSubArch, kThorIfBootSecondary,
-						&entry->localApicId, nullptr);
+//	TODO: APs disabled for now
+//			if(seen_bsp)
+//				helControlKernel(kThorSubArch, kThorIfBootSecondary,
+//						&entry->localApicId, nullptr);
 			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
-			frigg::infoLogger() << "    I/O APIC id: " << entry->ioApicId
-					<< ", sytem interrupt base: " << entry->systemIntBase
-					<< frigg::endLog;
+			//FIXME frigg::infoLogger() << "    I/O APIC id: " << entry->ioApicId
+			//FIXME 		<< ", sytem interrupt base: " << entry->systemIntBase
+			//FIXME 		<< frigg::endLog;
 			
 			uint64_t address = entry->mmioAddress;
 			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			frigg::infoLogger() << "    Int override: bus " << entry->bus
-					<< ", irq " << entry->sourceIrq << " -> " << entry->systemInt
-					<< frigg::endLog;
+			//FIXME frigg::infoLogger() << "    Int override: bus " << entry->bus
+			//FIXME 		<< ", irq " << entry->sourceIrq << " -> " << entry->systemInt
+			//FIXME 		<< frigg::endLog;
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
-			frigg::infoLogger() << "    Local APIC NMI: processor " << entry->processorId
-					<< ", lint: " << entry->localInt << frigg::endLog;
+			//FIXME frigg::infoLogger() << "    Local APIC NMI: processor " << entry->processorId
+			//FIXME 		<< ", lint: " << entry->localInt << frigg::endLog;
 		}else{
-			frigg::infoLogger() << "    Unexpected MADT entry of type "
-					<< generic->type << frigg::endLog;
+			//FIXME frigg::infoLogger() << "    Unexpected MADT entry of type "
+			//FIXME 		<< generic->type << frigg::endLog;
 		}
 		offset += generic->length;
 	}
@@ -349,28 +326,7 @@ int main() {
 
 	pciDiscover();
 
-	helx::Server server;
-	helx::Client client;
-	helx::Server::createServer(server, client);
-	
-	HelError send_error;
-	superior.sendDescriptorReqSync(client.getHandle(), eventHub, 0, 0, send_error);
-	HEL_CHECK(send_error);
-	client.reset();
-
 	while(true)
-		eventHub.defaultProcessEvents();
+		helix::Dispatcher::global().dispatch();
 }
-
-asm ( ".global _start\n"
-		"_start:\n"
-		"\tcall main\n"
-		"\tud2" );
-
-extern "C"
-int __cxa_atexit(void (*func) (void *), void *arg, void *dso_handle) {
-	return 0;
-}
-
-void *__dso_handle;
 

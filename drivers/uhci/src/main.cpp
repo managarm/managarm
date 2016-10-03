@@ -1,25 +1,44 @@
 
-#include <stdio.h>
 #include <assert.h>
+#include <stdio.h>
+#include <deque>
+#include <experimental/optional>
 #include <functional>
+#include <iostream>
 #include <memory>
-
-#include <frigg/atomic.hpp>
-#include <frigg/arch_x86/machine.hpp>
-
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
 
 #include <cofiber.hpp>
 #include <boost/intrusive/list.hpp>
-
-#include <bragi/mbus.hpp>
-#include <hw.pb.h>
+#include <frigg/atomic.hpp>
+#include <frigg/arch_x86/machine.hpp>
+#include <frigg/memory.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
+#include <mbus.hpp>
 
 #include "usb.hpp"
 #include "uhci.hpp"
 #include "hid.hpp"
+#include <hw.pb.h>
+
+struct Field {
+	int bitOffset;
+	int bitSize;
+	uint16_t usagePage;
+	uint16_t usageId;
+};
+
+std::vector<uint32_t> parse(std::vector<Field> fields, uint8_t *report) {
+	std::vector<uint32_t> values;
+	for(Field &f : fields) {
+		int b = f.bitOffset / 8;
+		uint32_t raw = uint32_t(report[b]) | (uint32_t(report[b + 1]) << 8)
+				| (uint32_t(report[b + 2]) << 16) | (uint32_t(report[b + 3]) << 24);
+		uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
+		values.push_back((raw >> (f.bitOffset % 8)) & mask);
+	}
+	return values;
+}
 
 struct ContiguousPolicy {
 public:
@@ -48,77 +67,31 @@ using ContiguousAllocator = frigg::SlabAllocator<
 ContiguousPolicy contiguousPolicy;
 ContiguousAllocator contiguousAllocator(contiguousPolicy);
 
-helx::EventHub eventHub = helx::EventHub::create();
-bragi_mbus::Connection mbusConnection(eventHub);
-
 enum XferFlags {
 	kXferToDevice = 1,
 	kXferToHost = 2,
 };
 
-struct Endpoint {
-	size_t maxPacketSize;	
-};
-
-struct Device {
-	uint8_t address;
-	Endpoint endpoints[32];
-};
-
-struct Transaction {
-	Transaction(std::shared_ptr<Device> device, int endpoint, XferFlags flags, SetupPacket setup, std::function<void()> callback)
-	: _device(device), _endpoint(endpoint), _flags(flags), _completeCounter(0), _setup(setup), _callback(callback) { }
-
-	void buildQueue(void *buffer) {
-		assert((_flags & kXferToDevice) || (_flags & kXferToHost));
-
-		size_t max_size = _device->endpoints[_endpoint].maxPacketSize;
-		_numTransfers = (_setup.wLength + max_size - 1) / max_size;
-		_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
-		_transfers = (TransferDescriptor *)contiguousAllocator.allocate((_numTransfers + 2) * sizeof(TransferDescriptor));
+struct QueuedTransaction {
+	QueuedTransaction(std::function<void()> callback)
+	: _callback(callback), _completeCounter(0) { }
 	
-		new (_queue) QueueHead;
-		_queue->_elementPointer = QueueHead::ElementPointer::from(&_transfers[0]);
-
-		new (&_transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-						_device->address, _endpoint, sizeof(SetupPacket)),
-				TransferBufferPointer::from(&_setup));
-		_transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[1]);
-
-		size_t progress = 0;
-		for(size_t i = 0; i < _numTransfers; i++) {
-			size_t chunk = std::min(max_size, _setup.wLength - progress);
-			new (&_transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(_flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-						_device->address, _endpoint, chunk),
-				TransferBufferPointer::from((char *)buffer + progress));
-			_transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&_transfers[i + 2]);
-			progress += chunk;
-		}
-
-		new (&_transfers[_numTransfers + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(_flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
-						TransferToken::kData0, _device->address, _endpoint, 0),
-				TransferBufferPointer());
+	void setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
+		_transfers = transfers;
+		_numTransfers = num_transfers;
 	}
 
 	QueueHead::LinkPointer head() {
-		return QueueHead::LinkPointer::from(_queue);
+		return QueueHead::LinkPointer::from(&_transfers[0]);
 	}
 
-	void linkNext(QueueHead::LinkPointer link) {
-		_queue->_linkPointer = link;
-	}
-
-	void dumpTransfer() {
+/*	void dumpTransfer() {
 		printf("    Setup stage:");
 		_transfers[0].dumpStatus();
 		printf("\n");
 		
 		for(size_t i = 0; i < _numTransfers; i++) {
-			printf("    Data stage [%lu]:", i);
+			 printf("    Data stage [%lu]:", i);
 			_transfers[i + 1].dumpStatus();
 			printf("\n");
 		}
@@ -126,12 +99,12 @@ struct Transaction {
 		printf("    Status stage:");
 		_transfers[_numTransfers + 1].dumpStatus();
 		printf("\n");
-	}
+	}*/
 
 	bool progress() {
 //		dumpTransfer();
 		
-		while(_completeCounter < _numTransfers + 2) {
+		while(_completeCounter < _numTransfers) {
 			TransferDescriptor *transfer = &_transfers[_completeCounter];
 			if(transfer->_controlStatus.isActive())
 				return false;
@@ -149,28 +122,126 @@ struct Transaction {
 		return true;
 	}
 
-	boost::intrusive::list_member_hook<> scheduleHook;
+	boost::intrusive::list_member_hook<> transactionHook;
 
 private:
-	std::shared_ptr<Device> _device;
-	int _endpoint;
-	XferFlags _flags;
-	size_t _completeCounter;
-	SetupPacket _setup;
 	std::function<void()> _callback;
 	size_t _numTransfers;
-	QueueHead *_queue;
 	TransferDescriptor *_transfers;
+	size_t _completeCounter;
+};
+
+struct ControlTransaction : QueuedTransaction {
+	ControlTransaction(std::function<void()> callback, SetupPacket setup)
+	: QueuedTransaction(callback), _setup(setup) { }
+
+	void buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags) {
+		assert((flags & kXferToDevice) || (flags & kXferToHost));
+
+		size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
+		size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
+		auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+	
+		new (&transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+						address, endpoint, sizeof(SetupPacket)),
+				TransferBufferPointer::from(&_setup));
+		transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
+
+		size_t progress = 0;
+		for(size_t i = 0; i < data_packets; i++) {
+			size_t chunk = std::min(packet_size, _setup.wLength - progress);
+			new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+						address, endpoint, chunk),
+				TransferBufferPointer::from((char *)buffer + progress));
+			transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
+			progress += chunk;
+		}
+
+		new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, false, false),
+				TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
+						TransferToken::kData0, address, endpoint, 0),
+				TransferBufferPointer());
+	
+		setupTransfers(transfers, data_packets + 2);
+	}
+
+private:
+	SetupPacket _setup;
+};
+
+struct ScheduleEntity {
+	virtual	QueueHead::LinkPointer head() = 0;
+	virtual void linkNext(QueueHead::LinkPointer link) = 0;
+	virtual void progress() = 0;
+
+	boost::intrusive::list_member_hook<> scheduleHook;
+};
+
+struct QueueEntity : ScheduleEntity {
+	QueueEntity() {
+		_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
+		
+		new (_queue) QueueHead;
+		_queue->_linkPointer = QueueHead::LinkPointer();
+		_queue->_elementPointer = QueueHead::ElementPointer();
+	}
+
+	QueueHead::LinkPointer head() override {
+		return QueueHead::LinkPointer::from(_queue);
+	}
+
+	void linkNext(QueueHead::LinkPointer link) override {
+		_queue->_linkPointer = link;
+	}
+
+	void progress() override {
+		if(transactionList.empty())
+			return;
+
+		if(!transactionList.front().progress())
+			return;
+		
+		transactionList.pop_front();
+		assert(_queue->_elementPointer.isTerminate());
+
+		if(!transactionList.empty()) {
+			_queue->_elementPointer = transactionList.front().head();
+		}
+	}
+
+	QueueHead *_queue;
+	
+	boost::intrusive::list<
+		QueuedTransaction,
+		boost::intrusive::member_hook<
+			QueuedTransaction,
+			boost::intrusive::list_member_hook<>,
+			&QueuedTransaction::transactionHook
+		>
+	> transactionList;
 };
 
 boost::intrusive::list<
-	Transaction, 
+	ScheduleEntity,
 	boost::intrusive::member_hook<
-		Transaction,
+		ScheduleEntity,
 		boost::intrusive::list_member_hook<>,
-		&Transaction::scheduleHook
+		&ScheduleEntity::scheduleHook
 	>
 > scheduleList;
+
+struct Endpoint {
+	size_t maxPacketSize;
+	std::shared_ptr<QueueEntity> queue;
+};
+
+struct Device {
+	uint8_t address;
+	Endpoint endpoints[32];
+};
 
 // arg0 = wValue in the USB spec
 // arg1 = wIndex in the USB spec
@@ -194,7 +265,7 @@ struct ControlTransfer {
 };
 
 struct Controller {
-	Controller(uint16_t base, helx::Irq irq)
+	Controller(uint16_t base, helix::UniqueIrq irq)
 	: _base(base), _irq(frigg::move(irq)) { }
 
 	void initialize() {
@@ -265,50 +336,48 @@ struct Controller {
 		uint16_t command_bits = 0x1;
 		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
 
-		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+		handleIrqs();
+	}
+
+	void activateEntity(ScheduleEntity *entity) {
+		if(scheduleList.empty()) {
+			_initialQh._linkPointer = entity->head();
+		}else{
+			scheduleList.back().linkNext(entity->head());
+		}
+		scheduleList.push_back(*entity);
 	}
 
 	void transfer(ControlTransfer control, std::function<void()> callback) {
 		assert((control.flags & kXferToDevice) || (control.flags & kXferToHost));
-		
+		auto endpoint = &control.device->endpoints[control.endpoint];
+
 		SetupPacket setup(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
 				control.recipient, control.type, control.request,
 				control.arg0, control.arg1, control.length);
-		Transaction *transaction = new Transaction(std::move(control.device), control.endpoint,
-				control.flags, setup, callback);
-		transaction->buildQueue(control.buffer);
+		ControlTransaction *transaction = new ControlTransaction(callback, setup);
+		transaction->buildQueue(control.buffer, control.device->address,
+				control.endpoint, endpoint->maxPacketSize, control.flags);
 
-		if(scheduleList.empty()) {
-			_initialQh._linkPointer = transaction->head();
-		}else{
-			scheduleList.back().linkNext(transaction->head());
-		}
-		scheduleList.push_back(*transaction);
-	}
-
-	auto erase(Transaction *transaction) {
-		auto it = scheduleList.iterator_to(*transaction);
-
-		QueueHead::LinkPointer link;
-		if(std::next(it) != scheduleList.end())
-			link = std::next(it)->head();
-
-		if(it == scheduleList.begin()) {
-			_initialQh._linkPointer = link;
-		}else{
-			std::prev(it)->linkNext(link);
+		if(endpoint->queue->transactionList.empty()) {
+			endpoint->queue->_queue->_elementPointer = transaction->head();
 		}
 
-		return scheduleList.erase(it);
+		endpoint->queue->transactionList.push_back(*transaction);
 	}
 
-	void onIrq(HelError error) {
-		HEL_CHECK(error);
+	COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+		while(true) {
+			helix::AwaitIrq<helix::AwaitMechanism> edge(helix::Dispatcher::global(), _irq);
+			COFIBER_AWAIT edge.future();
+			HEL_CHECK(edge.error());
 
-		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(status & 0x10));
-		assert(!(status & 0x08));
-		if(status & (kStatusInterrupt | kStatusError)) {
+			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+			assert(!(status & 0x10));
+			assert(!(status & 0x08));
+			if(!(status & (kStatusInterrupt | kStatusError)))
+				continue;
+
 			if(status & kStatusError)
 				printf("uhci: Error interrupt\n");
 			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
@@ -316,20 +385,14 @@ struct Controller {
 			printf("uhci: Processing transfers.\n");
 			auto it = scheduleList.begin();
 			while(it != scheduleList.end()) {
-				if(it->progress()) {
-					it = erase(&(*it));
-				}else{
-					++it;
-				}
+				it->progress();
 			}
 		}
-
-		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
-	}
+	}))
 
 private:
 	uint16_t _base;
-	helx::Irq _irq;
+	helix::UniqueIrq _irq;
 
 	QueueHead _initialQh;
 	alignas(32) uint8_t _buffer[18];
@@ -384,11 +447,22 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 			kDestInterface, kStandard, SetupPacket::kGetDescriptor, 34 << 8, 0,
 			buffer, length));
 
+	std::vector<Field> fields;
+	int bit_offset = 0;
+
+	std::experimental::optional<int> report_count;
+	std::experimental::optional<int> report_size;
+	std::experimental::optional<uint16_t> usage_page;
+	std::deque<uint32_t> usage;
+	std::experimental::optional<uint32_t> usage_min;
+	std::experimental::optional<uint32_t> usage_max;
+
 	uint8_t *p = buffer;
 	uint8_t *limit = buffer + length;
 	while(p < limit) {
 		uint8_t token = fetch(p, limit);
-		uint32_t data = fetch(p, limit, token & 0x03);
+		int size = (token & 0x03) == 3 ? 4 : (token & 0x03);
+		uint32_t data = fetch(p, limit, size);
 		switch(token & 0xFC) {
 		// Main items
 		case 0xC0:
@@ -397,19 +471,60 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 
 		case 0xA0:
 			printf("Collection: 0x%x\n", data);
+			usage.clear();
+			usage_min = std::experimental::nullopt;
+			usage_max = std::experimental::nullopt;
 			break;
 
 		case 0x80:
 			printf("Input: 0x%x\n", data);
+			if(!report_size || !report_count)
+				throw std::runtime_error("Missing Report Size/Count");
+				
+			if(!usage_min != !usage_max)
+				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
+			
+			if(!usage.empty() && (usage_min || usage_max))
+				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
+
+			if(usage.empty() && !usage_min && !usage_max) {
+				// this field is just padding
+				bit_offset += (*report_size) * (*report_count);
+			}else{
+				for(auto i = 0; i < *report_count; i++) {
+					uint16_t actual_id;
+					if(!usage.empty()) {
+						actual_id = usage.front();
+						usage.pop_front();
+					}else{
+						actual_id = *usage_min + i;
+					}
+
+					Field field;
+					field.bitOffset = bit_offset;
+					field.bitSize = *report_size;
+					field.usagePage = *usage_page;
+					field.usageId = actual_id;
+					fields.push_back(field);
+					
+					bit_offset += *report_size;
+				}
+
+				usage.clear();
+				usage_min = std::experimental::nullopt;
+				usage_max = std::experimental::nullopt;
+			}
 			break;
 
 		// Global items
 		case 0x94:
 			printf("Report Count: 0x%x\n", data);
+			report_count = data;
 			break;
 		
 		case 0x74:
 			printf("Report Size: 0x%x\n", data);
+			report_size = data;
 			break;
 		
 		case 0x24:
@@ -422,19 +537,26 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 		
 		case 0x04:
 			printf("Usage Page: 0x%x\n", data);
+			usage_page = data;
 			break;
 
 		// Local items
 		case 0x28:
 			printf("Usage Maximum: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage_max = data;
 			break;
 		
 		case 0x18:
 			printf("Usage Minimum: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage_min = data;
 			break;
 			
 		case 0x08:
 			printf("Usage: 0x%x\n", data);
+			assert(size < 4); // TODO: this would override the usage page
+			usage.push_back(data);
 			break;
 
 		default:
@@ -442,12 +564,33 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 			abort();
 		}
 	}
+	
+	size_t rep_length = (bit_offset + 7) / 8;
+	auto rep_buffer = (uint8_t *)contiguousAllocator.allocate(rep_length);
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
+			kDestInterface, kClass, SetupPacket::kGetReport, 0x01 << 8, 0,
+			rep_buffer, rep_length));
+
+	auto values = parse(fields, rep_buffer);
+	int counter = 0;
+	for(uint32_t val : values) {
+		printf("value %d: %x\n", counter, val);
+		counter++;
+	}
+
+	for(auto f : fields) {
+		printf("usagePage: %x\n", f.usagePage);
+		printf("    usageId: %x\n", f.usageId);
+	}
 })
 
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=] () {
 	auto device = std::make_shared<Device>();
 	device->address = 0;
 	device->endpoints[0].maxPacketSize = 8;
+
+	device->endpoints[0].queue = std::make_shared<QueueEntity>();
+	controller->activateEntity(device->endpoints[0].queue.get());
 
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToDevice,
 			kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
@@ -525,7 +668,7 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 	parseReportDescriptor(controller, device);
 })
 
-// --------------------------------------------------------
+/*// --------------------------------------------------------
 // InitClosure
 // --------------------------------------------------------
 
@@ -586,7 +729,66 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	controller->initialize();
 
 	runHidDevice(controller);
-}
+}*/
+
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+	using M = helix::AwaitMechanism;
+
+	auto lane = helix::UniquePipe(COFIBER_AWAIT device.bind());
+
+	// receive the device descriptor.
+	uint8_t buffer[128];
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), lane,
+			buffer, 128, 0, 0, kHelResponse);
+	COFIBER_AWAIT recv_resp.future();
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::PciDevice resp;
+	resp.ParseFromArray(buffer, recv_resp.actualLength());
+
+	// receive the BAR.
+	helix::RecvDescriptor<M> recv_bar(helix::Dispatcher::global(), lane,
+			0, 0, kHelResponse);
+	COFIBER_AWAIT recv_bar.future();
+	HEL_CHECK(recv_bar.error());
+	
+	// receive the IRQ.
+	helix::RecvDescriptor<M> recv_irq(helix::Dispatcher::global(), lane,
+			0, 0, kHelResponse);
+	COFIBER_AWAIT recv_irq.future();
+	HEL_CHECK(recv_irq.error());
+	
+	// run the UHCI driver.
+
+	assert(resp.bars(0).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(4).io_type() == managarm::hw::IoType::PORT);
+	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
+	HEL_CHECK(helEnableIo(recv_bar.descriptor().getHandle()));
+
+	auto controller = std::make_shared<Controller>(resp.bars(4).address(),
+			helix::UniqueIrq(recv_irq.descriptor()));
+	controller->initialize();
+
+	runHidDevice(controller);
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::EqualsFilter("pci-class", "0c");
+	auto observer = COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			std::cout << "uhci: Detected device" << std::endl;
+			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected event type");
+		}
+	});
+}))
 
 // --------------------------------------------------------
 // main() function
@@ -595,11 +797,10 @@ void InitClosure::queriredDevice(HelHandle handle) {
 int main() {
 	printf("Starting uhci (usb-)driver\n");
 
-	auto closure = new InitClosure();
-	(*closure)();
+	observeDevices();
 
 	while(true)
-		eventHub.defaultProcessEvents();
+		helix::Dispatcher::global().dispatch();
 	
 	return 0;
 }

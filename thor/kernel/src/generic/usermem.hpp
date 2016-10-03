@@ -250,7 +250,8 @@ public:
 		kMapDropAtFork = 0x40,
 		kMapShareAtFork = 0x80,
 		kMapCopyOnWriteAtFork = 0x100,
-		kMapDontRequireBacking = 0x200,
+		kMapPopulate = 0x200,
+		kMapDontRequireBacking = 0x400,
 	};
 
 	enum FaultFlags : uint32_t {

@@ -262,6 +262,7 @@ struct MbMemoryMap {
 };
 
 extern "C" void eirMain(MbInfo *mb_info) {
+	frigg::infoLogger() << "" << frigg::endLog;
 	frigg::infoLogger() << "Starting Eir" << frigg::endLog;
 
 	frigg::Array<uint32_t, 4> vendor_res = arch::cpuid(0);

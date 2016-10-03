@@ -61,7 +61,16 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 }
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Pipe> posixPipe;
+frigg::LazyInitializer<helx::Pipe> fsPipe;
+void *auxiliaryPtr;
+
+extern "C" [[ gnu::visibility("default") ]] void *__rtdl_auxvector() {
+	return auxiliaryPtr;
+}
+
+extern "C" [[ gnu::visibility("default") ]] void __rtdl_setupTcb() {
+	allocateTcb();
+}
 
 template<typename T>
 T loadItem(char *&sp) {
@@ -73,6 +82,7 @@ T loadItem(char *&sp) {
 
 extern "C" void *interpreterMain(char *sp) {
 	frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
+	auxiliaryPtr = sp;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 
@@ -84,7 +94,12 @@ extern "C" void *interpreterMain(char *sp) {
 		AT_PHDR = 3,
 		AT_PHENT = 4,
 		AT_PHNUM = 5,
-		AT_ENTRY = 9
+		AT_ENTRY = 9,
+		
+		AT_XPIPE = 0x1000,
+		AT_OPENFILES = 0x1001,
+		AT_FS_SERVER = 0x1102,
+		AT_MBUS_SERVER = 0x1103
 	};
 
 	struct Auxiliary {
@@ -113,13 +128,19 @@ extern "C" void *interpreterMain(char *sp) {
 			case AT_PHENT: phdr_entry_size = aux.longValue; break;
 			case AT_PHNUM: phdr_count = aux.longValue; break;
 			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
+			case AT_FS_SERVER:
+				fsPipe.initialize(aux.longValue);
+				break;
+			case AT_XPIPE:
+			case AT_OPENFILES:
+			case AT_MBUS_SERVER:
+				// ignore these auxiliary vector entries.
+				break;
 		default:
 			frigg::panicLogger() << "Unexpected auxiliary item type "
 					<< aux.type << frigg::endLog;
 		}
 	}
-
-	frigg::infoLogger() << "phdrs at " << phdr_pointer << frigg::endLog;
 
 	// FIXME: read own SONAME
 	interpreter.initialize("ld-init.so", false);
@@ -154,22 +175,7 @@ extern "C" void *interpreterMain(char *sp) {
 	}
 
 	eventHub.initialize(helx::EventHub::create());
-	posixPipe.initialize();
-	
-	// connect to ld-server
-	const char *posix_path = "local/posix";
-	HelHandle posix_handle;
-	HEL_CHECK(helRdOpen(posix_path, strlen(posix_path), &posix_handle));
-	
-	int64_t posix_async_id;
-	HEL_CHECK(helSubmitConnect(posix_handle, eventHub->getHandle(),
-			kHelNoFunction, kHelNoObject, &posix_async_id));
-	HEL_CHECK(helCloseDescriptor(posix_handle));
 
-	HelError posix_error;
-	eventHub->waitForConnect(posix_async_id, posix_error, *posixPipe);
-	HEL_CHECK(posix_error);
-	
 	// perform the initial dynamic linking
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());

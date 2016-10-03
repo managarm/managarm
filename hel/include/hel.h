@@ -15,6 +15,8 @@ enum {
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
 
+	kHelCallCreateUniverse = 62,
+	kHelCallTransferDescriptor = 66,
 	kHelCallDescriptorInfo = 32,
 	kHelCallCloseDescriptor = 20,
 
@@ -31,8 +33,6 @@ enum {
 	kHelCallCompleteLoad = 47,
 	kHelCallSubmitLockMemory = 48,
 	kHelCallLoadahead = 49,
-	
-	kHelCallCreateUniverse = 62,
 	
 	kHelCallCreateThread = 63,
 	kHelCallYield = 34,
@@ -204,6 +204,9 @@ HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
 
+HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
+HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
+		HelHandle *out_handle);
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
@@ -227,8 +230,6 @@ HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handl
 		uintptr_t offset, size_t size,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
-
-HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelHandle directory, HelAbi abi, void *ip, void *sp,
@@ -363,11 +364,11 @@ extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError er
 #define HEL_STRINGIFY_AUX(x) #x
 #define HEL_STRINGIFY(x) HEL_STRINGIFY_AUX(x)
 
-#define HEL_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
-		_helCheckFailed(_error, "HEL_CHECK failed: " #expr "\n" \
+#define HEL_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
+		_helCheckFailed(__error, "HEL_CHECK failed: " #expr "\n" \
 		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 1); } while(0)
-#define HEL_SOFT_CHECK(expr) do { HelError _error = expr; if(_error != kHelErrNone) \
-		_helCheckFailed(_error, "HEL_SOFT_CHECK failed: " #expr "\n" \
+#define HEL_SOFT_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
+		_helCheckFailed(__error, "HEL_SOFT_CHECK failed: " #expr "\n" \
 		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); } while(0)
 
 #endif // HEL_H

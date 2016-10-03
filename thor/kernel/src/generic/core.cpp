@@ -51,7 +51,8 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
-		physicalAllocator->free(physical_guard, physical);
+//	TODO: reeneable this after fixing physical memory allocator
+//		physicalAllocator->free(physical_guard, physical);
 	}
 	physical_guard.unlock();
 
@@ -143,7 +144,7 @@ void EndpointRwControl::decrement() {
 Universe::Universe()
 : _descriptorMap(frigg::DefaultHasher<Handle>(), *kernelAlloc), _nextHandle(1) { }
 
-Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor &&descriptor) {
+Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
 	assert(guard.protects(&lock));
 
 	Handle handle = _nextHandle++;

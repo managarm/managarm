@@ -32,6 +32,7 @@ struct alignas(8) SetupPacket {
 	enum Request {
 		kGetStatus = 0x00,
 		kClearFeature = 0x01,
+		kGetReport = 0x01,
 		kSetFeature = 0x03,
 		kSetAddress = 0x05,
 		kGetDescriptor = 0x06,

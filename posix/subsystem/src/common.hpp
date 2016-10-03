@@ -1,15 +1,6 @@
 
-#include <frigg/smart_ptr.hpp>
-#include <frigg/glue-hel.hpp>
-#include <frigg/algorithm.hpp>
-#include <helx.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
 
-template<typename T>
-using StdSharedPtr = frigg::SharedPtr<T>;
-
-template<typename T>
-using StdUnsafePtr = frigg::UnsafePtr<T>;
-
-extern helx::EventHub eventHub;
-extern helx::Client mbusConnect;
+extern helix::BorrowedPipe fsPipe;
 

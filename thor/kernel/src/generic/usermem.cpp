@@ -396,7 +396,7 @@ void AddressSpace::map(Guard &guard,
 			VirtualAddr vaddr = mapping->baseAddress + page;
 			assert(!p_pageSpace.isMapped(vaddr));
 
-			GrabIntent grab_flags = kGrabQuery | kGrabWrite;
+			GrabIntent grab_flags = ((flags & kMapPopulate) ? kGrabFetch : kGrabQuery) | kGrabWrite;
 			if(mapping->flags & Mapping::kFlagDontRequireBacking)
 				grab_flags |= kGrabDontRequireBacking;
 

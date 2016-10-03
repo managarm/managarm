@@ -1,5 +1,6 @@
 
 #include "kernel.hpp"
+#include "module.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 
@@ -8,12 +9,36 @@ namespace thor {
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
+// TODO: get rid of the rootUniverse/initrdServer global variables.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
+frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
 
-void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
-	space->setupDefaultMappings();
+frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
+
+// TODO: move this declaration to a header file
+void runService();
+
+Module *getModule(frigg::StringView filename) {
+	for(size_t i = 0; i < allModules->size(); i++)
+		if((*allModules)[i].filename == filename)
+			return &(*allModules)[i];
+	return nullptr;
+}
+
+struct ImageInfo {
+	ImageInfo()
+	: entryIp(nullptr) { }
+
+	void *entryIp;
+	void *phdrPtr;
+	size_t phdrEntrySize;
+	size_t phdrCount;
+	frigg::StringView interpreter;
+};
+
+ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
+		VirtualAddr base, PhysicalAddr image_paddr) {
+	ImageInfo info;
 
 	void *image_ptr = physicalToVirtual(image_paddr);
 	
@@ -23,9 +48,10 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			&& ehdr->e_ident[1] == 'E'
 			&& ehdr->e_ident[2] == 'L'
 			&& ehdr->e_ident[3] == 'F');
-	assert(ehdr->e_type == ET_EXEC);
 
-	AddressSpace::Guard space_guard(&space->lock, frigg::dontLock);
+	info.entryIp = (void *)(base + ehdr->e_entry);
+	info.phdrEntrySize = ehdr->e_phentsize;
+	info.phdrCount = ehdr->e_phnum;
 
 	for(int i = 0; i < ehdr->e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
@@ -49,46 +75,152 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 			memory->copyFrom(virt_disp, (char *)image_ptr + phdr->p_offset, phdr->p_filesz);
 
 			VirtualAddr actual_address;
-			space_guard.lock();
 			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-				space->map(space_guard, memory, virt_address, 0, virt_length,
+				AddressSpace::Guard space_guard(&space->lock);
+				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
 			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-				space->map(space_guard, memory, virt_address, 0, virt_length,
+				AddressSpace::Guard space_guard(&space->lock);
+				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
 			}
-			space_guard.unlock();
 			thorRtInvalidateSpace();
-		}else if(phdr->p_type == PT_GNU_EH_FRAME
+		}else if(phdr->p_type == PT_INTERP) {
+			info.interpreter = frigg::StringView((char *)image_ptr + phdr->p_offset,
+					phdr->p_filesz);
+		}else if(phdr->p_type == PT_PHDR) {
+			info.phdrPtr = (char *)base + phdr->p_vaddr;
+		}else if(phdr->p_type == PT_DYNAMIC
+				|| phdr->p_type == PT_TLS
+				|| phdr->p_type == PT_GNU_EH_FRAME
 				|| phdr->p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
 			assert(!"Unexpected PHDR");
 		}
 	}
-	
+
+	return info;
+}
+
+template<typename T>
+uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
+	uintptr_t misalign = stack_image.size() % alignof(data);
+	if(misalign)
+		stack_image.resize(alignof(data) - misalign);
+	uintptr_t offset = stack_image.size();
+	stack_image.resize(stack_image.size() + sizeof(data));
+	memcpy(&stack_image[offset], &data, sizeof(data));
+	return offset;
+}
+
+void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image_paddr) {	
+	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
+			kernelSpace->cloneFromKernelSpace());
+	space->setupDefaultMappings();
+
+	ImageInfo exec_info = loadModuleImage(space, 0, image_paddr);
+
+	// FIXME: use actual interpreter name here
+	Module *interp_module = getModule("ld-init.so");
+	assert(interp_module);
+	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
+
+	// start relevant services.
+
+	// we increment the owning reference count twice here. it is decremented
+	// each time one of the EndpointRwControl references is decremented to zero.
+	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
+	pipe.control().increment();
+	pipe.control().increment();
+	initrdServer.initialize(frigg::adoptShared,
+			&pipe->endpoint(0),
+			EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
+	frigg::SharedPtr<Endpoint, EndpointRwControl> initrd_client(frigg::adoptShared,
+			&pipe->endpoint(1),
+			EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
+
+	Handle initrd_handle;
+	{
+		Universe::Guard lock(&(*rootUniverse)->lock);
+		initrd_handle = (*rootUniverse)->attachDescriptor(lock,
+				EndpointDescriptor(frigg::move(initrd_client)));
+	}
+
+	runService();
+
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
 			AllocatedMemory(stack_size));
 
 	VirtualAddr stack_base;
-	space_guard.lock();
-	space->map(space_guard, stack_memory, 0, 0, stack_size,
-			AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
-	space_guard.unlock();
+	{
+		AddressSpace::Guard space_guard(&space->lock);
+		space->map(space_guard, stack_memory, 0, 0, stack_size,
+				AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
+	}
 	thorRtInvalidateSpace();
+
+	// build the stack data area (containing program arguments,
+	// environment strings and related data).
+	struct AuxFileData {
+		AuxFileData(int fd, HelHandle pipe)
+		: fd(fd), pipe(pipe) { }
+
+		int fd;
+		HelHandle pipe;
+	};
+
+	frigg::String<KernelAlloc> data_area(*kernelAlloc);
+//	auto fd0_offset = copyToStack<AuxFileData>(data_area, { 1, stdout_handle });
+
+	uintptr_t data_disp = stack_size - data_area.size();
+	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
+
+	// build the stack tail area (containing the aux vector).
+	enum {
+		AT_NULL = 0,
+		AT_PHDR = 3,
+		AT_PHENT = 4,
+		AT_PHNUM = 5,
+		AT_ENTRY = 9,
+
+		AT_OPENFILES = 0x1001,
+		AT_POSIX_SERVER = 0x1101,
+		AT_FS_SERVER = 0x1102
+	};
+
+	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
+	copyToStack<uintptr_t>(tail_area, AT_ENTRY);
+	copyToStack<uintptr_t>(tail_area, (uintptr_t)exec_info.entryIp);
+	copyToStack<uintptr_t>(tail_area, AT_PHDR);
+	copyToStack<uintptr_t>(tail_area, (uintptr_t)exec_info.phdrPtr);
+	copyToStack<uintptr_t>(tail_area, AT_PHENT);
+	copyToStack<uintptr_t>(tail_area, exec_info.phdrEntrySize);
+	copyToStack<uintptr_t>(tail_area, AT_PHNUM);
+	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
+//	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
+//	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
+	copyToStack<uintptr_t>(tail_area, AT_FS_SERVER);
+	copyToStack<uintptr_t>(tail_area, initrd_handle);
+	copyToStack<uintptr_t>(tail_area, AT_NULL);
+	copyToStack<uintptr_t>(tail_area, 0);
+
+	uintptr_t tail_disp = data_disp - tail_area.size();
+	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space), frigg::move(root_directory));
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
-	thread->image.initSystemVAbi(ehdr->e_entry, stack_base + stack_size, false);
+	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
+			stack_base + tail_disp, false);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();
@@ -97,9 +229,6 @@ void executeModule(frigg::SharedPtr<RdFolder> root_directory, PhysicalAddr image
 	ScheduleGuard schedule_guard(scheduleLock.get());
 	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
-
-// TODO: move this declaration to a header file
-void runService();
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
@@ -135,7 +264,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
-	auto mod_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
+	allModules.initialize(*kernelAlloc);
 	for(size_t i = 1; i < info->numModules; i++) {
 		size_t virt_length = modules[i].length + (kPageSize - (modules[i].length % kPageSize));
 		assert((virt_length % kPageSize) == 0);
@@ -149,20 +278,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << frigg::endLog;
 
-		MemoryAccessDescriptor mod_descriptor(frigg::move(mod_memory));
-		mod_directory->publish(name_ptr, modules[i].nameLength,
-				AnyDescriptor(frigg::move(mod_descriptor)));
+		Module module(frigg::StringView(name_ptr, modules[i].nameLength),
+				modules[i].physicalBase, modules[i].length);
+		allModules->push(module);
 	}
 	
-	const char *mod_path = "initrd";
-	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
-	root_directory->mount(mod_path, strlen(mod_path), frigg::move(mod_directory));
-
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
-	runService();
 
 	// finally we lauch the user_boot program
+	auto root_directory = frigg::makeShared<RdFolder>(*kernelAlloc);
 	executeModule(frigg::move(root_directory), modules[0].physicalBase);
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
@@ -320,6 +445,17 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		while(true) { }
 	} break;
 
+	case kHelCallCreateUniverse: {
+		HelHandle handle;
+		*image.error() = helCreateUniverse(&handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallTransferDescriptor: {
+		HelHandle out_handle;
+		*image.error() = helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
+				&out_handle);
+		*image.out0() = out_handle;
+	} break;
 	case kHelCallDescriptorInfo: {
 		*image.error() = helDescriptorInfo((HelHandle)arg0, (HelDescriptorInfo *)arg1);
 	} break;
@@ -392,12 +528,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
-	} break;
-
-	case kHelCallCreateUniverse: {
-		HelHandle handle;
-		*image.error() = helCreateUniverse(&handle);
-		*image.out0() = handle;
 	} break;
 
 	case kHelCallCreateThread: {
