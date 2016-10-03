@@ -21,8 +21,6 @@
 
 bool traceRequests = false;
 
-helix::Dispatcher dispatcher(helix::createHub());
-
 helix::BorrowedPipe fsPipe;
 
 //FIXME: helx::EventHub eventHub = helx::EventHub::create();
@@ -77,7 +75,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p), [pipe = std::mov
 		return;
 	}*/
 	char req_buffer[128];
-	helix::RecvString<M> recv_req(dispatcher, pipe, req_buffer, 128,
+	helix::RecvString<M> recv_req(helix::Dispatcher::global(), pipe, req_buffer, 128,
 			kHelAnyRequest, 0, kHelRequest);
 	COFIBER_AWAIT recv_req.future();
 	if(recv_req.error() == kHelErrClosedRemotely)
@@ -905,7 +903,7 @@ int main() {
 	// initialize our string queue
 	HEL_CHECK(helCreateRing(0x1000, &ringBuffer));
 	int64_t async_id;
-	HEL_CHECK(helSubmitRing(ringBuffer, dispatcher.getHub().getHandle(),
+	HEL_CHECK(helSubmitRing(ringBuffer, helix::Dispatcher::global().getHub().getHandle(),
 			ringItem, 0x10000, 0, 0, &async_id));
 
 	// connect to mbus
@@ -957,6 +955,6 @@ int main() {
 	execute(nullptr, "posix-init");
 
 	while(true)
-		dispatcher();
+		helix::Dispatcher::global().dispatch();
 }
 

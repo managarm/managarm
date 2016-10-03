@@ -26,14 +26,14 @@ COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 	req.set_path(path);
 
 	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(dispatcher, fsPipe, serialized.data(),
+	helix::SendString<M> send_req(helix::Dispatcher::global(), fsPipe, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(dispatcher, fsPipe, buffer, 128,
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), fsPipe, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -41,7 +41,7 @@ COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_file(dispatcher, fsPipe,
+	helix::RecvDescriptor<M> recv_file(helix::Dispatcher::global(), fsPipe,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_file.future();
 	HEL_CHECK(recv_file.error());
@@ -57,14 +57,14 @@ COFIBER_ROUTINE(cofiber::future<void>, fsSeek(helix::BorrowedPipe file,
 	req.set_rel_offset(offset);
 
 	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -84,14 +84,14 @@ COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
 	req.set_size(length);
 
 	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -99,7 +99,7 @@ COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-	helix::RecvString<M> recv_data(dispatcher, file, data, length,
+	helix::RecvString<M> recv_data(helix::Dispatcher::global(), file, data, length,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_data.future();
 	HEL_CHECK(recv_data.error());
@@ -117,14 +117,14 @@ COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
 	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(dispatcher, file, serialized.data(),
+	helix::SendString<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
 			serialized.size(), 0, 0, kHelRequest);
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 
 	// recevie and parse the response.
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(dispatcher, file, buffer, 128,
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
 			0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
 
@@ -132,7 +132,7 @@ COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_memory(dispatcher, file,
+	helix::RecvDescriptor<M> recv_memory(helix::Dispatcher::global(), file,
 			0, 1, kHelResponse);
 	COFIBER_AWAIT recv_memory.future();
 	HEL_CHECK(recv_memory.error());

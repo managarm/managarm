@@ -231,7 +231,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 						<< ", length: " << length << " bytes" << std::endl;
 			}else if(((bar >> 1) & 3) == 2) {
 				assert(i < 5); // otherwise there is no next bar.
-				frigg::infoLogger() << "        64-bit memory BAR ignored for now!" << frigg::endLog;
+				std::cout << "        64-bit memory BAR ignored for now!" << std::endl;
 				i++;
 			}else{
 				assert(!"Unexpected BAR type");

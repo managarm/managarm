@@ -18,8 +18,6 @@
 HelHandle __raw_map(int fd);
 int __mlibc_pushFd(HelHandle handle);
 
-helix::Dispatcher dispatcher(helix::createHub());
-
 helix::UniquePipe mbusMasterPipe;
 
 // --------------------------------------------------------
@@ -133,7 +131,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 
 	while(true) {
 		char req_buffer[128];
-		helix::RecvString<M> recv_req(dispatcher, pipe, req_buffer, 128,
+		helix::RecvString<M> recv_req(helix::Dispatcher::global(), pipe, req_buffer, 128,
 				kHelAnyRequest, 0, kHelRequest);
 		COFIBER_AWAIT recv_req.future();
 		if(recv_req.error() == kHelErrClosedRemotely)
@@ -142,7 +140,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 		//FIXME: actually parse the protocol.
 
 		char data_buffer[128];
-		helix::RecvString<M> recv_data(dispatcher, pipe, data_buffer, 128,
+		helix::RecvString<M> recv_data(helix::Dispatcher::global(), pipe, data_buffer, 128,
 				recv_req.requestId(), 1, kHelRequest);
 		COFIBER_AWAIT recv_data.future();
 
@@ -150,7 +148,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 
 		// send the success response.
 		// FIXME: send an actually valid answer.
-		helix::SendString<M> send_resp(dispatcher, pipe, nullptr, 0,
+		helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe, nullptr, 0,
 				recv_req.requestId(), 0, kHelResponse);
 		COFIBER_AWAIT send_resp.future();
 	}
@@ -466,7 +464,7 @@ void serveMain() {
 	__rtdl_setupTcb();
 
 	while(true)
-		dispatcher();
+		helix::Dispatcher::global().dispatch();
 	__builtin_trap();
 }
 

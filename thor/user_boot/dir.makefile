@@ -16,7 +16,7 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS := -l:ld-init.so
-$c_LIBS := -lcofiber
+$c_LIBS := -lhelix -lcofiber
 
 $($c_BINDIR)/user_boot: $($c_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_LIBS)
