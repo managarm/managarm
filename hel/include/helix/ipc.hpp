@@ -225,11 +225,15 @@ struct SendStringResult : ResultBase {
 struct SendDescriptorResult : ResultBase {
 };
 
+struct AwaitIrqResult : ResultBase {
+};
+
 struct Dispatcher {
 	using RecvString = OperationBase<RecvStringResult>;
 	using RecvDescriptor = OperationBase<RecvDescriptorResult>;
 	using SendString = OperationBase<SendStringResult>;
 	using SendDescriptor = OperationBase<SendDescriptorResult>;
+	using AwaitIrq = OperationBase<AwaitIrqResult>;
 	
 	static Dispatcher &global();
 
@@ -274,6 +278,11 @@ struct Dispatcher {
 			} break;
 			case kHelEventSendDescriptor: {
 				auto ptr = static_cast<SendDescriptor *>((void *)e.submitObject);
+				ptr->_error = e.error;
+				ptr->complete();
+			} break;
+			case kHelEventIrq: {
+				auto ptr = static_cast<AwaitIrq *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->complete();
 			} break;
@@ -339,6 +348,19 @@ struct SendDescriptor : Operation<SendDescriptorResult, M> {
 		auto error = helSubmitSendDescriptor(pipe.getHandle(), this->_hub.getHandle(),
 				descriptor.getHandle(), msg_request, msg_seq,
 				0, (uintptr_t)this, flags, &this->_asyncId);
+		if(error) {
+			this->_error = error;
+			this->complete();
+		}
+	}
+};
+
+template<typename M>
+struct AwaitIrq : Operation<AwaitIrqResult, M> {
+	AwaitIrq(Dispatcher &dispatcher, BorrowedIrq irq)
+	: Operation<AwaitIrqResult, M>(dispatcher.getHub()) {
+		auto error = helSubmitWaitForIrq(irq.getHandle(), this->_hub.getHandle(),
+				0, (uintptr_t)this, &this->_asyncId);
 		if(error) {
 			this->_error = error;
 			this->complete();

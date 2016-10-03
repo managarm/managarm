@@ -336,8 +336,7 @@ struct Controller {
 		uint16_t command_bits = 0x1;
 		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
 
-		assert(!"Fix IRQ waiting");
-//		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
+		handleIrqs();
 	}
 
 	void activateEntity(ScheduleEntity *entity) {
@@ -367,13 +366,18 @@ struct Controller {
 		endpoint->queue->transactionList.push_back(*transaction);
 	}
 
-	void onIrq(HelError error) {
-		HEL_CHECK(error);
+	COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+		while(true) {
+			helix::AwaitIrq<helix::AwaitMechanism> edge(helix::Dispatcher::global(), _irq);
+			COFIBER_AWAIT edge.future();
+			HEL_CHECK(edge.error());
 
-		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(status & 0x10));
-		assert(!(status & 0x08));
-		if(status & (kStatusInterrupt | kStatusError)) {
+			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+			assert(!(status & 0x10));
+			assert(!(status & 0x08));
+			if(!(status & (kStatusInterrupt | kStatusError)))
+				continue;
+
 			if(status & kStatusError)
 				printf("uhci: Error interrupt\n");
 			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
@@ -384,10 +388,7 @@ struct Controller {
 				it->progress();
 			}
 		}
-
-		assert(!"Fix IRQ waiting");
-//		_irq.wait(eventHub, CALLBACK_MEMBER(this, &Controller::onIrq));
-	}
+	}))
 
 private:
 	uint16_t _base;
@@ -731,8 +732,47 @@ void InitClosure::queriredDevice(HelHandle handle) {
 }*/
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
-	auto lane = COFIBER_AWAIT device.bind();
-	std::cout << "got the device" << std::endl;
+	using M = helix::AwaitMechanism;
+
+	auto lane = helix::UniquePipe(COFIBER_AWAIT device.bind());
+
+	// receive the device descriptor.
+	uint8_t buffer[128];
+	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), lane,
+			buffer, 128, 0, 0, kHelResponse);
+	COFIBER_AWAIT recv_resp.future();
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::PciDevice resp;
+	resp.ParseFromArray(buffer, recv_resp.actualLength());
+
+	// receive the BAR.
+	helix::RecvDescriptor<M> recv_bar(helix::Dispatcher::global(), lane,
+			0, 0, kHelResponse);
+	COFIBER_AWAIT recv_bar.future();
+	HEL_CHECK(recv_bar.error());
+	
+	// receive the IRQ.
+	helix::RecvDescriptor<M> recv_irq(helix::Dispatcher::global(), lane,
+			0, 0, kHelResponse);
+	COFIBER_AWAIT recv_irq.future();
+	HEL_CHECK(recv_irq.error());
+	
+	// run the UHCI driver.
+
+	assert(resp.bars(0).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(4).io_type() == managarm::hw::IoType::PORT);
+	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
+	HEL_CHECK(helEnableIo(recv_bar.descriptor().getHandle()));
+
+	auto controller = std::make_shared<Controller>(resp.bars(4).address(),
+			helix::UniqueIrq(recv_irq.descriptor()));
+	controller->initialize();
+
+	runHidDevice(controller);
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

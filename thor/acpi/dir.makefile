@@ -13,9 +13,9 @@ $c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
-$c_LIBS := -lhelix -lcofiber -lmbus
+$c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus
 
-$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o
+$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths
@@ -40,6 +40,10 @@ $($c_BINDIR)/acpi: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS) $($d_LIBS)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
+	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
+	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+
+$($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
