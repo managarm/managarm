@@ -142,20 +142,30 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 	}
 }))
 
+static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any_msg) {
+	if(filter.type() == typeid(EqualsFilter)) {
+		auto &real = boost::get<EqualsFilter>(filter);
+
+		auto msg = any_msg->mutable_equals_filter();
+		msg->set_path(real.getPath());
+		msg->set_value(real.getValue());
+	}else if(filter.type() == typeid(Conjunction)) {
+		auto &real = boost::get<Conjunction>(filter);
+		
+		auto msg = any_msg->mutable_conjunction();
+		for(auto &operand : real.getOperands())
+			encodeFilter(operand, msg->add_operands());
+	}else{
+		throw std::runtime_error("Unexpected filter type");
+	}
+}
+
 COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter &filter,
 		std::function<void(AnyEvent)> handler) const, ([=] {
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::LINK_OBSERVER);
 	req.set_id(_id);
-
-	if(filter.type() == typeid(EqualsFilter)) {
-		auto real = boost::get<EqualsFilter>(filter);
-		auto msg = req.mutable_filter()->mutable_equals_filter();
-		msg->set_path(real.getPath());
-		msg->set_value(real.getValue());
-	}else{
-		throw std::runtime_error("Unexpected filter type");
-	}
+	encodeFilter(filter, req.mutable_filter());
 
 	auto serialized = req.SerializeAsString();
 	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,

@@ -778,7 +778,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
-	auto filter = mbus::EqualsFilter("pci-class", "0c");
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("pci-class", "0c"),
+		mbus::EqualsFilter("pci-subclass", "03"),
+		mbus::EqualsFilter("pci-interface", "00")
+	});
 	auto observer = COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {

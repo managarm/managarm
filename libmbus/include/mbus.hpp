@@ -25,6 +25,16 @@ namespace _detail {
 
 	using AnyEvent = boost::variant<AttachEvent>;
 
+	struct NoFilter;
+	struct EqualsFilter;
+	struct Conjunction;
+
+	using AnyFilter = boost::variant<
+		NoFilter,
+		EqualsFilter,
+		boost::recursive_wrapper<Conjunction>
+	>;
+
 	struct Connection {
 		Connection(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
 		: dispatcher(std::move(dispatcher)), pipe(std::move(pipe)) { }
@@ -49,18 +59,23 @@ namespace _detail {
 		EqualsFilter(std::string path, std::string value)
 		: _path(std::move(path)), _value(std::move(value)) { }
 
-		std::string getPath() { return _path; }
-		std::string getValue() { return _value; }
+		std::string getPath() const { return _path; }
+		std::string getValue() const { return _value; }
 
 	private:
 		std::string _path;
 		std::string _value;
 	};
 
-	using AnyFilter = boost::variant<
-		NoFilter,
-		EqualsFilter
-	>;
+	struct Conjunction {
+		Conjunction(std::vector<AnyFilter> operands)
+		: _operands(std::move(operands)) { }
+
+		const std::vector<AnyFilter> &getOperands() const { return _operands; }
+
+	private:
+		std::vector<AnyFilter> _operands;
+	};
 	
 	// ------------------------------------------------------------------------
 	// mbus Instance class.
@@ -142,6 +157,7 @@ using _detail::Entity;
 
 using _detail::NoFilter;
 using _detail::EqualsFilter;
+using _detail::Conjunction;
 using _detail::AnyFilter;
 using _detail::AttachEvent;
 using _detail::AnyEvent;

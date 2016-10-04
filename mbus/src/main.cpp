@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include <boost/variant.hpp>
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
 #include <helix/ipc.hpp>
@@ -118,8 +119,16 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
 	COFIBER_RETURN(recv_desc.descriptor());
 }))
 
+struct EqualsFilter;
+struct Conjunction;
+
+using AnyFilter = boost::variant<
+	EqualsFilter,
+	boost::recursive_wrapper<Conjunction>
+>;
+
 struct EqualsFilter {
-	EqualsFilter(std::string property, std::string value)
+	explicit EqualsFilter(std::string property, std::string value)
 	: _property(std::move(property)), _value(std::move(value)) { }
 
 	std::string getProperty() const { return _property; }
@@ -130,8 +139,20 @@ private:
 	std::string _value;
 };
 
+struct Conjunction {
+	explicit Conjunction(std::vector<AnyFilter> operands)
+	: _operands(std::move(operands)) { }
+
+	const std::vector<AnyFilter> &getOperands() const {
+		return _operands;
+	}
+
+private:
+	std::vector<AnyFilter> _operands;
+};
+
 struct Observer {
-	explicit Observer(EqualsFilter filter, helix::UniquePipe lane)
+	explicit Observer(AnyFilter filter, helix::UniquePipe lane)
 	: _filter(std::move(filter)), _lane(std::move(lane)) { }
 
 	cofiber::no_future traverse(std::shared_ptr<Entity> root);
@@ -139,16 +160,29 @@ struct Observer {
 	cofiber::no_future onAttach(std::shared_ptr<Entity> entity);
 
 private:
-	EqualsFilter _filter;
+	AnyFilter _filter;
 	helix::UniquePipe _lane;
 };
 
-static bool matchesFilter(const Entity *entity, const EqualsFilter &filter) {
-	auto &properties = entity->getProperties();
-	auto it = properties.find(filter.getProperty());
-	if(it == properties.end())
-		return false;
-	return it->second == filter.getValue();
+static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
+	if(filter.type() == typeid(EqualsFilter)) {
+		auto &real = boost::get<EqualsFilter>(filter);
+
+		auto &properties = entity->getProperties();
+		auto it = properties.find(real.getProperty());
+		if(it == properties.end())
+			return false;
+		return it->second == real.getValue();
+	}else if(filter.type() == typeid(Conjunction)) {
+		auto &real = boost::get<Conjunction>(filter);
+
+		auto &operands = real.getOperands();
+		return std::all_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
+			return matchesFilter(entity, operand);
+		});
+	}else{
+		throw std::runtime_error("Unexpected filter");
+	}
 }
 	
 void Group::processAttach(std::shared_ptr<Entity> entity) {
@@ -205,10 +239,15 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
 int64_t nextEntityId = 1;
 
-static EqualsFilter decodeFilter(const managarm::mbus::AnyFilter &msg) {
-	if(msg.type_case() == managarm::mbus::AnyFilter::kEqualsFilter) {
-		return EqualsFilter(msg.equals_filter().path(),
-				msg.equals_filter().value());
+static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
+	if(proto_filter.type_case() == managarm::mbus::AnyFilter::kEqualsFilter) {
+		return EqualsFilter(proto_filter.equals_filter().path(),
+				proto_filter.equals_filter().value());
+	}else if(proto_filter.type_case() == managarm::mbus::AnyFilter::kConjunction) {
+		std::vector<AnyFilter> operands;
+		for(auto &proto_operand : proto_filter.conjunction().operands())
+			operands.push_back(decodeFilter(proto_operand));
+		return Conjunction(std::move(operands));
 	}else{
 		throw std::runtime_error("Unexpected filter message");
 	}
