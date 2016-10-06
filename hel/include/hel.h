@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 68,
+	kHelNumCalls = 70,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -46,6 +46,9 @@ enum {
 	kHelCallWaitForEvents = 45,
 	kHelCallWaitForCertainEvent = 65,
 	
+	kHelCallCreateStream = 68,
+	kHelCallSubmitAsync = 69,
+
 	kHelCallCreateRing = 56,
 	kHelCallSubmitRing = 57,
 
@@ -105,6 +108,13 @@ enum {
 };
 
 enum {
+	kHelActionSendFromBuffer = 1,
+	kHelActionSendDescriptor = 2,
+	kHelActionRecvToBuffer = 3,
+	kHelActionRecvDescriptor = 4
+};
+
+enum {
 	kHelEventLoadMemory = 7,
 	kHelEventLockMemory = 8,
 	kHelEventObserve = 12,
@@ -114,6 +124,18 @@ enum {
 	kHelEventRecvStringToQueue = 9,
 	kHelEventRecvDescriptor = 5,
 	kHelEventIrq = 4
+};
+
+struct HelAction {
+	int type;
+	uintptr_t context;
+	uint32_t flags;
+	HelError error;
+	int64_t asyncId;
+	// TODO: the following fields could be put into unions
+	void *buffer;
+	size_t length;
+	HelHandle handle;
 };
 
 struct HelEvent {
@@ -231,6 +253,10 @@ HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
 		HelNanotime max_time, size_t *num_items);
 HEL_C_LINKAGE HelError helWaitForCertainEvent(HelHandle handle,
 		int64_t async_id, struct HelEvent *event, HelNanotime max_time);
+
+HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
+HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, HelAction *actions,
+		size_t count, HelHandle hub_handle, uint32_t flags);
 
 HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);
 HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,

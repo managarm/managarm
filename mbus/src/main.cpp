@@ -259,21 +259,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 
 	while(true) {
 		char buffer[256];
-		helix::RecvString<M> recv_req(helix::Dispatcher::global(), pipe,
-				buffer, 256, 0, 0, kHelRequest);
+		helix::RecvString<M> recv_req;
+
+		helix::submitAsync(pipe, {
+			helix::action(&recv_req, buffer, 256)
+		}, helix::Dispatcher::global());
 		COFIBER_AWAIT recv_req.future();
 		HEL_CHECK(recv_req.error());
 
 		managarm::mbus::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
+			helix::SendString<M> send_resp;
+
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(1);
 
 			auto serialized = resp.SerializeAsString();
-			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
-					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			helix::submitAsync(pipe, {
+				helix::action(&send_resp, serialized.data(), serialized.size())
+			}, helix::Dispatcher::global());
 			COFIBER_AWAIT send_resp.future();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {

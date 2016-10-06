@@ -3,6 +3,7 @@
 #define HELIX_HPP
 
 #include <atomic>
+#include <initializer_list>
 #include <stdexcept>
 
 #include <hel.h>
@@ -127,6 +128,16 @@ inline std::pair<UniquePipe, UniquePipe> createFullPipe() {
 	return { UniquePipe(first_handle), UniquePipe(second_handle) };
 }
 
+struct Lane { };
+using UniqueLane = UniqueResource<Lane>;
+using BorrowedLane = BorrowedResource<Lane>;
+
+inline std::pair<UniqueLane, UniqueLane> createStream() {
+	HelHandle first_handle, second_handle;
+	HEL_CHECK(helCreateStream(&first_handle, &second_handle));
+	return { UniqueLane(first_handle), UniqueLane(second_handle) };
+}
+
 struct Irq { };
 using UniqueIrq = UniqueResource<Irq>;
 using BorrowedIrq = BorrowedResource<Irq>;
@@ -136,23 +147,19 @@ template<typename Result>
 struct OperationBase : Result {
 	friend class Dispatcher;
 
-	OperationBase(BorrowedHub hub)
-	: _hub(hub) { }
+	OperationBase()
+	: _asyncId(0) { }
 	
 	virtual ~OperationBase() { }
 
 protected:
 	virtual void complete() = 0;
 
-	BorrowedHub _hub;
 	int64_t _asyncId;
 };
 
 template<typename Result, typename M>
 struct Operation : OperationBase<Result> {
-	Operation(BorrowedHub hub)
-	: OperationBase<Result>(hub) { }
-
 	typename M::Future future() {
 		return _completer.future();
 	}
@@ -252,7 +259,7 @@ struct Dispatcher {
 		HEL_CHECK(helWaitForEvents(_hub.getHandle(), list, kEventsPerCall,
 				kHelWaitInfinite, &num_items));
 
-		for(int i = 0; i < num_items; i++) {
+		for(size_t i = 0; i < num_items; i++) {
 			HelEvent &e = list[i];
 			switch(e.type) {
 			case kHelEventRecvString: {
@@ -298,10 +305,11 @@ private:
 
 template<typename M>
 struct RecvString : Operation<RecvStringResult, M> {
+	RecvString() = default;
+
 	RecvString(Dispatcher &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags)
-	: Operation<RecvStringResult, M>(dispatcher.getHub()) {
-		auto error = helSubmitRecvString(pipe.getHandle(), this->_hub.getHandle(),
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		auto error = helSubmitRecvString(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
 				0, (uintptr_t)this, flags, &this->_asyncId);
 		if(error) {
@@ -314,9 +322,8 @@ struct RecvString : Operation<RecvStringResult, M> {
 template<typename M>
 struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
 	RecvDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags)
-	: Operation<RecvDescriptorResult, M>(dispatcher.getHub()) {
-		auto error = helSubmitRecvDescriptor(pipe.getHandle(), this->_hub.getHandle(),
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		auto error = helSubmitRecvDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				msg_request, msg_seq, 0, (uintptr_t)this, flags, &this->_asyncId);
 		if(error) {
 			this->_error = error;
@@ -327,10 +334,11 @@ struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
 
 template<typename M>
 struct SendString : Operation<SendStringResult, M> {
+	SendString() = default;
+
 	SendString(Dispatcher &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags)
-	: Operation<SendStringResult, M>(dispatcher.getHub()) {
-		auto error = helSubmitSendString(pipe.getHandle(), this->_hub.getHandle(),
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		auto error = helSubmitSendString(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				(const uint8_t *)buffer, length, msg_request, msg_seq,
 				0, (uintptr_t)this, flags, &this->_asyncId);
 		if(error) {
@@ -343,9 +351,8 @@ struct SendString : Operation<SendStringResult, M> {
 template<typename M>
 struct SendDescriptor : Operation<SendDescriptorResult, M> {
 	SendDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags)
-	: Operation<SendDescriptorResult, M>(dispatcher.getHub()) {
-		auto error = helSubmitSendDescriptor(pipe.getHandle(), this->_hub.getHandle(),
+			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
+		auto error = helSubmitSendDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				descriptor.getHandle(), msg_request, msg_seq,
 				0, (uintptr_t)this, flags, &this->_asyncId);
 		if(error) {
@@ -357,9 +364,8 @@ struct SendDescriptor : Operation<SendDescriptorResult, M> {
 
 template<typename M>
 struct AwaitIrq : Operation<AwaitIrqResult, M> {
-	AwaitIrq(Dispatcher &dispatcher, BorrowedIrq irq)
-	: Operation<AwaitIrqResult, M>(dispatcher.getHub()) {
-		auto error = helSubmitWaitForIrq(irq.getHandle(), this->_hub.getHandle(),
+	AwaitIrq(Dispatcher &dispatcher, BorrowedIrq irq) {
+		auto error = helSubmitWaitForIrq(irq.getHandle(), dispatcher.getHub().getHandle(),
 				0, (uintptr_t)this, &this->_asyncId);
 		if(error) {
 			this->_error = error;
@@ -367,6 +373,41 @@ struct AwaitIrq : Operation<AwaitIrqResult, M> {
 		}
 	}
 };
+
+// ----------------------------------------------------------------------------
+// Experimental: submitAsync
+// ----------------------------------------------------------------------------
+
+template<typename M>
+HelAction action(SendString<M> *operation, const void *buffer, size_t length,
+		uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionSendFromBuffer;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	action.buffer = const_cast<void *>(buffer);
+	action.length = length;
+	return action;
+}
+
+template<typename M>
+HelAction action(RecvString<M> *operation, void *buffer, size_t length,
+		uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionRecvToBuffer;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	action.buffer = buffer;
+	action.length = length;
+	return action;
+}
+
+template<size_t N>
+void submitAsync(BorrowedDescriptor descriptor, HelAction (&&actions)[N],
+		const Dispatcher &dispatcher) {
+	HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
+			dispatcher.getHub().getHandle(), 0));
+}
 
 } // namespace helix
 

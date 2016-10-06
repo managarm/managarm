@@ -42,7 +42,9 @@ struct ThreadDescriptor {
 // --------------------------------------------------------
 
 struct EventHubDescriptor {
-	EventHubDescriptor(frigg::SharedPtr<EventHub> event_hub)
+	EventHubDescriptor() = default;
+
+	explicit EventHubDescriptor(frigg::SharedPtr<EventHub> event_hub)
 	: eventHub(frigg::move(event_hub)) { }
 
 	frigg::SharedPtr<EventHub> eventHub;
@@ -51,6 +53,43 @@ struct EventHubDescriptor {
 // --------------------------------------------------------
 // IPC related descriptors
 // --------------------------------------------------------
+
+struct StreamControl;
+struct Stream;
+
+struct AdoptLane { };
+static constexpr AdoptLane adoptLane;
+
+struct LaneHandle {
+	LaneHandle() = default;
+
+	explicit LaneHandle(AdoptLane, frigg::UnsafePtr<Stream> stream, int lane)
+	: _stream(stream), _lane(lane) { }
+
+	frigg::UnsafePtr<Stream> getStream() {
+		return _stream;
+	}
+
+	int getLane() {
+		return _lane;
+	}
+
+private:
+	frigg::UnsafePtr<Stream> _stream;
+	int _lane;
+};
+
+struct LaneDescriptor {
+	LaneDescriptor() = default;
+
+	explicit LaneDescriptor(LaneHandle handle)
+	: _handle(frigg::move(handle)) { }
+
+	void submit(frigg::SharedPtr<StreamControl> control);
+
+private:
+	LaneHandle _handle;
+};
 
 struct RingDescriptor {
 	RingDescriptor(frigg::SharedPtr<RingBuffer> ring_buffer)
@@ -94,6 +133,7 @@ typedef frigg::Variant<
 	UniverseDescriptor,
 	ThreadDescriptor,
 	EventHubDescriptor,
+	LaneDescriptor,
 	RingDescriptor,
 	EndpointDescriptor,
 	IrqDescriptor,

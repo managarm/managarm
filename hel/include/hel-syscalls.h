@@ -224,6 +224,21 @@ DEFINE_SYSCALL(WaitForCertainEvent, HelHandle handle,
 	DO_SYSCALL(WaitForCertainEvent)
 END_SYSCALL()
 
+
+DEFINE_SYSCALL(CreateStream, HelHandle *lane1, HelHandle *lane2)
+	DO_SYSCALL(CreateStream)
+	OUT(0, HelHandle, lane1)
+	OUT(1, HelHandle, lane2)
+END_SYSCALL()
+
+DEFINE_SYSCALL(SubmitAsync, HelHandle handle, HelAction *actions,
+		size_t count, HelHandle hub_handle, uint32_t flags)
+	IN(0, handle) IN(1, actions) IN(2, count) IN(3, hub_handle)
+			IN(4, flags)
+	DO_SYSCALL(SubmitAsync)
+END_SYSCALL()
+
+
 DEFINE_SYSCALL(CreateRing, size_t max_chunk_size, HelHandle *handle)
 	IN(0, max_chunk_size);
 	DO_SYSCALL(CreateRing)

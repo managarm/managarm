@@ -62,6 +62,8 @@ class Memory;
 class AddressSpace;
 class Thread;
 class EventHub;
+class Stream;
+class LaneControl;
 class RingBuffer;
 class Channel;
 class BiDirectionPipe;
@@ -190,6 +192,7 @@ private:
 #include "event.hpp"
 #include "usermem.hpp"
 #include "thread.hpp"
+#include "stream.hpp"
 #include "ring-buffer.hpp"
 #include "ipc.hpp"
 #include "io.hpp"

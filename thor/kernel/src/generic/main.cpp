@@ -585,6 +585,18 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				(int64_t)arg1, (HelEvent *)arg2, (HelNanotime)arg3);
 	} break;
 	
+	case kHelCallCreateStream: {
+		HelHandle lane1;
+		HelHandle lane2;
+		*image.error() = helCreateStream(&lane1, &lane2);
+		*image.out0() = lane1;
+		*image.out1() = lane2;
+	} break;
+	case kHelCallSubmitAsync: {
+		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
+				(size_t)arg2, (HelHandle)arg3, (uint32_t)arg4);
+	} break;
+	
 	case kHelCallCreateRing: {
 		HelHandle handle;
 		*image.error() = helCreateRing((HelHandle)arg0, &handle);

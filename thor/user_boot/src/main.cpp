@@ -18,7 +18,7 @@
 HelHandle __raw_map(int fd);
 int __mlibc_pushFd(HelHandle handle);
 
-helix::UniquePipe mbusMasterPipe;
+helix::UniqueLane mbusMasterLane;
 
 // --------------------------------------------------------
 // ELF parsing and loading.
@@ -246,9 +246,9 @@ void runProgram(HelHandle space, helix::UniquePipe xpipe,
 		tail.push_back(AT_XPIPE);
 		tail.push_back(remote);
 	}
-	if(mbusMasterPipe.getHandle()) {
+	if(mbusMasterLane.getHandle()) {
 		HelHandle remote;
-		HEL_CHECK(helTransferDescriptor(mbusMasterPipe.getHandle(), universe, &remote));
+		HEL_CHECK(helTransferDescriptor(mbusMasterLane.getHandle(), universe, &remote));
 		tail.push_back(AT_MBUS_SERVER);
 		tail.push_back(remote);
 	}
@@ -278,8 +278,8 @@ void startMbus() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 	
-	helix::UniquePipe xpipe;
-	std::tie(mbusMasterPipe, xpipe) = helix::createFullPipe();
+	helix::UniqueLane xpipe;
+	std::tie(mbusMasterLane, xpipe) = helix::createStream();
 
 	ImageInfo exec_info = loadImage(space, "mbus", 0);
 	// TODO: actually use the correct interpreter

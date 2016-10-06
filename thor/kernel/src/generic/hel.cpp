@@ -787,6 +787,93 @@ HelError helWaitForCertainEvent(HelHandle handle, int64_t async_id,
 }
 
 
+HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+	
+	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
+	{
+		Universe::Guard universe_guard(&universe->lock);
+		*lane1_handle = universe->attachDescriptor(universe_guard,
+				LaneDescriptor(LaneHandle(adoptLane, stream, 0)));
+		*lane2_handle = universe->attachDescriptor(universe_guard,
+				LaneDescriptor(LaneHandle(adoptLane, stream, 1)));
+	}
+	stream.control().counter()->addRelaxed();
+	stream.release();
+
+	return kHelErrNone;
+}
+
+HelError helSubmitAsync(HelHandle handle, HelAction *action, size_t count,
+		HelHandle hub_handle, uint32_t flags) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
+	
+	// TODO: check userspace page access rights
+	
+	LaneDescriptor descriptor;
+	EventHubDescriptor hub_descriptor;
+	{
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<LaneDescriptor>())
+			return kHelErrBadDescriptor;
+		descriptor = wrapper->get<LaneDescriptor>();
+
+		auto hub_wrapper = this_universe->getDescriptor(universe_guard, hub_handle);
+		if(!hub_wrapper)
+			return kHelErrNoDescriptor;
+		if(!hub_wrapper->is<EventHubDescriptor>())
+			return kHelErrBadDescriptor;
+		hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
+	}
+
+	for(size_t i = 0; i < count; i++) {
+		switch(action[i].type) {
+		case kHelActionSendFromBuffer: {
+			struct Control : SendFromBuffer {
+				Control(frigg::UniqueMemory<KernelAlloc> buffer)
+				: SendFromBuffer(frigg::move(buffer)) { }
+
+				void complete() override {
+					frigg::infoLogger() << "complete send" << frigg::endLog;
+				}
+			};
+
+			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action[i].length);
+			memcpy(buffer.data(), action[i].buffer, action[i].length);
+			auto control = frigg::makeShared<Control>(*kernelAlloc, frigg::move(buffer));
+			descriptor.submit(frigg::move(control));
+		} break;
+		case kHelActionRecvToBuffer: {
+			struct Control : RecvToBuffer {
+				Control(ForeignSpaceLock accessor)
+				: RecvToBuffer(frigg::move(accessor)) { }
+
+				void complete() override {
+					frigg::infoLogger() << "complete recv" << frigg::endLog;
+				}
+			};
+
+			auto space = this_thread->getAddressSpace().toShared();
+			auto accessor = ForeignSpaceLock::acquire(frigg::move(space),
+					action[i].buffer, action[i].length);
+			auto control = frigg::makeShared<Control>(*kernelAlloc, frigg::move(accessor));
+			descriptor.submit(frigg::move(control));
+		} break;
+		default:
+			assert(!"Fix error handling here");
+		}
+	}
+
+	return kHelErrNone;
+}
+
+
 HelError helCreateRing(size_t max_chunk_size, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

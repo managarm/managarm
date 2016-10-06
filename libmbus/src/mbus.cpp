@@ -26,20 +26,22 @@ Instance Instance::global() {
 }
 
 COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
+	helix::SendString<M> send_req;
+	helix::RecvString<M> recv_resp;
+
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
 
 	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(_connection->dispatcher, _connection->pipe,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::submitAsync(_connection->pipe, {
+		helix::action(&send_req, serialized.data(), serialized.size()),
+		helix::action(&recv_resp, buffer, 128)
+	}, _connection->dispatcher);
+
+	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
 
 	managarm::mbus::SvrResponse resp;

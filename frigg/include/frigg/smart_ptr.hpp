@@ -57,6 +57,14 @@ struct SharedCounter {
 
 	SharedCounter &operator= (const SharedCounter &other) = delete;
 
+	// this function does NOT guarantee atomicity!
+	// it is intended to be used during initialization when no
+	// such guarantees are necessary.
+	void addRelaxed(int value = 1) {
+		int previous = volatileRead<int>(&_refCount);
+		volatileWrite<int>(&_refCount, previous + value);
+	}
+
 	// the following two operations are required for SharedPtrs
 	void increment() {
 		int previous_ref_count;
@@ -265,6 +273,11 @@ public:
 	T *operator-> () const {
 		assert(_control);
 		return _object;
+	}
+
+	void release() {
+		_control = Control();
+		_object = nullptr;
 	}
 
 private:
