@@ -1,4 +1,6 @@
 
+#include <atomic>
+
 namespace thor {
 
 template<typename Base, typename Signature, typename Token>
@@ -149,19 +151,31 @@ using PullDescriptor = Realization<
 >;
 
 struct Stream {
+	// manage the peer counter of each lane.
+	// incrementing a peer counter that is already at zero is undefined.
+	// decrement returns true if the counter reaches zero.
+	static void incrementPeers(Stream *stream, int lane);
+	static bool decrementPeers(Stream *stream, int lane);
+
 	Stream();
+	~Stream();
 
 	// submits an operation to the stream.
 	void submit(int lane, frigg::SharedPtr<StreamControl> control);
 
-	// TODO: this should _really_ be an atomic integer
-	int peerCounter[2];
-
 private:
+	std::atomic<int> _peerCount[2];
+	
+	frigg::TicketLock _mutex;
+
+	// protected by _mutex.
 	frigg::IntrusiveSharedLinkedList<
 		StreamControl,
 		&StreamControl::processQueueItem
 	> _processQueue[2];
+	
+	// protected by _mutex.
+	bool _laneBroken[2];
 };
 
 } // namespace thor

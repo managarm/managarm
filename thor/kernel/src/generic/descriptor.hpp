@@ -61,10 +61,30 @@ struct AdoptLane { };
 static constexpr AdoptLane adoptLane;
 
 struct LaneHandle {
+	friend void swap(LaneHandle &a, LaneHandle &b) {
+		using frigg::swap;
+		swap(a._stream, b._stream);
+		swap(a._lane, b._lane);
+	}
+
 	LaneHandle() = default;
 
 	explicit LaneHandle(AdoptLane, frigg::UnsafePtr<Stream> stream, int lane)
 	: _stream(stream), _lane(lane) { }
+
+	LaneHandle(const LaneHandle &other);
+
+	LaneHandle(LaneHandle &&other)
+	: LaneHandle() {
+		swap(*this, other);
+	}
+
+	~LaneHandle();
+
+	LaneHandle &operator= (LaneHandle other) {
+		swap(*this, other);
+		return *this;
+	}
 
 	frigg::UnsafePtr<Stream> getStream() {
 		return _stream;

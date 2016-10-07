@@ -72,7 +72,7 @@ private:
 
 template<typename Mutex>
 LockGuard<Mutex> guard(Mutex *mutex) {
-	return LockGuard<Mutex>();
+	return LockGuard<Mutex>(mutex);
 }
 
 } // namespace frigg
