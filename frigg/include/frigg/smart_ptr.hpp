@@ -60,9 +60,8 @@ struct SharedCounter {
 	// this function does NOT guarantee atomicity!
 	// it is intended to be used during initialization when no
 	// such guarantees are necessary.
-	void addRelaxed(int value = 1) {
-		int previous = volatileRead<int>(&_refCount);
-		volatileWrite<int>(&_refCount, previous + value);
+	void setRelaxed(int value) {
+		volatileWrite<int>(&_refCount, value);
 	}
 
 	// the following two operations are required for SharedPtrs

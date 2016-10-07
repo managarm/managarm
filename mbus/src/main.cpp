@@ -261,20 +261,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 		helix::Accept<M> accept;
 		helix::RecvString<M> recv_req;
 
-		helix::submitAsync(lane, {
-			helix::action(&accept)
-		}, helix::Dispatcher::global());
-		COFIBER_AWAIT accept.future();
-		HEL_CHECK(accept.error());
-		
-		auto conversation = accept.descriptor();
-
 		char buffer[256];
-		helix::submitAsync(conversation, {
+		helix::submitAsync(lane, {
+			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req, buffer, 256)
 		}, helix::Dispatcher::global());
+		COFIBER_AWAIT accept.future();
 		COFIBER_AWAIT recv_req.future();
+		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
+		
+		auto conversation = accept.descriptor();
 
 		managarm::mbus::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());

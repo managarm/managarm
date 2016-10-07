@@ -105,7 +105,7 @@ struct LaneDescriptor {
 	explicit LaneDescriptor(LaneHandle handle)
 	: _handle(frigg::move(handle)) { }
 
-	void submit(frigg::SharedPtr<StreamControl> control);
+	LaneDescriptor submit(frigg::SharedPtr<StreamControl> control);
 
 private:
 	LaneHandle _handle;

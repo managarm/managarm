@@ -794,6 +794,7 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
+	stream.control().counter()->setRelaxed(2);
 	{
 		Universe::Guard universe_guard(&universe->lock);
 		*lane1_handle = universe->attachDescriptor(universe_guard,
@@ -801,7 +802,6 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 		*lane2_handle = universe->attachDescriptor(universe_guard,
 				LaneDescriptor(LaneHandle(adoptLane, stream, 1)));
 	}
-	stream.control().counter()->addRelaxed();
 	stream.release();
 
 	return kHelErrNone;
@@ -848,27 +848,23 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		switch(action.type) {
 		case kHelActionOffer: {
-			auto stream = frigg::makeShared<Stream>(*kernelAlloc);
-			LaneHandle lane1(adoptLane, stream, 0);
-			LaneHandle lane2(adoptLane, stream, 1);
-			stream.control().counter()->addRelaxed();
-			stream.release();
-
 			using Token = PostEvent<OfferPolicy>;
 			auto control = frigg::makeShared<Offer<Token>>(*kernelAlloc,
-					Token(hub_descriptor.eventHub, action.context),
-					LaneDescriptor(frigg::move(lane1)));
-			target.submit(frigg::move(control));
+					Token(hub_descriptor.eventHub, action.context));
+			LaneDescriptor lane = target.submit(frigg::move(control));
 
 			if(action.flags & kHelItemAncillary)
-				stack.push(LaneDescriptor(frigg::move(lane2)));
+				stack.push(lane);
 		} break;
 		case kHelActionAccept: {
 			using Token = PostEvent<AcceptPolicy>;
 			auto control = frigg::makeShared<Accept<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					this_universe.toWeak());
-			target.submit(frigg::move(control));
+			LaneDescriptor lane = target.submit(frigg::move(control));
+
+			if(action.flags & kHelItemAncillary)
+				stack.push(lane);
 		} break;
 		case kHelActionSendFromBuffer: {
 			using Token = PostEvent<SendStringPolicy>;

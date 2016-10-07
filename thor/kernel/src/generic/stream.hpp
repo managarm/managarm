@@ -49,12 +49,10 @@ struct OfferBase : StreamControl {
 		return base.tag() == kTagOffer;
 	}
 
-	explicit OfferBase(LaneDescriptor lane)
-	: StreamControl(kTagOffer), _lane(frigg::move(lane)) { }
+	explicit OfferBase()
+	: StreamControl(kTagOffer) { }
 
 	virtual void complete(Error error) = 0;
-
-	LaneDescriptor _lane;
 };
 
 template<typename Token>
@@ -153,7 +151,7 @@ using PullDescriptor = Realization<
 struct Stream {
 	// manage the peer counter of each lane.
 	// incrementing a peer counter that is already at zero is undefined.
-	// decrement returns true if the counter reaches zero.
+	// decrementPeers() returns true if the counter reaches zero.
 	static void incrementPeers(Stream *stream, int lane);
 	static bool decrementPeers(Stream *stream, int lane);
 
@@ -161,7 +159,7 @@ struct Stream {
 	~Stream();
 
 	// submits an operation to the stream.
-	void submit(int lane, frigg::SharedPtr<StreamControl> control);
+	LaneDescriptor submit(int lane, frigg::SharedPtr<StreamControl> control);
 
 private:
 	std::atomic<int> _peerCount[2];
@@ -173,6 +171,9 @@ private:
 		StreamControl,
 		&StreamControl::processQueueItem
 	> _processQueue[2];
+	
+	// protected by _mutex.
+	frigg::LinkedList<frigg::SharedPtr<Stream>, KernelAlloc> _conversationQueue;
 	
 	// protected by _mutex.
 	bool _laneBroken[2];
