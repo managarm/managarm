@@ -254,14 +254,23 @@ static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
-		([pipe = std::move(p)] () {
+		([lane = std::move(p)] () {
 	using M = helix::AwaitMechanism;
 
 	while(true) {
-		char buffer[256];
+		helix::Accept<M> accept;
 		helix::RecvString<M> recv_req;
 
-		helix::submitAsync(pipe, {
+		helix::submitAsync(lane, {
+			helix::action(&accept)
+		}, helix::Dispatcher::global());
+		COFIBER_AWAIT accept.future();
+		HEL_CHECK(accept.error());
+		
+		auto conversation = accept.descriptor();
+
+		char buffer[256];
+		helix::submitAsync(conversation, {
 			helix::action(&recv_req, buffer, 256)
 		}, helix::Dispatcher::global());
 		COFIBER_AWAIT recv_req.future();
@@ -276,13 +285,16 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(1);
 
-			auto serialized = resp.SerializeAsString();
-			helix::submitAsync(pipe, {
-				helix::action(&send_resp, serialized.data(), serialized.size())
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size())
 			}, helix::Dispatcher::global());
 			COFIBER_AWAIT send_resp.future();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
+			helix::SendString<M> send_resp;
+			helix::SendDescriptor<M> send_lane;
+
 			auto parent = allEntities.at(req.parent_id());
 			if(typeid(*parent) != typeid(Group))
 				throw std::runtime_error("Objects can only be created inside groups");
@@ -311,17 +323,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(child->getId());
 
-			auto serialized = resp.SerializeAsString();
-			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
-					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_lane, remote_lane)
+			}, helix::Dispatcher::global());
 			COFIBER_AWAIT send_resp.future();
-			HEL_CHECK(send_resp.error());
-			
-			helix::SendDescriptor<M> send_lane(helix::Dispatcher::global(), pipe,
-					remote_lane, 0, 0, kHelResponse);
 			COFIBER_AWAIT send_lane.future();
+			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
+			helix::SendString<M> send_resp;
+			helix::SendDescriptor<M> send_lane;
+
 			auto parent = allEntities.at(req.id());
 			if(typeid(*parent) != typeid(Group))
 				throw std::runtime_error("Observers can only be attached to groups");
@@ -338,17 +352,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
-			auto serialized = resp.SerializeAsString();
-			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
-					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_lane, remote_lane)
+			}, helix::Dispatcher::global());
 			COFIBER_AWAIT send_resp.future();
-			HEL_CHECK(send_resp.error());
-			
-			helix::SendDescriptor<M> send_lane(helix::Dispatcher::global(), pipe,
-					remote_lane, 0, 0, kHelResponse);
 			COFIBER_AWAIT send_lane.future();
+			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
+			helix::SendString<M> send_resp;
+			helix::SendDescriptor<M> send_desc;
+
 			auto entity = allEntities.at(req.id());
 			if(typeid(*entity) != typeid(Object))
 				throw std::runtime_error("Bind can only be invoked on objects");
@@ -359,15 +375,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
-			auto serialized = resp.SerializeAsString();
-			helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe,
-					serialized.data(), serialized.size(), 0, 0, kHelResponse);
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_desc, descriptor)
+			}, helix::Dispatcher::global());
 			COFIBER_AWAIT send_resp.future();
-			HEL_CHECK(send_resp.error());
-			
-			helix::SendDescriptor<M> send_desc(helix::Dispatcher::global(), pipe,
-					descriptor, 0, 0, kHelResponse);
 			COFIBER_AWAIT send_desc.future();
+			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_desc.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");

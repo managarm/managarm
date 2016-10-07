@@ -108,15 +108,19 @@ enum {
 };
 
 enum {
+	kHelActionOffer = 5,
+	kHelActionAccept = 6,
 	kHelActionSendFromBuffer = 1,
-	kHelActionSendDescriptor = 2,
 	kHelActionRecvToBuffer = 3,
-	kHelActionRecvDescriptor = 4
+	kHelActionPushDescriptor = 2,
+	kHelActionPullDescriptor = 4
 };
 
 enum {
 	kHelEventLoadMemory = 7,
 	kHelEventLockMemory = 8,
+	kHelEventOffer = 13,
+	kHelEventAccept = 14,
 	kHelEventObserve = 12,
 	kHelEventSendString = 11,
 	kHelEventSendDescriptor = 10,
@@ -126,12 +130,15 @@ enum {
 	kHelEventIrq = 4
 };
 
+enum {
+	kHelItemChain = 1,
+	kHelItemAncillary = 2
+};
+
 struct HelAction {
 	int type;
 	uintptr_t context;
 	uint32_t flags;
-	HelError error;
-	int64_t asyncId;
 	// TODO: the following fields could be put into unions
 	void *buffer;
 	size_t length;
@@ -255,7 +262,7 @@ HEL_C_LINKAGE HelError helWaitForCertainEvent(HelHandle handle,
 		int64_t async_id, struct HelEvent *event, HelNanotime max_time);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
-HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, HelAction *actions,
+HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
 		size_t count, HelHandle hub_handle, uint32_t flags);
 
 HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);

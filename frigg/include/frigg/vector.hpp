@@ -31,7 +31,9 @@ public:
 	T &push(const T &element);
 	
 	T &push(T &&element);
-	
+
+	T &back();
+
 	T pop();
 
 	template<typename... Args>
@@ -118,6 +120,11 @@ void Vector<T, Allocator>::ensureCapacity(size_t capacity) {
 
 	p_elements = new_array;
 	p_capacity = new_capacity;
+}
+
+template<typename T, typename Allocator>
+T &Vector<T, Allocator>::back() {
+	return p_elements[p_size - 1];
 }
 
 template<typename T, typename Allocator>

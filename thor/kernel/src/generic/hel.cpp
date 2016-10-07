@@ -669,6 +669,8 @@ static void translateToUserEvent(AsyncEvent event, HelEvent *user_event) {
 	case kEventMemoryLoad: type = kHelEventLoadMemory; break;
 	case kEventMemoryLock: type = kHelEventLockMemory; break;
 	case kEventObserve: type = kHelEventObserve; break;
+	case kEventOffer: type = kHelEventOffer; break;
+	case kEventAccept: type = kHelEventAccept; break;
 	case kEventSendString: type = kHelEventSendString; break;
 	case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
 	case kEventRecvString: type = kHelEventRecvString; break;
@@ -805,7 +807,7 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 	return kHelErrNone;
 }
 
-HelError helSubmitAsync(HelHandle handle, HelAction *action, size_t count,
+HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
 		HelHandle hub_handle, uint32_t flags) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
@@ -832,43 +834,89 @@ HelError helSubmitAsync(HelHandle handle, HelAction *action, size_t count,
 		hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
 	}
 
-	for(size_t i = 0; i < count; i++) {
-		switch(action[i].type) {
+	frigg::Vector<LaneDescriptor, KernelAlloc> stack(*kernelAlloc);
+	stack.push(frigg::move(descriptor));
+
+	size_t i = 0;
+	while(!stack.empty()) {
+		assert(i < count);
+		HelAction action = actions[i++];
+
+		auto target = stack.back();
+		if(!(action.flags & kHelItemChain))
+			stack.pop();
+
+		switch(action.type) {
+		case kHelActionOffer: {
+			auto stream = frigg::makeShared<Stream>(*kernelAlloc);
+			LaneHandle lane1(adoptLane, stream, 0);
+			LaneHandle lane2(adoptLane, stream, 1);
+			stream.control().counter()->addRelaxed();
+			stream.release();
+
+			using Token = PostEvent<OfferPolicy>;
+			auto control = frigg::makeShared<Offer<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					LaneDescriptor(frigg::move(lane1)));
+			target.submit(frigg::move(control));
+
+			if(action.flags & kHelItemAncillary)
+				stack.push(LaneDescriptor(frigg::move(lane2)));
+		} break;
+		case kHelActionAccept: {
+			using Token = PostEvent<AcceptPolicy>;
+			auto control = frigg::makeShared<Accept<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					this_universe.toWeak());
+			target.submit(frigg::move(control));
+		} break;
 		case kHelActionSendFromBuffer: {
-			struct Control : SendFromBuffer {
-				Control(frigg::UniqueMemory<KernelAlloc> buffer)
-				: SendFromBuffer(frigg::move(buffer)) { }
-
-				void complete() override {
-					frigg::infoLogger() << "complete send" << frigg::endLog;
-				}
-			};
-
-			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action[i].length);
-			memcpy(buffer.data(), action[i].buffer, action[i].length);
-			auto control = frigg::makeShared<Control>(*kernelAlloc, frigg::move(buffer));
-			descriptor.submit(frigg::move(control));
+			using Token = PostEvent<SendStringPolicy>;
+			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
+			memcpy(buffer.data(), action.buffer, action.length);
+			auto control = frigg::makeShared<SendFromBuffer<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					frigg::move(buffer));
+			target.submit(frigg::move(control));
 		} break;
 		case kHelActionRecvToBuffer: {
-			struct Control : RecvToBuffer {
-				Control(ForeignSpaceLock accessor)
-				: RecvToBuffer(frigg::move(accessor)) { }
-
-				void complete() override {
-					frigg::infoLogger() << "complete recv" << frigg::endLog;
-				}
-			};
-
+			using Token = PostEvent<RecvStringPolicy>;
 			auto space = this_thread->getAddressSpace().toShared();
 			auto accessor = ForeignSpaceLock::acquire(frigg::move(space),
-					action[i].buffer, action[i].length);
-			auto control = frigg::makeShared<Control>(*kernelAlloc, frigg::move(accessor));
-			descriptor.submit(frigg::move(control));
+					action.buffer, action.length);
+			auto control = frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					frigg::move(accessor));
+			target.submit(frigg::move(control));
+		} break;
+		case kHelActionPushDescriptor: {
+			AnyDescriptor operand;
+			{
+				Universe::Guard universe_guard(&this_universe->lock);
+				auto wrapper = this_universe->getDescriptor(universe_guard, action.handle);
+				if(!wrapper)
+					return kHelErrNoDescriptor;
+				operand = *wrapper;
+			}
+
+			using Token = PostEvent<PushDescriptorPolicy>;
+			auto control = frigg::makeShared<PushDescriptor<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					frigg::move(operand));
+			target.submit(frigg::move(control));
+		} break;
+		case kHelActionPullDescriptor: {
+			using Token = PostEvent<PullDescriptorPolicy>;
+			auto control = frigg::makeShared<PullDescriptor<Token>>(*kernelAlloc,
+					Token(hub_descriptor.eventHub, action.context),
+					this_universe.toWeak());
+			target.submit(frigg::move(control));
 		} break;
 		default:
 			assert(!"Fix error handling here");
 		}
 	}
+	assert(i == count);
 
 	return kHelErrNone;
 }

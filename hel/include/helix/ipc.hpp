@@ -183,6 +183,26 @@ protected:
 	HelError _error;
 };
 
+struct OfferResult : ResultBase {
+};
+
+struct AcceptResult : ResultBase {
+	UniqueDescriptor descriptor() {
+		UniqueDescriptor descriptor(_handle);
+		_handle = kHelNullHandle;
+		return descriptor;
+	}
+
+protected:
+	HelHandle _handle;
+};
+
+struct SendStringResult : ResultBase {
+};
+
+struct SendDescriptorResult : ResultBase {
+};
+
 struct RecvStringResult : ResultBase {
 	size_t actualLength() {
 		HEL_CHECK(_error);
@@ -226,16 +246,12 @@ protected:
 	int64_t _sequenceId;
 };
 
-struct SendStringResult : ResultBase {
-};
-
-struct SendDescriptorResult : ResultBase {
-};
-
 struct AwaitIrqResult : ResultBase {
 };
 
 struct Dispatcher {
+	using Offer = OperationBase<OfferResult>;
+	using Accept = OperationBase<AcceptResult>;
 	using RecvString = OperationBase<RecvStringResult>;
 	using RecvDescriptor = OperationBase<RecvDescriptorResult>;
 	using SendString = OperationBase<SendStringResult>;
@@ -262,6 +278,17 @@ struct Dispatcher {
 		for(size_t i = 0; i < num_items; i++) {
 			HelEvent &e = list[i];
 			switch(e.type) {
+			case kHelEventOffer: {
+				auto ptr = static_cast<Offer *>((void *)e.submitObject);
+				ptr->_error = e.error;
+				ptr->complete();
+			} break;
+			case kHelEventAccept: {
+				auto ptr = static_cast<Accept *>((void *)e.submitObject);
+				ptr->_error = e.error;
+				ptr->_handle = e.handle;
+				ptr->complete();
+			} break;
 			case kHelEventRecvString: {
 				auto ptr = static_cast<RecvString *>((void *)e.submitObject);
 				ptr->_error = e.error;
@@ -304,6 +331,12 @@ private:
 };
 
 template<typename M>
+using Offer = Operation<OfferResult, M>;
+
+template<typename M>
+using Accept = Operation<AcceptResult, M>;
+
+template<typename M>
 struct RecvString : Operation<RecvStringResult, M> {
 	RecvString() = default;
 
@@ -321,6 +354,8 @@ struct RecvString : Operation<RecvStringResult, M> {
 
 template<typename M>
 struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
+	RecvDescriptor() = default;
+
 	RecvDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitRecvDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
@@ -350,6 +385,8 @@ struct SendString : Operation<SendStringResult, M> {
 
 template<typename M>
 struct SendDescriptor : Operation<SendDescriptorResult, M> {
+	SendDescriptor() = default;
+
 	SendDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitSendDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
@@ -379,6 +416,24 @@ struct AwaitIrq : Operation<AwaitIrqResult, M> {
 // ----------------------------------------------------------------------------
 
 template<typename M>
+HelAction action(Offer<M> *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionOffer;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	return action;
+}
+
+template<typename M>
+HelAction action(Accept<M> *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionAccept;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	return action;
+}
+
+template<typename M>
 HelAction action(SendString<M> *operation, const void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
@@ -402,8 +457,28 @@ HelAction action(RecvString<M> *operation, void *buffer, size_t length,
 	return action;
 }
 
+template<typename M>
+HelAction action(SendDescriptor<M> *operation, BorrowedDescriptor descriptor,
+		uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionPushDescriptor;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	action.handle = descriptor.getHandle();
+	return action;
+}
+
+template<typename M>
+HelAction action(RecvDescriptor<M> *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionPullDescriptor;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
+	return action;
+}
+
 template<size_t N>
-void submitAsync(BorrowedDescriptor descriptor, HelAction (&&actions)[N],
+void submitAsync(BorrowedDescriptor descriptor, const HelAction (&actions)[N],
 		const Dispatcher &dispatcher) {
 	HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
 			dispatcher.getHub().getHandle(), 0));

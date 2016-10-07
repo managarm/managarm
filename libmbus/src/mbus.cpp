@@ -26,21 +26,25 @@ Instance Instance::global() {
 }
 
 COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
+	helix::Offer<M> offer;
 	helix::SendString<M> send_req;
 	helix::RecvString<M> recv_resp;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
 
-	auto serialized = req.SerializeAsString();
+	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 	helix::submitAsync(_connection->pipe, {
-		helix::action(&send_req, serialized.data(), serialized.size()),
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128)
 	}, _connection->dispatcher);
 
+	COFIBER_AWAIT offer.future();
 	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
 
@@ -90,34 +94,40 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 		const Properties &properties,
 		std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
+	helix::Offer<M> offer;
+	helix::SendString<M> send_req;
+	helix::RecvString<M> recv_resp;
+	helix::RecvDescriptor<M> pull_lane;
+
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(_id);
 	for(auto kv : properties)
 		req.mutable_properties()->insert({ kv.first, kv.second });
 
-	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
+	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(_connection->dispatcher, _connection->pipe,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::submitAsync(_connection->pipe, {
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+		helix::action(&recv_resp, buffer, 128, kHelItemChain),
+		helix::action(&pull_lane),
+	}, _connection->dispatcher);
+	
+	COFIBER_AWAIT offer.future();
+	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_lane.future();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_lane.error());
 
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_lane(_connection->dispatcher, _connection->pipe,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_lane.future();
-	HEL_CHECK(recv_lane.error());
-	handleObject(_connection, handler, helix::UniquePipe(recv_lane.descriptor()));
+	handleObject(_connection, handler, helix::UniquePipe(pull_lane.descriptor()));
 
 	COFIBER_RETURN(Entity(_connection, resp.id()));
 }))
@@ -164,65 +174,76 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 
 COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter &filter,
 		std::function<void(AnyEvent)> handler) const, ([=] {
+	helix::Offer<M> offer;
+	helix::SendString<M> send_req;
+	helix::RecvString<M> recv_resp;
+	helix::RecvDescriptor<M> pull_lane;
+
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::LINK_OBSERVER);
 	req.set_id(_id);
 	encodeFilter(filter, req.mutable_filter());
 
-	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
+	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(_connection->dispatcher, _connection->pipe,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::submitAsync(_connection->pipe, {
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+		helix::action(&recv_resp, buffer, 128, kHelItemChain),
+		helix::action(&pull_lane),
+	}, _connection->dispatcher);
+	
+	COFIBER_AWAIT offer.future();
+	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_lane.future();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_lane.error());
 
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_lane(_connection->dispatcher, _connection->pipe,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_lane.future();
-	HEL_CHECK(recv_lane.error());
-	handleObserver(_connection, handler, helix::UniquePipe(recv_lane.descriptor()));
+	handleObserver(_connection, handler, helix::UniquePipe(pull_lane.descriptor()));
 
 	COFIBER_RETURN(Observer());
 }))
 
 COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
+	helix::Offer<M> offer;
+	helix::SendString<M> send_req;
+	helix::RecvString<M> recv_resp;
+	helix::RecvDescriptor<M> pull_desc;
+
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::BIND2);
 	req.set_id(_id);
 
-	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(_connection->dispatcher, _connection->pipe,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
+	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(_connection->dispatcher, _connection->pipe,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::submitAsync(_connection->pipe, {
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+		helix::action(&recv_resp, buffer, 128, kHelItemChain),
+		helix::action(&pull_desc),
+	}, _connection->dispatcher);
+	
+	COFIBER_AWAIT offer.future();
+	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_desc.future();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_desc.error());
 
 	managarm::mbus::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_desc(_connection->dispatcher, _connection->pipe,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_desc.future();
-	HEL_CHECK(recv_desc.error());
-	
-	COFIBER_RETURN(recv_desc.descriptor());
+	COFIBER_RETURN(pull_desc.descriptor());
 }))
 
 } } // namespace mbus::_detail

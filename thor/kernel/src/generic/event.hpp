@@ -6,6 +6,8 @@ enum EventType {
 	kEventMemoryLoad,
 	kEventMemoryLock,
 	kEventObserve,
+	kEventOffer,
+	kEventAccept,
 	kEventSendString,
 	kEventSendDescriptor,
 	kEventRecvString,
@@ -56,6 +58,86 @@ struct AsyncOperation {
 	AsyncCompleter completer;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
+};
+
+template<typename P>
+struct PostEvent {
+	struct Item : AsyncOperation {
+		Item(frigg::SharedPtr<EventHub> hub, uintptr_t context)
+		: AsyncOperation(PostEventCompleter(frigg::move(hub), 0, 0, context)) { }
+
+		AsyncEvent getEvent() override {
+			return event;
+		}
+
+		AsyncEvent event;
+	};
+
+	struct Completer {
+		explicit Completer(PostEvent token)
+		: _item(frigg::makeShared<Item>(*kernelAlloc,
+				frigg::move(token._hub), token._context)) { }
+
+		template<typename... Args>
+		void operator() (Args &&... args) {
+			auto info = _item->completer.template get<PostEventCompleter>().submitInfo;
+			_item->event = P::makeEvent(info, frigg::forward<Args>(args)...);
+			AsyncOperation::complete(frigg::move(_item));
+		}
+
+	private:
+		frigg::SharedPtr<Item> _item;
+	};
+
+	PostEvent(frigg::SharedPtr<EventHub> hub, uintptr_t context)
+	: _hub(frigg::move(hub)), _context(context) { }
+
+private:
+	frigg::SharedPtr<EventHub> _hub;
+	uintptr_t _context;
+};
+
+struct OfferPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
+		AsyncEvent event(kEventOffer, info);
+		event.error = error;
+		return event;
+	}
+};
+
+struct AcceptPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error,
+			frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane);
+};
+
+struct SendStringPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
+		AsyncEvent event(kEventSendString, info);
+		event.error = error;
+		return event;
+	}
+};
+
+struct RecvStringPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error, size_t length) {
+		AsyncEvent event(kEventRecvString, info);
+		event.error = error;
+		event.length = length;
+		return event;
+	}
+};
+
+struct PushDescriptorPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
+		AsyncEvent event(kEventSendDescriptor, info);
+		event.error = error;
+		return event;
+	}
+};
+
+struct PullDescriptorPolicy {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error,
+			frigg::WeakPtr<Universe> weak_universe, AnyDescriptor lane);
 };
 
 struct AsyncHandleLoad : public AsyncOperation {
