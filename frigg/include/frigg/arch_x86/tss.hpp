@@ -1,5 +1,7 @@
 
-namespace frigg {
+#include <frigg/macros.hpp>
+
+namespace frigg FRIGG_VISIBILITY {
 namespace arch_x86 {
 
 struct Tss64 {

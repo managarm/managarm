@@ -1,5 +1,7 @@
 
-namespace frigg {
+#include <frigg/macros.hpp>
+
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T, typename Allocator>
 class PriorityQueue {

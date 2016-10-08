@@ -2,10 +2,11 @@
 #ifndef FRIGG_CALLBACK_HPP
 #define FRIGG_CALLBACK_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
 #include <frigg/memory.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename Prototype>
 class CallbackPtr;

@@ -2,10 +2,11 @@
 #ifndef FRIGG_HASHMAP_HPP
 #define FRIGG_HASHMAP_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/optional.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename Key, typename Value, typename Hasher, typename Allocator>
 class Hashmap {

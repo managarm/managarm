@@ -2,9 +2,10 @@
 #ifndef FRIGG_ALGORITHM_HPP
 #define FRIGG_ALGORITHM_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T>
 void swap(T &a, T &b) {

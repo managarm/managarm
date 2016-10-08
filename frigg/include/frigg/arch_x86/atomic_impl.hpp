@@ -2,9 +2,10 @@
 #ifndef FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
 #define FRIGG_ARCH_X86_ATOMIC_IMPL_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 inline void barrier() {
 	asm volatile ( "" : : : "memory" );

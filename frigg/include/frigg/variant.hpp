@@ -2,9 +2,10 @@
 #ifndef FRIGG_VARIANT_HPP
 #define FRIGG_VARIANT_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/traits.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 namespace _variant {
 	// check if S is one of the types T

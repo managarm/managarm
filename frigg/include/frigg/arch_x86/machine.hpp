@@ -2,10 +2,11 @@
 #ifndef FRIGG_MACHINE_HPP
 #define FRIGG_MACHINE_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/array.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 namespace arch_x86 {
 
 enum {
@@ -87,7 +88,7 @@ inline void ioOutByte(uint16_t port, uint8_t value) {
 
 } } // namespace frigg::arch_x86
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T>
 T readIo(uint16_t port);

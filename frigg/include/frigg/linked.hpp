@@ -1,7 +1,8 @@
 
+#include <frigg/macros.hpp>
 #include <frigg/smart_ptr.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T>
 struct IntrusiveSharedLinkedItem {

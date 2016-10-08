@@ -2,9 +2,10 @@
 #ifndef FRIGG_MEMORY_SLAB_HPP
 #define FRIGG_MEMORY_SLAB_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/debug.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 inline int nextPower(uint64_t n) {
 	uint64_t u = n;

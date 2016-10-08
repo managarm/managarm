@@ -2,10 +2,11 @@
 #ifndef FRIGG_DEBUG_HPP
 #define FRIGG_DEBUG_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 class VirtualSink {
 public:

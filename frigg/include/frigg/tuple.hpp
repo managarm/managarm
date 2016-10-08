@@ -2,7 +2,9 @@
 #ifndef FRIGG_TUPLE_HPP
 #define FRIGG_TUPLE_HPP
 
-namespace frigg {
+#include <frigg/macros.hpp> 
+
+namespace frigg FRIGG_VISIBILITY {
 
 namespace _tuple {
 	template<typename... Types>

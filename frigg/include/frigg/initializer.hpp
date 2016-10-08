@@ -2,10 +2,11 @@
 #ifndef FRIGG_INITIALIZER_HPP
 #define FRIGG_INITIALIZER_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 // note: this class has to be placed in zero'd memory
 // (e.g. in the BSS segment), otherise p_initialized will contain garbage

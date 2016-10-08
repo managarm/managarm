@@ -2,7 +2,9 @@
 #ifndef FRIGG_ARRAY_HPP
 #define FRIGG_ARRAY_HPP
 
-namespace frigg {
+#include <frigg/macros.hpp>
+
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T, int n>
 class Array {

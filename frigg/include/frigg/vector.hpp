@@ -2,10 +2,11 @@
 #ifndef FRIGG_VECTOR_HPP
 #define FRIGG_VECTOR_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename T, typename Allocator>
 class Vector {

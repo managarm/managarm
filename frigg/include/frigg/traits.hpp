@@ -2,9 +2,10 @@
 #ifndef FRIGG_TRAITS_HPP
 #define FRIGG_TRAITS_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename... Types>
 struct TypePack;

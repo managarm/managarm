@@ -2,10 +2,11 @@
 #ifndef FRIGG_OPTIONAL_HPP
 #define FRIGG_OPTIONAL_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/algorithm.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 namespace expected_impl {
 	template<typename T>

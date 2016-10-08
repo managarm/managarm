@@ -2,7 +2,9 @@
 #ifndef FRIGG_PROTOBUF_HPP
 #define FRIGG_PROTOBUF_HPP
 
-namespace frigg {
+#include <frigg/macros.hpp>
+
+namespace frigg FRIGG_VISIBILITY {
 namespace protobuf {
 
 class BufferWriter {

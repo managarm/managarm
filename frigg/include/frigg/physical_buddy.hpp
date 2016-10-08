@@ -1,10 +1,11 @@
 
 #include <limits.h>
 
+#include <frigg/macros.hpp>
 #include <frigg/optional.hpp>
 #include <frigg/variant.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 namespace _buddy {
 	inline unsigned long ceilTo2Power(unsigned long x) {

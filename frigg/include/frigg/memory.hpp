@@ -2,12 +2,13 @@
 #ifndef FRIGG_MEMORY_HPP
 #define FRIGG_MEMORY_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 #include <frigg/atomic.hpp>
 #include <frigg/memory-slab.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 // --------------------------------------------------------
 // DebugAllocator declarations

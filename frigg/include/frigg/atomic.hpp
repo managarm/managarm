@@ -2,13 +2,15 @@
 #ifndef FRIGG_ATOMIC_HPP
 #define FRIGG_ATOMIC_HPP
 
+#include <frigg/macros.hpp>
+
 #if defined(__i386__)
 #include "arch_x86/atomic_impl.hpp"
 #elif defined(__x86_64__)
 #include "arch_x86/atomic_impl.hpp"
 #endif
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 struct NullLock {
 	void lock() { }

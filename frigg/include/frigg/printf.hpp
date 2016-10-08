@@ -2,9 +2,10 @@
 #ifndef FRIGG_PRINTF_HPP
 #define FRIGG_PRINTF_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/optional.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename P>
 void printf(P &printer, const char *format, va_list args) {

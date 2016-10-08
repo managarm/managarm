@@ -2,11 +2,12 @@
 #ifndef FRIGG_STRING_HPP
 #define FRIGG_STRING_HPP
 
+#include <frigg/macros.hpp>
 #include <frigg/algorithm.hpp>
 #include <frigg/optional.hpp>
 #include <frigg/debug.hpp>
 
-namespace frigg {
+namespace frigg FRIGG_VISIBILITY {
 
 template<typename Char>
 class BasicStringView {
