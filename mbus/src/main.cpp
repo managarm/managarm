@@ -91,32 +91,37 @@ private:
 COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
 	using M = helix::AwaitMechanism;
 	
+	helix::Offer<M> offer;
+	helix::SendString<M> send_req;
+	helix::RecvString<M> recv_resp;
+	helix::RecvDescriptor<M> pull_desc;
+
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::BIND);
 
-	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
+	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::RecvString<M> recv_resp(helix::Dispatcher::global(), _lane,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::submitAsync(_lane, {
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+		helix::action(&recv_resp, buffer, 128, kHelItemChain),
+		helix::action(&pull_desc),
+	}, helix::Dispatcher::global());
+	
+	COFIBER_AWAIT offer.future();
+	COFIBER_AWAIT send_req.future();
 	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_desc.future();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_desc.error());
 
 	managarm::mbus::CntResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	helix::RecvDescriptor<M> recv_desc(helix::Dispatcher::global(), _lane,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_desc.future();
-	HEL_CHECK(recv_desc.error());
-	
-	COFIBER_RETURN(recv_desc.descriptor());
+	COFIBER_RETURN(pull_desc.descriptor());
 }))
 
 struct EqualsFilter;
@@ -206,14 +211,18 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 
 		if(!matchesFilter(entity.get(), _filter)) 
 			continue;
+		
+		helix::SendString<M> send_req;
 
 		managarm::mbus::SvrRequest req;
 		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 		req.set_id(entity->getId());
 
-		auto serialized = req.SerializeAsString();
-		helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
-				serialized.data(), serialized.size(), 0, 0, kHelRequest);
+		auto ser = req.SerializeAsString();
+		helix::submitAsync(_lane, {
+			helix::action(&send_req, ser.data(), ser.size())
+		}, helix::Dispatcher::global());
+		
 		COFIBER_AWAIT send_req.future();
 		HEL_CHECK(send_req.error());
 	}
@@ -224,14 +233,18 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 	
 	if(!matchesFilter(entity.get(), _filter)) 
 		return;
+	
+	helix::SendString<M> send_req;
 
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 	req.set_id(entity->getId());
 
-	auto serialized = req.SerializeAsString();
-	helix::SendString<M> send_req(helix::Dispatcher::global(), _lane,
-			serialized.data(), serialized.size(), 0, 0, kHelRequest);
+	auto ser = req.SerializeAsString();
+	helix::submitAsync(_lane, {
+		helix::action(&send_req, ser.data(), ser.size())
+	}, helix::Dispatcher::global());
+	
 	COFIBER_AWAIT send_req.future();
 	HEL_CHECK(send_req.error());
 }))
@@ -302,7 +315,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 				properties.insert({ kv.first, kv.second });
 
 			helix::UniquePipe local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createFullPipe();
+			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto child = std::make_shared<Object>(nextEntityId++,
 					group, std::move(properties), std::move(local_lane));
 			allEntities.insert({ child->getId(), child });
@@ -339,7 +352,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			auto group = std::static_pointer_cast<Group>(parent);
 
 			helix::UniquePipe local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createFullPipe();
+			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto observer = std::make_shared<Observer>(decodeFilter(req.filter()),
 					std::move(local_lane));
 			group->linkObserver(observer);
