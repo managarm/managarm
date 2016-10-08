@@ -115,8 +115,7 @@ size_t computeBarLength(uint32_t mask) {
 	assert(mask);
 	size_t length_bits = __builtin_ctz(mask);
 	size_t decoded_bits = 32 - __builtin_clz(mask);
-//  TODO: This requires libgcc
-//	assert(__builtin_popcount(mask) == decoded_bits - length_bits);
+	assert(__builtin_popcount(mask) == decoded_bits - length_bits);
 
 	return size_t(1) << length_bits;
 }
@@ -244,40 +243,6 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		device->interrupt = helx::Irq::access(line_number);
 
 		registerDevice(device);
-		/*managarm::mbus::CntRequest<Allocator> request(*allocator);
-		request.set_req_type(managarm::mbus::CntReqType::REGISTER);
-		
-		frigg::String<Allocator> vendor_str(*allocator, "pci-vendor:0x");
-		vendor_str += frigg::uintToString(*allocator, vendor, 16);
-		managarm::mbus::Capability<Allocator> vendor_cap(*allocator);
-		vendor_cap.set_name(frigg::move(vendor_str));
-		request.add_caps(frigg::move(vendor_cap));
-		
-		frigg::String<Allocator> device_str(*allocator, "pci-device:0x");
-		device_str += frigg::uintToString(*allocator, device_id, 16);
-		managarm::mbus::Capability<Allocator> device_cap(*allocator);
-		device_cap.set_name(frigg::move(device_str));
-		request.add_caps(frigg::move(device_cap));
-		
-		frigg::String<Allocator> serialized(*allocator);
-		request.SerializeToString(&serialized);
-		HelError send_error;
-		mbusPipe.sendStringSync(serialized.data(), serialized.size(),
-				eventHub, 123, 0, kHelRequest, send_error);
-		HEL_CHECK(send_error);
-
-		uint8_t buffer[128];
-		HelError error;
-		size_t length;
-		mbusPipe.recvStringRespSync(buffer, 128, eventHub, 123, 0, error, length);
-		HEL_CHECK(error);
-		
-		managarm::mbus::SvrResponse<Allocator> response(*allocator);
-		response.ParseFromArray(buffer, length);
-		
-		device->mbusId = response.object_id();
-		std::cout << "        ObjectID " << response.object_id() << std::endl;
-		*/
 
 		allDevices.push_back(device);
 	}
