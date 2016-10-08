@@ -200,7 +200,7 @@ private:
 namespace thor {
 
 template<typename T>
-T *DirectSpaceLock<T>::get() {
+T *DirectSpaceAccessor<T>::get() {
 	assert(_space);
 	size_t misalign = (VirtualAddr)_address % kPageSize;
 	AddressSpace::Guard guard(&_space->lock);
@@ -208,7 +208,7 @@ T *DirectSpaceLock<T>::get() {
 	return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
 }
 
-inline void ForeignSpaceLock::copyTo(void *pointer, size_t size) {
+inline void ForeignSpaceAccessor::copyTo(void *pointer, size_t size) {
 	AddressSpace::Guard guard(&_space->lock);
 	
 	size_t offset = 0;

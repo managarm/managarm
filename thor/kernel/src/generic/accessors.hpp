@@ -6,30 +6,30 @@ namespace thor {
 // so that the object cannot cross a page boundary.
 // requires the object to be smaller than a page for the same reason.
 template<typename T>
-struct DirectSpaceLock {
-	static DirectSpaceLock acquire(frigg::SharedPtr<AddressSpace> space, T *address) {
+struct DirectSpaceAccessor {
+	static DirectSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space, T *address) {
 		assert(sizeof(T) <= kPageSize);
 		assert((VirtualAddr)address % sizeof(T) == 0);
 		// TODO: actually lock the memory + make sure the memory is mapped as writeable
 		// TODO: return an empty lock if the acquire fails
-		return DirectSpaceLock(frigg::move(space), address);
+		return DirectSpaceAccessor(frigg::move(space), address);
 	}
 
-	friend void swap(DirectSpaceLock &a, DirectSpaceLock &b) {
+	friend void swap(DirectSpaceAccessor &a, DirectSpaceAccessor &b) {
 		frigg::swap(a._space, b._space);
 		frigg::swap(a._address, b._address);
 	}
 
-	DirectSpaceLock() = default;
+	DirectSpaceAccessor() = default;
 
-	DirectSpaceLock(const DirectSpaceLock &other) = delete;
+	DirectSpaceAccessor(const DirectSpaceAccessor &other) = delete;
 
-	DirectSpaceLock(DirectSpaceLock &&other)
-	: DirectSpaceLock() {
+	DirectSpaceAccessor(DirectSpaceAccessor &&other)
+	: DirectSpaceAccessor() {
 		swap(*this, other);
 	}
 	
-	DirectSpaceLock &operator= (DirectSpaceLock other) {
+	DirectSpaceAccessor &operator= (DirectSpaceAccessor other) {
 		swap(*this, other);
 		return *this;
 	}
@@ -51,37 +51,37 @@ struct DirectSpaceLock {
 	}
 
 private:
-	DirectSpaceLock(frigg::SharedPtr<AddressSpace> space, T *address)
+	DirectSpaceAccessor(frigg::SharedPtr<AddressSpace> space, T *address)
 	: _space(frigg::move(space)), _address(address) { }
 
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_address;
 };
 
-struct ForeignSpaceLock {
-	static ForeignSpaceLock acquire(frigg::SharedPtr<AddressSpace> space,
+struct ForeignSpaceAccessor {
+	static ForeignSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length) {
 		// TODO: actually lock the memory + make sure the memory is mapped as writeable
 		// TODO: return an empty lock if the acquire fails
-		return ForeignSpaceLock(frigg::move(space), address, length);
+		return ForeignSpaceAccessor(frigg::move(space), address, length);
 	}
 
-	friend void swap(ForeignSpaceLock &a, ForeignSpaceLock &b) {
+	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
 		frigg::swap(a._space, b._space);
 		frigg::swap(a._address, b._address);
 		frigg::swap(a._length, b._length);
 	}
 
-	ForeignSpaceLock() = default;
+	ForeignSpaceAccessor() = default;
 
-	ForeignSpaceLock(const ForeignSpaceLock &other) = delete;
+	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
 
-	ForeignSpaceLock(ForeignSpaceLock &&other)
-	: ForeignSpaceLock() {
+	ForeignSpaceAccessor(ForeignSpaceAccessor &&other)
+	: ForeignSpaceAccessor() {
 		swap(*this, other);
 	}
 	
-	ForeignSpaceLock &operator= (ForeignSpaceLock other) {
+	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
 		swap(*this, other);
 		return *this;
 	}
@@ -96,7 +96,7 @@ struct ForeignSpaceLock {
 	void copyTo(void *pointer, size_t size);
 
 private:
-	ForeignSpaceLock(frigg::SharedPtr<AddressSpace> space,
+	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length)
 	: _space(frigg::move(space)), _address(address), _length(length) { }
 

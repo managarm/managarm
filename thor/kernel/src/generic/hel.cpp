@@ -878,7 +878,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionRecvToBuffer: {
 			using Token = PostEvent<RecvStringPolicy>;
 			auto space = this_thread->getAddressSpace().toShared();
-			auto accessor = ForeignSpaceLock::acquire(frigg::move(space),
+			auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
 					action.buffer, action.length);
 			auto control = frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
@@ -960,7 +960,7 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 	}
 	
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
-	auto space_lock = DirectSpaceLock<HelRingBuffer>::acquire(frigg::move(space), buffer);
+	auto space_lock = DirectSpaceAccessor<HelRingBuffer>::acquire(frigg::move(space), buffer);
 
 	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = completer.submitInfo.asyncId;
@@ -1197,7 +1197,7 @@ HelError helSubmitRecvString(HelHandle handle,
 		recv_flags |= Channel::kFlagResponse;
 
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
-	auto space_lock = ForeignSpaceLock::acquire(frigg::move(space), user_buffer, max_length);
+	auto space_lock = ForeignSpaceAccessor::acquire(frigg::move(space), user_buffer, max_length);
 
 	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
 	*async_id = completer.submitInfo.asyncId;

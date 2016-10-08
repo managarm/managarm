@@ -62,7 +62,7 @@ void serviceRecv(frigg::SharedPtr<Channel> channel, void *buffer, size_t max_len
 				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject()),
 			AsyncRecvString::kTypeNormal, -1, 0);
 	recv->flags = Channel::kFlagRequest;
-	recv->spaceLock = ForeignSpaceLock::acquire(this_space.toShared(), buffer, max_length);
+	recv->spaceLock = ForeignSpaceAccessor::acquire(this_space.toShared(), buffer, max_length);
 
 	Error error;
 	{

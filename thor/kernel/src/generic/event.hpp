@@ -242,7 +242,7 @@ struct AsyncRecvString : public AsyncOperation {
 	uint32_t flags;
 	
 	// used by kTypeNormal
-	ForeignSpaceLock spaceLock;
+	ForeignSpaceAccessor spaceLock;
 	
 	// used by kTypeToRing
 	frigg::SharedPtr<RingBuffer> ringBuffer;
@@ -278,12 +278,12 @@ struct AsyncRecvDescriptor : public AsyncOperation {
 };
 
 struct AsyncRingItem : public AsyncOperation {
-	AsyncRingItem(AsyncCompleter completer, DirectSpaceLock<HelRingBuffer> space_lock,
+	AsyncRingItem(AsyncCompleter completer, DirectSpaceAccessor<HelRingBuffer> space_lock,
 			size_t buffer_size);
 	
 	AsyncEvent getEvent() override;
 
-	DirectSpaceLock<HelRingBuffer> spaceLock;
+	DirectSpaceAccessor<HelRingBuffer> spaceLock;
 	size_t bufferSize;
 
 	size_t offset;

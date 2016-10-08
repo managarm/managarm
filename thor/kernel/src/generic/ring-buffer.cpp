@@ -4,7 +4,7 @@
 namespace thor {
 
 AsyncRingItem::AsyncRingItem(AsyncCompleter completer,
-		DirectSpaceLock<HelRingBuffer> space_lock, size_t buffer_size)
+		DirectSpaceAccessor<HelRingBuffer> space_lock, size_t buffer_size)
 : AsyncOperation(frigg::move(completer)),
 		spaceLock(frigg::move(space_lock)), bufferSize(buffer_size), offset(0) { }
 
@@ -30,7 +30,7 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 
 		frigg::UnsafePtr<AddressSpace> space = front.spaceLock.space();
 		auto address = (char *)front.spaceLock.foreignAddress() + sizeof(HelRingBuffer) + offset;
-		auto data_lock = ForeignSpaceLock::acquire(space.toShared(), address,
+		auto data_lock = ForeignSpaceAccessor::acquire(space.toShared(), address,
 				send->kernelBuffer.size());
 		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
 

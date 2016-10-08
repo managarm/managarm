@@ -100,12 +100,12 @@ struct RecvToBufferBase : StreamControl {
 		return base.tag() == kTagRecvToBuffer;
 	}
 
-	explicit RecvToBufferBase(ForeignSpaceLock accessor)
+	explicit RecvToBufferBase(ForeignSpaceAccessor accessor)
 	: StreamControl(kTagRecvToBuffer), accessor(frigg::move(accessor)) { }
 
 	virtual void complete(Error error, size_t length) = 0;
 	
-	ForeignSpaceLock accessor;
+	ForeignSpaceAccessor accessor;
 };
 
 template<typename Token>
