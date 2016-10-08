@@ -176,12 +176,12 @@ namespace _common_type {
 template<typename... T>
 using CommonType = typename _common_type::Helper<T...>::Type;
 
-namespace _aligned_union {
-	template<size_t size, size_t align>
-	struct alignas(align) Storage {
-		char buffer[size];
-	};
+template<size_t Size, size_t Align>
+struct alignas(Align) AlignedStorage {
+	char buffer[Size];
+};
 
+namespace _aligned_union {
 	template<size_t... S>
 	struct Max;
 
@@ -194,7 +194,7 @@ namespace _aligned_union {
 };
 
 template<typename... T>
-using AlignedUnion = _aligned_union::Storage<
+using AlignedUnion = AlignedStorage<
 	_aligned_union::Max<sizeof(T)...>::value,
 	_aligned_union::Max<alignof(T)...>::value
 >;

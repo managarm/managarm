@@ -50,6 +50,26 @@ private:
 	bool p_initialized;
 };
 
+// container for an object that 
+template<typename T>
+class Eternal {
+public:
+	static_assert(__has_trivial_destructor(AlignedStorage<sizeof(T), alignof(T)>),
+			"Eternal<T> should have a trivial destructor");
+
+	template<typename... Args>
+	Eternal(Args &&... args) {
+		new (&_storage) T(forward<Args>(args)...);
+	}
+
+	T &get() {
+		return *reinterpret_cast<T *>(&_storage);
+	}
+
+private:
+	AlignedStorage<sizeof(T), alignof(T)> _storage;
+};
+
 } // namespace frigg
 
 #endif // FRIGG_INITIALIZER_HPP
