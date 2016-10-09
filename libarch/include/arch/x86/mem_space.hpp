@@ -33,7 +33,31 @@ namespace _detail {
 		}
 	};
 
+	template<>
+	struct mem_ops<uint64_t> {
+		static void store(uint64_t *p, uint64_t v) {
+			asm volatile ("movq %0, %1" : : "r"(v), "m"(*p) : "memory");
+		}
+		static void store_relaxed(uint64_t *p, uint64_t v) {
+			asm volatile ("movq %0, %1" : : "r"(v), "m"(*p));
+		}
+
+		static uint64_t load(const uint64_t *p) {
+			uint64_t v;
+			asm volatile ("movq %1, %0" : "=r"(v) : "m"(*p) : "memory");
+			return v;
+		}
+		static uint64_t load_relaxed(const uint64_t *p) {
+			uint64_t v;
+			asm volatile ("movq %1, %0" : "=r"(v) : "m"(*p));
+			return v;
+		}
+	};
+
 	struct mem_space {
+		constexpr mem_space()
+		: _base(0) { }
+		
 		constexpr mem_space(void *base)
 		: _base(uintptr_t(base)) { }
 

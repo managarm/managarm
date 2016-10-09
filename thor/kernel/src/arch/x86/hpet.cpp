@@ -1,28 +1,29 @@
 
+#include <arch/bits.hpp>
+#include <arch/register.hpp>
+#include <arch/mem_space.hpp>
+
 #include "generic/kernel.hpp"
 
 namespace thor {
 
-enum {
-	kHpetGenCapsAndId = 0,
-	kHpetGenConfig = 2,
-	kHpetGenIntStatus = 4,
-	kHpetMainCounter = 30,
-	kHpetTimerConfig0 = 32,
-	kHpetTimerComparator0 = 33,
-};
+arch::bit_register<uint64_t> genCapsAndId(0);
+arch::bit_register<uint64_t> genConfig(16);
+arch::scalar_register<uint64_t> genIntStatus(32);
+arch::scalar_register<uint64_t> mainCounter(240);
+arch::bit_register<uint64_t> timerConfig0(256);
+arch::scalar_register<uint64_t> timerComparator0(264);
 
-enum {
-	// kHpetCapsAndId register
-	kHpet64BitCounter = 0x2000,
+// genCapsAndId register.
+arch::field<uint64_t, bool> countSizeCap(13, 0x01);
+arch::field<uint64_t, uint32_t> counterClkPeriod(32, 0xFFFFFFFF);
 
-	// kHpetGenConfig register
-	kHpetEnable = 1,
-	
-	// TimerConfig registers
-	kHpetEnableInt = 4,
-	kHpetIntShift = 9
-};
+// genConfig register
+arch::field<uint64_t, bool> enableCnf(0, 0x01);
+
+// timerConfig registers
+arch::field<uint64_t, bool> tnIntEnbCnf(2, 0x01);
+arch::field<uint64_t, int> tnIntRouteCnf(9, 0x1F);
 
 enum : uint64_t {
 	kFemtosPerNano = 1000000,
@@ -31,7 +32,7 @@ enum : uint64_t {
 	kFemtosPerSecond = kFemtosPerMilli * 1000
 };
 
-uint64_t *hpetRegs;
+arch::mem_space hpetBase;
 uint64_t hpetFrequency;
 bool hpetAvailable;
 
@@ -55,20 +56,19 @@ bool haveTimer() {
 
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
-	hpetRegs = accessPhysical<uint64_t>(address);
+	
+	hpetBase = arch::mem_space(accessPhysical<uint64_t>(address));
 
-	uint64_t caps = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenCapsAndId]);
-	if((caps & kHpet64BitCounter) == 0)
-		frigg::infoLogger() << "HPET only has a 32-bit counter" << frigg::endLog;
-	if((caps & kHpet64BitCounter) == 0)
+	auto caps = hpetBase.load(genCapsAndId);
+	if(!(caps & countSizeCap))
 		frigg::infoLogger() << "HPET only has a 32-bit counter" << frigg::endLog;
 
-	hpetFrequency = caps >> 32;
+	hpetFrequency = caps & counterClkPeriod;
 	frigg::infoLogger() << "HPET frequency: " << hpetFrequency << frigg::endLog;
 	
-	uint64_t config = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetGenConfig]);
-	config |= kHpetEnable;
-	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetGenConfig], config);
+	auto config = hpetBase.load(genConfig);
+	config |= enableCnf(true);
+	hpetBase.store(genConfig, config);
 	
 	frigg::infoLogger() << "Enabled HPET" << frigg::endLog;
 	
@@ -78,30 +78,31 @@ void setupHpet(PhysicalAddr address) {
 	frigg::arch_x86::ioOutByte(kPitChannel0, 0);
 	
 	// program hpet timer 0 in one-shot mode
-	uint64_t timer_config = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetTimerConfig0]);
-	timer_config &= ~int64_t(0x1F << kHpetIntShift);
-	timer_config |= 2 << kHpetIntShift;
-	timer_config |= kHpetEnableInt;
-	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerConfig0], timer_config);
-	frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerComparator0], 0);
+	auto timer_config = hpetBase.load(timerConfig0);
+	timer_config &= ~tnIntRouteCnf;
+	timer_config |= tnIntRouteCnf(2);
+	timer_config |= tnIntEnbCnf(true);
+	frigg::infoLogger() << static_cast<uint64_t>(timer_config) << frigg::endLog;
+	hpetBase.store(timerConfig0, timer_config);
+	hpetBase.store(timerComparator0, 0);
 
 	hpetAvailable = true;
 
 	calibrateApicTimer();
-
+	
 	timerQueue.initialize(*kernelAlloc);
 }
 
 void pollSleepNano(uint64_t nanotime) {
-	uint64_t counter = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
+	uint64_t counter = hpetBase.load(mainCounter);
 	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetFrequency;
-	while(frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]) < goal) {
+	while(hpetBase.load(mainCounter) < goal) {
 		frigg::pause();
 	}
 }
 
 uint64_t currentTicks() {
-	return frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
+	return hpetBase.load(mainCounter);
 }
 
 uint64_t currentNanos() {
@@ -119,14 +120,14 @@ uint64_t durationToTicks(uint64_t seconds,
 
 void installTimer(Timer &&timer) {
 	if(timerQueue->empty()) {
-		frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerComparator0], timer.deadline);
+		hpetBase.store(timerComparator0, timer.deadline);
 	}
 
 	timerQueue->enqueue(frigg::move(timer));
 }
 
 void timerInterrupt() {
-	auto current = frigg::volatileRead<uint64_t>(&hpetRegs[kHpetMainCounter]);
+	auto current = hpetBase.load(mainCounter);
 	while(!timerQueue->empty() && timerQueue->front().deadline < current) {
 		Timer timer = timerQueue->dequeue();
 
@@ -139,8 +140,7 @@ void timerInterrupt() {
 	}
 
 	if(!timerQueue->empty()) {
-		frigg::volatileWrite<uint64_t>(&hpetRegs[kHpetTimerComparator0],
-				timerQueue->front().deadline);
+		hpetBase.store(timerComparator0, timerQueue->front().deadline);
 	}
 }
 

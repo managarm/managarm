@@ -31,10 +31,18 @@ struct bit_value {
 	bit_value operator| (bit_value other) const {
 		return bit_value(_bits | other._bits);
 	}
+	bit_value &operator|= (bit_value other) {
+		*this = *this | other;
+		return *this;
+	}
 
 	// allow masking out individual bits.
 	bit_value operator& (bit_mask<B> other) const {
 		return bit_value(_bits & static_cast<B>(other));
+	}
+	bit_value &operator&= (bit_mask<B> other) {
+		*this = *this & other;
+		return *this;
 	}
 
 private:
