@@ -2,6 +2,7 @@
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/mem_space.hpp>
+#include <arch/io_space.hpp>
 
 #include "generic/kernel.hpp"
 
@@ -36,16 +37,11 @@ arch::mem_space hpetBase;
 uint64_t hpetFrequency;
 bool hpetAvailable;
 
-enum {
-	kPitChannel0 = 0x40,
-	kPitCommand = 0x43,
-};
+arch::scalar_register<uint8_t> channel0(64);
+arch::bit_register<uint8_t> command(67);
 
-enum {
-	kPitOnTerminalCount = 0x00,
-	kPitRateGenerator = 0x04,
-	kPitLowHigh = 0x30
-};
+arch::field<uint8_t, int> operatingMode(1, 0x07);
+arch::field<uint8_t, int> accessMode(4, 0x03);
 
 typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
 frigg::LazyInitializer<TimerQueue> timerQueue;
@@ -73,9 +69,9 @@ void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "Enabled HPET" << frigg::endLog;
 	
 	// disable the legacy PIT (i.e. program to one-shot mode)
-	frigg::arch_x86::ioOutByte(kPitCommand, kPitOnTerminalCount | kPitLowHigh);
-	frigg::arch_x86::ioOutByte(kPitChannel0, 1);
-	frigg::arch_x86::ioOutByte(kPitChannel0, 0);
+	arch::global_io.store(command, operatingMode(0) | accessMode(3));
+	arch::global_io.store(channel0, 1);
+	arch::global_io.store(channel0, 0);
 	
 	// program hpet timer 0 in one-shot mode
 	auto timer_config = hpetBase.load(timerConfig0);
