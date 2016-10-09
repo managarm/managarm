@@ -140,6 +140,7 @@ $(eval
 
   .PHONY: install-$$c-$1
   install-$$c-$1:
+	mkdir -p $(SYSROOT_PATH)/usr/include/$(dir $1)
 	install $$($$d_HEADERDIR)/$1 $(SYSROOT_PATH)/usr/include/$1
 )
 endef
