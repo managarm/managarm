@@ -1,4 +1,8 @@
 
+#include <arch/bits.hpp>
+#include <arch/register.hpp>
+#include <arch/io_space.hpp>
+
 #include "generic/kernel.hpp"
 
 namespace thor {
@@ -32,8 +36,59 @@ void advanceY() {
 	}
 }
 
+arch::scalar_register<uint8_t> data(0);
+arch::scalar_register<uint8_t> baudLow(0);
+arch::scalar_register<uint8_t> baudHigh(1);
+arch::bit_register<uint8_t> lineControl(3);
+arch::bit_register<uint8_t> lineStatus(5);
+
+arch::field<uint8_t, bool> txReady(5, 0x01);
+
+arch::field<uint8_t, int> dataBits(0, 0x03);
+arch::field<uint8_t, bool> stopBit(2, 0x01);
+arch::field<uint8_t, int> parityBits(3, 0x07);
+arch::field<uint8_t, bool> dlab(7, 0x01);
+
+void setupDebugging() {
+	auto base = arch::global_io.subspace(0x3F8);
+	
+	// set the baud rate.
+	base.store(lineControl, dlab(true));
+	base.store(baudLow, 0x0C);
+	base.store(baudHigh, 0x00);
+
+	// configure: 8 data bits, 1 stop bit, no parity
+	base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));
+}
+
 void BochsSink::print(char c) {
-	frigg::arch_x86::ioOutByte(0xE9, c);
+// --------------------------------------------------------
+// Serial console
+// --------------------------------------------------------
+
+	auto base = arch::global_io.subspace(0x3F8);
+
+	if(c == '\n') {
+		while(!(base.load(lineStatus) & txReady)) {
+			// do nothing until the UART is ready to transmit.
+		}
+		base.store(data, '\r');
+	}
+
+	while(!(base.load(lineStatus) & txReady)) {
+		// do nothing until the UART is ready to transmit.
+	}
+	base.store(data, c);
+
+// --------------------------------------------------------
+// Bochs/Qemu debugging port
+// --------------------------------------------------------
+
+//	frigg::arch_x86::ioOutByte(0xE9, c);
+
+// --------------------------------------------------------
+// Text-mode video output
+// --------------------------------------------------------
 /*
 	if(c == '\n') {
 		advanceY();

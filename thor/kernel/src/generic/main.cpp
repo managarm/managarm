@@ -229,7 +229,10 @@ void executeModule(PhysicalAddr image_paddr) {
 	enqueueInSchedule(schedule_guard, frigg::move(thread));
 }
 
+void setupDebugging();
+
 extern "C" void thorMain(PhysicalAddr info_paddr) {
+	setupDebugging();
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
 	initializeProcessorEarly();
