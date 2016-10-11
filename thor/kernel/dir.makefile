@@ -63,7 +63,7 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm | $($c_ARCH_OBJDIR)
 	$($d_AS) -o $@ $($d_ASFLAGS) $<
 
 # generate protobuf
-gen-$c: $($c_GENDIR)/fs.frigg_pb.hpp
+gen-$c: $($c_GENDIR)/posix.frigg_pb.hpp $($c_GENDIR)/fs.frigg_pb.hpp
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \

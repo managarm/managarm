@@ -23,6 +23,7 @@
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
 
+#include <posix.frigg_pb.hpp>
 #include <fs.frigg_pb.hpp>
 
 #include "linker.hpp"
@@ -332,34 +333,34 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
-	managarm::fs::CntRequest<Allocator> open_request(*allocator);
-	open_request.set_req_type(managarm::fs::CntReqType::OPEN);
+	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
+	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
 	open_request.set_path(path);
 	
 	frigg::String<Allocator> open_serialized(*allocator);
 	open_request.SerializeToString(&open_serialized);
 	
 	HelError send_open_error;
-	fsPipe->sendStringReqSync(open_serialized.data(), open_serialized.size(),
+	posixPipe->sendStringReqSync(open_serialized.data(), open_serialized.size(),
 			*eventHub, 0, 0, send_open_error);
 	HEL_CHECK(send_open_error);
 
 	uint8_t open_buffer[128];
 	HelError recv_open_error;
 	size_t open_length;
-	fsPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, recv_open_error, open_length);
+	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, recv_open_error, open_length);
 	HEL_CHECK(recv_open_error);
 	
-	managarm::fs::SvrResponse<Allocator> open_response(*allocator);
+	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
 	open_response.ParseFromArray(open_buffer, open_length);
 
-	if(open_response.error() == managarm::fs::Errors::FILE_NOT_FOUND)
+	if(open_response.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
-	assert(open_response.error() == managarm::fs::Errors::SUCCESS);
+	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
 	
 	HelError handle_error;
 	HelHandle file_handle;
-	fsPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, file_handle);
+	posixPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, file_handle);
 	HEL_CHECK(handle_error);
 
 	return helx::Pipe(file_handle);

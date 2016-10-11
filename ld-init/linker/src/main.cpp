@@ -61,7 +61,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 }
 
 frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Pipe> fsPipe;
+frigg::LazyInitializer<helx::Pipe> posixPipe;
 void *auxiliaryPtr;
 
 extern "C" [[ gnu::visibility("default") ]] void *__rtdl_auxvector() {
@@ -98,7 +98,7 @@ extern "C" void *interpreterMain(char *sp) {
 		
 		AT_XPIPE = 0x1000,
 		AT_OPENFILES = 0x1001,
-		AT_FS_SERVER = 0x1102,
+		AT_POSIX_SERVER = 0x1101,
 		AT_MBUS_SERVER = 0x1103
 	};
 
@@ -128,8 +128,8 @@ extern "C" void *interpreterMain(char *sp) {
 			case AT_PHENT: phdr_entry_size = aux.longValue; break;
 			case AT_PHNUM: phdr_count = aux.longValue; break;
 			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
-			case AT_FS_SERVER:
-				fsPipe.initialize(aux.longValue);
+			case AT_POSIX_SERVER:
+				posixPipe.initialize(aux.longValue);
 				break;
 			case AT_XPIPE:
 			case AT_OPENFILES:

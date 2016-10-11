@@ -192,8 +192,7 @@ void executeModule(PhysicalAddr image_paddr) {
 		AT_ENTRY = 9,
 
 		AT_OPENFILES = 0x1001,
-		AT_POSIX_SERVER = 0x1101,
-		AT_FS_SERVER = 0x1102
+		AT_POSIX_SERVER = 0x1101
 	};
 
 	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
@@ -207,7 +206,7 @@ void executeModule(PhysicalAddr image_paddr) {
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
 //	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
 //	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
-	copyToStack<uintptr_t>(tail_area, AT_FS_SERVER);
+	copyToStack<uintptr_t>(tail_area, AT_POSIX_SERVER);
 	copyToStack<uintptr_t>(tail_area, initrd_handle);
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);

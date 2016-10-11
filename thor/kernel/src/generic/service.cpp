@@ -4,6 +4,7 @@
 
 #include <frigg/callback.hpp>
 
+#include <posix.frigg_pb.hpp>
 #include <fs.frigg_pb.hpp>
 
 namespace thor {
@@ -11,6 +12,7 @@ namespace thor {
 // TODO: move this to a header file
 extern frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
 
+namespace posix = managarm::posix;
 namespace fs = managarm::fs;
 
 void serviceSend(frigg::SharedPtr<Channel> channel, int64_t req_id, int64_t seq_id,
@@ -109,7 +111,7 @@ namespace initrd {
 	};
 
 	// ----------------------------------------------------
-	// File handling.
+	// initrd file handling.
 	// ----------------------------------------------------
 
 	struct FileConnection {
@@ -296,7 +298,7 @@ namespace initrd {
 	};
 
 	// ----------------------------------------------------
-	// Server handling.
+	// POSIX server.
 	// ----------------------------------------------------
 
 	struct ServerConnection {
@@ -309,16 +311,15 @@ namespace initrd {
 
 	struct OpenClosure {
 		OpenClosure(ServiceAllocator &allocator, frigg::SharedPtr<ServerConnection> connection,
-				frigg::SharedPtr<EventHub> hub, fs::CntRequest<ServiceAllocator> request,
+				frigg::SharedPtr<EventHub> hub, posix::ClientRequest<ServiceAllocator> request,
 				uint64_t request_id)
 		: _allocator(allocator), _connection(frigg::move(connection)), _hub(frigg::move(hub)),
 				_req(frigg::move(request)), _requestId(request_id), _buffer(allocator) { }
 
 		void operator() () {
 			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
-			fs::SvrResponse<ServiceAllocator> resp(_allocator);
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_file_type(managarm::fs::FileType::REGULAR);
+			posix::ServerResponse<ServiceAllocator> resp(_allocator);
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.SerializeToString(&_buffer);
 			serviceSend(Endpoint::writeChannel(_connection->endpoint), _requestId, 0,
 					_buffer.data(), _buffer.size(), _hub,
@@ -363,7 +364,7 @@ namespace initrd {
 		ServiceAllocator &_allocator;
 		frigg::SharedPtr<ServerConnection> _connection;
 		frigg::SharedPtr<EventHub> _hub;
-		fs::CntRequest<ServiceAllocator> _req;
+		posix::ClientRequest<ServiceAllocator> _req;
 		uint64_t _requestId;
 
 		frigg::String<ServiceAllocator> _buffer;
@@ -384,10 +385,10 @@ namespace initrd {
 		void onReceive(AsyncEvent event) {
 			assert(event.error == kErrSuccess);
 
-			fs::CntRequest<ServiceAllocator> request(_allocator);
+			posix::ClientRequest<ServiceAllocator> request(_allocator);
 			request.ParseFromArray(_buffer, event.length);
 
-			if(request.req_type() == managarm::fs::CntReqType::OPEN) {
+			if(request.request_type() == managarm::posix::ClientRequestType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(_allocator, _allocator,
 						_connection, _hub, frigg::move(request), event.msgRequest);
 				(*closure)();

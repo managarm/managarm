@@ -185,17 +185,17 @@ void runProgram(HelHandle space, helix::UniquePipe xpipe,
 	std::tie(stdout_server, stdout_client) = helix::createFullPipe();
 	serveStdout(std::move(stdout_server));
 
-	unsigned long fs_server;
-	if(peekauxval(AT_FS_SERVER, &fs_server))
-		throw std::runtime_error("No AT_FS_SERVER specified");
+	unsigned long posix_server;
+	if(peekauxval(AT_POSIX_SERVER, &posix_server))
+		throw std::runtime_error("No AT_POSIX_SERVER specified");
 
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
 
 	HelHandle remote_stdout;
-	HelHandle remote_fs;
+	HelHandle remote_posix;
 	HEL_CHECK(helTransferDescriptor(stdout_client.getHandle(), universe, &remote_stdout));
-	HEL_CHECK(helTransferDescriptor(fs_server, universe, &remote_fs));
+	HEL_CHECK(helTransferDescriptor(posix_server, universe, &remote_posix));
 	
 	// allocate a stack and map it into the new address space.	
 	HelHandle stack_memory;
@@ -237,8 +237,8 @@ void runProgram(HelHandle space, helix::UniquePipe xpipe,
 	tail.push_back(exec_info.phdrCount);
 	tail.push_back(AT_OPENFILES);
 	tail.push_back(uintptr_t(stack_base) + files_offset);
-	tail.push_back(AT_FS_SERVER);
-	tail.push_back(uintptr_t(remote_fs));
+	tail.push_back(AT_POSIX_SERVER);
+	tail.push_back(uintptr_t(remote_posix));
 	
 	if(xpipe.getHandle()) {
 		HelHandle remote;
