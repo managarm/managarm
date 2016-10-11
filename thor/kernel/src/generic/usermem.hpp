@@ -1,5 +1,5 @@
 
-#include <frigg/rb_tree.hpp>
+#include <frigg/rbtree.hpp>
 
 namespace thor {
 
@@ -220,7 +220,7 @@ struct Mapping {
 	uint32_t flags;
 	bool writePermission, executePermission;
 
-	frigg::rb_hook spaceHook;
+	frigg::rbtree_hook spaceHook;
 };
 
 struct SpaceLess {
@@ -231,7 +231,7 @@ struct SpaceLess {
 
 struct SpaceAggregator;
 
-using SpaceTree = frigg::rb_tree<
+using SpaceTree = frigg::rbtree<
 	Mapping,
 	&Mapping::spaceHook,
 	SpaceLess,

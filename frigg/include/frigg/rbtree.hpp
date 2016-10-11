@@ -1,6 +1,6 @@
 
-#ifndef FRIGG_RB_TREE_HPP
-#define FRIGG_RB_TREE_HPP
+#ifndef FRIGG_RBTREE_HPP
+#define FRIGG_RBTREE_HPP
 
 #include <frigg/macros.hpp>
 
@@ -596,12 +596,12 @@ private:
 
 } // namespace _redblack
 
-using rb_hook = _redblack::hook_struct;
+using rbtree_hook = _redblack::hook_struct;
 
-template<typename T, rb_hook T:: *Member, typename A, typename L>
-using rb_tree = _redblack::tree_struct<T, Member, A, L>;
+template<typename T, rbtree_hook T:: *Member, typename A, typename L>
+using rbtree = _redblack::tree_struct<T, Member, A, L>;
 
 } // namespace frigg
 
-#endif // FRIGG_RB_TREE_HPP
+#endif // FRIGG_RBTREE_HPP
 
