@@ -27,8 +27,8 @@ Instance Instance::global() {
 
 COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
 	helix::Offer<M> offer;
-	helix::SendString<M> send_req;
-	helix::RecvString<M> recv_resp;
+	helix::SendBuffer<M> send_req;
+	helix::RecvBuffer<M> recv_resp;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
@@ -62,7 +62,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 
 	while(true) {
 		helix::Accept<M> accept;
-		helix::RecvString<M> recv_req;
+		helix::RecvBuffer<M> recv_req;
 
 		char buffer[256];
 		helix::submitAsync(lane, {
@@ -80,8 +80,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		managarm::mbus::SvrRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::SvrReqType::BIND) {
-			helix::SendString<M> send_resp;
-			helix::SendDescriptor<M> push_desc;
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> push_desc;
 
 			auto descriptor = COFIBER_AWAIT handler(BindQuery());
 			
@@ -108,9 +108,9 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 		const Properties &properties,
 		std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
 	helix::Offer<M> offer;
-	helix::SendString<M> send_req;
-	helix::RecvString<M> recv_resp;
-	helix::RecvDescriptor<M> pull_lane;
+	helix::SendBuffer<M> send_req;
+	helix::RecvBuffer<M> recv_resp;
+	helix::PullDescriptor<M> pull_lane;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
@@ -151,7 +151,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 	using M = helix::AwaitMechanism;
 
 	while(true) {
-		helix::RecvString<M> recv_req;
+		helix::RecvBuffer<M> recv_req;
 
 		char buffer[256];
 		helix::submitAsync(lane, {
@@ -191,9 +191,9 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter &filter,
 		std::function<void(AnyEvent)> handler) const, ([=] {
 	helix::Offer<M> offer;
-	helix::SendString<M> send_req;
-	helix::RecvString<M> recv_resp;
-	helix::RecvDescriptor<M> pull_lane;
+	helix::SendBuffer<M> send_req;
+	helix::RecvBuffer<M> recv_resp;
+	helix::PullDescriptor<M> pull_lane;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::LINK_OBSERVER);
@@ -229,9 +229,9 @@ COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter 
 
 COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
 	helix::Offer<M> offer;
-	helix::SendString<M> send_req;
-	helix::RecvString<M> recv_resp;
-	helix::RecvDescriptor<M> pull_desc;
+	helix::SendBuffer<M> send_req;
+	helix::RecvBuffer<M> recv_resp;
+	helix::PullDescriptor<M> pull_desc;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::BIND2);

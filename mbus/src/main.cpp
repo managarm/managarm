@@ -92,9 +92,9 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
 	using M = helix::AwaitMechanism;
 	
 	helix::Offer<M> offer;
-	helix::SendString<M> send_req;
-	helix::RecvString<M> recv_resp;
-	helix::RecvDescriptor<M> pull_desc;
+	helix::SendBuffer<M> send_req;
+	helix::RecvBuffer<M> recv_resp;
+	helix::PullDescriptor<M> pull_desc;
 
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::BIND);
@@ -212,7 +212,7 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 		if(!matchesFilter(entity.get(), _filter)) 
 			continue;
 		
-		helix::SendString<M> send_req;
+		helix::SendBuffer<M> send_req;
 
 		managarm::mbus::SvrRequest req;
 		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
@@ -234,7 +234,7 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 	if(!matchesFilter(entity.get(), _filter)) 
 		return;
 	
-	helix::SendString<M> send_req;
+	helix::SendBuffer<M> send_req;
 
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
@@ -272,7 +272,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 
 	while(true) {
 		helix::Accept<M> accept;
-		helix::RecvString<M> recv_req;
+		helix::RecvBuffer<M> recv_req;
 
 		char buffer[256];
 		helix::submitAsync(lane, {
@@ -289,7 +289,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 		managarm::mbus::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
-			helix::SendString<M> send_resp;
+			helix::SendBuffer<M> send_resp;
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -302,8 +302,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			COFIBER_AWAIT send_resp.future();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
-			helix::SendString<M> send_resp;
-			helix::SendDescriptor<M> send_lane;
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> send_lane;
 
 			auto parent = allEntities.at(req.parent_id());
 			if(typeid(*parent) != typeid(Group))
@@ -343,8 +343,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
-			helix::SendString<M> send_resp;
-			helix::SendDescriptor<M> send_lane;
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> send_lane;
 
 			auto parent = allEntities.at(req.id());
 			if(typeid(*parent) != typeid(Group))
@@ -372,8 +372,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
-			helix::SendString<M> send_resp;
-			helix::SendDescriptor<M> send_desc;
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> send_desc;
 
 			auto entity = allEntities.at(req.id());
 			if(typeid(*entity) != typeid(Object))

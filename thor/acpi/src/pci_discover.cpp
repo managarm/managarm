@@ -43,7 +43,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 	}
 
 	auto serialized = resp.SerializeAsString();
-	helix::SendString<M> send_resp(helix::Dispatcher::global(), lane,
+	helix::SendBuffer<M> send_resp(helix::Dispatcher::global(), lane,
 			serialized.data(), serialized.size(), 0, 0, kHelResponse);
 	COFIBER_AWAIT send_resp.future();
 	HEL_CHECK(send_resp.error());
@@ -54,7 +54,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 				&& device->bars[k].type != PciDevice::kBarMemory)
 			continue;
 
-		helix::SendDescriptor<M> send_bar(helix::Dispatcher::global(), lane,
+		helix::PushDescriptor<M> send_bar(helix::Dispatcher::global(), lane,
 				helix::BorrowedDescriptor(device->bars[k].handle), 0, 0, kHelResponse);
 		COFIBER_AWAIT send_bar.future();
 		HEL_CHECK(send_bar.error());
@@ -62,7 +62,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 
 	// send the IRQ descriptor.
 	// TODO: this helx::Irq.getHandle() is very ugly!
-	helix::SendDescriptor<M> send_irq(helix::Dispatcher::global(), lane,
+	helix::PushDescriptor<M> send_irq(helix::Dispatcher::global(), lane,
 			helix::BorrowedDescriptor(device->interrupt.getHandle()), 0, 0, kHelResponse);
 	COFIBER_AWAIT send_irq.future();
 	HEL_CHECK(send_irq.error());

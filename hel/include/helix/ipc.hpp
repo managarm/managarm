@@ -197,13 +197,13 @@ protected:
 	HelHandle _handle;
 };
 
-struct SendStringResult : ResultBase {
+struct SendBufferResult : ResultBase {
 };
 
-struct SendDescriptorResult : ResultBase {
+struct PushDescriptorResult : ResultBase {
 };
 
-struct RecvStringResult : ResultBase {
+struct RecvBufferResult : ResultBase {
 	size_t actualLength() {
 		HEL_CHECK(_error);
 		return _actualLength;
@@ -224,7 +224,7 @@ protected:
 	int64_t _sequenceId;
 };
 
-struct RecvDescriptorResult : ResultBase {
+struct PullDescriptorResult : ResultBase {
 	UniqueDescriptor descriptor() {
 		UniqueDescriptor descriptor(_handle);
 		_handle = kHelNullHandle;
@@ -252,10 +252,10 @@ struct AwaitIrqResult : ResultBase {
 struct Dispatcher {
 	using Offer = OperationBase<OfferResult>;
 	using Accept = OperationBase<AcceptResult>;
-	using RecvString = OperationBase<RecvStringResult>;
-	using RecvDescriptor = OperationBase<RecvDescriptorResult>;
-	using SendString = OperationBase<SendStringResult>;
-	using SendDescriptor = OperationBase<SendDescriptorResult>;
+	using RecvBuffer = OperationBase<RecvBufferResult>;
+	using PullDescriptor = OperationBase<PullDescriptorResult>;
+	using SendBuffer = OperationBase<SendBufferResult>;
+	using PushDescriptor = OperationBase<PushDescriptorResult>;
 	using AwaitIrq = OperationBase<AwaitIrqResult>;
 	
 	static Dispatcher &global();
@@ -290,7 +290,7 @@ struct Dispatcher {
 				ptr->complete();
 			} break;
 			case kHelEventRecvString: {
-				auto ptr = static_cast<RecvString *>((void *)e.submitObject);
+				auto ptr = static_cast<RecvBuffer *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->_actualLength = e.length;
 				ptr->_requestId = e.msgRequest;
@@ -298,7 +298,7 @@ struct Dispatcher {
 				ptr->complete();
 			} break;
 			case kHelEventRecvDescriptor: {
-				auto ptr = static_cast<RecvDescriptor *>((void *)e.submitObject);
+				auto ptr = static_cast<PullDescriptor *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->_handle = e.handle;
 				ptr->_requestId = e.msgRequest;
@@ -306,12 +306,12 @@ struct Dispatcher {
 				ptr->complete();
 			} break;
 			case kHelEventSendString: {
-				auto ptr = static_cast<SendString *>((void *)e.submitObject);
+				auto ptr = static_cast<SendBuffer *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->complete();
 			} break;
 			case kHelEventSendDescriptor: {
-				auto ptr = static_cast<SendDescriptor *>((void *)e.submitObject);
+				auto ptr = static_cast<PushDescriptor *>((void *)e.submitObject);
 				ptr->_error = e.error;
 				ptr->complete();
 			} break;
@@ -337,10 +337,10 @@ template<typename M>
 using Accept = Operation<AcceptResult, M>;
 
 template<typename M>
-struct RecvString : Operation<RecvStringResult, M> {
-	RecvString() = default;
+struct RecvBuffer : Operation<RecvBufferResult, M> {
+	RecvBuffer() = default;
 
-	RecvString(Dispatcher &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
+	RecvBuffer(Dispatcher &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitRecvString(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				(uint8_t *)buffer, max_length, msg_request, msg_seq,
@@ -353,10 +353,10 @@ struct RecvString : Operation<RecvStringResult, M> {
 };
 
 template<typename M>
-struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
-	RecvDescriptor() = default;
+struct PullDescriptor : Operation<PullDescriptorResult, M> {
+	PullDescriptor() = default;
 
-	RecvDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
+	PullDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitRecvDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				msg_request, msg_seq, 0, (uintptr_t)this, flags, &this->_asyncId);
@@ -368,10 +368,10 @@ struct RecvDescriptor : Operation<RecvDescriptorResult, M> {
 };
 
 template<typename M>
-struct SendString : Operation<SendStringResult, M> {
-	SendString() = default;
+struct SendBuffer : Operation<SendBufferResult, M> {
+	SendBuffer() = default;
 
-	SendString(Dispatcher &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
+	SendBuffer(Dispatcher &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitSendString(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				(const uint8_t *)buffer, length, msg_request, msg_seq,
@@ -384,10 +384,10 @@ struct SendString : Operation<SendStringResult, M> {
 };
 
 template<typename M>
-struct SendDescriptor : Operation<SendDescriptorResult, M> {
-	SendDescriptor() = default;
+struct PushDescriptor : Operation<PushDescriptorResult, M> {
+	PushDescriptor() = default;
 
-	SendDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
+	PushDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
 			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
 		auto error = helSubmitSendDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
 				descriptor.getHandle(), msg_request, msg_seq,
@@ -434,7 +434,7 @@ HelAction action(Accept<M> *operation, uint32_t flags = 0) {
 }
 
 template<typename M>
-HelAction action(SendString<M> *operation, const void *buffer, size_t length,
+HelAction action(SendBuffer<M> *operation, const void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionSendFromBuffer;
@@ -446,7 +446,7 @@ HelAction action(SendString<M> *operation, const void *buffer, size_t length,
 }
 
 template<typename M>
-HelAction action(RecvString<M> *operation, void *buffer, size_t length,
+HelAction action(RecvBuffer<M> *operation, void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionRecvToBuffer;
@@ -458,7 +458,7 @@ HelAction action(RecvString<M> *operation, void *buffer, size_t length,
 }
 
 template<typename M>
-HelAction action(SendDescriptor<M> *operation, BorrowedDescriptor descriptor,
+HelAction action(PushDescriptor<M> *operation, BorrowedDescriptor descriptor,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPushDescriptor;
@@ -469,7 +469,7 @@ HelAction action(SendDescriptor<M> *operation, BorrowedDescriptor descriptor,
 }
 
 template<typename M>
-HelAction action(RecvDescriptor<M> *operation, uint32_t flags = 0) {
+HelAction action(PullDescriptor<M> *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPullDescriptor;
 	action.context = (uintptr_t)operation;

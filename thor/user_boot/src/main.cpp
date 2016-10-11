@@ -131,7 +131,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 
 	while(true) {
 		char req_buffer[128];
-		helix::RecvString<M> recv_req(helix::Dispatcher::global(), pipe, req_buffer, 128,
+		helix::RecvBuffer<M> recv_req(helix::Dispatcher::global(), pipe, req_buffer, 128,
 				kHelAnyRequest, 0, kHelRequest);
 		COFIBER_AWAIT recv_req.future();
 		if(recv_req.error() == kHelErrClosedRemotely)
@@ -140,7 +140,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 		//FIXME: actually parse the protocol.
 
 		char data_buffer[1024];
-		helix::RecvString<M> recv_data(helix::Dispatcher::global(), pipe,
+		helix::RecvBuffer<M> recv_data(helix::Dispatcher::global(), pipe,
 				data_buffer, 1024, recv_req.requestId(), 1, kHelRequest);
 		COFIBER_AWAIT recv_data.future();
 
@@ -148,7 +148,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
 
 		// send the success response.
 		// FIXME: send an actually valid answer.
-		helix::SendString<M> send_resp(helix::Dispatcher::global(), pipe, nullptr, 0,
+		helix::SendBuffer<M> send_resp(helix::Dispatcher::global(), pipe, nullptr, 0,
 				recv_req.requestId(), 0, kHelResponse);
 		COFIBER_AWAIT send_resp.future();
 	}
