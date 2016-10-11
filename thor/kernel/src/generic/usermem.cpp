@@ -310,10 +310,10 @@ void Memory::copyFrom(size_t offset, void *source, size_t length) {
 }
 
 // --------------------------------------------------------
-// SpaceHook
+// SpaceAggregator
 // --------------------------------------------------------
 
-bool SpaceHook::aggregate(Mapping *mapping) {
+bool SpaceAggregator::aggregate(Mapping *mapping) {
 	size_t hole = 0;
 	if(mapping->type == Mapping::kTypeHole)
 		hole = mapping->length;
@@ -325,6 +325,38 @@ bool SpaceHook::aggregate(Mapping *mapping) {
 	if(mapping->largestHole == hole)
 		return false;
 	mapping->largestHole = hole;
+	return true;
+}
+
+bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
+	Mapping *pred = tree.predecessor(node);
+	Mapping *succ = tree.successor(node);
+
+	// check largest hole invariant.
+	size_t hole = 0;
+	if(node->type == Mapping::kTypeHole)
+		hole = node->length;
+	if(tree.get_left(node) && tree.get_left(node)->largestHole > hole)
+		hole = tree.get_left(node)->largestHole;
+	if(tree.get_right(node) && tree.get_right(node)->largestHole > hole)
+		hole = tree.get_right(node)->largestHole;
+	
+	if(node->largestHole != hole) {
+		frigg::infoLogger() << "largestHole violation: " << "Expected " << hole
+				<< ", got " << node->largestHole << "." << frigg::endLog;
+		return false;
+	}
+
+	// check non-overlapping memory areas invariant.
+	if(pred && node->baseAddress < pred->baseAddress + pred->length) {
+		frigg::infoLogger() << "Non-overlapping (left) violation" << frigg::endLog;
+		return false;
+	}
+	if(succ && node->baseAddress + node->length > succ->baseAddress) {
+		frigg::infoLogger() << "Non-overlapping (right) violation" << frigg::endLog;
+		return false;
+	}
+	
 	return true;
 }
 

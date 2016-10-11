@@ -1,4 +1,7 @@
 
+#ifndef FRIGG_RB_TREE_HPP
+#define FRIGG_RB_TREE_HPP
+
 #include <frigg/macros.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
@@ -23,7 +26,7 @@ struct hook_struct {
 	color_type color;
 };
 
-template<typename T, typename H, H T:: *Member>
+template<typename T, hook_struct T:: *Member, typename L, typename A>
 struct tree_struct {
 	static T *get_parent(T *item) {
 		return static_cast<T *>((item->*Member).parent);
@@ -64,8 +67,8 @@ private:
 	// Constructor, Destructor, operators.
 	// ------------------------------------------------------------------------
 public:
-	tree_struct()
-	: _root(nullptr) { }
+	tree_struct(L less = L())
+	: _less(move(less)), _root(nullptr) { }
 
 	// ------------------------------------------------------------------------
 	// Insertion functions.
@@ -84,8 +87,7 @@ public:
 
 		T *current = get_root();
 		while(true) {
-			if(node->baseAddress < current->baseAddress) {
-				assert(node->baseAddress + node->length <= current->baseAddress);
+			if(_less(*node, *current)) {
 				if(get_left(current) == nullptr) {
 					(current->*Member).left = node;
 					(node->*Member).parent = current;
@@ -107,7 +109,6 @@ public:
 					current = get_left(current);
 				}
 			}else{
-				assert(node->baseAddress >= current->baseAddress + current->length);
 				if(get_right(current) == nullptr) {
 					(current->*Member).right = node;
 					(node->*Member).parent = current;
@@ -489,15 +490,13 @@ private:
 	// ------------------------------------------------------------------------
 public:
 	void aggregate_node(T *node) {
-		H::aggregate(node);
-//		if(get_parent(node))
-//			assert(H::aggregate(get_parent(node)));
+		A::aggregate(node);
 	}
 
 	void aggregate_path(T *node) {
 		T *current = node;
 		while(current) {
-			if(!H::aggregate(current))
+			if(!A::aggregate(current))
 				break;
 			current = get_parent(current);
 		}
@@ -517,21 +516,6 @@ private:
 	}
 
 	bool check_invariant(T *node, int &black_depth, T *&minimal, T *&maximal) {
-		// check largest hole invariant
-		size_t hole = 0;
-		if(node->type == T::kTypeHole)
-			hole = node->length;
-		if(get_left(node) && get_left(node)->largestHole > hole)
-			hole = get_left(node)->largestHole;
-		if(get_right(node) && get_right(node)->largestHole > hole)
-			hole = get_right(node)->largestHole;
-		
-		if(node->largestHole != hole) {
-			infoLogger() << "largestHole violation: "
-					<< "Expected " << hole << ", got " << node->largestHole << "." << endLog;
-			return false;
-		}
-
 		// check alternating colors invariant
 		if((node->*Member).color == color_type::red)
 			if(!isBlack(get_left(node)) || !isBlack(get_right(node))) {
@@ -547,16 +531,15 @@ private:
 		int right_black_depth = 0;
 		
 		if(get_left(node)) {
+			if(_less(*node, *get_left(node))) {
+				infoLogger() << "Binary search tree (left) violation" << endLog;
+				return false;
+			}
+
 			T *pred;
 			if(!check_invariant(get_left(node), left_black_depth, minimal, pred))
 				return false;
 
-			// check search tree invariant
-			if(node->baseAddress < pred->baseAddress + pred->length) {
-				infoLogger() << "Search tree (left) violation" << endLog;
-				return false;
-			}
-			
 			// check predecessor invariant
 			if(successor(pred) != node) {
 				infoLogger() << "Linked list (predecessor, forward) violation" << endLog;
@@ -570,16 +553,15 @@ private:
 		}
 
 		if(get_right(node)) {
+			if(_less(*get_right(node), *node)) {
+				infoLogger() << "Binary search tree (right) violation" << endLog;
+				return false;
+			}
+
 			T *succ;
 			if(!check_invariant(get_right(node), right_black_depth, succ, maximal))
 				return false;
 			
-			// check search tree invariant
-			if(node->baseAddress + node->length > succ->baseAddress) {
-				infoLogger() << "Search tree (right) violation" << endLog;
-				return false;
-			}
-
 			// check successor invariant
 			if(successor(node) != succ) {
 				infoLogger() << "Linked list (successor, forward) violation" << endLog;
@@ -600,11 +582,15 @@ private:
 		black_depth = left_black_depth;
 		if((node->*Member).color == color_type::black)
 			black_depth++;
-		
+
+		if(!A::check_invariant(*this, node))
+			return false;
+
 		return true;
 	}
 
 private:
+	L _less;
 	void *_root;
 };
 
@@ -612,8 +598,10 @@ private:
 
 using rb_hook = _redblack::hook_struct;
 
-template<typename T, typename H, H T:: *Member>
-using rb_tree = _redblack::tree_struct<T, H, Member>;
+template<typename T, rb_hook T:: *Member, typename A, typename L>
+using rb_tree = _redblack::tree_struct<T, Member, A, L>;
 
 } // namespace frigg
+
+#endif // FRIGG_RB_TREE_HPP
 

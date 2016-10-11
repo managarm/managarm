@@ -190,10 +190,6 @@ private:
 
 struct Mapping;
 
-struct SpaceHook : frigg::rb_hook {
-	static bool aggregate(Mapping *node);
-};
-
 struct Mapping {
 	enum Type {
 		kTypeNone,
@@ -224,14 +220,28 @@ struct Mapping {
 	uint32_t flags;
 	bool writePermission, executePermission;
 
-	SpaceHook spaceHook;
+	frigg::rb_hook spaceHook;
 };
+
+struct SpaceLess {
+	bool operator() (const Mapping &a, const Mapping &b) {
+		return a.baseAddress < b.baseAddress;
+	}
+};
+
+struct SpaceAggregator;
 
 using SpaceTree = frigg::rb_tree<
 	Mapping,
-	SpaceHook,
-	&Mapping::spaceHook
+	&Mapping::spaceHook,
+	SpaceLess,
+	SpaceAggregator
 >;
+
+struct SpaceAggregator {
+	static bool aggregate(Mapping *node);
+	static bool check_invariant(SpaceTree &tree, Mapping *node);
+};
 
 class AddressSpace {
 public:
