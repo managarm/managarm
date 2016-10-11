@@ -372,11 +372,7 @@ Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
 		largestHole = length;
 }
 
-Mapping::~Mapping() {
-	//FIXME
-	//frigg::destruct(*kernelAlloc, leftPtr);
-	//frigg::destruct(*kernelAlloc, rightPtr);
-}
+Mapping::~Mapping() { }
 
 // --------------------------------------------------------
 // AddressSpace
@@ -386,8 +382,8 @@ AddressSpace::AddressSpace(PageSpace page_space)
 : p_pageSpace(page_space) { }
 
 AddressSpace::~AddressSpace() {
-	//FIXME
-	//frigg::destruct(*kernelAlloc, p_root);
+	assert(!"Fix this");
+	// TODO: fix this by iteratively freeing all nodes of *spaceTree*.
 }
 
 void AddressSpace::setupDefaultMappings() {
