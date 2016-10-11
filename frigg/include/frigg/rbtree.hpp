@@ -18,6 +18,10 @@ struct hook_struct {
 			predecessor(nullptr), successor(nullptr),
 			color(color_type::null) { }
 
+	hook_struct(const hook_struct &other) = delete;
+
+	hook_struct &operator= (const hook_struct &other) = delete;
+
 	void *parent;
 	void *left;
 	void *right;
@@ -28,23 +32,30 @@ struct hook_struct {
 
 template<typename T, hook_struct T:: *Member, typename L, typename A>
 struct tree_struct {
+private:
+	// obtain a pointer to the hook from a pointer to a node.
+	static hook_struct *h(T *item) {
+		return &(item->*Member);
+	}
+
+public:
 	static T *get_parent(T *item) {
-		return static_cast<T *>((item->*Member).parent);
+		return static_cast<T *>(h(item)->parent);
 	}
 
 	// TODO: rename to left()/right()?
 	static T *get_left(T *item) {
-		return static_cast<T *>((item->*Member).left);
+		return static_cast<T *>(h(item)->left);
 	}
 	static T *get_right(T *item) {
-		return static_cast<T *>((item->*Member).right);
+		return static_cast<T *>(h(item)->right);
 	}
 
 	static T *predecessor(T *item) {
-		return static_cast<T *>((item->*Member).predecessor);
+		return static_cast<T *>(h(item)->predecessor);
 	}
 	static T *successor(T *item) {
-		return static_cast<T *>((item->*Member).successor);
+		return static_cast<T *>(h(item)->successor);
 	}
 
 	T *get_root() {
@@ -55,12 +66,12 @@ private:
 	static bool isRed(T *node) {
 		if(!node)
 			return false;
-		return (node->*Member).color == color_type::red;
+		return h(node)->color == color_type::red;
 	}
 	static bool isBlack(T *node) {
 		if(!node)
 			return true;
-		return (node->*Member).color == color_type::black;
+		return h(node)->color == color_type::black;
 	}
 	
 	// ------------------------------------------------------------------------
@@ -69,6 +80,10 @@ private:
 public:
 	tree_struct(L less = L())
 	: _less(move(less)), _root(nullptr) { }
+
+	tree_struct(const tree_struct &other) = delete;
+
+	tree_struct &operator= (const tree_struct &other) = delete;
 
 	// ------------------------------------------------------------------------
 	// Insertion functions.
@@ -89,16 +104,16 @@ public:
 		while(true) {
 			if(_less(*node, *current)) {
 				if(get_left(current) == nullptr) {
-					(current->*Member).left = node;
-					(node->*Member).parent = current;
+					h(current)->left = node;
+					h(node)->parent = current;
 
 					// "current" is the successor of "node"
 					T *pred = predecessor(current);
 					if(pred)
-						(pred->*Member).successor = node;
-					(node->*Member).predecessor = pred;
-					(node->*Member).successor = current;
-					(current->*Member).predecessor = node;
+						h(pred)->successor = node;
+					h(node)->predecessor = pred;
+					h(node)->successor = current;
+					h(current)->predecessor = node;
 
 					aggregate_path(current);
 
@@ -110,16 +125,16 @@ public:
 				}
 			}else{
 				if(get_right(current) == nullptr) {
-					(current->*Member).right = node;
-					(node->*Member).parent = current;
+					h(current)->right = node;
+					h(node)->parent = current;
 
 					// "current" is the predecessor of "node"
 					T *succ = successor(current);
-					(current->*Member).successor = node;
-					(node->*Member).predecessor = current;
-					(node->*Member).successor = succ;
+					h(current)->successor = node;
+					h(node)->predecessor = current;
+					h(node)->successor = succ;
 					if(succ)
-						(succ->*Member).predecessor = node;
+						h(succ)->predecessor = node;
 					
 					aggregate_path(current);
 					
@@ -146,33 +161,33 @@ private:
 	void fix_insert(T *n) {
 		T *parent = get_parent(n);
 		if(parent == nullptr) {
-			(n->*Member).color = color_type::black;
+			h(n)->color = color_type::black;
 			return;
 		}
 		
 		// coloring n red is not a problem if the parent is black.
-		(n->*Member).color = color_type::red;
-		if((parent->*Member).color == color_type::black)
+		h(n)->color = color_type::red;
+		if(h(parent)->color == color_type::black)
 			return;
 		
 		// the rb invariants guarantee that a grandparent exists
 		// (because parent is red and the root is black).
 		T *grand = get_parent(parent);
-		assert(grand && (grand->*Member).color == color_type::black);
+		assert(grand && h(grand)->color == color_type::black);
 		
 		// if the node has a red uncle we can just color both the parent
 		// and the uncle black, the grandparent red and propagate upwards.
 		if(get_left(grand) == parent && isRed(get_right(grand))) {
-			(grand->*Member).color = color_type::red;
-			(parent->*Member).color = color_type::black;
-			(get_right(grand)->*Member).color = color_type::black;
+			h(grand)->color = color_type::red;
+			h(parent)->color = color_type::black;
+			h(get_right(grand))->color = color_type::black;
 
 			fix_insert(grand);
 			return;
 		}else if(get_right(grand) == parent && isRed(get_left(grand))) {
-			(grand->*Member).color = color_type::red;
-			(parent->*Member).color = color_type::black;
-			(get_left(grand)->*Member).color = color_type::black;
+			h(grand)->color = color_type::red;
+			h(parent)->color = color_type::black;
+			h(get_left(grand))->color = color_type::black;
 
 			fix_insert(grand);
 			return;
@@ -182,23 +197,23 @@ private:
 			if(n == get_right(parent)) {
 				rotateLeft(n);
 				rotateRight(n);
-				(n->*Member).color = color_type::black;
+				h(n)->color = color_type::black;
 			}else{
 				rotateRight(parent);
-				(parent->*Member).color = color_type::black;
+				h(parent)->color = color_type::black;
 			}
-			(grand->*Member).color = color_type::red;
+			h(grand)->color = color_type::red;
 		}else{
 			assert(parent == get_right(grand));
 			if(n == get_left(parent)) {
 				rotateRight(n);
 				rotateLeft(n);
-				(n->*Member).color = color_type::black;
+				h(n)->color = color_type::black;
 			}else{
 				rotateLeft(parent);
-				(parent->*Member).color = color_type::black;
+				h(parent)->color = color_type::black;
 			}
-			(grand->*Member).color = color_type::red;
+			h(grand)->color = color_type::red;
 		}
 	}
 	
@@ -236,35 +251,35 @@ private:
 		if(parent == nullptr) {
 			_root = replacement;
 		}else if(node == get_left(parent)) {
-			(parent->*Member).left = replacement;
+			h(parent)->left = replacement;
 		}else{
 			assert(node == get_right(parent));
-			(parent->*Member).right = replacement;
+			h(parent)->right = replacement;
 		}
-		(replacement->*Member).parent = parent;
-		(replacement->*Member).color = (node->*Member).color;
+		h(replacement)->parent = parent;
+		h(replacement)->color = h(node)->color;
 
-		(replacement->*Member).left = left;
+		h(replacement)->left = left;
 		if(left)
-			(left->*Member).parent = replacement;
+			h(left)->parent = replacement;
 		
-		(replacement->*Member).right = right;
+		h(replacement)->right = right;
 		if(right)
-			(right->*Member).parent = replacement;
+			h(right)->parent = replacement;
 		
 		// fix the linked list
 		if(predecessor(node))
-			(predecessor(node)->*Member).successor = replacement;
-		(replacement->*Member).predecessor = predecessor(node);
-		(replacement->*Member).successor = successor(node);
+			h(predecessor(node))->successor = replacement;
+		h(replacement)->predecessor = predecessor(node);
+		h(replacement)->successor = successor(node);
 		if(successor(node))
-			(successor(node)->*Member).predecessor = replacement;
+			h(successor(node))->predecessor = replacement;
 		
-		(node->*Member).left = nullptr;
-		(node->*Member).right = nullptr;
-		(node->*Member).parent = nullptr;
-		(node->*Member).predecessor = nullptr;
-		(node->*Member).successor = nullptr;
+		h(node)->left = nullptr;
+		h(node)->right = nullptr;
+		h(node)->parent = nullptr;
+		h(node)->predecessor = nullptr;
+		h(node)->successor = nullptr;
 		
 		aggregate_node(replacement);
 		aggregate_path(parent);
@@ -274,13 +289,13 @@ private:
 		T *pred = predecessor(mapping);
 		T *succ = successor(mapping);
 		if(pred)
-			(pred->*Member).successor = succ;
+			h(pred)->successor = succ;
 		if(succ)
-			(succ->*Member).predecessor = pred;
+			h(succ)->predecessor = pred;
 
-		if((mapping->*Member).color == color_type::black) {
+		if(h(mapping)->color == color_type::black) {
 			if(isRed(child)) {
-				(child->*Member).color = color_type::black;
+				h(child)->color = color_type::black;
 			}else{
 				// decrement the number of black nodes all paths through "mapping"
 				// before removing the child. this makes sure we're correct even when
@@ -296,19 +311,19 @@ private:
 		if(!parent) {
 			_root = child;
 		}else if(get_left(parent) == mapping) {
-			(parent->*Member).left = child;
+			h(parent)->left = child;
 		}else{
 			assert(get_right(parent) == mapping);
-			(parent->*Member).right = child;
+			h(parent)->right = child;
 		}
 		if(child)
-			(child->*Member).parent = parent;
+			h(child)->parent = parent;
 		
-		(mapping->*Member).left = nullptr;
-		(mapping->*Member).right = nullptr;
-		(mapping->*Member).parent = nullptr;
-		(mapping->*Member).predecessor = nullptr;
-		(mapping->*Member).successor = nullptr;
+		h(mapping)->left = nullptr;
+		h(mapping)->right = nullptr;
+		h(mapping)->parent = nullptr;
+		h(mapping)->predecessor = nullptr;
+		h(mapping)->successor = nullptr;
 		
 		if(parent)
 			aggregate_path(parent);
@@ -323,7 +338,7 @@ private:
 	//     than paths from (p) over (s) to a leaf
 	// Postcondition: The whole tree is a red-black tree
 	void fix_remove(T *n) {
-		assert((n->*Member).color == color_type::black);
+		assert(h(n)->color == color_type::black);
 		
 		T *parent = get_parent(n);
 		if(parent == nullptr)
@@ -333,62 +348,62 @@ private:
 		T *s; // this will always be the sibling of our node
 		if(get_left(parent) == n) {
 			assert(get_right(parent));
-			if((get_right(parent)->*Member).color == color_type::red) {
+			if(h(get_right(parent))->color == color_type::red) {
 				T *x = get_right(parent);
 				rotateLeft(get_right(parent));
 				assert(n == get_left(parent));
 				
-				(parent->*Member).color = color_type::red;
-				(x->*Member).color = color_type::black;
+				h(parent)->color = color_type::red;
+				h(x)->color = color_type::black;
 			}
 			
 			s = get_right(parent);
 		}else{
 			assert(get_right(parent) == n);
 			assert(get_left(parent));
-			if((get_left(parent)->*Member).color == color_type::red) {
+			if(h(get_left(parent))->color == color_type::red) {
 				T *x = get_left(parent);
 				rotateRight(x);
 				assert(n == get_right(parent));
 				
-				(parent->*Member).color = color_type::red;
-				(x->*Member).color = color_type::black;
+				h(parent)->color = color_type::red;
+				h(x)->color = color_type::black;
 			}
 			
 			s = get_left(parent);
 		}
 		
 		if(isBlack(get_left(s)) && isBlack(get_right(s))) {
-			if((parent->*Member).color == color_type::black) {
-				(s->*Member).color = color_type::red;
+			if(h(parent)->color == color_type::black) {
+				h(s)->color = color_type::red;
 				fix_remove(parent);
 				return;
 			}else{
-				(parent->*Member).color = color_type::black;
-				(s->*Member).color = color_type::red;
+				h(parent)->color = color_type::black;
+				h(s)->color = color_type::red;
 				return;
 			}
 		}
 		
 		// now at least one of s children is red
-		auto parent_color = (parent->*Member).color;
+		auto parent_color = h(parent)->color;
 		if(get_left(parent) == n) {
 			// rotate so that get_right(s) is red
 			if(isRed(get_left(s)) && isBlack(get_right(s))) {
 				T *child = get_left(s);
 				rotateRight(child);
 
-				(s->*Member).color = color_type::red;
-				(child->*Member).color = color_type::black;
+				h(s)->color = color_type::red;
+				h(child)->color = color_type::black;
 
 				s = child;
 			}
 			assert(isRed(get_right(s)));
 
 			rotateLeft(s);
-			(parent->*Member).color = color_type::black;
-			(s->*Member).color = parent_color;
-			(get_right(s)->*Member).color = color_type::black;
+			h(parent)->color = color_type::black;
+			h(s)->color = parent_color;
+			h(get_right(s))->color = color_type::black;
 		}else{
 			assert(get_right(parent) == n);
 
@@ -397,17 +412,17 @@ private:
 				T *child = get_right(s);
 				rotateLeft(child);
 
-				(s->*Member).color = color_type::red;
-				(child->*Member).color = color_type::black;
+				h(s)->color = color_type::red;
+				h(child)->color = color_type::black;
 
 				s = child;
 			}
 			assert(isRed(get_left(s)));
 
 			rotateRight(s);
-			(parent->*Member).color = color_type::black;
-			(s->*Member).color = parent_color;
-			(get_left(s)->*Member).color = color_type::black;
+			h(parent)->color = color_type::black;
+			h(s)->color = parent_color;
+			h(get_left(s))->color = color_type::black;
 		}
 	}
 	
@@ -431,19 +446,19 @@ private:
 		T *w = get_parent(u);
 
 		if(v != nullptr)
-			(v->*Member).parent = u;
-		(u->*Member).right = v;
-		(u->*Member).parent = n;
-		(n->*Member).left = u;
-		(n->*Member).parent = w;
+			h(v)->parent = u;
+		h(u)->right = v;
+		h(u)->parent = n;
+		h(n)->left = u;
+		h(n)->parent = w;
 
 		if(w == nullptr) {
 			_root = n;
 		}else if(get_left(w) == u) {
-			(w->*Member).left = n;
+			h(w)->left = n;
 		}else{
 			assert(get_right(w) == u);
-			(w->*Member).right = n;
+			h(w)->right = n;
 		}
 
 		aggregate_node(u);
@@ -466,19 +481,19 @@ private:
 		T *w = get_parent(u);
 		
 		if(v != nullptr)
-			(v->*Member).parent = u;
-		(u->*Member).left = v;
-		(u->*Member).parent = n;
-		(n->*Member).right = u;
-		(n->*Member).parent = w;
+			h(v)->parent = u;
+		h(u)->left = v;
+		h(u)->parent = n;
+		h(n)->right = u;
+		h(n)->parent = w;
 
 		if(w == nullptr) {
 			_root = n;
 		}else if(get_left(w) == u) {
-			(w->*Member).left = n;
+			h(w)->left = n;
 		}else{
 			assert(get_right(w) == u);
-			(w->*Member).right = n;
+			h(w)->right = n;
 		}
 
 		aggregate_node(u);
@@ -517,12 +532,9 @@ private:
 
 	bool check_invariant(T *node, int &black_depth, T *&minimal, T *&maximal) {
 		// check alternating colors invariant
-		if((node->*Member).color == color_type::red)
+		if(h(node)->color == color_type::red)
 			if(!isBlack(get_left(node)) || !isBlack(get_right(node))) {
 				infoLogger() << "Alternating colors violation" << endLog;
-				infoLogger() << "Red node has childen with "
-						<< (int)(get_left(node)->*Member).color
-						<< " and " << (int)(get_right(node)->*Member).color << endLog;
 				return false;
 			}
 		
@@ -580,7 +592,7 @@ private:
 			return false;
 		}
 		black_depth = left_black_depth;
-		if((node->*Member).color == color_type::black)
+		if(h(node)->color == color_type::black)
 			black_depth++;
 
 		if(!A::check_invariant(*this, node))
