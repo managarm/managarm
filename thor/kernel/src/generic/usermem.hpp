@@ -1,4 +1,6 @@
 
+#include <frigg/rb_tree.hpp>
+
 namespace thor {
 
 struct Memory;
@@ -186,18 +188,17 @@ private:
 	MemoryVariant _variant;
 };
 
+struct Mapping;
+
+struct SpaceHook : frigg::rb_hook {
+	static bool aggregate(Mapping *node);
+};
+
 struct Mapping {
 	enum Type {
 		kTypeNone,
 		kTypeHole,
 		kTypeMemory
-	};
-
-
-	enum Color {
-		kColorNone,
-		kColorRed,
-		kColorBlack
 	};
 
 	enum Flags : uint32_t {
@@ -215,16 +216,6 @@ struct Mapping {
 	size_t length;
 	Type type;
 	
-	// pointers to the next / previous mapping in virtual memory
-	Mapping *lowerPtr;
-	Mapping *higherPtr;
-	
-	// pointers to the left / right / parent mappings in the address tree
-	Mapping *leftPtr;
-	Mapping *rightPtr;
-	Mapping *parentPtr;
-	Color color;
-	
 	// larget hole in the subtree of this node
 	size_t largestHole;
 
@@ -232,7 +223,15 @@ struct Mapping {
 	size_t memoryOffset;
 	uint32_t flags;
 	bool writePermission, executePermission;
+
+	SpaceHook spaceHook;
 };
+
+using SpaceTree = frigg::rb_tree<
+	Mapping,
+	SpaceHook,
+	&Mapping::spaceHook
+>;
 
 class AddressSpace {
 public:
@@ -297,48 +296,9 @@ private:
 			VirtualAddr split_offset, VirtualAddr split_length);
 	
 	Mapping *allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
-
-	// Left rotation (n denotes the given mapping):
-	//   w                 w        |
-	//   |                 |        |
-	//   u                 n        |
-	//  / \      -->      / \       |
-	// x   n             u   y      |
-	//    / \           / \         |
-	//   v   y         x   v        |
-	// Note that x and y are left unchanged
-	void rotateLeft(Mapping *n);
-
-	// Right rotation (n denotes the given mapping):
-	//     w             w          |
-	//     |             |          |
-	//     u             n          |
-	//    / \    -->    / \         |
-	//   n   x         y   u        |
-	//  / \               / \       |
-	// y   v             v   x      |
-	// Note that x and y are left unchanged
-	void rotateRight(Mapping *n);
-
-	bool isRed(Mapping *mapping);
-	bool isBlack(Mapping *mapping);
-
-	void addressTreeInsert(Mapping *mapping);
-	void fixAfterInsert(Mapping *mapping);
-
-	void addressTreeRemove(Mapping *mapping);
-	void replaceNode(Mapping *node, Mapping *replacement);
-	void removeHalfLeaf(Mapping *mapping, Mapping *child);
-	void fixAfterRemove(Mapping *mapping);
 	
-	bool checkInvariant();
-	bool checkInvariant(Mapping *mapping, int &black_depth,
-			Mapping *&minimum, Mapping *&maximum);
+	SpaceTree spaceTree;
 
-	bool updateLargestHoleAt(Mapping *mapping);
-	void updateLargestHoleUpwards(Mapping *mapping);
-	
-	Mapping *p_root;
 	PageSpace p_pageSpace;
 };
 
