@@ -25,9 +25,6 @@ public:
 
 	uintptr_t map(size_t length);
 	void unmap(uintptr_t address, size_t length);
-
-private:
-	uintptr_t p_nextPage;
 };
 
 typedef frigg::SlabAllocator<KernelVirtualAlloc, frigg::TicketLock> KernelAlloc;
