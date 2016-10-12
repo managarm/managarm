@@ -106,6 +106,51 @@ enum {
 	kAccessExecute = 2,
 };
 
+// generates a page table where the first entry points to the table itself.
+uint64_t allocPt() {
+	uint64_t address = allocPage();
+
+	auto entries = reinterpret_cast<uint64_t *>(address);
+	for(int i = 0; i < 512; i++)
+		entries[i] = 0;
+	return address;
+}
+
+void mapPt(uint64_t address, uint64_t pt) {
+	assert(address % 0x1000 == 0);
+
+	int pml4_index = (int)((address >> 39) & 0x1FF);
+	int pdpt_index = (int)((address >> 30) & 0x1FF);
+	int pd_index = (int)((address >> 21) & 0x1FF);
+	int pt_index = (int)((address >> 12) & 0x1FF);
+	assert(!pt_index);
+	
+	// find the pml4_entry. the pml4 is always present
+	uintptr_t pml4 = eirPml4Pointer;
+	uint64_t pml4_entry = ((uint64_t*)pml4)[pml4_index];
+	
+	// find the pdpt entry; create pdpt if necessary
+	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
+	if((pml4_entry & kPagePresent) == 0) {
+		pdpt = allocPage();
+		for(int i = 0; i < 512; i++)
+			((uint64_t*)pdpt)[i] = 0;
+		((uint64_t*)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
+	}
+	uint64_t pdpt_entry = ((uint64_t*)pdpt)[pdpt_index];
+	
+	// find the pd entry; create pd if necessary
+	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
+	if((pdpt_entry & kPagePresent) == 0) {
+		pd = allocPage();
+		for(int i = 0; i < 512; i++)
+			((uint64_t*)pd)[i] = 0;
+		((uint64_t*)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
+	}
+	assert(!((uint64_t *)pd)[pd_index] & kPagePresent);
+	((uint64_t *)pd)[pd_index] = pt | kPagePresent | kPageWrite;
+}
+
 void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	assert(address % 0x1000 == 0);
 	assert(physical % 0x1000 == 0);
@@ -354,6 +399,17 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	uint64_t kernel_entry;
 	loadKernelImage(kernel_module->startAddress, &kernel_entry);
+	
+	// finally setup the BSPs physical windows.
+	auto physical1 = allocPt();
+	auto physical3 = allocPt();
+	auto physical4 = allocPt();
+	mapSingle4kPage(0xFFFF'FF80'0000'1000, physical1, kAccessWrite);
+	mapSingle4kPage(0xFFFF'FF80'0000'3000, physical3, kAccessWrite);
+	mapSingle4kPage(0xFFFF'FF80'0000'4000, physical4, kAccessWrite);
+	mapPt(0xFFFF'FF80'0020'0000, physical1);
+	mapPt(0xFFFF'FF80'0060'0000, physical3);
+	mapPt(0xFFFF'FF80'0080'0000, physical4);
 
 	// setup the module information
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);

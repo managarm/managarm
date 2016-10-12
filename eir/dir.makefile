@@ -12,7 +12,7 @@ $c_CXX = x86_64-elf-g++
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -ffreestanding -m32 -fno-exceptions -fno-rtti -std=c++0x $(CXX_INCLUDE)
+$c_CXXFLAGS += -ffreestanding -m32 -fno-exceptions -fno-rtti -std=c++14 $(CXX_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
 $c_AS := x86_64-elf-as

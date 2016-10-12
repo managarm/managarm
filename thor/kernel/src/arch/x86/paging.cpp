@@ -45,6 +45,50 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	return PageSpace(new_pml4_page);
 }
 
+void invlpg(const void *address) {
+	auto p = reinterpret_cast<const char *>(address);
+	asm volatile ("invlpg %0" : : "m"(*p));
+}
+
+// provides a window into physical memory.
+// note that this struct is stateless in the sense that
+// calling access() twice may invalidate the pointer returned
+// by the first call!
+struct StatelessWindow {
+	StatelessWindow(VirtualAddr directory, int index, int offset, int size)
+	: _directory(directory), _index(index), _offset(offset),
+			_mask((1 << __builtin_ctz(size)) - 1) {
+		assert(_index);
+		assert(size == (1 << __builtin_ctz(size)));
+	}
+
+	void *access(PhysicalAddr physical) {
+		assert(!(physical % kPageSize));
+
+		// this hash tries to avoid mapping all large pages to the same value.
+		int h = physical >> 12;
+		h ^= physical >> 21;
+		h ^= physical >> 30;
+		h = _offset + (h & _mask);
+
+		auto pt = reinterpret_cast<uint64_t *>(_directory + _index * kPageSize);
+		auto virt = reinterpret_cast<void *>(_directory
+				+ _index * 512 * kPageSize + h * kPageSize);
+		if((pt[h] & kPagePresent) && ((pt[h] & 0x000FFFFFFFFFF000) == physical))
+			return virt;
+
+		pt[h] = physical | kPagePresent | kPageWrite | kPageXd;
+		invlpg(virt);
+		return virt;
+	}
+
+private:
+	VirtualAddr _directory;
+	int _index;
+	int _offset;
+	int _mask;
+};
+
 void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 		VirtualAddr pointer, PhysicalAddr physical, bool user_page, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
@@ -54,21 +98,26 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
-	
+
+	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
+	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
+	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
+	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
+
 	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
 
 	// make sure there is a pdpt
 	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
 	uint64_t *pdpt_pointer;
 	if((pml4_initial_entry & kPagePresent) != 0) {
-		pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_initial_entry & 0x000FFFFFFFFFF000);
+		pdpt_pointer = (uint64_t *)window3.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
 		PhysicalAddr pdpt_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
-		pdpt_pointer = (uint64_t *)physicalToVirtual(pdpt_page);
+		pdpt_pointer = (uint64_t *)window3.access(pdpt_page);
 		for(int i = 0; i < 512; i++)
 			pdpt_pointer[i] = 0;
 		
@@ -84,13 +133,13 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
 	uint64_t *pd_pointer;
 	if((pdpt_initial_entry & kPagePresent) != 0) {
-		pd_pointer = (uint64_t *)physicalToVirtual(pdpt_initial_entry & 0x000FFFFFFFFFF000);
+		pd_pointer = (uint64_t *)window2.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
 		PhysicalAddr pd_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
-		pd_pointer = (uint64_t *)physicalToVirtual(pd_page);
+		pd_pointer = (uint64_t *)window2.access(pd_page);
 		for(int i = 0; i < 512; i++)
 			pd_pointer[i] = 0;
 		
@@ -106,13 +155,13 @@ void PageSpace::mapSingle4k(PhysicalChunkAllocator::Guard &physical_guard,
 	uint64_t pd_initial_entry = pd_pointer[pd_index];
 	uint64_t *pt_pointer;
 	if((pd_initial_entry & kPagePresent) != 0) {
-		pt_pointer = (uint64_t *)physicalToVirtual(pd_initial_entry & 0x000FFFFFFFFFF000);
+		pt_pointer = (uint64_t *)window1.access(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
 		PhysicalAddr pt_page = physicalAllocator->allocate(physical_guard, 0x1000);
 
-		pt_pointer = (uint64_t *)physicalToVirtual(pt_page);
+		pt_pointer = (uint64_t *)window1.access(pt_page);
 		for(int i = 0; i < 512; i++)
 			pt_pointer[i] = 0;
 		
