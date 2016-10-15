@@ -56,8 +56,8 @@ struct field {
 		return static_cast<T>((static_cast<B>(bv) >> f._shift) & f._mask);
 	}
 
-	explicit constexpr field(int shift, B mask)
-	: _shift(shift), _mask(mask) { }
+	explicit constexpr field(int shift, int num_bits)
+	: _shift(shift), _mask((B(1) << num_bits) - 1) { }
 
 	// allow construction of bit vectors from fields.
 	bit_value<B> operator() (T value) const {

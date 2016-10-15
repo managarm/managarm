@@ -42,12 +42,12 @@ arch::scalar_register<uint8_t> baudHigh(1);
 arch::bit_register<uint8_t> lineControl(3);
 arch::bit_register<uint8_t> lineStatus(5);
 
-arch::field<uint8_t, bool> txReady(5, 0x01);
+arch::field<uint8_t, bool> txReady(5, 1);
 
-arch::field<uint8_t, int> dataBits(0, 0x03);
-arch::field<uint8_t, bool> stopBit(2, 0x01);
-arch::field<uint8_t, int> parityBits(3, 0x07);
-arch::field<uint8_t, bool> dlab(7, 0x01);
+arch::field<uint8_t, int> dataBits(0, 2);
+arch::field<uint8_t, bool> stopBit(2, 1);
+arch::field<uint8_t, int> parityBits(3, 3);
+arch::field<uint8_t, bool> dlab(7, 1);
 
 void setupDebugging() {
 	auto base = arch::global_io.subspace(0x3F8);

@@ -15,15 +15,15 @@ arch::bit_register<uint64_t> timerConfig0(256);
 arch::scalar_register<uint64_t> timerComparator0(264);
 
 // genCapsAndId register.
-arch::field<uint64_t, bool> countSizeCap(13, 0x01);
-arch::field<uint64_t, uint32_t> counterClkPeriod(32, 0xFFFFFFFF);
+arch::field<uint64_t, bool> countSizeCap(13, 1);
+arch::field<uint64_t, uint32_t> counterClkPeriod(32, 32);
 
 // genConfig register
-arch::field<uint64_t, bool> enableCnf(0, 0x01);
+arch::field<uint64_t, bool> enableCnf(0, 1);
 
 // timerConfig registers
-arch::field<uint64_t, bool> tnIntEnbCnf(2, 0x01);
-arch::field<uint64_t, int> tnIntRouteCnf(9, 0x1F);
+arch::field<uint64_t, bool> tnIntEnbCnf(2, 1);
+arch::field<uint64_t, int> tnIntRouteCnf(9, 5);
 
 enum : uint64_t {
 	kFemtosPerNano = 1000000,
@@ -39,8 +39,8 @@ bool hpetAvailable;
 arch::scalar_register<uint8_t> channel0(64);
 arch::bit_register<uint8_t> command(67);
 
-arch::field<uint8_t, int> operatingMode(1, 0x07);
-arch::field<uint8_t, int> accessMode(4, 0x03);
+arch::field<uint8_t, int> operatingMode(1, 3);
+arch::field<uint8_t, int> accessMode(4, 2);
 
 typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
 frigg::LazyInitializer<TimerQueue> timerQueue;

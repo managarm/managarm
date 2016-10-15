@@ -17,33 +17,29 @@ arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
 arch::scalar_register<uint32_t> lApicInitCount(0x0380);
 arch::scalar_register<uint32_t> lApicCurCount(0x0390);
 
-constexpr uint32_t make_mask(int bits) {
-	return (uint32_t(1) << bits) - 1;
-}
-
 // lApicId registers
-arch::field<uint32_t, uint8_t> apicId(24, make_mask(8));
+arch::field<uint32_t, uint8_t> apicId(24, 8);
 
 // lApicSpurious registers
-arch::field<uint32_t, uint8_t> apicSpuriousVector(0, make_mask(8));
-arch::field<uint32_t, bool> apicSpuriousSwEnable(8, 0x01);
-arch::field<uint32_t, bool> apicSpuriousFocusProcessor(9, 0x01);
-arch::field<uint32_t, bool> apicSpuriousEoiBroadcastSuppression(12, 0x01);
+arch::field<uint32_t, uint8_t> apicSpuriousVector(0, 8);
+arch::field<uint32_t, bool> apicSpuriousSwEnable(8, 1);
+arch::field<uint32_t, bool> apicSpuriousFocusProcessor(9, 1);
+arch::field<uint32_t, bool> apicSpuriousEoiBroadcastSuppression(12, 1);
 
 // lApicIcrLow registers
-arch::field<uint32_t, uint8_t> apicIcrLowVector(0, make_mask(8));
-arch::field<uint32_t, uint8_t> apicIcrLowDelivMode(8, make_mask(3));
-arch::field<uint32_t, bool> apicIcrLowDestMode(11, 0x01);
-arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 0x01);
-arch::field<uint32_t, bool> apicIcrLowLevel(14, 0x01);
-arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 0x01);
-arch::field<uint32_t, uint8_t> apicIcrLowDestShortHand(18, make_mask(2));
+arch::field<uint32_t, uint8_t> apicIcrLowVector(0, 8);
+arch::field<uint32_t, uint8_t> apicIcrLowDelivMode(8, 3);
+arch::field<uint32_t, bool> apicIcrLowDestMode(11, 1);
+arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 1);
+arch::field<uint32_t, bool> apicIcrLowLevel(14, 1);
+arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 1);
+arch::field<uint32_t, uint8_t> apicIcrLowDestShortHand(18, 2);
 
 // lApicIcrHigh registers
-arch::field<uint32_t, uint8_t> apicIcrHighDestField(23, make_mask(8));
+arch::field<uint32_t, uint8_t> apicIcrHighDestField(23, 8);
 
 // lApicLvtTimer registers
-arch::field<uint32_t, uint8_t> apicLvtVector(0, make_mask(8));
+arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
 
 arch::mem_space picBase;
 
