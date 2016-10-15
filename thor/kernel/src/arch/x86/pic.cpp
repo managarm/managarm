@@ -143,6 +143,9 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 
 uint32_t *ioApicRegs;
 
+arch::scalar_register<uint32_t> apicIndex(0x00);
+arch::scalar_register<uint32_t> apicData(0x10);
+
 enum {
 	kIoApicId = 0,
 	kIoApicVersion = 1,
@@ -150,12 +153,14 @@ enum {
 };
 
 uint32_t readIoApic(uint32_t index) {
-	frigg::volatileWrite<uint32_t>(&ioApicRegs[0], index);
-	return frigg::volatileRead<uint32_t>(&ioApicRegs[4]);
+	auto picIoBase = arch::mem_space(ioApicRegs);	
+	picIoBase.store(apicIndex, index);
+	return picIoBase.load(apicData);
 }
 void writeIoApic(uint32_t index, uint32_t value) {
-	frigg::volatileWrite<uint32_t>(&ioApicRegs[0], index);
-	frigg::volatileWrite<uint32_t>(&ioApicRegs[4], value);
+	auto picIoBase = arch::mem_space(ioApicRegs);	
+	picIoBase.store(apicIndex, index);
+	picIoBase.store(apicData, value);
 }
 
 void setupIoApic(PhysicalAddr address) {
