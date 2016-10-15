@@ -10,7 +10,6 @@ namespace thor {
 
 arch::bit_register<uint64_t> genCapsAndId(0);
 arch::bit_register<uint64_t> genConfig(16);
-arch::scalar_register<uint64_t> genIntStatus(32);
 arch::scalar_register<uint64_t> mainCounter(240);
 arch::bit_register<uint64_t> timerConfig0(256);
 arch::scalar_register<uint64_t> timerComparator0(264);

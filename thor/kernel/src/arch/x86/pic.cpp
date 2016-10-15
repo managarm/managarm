@@ -1,7 +1,51 @@
 
+#include <arch/bits.hpp>
+#include <arch/register.hpp>
+#include <arch/mem_space.hpp>
+#include <arch/io_space.hpp>
+
 #include "generic/kernel.hpp"
 
 namespace thor {
+
+arch::bit_register<uint32_t> lApicId(0x0020);
+arch::scalar_register<uint32_t> lApicEoi(0x00B0);
+arch::bit_register<uint32_t> lApicSpurious(0x00F0);
+arch::bit_register<uint32_t> lApicIcrLow(0x0300);
+arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
+arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
+arch::scalar_register<uint32_t> lApicInitCount(0x0380);
+arch::scalar_register<uint32_t> lApicCurCount(0x0390);
+
+constexpr uint32_t make_mask(int bits) {
+	return (uint32_t(1) << bits) - 1;
+}
+
+// lApicId registers
+arch::field<uint32_t, uint8_t> apicId(24, make_mask(8));
+
+// lApicSpurious registers
+arch::field<uint32_t, uint8_t> apicSpuriousVector(0, make_mask(8));
+arch::field<uint32_t, bool> apicSpuriousSwEnable(8, 0x01);
+arch::field<uint32_t, bool> apicSpuriousFocusProcessor(9, 0x01);
+arch::field<uint32_t, bool> apicSpuriousEoiBroadcastSuppression(12, 0x01);
+
+// lApicIcrLow registers
+arch::field<uint32_t, uint8_t> apicIcrLowVector(0, make_mask(8));
+arch::field<uint32_t, uint8_t> apicIcrLowDelivMode(8, make_mask(3));
+arch::field<uint32_t, bool> apicIcrLowDestMode(11, 0x01);
+arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 0x01);
+arch::field<uint32_t, bool> apicIcrLowLevel(14, 0x01);
+arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 0x01);
+arch::field<uint32_t, uint8_t> apicIcrLowDestShortHand(18, make_mask(2));
+
+// lApicIcrHigh registers
+arch::field<uint32_t, uint8_t> apicIcrHighDestField(23, make_mask(8));
+
+// lApicLvtTimer registers
+arch::field<uint32_t, uint8_t> apicLvtVector(0, make_mask(8));
+
+arch::mem_space picBase;
 
 enum {
 	kModelLegacy = 1,
@@ -17,28 +61,11 @@ static int picModel = kModelLegacy;
 uint32_t *localApicRegs;
 uint32_t apicTicksPerMilli;
 
-enum {
-	kLApicId = 8,
-	kLApicEoi = 44,
-	kLApicSpurious = 60,
-	kLApicIcwLow = 192,
-	kLApicIcwHigh = 196,
-	kLApicLvtTimer = 200,
-	kLApicInitialCount = 224,
-	kLApicCurrentCount = 228
-};
-
-enum {
-	kIcrDeliverInit = 0x500,
-	kIcrDeliverStartup = 0x600,
-	kIcrLevelAssert = 0x4000,
-	kIcrTriggerLevel = 0x8000
-};
-
 void initLocalApicOnTheSystem() {
 	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
 	assert((apic_info & (1 << 11)) != 0); // local APIC is enabled
 	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
+	picBase = arch::mem_space(localApicRegs);
 
 	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
 }
@@ -46,28 +73,29 @@ void initLocalApicOnTheSystem() {
 void initLocalApicPerCpu() {
 	// enable the local apic
 	uint32_t spurious_vector = 0x81;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicSpurious], spurious_vector | 0x100);
+	picBase.store(lApicSpurious, apicSpuriousVector(spurious_vector)
+			| apicSpuriousSwEnable(true));
 	
 	// setup a timer interrupt for scheduling
 	uint32_t schedule_vector = 0x82;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicLvtTimer], schedule_vector);
+	picBase.store(lApicLvtTimer, apicLvtVector(schedule_vector));
 }
 
 uint32_t getLocalApicId() {
-	return (frigg::volatileRead<uint32_t>(&localApicRegs[kLApicId]) >> 24) & 0xFF;
+	return picBase.load(lApicId) & apicId;
 }
 
 uint64_t localTicks() {
-	return frigg::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
+	return picBase.load(lApicCurCount);
 }
 
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0xFFFFFFFF);
+	picBase.store(lApicInitCount, 0xFFFFFFFF);
 	pollSleepNano(millis * 1000000);
 	uint32_t elapsed = 0xFFFFFFFF
-			- frigg::volatileRead<uint32_t>(&localApicRegs[kLApicCurrentCount]);
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], 0);
+			- picBase.load(lApicCurCount);
+	picBase.store(lApicInitCount, 0);
 	apicTicksPerMilli = elapsed / millis;
 	
 	frigg::infoLogger() << "Local elapsed ticks: " << elapsed << frigg::endLog;
@@ -79,47 +107,47 @@ void preemptThisCpu(uint64_t slice_nano) {
 	uint64_t ticks = (slice_nano / 1000000) * apicTicksPerMilli;
 	if(ticks == 0)
 		ticks = 1;
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicInitialCount], ticks);
+	picBase.store(lApicInitCount, ticks);
 }
 
 void acknowledgePreemption() {
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicEoi], 0);
+	picBase.store(lApicEoi, 0);
 }
 
 void raiseInitAssertIpi(uint32_t dest_apic_id) {
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
-			dest_apic_id << 24);
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
-			kIcrDeliverInit | kIcrTriggerLevel | kIcrLevelAssert);
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+	// DM:init = 5, Level:assert = 1, TM:Level = 1
+	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+			| apicIcrLowLevel(true) | apicIcrLowTriggerMode(true));
 }
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id) {
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
-			dest_apic_id << 24);
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
-			kIcrDeliverInit | kIcrTriggerLevel);
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+	// DM:init = 5, TM:Level = 1
+	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
+			| apicIcrLowTriggerMode(true));
 }
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 	assert((page % 0x1000) == 0);
 	uint32_t vector = page / 0x1000; // determines the startup code page
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwHigh],
-			dest_apic_id << 24);
-	frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicIcwLow],
-			vector | kIcrDeliverStartup);
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(dest_apic_id));
+	// DM:startup = 6
+	picBase.store(lApicIcrLow, apicIcrLowVector(vector)
+			| apicIcrLowDelivMode(6));
 }
 
 // --------------------------------------------------------
 // I/O APIC management
 // --------------------------------------------------------
 
+uint32_t *ioApicRegs;
+
 enum {
 	kIoApicId = 0,
 	kIoApicVersion = 1,
 	kIoApicInts = 16,
 };
-
-uint32_t *ioApicRegs;
 
 uint32_t readIoApic(uint32_t index) {
 	frigg::volatileWrite<uint32_t>(&ioApicRegs[0], index);
@@ -221,7 +249,7 @@ void maskLegacyPic() {
 
 void acknowledgeIrq(int irq) {
 	if(picModel == kModelApic) {
-		frigg::volatileWrite<uint32_t>(&localApicRegs[kLApicEoi], 0);
+		picBase.store(lApicEoi, 0);
 	}else if(picModel == kModelLegacy) {
 		if(irq >= 8)
 			frigg::arch_x86::ioOutByte(kPic2Command, kPicEoi);
