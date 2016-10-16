@@ -10,11 +10,12 @@ all-$c: $($c_BINDIR)/ld-init.so
 .PHONY: install-$c
 install-$c: c := $c
 install-$c: $($c_BINDIR)
-	install $($c_BINDIR)/ld-init.so $(SYSROOT_PATH)/usr/lib
+	install $($c_BINDIR)/ld-init.so $(SYSROOT_PATH)/usr/lib/
 
 $c_CXX = x86_64-managarm-g++
 
-$c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$($c_GENDIR)
+$c_INCLUDES := -I$(TREE_PATH)/hel/include
+$c_INCLUDES += -I$(TREE_PATH)/frigg/include -I$($c_GENDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++1y -Wall -ffreestanding -fno-exceptions -fno-rtti
