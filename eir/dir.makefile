@@ -7,7 +7,7 @@ $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 all-$c: $($c_BINDIR)/eir
 
-$c_CXX = x86_64-elf-g++
+$c_CXX = x86_64-managarm-kernel-g++
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include
 
@@ -15,10 +15,10 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -ffreestanding -m32 -fno-exceptions -fno-rtti -std=c++14 $(CXX_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 
-$c_AS := x86_64-elf-as
+$c_AS := x86_64-managarm-kernel-as
 $c_ASFLAGS := --32
 
-$c_LD := x86_64-elf-ld
+$c_LD := x86_64-managarm-kernel-ld
 $c_LDFLAGS := -m elf_i386 -nostdlib -T $($c_SRCDIR)/link.ld
 
 # note: we include libgcc manually here. impove that?
