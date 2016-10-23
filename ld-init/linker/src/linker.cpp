@@ -825,6 +825,9 @@ void Loader::processLazyRelocations(SharedObject *object) {
 	object->globalOffsetTable[1] = object;
 	object->globalOffsetTable[2] = (void *)&pltRelocateStub;
 	
+	if(!object->lazyTableSize)
+		return;
+
 	// adjust the addresses of JUMP_SLOT relocations
 	assert(object->lazyExplicitAddend);
 	for(size_t offset = 0; offset < object->lazyTableSize; offset += sizeof(Elf64_Rela)) {
