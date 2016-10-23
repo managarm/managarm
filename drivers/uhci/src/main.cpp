@@ -203,14 +203,14 @@ boost::intrusive::list<
 	>
 > scheduleList;
 
-struct Endpoint {
+struct Slot {
 	size_t maxPacketSize;
-	std::shared_ptr<QueueEntity> queue;
+	std::unique_ptr<QueueEntity> queue;
 };
 
 struct Device {
 	uint8_t address;
-	Endpoint endpoints[32];
+	std::unique_ptr<Slot> slots[32];
 };
 
 // arg0 = wValue in the USB spec
@@ -320,7 +320,7 @@ struct Controller {
 
 	void transfer(ControlTransfer control, std::function<void()> callback) {
 		assert((control.flags & kXferToDevice) || (control.flags & kXferToHost));
-		auto endpoint = &control.device->endpoints[control.endpoint];
+		auto endpoint = control.device->slots[control.endpoint].get();
 
 		SetupPacket setup(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
 				control.recipient, control.type, control.request,
@@ -557,32 +557,37 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=] () {
 	auto device = std::make_shared<Device>();
 	device->address = 0;
-	device->endpoints[0].maxPacketSize = 8;
+	device->slots[0] = std::make_unique<Slot>();
+	device->slots[0]->maxPacketSize = 8;
+	device->slots[0]->queue = std::make_unique<QueueEntity>();
+	controller->activateEntity(device->slots[0]->queue.get());
 
-	device->endpoints[0].queue = std::make_shared<QueueEntity>();
-	controller->activateEntity(device->endpoints[0].queue.get());
-
+	// set the device address.
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToDevice,
 			kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
 			nullptr, 0));
 	device->address = 1;
 
+	// enquire the maximum packet size of endpoint 0 and get the device descriptor.
 	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
 			descriptor, 8));
-	device->endpoints[0].maxPacketSize = descriptor->maxPacketSize;
+	device->slots[0]->maxPacketSize = descriptor->maxPacketSize;
 	
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
 			descriptor, sizeof(DeviceDescriptor)));
 	assert(descriptor->length == sizeof(DeviceDescriptor));
-	
+
+	// get and parse the configuration descriptor.
 	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
 			config, sizeof(ConfigDescriptor)));
 	assert(config->length == sizeof(ConfigDescriptor));
+
+	printf("Configuration value: %d\n", config->configValue);
 
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(config->totalLength);
 	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToHost,
@@ -616,6 +621,12 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 			printf("   attributes:%d \n", desc->attributes);	
 			printf("   max packet size:%d \n", desc->maxPacketSize);	
 			printf("   interval:%d \n", desc->interval);
+
+			int endpoint = desc->endpointAddress & 0x0F;
+			device->slots[endpoint] = std::make_unique<Slot>();
+			device->slots[endpoint]->maxPacketSize = desc->maxPacketSize;
+			device->slots[endpoint]->queue = std::make_unique<QueueEntity>();
+			controller->activateEntity(device->slots[endpoint]->queue.get());
 		}else if(base->descriptorType == kDescriptorHid) {
 			auto desc = (HidDescriptor *)base;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
@@ -636,6 +647,11 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 	}
 
 	parseReportDescriptor(controller, device);
+
+	// set the device configuration.
+	COFIBER_AWAIT WaitForXfer(controller, ControlTransfer(device, 0, kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetConfig, 1, 0,
+			nullptr, 0));
 })
 
 /*// --------------------------------------------------------
