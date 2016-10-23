@@ -1,4 +1,3 @@
-
 #include <assert.h>
 #include <stdio.h>
 #include <deque>
@@ -19,6 +18,7 @@
 #include "usb.hpp"
 #include "uhci.hpp"
 #include "hid.hpp"
+#include "schedule.hpp"
 #include <hw.pb.h>
 
 struct Field {
@@ -67,162 +67,132 @@ using ContiguousAllocator = frigg::SlabAllocator<
 ContiguousPolicy contiguousPolicy;
 ContiguousAllocator contiguousAllocator(contiguousPolicy);
 
-enum XferFlags {
-	kXferToDevice = 1,
-	kXferToHost = 2,
-};
+// ----------------------------------------------------------------------------
+// QueuedTransaction.
+// ----------------------------------------------------------------------------
 
-struct QueuedTransaction {
-	QueuedTransaction(std::function<void()> callback)
+QueuedTransaction::QueuedTransaction(std::function<void()> callback)
 	: _callback(callback), _completeCounter(0) { }
+
+void QueuedTransaction::setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
+	_transfers = transfers;
+	_numTransfers = num_transfers;
+}
+
+QueueHead::LinkPointer QueuedTransaction::head() {
+	return QueueHead::LinkPointer::from(&_transfers[0]);
+}
+
+void QueuedTransaction::dumpTransfer() {
+	printf("    Setup stage:");
+	_transfers[0].dumpStatus();
+	printf("\n");
 	
-	void setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
-		_transfers = transfers;
-		_numTransfers = num_transfers;
-	}
-
-	QueueHead::LinkPointer head() {
-		return QueueHead::LinkPointer::from(&_transfers[0]);
-	}
-
-/*	void dumpTransfer() {
-		printf("    Setup stage:");
-		_transfers[0].dumpStatus();
+	for(size_t i = 0; i < _numTransfers; i++) {
+		 printf("    Data stage [%lu]:", i);
+		_transfers[i + 1].dumpStatus();
 		printf("\n");
-		
-		for(size_t i = 0; i < _numTransfers; i++) {
-			 printf("    Data stage [%lu]:", i);
-			_transfers[i + 1].dumpStatus();
-			printf("\n");
-		}
-
-		printf("    Status stage:");
-		_transfers[_numTransfers + 1].dumpStatus();
-		printf("\n");
-	}*/
-
-	bool progress() {
-//		dumpTransfer();
-		
-		while(_completeCounter < _numTransfers) {
-			TransferDescriptor *transfer = &_transfers[_completeCounter];
-			if(transfer->_controlStatus.isActive())
-				return false;
-
-			if(transfer->_controlStatus.isAnyError()) {
-				printf("Transfer error!\n");
-				return true;
-			}
-			
-			_completeCounter++;
-		}
-
-		printf("Transfer complete!\n");
-		_callback();
-		return true;
 	}
 
-	boost::intrusive::list_member_hook<> transactionHook;
+	printf("    Status stage:");
+	_transfers[_numTransfers + 1].dumpStatus();
+	printf("\n");
+}
 
-private:
-	std::function<void()> _callback;
-	size_t _numTransfers;
-	TransferDescriptor *_transfers;
-	size_t _completeCounter;
-};
+bool QueuedTransaction::progress() {
+//	dumpTransfer();
+	while(_completeCounter < _numTransfers) {
+		TransferDescriptor *transfer = &_transfers[_completeCounter];
+		if(transfer->_controlStatus.isActive())
+			return false;
 
-struct ControlTransaction : QueuedTransaction {
-	ControlTransaction(std::function<void()> callback, SetupPacket setup)
+		if(transfer->_controlStatus.isAnyError()) {
+			printf("Transfer error!\n");
+			return true;
+		}
+		
+		_completeCounter++;
+	}
+
+	printf("Transfer complete!\n");
+	_callback();
+	return true;
+}
+
+// ----------------------------------------------------------------------------
+// ControlTransaction.
+// ----------------------------------------------------------------------------
+
+ControlTransaction::ControlTransaction(std::function<void()> callback, SetupPacket setup)
 	: QueuedTransaction(callback), _setup(setup) { }
 
-	void buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags) {
-		assert((flags & kXferToDevice) || (flags & kXferToHost));
+void ControlTransaction::buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags) {
+	assert((flags & kXferToDevice) || (flags & kXferToHost));
 
-		size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
-		size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
-		auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+	size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
+	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
+	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+
+	new (&transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
+			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+					address, endpoint, sizeof(SetupPacket)),
+			TransferBufferPointer::from(&_setup));
+	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
+
+	size_t progress = 0;
+	for(size_t i = 0; i < data_packets; i++) {
+		size_t chunk = std::min(packet_size, _setup.wLength - progress);
+		new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
+			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+					address, endpoint, chunk),
+			TransferBufferPointer::from((char *)buffer + progress));
+		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
+		progress += chunk;
+	}
+
+	new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, false, false),
+			TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
+					TransferToken::kData0, address, endpoint, 0),
+			TransferBufferPointer());
+
+	setupTransfers(transfers, data_packets + 2);
+}
+
+// ----------------------------------------------------------------------------
+// QueueEntity.
+// ----------------------------------------------------------------------------
+
+QueueEntity::QueueEntity() {
+	_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
 	
-		new (&transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-						address, endpoint, sizeof(SetupPacket)),
-				TransferBufferPointer::from(&_setup));
-		transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
+	new (_queue) QueueHead;
+	_queue->_linkPointer = QueueHead::LinkPointer();
+	_queue->_elementPointer = QueueHead::ElementPointer();
+}
 
-		size_t progress = 0;
-		for(size_t i = 0; i < data_packets; i++) {
-			size_t chunk = std::min(packet_size, _setup.wLength - progress);
-			new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-						i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-						address, endpoint, chunk),
-				TransferBufferPointer::from((char *)buffer + progress));
-			transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
-			progress += chunk;
-		}
+QueueHead::LinkPointer QueueEntity::head() {
+	return QueueHead::LinkPointer::from(_queue);
+}
 
-		new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, false, false),
-				TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
-						TransferToken::kData0, address, endpoint, 0),
-				TransferBufferPointer());
+void QueueEntity::linkNext(QueueHead::LinkPointer link) {
+	_queue->_linkPointer = link;
+}
+
+void QueueEntity::progress() {
+	if(transactionList.empty())
+		return;
+
+	if(!transactionList.front().progress())
+		return;
 	
-		setupTransfers(transfers, data_packets + 2);
+	transactionList.pop_front();
+	assert(_queue->_elementPointer.isTerminate());
+
+	if(!transactionList.empty()) {
+		_queue->_elementPointer = transactionList.front().head();
 	}
-
-private:
-	SetupPacket _setup;
-};
-
-struct ScheduleEntity {
-	virtual	QueueHead::LinkPointer head() = 0;
-	virtual void linkNext(QueueHead::LinkPointer link) = 0;
-	virtual void progress() = 0;
-
-	boost::intrusive::list_member_hook<> scheduleHook;
-};
-
-struct QueueEntity : ScheduleEntity {
-	QueueEntity() {
-		_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
-		
-		new (_queue) QueueHead;
-		_queue->_linkPointer = QueueHead::LinkPointer();
-		_queue->_elementPointer = QueueHead::ElementPointer();
-	}
-
-	QueueHead::LinkPointer head() override {
-		return QueueHead::LinkPointer::from(_queue);
-	}
-
-	void linkNext(QueueHead::LinkPointer link) override {
-		_queue->_linkPointer = link;
-	}
-
-	void progress() override {
-		if(transactionList.empty())
-			return;
-
-		if(!transactionList.front().progress())
-			return;
-		
-		transactionList.pop_front();
-		assert(_queue->_elementPointer.isTerminate());
-
-		if(!transactionList.empty()) {
-			_queue->_elementPointer = transactionList.front().head();
-		}
-	}
-
-	QueueHead *_queue;
-	
-	boost::intrusive::list<
-		QueuedTransaction,
-		boost::intrusive::member_hook<
-			QueuedTransaction,
-			boost::intrusive::list_member_hook<>,
-			&QueuedTransaction::transactionHook
-		>
-	> transactionList;
-};
+}
 
 boost::intrusive::list<
 	ScheduleEntity,
