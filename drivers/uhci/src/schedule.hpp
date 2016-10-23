@@ -26,12 +26,17 @@ private:
 
 
 struct ControlTransaction : QueuedTransaction {
-	ControlTransaction(SetupPacket setup);
-
-	void buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags);
+	ControlTransaction(SetupPacket setup, void *buffer, int address,
+			int endpoint, size_t packet_size, XferFlags flags);
 
 private:
 	SetupPacket _setup;
+};
+
+
+struct NormalTransaction : QueuedTransaction {
+	NormalTransaction(void *buffer, size_t length, int address,
+			int endpoint, size_t packet_size, XferFlags flags);
 };
 
 

@@ -88,23 +88,14 @@ QueueHead::LinkPointer QueuedTransaction::head() {
 }
 
 void QueuedTransaction::dumpTransfer() {
-	printf("    Setup stage:");
-	_transfers[0].dumpStatus();
-	printf("\n");
-	
 	for(size_t i = 0; i < _numTransfers; i++) {
-		 printf("    Data stage [%lu]:", i);
-		_transfers[i + 1].dumpStatus();
+		 printf("    TD %lu:", i);
+		_transfers[i].dumpStatus();
 		printf("\n");
 	}
-
-	printf("    Status stage:");
-	_transfers[_numTransfers + 1].dumpStatus();
-	printf("\n");
 }
 
 bool QueuedTransaction::progress() {
-//	dumpTransfer();
 	while(_completeCounter < _numTransfers) {
 		TransferDescriptor *transfer = &_transfers[_completeCounter];
 		if(transfer->_controlStatus.isActive())
@@ -112,6 +103,7 @@ bool QueuedTransaction::progress() {
 
 		if(transfer->_controlStatus.isAnyError()) {
 			printf("Transfer error!\n");
+			dumpTransfer();
 			return true;
 		}
 		
@@ -127,10 +119,9 @@ bool QueuedTransaction::progress() {
 // ControlTransaction.
 // ----------------------------------------------------------------------------
 
-ControlTransaction::ControlTransaction(SetupPacket setup)
-	: _setup(setup) { }
-
-void ControlTransaction::buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags) {
+ControlTransaction::ControlTransaction(SetupPacket setup, void *buffer, int address,
+		int endpoint, size_t packet_size, XferFlags flags)
+: _setup(setup) {
 	assert((flags & kXferToDevice) || (flags & kXferToHost));
 
 	size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
@@ -161,6 +152,35 @@ void ControlTransaction::buildQueue(void *buffer, int address, int endpoint, siz
 			TransferBufferPointer());
 
 	setupTransfers(transfers, data_packets + 2);
+}
+
+// ----------------------------------------------------------------------------
+// NormalTransaction.
+// ----------------------------------------------------------------------------
+
+NormalTransaction::NormalTransaction(void *buffer, size_t length, int address,
+		int endpoint, size_t packet_size, XferFlags flags) {
+	assert((flags & kXferToDevice) || (flags & kXferToHost));
+
+	size_t data_packets = (length + packet_size - 1) / packet_size;
+	size_t desc_size = data_packets * sizeof(TransferDescriptor);
+	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+
+	size_t progress = 0;
+	for(size_t i = 0; i < data_packets; i++) {
+		size_t chunk = std::min(packet_size, length - progress);
+		new (&transfers[i]) TransferDescriptor(TransferStatus(true, false, false),
+			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+					address, endpoint, chunk),
+			TransferBufferPointer::from((char *)buffer + progress));
+
+		if(i + 1 < data_packets)
+			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
+		progress += chunk;
+	}
+
+	setupTransfers(transfers, data_packets);
 }
 
 // ----------------------------------------------------------------------------
@@ -234,6 +254,19 @@ struct ControlTransfer {
 	uint8_t request;
 	uint16_t arg0;
 	uint16_t arg1;
+	void *buffer;
+	size_t length;
+};
+
+struct InterruptTransfer {
+	InterruptTransfer(std::shared_ptr<Device> device, int endpoint, XferFlags flags,
+			void *buffer, size_t length)
+	: device(device), endpoint(endpoint), flags(flags),
+			buffer(buffer), length(length) { }
+
+	std::shared_ptr<Device> device;
+	int endpoint;
+	XferFlags flags;
 	void *buffer;
 	size_t length;
 };
@@ -322,22 +355,35 @@ struct Controller {
 		scheduleList.push_back(*entity);
 	}
 
-	cofiber::future<void> transfer(ControlTransfer control) {
-		assert((control.flags & kXferToDevice) || (control.flags & kXferToHost));
-		auto endpoint = control.device->slots[control.endpoint].get();
+	cofiber::future<void> transfer(ControlTransfer info) {
+		assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
+		auto slot = info.device->slots[info.endpoint].get();
 
-		SetupPacket setup(control.flags & kXferToDevice ? kDirToDevice : kDirToHost,
-				control.recipient, control.type, control.request,
-				control.arg0, control.arg1, control.length);
-		ControlTransaction *transaction = new ControlTransaction(setup);
-		transaction->buildQueue(control.buffer, control.device->address,
-				control.endpoint, endpoint->maxPacketSize, control.flags);
+		SetupPacket setup(info.flags & kXferToDevice ? kDirToDevice : kDirToHost,
+				info.recipient, info.type, info.request,
+				info.arg0, info.arg1, info.length);
+		auto transaction = new ControlTransaction(setup, info.buffer,
+				info.device->address, info.endpoint, slot->maxPacketSize,
+				info.flags);
 
-		if(endpoint->queue->transactionList.empty()) {
-			endpoint->queue->_queue->_elementPointer = transaction->head();
-		}
+		if(slot->queue->transactionList.empty())
+			slot->queue->_queue->_elementPointer = transaction->head();
+		slot->queue->transactionList.push_back(*transaction);
 
-		endpoint->queue->transactionList.push_back(*transaction);
+		return transaction->future();
+	}
+
+	cofiber::future<void> transfer(InterruptTransfer info) {
+		assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
+		auto slot = info.device->slots[info.endpoint].get();
+
+		auto transaction = new NormalTransaction(info.buffer, info.length,
+				info.device->address, info.endpoint, slot->maxPacketSize,
+				info.flags);
+
+		if(slot->queue->transactionList.empty())
+			slot->queue->_queue->_elementPointer = transaction->head();
+		slot->queue->transactionList.push_back(*transaction);
 
 		return transaction->future();
 	}
@@ -362,6 +408,7 @@ struct Controller {
 			auto it = scheduleList.begin();
 			while(it != scheduleList.end()) {
 				it->progress();
+				++it;
 			}
 		}
 	}))
@@ -384,7 +431,9 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Controller> controller,
+std::vector<Field> fields;
+
+COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(std::shared_ptr<Controller> controller,
 		std::shared_ptr<Device> device), [=] () {
 	size_t length = 52;
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
@@ -392,7 +441,6 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 			kDestInterface, kStandard, SetupPacket::kGetDescriptor, 34 << 8, 0,
 			buffer, length));
 
-	std::vector<Field> fields;
 	int bit_offset = 0;
 
 	std::experimental::optional<int> report_count;
@@ -510,7 +558,7 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 		}
 	}
 	
-	size_t rep_length = (bit_offset + 7) / 8;
+/*	size_t rep_length = (bit_offset + 7) / 8;
 	auto rep_buffer = (uint8_t *)contiguousAllocator.allocate(rep_length);
 	COFIBER_AWAIT controller->transfer(ControlTransfer(device, 0, kXferToHost,
 			kDestInterface, kClass, SetupPacket::kGetReport, 0x01 << 8, 0,
@@ -526,7 +574,9 @@ COFIBER_ROUTINE(cofiber::no_future, parseReportDescriptor(std::shared_ptr<Contro
 	for(auto f : fields) {
 		printf("usagePage: %x\n", f.usagePage);
 		printf("    usageId: %x\n", f.usageId);
-	}
+	}*/
+
+	COFIBER_RETURN();
 })
 
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> controller), [=] () {
@@ -621,12 +671,39 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(std::shared_ptr<Controller> con
 		}
 	}
 
-	parseReportDescriptor(controller, device);
+	COFIBER_AWAIT parseReportDescriptor(controller, device);
 
 	// set the device configuration.
 	COFIBER_AWAIT controller->transfer(ControlTransfer(device, 0, kXferToDevice,
 			kDestDevice, kStandard, SetupPacket::kSetConfig, 1, 0,
 			nullptr, 0));
+
+	auto value_buffer = (uint8_t *)contiguousAllocator.allocate(1);
+	COFIBER_AWAIT controller->transfer(ControlTransfer(device, 0, kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetConfig, 0, 0,
+			value_buffer, 1));
+	printf("value_buffer: %d\n", *value_buffer);
+
+/*
+	auto status_buffer = (uint16_t *)contiguousAllocator.allocate(2);
+	COFIBER_AWAIT controller->transfer(ControlTransfer(device, 0, kXferToHost,
+			kDestEndpoint, kStandard, SetupPacket::kGetStatus, 0, 129,
+			status_buffer, 2));
+	printf("status_buffer: %d\n", *status_buffer);
+*/
+
+	while(true) {
+		auto data = (uint8_t *)contiguousAllocator.allocate(4);
+		COFIBER_AWAIT controller->transfer(InterruptTransfer(device, 1, kXferToHost,
+				data, 4));
+	
+		auto values = parse(fields, data);
+		int counter = 0;
+		for(uint32_t val : values) {
+			printf("value %d: %x\n", counter, val);
+			counter++;
+		}
+	}
 })
 
 /*// --------------------------------------------------------
