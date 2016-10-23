@@ -6,8 +6,10 @@ enum XferFlags {
 
 
 struct QueuedTransaction {
-	QueuedTransaction(std::function<void()> callback);
+	QueuedTransaction();
 	
+	cofiber::future<void> future();
+
 	void setupTransfers(TransferDescriptor *transfers, size_t num_transfers);
 	QueueHead::LinkPointer head();
 	void dumpTransfer();
@@ -16,7 +18,7 @@ struct QueuedTransaction {
 	boost::intrusive::list_member_hook<> transactionHook;
 
 private:
-	std::function<void()> _callback;
+	cofiber::promise<void> _promise;
 	size_t _numTransfers;
 	TransferDescriptor *_transfers;
 	size_t _completeCounter;
@@ -24,7 +26,7 @@ private:
 
 
 struct ControlTransaction : QueuedTransaction {
-	ControlTransaction(std::function<void()> callback, SetupPacket setup);
+	ControlTransaction(SetupPacket setup);
 
 	void buildQueue(void *buffer, int address, int endpoint, size_t packet_size, XferFlags flags);
 
