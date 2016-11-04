@@ -1,4 +1,6 @@
 
+#include <atomic>
+
 namespace thor {
 	
 enum EventType {
@@ -51,11 +53,13 @@ struct AsyncOperation {
 	static void complete(frigg::SharedPtr<AsyncOperation> operation);
 
 	AsyncOperation(AsyncCompleter completer)
-	: completer(frigg::move(completer)) { }
+	: completer(frigg::move(completer)), isComplete(false) { }
 
 	virtual AsyncEvent getEvent() = 0;
 
 	AsyncCompleter completer;
+	
+	std::atomic<bool> isComplete;
 	
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };

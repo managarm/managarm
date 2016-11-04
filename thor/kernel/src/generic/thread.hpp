@@ -6,7 +6,11 @@ enum Fault {
 	kFaultBreakpoint
 };
 
-class Thread : public PlatformExecutor {
+struct Thread;
+
+KernelUnsafePtr<Thread> getCurrentThread();
+
+struct Thread : public PlatformExecutor {
 friend class ThreadRunControl;
 public:
 	// wrapper for the function below
@@ -17,6 +21,21 @@ public:
 		});
 	}
 
+	template<typename P>
+	static void blockCurrentWhile(P predicate) {
+		// optimization: do not acquire the lock for the first test.
+		if(!predicate())
+			return;
+
+		frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+		while(true) {
+			auto guard = frigg::guard(&this_thread->_mutex);
+			if(!predicate())
+				return;
+			_blockLocked(frigg::move(guard));
+		}
+	}
+
 	// state transitions that apply to the current thread only.
 	static void deferCurrent();
 	static void blockCurrent(void *argument, void (*function) (void *));
@@ -24,6 +43,7 @@ public:
 	
 	// state transitions that apply to arbitrary threads.
 	static void activateOther(frigg::UnsafePtr<Thread> thread);
+	static void unblockOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
 	static void resumeOther(frigg::UnsafePtr<Thread> thread);
 
@@ -54,13 +74,14 @@ public:
 	Signal pendingSignal();
 
 	void transitionToFault();
-	void resume();
 
 	void submitObserve(KernelSharedPtr<AsyncObserve> observe);
 
 	uint32_t flags;
 
 private:
+	typedef frigg::TicketLock Mutex;
+
 	enum RunState {
 		kRunNone,
 
@@ -87,6 +108,10 @@ private:
 		// it is not scheduled.
 		kRunInterrupted
 	};
+
+	static void _blockLocked(frigg::LockGuard<Mutex> lock);
+
+	Mutex _mutex;
 
 	RunState _runState;
 

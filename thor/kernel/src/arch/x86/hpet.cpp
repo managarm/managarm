@@ -128,9 +128,10 @@ void timerInterrupt() {
 
 		KernelSharedPtr<Thread> thread = timer.thread.grab();
 		if(thread) {
-			ScheduleGuard schedule_guard(scheduleLock.get());
+			assert(!"Use blockCurrent()/unblockOther() instead");
+/*			ScheduleGuard schedule_guard(scheduleLock.get());
 			enqueueInSchedule(schedule_guard, thread);
-			schedule_guard.unlock();
+			schedule_guard.unlock();*/
 		}
 	}
 

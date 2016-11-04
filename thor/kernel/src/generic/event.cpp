@@ -83,6 +83,8 @@ AsyncEvent AsyncIrq::getEvent() {
 // --------------------------------------------------------
 
 void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
+	operation->isComplete.store(true, std::memory_order_release);
+
 	AsyncCompleter &completer = operation->completer;
 	switch(completer.tag()) {
 	case AsyncCompleter::tagOf<NullCompleter>():
@@ -98,8 +100,7 @@ void AsyncOperation::complete(frigg::SharedPtr<AsyncOperation> operation) {
 		auto thread = completer.get<ReturnFromForkCompleter>().thread.grab();
 		assert(thread);
 
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, frigg::move(thread));
+		Thread::unblockOther(thread);
 	} break;
 	default:
 		assert(!"Unexpected AsyncCompleter");
@@ -147,38 +148,6 @@ void EventHub::submitWaitForEvent(Guard &guard, frigg::SharedPtr<AsyncWaitForEve
 
 	_waitQueue.addBack(frigg::move(wait));
 }
-
-/*bool EventHub::hasEvent(Guard &guard) {
-	assert(guard.protects(&lock));
-
-	return !_eventQueue.empty();
-}
-
-frigg::SharedPtr<AsyncOperation> EventHub::dequeueEvent(Guard &guard) {
-	assert(guard.protects(&lock));
-
-	return _eventQueue.removeFront();
-}
-
-void EventHub::blockCurrentThread(Guard &guard) {
-	assert(!intsAreEnabled());
-	assert(guard.protects(&lock));
-	
-	if(forkExecutor()) {
-		KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-		p_waitingThreads.addBack(this_thread.toWeak());
-		
-		// keep the lock on this hub unlocked while we sleep
-		guard.unlock();
-		
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-		// note: doSchedule() takes care of the schedule_guard lock
-	}
-	
-	// the guard lock was released during the first return of saveThisThread()
-	guard.lock();
-}*/
 
 } // namespace thor
 

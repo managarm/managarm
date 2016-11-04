@@ -433,10 +433,13 @@ void serviceMain() {
 		frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
 				ReturnFromForkCompleter(this_thread.toWeak()), -1);
 		frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
-
-		Thread::blockCurrent([&] () {
+		{
 			EventHub::Guard hub_guard(&hub->lock);
 			hub->submitWaitForEvent(hub_guard, wait);
+		}
+
+		Thread::blockCurrentWhile([&] {
+			return !wait->isComplete.load(std::memory_order_acquire);
 		});
 
 		frigg::CallbackPtr<void(AsyncEvent)> cb((void *)wait->event.submitInfo.submitObject,

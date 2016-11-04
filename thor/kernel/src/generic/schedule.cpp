@@ -57,6 +57,7 @@ extern "C" void onPreemption() {
 }
 
 void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
+	assert(!intsAreEnabled());
 	assert(guard.protects(scheduleLock.get()));
 
 	scheduleQueue->addBack(thread);

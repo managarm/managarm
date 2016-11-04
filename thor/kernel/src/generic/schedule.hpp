@@ -9,8 +9,6 @@ extern frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
 
 extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
 
-KernelUnsafePtr<Thread> getCurrentThread();
-
 // selects an active thread and enters it on this processor
 // must only be called if enterThread() would also be allowed
 void doSchedule(ScheduleGuard &&guard) __attribute__ (( noreturn ));

@@ -619,13 +619,8 @@ HelError helResume(HelHandle handle) {
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}	
-	
-	thread->resume();
 
-	{
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, thread);
-	}
+	assert(!"Reimplement helResume()");
 
 	return kHelErrNone;
 }
@@ -735,10 +730,13 @@ HelError helWaitForEvents(HelHandle handle,
 	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
 			ReturnFromForkCompleter(this_thread.toWeak()), -1);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
-
-	Thread::blockCurrent([&] () {
+	{
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
+	}
+
+	Thread::blockCurrentWhile([&] {
+		return !wait->isComplete.load(std::memory_order_acquire);
 	});
 
 	// TODO: support more than one event per transaction
@@ -776,10 +774,13 @@ HelError helWaitForCertainEvent(HelHandle handle, int64_t async_id,
 	frigg::SharedBlock<AsyncWaitForEvent, NullAllocator> block(null_allocator,
 			ReturnFromForkCompleter(this_thread.toWeak()), async_id);
 	frigg::SharedPtr<AsyncWaitForEvent> wait(frigg::adoptShared, &block);
-
-	Thread::blockCurrent([&] () {
+	{
 		EventHub::Guard hub_guard(&event_hub->lock);
 		event_hub->submitWaitForEvent(hub_guard, wait);
+	}
+
+	Thread::blockCurrentWhile([&] {
+		return !wait->isComplete.load(std::memory_order_acquire);
 	});
 
 	assert(wait->event.submitInfo.asyncId == async_id);

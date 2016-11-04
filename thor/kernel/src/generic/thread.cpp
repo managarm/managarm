@@ -14,6 +14,7 @@ void Thread::deferCurrent() {
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
+		frigg::infoLogger() << "scheduling after defer" << frigg::endLog;
 		ScheduleGuard schedule_guard(scheduleLock.get());
 		enqueueInSchedule(schedule_guard, this_thread);
 		doSchedule(frigg::move(schedule_guard));
@@ -21,24 +22,25 @@ void Thread::deferCurrent() {
 }
 
 void Thread::blockCurrent(void *argument, void (*function) (void *)) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunBlocked;
-
-	assert(!intsAreEnabled());
-	if(forkExecutor()) {
-		function(argument);
-
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	}
+	assert(!"Use blockCurrentWhile() instead");
 }
 
 void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
 	assert(other_thread->_runState == kRunSuspended
-			|| other_thread->_runState == kRunDeferred
-			|| other_thread->_runState == kRunBlocked);
+			|| other_thread->_runState == kRunDeferred);
 	other_thread->_runState = kRunActive;
+}
+
+void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
+	auto guard = frigg::guard(&thread->_mutex);
+	if(thread->_runState != kRunBlocked)
+		return;
+
+	thread->_runState = kRunDeferred;
+	{
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		enqueueInSchedule(schedule_guard, thread);
+	}
 }
 
 Thread::Thread(KernelSharedPtr<Universe> universe,
@@ -83,22 +85,34 @@ auto Thread::pendingSignal() -> Signal {
 }
 
 void Thread::transitionToFault() {
-	assert(_runState == kRunActive);
+	assert(!"Use Thread::faultCurrent() instead");
+/*	assert(_runState == kRunActive);
 	_runState = kRunFaulted;
 
 	while(!_observeQueue.empty()) {
 		frigg::SharedPtr<AsyncObserve> observe = _observeQueue.removeFront();
 		AsyncOperation::complete(frigg::move(observe));
-	}
-}
-
-void Thread::resume() {
-	assert(_runState == kRunFaulted);
-	_runState = kRunActive;
+	}*/
 }
 
 void Thread::submitObserve(KernelSharedPtr<AsyncObserve> observe) {
 	_observeQueue.addBack(frigg::move(observe));
+}
+
+void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	assert(lock.protects(&this_thread->_mutex));
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunBlocked;
+
+	// FIXME: we need to do this AFTER we left the thread's stack.
+	lock.unlock();
+
+	assert(!intsAreEnabled());
+	if(forkExecutor()) {
+		ScheduleGuard schedule_guard(scheduleLock.get());
+		doSchedule(frigg::move(schedule_guard));
+	}
 }
 
 } // namespace thor
