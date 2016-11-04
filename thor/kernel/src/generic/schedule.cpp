@@ -10,36 +10,34 @@ KernelUnsafePtr<Thread> getCurrentThread() {
 	return activeExecutor();
 }
 
-void doSchedule(ScheduleGuard &&guard) {
+void doSchedule(ScheduleGuard guard) {
 	assert(!intsAreEnabled());
-	
-	// this function might destroy the currrent thread and thus deallocate
-	// its kernel stack; make sure we're running from a per-cpu stack.
-	runDetached([] (ScheduleGuard guard) {
-		assert(guard.protects(scheduleLock.get()));
-	
-		// TODO: this should be replaced by a proper "reschedule after IRQ" strategy
-		while(scheduleQueue->empty()) {
-			guard.unlock();
-			enableInts();
+	assert(guard.protects(scheduleLock.get()));
 
-			// TODO: we cannot halt() here because if an interrupt we are awaiting
-			// happens before we halt() the halt might never terminate.
-			//halt();
+	// TODO: assert that we are called from a per-cpu stack
+	// and that no executor is currently active.
 
-			disableInts();
-			guard.lock();
-		}
-
-		KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
-		
+	// TODO: this should be replaced by a proper "reschedule after IRQ" strategy
+	while(scheduleQueue->empty()) {
 		guard.unlock();
-		Thread::activateOther(thread);
-		thread->getAddressSpace()->activate();
-		switchContext(&thread->getContext());
-		switchExecutor(thread);
-		restoreExecutor();
-	}, frigg::move(guard));
+		enableInts();
+
+		// TODO: we cannot halt() here because if an interrupt we are awaiting
+		// happens before we halt() the halt might never terminate.
+		//halt();
+
+		disableInts();
+		guard.lock();
+	}
+
+	KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
+	guard.unlock();
+
+	Thread::activateOther(thread);
+	thread->getAddressSpace()->activate();
+	switchContext(&thread->getContext());
+	switchExecutor(thread);
+	restoreExecutor();
 }
 
 // FIXME: this function should get a parameter of type IrqImagePtr

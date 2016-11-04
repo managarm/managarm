@@ -8,16 +8,19 @@ namespace thor {
 // --------------------------------------------------------
 
 void Thread::deferCurrent() {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	auto this_thread = getCurrentThread();
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
 		frigg::infoLogger() << "scheduling after defer" << frigg::endLog;
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, this_thread);
-		doSchedule(frigg::move(schedule_guard));
+		ScheduleGuard schedule_lock(scheduleLock.get());
+		enqueueInSchedule(schedule_lock, this_thread);
+		
+		runDetached([] (ScheduleGuard schedule_lock) {
+			doSchedule(frigg::move(schedule_lock));
+		}, frigg::move(schedule_lock));
 	}
 }
 
@@ -32,14 +35,14 @@ void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
 }
 
 void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
-	auto guard = frigg::guard(&thread->_mutex);
+	auto lock = frigg::guard(&thread->_mutex);
 	if(thread->_runState != kRunBlocked)
 		return;
 
 	thread->_runState = kRunDeferred;
 	{
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, thread);
+		ScheduleGuard schedule_lock(scheduleLock.get());
+		enqueueInSchedule(schedule_lock, thread);
 	}
 }
 
@@ -100,18 +103,20 @@ void Thread::submitObserve(KernelSharedPtr<AsyncObserve> observe) {
 }
 
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
-	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	auto this_thread = getCurrentThread();
 	assert(lock.protects(&this_thread->_mutex));
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunBlocked;
 
-	// FIXME: we need to do this AFTER we left the thread's stack.
-	lock.unlock();
-
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
+		runDetached([] (frigg::LockGuard<Mutex> lock) {
+			// TODO: exit the current thread.
+			lock.unlock();
+
+			ScheduleGuard schedule_lock(scheduleLock.get());
+			doSchedule(frigg::move(schedule_lock));
+		}, frigg::move(lock));
 	}
 }
 
