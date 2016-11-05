@@ -8,6 +8,7 @@
 #include <cofiber.hpp>
 
 #include "usb.hpp"
+#include "api.hpp"
 #include "hid.hpp"
 
 // -----------------------------------------------------

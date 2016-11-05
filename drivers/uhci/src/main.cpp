@@ -16,6 +16,7 @@
 #include <mbus.hpp>
 
 #include "usb.hpp"
+#include "api.hpp"
 #include "uhci.hpp"
 #include "schedule.hpp"
 #include <hw.pb.h>
