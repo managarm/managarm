@@ -1,6 +1,7 @@
 
 #include <memory>
 #include <cofiber.hpp>
+#include <cofiber/future.hpp>
 
 enum DataDirection {
 	kDirToDevice = 0,
@@ -113,8 +114,32 @@ struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
 
 struct DeviceState;
 struct Controller;
-struct ControlTransfer;
-struct InterruptTransfer;
+
+enum XferFlags {
+	kXferToDevice = 1,
+	kXferToHost = 2,
+};
+
+struct ControlTransfer {
+	ControlTransfer(XferFlags flags, ControlRecipient recipient, ControlType type, uint8_t request,
+			uint16_t arg0, uint16_t arg1, void *buffer, size_t length);
+
+	XferFlags flags;
+	ControlRecipient recipient;
+	ControlType type;
+	uint8_t request;
+	uint16_t arg0;
+	uint16_t arg1;
+	void *buffer;
+	size_t length;
+};
+
+struct InterruptTransfer {
+	InterruptTransfer(void *buffer, size_t length);
+
+	void *buffer;
+	size_t length;
+};
 
 enum class PipeType {
 	null, in, out, control
@@ -165,4 +190,23 @@ private:
 	std::shared_ptr<Controller> _controller;
 	std::shared_ptr<DeviceState> _deviceState;
 };
+
+// ------------------------------------------------------------------
+// Contiguous Allocator.
+// ------------------------------------------------------------------
+
+#include <frigg/memory.hpp>
+
+struct ContiguousPolicy {
+public:
+	uintptr_t map(size_t length);
+	void unmap(uintptr_t address, size_t length);
+};
+
+using ContiguousAllocator = frigg::SlabAllocator<
+	ContiguousPolicy,
+	frigg::TicketLock
+>;
+
+extern ContiguousAllocator contiguousAllocator;
 

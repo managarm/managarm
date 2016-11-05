@@ -1,10 +1,4 @@
 
-enum XferFlags {
-	kXferToDevice = 1,
-	kXferToHost = 2,
-};
-
-
 struct QueuedTransaction {
 	QueuedTransaction();
 	
