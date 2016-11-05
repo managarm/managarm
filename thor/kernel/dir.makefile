@@ -2,6 +2,7 @@
 $(call standard_dirs)
 $(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch/x86)
 $(call define_objdir,GENERIC_OBJ,$($c_OBJDIR)/generic)
+$(call decl_targets,install-$c-headers)
 
 $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \

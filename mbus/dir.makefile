@@ -14,8 +14,6 @@ $c_CXX = x86_64-managarm-g++
 $c_INCLUDES := -I$($c_GENDIR) -I$(TREE_PATH)/frigg/include \
 	$(shell $($c_PKGCONF) --cflags protobuf-lite)
 
-$(info $($c_PKGCONF) --cflags protobuf-lite)
-
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall -Wextra
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
