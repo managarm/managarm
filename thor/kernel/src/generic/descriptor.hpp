@@ -60,6 +60,7 @@ struct Stream;
 struct AdoptLane { };
 static constexpr AdoptLane adoptLane;
 
+// TODO: implement SharedLaneHandle + UnsafeLaneHandle?
 struct LaneHandle {
 	friend void swap(LaneHandle &a, LaneHandle &b) {
 		using frigg::swap;
@@ -103,12 +104,9 @@ struct LaneDescriptor {
 	LaneDescriptor() = default;
 
 	explicit LaneDescriptor(LaneHandle handle)
-	: _handle(frigg::move(handle)) { }
+	: handle(frigg::move(handle)) { }
 
-	LaneDescriptor submit(frigg::SharedPtr<StreamControl> control);
-
-private:
-	LaneHandle _handle;
+	LaneHandle handle;
 };
 
 struct RingDescriptor {

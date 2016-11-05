@@ -159,7 +159,7 @@ struct Stream {
 	~Stream();
 
 	// submits an operation to the stream.
-	LaneDescriptor submit(int lane, frigg::SharedPtr<StreamControl> control);
+	LaneHandle submit(int lane, frigg::SharedPtr<StreamControl> control);
 
 private:
 	std::atomic<int> _peerCount[2];

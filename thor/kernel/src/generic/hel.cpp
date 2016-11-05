@@ -835,8 +835,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
 	}
 
-	frigg::Vector<LaneDescriptor, KernelAlloc> stack(*kernelAlloc);
-	stack.push(frigg::move(descriptor));
+	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
+	stack.push(frigg::move(descriptor.handle));
 
 	size_t i = 0;
 	while(!stack.empty()) {
@@ -852,7 +852,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			using Token = PostEvent<OfferPolicy>;
 			auto control = frigg::makeShared<Offer<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context));
-			LaneDescriptor lane = target.submit(frigg::move(control));
+			LaneHandle lane = target.getStream()->submit(target.getLane(),
+					frigg::move(control));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
@@ -862,7 +863,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto control = frigg::makeShared<Accept<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					this_universe.toWeak());
-			LaneDescriptor lane = target.submit(frigg::move(control));
+			LaneHandle lane = target.getStream()->submit(target.getLane(),
+					frigg::move(control));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
@@ -874,7 +876,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto control = frigg::makeShared<SendFromBuffer<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					frigg::move(buffer));
-			target.submit(frigg::move(control));
+			target.getStream()->submit(target.getLane(), frigg::move(control));
 		} break;
 		case kHelActionRecvToBuffer: {
 			using Token = PostEvent<RecvStringPolicy>;
@@ -884,7 +886,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto control = frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					frigg::move(accessor));
-			target.submit(frigg::move(control));
+			target.getStream()->submit(target.getLane(), frigg::move(control));
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -900,14 +902,14 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto control = frigg::makeShared<PushDescriptor<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					frigg::move(operand));
-			target.submit(frigg::move(control));
+			target.getStream()->submit(target.getLane(), frigg::move(control));
 		} break;
 		case kHelActionPullDescriptor: {
 			using Token = PostEvent<PullDescriptorPolicy>;
 			auto control = frigg::makeShared<PullDescriptor<Token>>(*kernelAlloc,
 					Token(hub_descriptor.eventHub, action.context),
 					this_universe.toWeak());
-			target.submit(frigg::move(control));
+			target.getStream()->submit(target.getLane(), frigg::move(control));
 		} break;
 		default:
 			assert(!"Fix error handling here");

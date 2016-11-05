@@ -51,10 +51,6 @@ LaneHandle::~LaneHandle() {
 		_stream.control().decrement();
 }
 
-LaneDescriptor LaneDescriptor::submit(frigg::SharedPtr<StreamControl> control) {
-	return _handle.getStream()->submit(_handle.getLane(), frigg::move(control));
-}
-
 static void transfer(frigg::SharedPtr<OfferBase> offer,
 		frigg::SharedPtr<AcceptBase> accept, LaneDescriptor lane) {
 	offer->complete(kErrSuccess);
@@ -107,7 +103,7 @@ Stream::~Stream() {
 	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
 }
 
-LaneDescriptor Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
+LaneHandle Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
 	// p/q is the number of the local/remote lane.
 	// u/v is the local/remote item that we are processing.
 	assert(!(p & ~int(1)));
@@ -146,11 +142,11 @@ LaneDescriptor Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
 
 				_conversationQueue.addBack(frigg::move(conversation));
 
-				return LaneDescriptor(frigg::move(handle));
+				return frigg::move(handle);
 			}else{
 				_processQueue[p].addBack(frigg::move(u));
 
-				return LaneDescriptor();
+				return LaneHandle();
 			}
 		}
 	}
@@ -165,7 +161,7 @@ LaneDescriptor Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
 				frigg::staticPtrCast<AcceptBase>(frigg::move(v)),
 				LaneDescriptor(frigg::move(lane2)));
 
-		return LaneDescriptor(LaneHandle(adoptLane, conversation, p));
+		return LaneHandle(adoptLane, conversation, p);
 	}else if(OfferBase::classOf(*v)
 			&& AcceptBase::classOf(*u)) {
 		LaneHandle lane1(adoptLane, conversation, p);
@@ -175,22 +171,22 @@ LaneDescriptor Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
 				frigg::staticPtrCast<AcceptBase>(frigg::move(u)),
 				LaneDescriptor(frigg::move(lane1)));
 		
-		return LaneDescriptor(LaneHandle(adoptLane, conversation, p));
+		return LaneHandle(adoptLane, conversation, p);
 	}else if(SendFromBufferBase::classOf(*u)
 			&& RecvToBufferBase::classOf(*v)) {
 		transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),
 				frigg::staticPtrCast<RecvToBufferBase>(frigg::move(v)));
-		return LaneDescriptor();
+		return LaneHandle();
 	}else if(SendFromBufferBase::classOf(*v)
 			&& RecvToBufferBase::classOf(*u)) {
 		transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(v)),
 				frigg::staticPtrCast<RecvToBufferBase>(frigg::move(u)));
-		return LaneDescriptor();
+		return LaneHandle();
 	}else if(PushDescriptorBase::classOf(*u)
 			&& PullDescriptorBase::classOf(*v)) {
 		transfer(frigg::staticPtrCast<PushDescriptorBase>(frigg::move(u)),
 				frigg::staticPtrCast<PullDescriptorBase>(frigg::move(v)));
-		return LaneDescriptor();
+		return LaneHandle();
 	}else{
 		frigg::infoLogger() << u->tag()
 				<< " vs. " << v->tag() << frigg::endLog;
