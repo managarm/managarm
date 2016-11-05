@@ -3,7 +3,7 @@ $(call standard_dirs)
 $(call define_objdir,ACPICA_OBJ,$(BUILD_PATH)/$c/acpica-obj)
 
 $c_INCLUDE := -I$($c_GENDIR)
-$c_INCLUDE += -I$(TREE_PATH)/$c/acpica/source/include -I$(TREE_PATH)/frigg/include
+$c_INCLUDE += -I$(ACPICA)/source/include -I$(TREE_PATH)/frigg/include
 
 $c_CC := x86_64-managarm-gcc
 $c_CCFLAGS := $($c_INCLUDE)
@@ -19,7 +19,7 @@ $c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths
-$c_ACPICA_SRCDIR = $(TREE_PATH)/$c/acpica/source/components
+$c_ACPICA_SRCDIR = $(ACPICA)/source/components
 $c_find_acpica = $(patsubst $($c_ACPICA_SRCDIR)/%.c,%.o,$(wildcard $($c_ACPICA_SRCDIR)/$x/*))
 
 ACPICA_SUBDIRS := events namespace tables hardware utilities \

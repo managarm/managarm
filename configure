@@ -10,9 +10,7 @@ parser.add_argument('--protoc', required=True)
 parser.add_argument('--host-cxx', required=True)
 parser.add_argument('--host-cppflags', required=True)
 parser.add_argument('--host-ldflags', required=True)
-parser.add_argument('--elf-cxx', required=True)
-parser.add_argument('--elf-as', required=True)
-parser.add_argument('--elf-ld', required=True)
+parser.add_argument('--acpica', required=True)
 
 args = parser.parse_args()
 
@@ -25,9 +23,7 @@ make_cfg = {
 	"HOST_CXX": args.host_cxx,
 	"HOST_CPPFLAGS": args.host_cppflags,
 	"HOST_LDFLAGS": args.host_ldflags,
-	"ELF_CXX": args.elf_cxx,
-	"ELF_AS": args.elf_as,
-	"ELF_LD": args.elf_ld
+	"ACPICA": args.acpica
 }
 
 make_fd = open('makefile', 'w')
