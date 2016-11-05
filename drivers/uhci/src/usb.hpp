@@ -24,7 +24,8 @@ enum DescriptorType {
 	kDescriptorString = 0x03,
 	kDescriptorInterface = 0x04,
 	kDescriptorEndpoint = 0x05,
-	kDescriptorHid = 0x21
+	kDescriptorHid = 0x21,
+	kDescriptorReport = 0x22
 };
 
 // Alignment makes sure that a packet doesnt cross a page boundary
@@ -107,6 +108,47 @@ struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
 	uint16_t maxPacketSize;
 	uint8_t interval;
 };
+
+template<typename F>
+void walkConfiguration(std::string buffer, F functor) {
+	struct {
+		std::experimental::optional<int> configNumber;
+		std::experimental::optional<int> interfaceNumber;
+		std::experimental::optional<int> interfaceAlternative;
+		std::experimental::optional<int> endpointNumber;
+	} info;
+
+	auto p = &buffer[0];
+	auto limit = &buffer[0] + buffer.size();
+	while(p < limit) {
+		auto base = (DescriptorBase *)p;
+		p += base->length;
+		
+		if(base->descriptorType == kDescriptorConfig) {
+			auto desc = (ConfigDescriptor *)base;
+			assert(desc->length == sizeof(ConfigDescriptor));
+
+			info.configNumber = desc->configValue;
+			info.interfaceNumber = std::experimental::nullopt;
+			info.interfaceAlternative = std::experimental::nullopt;
+			info.endpointNumber = std::experimental::nullopt;
+		}else if(base->descriptorType == kDescriptorInterface) {
+			auto desc = (InterfaceDescriptor *)base;
+			assert(desc->length == sizeof(InterfaceDescriptor));
+
+			info.interfaceNumber = desc->interfaceNumber;
+			info.interfaceAlternative = desc->alternateSetting;
+			info.endpointNumber = std::experimental::nullopt;
+		}else if(base->descriptorType == kDescriptorEndpoint) {
+			auto desc = (EndpointDescriptor *)base;
+			assert(desc->length == sizeof(EndpointDescriptor));
+		
+			info.endpointNumber = desc->endpointAddress & 0x0F;
+		}
+
+		functor(base->descriptorType, base->length, base, info);
+	}
+}
 
 // ------------------------------------------------------------------
 // Contiguous Allocator.

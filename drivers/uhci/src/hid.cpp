@@ -45,12 +45,12 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device), [=] () {
+COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device, int index), [=] () {
 	size_t length = 52;
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
 	COFIBER_AWAIT device.transfer(ControlTransfer(kXferToHost,
-			kDestInterface, kStandard, SetupPacket::kGetDescriptor, 34 << 8, 0,
-			buffer, length));
+			kDestInterface, kStandard, SetupPacket::kGetDescriptor,
+			(kDescriptorReport << 8) | index, 0, buffer, length));
 
 	int bit_offset = 0;
 
@@ -191,59 +191,45 @@ COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device), [=]
 })
 
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
-	auto config_buffer = COFIBER_AWAIT device.configurationDescriptor();
+	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
-	auto p = &config_buffer[0];
-	auto limit = &config_buffer[0] + config_buffer.size();
-	while(p < limit) {
-		auto base = (DescriptorBase *)p;
-		p += base->length;
+	std::experimental::optional<int> config_number;
+	std::experimental::optional<int> intf_number;
+	std::experimental::optional<int> in_endp_number;
+	std::experimental::optional<int> report_desc_index;
 
-		if(base->descriptorType == kDescriptorInterface) {
-			auto desc = (InterfaceDescriptor *)base;
-			assert(desc->length == sizeof(InterfaceDescriptor));
-
-			printf("Interface:\n");
-			printf("   if num:%d \n", desc->interfaceNumber);	
-			printf("   alternate setting:%d \n", desc->alternateSetting);	
-			printf("   num endpoints:%d \n", desc->numEndpoints);	
-			printf("   if class:%d \n", desc->interfaceClass);	
-			printf("   if sub class:%d \n", desc->interfaceSubClass);	
-			printf("   if protocoll:%d \n", desc->interfaceProtocoll);	
-			printf("   if id:%d \n", desc->iInterface);	
-		}else if(base->descriptorType == kDescriptorEndpoint) {
-			auto desc = (EndpointDescriptor *)base;
-			assert(desc->length == sizeof(EndpointDescriptor));
-
-			printf("Endpoint:\n");
-			printf("   endpoint address:%d \n", desc->endpointAddress);	
-			printf("   attributes:%d \n", desc->attributes);	
-			printf("   max packet size:%d \n", desc->maxPacketSize);	
-			printf("   interval:%d \n", desc->interval);
-		}else if(base->descriptorType == kDescriptorHid) {
-			auto desc = (HidDescriptor *)base;
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		if(type == kDescriptorConfig) {
+			assert(!config_number);
+			config_number = info.configNumber.value();
+		}else if(type == kDescriptorInterface) {
+			assert(!intf_number);
+			intf_number = info.interfaceNumber.value();
+		}else if(type == kDescriptorHid) {
+			auto desc = (HidDescriptor *)p;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 			
-			printf("HID:\n");
-			printf("   hid class:%d \n", desc->hidClass);
-			printf("   country code:%d \n", desc->countryCode);
-			printf("   num descriptors:%d \n", desc->numDescriptors);
-			printf("   Entries:\n");
-			for(size_t entry = 0; entry < desc->numDescriptors; entry++) {
-				printf("        Entry %lu:\n", entry);
-				printf("        length:%d\n", desc->entries[entry].descriptorLength);
-				printf("        type:%d\n", desc->entries[entry].descriptorType);
+			assert(info.interfaceNumber);
+			
+			for(size_t i = 0; i < desc->numDescriptors; i++) {
+				assert(desc->entries[i].descriptorType == kDescriptorReport);
+				assert(!report_desc_index);
+				report_desc_index = 0;
 			}
+		}else if(type == kDescriptorEndpoint) {
+			assert(!in_endp_number);
+			in_endp_number = info.endpointNumber.value();
 		}else{
-			printf("Unexpected descriptor type: %d!\n", base->descriptorType);
+			printf("Unexpected descriptor type: %d!\n", type);
 		}
-	}
+	});
+	
+	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value());
 
-	auto config = COFIBER_AWAIT device.useConfiguration(1);
-	auto intf = COFIBER_AWAIT config.useInterface(1, 0);
-	COFIBER_AWAIT parseReportDescriptor(device);
+	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
+	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
 
-	auto endp = intf.getEndpoint(PipeType::in, 1);
+	auto endp = intf.getEndpoint(PipeType::in, in_endp_number.value());
 	while(true) {
 		auto data = (uint8_t *)contiguousAllocator.allocate(4);
 		COFIBER_AWAIT endp.transfer(InterruptTransfer(data, 4));

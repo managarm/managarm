@@ -436,11 +436,20 @@ Configuration::Configuration(std::shared_ptr<Controller> controller,
 
 COFIBER_ROUTINE(cofiber::future<Interface>, Configuration::useInterface(int number,
 		int alternative) const, ([=] {
-	int endpoint = 1 & 0x0F;
-	_deviceState->endpointStates[endpoint] = std::make_unique<EndpointState>();
-	_deviceState->endpointStates[endpoint]->maxPacketSize = 4;
-	_deviceState->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
-	_controller->activateEntity(_deviceState->endpointStates[endpoint]->queue.get());
+	Device device(_controller, _deviceState);
+	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		if(type != kDescriptorEndpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;	
+		
+		int endpoint = info.endpointNumber.value();
+		_deviceState->endpointStates[endpoint] = std::make_unique<EndpointState>();
+		_deviceState->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
+		_deviceState->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
+		_controller->activateEntity(_deviceState->endpointStates[endpoint]->queue.get());
+	});
 
 	COFIBER_RETURN(Interface(_controller, _deviceState));
 }))
@@ -541,6 +550,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
 			descriptor, sizeof(DeviceDescriptor)));
 	assert(descriptor->length == sizeof(DeviceDescriptor));
+
+	// TODO:read configuration descriptor from the device
 
 	runHidDevice(Device(controller, device_state));
 }))
