@@ -1,4 +1,7 @@
 
+#include <memory>
+#include <cofiber.hpp>
+
 enum DataDirection {
 	kDirToDevice = 0,
 	kDirToHost = 1
@@ -106,5 +109,60 @@ struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
 	uint8_t attributes;
 	uint16_t maxPacketSize;
 	uint8_t interval;
+};
+
+struct DeviceState;
+struct Controller;
+struct ControlTransfer;
+struct InterruptTransfer;
+
+enum class PipeType {
+	null, in, out, control
+};
+
+struct Endpoint {
+	Endpoint(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state,
+			PipeType type, int number);
+	
+	cofiber::future<void> transfer(ControlTransfer info);
+	cofiber::future<void> transfer(InterruptTransfer info);
+
+private:
+	std::shared_ptr<Controller> _controller;
+	std::shared_ptr<DeviceState> _deviceState;
+	PipeType _type;
+	int _number;
+};
+
+struct Interface {
+	Interface(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+	
+	Endpoint getEndpoint(PipeType type, int number);
+
+private:
+	std::shared_ptr<Controller> _controller;
+	std::shared_ptr<DeviceState> _deviceState;
+};
+
+struct Configuration {
+	Configuration(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+	
+	cofiber::future<Interface> useInterface(int number, int alternative) const;
+
+private:
+	std::shared_ptr<Controller> _controller;
+	std::shared_ptr<DeviceState> _deviceState;
+};
+
+struct Device {
+	Device(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+
+	cofiber::future<std::string> configurationDescriptor() const;
+	cofiber::future<Configuration> useConfiguration(int number) const;
+	cofiber::future<void> transfer(ControlTransfer info) const;
+
+private:
+	std::shared_ptr<Controller> _controller;
+	std::shared_ptr<DeviceState> _deviceState;
 };
 
