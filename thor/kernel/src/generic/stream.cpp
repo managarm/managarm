@@ -103,7 +103,7 @@ Stream::~Stream() {
 	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
 }
 
-LaneHandle Stream::submit(int p, frigg::SharedPtr<StreamControl> u) {
+LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 	// p/q is the number of the local/remote lane.
 	// u/v is the local/remote item that we are processing.
 	assert(!(p & ~int(1)));

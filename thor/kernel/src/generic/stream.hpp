@@ -157,11 +157,47 @@ struct Stream {
 
 	Stream();
 	~Stream();
+	
+	template<typename Token>
+	LaneHandle submitOffer(int lane, Token token) {
+		return _submitControl(lane, frigg::makeShared<Offer<Token>>(*kernelAlloc,
+				frigg::move(token)));
+	}
+	
+	template<typename Token>
+	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, Token token) {
+		return _submitControl(lane, frigg::makeShared<Accept<Token>>(*kernelAlloc,
+				frigg::move(token), frigg::move(universe)));
+	}
 
-	// submits an operation to the stream.
-	LaneHandle submit(int lane, frigg::SharedPtr<StreamControl> control);
+	template<typename Token>
+	void submitSendBuffer(int lane, frigg::UniqueMemory<KernelAlloc> buffer, Token token) {
+		_submitControl(lane, frigg::makeShared<SendFromBuffer<Token>>(*kernelAlloc,
+				frigg::move(token), frigg::move(buffer)));
+	}
+	
+	template<typename Token>
+	void submitRecvBuffer(int lane, ForeignSpaceAccessor accessor, Token token) {
+		_submitControl(lane, frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
+				frigg::move(token), frigg::move(accessor)));
+	}
+	
+	template<typename Token>
+	void submitPushDescriptor(int lane, AnyDescriptor descriptor, Token token) {
+		_submitControl(lane, frigg::makeShared<PushDescriptor<Token>>(*kernelAlloc,
+				frigg::move(token), frigg::move(descriptor)));
+	}
+	
+	template<typename Token>
+	void submitPullDescriptor(int lane, frigg::WeakPtr<Universe> universe, Token token) {
+		_submitControl(lane, frigg::makeShared<PullDescriptor<Token>>(*kernelAlloc,
+				frigg::move(token), frigg::move(universe)));
+	}
 
 private:
+	// submits an operation to the stream.
+	LaneHandle _submitControl(int lane, frigg::SharedPtr<StreamControl> control);
+
 	std::atomic<int> _peerCount[2];
 	
 	frigg::TicketLock _mutex;
