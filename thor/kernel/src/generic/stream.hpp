@@ -215,5 +215,7 @@ private:
 	bool _laneBroken[2];
 };
 
+frigg::Tuple<LaneHandle, LaneHandle> createStream();
+
 } // namespace thor
 

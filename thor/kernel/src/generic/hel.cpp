@@ -794,16 +794,14 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
-	stream.control().counter()->setRelaxed(2);
+	auto lanes = createStream();
 	{
 		Universe::Guard universe_guard(&universe->lock);
 		*lane1_handle = universe->attachDescriptor(universe_guard,
-				LaneDescriptor(LaneHandle(adoptLane, stream, 0)));
+				LaneDescriptor(frigg::move(lanes.get<0>())));
 		*lane2_handle = universe->attachDescriptor(universe_guard,
-				LaneDescriptor(LaneHandle(adoptLane, stream, 1)));
+				LaneDescriptor(frigg::move(lanes.get<1>())));
 	}
-	stream.release();
 
 	return kHelErrNone;
 }

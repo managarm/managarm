@@ -195,5 +195,14 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 	}
 }
 
+frigg::Tuple<LaneHandle, LaneHandle> createStream() {
+	auto stream = frigg::makeShared<Stream>(*kernelAlloc);
+	stream.control().counter()->setRelaxed(2);
+	LaneHandle handle1(adoptLane, stream, 0);
+	LaneHandle handle2(adoptLane, stream, 1);
+	stream.release();
+	return frigg::makeTuple(handle1, handle2);
+}
+
 } // namespace thor
 
