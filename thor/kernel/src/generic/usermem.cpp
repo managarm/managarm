@@ -534,7 +534,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	uint32_t page_flags = 0;
 	if(mapping->writePermission)
 		page_flags |= PageSpace::kAccessWrite;
-	if(mapping->executePermission);
+	if(mapping->executePermission)
 		page_flags |= PageSpace::kAccessExecute;
 	
 	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
@@ -713,7 +713,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 
 		// don't set the write flag to enable copy-on-write
 		uint32_t page_flags = 0;
-		if(mapping->executePermission);
+		if(mapping->executePermission)
 			page_flags |= PageSpace::kAccessExecute;
 		
 		// create a copy-on-write region for the original space
