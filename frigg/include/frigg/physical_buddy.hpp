@@ -247,6 +247,7 @@ namespace _buddy {
 			}
 			default:
 				assert(!"AnyFacet: Unexpected tag");
+				__builtin_trap();
 			}
 		}
 

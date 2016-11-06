@@ -17,8 +17,8 @@ size_t HardwareMemory::getLength() {
 	return _length;
 }
 
-PhysicalAddr HardwareMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-		GrabIntent grab_intent, size_t offset) {
+PhysicalAddr HardwareMemory::grabPage(PhysicalChunkAllocator::Guard &,
+		GrabIntent, size_t offset) {
 	assert(offset % kPageSize == 0);
 	assert(offset + kPageSize <= _length);
 	return _base + offset;
@@ -42,7 +42,7 @@ size_t AllocatedMemory::getLength() {
 }
 
 PhysicalAddr AllocatedMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-		GrabIntent grab_intent, size_t offset) {
+		GrabIntent, size_t offset) {
 	assert(offset % kPageSize == 0);
 	
 	size_t index = offset / _chunkSize;
@@ -125,7 +125,7 @@ size_t BackingMemory::getLength() {
 }
 
 PhysicalAddr BackingMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-		GrabIntent grab_intent, size_t offset) {
+		GrabIntent, size_t offset) {
 	assert(offset % kPageSize == 0);
 	
 	size_t index = offset / kPageSize;
@@ -184,7 +184,7 @@ size_t FrontalMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
-PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &,
 		GrabIntent grab_intent, size_t offset) {
 	assert(offset % kPageSize == 0);
 
@@ -248,7 +248,7 @@ size_t CopyOnWriteMemory::getLength() {
 }
 
 PhysicalAddr CopyOnWriteMemory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-		GrabIntent grab_intent, size_t offset) {
+		GrabIntent, size_t offset) {
 	assert(offset % kPageSize == 0);
 	
 	size_t index = offset / kPageSize;
@@ -457,6 +457,8 @@ void AddressSpace::map(Guard &guard,
 }
 
 void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
+	assert(guard.protects(&lock));
+
 	Mapping *mapping = getMapping(address);
 	assert(mapping != nullptr);
 	assert(mapping->type == Mapping::kTypeMemory);
@@ -517,6 +519,9 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 }
 
 bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags) {
+	(void)flags;
+	assert(guard.protects(&lock));
+
 	Mapping *mapping = getMapping(address);
 	if(!mapping)
 		return false;

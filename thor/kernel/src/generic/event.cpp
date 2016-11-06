@@ -32,6 +32,7 @@ AsyncEvent AsyncObserve::getEvent() {
 }
 AsyncEvent AsyncWaitForEvent::getEvent() {
 	assert(false);
+	__builtin_trap();
 }
 AsyncEvent AsyncSendString::getEvent() {
 	AsyncEvent event(kEventSendString, completer.get<PostEventCompleter>().submitInfo);
@@ -71,7 +72,7 @@ AsyncEvent AsyncRecvDescriptor::getEvent() {
 	event.handle = handle;
 	return event;
 }
-AsyncEvent AsyncRingItem::getEvent() { assert(false); }
+AsyncEvent AsyncRingItem::getEvent() { assert(false); __builtin_trap(); }
 AsyncEvent AsyncIrq::getEvent() {
 	AsyncEvent event(kEventIrq, completer.get<PostEventCompleter>().submitInfo);
 	event.error = kErrSuccess;

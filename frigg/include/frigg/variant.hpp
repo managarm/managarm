@@ -156,7 +156,7 @@ private:
 		}
 	}
 
-	void copyConstruct(IntegralConstant<int, sizeof...(T)>, const Variant &other) {
+	void copyConstruct(IntegralConstant<int, sizeof...(T)>, const Variant &) {
 		assert(!"Copy-construction from variant with illegal tag");
 	}
 
@@ -172,7 +172,7 @@ private:
 		}
 	}
 
-	void moveConstruct(IntegralConstant<int, sizeof...(T)>, Variant &&other) {
+	void moveConstruct(IntegralConstant<int, sizeof...(T)>, Variant &&) {
 		assert(!"Move-construction from variant with illegal tag");
 	}
 	
@@ -201,7 +201,7 @@ private:
 		}
 	}
 
-	void assign(IntegralConstant<int, sizeof...(T)>, Variant other) {
+	void assign(IntegralConstant<int, sizeof...(T)>, Variant) {
 		assert(!"Assignment from variant with illegal tag");
 	}
 	
@@ -218,7 +218,7 @@ private:
 
 	template<typename F>
 	CommonType<ResultOf<F(T &)>...>
-	apply(IntegralConstant<int, sizeof...(T)>, F functor) {
+	apply(IntegralConstant<int, sizeof...(T)>, F) {
 		assert(!"apply() on variant with illegal tag");
 		__builtin_unreachable();
 	}
@@ -235,7 +235,7 @@ private:
 
 	template<typename F>
 	CommonType<ResultOf<F(const T &)>...>
-	const_apply(IntegralConstant<int, sizeof...(T)>, F functor) const {
+	const_apply(IntegralConstant<int, sizeof...(T)>, F) const {
 		assert(!"apply() on variant with illegal tag");
 		__builtin_unreachable();
 	}

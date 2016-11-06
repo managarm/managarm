@@ -66,7 +66,7 @@ struct Print;
 
 template<typename P>
 struct Print<P, EndLog> {
-	static void print(P &printer, EndLog token) {
+	static void print(P &printer, EndLog) {
 		printer.finish();
 	}
 };

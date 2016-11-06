@@ -24,7 +24,7 @@ void Thread::deferCurrent() {
 	}
 }
 
-void Thread::blockCurrent(void *argument, void (*function) (void *)) {
+void Thread::blockCurrent(void *, void (*) (void *)) {
 	assert(!"Use blockCurrentWhile() instead");
 }
 

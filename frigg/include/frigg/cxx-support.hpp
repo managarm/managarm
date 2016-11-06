@@ -7,7 +7,7 @@
 
 #ifdef FRIGG_NO_LIBC
 
-inline void *operator new (size_t size, void *pointer) {
+inline void *operator new (size_t, void *pointer) {
 	return pointer;
 }
 

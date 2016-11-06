@@ -56,6 +56,8 @@ extern "C" void handleEarlyOpcodeFault(void *rip) {
 }
 
 extern "C" void handleEarlyDoubleFault(uint64_t errcode, void *rip) {
+	(void)errcode;
+
 	frigg::panicLogger() << "Double fault during boot\n"
 			<< "Faulting IP: " << rip << frigg::endLog;
 }
@@ -67,6 +69,8 @@ extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
 }
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
+	(void)errcode;
+
 	frigg::panicLogger() << "Page fault during boot\n"
 			<< "Faulting IP: " << rip << frigg::endLog;
 }

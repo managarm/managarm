@@ -95,7 +95,10 @@ struct AllocatorPolicy {
 	}
 
 	void unmap(uintptr_t address, size_t length) {
+		(void)address;
+		(void)length;
 		assert(!"Unmapping memory is not implemented here");
+		__builtin_trap();
 	}
 };
 
@@ -115,7 +118,7 @@ namespace initrd {
 	// ----------------------------------------------------
 
 	struct FileConnection {
-		FileConnection(ServiceAllocator &allocator, OpenFile *file,
+		FileConnection(ServiceAllocator &, OpenFile *file,
 				frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
 		: file(file), endpoint(frigg::move(endpoint)) { }
 
@@ -302,7 +305,7 @@ namespace initrd {
 	// ----------------------------------------------------
 
 	struct ServerConnection {
-		ServerConnection(ServiceAllocator &allocator,
+		ServerConnection(ServiceAllocator &,
 				frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
 		: endpoint(frigg::move(endpoint)) { }
 

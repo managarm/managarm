@@ -10,6 +10,8 @@ T *accessPhysical(PhysicalAddr address) {
 
 template<typename T>
 T *accessPhysicalN(PhysicalAddr address, int n) {
+	(void)n;
+
 	return (T *)physicalToVirtual(address);
 }
 

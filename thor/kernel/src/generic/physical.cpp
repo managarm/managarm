@@ -49,12 +49,15 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 }
 
 void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
+	(void)address;
+
 	assert(guard.protects(&lock));
 	//assert(address >= p_root->baseAddress);
 	//assert(address < p_root->baseAddress
 	//		+ p_root->pageSize * p_root->numPages);
 	
 	assert(!"Fix free()");
+	__builtin_trap();
 	
 //	assert(_usedPages > 0);
 //	_usedPages -= size / kPageSize;

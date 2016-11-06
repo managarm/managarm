@@ -12,6 +12,8 @@ void initializeTheSystem() {
 }
 
 void controlArch(int interface, const void *input, void *output) {
+	(void)output;
+
 	switch(interface) {
 	case kThorIfSetupHpet: {
 		const uint64_t *address_ptr = (const uint64_t *)input;

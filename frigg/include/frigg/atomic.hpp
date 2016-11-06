@@ -25,7 +25,7 @@ constexpr DontLock dontLock = DontLock();
 template<typename Mutex>
 class LockGuard {
 public:
-	LockGuard(Mutex *mutex, DontLock dummy)
+	LockGuard(Mutex *mutex, DontLock)
 	: p_mutex(mutex), p_isLocked(false) { }
 
 	LockGuard(Mutex *mutex)

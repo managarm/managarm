@@ -128,6 +128,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 
 HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
+	(void)flags;
 	assert(size > 0);
 	assert(size % kPageSize == 0);
 
@@ -493,6 +494,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 
 HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
+	(void)abi;
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 
@@ -808,6 +810,7 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 
 HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
 		HelHandle hub_handle, uint32_t flags) {
+	(void)flags;
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 	
@@ -907,6 +910,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 
 HelError helCreateRing(size_t max_chunk_size, HelHandle *handle) {
+	(void)max_chunk_size;
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	

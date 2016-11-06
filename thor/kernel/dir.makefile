@@ -32,7 +32,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$($c_GENDIR) -iquote $($c_SRCDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++1y -Wall -O2
+$c_CXXFLAGS += -std=c++1y -Wall -Wextra -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx

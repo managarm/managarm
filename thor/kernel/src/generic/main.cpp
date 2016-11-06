@@ -304,6 +304,8 @@ extern "C" void handleBadDomain() {
 }
 
 extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
+	(void)image;
+
 	frigg::panicLogger() << "Divide by zero" << frigg::endLog;
 }
 
@@ -313,6 +315,8 @@ extern "C" void handleDebugFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleOpcodeFault(FaultImageAccessor image) {
+	(void)image;
+
 	frigg::panicLogger() << "Invalid opcode" << frigg::endLog;
 }
 
@@ -402,6 +406,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 }
 
 void handleIrq(IrqImageAccessor image, int number) {
+	(void)image;
 	assert(!intsAreEnabled());
 
 	if(logEveryIrq)
