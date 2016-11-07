@@ -100,12 +100,12 @@ struct RecvToBufferBase : StreamControl {
 		return base.tag() == kTagRecvToBuffer;
 	}
 
-	explicit RecvToBufferBase(ForeignSpaceAccessor accessor)
+	explicit RecvToBufferBase(AnyBufferAccessor accessor)
 	: StreamControl(kTagRecvToBuffer), accessor(frigg::move(accessor)) { }
 
 	virtual void complete(Error error, size_t length) = 0;
 	
-	ForeignSpaceAccessor accessor;
+	AnyBufferAccessor accessor;
 };
 
 template<typename Token>
@@ -177,7 +177,7 @@ struct Stream {
 	}
 	
 	template<typename Token>
-	void submitRecvBuffer(int lane, ForeignSpaceAccessor accessor, Token token) {
+	void submitRecvBuffer(int lane, AnyBufferAccessor accessor, Token token) {
 		_submitControl(lane, frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
 				frigg::move(token), frigg::move(accessor)));
 	}

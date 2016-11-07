@@ -84,7 +84,8 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 	
 	std::atomic_thread_fence(std::memory_order_acquire);
 	
-	frigg::infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frigg::endLog;
+// TODO: remove debugging messages?
+//	frigg::infoLogger() << "\e[31mClosing lane " << lane << "\e[0m" << frigg::endLog;
 	{
 		auto lock = frigg::guard(&stream->_mutex);
 		assert(!stream->_laneBroken[lane]);
@@ -100,7 +101,8 @@ Stream::Stream()
 }
 
 Stream::~Stream() {
-	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
+// TODO: remove debugging messages?
+//	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
 }
 
 LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
@@ -186,6 +188,11 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 			&& PullDescriptorBase::classOf(*v)) {
 		transfer(frigg::staticPtrCast<PushDescriptorBase>(frigg::move(u)),
 				frigg::staticPtrCast<PullDescriptorBase>(frigg::move(v)));
+		return LaneHandle();
+	}else if(PushDescriptorBase::classOf(*v)
+			&& PullDescriptorBase::classOf(*u)) {
+		transfer(frigg::staticPtrCast<PushDescriptorBase>(frigg::move(v)),
+				frigg::staticPtrCast<PullDescriptorBase>(frigg::move(u)));
 		return LaneHandle();
 	}else{
 		frigg::infoLogger() << u->tag()

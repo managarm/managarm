@@ -152,5 +152,74 @@ private:
 	T *_address;
 };
 
+struct KernelAccessor {
+	static KernelAccessor acquire(void *pointer, size_t length) {
+		return KernelAccessor(pointer, length);
+	}
+
+	friend void swap(KernelAccessor &a, KernelAccessor &b) {
+		frigg::swap(a._pointer, b._pointer);
+		frigg::swap(a._length, b._length);
+	}
+
+	KernelAccessor() = default;
+
+	KernelAccessor(const KernelAccessor &other) = delete;
+
+	KernelAccessor(KernelAccessor &&other)
+	: KernelAccessor() {
+		swap(*this, other);
+	}
+	
+	KernelAccessor &operator= (KernelAccessor other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	size_t length() {
+		return _length;
+	}
+
+	void copyTo(void *source, size_t size) {
+		assert(size <= _length);
+		memcpy(_pointer, source, size);
+	}
+
+private:
+	KernelAccessor(void *pointer, size_t length)
+	: _pointer(pointer), _length(length) { }
+
+private:
+	void *_pointer;
+	size_t _length;
+};
+
+struct AnyBufferAccessor {
+public:
+	AnyBufferAccessor(KernelAccessor accessor)
+	: _variant(frigg::move(accessor)) { }
+	
+	AnyBufferAccessor(ForeignSpaceAccessor accessor)
+	: _variant(frigg::move(accessor)) { }
+
+	size_t length() {
+		return _variant.apply([&] (auto &accessor) -> size_t {
+			return accessor.length();
+		});
+	}
+
+	void copyTo(void *source, size_t size) {
+		_variant.apply([&] (auto &accessor) {
+			accessor.copyTo(source, size);
+		});
+	}
+
+private:
+	frigg::Variant<
+		KernelAccessor,
+		ForeignSpaceAccessor
+	> _variant;
+};
+
 } // namespace thor
 
