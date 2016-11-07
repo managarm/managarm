@@ -125,32 +125,49 @@ ImageInfo loadImage(HelHandle space, const char *path, uintptr_t base) {
 // Utilities
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniquePipe p),
-		[pipe = std::move(p)] () {
+COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniqueDescriptor s),
+		[lane = std::move(s)] () {
 	using M = helix::AwaitMechanism;
 
 	while(true) {
-		char req_buffer[128];
-		helix::RecvBuffer<M> recv_req(helix::Dispatcher::global(), pipe, req_buffer, 128,
-				kHelAnyRequest, 0, kHelRequest);
+		helix::Accept<M> accept;
+		helix::RecvBuffer<M> recv_req;
+		helix::RecvBuffer<M> recv_data;
+		helix::SendBuffer<M> send_resp;
+
+		char buffer[128];
+		helix::submitAsync(lane, {
+			helix::action(&accept, kHelItemAncillary),
+			helix::action(&recv_req, buffer, 128)
+		}, helix::Dispatcher::global());
+
+		COFIBER_AWAIT accept.future();
 		COFIBER_AWAIT recv_req.future();
-		if(recv_req.error() == kHelErrClosedRemotely)
-			return;
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+		
+		auto request_lane = accept.descriptor();
 
-		//FIXME: actually parse the protocol.
+		// FIXME: actually parse the protocol.
 
-		char data_buffer[1024];
-		helix::RecvBuffer<M> recv_data(helix::Dispatcher::global(), pipe,
-				data_buffer, 1024, recv_req.requestId(), 1, kHelRequest);
+		char data[256];
+		helix::submitAsync(request_lane, {
+			helix::action(&recv_data, data, 256)
+		}, helix::Dispatcher::global());
+		
 		COFIBER_AWAIT recv_data.future();
+		HEL_CHECK(recv_data.error());
 
-		helLog(data_buffer, recv_data.actualLength());
+		helLog(data, recv_data.actualLength());
 
 		// send the success response.
 		// FIXME: send an actually valid answer.
-		helix::SendBuffer<M> send_resp(helix::Dispatcher::global(), pipe, nullptr, 0,
-				recv_req.requestId(), 0, kHelResponse);
+		helix::submitAsync(request_lane, {
+			helix::action(&send_resp, nullptr, 0)
+		}, helix::Dispatcher::global());
+		
 		COFIBER_AWAIT send_resp.future();
+		HEL_CHECK(send_resp.error());
 	}
 })
 
@@ -181,8 +198,8 @@ void runProgram(HelHandle space, helix::UniquePipe xpipe,
 	constexpr size_t stack_size = 0x10000;
 	
 	// TODO: we should use separate stdin/out/err pipes.
-	helix::UniquePipe stdout_server, stdout_client;
-	std::tie(stdout_server, stdout_client) = helix::createFullPipe();
+	helix::UniqueDescriptor stdout_server, stdout_client;
+	std::tie(stdout_server, stdout_client) = helix::createStream();
 	serveStdout(std::move(stdout_server));
 
 	unsigned long posix_server;
@@ -478,8 +495,8 @@ int main() {
 			kHelAbiSystemV, (void *)serveMain, (char *)malloc(0x10000) + 0x10000,
 			kHelThreadExclusive, &thread_handle));
 	
-	helix::UniquePipe server, client;
-	std::tie(server, client) = helix::createFullPipe();
+	helix::UniqueDescriptor server, client;
+	std::tie(server, client) = helix::createStream();
 	serveStdout(std::move(server));
 	
 	// TODO: we should use separate stdin/out/err pipes.
@@ -492,7 +509,7 @@ int main() {
 	
 	startMbus();
 	startAcpi();
-	startUhci();
+//	startUhci();
 //	startPosixSubsystem();
 //	runPosixInit();
 
