@@ -9,14 +9,13 @@ namespace thor {
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
-// TODO: get rid of the rootUniverse/initrdServer global variables.
+// TODO: get rid of the rootUniverse global variable.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
-frigg::LazyInitializer<frigg::SharedPtr<Endpoint, EndpointRwControl>> initrdServer;
 
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
 
 // TODO: move this declaration to a header file
-void runService();
+void runService(LaneHandle lane);
 
 Module *getModule(frigg::StringView filename) {
 	for(size_t i = 0; i < allModules->size(); i++)
@@ -132,27 +131,16 @@ void executeModule(PhysicalAddr image_paddr) {
 	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
 
 	// start relevant services.
-
-	// we increment the owning reference count twice here. it is decremented
-	// each time one of the EndpointRwControl references is decremented to zero.
-	auto pipe = frigg::makeShared<FullPipe>(*kernelAlloc);
-	pipe.control().increment();
-	pipe.control().increment();
-	initrdServer.initialize(frigg::adoptShared,
-			&pipe->endpoint(0),
-			EndpointRwControl(&pipe->endpoint(0), pipe.control().counter()));
-	frigg::SharedPtr<Endpoint, EndpointRwControl> initrd_client(frigg::adoptShared,
-			&pipe->endpoint(1),
-			EndpointRwControl(&pipe->endpoint(1), pipe.control().counter()));
+	auto stream = createStream();
 
 	Handle initrd_handle;
 	{
 		Universe::Guard lock(&(*rootUniverse)->lock);
 		initrd_handle = (*rootUniverse)->attachDescriptor(lock,
-				EndpointDescriptor(frigg::move(initrd_client)));
+				LaneDescriptor(frigg::move(stream.get<0>())));
 	}
 
-	runService();
+	runService(frigg::move(stream.get<1>()));
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;

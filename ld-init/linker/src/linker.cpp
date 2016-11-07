@@ -333,37 +333,47 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 }
 
 frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
-	managarm::posix::ClientRequest<Allocator> open_request(*allocator);
-	open_request.set_request_type(managarm::posix::ClientRequestType::OPEN);
-	open_request.set_path(path);
-	
-	frigg::String<Allocator> open_serialized(*allocator);
-	open_request.SerializeToString(&open_serialized);
-	
-	HelError send_open_error;
-	posixPipe->sendStringReqSync(open_serialized.data(), open_serialized.size(),
-			*eventHub, 0, 0, send_open_error);
-	HEL_CHECK(send_open_error);
+	HelAction actions[4];
+	HelEvent results[4];
 
-	uint8_t open_buffer[128];
-	HelError recv_open_error;
-	size_t open_length;
-	posixPipe->recvStringRespSync(open_buffer, 128, *eventHub, 0, 0, recv_open_error, open_length);
-	HEL_CHECK(recv_open_error);
+	managarm::posix::ClientRequest<Allocator> req(*allocator);
+	req.set_request_type(managarm::posix::ClientRequestType::OPEN);
+	req.set_path(path);
 	
-	managarm::posix::ServerResponse<Allocator> open_response(*allocator);
-	open_response.ParseFromArray(open_buffer, open_length);
+	frigg::String<Allocator> ser(*allocator);
+	req.SerializeToString(&ser);
+	uint8_t buffer[128];
+	actions[0].type = kHelActionOffer;
+	actions[0].flags = kHelItemAncillary;
+	actions[1].type = kHelActionSendFromBuffer;
+	actions[1].flags = kHelItemChain;
+	actions[1].buffer = ser.data();
+	actions[1].length = ser.size();
+	actions[2].type = kHelActionRecvToBuffer;
+	actions[2].flags = kHelItemChain;
+	actions[2].buffer = buffer;
+	actions[2].length = 128;
+	actions[3].type = kHelActionPullDescriptor;
+	actions[3].flags = 0;
+	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, eventHub->getHandle(), 0));
 
-	if(open_response.error() == managarm::posix::Errors::FILE_NOT_FOUND)
+	results[0] = eventHub->waitForEvent(0);
+	results[1] = eventHub->waitForEvent(0);
+	results[2] = eventHub->waitForEvent(0);
+	results[3] = eventHub->waitForEvent(0);
+
+	HEL_CHECK(results[0].error);
+	HEL_CHECK(results[1].error);
+	HEL_CHECK(results[2].error);
+	HEL_CHECK(results[3].error);
+	
+	managarm::posix::ServerResponse<Allocator> resp(*allocator);
+	resp.ParseFromArray(buffer, results[2].length);
+
+	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
-	assert(open_response.error() == managarm::posix::Errors::SUCCESS);
-	
-	HelError handle_error;
-	HelHandle file_handle;
-	posixPipe->recvDescriptorRespSync(*eventHub, 0, 1, handle_error, file_handle);
-	HEL_CHECK(handle_error);
-
-	return helx::Pipe(file_handle);
+	assert(resp.error() == managarm::posix::Errors::SUCCESS);
+	return helx::Pipe(results[3].handle);
 }
 
 void posixSeek(helx::Pipe &pipe, int64_t offset) {
