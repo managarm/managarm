@@ -604,6 +604,13 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
 		*image.out0() = async_id;
 	} break;
+	
+	case kHelCallFutexWait: {
+		*image.error() = helFutexWait((int *)arg0, (int)arg1);
+	} break;
+	case kHelCallFutexWake: {
+		*image.error() = helFutexWake((int *)arg0);
+	} break;
 
 	case kHelCallCreateFullPipe: {
 		HelHandle first;

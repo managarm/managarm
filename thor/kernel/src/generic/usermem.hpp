@@ -1,5 +1,6 @@
 
 #include <frigg/rbtree.hpp>
+#include "futex.hpp"
 
 namespace thor {
 
@@ -184,6 +185,8 @@ struct Memory {
 
 	void copyFrom(size_t offset, void *pointer, size_t length);
 
+	Futex futex;
+
 private:
 	MemoryVariant _variant;
 };
@@ -284,13 +287,15 @@ public:
 	KernelSharedPtr<AddressSpace> fork(Guard &guard);
 	
 	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
-	
+
 	void activate();
+	
+	// TODO: mappings should be referenced by shared pointers.
+	Mapping *getMapping(VirtualAddr address);
 
 	Lock lock;
 
 private:
-	Mapping *getMapping(VirtualAddr address);
 	
 	// allocates a new mapping of the given length somewhere in the address space
 	// the new mapping has type kTypeNone

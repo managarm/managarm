@@ -255,6 +255,18 @@ DEFINE_SYSCALL(SubmitRing, HelHandle handle, HelHandle hub_handle,
 	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
+
+DEFINE_SYSCALL(FutexWait, int *pointer, int expected)
+	IN(0, pointer); IN(1, expected);
+	DO_SYSCALL(FutexWait)
+END_SYSCALL()
+
+DEFINE_SYSCALL(FutexWake, int *pointer)
+	IN(0, pointer);
+	DO_SYSCALL(FutexWake)
+END_SYSCALL()
+
+
 DEFINE_SYSCALL(CreateFullPipe, HelHandle *first, HelHandle *second)
 	DO_SYSCALL(CreateFullPipe)
 	OUT(0, HelHandle, first)

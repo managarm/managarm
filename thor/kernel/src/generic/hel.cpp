@@ -965,6 +965,49 @@ HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 }
 
 
+HelError helFutexWait(int *pointer, int expected) {
+	auto this_thread = getCurrentThread();
+	auto space = this_thread->getAddressSpace();
+
+	std::atomic<bool> complete(false);
+	{
+		AddressSpace::Guard space_guard(&space->lock);
+		auto mapping = space->getMapping(VirtualAddr(pointer));
+		assert(mapping->type == Mapping::kTypeMemory);
+
+		auto futex = &mapping->memoryRegion->futex;
+		futex->waitIf(VirtualAddr(pointer) - mapping->baseAddress, [&] () -> bool {
+			return __atomic_load_n(pointer, __ATOMIC_RELAXED) == expected;
+		}, [&] {
+			complete.store(true, std::memory_order_release);
+			Thread::unblockOther(this_thread);
+		});
+	}
+
+	Thread::blockCurrentWhile([&] {
+		return !complete.load(std::memory_order_acquire);
+	});
+
+	return kHelErrNone;
+}
+
+HelError helFutexWake(int *pointer) {
+	auto this_thread = getCurrentThread();
+	auto space = this_thread->getAddressSpace();
+
+	{
+		AddressSpace::Guard space_guard(&space->lock);
+		auto mapping = space->getMapping(VirtualAddr(pointer));
+		assert(mapping->type == Mapping::kTypeMemory);
+
+		auto futex = &mapping->memoryRegion->futex;
+		futex->wake(VirtualAddr(pointer) - mapping->baseAddress);
+	}
+
+	return kHelErrNone;
+}
+
+
 HelError helCreateFullPipe(HelHandle *first_handle,
 		HelHandle *second_handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();

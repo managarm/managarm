@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 70,
+	kHelNumCalls = 72,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -51,6 +51,9 @@ enum {
 
 	kHelCallCreateRing = 56,
 	kHelCallSubmitRing = 57,
+
+	kHelCallFutexWait = 70,
+	kHelCallFutexWake = 71,
 
 	kHelCallCreateFullPipe = 4,
 	kHelCallSendString = 8,
@@ -270,6 +273,9 @@ HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
 		struct HelRingBuffer *buffer, size_t buffer_size,
 		uintptr_t submit_function, uintptr_t submit_object,
 		int64_t *async_id);
+
+HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
+HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 
 HEL_C_LINKAGE HelError helCreateFullPipe(HelHandle *first,
 		HelHandle *second);
