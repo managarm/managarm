@@ -1,7 +1,7 @@
 
 $(call standard_dirs)
 
-$c_OBJECTS := main.o exec.o posix.pb.o fs.pb.o
+$c_OBJECTS := main.o vfs.o exec.o posix.pb.o fs.pb.o
 #device.o vfs.o process.o exec.o \
 #		dev_fs.o pts_fs.o sysfile_fs.o extern_fs.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))

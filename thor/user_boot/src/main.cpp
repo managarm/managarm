@@ -508,9 +508,9 @@ int main() {
 	std::cout << "Entering user_boot" << std::endl;
 	
 	startMbus();
-	startAcpi();
+//	startAcpi();
 //	startUhci();
-//	startPosixSubsystem();
+	startPosixSubsystem();
 //	runPosixInit();
 
 	std::cout << "user_boot completed successfully" << std::endl;

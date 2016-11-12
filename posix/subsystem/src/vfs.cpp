@@ -1,8 +1,13 @@
 
+#include <string.h>
+
+#include <cofiber.hpp>
+#include <cofiber/future.hpp>
+
 #include "common.hpp"
 #include "vfs.hpp"
 
-struct PathIterator {
+/*struct PathIterator {
 	PathIterator(frigg::StringView path)
 	: tail(path) { }
 
@@ -65,13 +70,40 @@ frigg::String<Allocator> concatenatePath(frigg::StringView prefix,
 	}
 	
 	return frigg::move(result);
-}
+}*/
 
 // --------------------------------------------------------
 // VfsOpenFile
 // --------------------------------------------------------
 
-void VfsOpenFile::openAt(frigg::String<Allocator> path,
+COFIBER_ROUTINE(cofiber::future<void>, VfsOpenFile::readExactly(void *buffer,
+		size_t length), ([=] {
+	size_t offset = 0;
+	while(offset < length) {
+		auto result = COFIBER_AWAIT readSome((char *)buffer + offset,
+				length - offset);
+		assert(std::get<0>(result) == VfsError::success);
+		assert(std::get<1>(result) > 0);
+		offset += std::get<1>(result);
+	}
+
+	COFIBER_RETURN();
+}))
+
+cofiber::future<std::tuple<VfsError, size_t>> VfsOpenFile::readSome(void *buffer,
+		size_t max_length) {
+	throw std::runtime_error("vfs: Operation not supported");
+}
+
+cofiber::future<uint64_t> VfsOpenFile::seek(int64_t offset, VfsSeek whence) {
+	throw std::runtime_error("vfs: Operation not supported");
+}
+
+cofiber::future<helix::UniqueDescriptor> VfsOpenFile::accessMemory() {
+	throw std::runtime_error("vfs: Operation not supported");
+}
+
+/*void VfsOpenFile::openAt(frigg::String<Allocator> path,
 		frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback) {
 	assert(!"Illegal operation for this file");
 	__builtin_unreachable();
@@ -104,16 +136,9 @@ void VfsOpenFile::mmap(frigg::CallbackPtr<void(HelHandle)> callback) {
 
 frigg::Optional<frigg::String<Allocator>> VfsOpenFile::ttyName() {
 	return frigg::Optional<frigg::String<Allocator>>();
-}
+}*/
 
-void VfsOpenFile::setHelfd(HelHandle handle) {
-	assert(!"Illegal operation for this file");
-}
-HelHandle VfsOpenFile::getHelfd() {
-	assert(!"Illegal operation for this file");
-	__builtin_unreachable();
-}
-
+/*
 // --------------------------------------------------------
 // MountSpace
 // --------------------------------------------------------
@@ -163,6 +188,6 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 		prefix = frigg::StringView(path).subString(0, seperator);
 		suffix = frigg::StringView(path).subString(seperator + 1, path.size() - (seperator + 1));
 	}
-};
+};*/
 
 

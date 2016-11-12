@@ -2,22 +2,18 @@
 #ifndef POSIX_SUBSYSTEM_VFS_HPP
 #define POSIX_SUBSYSTEM_VFS_HPP
 
-#include <frigg/string.hpp>
-#include <frigg/hashmap.hpp>
-#include <frigg/callback.hpp>
 #include <hel.h>
 
-#include "device.hpp"
+//#include "device.hpp"
 
 struct Process;
 
 enum VfsError {
-	kVfsSuccess = 0,
-	kVfsEndOfFile = 1
+	success, eof
 };
 
-enum VfsSeek {
-	kSeekAbs, kSeekRel, kSeekEof
+enum class VfsSeek {
+	null, absolute, relative, eof
 };
 
 struct FileStats {
@@ -31,39 +27,37 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
-frigg::String<Allocator> normalizePath(frigg::StringView path);
+/*frigg::String<Allocator> normalizePath(frigg::StringView path);
 
 frigg::String<Allocator> concatenatePath(frigg::StringView prefix,
-		frigg::StringView path);
+		frigg::StringView path);*/
 
 // --------------------------------------------------------
 // VfsOpenFile
 // --------------------------------------------------------
 
 struct VfsOpenFile {
-	virtual void openAt(frigg::String<Allocator> path,
-			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
+	cofiber::future<void> readExactly(void *buffer, size_t length);
 
-	virtual void connect(frigg::CallbackPtr<void()> callback);
+//	virtual void openAt(std::string path,
+//			frigg::CallbackPtr<void(StdSharedPtr<VfsOpenFile>)> callback);
 
-	virtual void fstat(frigg::CallbackPtr<void(FileStats)> callback);
+//	virtual void connect(frigg::CallbackPtr<void()> callback);
 
-	virtual void write(const void *buffer, size_t length,
-			frigg::CallbackPtr<void()> callback);
-	virtual void read(void *buffer, size_t max_length,
-			frigg::CallbackPtr<void(VfsError, size_t)> callback);
+//	virtual void fstat(frigg::CallbackPtr<void(FileStats)> callback);
+
+//	virtual void write(const void *buffer, size_t length,
+//			frigg::CallbackPtr<void()> callback);
+	virtual cofiber::future<std::tuple<VfsError, size_t>> readSome(void *buffer,
+			size_t max_length);
 	
-	virtual void seek(int64_t rel_offset, VfsSeek whence,
-			frigg::CallbackPtr<void(uint64_t)> callback);
+	virtual cofiber::future<uint64_t> seek(int64_t offset, VfsSeek whence);
 	
-	virtual void mmap(frigg::CallbackPtr<void(HelHandle)> callback);
+	virtual cofiber::future<helix::UniqueDescriptor> accessMemory();
 
-	virtual frigg::Optional<frigg::String<Allocator>> ttyName();
-
-	virtual void setHelfd(HelHandle handle);
-	virtual HelHandle getHelfd();
+//	virtual cofiber::future<std::string> ttyName();
 };
-
+/*
 // --------------------------------------------------------
 // VfsMountPoint
 // --------------------------------------------------------
@@ -98,7 +92,7 @@ struct MountSpace {
 
 	DeviceAllocator charDevices;
 	DeviceAllocator blockDevices;
-};
+};*/
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP
 

@@ -11,133 +11,11 @@
 #include <frigg/elf.hpp>
 
 #include "common.hpp"
+#include "vfs.hpp"
 #include "exec.hpp"
 #include <fs.pb.h>
 
 constexpr size_t kPageSize = 0x1000;
-
-COFIBER_ROUTINE(cofiber::no_future, fsOpen(std::string path,
-		cofiber::stash<helix::UniquePipe> &promise),
-		([path, &promise] {
-	using M = helix::AwaitMechanism;
-
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::OPEN);
-	req.set_path(path);
-
-	auto serialized = req.SerializeAsString();
-	helix::SendBuffer<M> send_req(helix::Dispatcher::global(), fsPipe, serialized.data(),
-			serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
-	uint8_t buffer[128];
-	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), fsPipe, buffer, 128,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_resp.future();
-
-	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	
-	helix::PullDescriptor<M> recv_file(helix::Dispatcher::global(), fsPipe,
-			0, 1, kHelResponse);
-	COFIBER_AWAIT recv_file.future();
-	HEL_CHECK(recv_file.error());
-	promise.set_value(helix::UniquePipe(recv_file.descriptor()));
-}))
-
-COFIBER_ROUTINE(cofiber::future<void>, fsSeek(helix::BorrowedPipe file,
-		uintptr_t offset), ([=] {
-	using M = helix::AwaitMechanism;
-
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
-	req.set_rel_offset(offset);
-
-	auto serialized = req.SerializeAsString();
-	helix::SendBuffer<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
-			serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
-	uint8_t buffer[128];
-	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_resp.future();
-
-	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(cofiber::future<void>, fsRead(helix::BorrowedPipe file,
-		void *data, size_t length), ([=] {
-	using M = helix::AwaitMechanism;
-
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::READ);
-	req.set_size(length);
-
-	auto serialized = req.SerializeAsString();
-	helix::SendBuffer<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
-			serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
-	uint8_t buffer[128];
-	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_resp.future();
-
-	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-
-	helix::RecvBuffer<M> recv_data(helix::Dispatcher::global(), file, data, length,
-			0, 1, kHelResponse);
-	COFIBER_AWAIT recv_data.future();
-	HEL_CHECK(recv_data.error());
-	assert(recv_data.actualLength() == length);
-
-	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(cofiber::no_future, fsMap(helix::BorrowedPipe file,
-			cofiber::stash<helix::UniqueDescriptor> &promise),
-		([file, &promise] {
-	using M = helix::AwaitMechanism;
-
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::MMAP);
-
-	auto serialized = req.SerializeAsString();
-	helix::SendBuffer<M> send_req(helix::Dispatcher::global(), file, serialized.data(),
-			serialized.size(), 0, 0, kHelRequest);
-	COFIBER_AWAIT send_req.future();
-	HEL_CHECK(send_req.error());
-
-	// recevie and parse the response.
-	uint8_t buffer[128];
-	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), file, buffer, 128,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_resp.future();
-
-	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
-	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	
-	helix::PullDescriptor<M> recv_memory(helix::Dispatcher::global(), file,
-			0, 1, kHelResponse);
-	COFIBER_AWAIT recv_memory.future();
-	HEL_CHECK(recv_memory.error());
-	promise.set_value(recv_memory.descriptor());
-}))
 
 struct ImageInfo {
 	ImageInfo()
@@ -149,24 +27,17 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
-		std::string path, uintptr_t base, cofiber::stash<ImageInfo> &promise),
-		([space, path, base, &promise] {
+COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<VfsOpenFile> file,
+		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
 
 	// get a handle to the file's memory.
-	cofiber::stash<helix::UniquePipe> file;
-	fsOpen(path, file);
-	COFIBER_AWAIT file;
-	
-	cofiber::stash<helix::UniqueDescriptor> mapping;
-	fsMap(*file, mapping);
-	COFIBER_AWAIT mapping;
+	auto file_memory = COFIBER_AWAIT file->accessMemory();
 
 	// read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	COFIBER_AWAIT fsRead(*file, &ehdr, sizeof(Elf64_Ehdr));
+	COFIBER_AWAIT file->readExactly(&ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -180,8 +51,8 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 
 	// read the elf program headers and load them into the address space.
 	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
-	COFIBER_AWAIT fsSeek(*file, ehdr.e_phoff);
-	COFIBER_AWAIT fsRead(*file, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	COFIBER_AWAIT file->seek(ehdr.e_phoff, VfsSeek::absolute);
+	COFIBER_AWAIT file->readExactly(phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
@@ -202,10 +73,10 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 			
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-					HEL_CHECK(helLoadahead(mapping->getHandle(), phdr->p_offset, map_length));
+					HEL_CHECK(helLoadahead(file_memory.getHandle(), phdr->p_offset, map_length));
 
 					void *map_pointer;
-					HEL_CHECK(helMapMemory(mapping->getHandle(), space.getHandle(),
+					HEL_CHECK(helMapMemory(file_memory.getHandle(), space.getHandle(),
 							(void *)map_address, phdr->p_offset, map_length,
 							kHelMapReadExecute | kHelMapShareAtFork, &map_pointer));
 				}else{
@@ -223,8 +94,9 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					void *map_pointer;
-					HEL_CHECK(helMapMemory(segment_memory, space.getHandle(), (void *)map_address,
-							0, map_length, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &map_pointer));
+					HEL_CHECK(helMapMemory(segment_memory, space.getHandle(),
+							(void *)map_address, 0, map_length,
+							kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &map_pointer));
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
@@ -232,8 +104,8 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
-				COFIBER_AWAIT fsSeek(*file, phdr->p_offset);
-				COFIBER_AWAIT fsRead(*file, (char *)window + misalign, phdr->p_filesz);
+				COFIBER_AWAIT file->seek(phdr->p_offset, VfsSeek::absolute);
+				COFIBER_AWAIT file->readExactly((char *)window + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
@@ -247,7 +119,7 @@ COFIBER_ROUTINE(cofiber::no_future, load(helix::BorrowedDescriptor space,
 		}
 	}
 	
-	promise.set_value(info);
+	COFIBER_RETURN(info);
 }))
 
 template<typename T, size_t N>
@@ -260,18 +132,66 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
+#include <unistd.h>
+#include <fcntl.h>
+
+struct SuperOpenFile : VfsOpenFile {
+	SuperOpenFile(const std::string &path) {
+		_fd = open(path.c_str(), O_RDONLY);
+	}
+
+	cofiber::future<std::tuple<VfsError, size_t>> readSome(void *buffer,
+			size_t max_length) override;
+	
+	cofiber::future<uint64_t> seek(int64_t offset, VfsSeek whence) override;
+	
+	cofiber::future<helix::UniqueDescriptor> accessMemory() override;
+
+private:
+	int _fd;
+};
+
+template<typename T>
+using VfsFutureResult = cofiber::future<std::tuple<VfsError, T>>;
+
+COFIBER_ROUTINE(VfsFutureResult<size_t>, SuperOpenFile::readSome(void *buffer,
+		size_t max_length), ([=] {
+	auto length = read(_fd, buffer, max_length);
+	assert(length >= 0);
+	COFIBER_RETURN(std::make_tuple(VfsError::success, length));
+}))
+
+COFIBER_ROUTINE(cofiber::future<uint64_t>, SuperOpenFile::seek(int64_t offset,
+		VfsSeek whence), ([=] {
+	if(whence == VfsSeek::absolute) {
+		auto result = lseek(_fd, offset, SEEK_SET);
+		assert(result != off_t(-1));
+		COFIBER_RETURN(result);
+	}else{
+		throw std::logic_error("SuperOpenFile::seek(): Illegal whence parameter");
+	}
+}))
+
+HelHandle __raw_map(int fd);
+
+COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, SuperOpenFile::accessMemory(), ([=] {
+	COFIBER_RETURN(helix::UniqueDescriptor(__raw_map(_fd)));
+}))
+
+cofiber::no_future serve(helix::UniqueDescriptor);
+
 // FIXME: remove this helper function
 COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
-	cofiber::stash<ImageInfo> exec_info;
-	load(helix::BorrowedDescriptor(space), path, 0, exec_info);
-	COFIBER_AWAIT exec_info;
-	
-	cofiber::stash<ImageInfo> interp_info;
-	load(helix::BorrowedDescriptor(space), "ld-init.so", 0x40000000, interp_info);
-	COFIBER_AWAIT interp_info;
+	auto exec_file = std::make_shared<SuperOpenFile>(path);
+	auto interp_file = std::make_shared<SuperOpenFile>("ld-init.so");
+
+	auto exec_info = COFIBER_AWAIT load(exec_file,
+			helix::BorrowedDescriptor(space), 0);
+	auto interp_info = COFIBER_AWAIT load(interp_file,
+			helix::BorrowedDescriptor(space), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;
 	
@@ -295,20 +215,23 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
 	
-	HelHandle remote_fs;
-	HEL_CHECK(helTransferDescriptor(fsPipe.getHandle(), universe, &remote_fs));
+	helix::UniqueDescriptor posix_remote, posix_local;
+	std::tie(posix_remote, posix_local) = helix::createStream();
+	HelHandle posix_foreign;
+	HEL_CHECK(helTransferDescriptor(posix_remote.getHandle(), universe, &posix_foreign));
+	serve(std::move(posix_local));
 
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
-		uintptr_t(exec_info->entryIp),
+		uintptr_t(exec_info.entryIp),
 		AT_PHDR,
-		uintptr_t(exec_info->phdrPtr),
+		uintptr_t(exec_info.phdrPtr),
 		AT_PHENT,
-		exec_info->phdrEntrySize,
+		exec_info.phdrEntrySize,
 		AT_PHNUM,
-		exec_info->phdrCount,
-		AT_FS_SERVER,
-		uintptr_t(remote_fs),
+		exec_info.phdrCount,
+		AT_POSIX_SERVER,
+		uintptr_t(posix_foreign),
 		AT_NULL,
 		0
 	});
@@ -320,7 +243,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe, space, kHelAbiSystemV,
-			(void *)interp_info->entryIp, (char *)stack_base + d, 0, &thread));
+			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 
 /*	auto action = frigg::await<void(HelError)>([=] (auto callback) {
 		int64_t async_id;
