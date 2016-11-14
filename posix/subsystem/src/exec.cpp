@@ -178,10 +178,10 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, SuperOpenFile::accessM
 	COFIBER_RETURN(helix::UniqueDescriptor(__raw_map(_fd)));
 }))
 
-cofiber::no_future serve(helix::UniqueDescriptor);
+cofiber::no_future serve(SharedProcess process, helix::UniqueDescriptor);
 
 // FIXME: remove this helper function
-COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string path), ([=] {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
@@ -219,7 +219,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 	std::tie(posix_remote, posix_local) = helix::createStream();
 	HelHandle posix_foreign;
 	HEL_CHECK(helTransferDescriptor(posix_remote.getHandle(), universe, &posix_foreign));
-	serve(std::move(posix_local));
+	serve(std::move(process), std::move(posix_local));
 
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
@@ -259,7 +259,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::string path), ([=] {
 	frigg::run(frigg::move(action), allocator.get());*/
 }))
 
-void execute(std::shared_ptr<Process> process, std::string path) {
-	_execute(path);	
+void execute(SharedProcess process, std::string path) {
+	_execute(std::move(process), path);
 }
 

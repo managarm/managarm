@@ -190,4 +190,64 @@ void MountSpace::openAbsolute(StdUnsafePtr<Process> process,
 	}
 };*/
 
+namespace vfs {
+
+// --------------------------------------------------------
+// SharedFile implementation.
+// --------------------------------------------------------
+
+helix::BorrowedDescriptor SharedFile::getPassthroughLane() {
+	return _data->getPassthroughLane();
+}
+
+// --------------------------------------------------------
+// SharedNode + SharedEntry implementation.
+// --------------------------------------------------------
+
+_node::EntryData::EntryData(SharedNode parent, std::string name,
+		SharedNode target)
+: parent(std::move(parent)), name(std::move(name)),
+		target(std::move(target)) {
+	if(parent._data) {
+		assert(parent._data->getType() == Type::directory);
+		auto parent_data = static_cast<DirectoryNodeData *>(parent._data.get());
+		parent_data->dirElements.insert_equal(*this);
+	}
+}
+
+SharedEntry _node::SharedEntry::attach(SharedNode parent, std::string name,
+		SharedNode target) {
+	auto data = std::make_shared<EntryData>(std::move(parent), std::move(name),
+			std::move(target));
+	return SharedEntry(std::move(data));
+}
+
+const std::string &_node::SharedEntry::getName() const {
+	return _data->name;
+}
+
+SharedNode _node::SharedEntry::getTarget() const {
+	return _data->target;
+}
+
+FutureMaybe<SharedFile> _node::SharedNode::open(SharedEntry entry) {
+	assert(_data->getType() == Type::regular);
+	auto data = static_cast<RegularNodeData *>(_data.get());
+	return data->open(std::move(entry));
+}
+
+COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _node::SharedNode::getChild(std::string name), ([=] {
+	assert(_data->getType() == Type::directory);
+	auto data = static_cast<DirectoryNodeData *>(_data.get());
+
+	// TODO: use a logarithmic find function.
+	for(auto it = data->dirElements.begin(); it != data->dirElements.end(); ++it)
+		if(it->name == name)
+			COFIBER_RETURN(SharedEntry(it->shared_from_this()));
+
+	auto target = COFIBER_AWAIT data->resolveChild(name);
+	COFIBER_RETURN(SharedEntry::attach(*this, std::move(name), std::move(target)));
+}))
+
+} // namespace vfs
 

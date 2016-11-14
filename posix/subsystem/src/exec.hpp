@@ -4,7 +4,7 @@
 
 #include "process.hpp"
 
-void execute(std::shared_ptr<Process> process, std::string path);
+void execute(SharedProcess process, std::string path);
 
 #endif // POSIX_SUBSYSTEM_EXEC_HPP
 
