@@ -65,29 +65,29 @@ QueueHead::LinkPointer QueuedTransaction::head() {
 void QueuedTransaction::dumpTransfer() {
 	for(size_t i = 0; i < _numTransfers; i++) {
 		 printf("    TD %lu:", i);
-		_transfers[i].dumpStatus();
-		printf("\n");
-	}
+	_transfers[i].dumpStatus();
+	printf("\n");
+}
 }
 
 bool QueuedTransaction::progress() {
-	while(_completeCounter < _numTransfers) {
-		TransferDescriptor *transfer = &_transfers[_completeCounter];
-		if(transfer->_controlStatus.isActive())
-			return false;
+while(_completeCounter < _numTransfers) {
+	TransferDescriptor *transfer = &_transfers[_completeCounter];
+	if(transfer->_controlStatus.isActive())
+		return false;
 
-		if(transfer->_controlStatus.isAnyError()) {
-			printf("Transfer error!\n");
-			dumpTransfer();
-			return true;
-		}
-		
-		_completeCounter++;
+	if(transfer->_controlStatus.isAnyError()) {
+		printf("Transfer error!\n");
+		dumpTransfer();
+		return true;
 	}
+	
+	_completeCounter++;
+}
 
-	printf("Transfer complete!\n");
-	_promise.set_value();
-	return true;
+printf("Transfer complete!\n");
+_promise.set_value();
+return true;
 }
 
 // ----------------------------------------------------------------------------
@@ -95,38 +95,38 @@ bool QueuedTransaction::progress() {
 // ----------------------------------------------------------------------------
 
 ControlTransaction::ControlTransaction(SetupPacket setup, void *buffer, int address,
-		int endpoint, size_t packet_size, XferFlags flags)
+	int endpoint, size_t packet_size, XferFlags flags)
 : _setup(setup) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
+assert((flags & kXferToDevice) || (flags & kXferToHost));
 
-	size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
-	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
+size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
+auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
 
-	new (&transfers[0]) TransferDescriptor(TransferStatus(true, false, false),
-			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-					address, endpoint, sizeof(SetupPacket)),
-			TransferBufferPointer::from(&_setup));
-	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
+new (&transfers[0]) TransferDescriptor(TransferStatus(true, true, false, false),
+		TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+				address, endpoint, sizeof(SetupPacket)),
+		TransferBufferPointer::from(&_setup));
+transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
 
-	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
-		size_t chunk = std::min(packet_size, _setup.wLength - progress);
-		new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, endpoint, chunk),
-			TransferBufferPointer::from((char *)buffer + progress));
-		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
-		progress += chunk;
-	}
+size_t progress = 0;
+for(size_t i = 0; i < data_packets; i++) {
+	size_t chunk = std::min(packet_size, _setup.wLength - progress);
+	new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+		TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+				i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+				address, endpoint, chunk),
+		TransferBufferPointer::from((char *)buffer + progress));
+	transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
+	progress += chunk;
+}
 
-	new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
-					TransferToken::kData0, address, endpoint, 0),
-			TransferBufferPointer());
+new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+		TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
+				TransferToken::kData0, address, endpoint, 0),
+		TransferBufferPointer());
 
-	setupTransfers(transfers, data_packets + 2);
+setupTransfers(transfers, data_packets + 2);
 }
 
 // ----------------------------------------------------------------------------
@@ -134,29 +134,72 @@ ControlTransaction::ControlTransaction(SetupPacket setup, void *buffer, int addr
 // ----------------------------------------------------------------------------
 
 NormalTransaction::NormalTransaction(void *buffer, size_t length, int address,
-		int endpoint, size_t packet_size, XferFlags flags) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
+	int endpoint, size_t packet_size, XferFlags flags) {
+assert((flags & kXferToDevice) || (flags & kXferToHost));
 
-	size_t data_packets = (length + packet_size - 1) / packet_size;
-	size_t desc_size = data_packets * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+size_t data_packets = (length + packet_size - 1) / packet_size;
+size_t desc_size = data_packets * sizeof(TransferDescriptor);
+auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
 
-	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
-		size_t chunk = std::min(packet_size, length - progress);
-		new (&transfers[i]) TransferDescriptor(TransferStatus(true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, endpoint, chunk),
-			TransferBufferPointer::from((char *)buffer + progress));
+size_t progress = 0;
+for(size_t i = 0; i < data_packets; i++) {
+	size_t chunk = std::min(packet_size, length - progress);
+	new (&transfers[i]) TransferDescriptor(TransferStatus(true, true, false, false),
+		TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+				i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+				address, endpoint, chunk),
+		TransferBufferPointer::from((char *)buffer + progress));
 
-		if(i + 1 < data_packets)
-			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
-		progress += chunk;
-	}
-
-	setupTransfers(transfers, data_packets);
+	if(i + 1 < data_packets)
+		transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
+	progress += chunk;
 }
+
+setupTransfers(transfers, data_packets);
+}
+
+// ----------------------------------------------------------------------------
+// Pointer.
+// ----------------------------------------------------------------------------
+
+Pointer Pointer::from(TransferDescriptor *item) {
+	uintptr_t physical;
+	HEL_CHECK(helPointerPhysical(item, &physical));
+	assert(physical % sizeof(*item) == 0);
+	assert((physical & 0xFFFFFFFF) == physical);
+	return Pointer(physical, false);
+}
+Pointer Pointer::from(QueueHead *item) {
+	uintptr_t physical;
+	HEL_CHECK(helPointerPhysical(item, &physical));
+	assert(physical % sizeof(*item) == 0);
+	assert((physical & 0xFFFFFFFF) == physical);
+	return Pointer(physical, true);
+}
+
+// ----------------------------------------------------------------------------
+// DummyEntity.
+// ----------------------------------------------------------------------------
+
+DummyEntity::DummyEntity() {
+	_transfer = (TransferDescriptor *)contiguousAllocator.allocate(sizeof(TransferDescriptor));
+
+	new (_transfer) TransferDescriptor(TransferStatus(false, true, false, false),
+			TransferToken(TransferToken::PacketId::kPacketIn, 
+			TransferToken::DataToggle::kData0, 0, 0, 0), TransferBufferPointer());
+	_transfer->_linkPointer = QueueHead::LinkPointer();
+}
+
+QueueHead::LinkPointer DummyEntity::head() {
+	return QueueHead::LinkPointer::from(_transfer);
+}
+
+void DummyEntity::linkNext(QueueHead::LinkPointer link) {
+	_transfer->_linkPointer = link;
+}
+
+// this function does not need to do anything
+void DummyEntity::progress() { }
 
 // ----------------------------------------------------------------------------
 // QueueEntity.
@@ -200,7 +243,16 @@ boost::intrusive::list<
 		boost::intrusive::list_member_hook<>,
 		&ScheduleEntity::scheduleHook
 	>
-> scheduleList;
+> periodicSchedule[1024];
+
+boost::intrusive::list<
+	ScheduleEntity,
+	boost::intrusive::member_hook<
+		ScheduleEntity,
+		boost::intrusive::list_member_hook<>,
+		&ScheduleEntity::scheduleHook
+	>
+> asyncSchedule;
 
 // ----------------------------------------------------------------------------
 // Endpoint &Endpoint & DeviceState.
@@ -240,7 +292,8 @@ cofiber::no_future runHidDevice(Device device);
 
 struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(uint16_t base, helix::UniqueIrq irq)
-	: _base(base), _irq(frigg::move(irq)) { }
+	: _base(base), _irq(frigg::move(irq)),
+			_lastFrame(0), _lastCounter(0) { }
 
 	void initialize() {
 		auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
@@ -259,9 +312,11 @@ struct Controller : std::enable_shared_from_this<Controller> {
 				nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
 		
 		auto list_pointer = (FrameList *)list_mapping;
-		for(int i = 0; i < 1024; i++)
-			list_pointer->entries[i] = FrameListPointer::from(&_initialQh);
-			
+		for(int i = 0; i < 1024; i++) {
+			_periodicQh[i]._linkPointer = Pointer::from(&_asyncQh);
+			list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
+		}
+
 		// pass the frame list to the controller and run it.
 		uintptr_t list_physical;
 		HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
@@ -272,20 +327,26 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		// enable interrupts.
 		frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
 
+		activatePeriodic(0, &_irqDummy);
+
 		pollDevices();
 
 		handleIrqs();
 	}
 
-	COFIBER_ROUTINE(cofiber::no_future, pollDevices(), ([=] {
+	COFIBER_ROUTINE(cofiber::future<void>, pollDevices(), ([=] {
 		for(int i = 0; i < 2; i++) {
 			auto port_register = kRegPort1StatusControl + 2 * i;
 
+			std::cout << "checking port " << i << std::endl;
+			
 			// poll for connect status change and immediately reset that bit.
 			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
 				continue;
 			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
 			
+			std::cout << "connect status change" << std::endl;
+
 			// TODO: delete current device.
 			
 			// check if a new device was attached to the port.
@@ -328,6 +389,9 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 			COFIBER_AWAIT probeDevice();
 		}
+
+		std::cout << "done" << std::endl;	
+		COFIBER_RETURN();
 	}))
 
 	COFIBER_ROUTINE(cofiber::future<void>, probeDevice(), ([=] {
@@ -336,7 +400,7 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		device_state->endpointStates[0] = std::make_unique<EndpointState>();
 		device_state->endpointStates[0]->maxPacketSize = 8;
 		device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
-		activateEntity(device_state->endpointStates[0]->queue.get());
+		activateAsync(device_state->endpointStates[0]->queue.get());
 
 		// set the device_state address.
 		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
@@ -362,14 +426,24 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 		COFIBER_RETURN();
 	}))
-
-	void activateEntity(ScheduleEntity *entity) {
-		if(scheduleList.empty()) {
-			_initialQh._linkPointer = entity->head();
+	
+	void activatePeriodic(int frame, ScheduleEntity *entity) {
+		if(periodicSchedule[frame].empty()) {
+			_periodicQh[frame]._linkPointer = entity->head();
 		}else{
-			scheduleList.back().linkNext(entity->head());
+			periodicSchedule[frame].back().linkNext(entity->head());
 		}
-		scheduleList.push_back(*entity);
+		entity->linkNext(QueueHead::LinkPointer::from(&_asyncQh));
+		periodicSchedule[frame].push_back(*entity);
+	}
+
+	void activateAsync(ScheduleEntity *entity) {
+		if(asyncSchedule.empty()) {
+			_asyncQh._linkPointer = entity->head();
+		}else{
+			asyncSchedule.back().linkNext(entity->head());
+		}
+		asyncSchedule.push_back(*entity);
 	}
 
 	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
@@ -423,12 +497,22 @@ struct Controller : std::enable_shared_from_this<Controller> {
 				printf("uhci: Error interrupt\n");
 			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
 			
-			printf("uhci: Processing transfers.\n");
-			auto it = scheduleList.begin();
-			while(it != scheduleList.end()) {
+			auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
+			auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
+					: (_lastCounter + 2048 - _lastFrame + frame);
+			
+			if(counter / 1024 > _lastCounter / 1024)
+				pollDevices();
+
+			//printf("uhci: Processing transfers.\n");
+			auto it = asyncSchedule.begin();
+			while(it != asyncSchedule.end()) {
 				it->progress();
 				++it;
 			}
+
+			_lastFrame = frame;
+			_lastCounter = counter;
 		}
 	}))
 
@@ -436,9 +520,14 @@ private:
 	uint16_t _base;
 	helix::UniqueIrq _irq;
 
-	QueueHead _initialQh;
-	alignas(32) uint8_t _buffer[18];
-	alignas(32) uint8_t _buffer2[18];
+	QueueHead _periodicQh[1024];
+	QueueHead _asyncQh;
+
+	DummyEntity _irqDummy;
+
+	uint16_t _lastFrame;
+
+	uint64_t _lastCounter;
 };
 
 // ----------------------------------------------------------------------------
@@ -502,7 +591,7 @@ COFIBER_ROUTINE(cofiber::future<Interface>, Configuration::useInterface(int numb
 		_deviceState->endpointStates[endpoint] = std::make_unique<EndpointState>();
 		_deviceState->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
 		_deviceState->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
-		_controller->activateEntity(_deviceState->endpointStates[endpoint]->queue.get());
+		_controller->activateAsync(_deviceState->endpointStates[endpoint]->queue.get());
 	});
 
 	COFIBER_RETURN(Interface(_controller, _deviceState));

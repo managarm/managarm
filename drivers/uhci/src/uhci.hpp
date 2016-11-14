@@ -1,4 +1,31 @@
 
+struct TransferDescriptor;
+struct QueueHead;
+
+struct Pointer {
+	static Pointer from(TransferDescriptor *item);
+	static Pointer from(QueueHead *item);
+
+	static constexpr uint32_t TerminateBit = 0;
+	static constexpr uint32_t QhSelectBit = 1;
+	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
+
+	Pointer()
+	: _bits(1 << TerminateBit) { }
+
+	Pointer(uint32_t pointer, bool is_queue)
+	: _bits(pointer
+			| (is_queue << QhSelectBit)) {
+		assert(pointer % 16 == 0);
+	}
+
+	bool isQueue() { return _bits & (1 << QhSelectBit);	}
+	bool isTerminate() { return _bits & (1 << TerminateBit); }
+	uint32_t actualPointer() { return _bits & PointerMask; }
+
+	uint32_t _bits;
+};
+
 struct TransferStatus {
 	enum {
 		kActiveBit = 23,
@@ -18,8 +45,8 @@ struct TransferStatus {
 	static constexpr uint32_t NumErrorsBits = 27;
 	static constexpr uint32_t ShortPacketDetectBits = 29;
 
-	TransferStatus(bool ioc, bool isochron, bool spd)
-	: _bits((uint32_t(1) << kActiveBit) 
+	TransferStatus(bool active, bool ioc, bool isochron, bool spd)
+	: _bits((uint32_t(active) << kActiveBit) 
 			| (uint32_t(ioc) << InterruptOnCompleteBits) 
 			| (uint32_t(isochron) << IsochronSelectBits) 
 			| (uint32_t(spd) << ShortPacketDetectBits)) {
@@ -101,37 +128,7 @@ private:
 // UHCI mandates 16 byte alignment. we align at 32 bytes
 // to make sure that the TransferDescriptor does not cross a page boundary.
 struct alignas(32) TransferDescriptor {
-	struct LinkPointer {
-		static LinkPointer from(TransferDescriptor *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return LinkPointer(physical, false, false);
-		}
-
-		static constexpr uint32_t TerminateBit = 0;
-		static constexpr uint32_t QhSelectBit = 1;
-		static constexpr uint32_t VfSelectBit = 2;
-		static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-		LinkPointer()
-		: _bits(1 << TerminateBit) { }
-
-		LinkPointer(uint32_t pointer, bool is_vf, bool is_queue)
-		: _bits(pointer
-				| (is_vf << VfSelectBit)
-				| (is_queue << QhSelectBit)) {
-			assert(pointer % 16 == 0);
-		}
-
-		bool isVf() { return _bits & (1 << VfSelectBit); }
-		bool isQueue() { return _bits & (1 << QhSelectBit); }
-		bool isTerminate() { return _bits & (1 << TerminateBit); }
-		uint32_t actualPointer() { return _bits & PointerMask; }
-
-		uint32_t _bits;
-	};
+	typedef Pointer LinkPointer;
 
 	TransferDescriptor(TransferStatus control_status,
 			TransferToken token, TransferBufferPointer buffer_pointer)
@@ -155,42 +152,6 @@ struct alignas(32) TransferDescriptor {
 };
 
 struct alignas(16) QueueHead {
-	struct Pointer {
-		static Pointer from(TransferDescriptor *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return Pointer(physical, false);
-		}
-		static Pointer from(QueueHead *item) {
-			uintptr_t physical;
-			HEL_CHECK(helPointerPhysical(item, &physical));
-			assert(physical % sizeof(*item) == 0);
-			assert((physical & 0xFFFFFFFF) == physical);
-			return Pointer(physical, true);
-		}
-
-		static constexpr uint32_t TerminateBit = 0;
-		static constexpr uint32_t QhSelectBit = 1;
-		static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-		Pointer()
-		: _bits(1 << TerminateBit) { }
-
-		Pointer(uint32_t pointer, bool is_queue)
-		: _bits(pointer
-				| (is_queue << QhSelectBit)) {
-			assert(pointer % 16 == 0);
-		}
-
-		bool isQueue() { return _bits & (1 << QhSelectBit);	}
-		bool isTerminate() { return _bits & (1 << TerminateBit); }
-		uint32_t actualPointer() { return _bits & PointerMask; }
-
-		uint32_t _bits;
-	};
-
 	typedef Pointer LinkPointer;
 	typedef Pointer ElementPointer;
 	

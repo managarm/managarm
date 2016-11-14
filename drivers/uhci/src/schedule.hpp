@@ -43,6 +43,25 @@ struct ScheduleEntity {
 };
 
 
+struct DummyEntity : ScheduleEntity {
+	DummyEntity();
+
+	QueueHead::LinkPointer head() override;
+	void linkNext(QueueHead::LinkPointer link) override;
+	void progress() override;
+
+	TransferDescriptor *_transfer;
+	
+	boost::intrusive::list<
+		QueuedTransaction,
+		boost::intrusive::member_hook<
+			QueuedTransaction,
+			boost::intrusive::list_member_hook<>,
+			&QueuedTransaction::transactionHook
+		>
+	> transactionList;
+};
+
 struct QueueEntity : ScheduleEntity {
 	QueueEntity();
 
