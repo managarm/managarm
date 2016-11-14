@@ -244,3 +244,11 @@ enum {
 	kStatusError = 0x02
 };
 
+enum {
+	kRootConnected = 0x0001,
+	kRootConnectChange = 0x0002,
+	kRootEnabled = 0x0004,
+	kRootEnableChange = 0x0008,
+	kRootReset = 0x0200
+};
+	

@@ -191,6 +191,7 @@ COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device, int 
 })
 
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
+	printf("entered runHidDevice\n");
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
 	std::experimental::optional<int> config_number;

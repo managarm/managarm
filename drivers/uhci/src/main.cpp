@@ -40,6 +40,8 @@ void ContiguousPolicy::unmap(uintptr_t address, size_t length) {
 ContiguousPolicy contiguousPolicy;
 ContiguousAllocator contiguousAllocator(contiguousPolicy);
 
+std::vector<std::shared_ptr<Controller>> globalControllers;
+
 // ----------------------------------------------------------------------------
 // QueuedTransaction.
 // ----------------------------------------------------------------------------
@@ -234,7 +236,9 @@ InterruptTransfer::InterruptTransfer(void *buffer, size_t length)
 // Controller.
 // ----------------------------------------------------------------------------
 
-struct Controller {
+cofiber::no_future runHidDevice(Device device);
+
+struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(uint16_t base, helix::UniqueIrq irq)
 	: _base(base), _irq(frigg::move(irq)) { }
 
@@ -242,45 +246,12 @@ struct Controller {
 		auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
 		assert(!(initial_status & kStatusInterrupt));
 		assert(!(initial_status & kStatusError));
-
-		enum {
-			kRootConnected = 0x0001,
-			kRootConnectChange = 0x0002,
-			kRootEnabled = 0x0004,
-			kRootEnableChange = 0x0008,
-			kRootReset = 0x0200
-		};
 		
-		// global reset, then deassert reset and stop running the frame list
-		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x04);
-		frigg::writeIo<uint16_t>(_base + kRegCommand, 0);
+		// host controller reset.
+		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x02);
+		while((frigg::readIo<uint16_t>(_base + kRegCommand) & 0x02) != 0) { }
 
-		// enable interrupts
-		frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
-
-		// disable both ports and clear their connected/enabled changed bits
-		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl,
-				kRootConnectChange | kRootEnableChange);
-		frigg::writeIo<uint16_t>(_base + kRegPort2StatusControl,
-				kRootConnectChange | kRootEnableChange);
-
-		// enable the first port and wait until it is available
-		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled);
-		while(true) {
-			auto port_status = frigg::readIo<uint16_t>(_base + kRegPort1StatusControl);
-			if((port_status & kRootEnabled))
-				break;
-		}
-
-		// reset the first port
-		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled | kRootReset);
-		frigg::writeIo<uint16_t>(_base + kRegPort1StatusControl, kRootEnabled);
-		
-		auto postenable_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(postenable_status & kStatusInterrupt));
-		assert(!(postenable_status & kStatusError));
-
-		// setup the frame list
+		// setup the frame list.
 		HelHandle list_handle;
 		HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
 		void *list_mapping;
@@ -288,26 +259,109 @@ struct Controller {
 				nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
 		
 		auto list_pointer = (FrameList *)list_mapping;
-		
-		for(int i = 0; i < 1024; i++) {
+		for(int i = 0; i < 1024; i++)
 			list_pointer->entries[i] = FrameListPointer::from(&_initialQh);
-		}
 			
-		// pass the frame list to the controller and run it
+		// pass the frame list to the controller and run it.
 		uintptr_t list_physical;
 		HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
 		assert((list_physical % 0x1000) == 0);
 		frigg::writeIo<uint32_t>(_base + kRegFrameListBaseAddr, list_physical);
+		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x01);
 		
-		auto prerun_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(prerun_status & kStatusInterrupt));
-		assert(!(prerun_status & kStatusError));
-		
-		uint16_t command_bits = 0x1;
-		frigg::writeIo<uint16_t>(_base + kRegCommand, command_bits);
+		// enable interrupts.
+		frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
+
+		pollDevices();
 
 		handleIrqs();
 	}
+
+	COFIBER_ROUTINE(cofiber::no_future, pollDevices(), ([=] {
+		for(int i = 0; i < 2; i++) {
+			auto port_register = kRegPort1StatusControl + 2 * i;
+
+			// poll for connect status change and immediately reset that bit.
+			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
+				continue;
+			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
+			
+			// TODO: delete current device.
+			
+			// check if a new device was attached to the port.
+			auto port_status = frigg::readIo<uint16_t>(_base + port_register);
+			assert(!(port_status & kRootEnabled));
+			if(!(port_status & kRootConnected))
+				continue;
+
+			// reset the port for 50ms.
+			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
+		
+			// TODO: do not busy-wait.
+			uint64_t start;
+			HEL_CHECK(helGetClock(&start));
+			while(true) {
+				uint64_t ticks;
+				HEL_CHECK(helGetClock(&ticks));
+				if(ticks - start >= 50000000)
+					break;
+			}
+
+			// enable the port and wait until it is available.
+			frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
+			while(true) {
+				port_status = frigg::readIo<uint16_t>(_base + port_register);
+				if((port_status & kRootEnabled))
+					break;
+			}
+
+			// disable the port if there was a concurrent disconnect.
+			if(port_status & kRootConnectChange) {
+				std::cout << "uhci: Disconnect during device enumeration." << std::endl;
+				frigg::writeIo<uint16_t>(_base + port_register, 0);
+				continue;
+			}
+		
+			auto usb_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+			assert(!(usb_status & kStatusInterrupt));
+			assert(!(usb_status & kStatusError));
+
+			COFIBER_AWAIT probeDevice();
+		}
+	}))
+
+	COFIBER_ROUTINE(cofiber::future<void>, probeDevice(), ([=] {
+		auto device_state = std::make_shared<DeviceState>();
+		device_state->address = 0;
+		device_state->endpointStates[0] = std::make_unique<EndpointState>();
+		device_state->endpointStates[0]->maxPacketSize = 8;
+		device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
+		activateEntity(device_state->endpointStates[0]->queue.get());
+
+		// set the device_state address.
+		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
+				kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
+				nullptr, 0));
+		device_state->address = 1;
+
+		// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
+		auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
+		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+				kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+				descriptor, 8));
+		device_state->endpointStates[0]->maxPacketSize = descriptor->maxPacketSize;
+		
+		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+				kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+				descriptor, sizeof(DeviceDescriptor)));
+		assert(descriptor->length == sizeof(DeviceDescriptor));
+
+		// TODO:read configuration descriptor from the device
+
+		runHidDevice(Device(shared_from_this(), device_state));
+
+		COFIBER_RETURN();
+	}))
 
 	void activateEntity(ScheduleEntity *entity) {
 		if(scheduleList.empty()) {
@@ -483,8 +537,6 @@ cofiber::future<void> Endpoint::transfer(InterruptTransfer info) {
 	return _controller->transfer(_deviceState, _number, flag, info);
 }
 
-cofiber::no_future runHidDevice(Device device);
-
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;
 
@@ -525,35 +577,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	auto controller = std::make_shared<Controller>(resp.bars(4).address(),
 			helix::UniqueIrq(recv_irq.descriptor()));
 	controller->initialize();
-	
-	auto device_state = std::make_shared<DeviceState>();
-	device_state->address = 0;
-	device_state->endpointStates[0] = std::make_unique<EndpointState>();
-	device_state->endpointStates[0]->maxPacketSize = 8;
-	device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
-	controller->activateEntity(device_state->endpointStates[0]->queue.get());
 
-	// set the device_state address.
-	COFIBER_AWAIT controller->transfer(device_state, 0, ControlTransfer(kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
-			nullptr, 0));
-	device_state->address = 1;
-
-	// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
-	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
-	COFIBER_AWAIT controller->transfer(device_state, 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, 8));
-	device_state->endpointStates[0]->maxPacketSize = descriptor->maxPacketSize;
-	
-	COFIBER_AWAIT controller->transfer(device_state, 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, sizeof(DeviceDescriptor)));
-	assert(descriptor->length == sizeof(DeviceDescriptor));
-
-	// TODO:read configuration descriptor from the device
-
-	runHidDevice(Device(controller, device_state));
+	globalControllers.push_back(std::move(controller));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
