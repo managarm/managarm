@@ -293,7 +293,11 @@ cofiber::no_future runHidDevice(Device device);
 struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(uint16_t base, helix::UniqueIrq irq)
 	: _base(base), _irq(frigg::move(irq)),
-			_lastFrame(0), _lastCounter(0) { }
+			_lastFrame(0), _lastCounter(0) {
+		for(int i = 1; i < 128; i++) {
+			_addressStack.push(i);
+		}
+	}
 
 	void initialize() {
 		auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
@@ -338,14 +342,10 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		for(int i = 0; i < 2; i++) {
 			auto port_register = kRegPort1StatusControl + 2 * i;
 
-			std::cout << "checking port " << i << std::endl;
-			
 			// poll for connect status change and immediately reset that bit.
 			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
 				continue;
 			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
-			
-			std::cout << "connect status change" << std::endl;
 
 			// TODO: delete current device.
 			
@@ -354,6 +354,8 @@ struct Controller : std::enable_shared_from_this<Controller> {
 			assert(!(port_status & kRootEnabled));
 			if(!(port_status & kRootConnected))
 				continue;
+
+			std::cout << "uhci: USB device connected" << std::endl;
 
 			// reset the port for 50ms.
 			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
@@ -390,7 +392,6 @@ struct Controller : std::enable_shared_from_this<Controller> {
 			COFIBER_AWAIT probeDevice();
 		}
 
-		std::cout << "done" << std::endl;	
 		COFIBER_RETURN();
 	}))
 
@@ -403,10 +404,12 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		activateAsync(device_state->endpointStates[0]->queue.get());
 
 		// set the device_state address.
+		assert(!_addressStack.empty());
 		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
-				kDestDevice, kStandard, SetupPacket::kSetAddress, 1, 0,
+				kDestDevice, kStandard, SetupPacket::kSetAddress, _addressStack.front(), 0,
 				nullptr, 0));
-		device_state->address = 1;
+		device_state->address = _addressStack.front();
+		_addressStack.pop();
 
 		// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
 		auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
@@ -526,8 +529,9 @@ private:
 	DummyEntity _irqDummy;
 
 	uint16_t _lastFrame;
-
 	uint64_t _lastCounter;
+
+	std::queue<int> _addressStack;
 };
 
 // ----------------------------------------------------------------------------
