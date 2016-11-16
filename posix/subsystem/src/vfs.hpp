@@ -125,8 +125,16 @@ struct Data;
 struct SharedFile {
 	template<typename T, typename... Args>
 	static SharedFile create(SharedEntry entry, Args &&... args);
+	
+	FutureMaybe<void> readExactly(void *data, size_t length) const;
+	
+	FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) const;
 
-	helix::BorrowedDescriptor getPassthroughLane();
+	FutureMaybe<size_t> readSome(void *data, size_t max_length) const;
+	
+	FutureMaybe<helix::UniqueDescriptor> accessMemory() const;
+
+	helix::BorrowedDescriptor getPassthroughLane() const;
 
 private:
 	explicit SharedFile(std::shared_ptr<Data> data)
@@ -206,6 +214,12 @@ namespace _file {
 struct Data {
 	explicit Data(SharedEntry entry)
 	: entry(std::move(entry)) { }
+	
+	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) = 0;
+
+	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
+	
+	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory() = 0;
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
@@ -217,6 +231,18 @@ SharedFile SharedFile::create(SharedEntry entry, Args &&... args) {
 	struct Derived : Data {
 		Derived(SharedEntry entry, Args &&... args)
 		: Data(std::move(entry)), _delegate(std::forward<Args>(args)...) { }
+	
+		FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) override {
+			return _delegate.seek(offset, whence);
+		}
+	
+		FutureMaybe<size_t> readSome(void *data, size_t max_length) override {
+			return _delegate.readSome(data, max_length);
+		}
+		
+		FutureMaybe<helix::UniqueDescriptor> accessMemory() override {
+			return _delegate.accessMemory();
+		}
 
 		helix::BorrowedDescriptor getPassthroughLane() override {
 			return _delegate.getPassthroughLane();
@@ -325,6 +351,8 @@ SharedNode SharedNode::createRegular(Args &&... args) {
 }
 
 } // namespace _node
+
+FutureMaybe<SharedFile> open(std::string name);
 
 } // namespace vfs
 

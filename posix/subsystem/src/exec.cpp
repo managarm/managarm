@@ -27,17 +27,17 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<VfsOpenFile> file,
+COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(vfs::SharedFile file,
 		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
 
 	// get a handle to the file's memory.
-	auto file_memory = COFIBER_AWAIT file->accessMemory();
+	auto file_memory = COFIBER_AWAIT file.accessMemory();
 
 	// read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	COFIBER_AWAIT file->readExactly(&ehdr, sizeof(Elf64_Ehdr));
+	COFIBER_AWAIT file.readExactly(&ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -51,8 +51,8 @@ COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<VfsOpenFile> fi
 
 	// read the elf program headers and load them into the address space.
 	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
-	COFIBER_AWAIT file->seek(ehdr.e_phoff, VfsSeek::absolute);
-	COFIBER_AWAIT file->readExactly(phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	COFIBER_AWAIT file.seek(ehdr.e_phoff, VfsSeek::absolute);
+	COFIBER_AWAIT file.readExactly(phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
@@ -104,8 +104,8 @@ COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<VfsOpenFile> fi
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
-				COFIBER_AWAIT file->seek(phdr->p_offset, VfsSeek::absolute);
-				COFIBER_AWAIT file->readExactly((char *)window + misalign, phdr->p_filesz);
+				COFIBER_AWAIT file.seek(phdr->p_offset, VfsSeek::absolute);
+				COFIBER_AWAIT file.readExactly((char *)window + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
@@ -132,52 +132,6 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-#include <unistd.h>
-#include <fcntl.h>
-
-struct SuperOpenFile : VfsOpenFile {
-	SuperOpenFile(const std::string &path) {
-		_fd = open(path.c_str(), O_RDONLY);
-	}
-
-	cofiber::future<std::tuple<VfsError, size_t>> readSome(void *buffer,
-			size_t max_length) override;
-	
-	cofiber::future<uint64_t> seek(int64_t offset, VfsSeek whence) override;
-	
-	cofiber::future<helix::UniqueDescriptor> accessMemory() override;
-
-private:
-	int _fd;
-};
-
-template<typename T>
-using VfsFutureResult = cofiber::future<std::tuple<VfsError, T>>;
-
-COFIBER_ROUTINE(VfsFutureResult<size_t>, SuperOpenFile::readSome(void *buffer,
-		size_t max_length), ([=] {
-	auto length = read(_fd, buffer, max_length);
-	assert(length >= 0);
-	COFIBER_RETURN(std::make_tuple(VfsError::success, length));
-}))
-
-COFIBER_ROUTINE(cofiber::future<uint64_t>, SuperOpenFile::seek(int64_t offset,
-		VfsSeek whence), ([=] {
-	if(whence == VfsSeek::absolute) {
-		auto result = lseek(_fd, offset, SEEK_SET);
-		assert(result != off_t(-1));
-		COFIBER_RETURN(result);
-	}else{
-		throw std::logic_error("SuperOpenFile::seek(): Illegal whence parameter");
-	}
-}))
-
-HelHandle __raw_map(int fd);
-
-COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, SuperOpenFile::accessMemory(), ([=] {
-	COFIBER_RETURN(helix::UniqueDescriptor(__raw_map(_fd)));
-}))
-
 cofiber::no_future serve(SharedProcess process, helix::UniqueDescriptor);
 
 // FIXME: remove this helper function
@@ -185,8 +139,8 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
-	auto exec_file = std::make_shared<SuperOpenFile>(path);
-	auto interp_file = std::make_shared<SuperOpenFile>("ld-init.so");
+	auto exec_file = COFIBER_AWAIT vfs::open(path);
+	auto interp_file = COFIBER_AWAIT vfs::open("ld-init.so");
 
 	auto exec_info = COFIBER_AWAIT load(exec_file,
 			helix::BorrowedDescriptor(space), 0);

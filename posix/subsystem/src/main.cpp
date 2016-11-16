@@ -29,8 +29,6 @@ bool traceRequests = false;
 HelHandle ringBuffer;
 HelRingBuffer *ringItem;
 
-vfs::SharedEntry rootEntry;
-
 COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
@@ -54,8 +52,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		managarm::posix::ClientRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::ClientRequestType::OPEN) {
-			auto entry = COFIBER_AWAIT rootEntry.getTarget().getChild(req.path());
-			auto file = COFIBER_AWAIT entry.getTarget().open(entry);
+			auto file = COFIBER_AWAIT vfs::open(req.path());
 			int fd = self.attachFile(file);
 			(void)fd;
 
@@ -97,46 +94,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 // main() function
 // --------------------------------------------------------
 
-#include <unistd.h>
-#include <fcntl.h>
-
-HelHandle __mlibc_getPassthrough(int fd);
-
-namespace super_fs {
-
-struct OpenFile {
-	OpenFile(int fd)
-	: _fd(fd) { }
-
-	helix::BorrowedDescriptor getPassthroughLane() {
-		return helix::BorrowedDescriptor(__mlibc_getPassthrough(_fd));
-	}
-
-private:
-	int _fd;
-};
-
-struct Regular {
-	Regular(int fd)
-	: _fd(fd) { }
-
-	COFIBER_ROUTINE(vfs::FutureMaybe<vfs::SharedFile>, open(vfs::SharedEntry entry), ([=] {
-		COFIBER_RETURN(vfs::SharedFile::create<OpenFile>(std::move(entry), _fd));
-	}))
-
-private:
-	int _fd;
-};
-
-struct Directory {
-	COFIBER_ROUTINE(vfs::FutureMaybe<vfs::SharedNode>, resolveChild(std::string name), ([=] {
-		int fd = open(name.c_str(), O_RDONLY);
-		COFIBER_RETURN(vfs::SharedNode::createRegular<Regular>(fd));
-	}))
-};
-
-} // namespace super_fs
-
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 	
@@ -147,10 +104,6 @@ int main() {
 	int64_t async_id;
 	HEL_CHECK(helSubmitRing(ringBuffer, helix::Dispatcher::global().getHub().getHandle(),
 			ringItem, 0x10000, 0, 0, &async_id));
-
-	auto root_node = vfs::SharedNode::createDirectory<super_fs::Directory>();
-	rootEntry = vfs::SharedEntry::attach(vfs::SharedNode(),
-			std::string(), std::move(root_node));
 
 	execute(SharedProcess::createInit(), "posix-init");
 
