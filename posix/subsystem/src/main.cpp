@@ -52,7 +52,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		managarm::posix::ClientRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::ClientRequestType::OPEN) {
-			auto file = COFIBER_AWAIT vfs::open(req.path());
+			auto file = COFIBER_AWAIT open(req.path());
 			int fd = self.attachFile(file);
 			(void)fd;
 

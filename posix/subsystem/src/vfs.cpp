@@ -6,67 +6,7 @@
 
 #include "common.hpp"
 #include "vfs.hpp"
-
-#include <unistd.h>
-#include <fcntl.h>
-
-#include <protocols/fs/client.hpp>
-
-HelHandle __mlibc_getPassthrough(int fd);
-HelHandle __raw_map(int fd);
-
-namespace super_fs {
-
-struct OpenFile {
-	OpenFile(int fd)
-	: _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
-
-	COFIBER_ROUTINE(vfs::FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence), ([=] {
-		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT _file.seekAbsolute(offset);
-		COFIBER_RETURN(offset);
-	}))
-
-	COFIBER_ROUTINE(vfs::FutureMaybe<size_t>, readSome(void *data, size_t max_length), ([=] {
-		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
-		COFIBER_RETURN(length);
-	}))
-
-	COFIBER_ROUTINE(vfs::FutureMaybe<helix::UniqueDescriptor>, accessMemory(), ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory();
-		COFIBER_RETURN(std::move(memory));
-	}))
-
-	helix::BorrowedDescriptor getPassthroughLane() {
-		return _file.getLane();
-	}
-
-private:
-	protocols::fs::File _file;
-};
-
-struct Regular {
-	Regular(int fd)
-	: _fd(fd) { }
-
-	COFIBER_ROUTINE(vfs::FutureMaybe<vfs::SharedFile>, open(vfs::SharedEntry entry), ([=] {
-		COFIBER_RETURN(vfs::SharedFile::create<OpenFile>(std::move(entry), _fd));
-	}))
-
-private:
-	int _fd;
-};
-
-struct Directory {
-	COFIBER_ROUTINE(vfs::FutureMaybe<vfs::SharedNode>, resolveChild(std::string name), ([=] {
-		int fd = open(name.c_str(), O_RDONLY);
-		COFIBER_RETURN(vfs::SharedNode::createRegular<Regular>(fd));
-	}))
-};
-
-} // namespace super_fs
-
-namespace vfs {
+#include "extern_fs.hpp"
 
 // --------------------------------------------------------
 // SharedFile implementation.
@@ -105,7 +45,7 @@ helix::BorrowedDescriptor SharedFile::getPassthroughLane() const {
 // SharedNode + SharedEntry implementation.
 // --------------------------------------------------------
 
-_node::EntryData::EntryData(SharedNode parent, std::string name,
+_vfs_node::EntryData::EntryData(SharedNode parent, std::string name,
 		SharedNode target)
 : parent(std::move(parent)), name(std::move(name)),
 		target(std::move(target)) {
@@ -116,28 +56,28 @@ _node::EntryData::EntryData(SharedNode parent, std::string name,
 	}
 }
 
-SharedEntry _node::SharedEntry::attach(SharedNode parent, std::string name,
+SharedEntry _vfs_node::SharedEntry::attach(SharedNode parent, std::string name,
 		SharedNode target) {
 	auto data = std::make_shared<EntryData>(std::move(parent), std::move(name),
 			std::move(target));
 	return SharedEntry(std::move(data));
 }
 
-const std::string &_node::SharedEntry::getName() const {
+const std::string &_vfs_node::SharedEntry::getName() const {
 	return _data->name;
 }
 
-SharedNode _node::SharedEntry::getTarget() const {
+SharedNode _vfs_node::SharedEntry::getTarget() const {
 	return _data->target;
 }
 
-FutureMaybe<SharedFile> _node::SharedNode::open(SharedEntry entry) {
+FutureMaybe<SharedFile> _vfs_node::SharedNode::open(SharedEntry entry) {
 	assert(_data->getType() == Type::regular);
 	auto data = static_cast<RegularNodeData *>(_data.get());
 	return data->open(std::move(entry));
 }
 
-COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _node::SharedNode::getChild(std::string name), ([=] {
+COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _vfs_node::SharedNode::getChild(std::string name), ([=] {
 	assert(_data->getType() == Type::directory);
 	auto data = static_cast<DirectoryNodeData *>(_data.get());
 
@@ -153,7 +93,7 @@ COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _node::SharedNode::getChild(std::strin
 namespace {
 
 SharedEntry createRootEntry() {
-	auto node = SharedNode::createDirectory<super_fs::Directory>();
+	auto node = extern_fs::createRootNode();
 	return SharedEntry::attach(SharedNode(), std::string(), std::move(node));
 }
 
@@ -166,6 +106,4 @@ COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(std::string name), ([=] {
 	auto file = COFIBER_AWAIT entry.getTarget().open(entry);
 	COFIBER_RETURN(std::move(file));
 }))
-
-} // namespace vfs
 

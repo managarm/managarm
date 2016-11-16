@@ -27,7 +27,7 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(vfs::SharedFile file,
+COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(SharedFile file,
 		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
@@ -139,8 +139,8 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
-	auto exec_file = COFIBER_AWAIT vfs::open(path);
-	auto interp_file = COFIBER_AWAIT vfs::open("ld-init.so");
+	auto exec_file = COFIBER_AWAIT open(path);
+	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
 	auto exec_info = COFIBER_AWAIT load(exec_file,
 			helix::BorrowedDescriptor(space), 0);

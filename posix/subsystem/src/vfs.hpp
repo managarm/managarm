@@ -32,18 +32,22 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
-namespace vfs {
-
 template<typename T>
 using FutureMaybe = cofiber::future<T>;
 
 // Forward declarations.
-namespace _file { struct SharedFile; }
-namespace _node { struct SharedEntry; struct SharedNode; }
+namespace _vfs_file {
+	struct SharedFile;
+}
 
-using _file::SharedFile;
-using _node::SharedEntry;
-using _node::SharedNode;
+using _vfs_file::SharedFile;
+
+namespace _vfs_node {
+	struct SharedEntry; struct SharedNode;
+}
+
+using _vfs_node::SharedEntry;
+using _vfs_node::SharedNode;
 
 // ----------------------------------------------------------------------------
 // SharedFile class.
@@ -51,7 +55,7 @@ using _node::SharedNode;
 // to the SharedNode that the SharedFile operates on.
 // ----------------------------------------------------------------------------
 
-namespace _file {
+namespace _vfs_file {
 
 struct Data;
 
@@ -76,7 +80,7 @@ private:
 	std::shared_ptr<Data> _data;
 };
 
-} // namespace _file
+} // namespace _vfs_file
 
 // ----------------------------------------------------------------------------
 // SharedNode + SharedEntry classes.
@@ -85,7 +89,7 @@ private:
 // These classes mirror the physical inodes.
 // ----------------------------------------------------------------------------
 
-namespace _node {
+namespace _vfs_node {
 
 enum class Type {
 	null, directory, regular
@@ -136,13 +140,13 @@ private:
 	std::shared_ptr<NodeData> _data;
 };
 
-} // namespace _node
+} // namespace _vfs_node
 
 // ----------------------------------------------------------------------------
 // SharedFile details.
 // ----------------------------------------------------------------------------
 
-namespace _file {
+namespace _vfs_file {
 
 struct Data {
 	explicit Data(SharedEntry entry)
@@ -189,13 +193,13 @@ SharedFile SharedFile::create(SharedEntry entry, Args &&... args) {
 	return SharedFile(std::move(data));
 }
 
-} // namespace _file
+} // namespace _vfs_file
 
 // ----------------------------------------------------------------------------
 // SharedNode + SharedEntry details.
 // ----------------------------------------------------------------------------
 
-namespace _node {
+namespace _vfs_node {
 
 struct EntryData : std::enable_shared_from_this<EntryData> {
 	explicit EntryData(SharedNode parent, std::string name, SharedNode target);
@@ -283,11 +287,9 @@ SharedNode SharedNode::createRegular(Args &&... args) {
 	return SharedNode(std::move(data));
 }
 
-} // namespace _node
+} // namespace _vfs_node
 
 FutureMaybe<SharedFile> open(std::string name);
-
-} // namespace vfs
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP
 
