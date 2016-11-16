@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <protocols/fs/client.hpp>
+
 HelHandle __mlibc_getPassthrough(int fd);
 HelHandle __raw_map(int fd);
 
@@ -17,31 +19,30 @@ namespace super_fs {
 
 struct OpenFile {
 	OpenFile(int fd)
-	: _fd(fd) { }
+	: _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
 
 	COFIBER_ROUTINE(vfs::FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence), ([=] {
 		assert(whence == VfsSeek::absolute);
-		auto result = lseek(_fd, offset, SEEK_SET);
-		assert(result != off_t(-1));
-		COFIBER_RETURN(result);
+		COFIBER_AWAIT _file.seekAbsolute(offset);
+		COFIBER_RETURN(offset);
 	}))
 
 	COFIBER_ROUTINE(vfs::FutureMaybe<size_t>, readSome(void *data, size_t max_length), ([=] {
-		auto length = read(_fd, data, max_length);
-		assert(length >= 0);
+		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
 
 	COFIBER_ROUTINE(vfs::FutureMaybe<helix::UniqueDescriptor>, accessMemory(), ([=] {
-		COFIBER_RETURN(helix::UniqueDescriptor(__raw_map(_fd)));
+		auto memory = COFIBER_AWAIT _file.accessMemory();
+		COFIBER_RETURN(std::move(memory));
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() {
-		return helix::BorrowedDescriptor(__mlibc_getPassthrough(_fd));
+		return _file.getLane();
 	}
 
 private:
-	int _fd;
+	protocols::fs::File _file;
 };
 
 struct Regular {

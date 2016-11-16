@@ -19,6 +19,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
 $c_LIBS := -lhelix -lprotobuf-lite -lcofiber
+$c_LIBS += -lfs_protocol
 
 $($c_BINDIR)/posix-subsystem: $($c_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_LIBS)
