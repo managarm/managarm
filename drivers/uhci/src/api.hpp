@@ -4,6 +4,9 @@
 #include <cofiber/future.hpp>
 
 struct DeviceState;
+struct EndpointState;
+struct ConfigurationState;
+struct InterfaceState;
 struct Controller;
 
 enum XferFlags {
@@ -37,48 +40,41 @@ enum class PipeType {
 };
 
 struct Endpoint {
-	Endpoint(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state,
-			PipeType type, int number);
+	Endpoint(std::shared_ptr<EndpointState> state);
 	
-	cofiber::future<void> transfer(ControlTransfer info);
-	cofiber::future<void> transfer(InterruptTransfer info);
+	cofiber::future<void> transfer(ControlTransfer info) const;
+	cofiber::future<void> transfer(InterruptTransfer info) const;
 
 private:
-	std::shared_ptr<Controller> _controller;
-	std::shared_ptr<DeviceState> _deviceState;
-	PipeType _type;
-	int _number;
+	std::shared_ptr<EndpointState> _state;
 };
 
 struct Interface {
-	Interface(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+	Interface(std::shared_ptr<InterfaceState> state);
 	
-	Endpoint getEndpoint(PipeType type, int number);
+	Endpoint getEndpoint(PipeType type, int number) const;
 
 private:
-	std::shared_ptr<Controller> _controller;
-	std::shared_ptr<DeviceState> _deviceState;
+	std::shared_ptr<InterfaceState> _state;
 };
 
 struct Configuration {
-	Configuration(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+	Configuration(std::shared_ptr<ConfigurationState> state);
 	
 	cofiber::future<Interface> useInterface(int number, int alternative) const;
 
 private:
-	std::shared_ptr<Controller> _controller;
-	std::shared_ptr<DeviceState> _deviceState;
+	std::shared_ptr<ConfigurationState> _state;
 };
 
 struct Device {
-	Device(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state);
+	Device(std::shared_ptr<DeviceState> state);
 
 	cofiber::future<std::string> configurationDescriptor() const;
 	cofiber::future<Configuration> useConfiguration(int number) const;
 	cofiber::future<void> transfer(ControlTransfer info) const;
 
 private:
-	std::shared_ptr<Controller> _controller;
-	std::shared_ptr<DeviceState> _deviceState;
+	std::shared_ptr<DeviceState> _state;
 };
 

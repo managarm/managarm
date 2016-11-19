@@ -81,3 +81,87 @@ struct QueueEntity : ScheduleEntity {
 	> transactionList;
 };
 
+// ----------------------------------------------------------------
+// Controller.
+// ----------------------------------------------------------------
+
+struct Controller : std::enable_shared_from_this<Controller> {
+	Controller(uint16_t base, helix::UniqueIrq irq);
+
+	void initialize();
+	cofiber::future<void> pollDevices();
+	cofiber::future<void> probeDevice();
+	void activateAsync(ScheduleEntity *entity);
+	void activatePeriodic(int frame, ScheduleEntity *entity);
+	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
+			int endpoint,  ControlTransfer info);
+	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
+			int endpoint, XferFlags flags, InterruptTransfer info);
+	cofiber::no_future handleIrqs();
+
+private:
+	uint16_t _base;
+	helix::UniqueIrq _irq;
+
+	QueueHead _periodicQh[1024];
+	QueueHead _asyncQh;
+
+	DummyEntity _irqDummy;
+
+	uint16_t _lastFrame;
+	uint64_t _lastCounter;
+
+	std::queue<int> _addressStack;
+};
+
+// ----------------------------------------------------------------------------
+// DeviceState
+// ----------------------------------------------------------------------------
+
+struct DeviceState : std::enable_shared_from_this<DeviceState> {
+	cofiber::future<std::string> configurationDescriptor();
+	cofiber::future<Configuration> useConfiguration(int number);
+	cofiber::future<void> transfer(ControlTransfer info);
+	
+	uint8_t address;
+	std::shared_ptr<EndpointState> endpointStates[32];
+	std::shared_ptr<Controller> _controller;
+};
+
+// ----------------------------------------------------------------------------
+// ConfigurationState
+// ----------------------------------------------------------------------------
+
+struct ConfigurationState : std::enable_shared_from_this<ConfigurationState> {
+	cofiber::future<Interface> useInterface(int number, int alternative) const;
+
+	std::shared_ptr<DeviceState> _device;
+};
+
+// ----------------------------------------------------------------------------
+// InterfaceState
+// ----------------------------------------------------------------------------
+
+struct InterfaceState {
+	Endpoint getEndpoint(PipeType type, int number);
+
+	std::shared_ptr<ConfigurationState> _config;
+};
+
+// ----------------------------------------------------------------------------
+// EndpointState
+// ----------------------------------------------------------------------------
+
+struct EndpointState {
+	EndpointState(PipeType type, int number);
+	cofiber::future<void> transfer(ControlTransfer info);
+	cofiber::future<void> transfer(InterruptTransfer info);
+
+	size_t maxPacketSize;
+	std::unique_ptr<QueueEntity> queue;
+
+	std::shared_ptr<InterfaceState> _interface;
+	PipeType _type;
+	int _number;
+};
+

@@ -254,19 +254,80 @@ boost::intrusive::list<
 	>
 > asyncSchedule;
 
-// ----------------------------------------------------------------------------
-// Endpoint &Endpoint & DeviceState.
-// ----------------------------------------------------------------------------
+// ----------------------------------------------------------------
+// State definitions.
+// ----------------------------------------------------------------
 
-struct EndpointState {
-	size_t maxPacketSize;
-	std::unique_ptr<QueueEntity> queue;
-};
+COFIBER_ROUTINE(cofiber::future<std::string>, DeviceState::configurationDescriptor(), ([=] {
+	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
+	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			config, sizeof(ConfigDescriptor)));
+	assert(config->length == sizeof(ConfigDescriptor));
 
-struct DeviceState {
-	uint8_t address;
-	std::unique_ptr<EndpointState> endpointStates[32];
-};
+	printf("Configuration value: %d\n", config->configValue);
+
+	auto buffer = (char *)contiguousAllocator.allocate(config->totalLength);
+	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			buffer, config->totalLength));
+
+	std::string copy(buffer, config->totalLength);
+	contiguousAllocator.free(buffer);
+	COFIBER_RETURN(std::move(copy));
+}))
+
+COFIBER_ROUTINE(cofiber::future<Configuration>, 
+		DeviceState::useConfiguration(int number), ([=] {
+	// set the device configuration.
+	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetConfig, number, 0,
+			nullptr, 0));
+	auto config_state = std::make_shared<ConfigurationState>();
+	COFIBER_RETURN(Configuration(config_state));
+}))
+
+cofiber::future<void> DeviceState::transfer(ControlTransfer info) {
+	return _controller->transfer(shared_from_this(), 0, info);
+}
+
+EndpointState::EndpointState(PipeType type, int number)
+: _type(type), _number(number) { }
+
+COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int number,
+		int alternative) const, ([=] {
+	Device device(_device);
+	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		if(type != kDescriptorEndpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;	
+		
+		int endpoint = info.endpointNumber.value();
+		_device->endpointStates[endpoint] = std::make_shared<EndpointState>(PipeType::in, endpoint);
+		_device->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
+		_device->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
+		_device->_controller->activateAsync(_device->endpointStates[endpoint]->queue.get());
+	});
+
+	auto interface = std::make_shared<InterfaceState>();
+	COFIBER_RETURN(Interface(interface));
+}))
+
+cofiber::future<void> EndpointState::transfer(InterruptTransfer info) {
+	XferFlags flag = kXferToDevice;
+	if(_type == PipeType::in)
+		flag = kXferToHost;
+
+	return _interface->_config->_device->_controller->transfer(
+			_interface->_config->_device, _number, flag, info);
+}
+
+Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
+	auto endpoint_state = std::make_shared<EndpointState>(type, number);
+	return Endpoint(endpoint_state);
+}
 
 // ----------------------------------------------------------------------------
 // Control & InterruptTransfer.
@@ -290,346 +351,291 @@ InterruptTransfer::InterruptTransfer(void *buffer, size_t length)
 
 cofiber::no_future runHidDevice(Device device);
 
-struct Controller : std::enable_shared_from_this<Controller> {
-	Controller(uint16_t base, helix::UniqueIrq irq)
-	: _base(base), _irq(frigg::move(irq)),
-			_lastFrame(0), _lastCounter(0) {
-		for(int i = 1; i < 128; i++) {
-			_addressStack.push(i);
-		}
+Controller::Controller(uint16_t base, helix::UniqueIrq irq)
+: _base(base), _irq(frigg::move(irq)),
+		_lastFrame(0), _lastCounter(0) {
+	for(int i = 1; i < 128; i++) {
+		_addressStack.push(i);
 	}
+}
 
-	void initialize() {
-		auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(initial_status & kStatusInterrupt));
-		assert(!(initial_status & kStatusError));
-		
-		// host controller reset.
-		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x02);
-		while((frigg::readIo<uint16_t>(_base + kRegCommand) & 0x02) != 0) { }
-
-		// setup the frame list.
-		HelHandle list_handle;
-		HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
-		void *list_mapping;
-		HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
-				nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
-		
-		auto list_pointer = (FrameList *)list_mapping;
-		for(int i = 0; i < 1024; i++) {
-			_periodicQh[i]._linkPointer = Pointer::from(&_asyncQh);
-			list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
-		}
-
-		// pass the frame list to the controller and run it.
-		uintptr_t list_physical;
-		HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
-		assert((list_physical % 0x1000) == 0);
-		frigg::writeIo<uint32_t>(_base + kRegFrameListBaseAddr, list_physical);
-		frigg::writeIo<uint16_t>(_base + kRegCommand, 0x01);
-		
-		// enable interrupts.
-		frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
-
-		activatePeriodic(0, &_irqDummy);
-
-		pollDevices();
-
-		handleIrqs();
-	}
-
-	COFIBER_ROUTINE(cofiber::future<void>, pollDevices(), ([=] {
-		for(int i = 0; i < 2; i++) {
-			auto port_register = kRegPort1StatusControl + 2 * i;
-
-			// poll for connect status change and immediately reset that bit.
-			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
-				continue;
-			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
-
-			// TODO: delete current device.
-			
-			// check if a new device was attached to the port.
-			auto port_status = frigg::readIo<uint16_t>(_base + port_register);
-			assert(!(port_status & kRootEnabled));
-			if(!(port_status & kRootConnected))
-				continue;
-
-			std::cout << "uhci: USB device connected" << std::endl;
-
-			// reset the port for 50ms.
-			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
-		
-			// TODO: do not busy-wait.
-			uint64_t start;
-			HEL_CHECK(helGetClock(&start));
-			while(true) {
-				uint64_t ticks;
-				HEL_CHECK(helGetClock(&ticks));
-				if(ticks - start >= 50000000)
-					break;
-			}
-
-			// enable the port and wait until it is available.
-			frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
-			while(true) {
-				port_status = frigg::readIo<uint16_t>(_base + port_register);
-				if((port_status & kRootEnabled))
-					break;
-			}
-
-			// disable the port if there was a concurrent disconnect.
-			if(port_status & kRootConnectChange) {
-				std::cout << "uhci: Disconnect during device enumeration." << std::endl;
-				frigg::writeIo<uint16_t>(_base + port_register, 0);
-				continue;
-			}
-		
-			auto usb_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-			assert(!(usb_status & kStatusInterrupt));
-			assert(!(usb_status & kStatusError));
-
-			COFIBER_AWAIT probeDevice();
-		}
-
-		COFIBER_RETURN();
-	}))
-
-	COFIBER_ROUTINE(cofiber::future<void>, probeDevice(), ([=] {
-		auto device_state = std::make_shared<DeviceState>();
-		device_state->address = 0;
-		device_state->endpointStates[0] = std::make_unique<EndpointState>();
-		device_state->endpointStates[0]->maxPacketSize = 8;
-		device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
-		activateAsync(device_state->endpointStates[0]->queue.get());
-
-		// set the device_state address.
-		assert(!_addressStack.empty());
-		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
-				kDestDevice, kStandard, SetupPacket::kSetAddress, _addressStack.front(), 0,
-				nullptr, 0));
-		device_state->address = _addressStack.front();
-		_addressStack.pop();
-
-		// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
-		auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
-		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
-				kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-				descriptor, 8));
-		device_state->endpointStates[0]->maxPacketSize = descriptor->maxPacketSize;
-		
-		COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
-				kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-				descriptor, sizeof(DeviceDescriptor)));
-		assert(descriptor->length == sizeof(DeviceDescriptor));
-
-		// TODO:read configuration descriptor from the device
-
-		runHidDevice(Device(shared_from_this(), device_state));
-
-		COFIBER_RETURN();
-	}))
+void Controller::initialize() {
+	auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+	assert(!(initial_status & kStatusInterrupt));
+	assert(!(initial_status & kStatusError));
 	
-	void activatePeriodic(int frame, ScheduleEntity *entity) {
-		if(periodicSchedule[frame].empty()) {
-			_periodicQh[frame]._linkPointer = entity->head();
-		}else{
-			periodicSchedule[frame].back().linkNext(entity->head());
-		}
-		entity->linkNext(QueueHead::LinkPointer::from(&_asyncQh));
-		periodicSchedule[frame].push_back(*entity);
+	// host controller reset.
+	frigg::writeIo<uint16_t>(_base + kRegCommand, 0x02);
+	while((frigg::readIo<uint16_t>(_base + kRegCommand) & 0x02) != 0) { }
+
+	// setup the frame list.
+	HelHandle list_handle;
+	HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
+	void *list_mapping;
+	HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
+			nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
+	
+	auto list_pointer = (FrameList *)list_mapping;
+	for(int i = 0; i < 1024; i++) {
+		_periodicQh[i]._linkPointer = Pointer::from(&_asyncQh);
+		list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
 	}
 
-	void activateAsync(ScheduleEntity *entity) {
-		if(asyncSchedule.empty()) {
-			_asyncQh._linkPointer = entity->head();
-		}else{
-			asyncSchedule.back().linkNext(entity->head());
-		}
-		asyncSchedule.push_back(*entity);
-	}
+	// pass the frame list to the controller and run it.
+	uintptr_t list_physical;
+	HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
+	assert((list_physical % 0x1000) == 0);
+	frigg::writeIo<uint32_t>(_base + kRegFrameListBaseAddr, list_physical);
+	frigg::writeIo<uint16_t>(_base + kRegCommand, 0x01);
+	
+	// enable interrupts.
+	frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
 
-	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
-			int endpoint,  ControlTransfer info) {
-		assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
-		auto endpoint_state = device_state->endpointStates[endpoint].get();
+	activatePeriodic(0, &_irqDummy);
 
-		SetupPacket setup(info.flags & kXferToDevice ? kDirToDevice : kDirToHost,
-				info.recipient, info.type, info.request,
-				info.arg0, info.arg1, info.length);
-		auto transaction = new ControlTransaction(setup, info.buffer,
-				device_state->address, endpoint, endpoint_state->maxPacketSize,
-				info.flags);
+	pollDevices();
 
-		if(endpoint_state->queue->transactionList.empty())
-			endpoint_state->queue->_queue->_elementPointer = transaction->head();
-		endpoint_state->queue->transactionList.push_back(*transaction);
+	handleIrqs();
+}
 
-		return transaction->future();
-	}
+COFIBER_ROUTINE(cofiber::future<void>, Controller::pollDevices(), ([=] {
+	printf("entered pollDevices\n");
+	for(int i = 0; i < 2; i++) {
+		auto port_register = kRegPort1StatusControl + 2 * i;
 
-	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
-			int endpoint, XferFlags flags, InterruptTransfer info) {
-		assert((flags & kXferToDevice) || (flags & kXferToHost));
-		auto endpoint_state = device_state->endpointStates[endpoint].get();
+		// poll for connect status change and immediately reset that bit.
+		if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
+			continue;
+		frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
 
-		auto transaction = new NormalTransaction(info.buffer, info.length,
-				device_state->address, endpoint, endpoint_state->maxPacketSize,
-				flags);
+		// TODO: delete current device.
+		
+		// check if a new device was attached to the port.
+		auto port_status = frigg::readIo<uint16_t>(_base + port_register);
+		assert(!(port_status & kRootEnabled));
+		if(!(port_status & kRootConnected))
+			continue;
 
-		if(endpoint_state->queue->transactionList.empty())
-			endpoint_state->queue->_queue->_elementPointer = transaction->head();
-		endpoint_state->queue->transactionList.push_back(*transaction);
+		std::cout << "uhci: USB device connected" << std::endl;
 
-		return transaction->future();
-	}
-
-	COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+		// reset the port for 50ms.
+		frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
+	
+		// TODO: do not busy-wait.
+		uint64_t start;
+		HEL_CHECK(helGetClock(&start));
 		while(true) {
-			helix::AwaitIrq<helix::AwaitMechanism> await_irq;
-			helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
-			COFIBER_AWAIT await_irq.future();
-			HEL_CHECK(await_irq.error());
-
-			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-			assert(!(status & 0x10));
-			assert(!(status & 0x08));
-			if(!(status & (kStatusInterrupt | kStatusError)))
-				continue;
-
-			if(status & kStatusError)
-				printf("uhci: Error interrupt\n");
-			frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
-			
-			auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
-			auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
-					: (_lastCounter + 2048 - _lastFrame + frame);
-			
-			if(counter / 1024 > _lastCounter / 1024)
-				pollDevices();
-
-			//printf("uhci: Processing transfers.\n");
-			auto it = asyncSchedule.begin();
-			while(it != asyncSchedule.end()) {
-				it->progress();
-				++it;
-			}
-
-			_lastFrame = frame;
-			_lastCounter = counter;
+			uint64_t ticks;
+			HEL_CHECK(helGetClock(&ticks));
+			if(ticks - start >= 50000000)
+				break;
 		}
-	}))
 
-private:
-	uint16_t _base;
-	helix::UniqueIrq _irq;
+		// enable the port and wait until it is available.
+		frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
+		while(true) {
+			port_status = frigg::readIo<uint16_t>(_base + port_register);
+			if((port_status & kRootEnabled))
+				break;
+		}
 
-	QueueHead _periodicQh[1024];
-	QueueHead _asyncQh;
+		// disable the port if there was a concurrent disconnect.
+		if(port_status & kRootConnectChange) {
+			std::cout << "uhci: Disconnect during device enumeration." << std::endl;
+			frigg::writeIo<uint16_t>(_base + port_register, 0);
+			continue;
+		}
+	
+		auto usb_status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(usb_status & kStatusInterrupt));
+		assert(!(usb_status & kStatusError));
 
-	DummyEntity _irqDummy;
+		COFIBER_AWAIT probeDevice();
+	}
 
-	uint16_t _lastFrame;
-	uint64_t _lastCounter;
+	COFIBER_RETURN();
+}))
 
-	std::queue<int> _addressStack;
-};
+COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
+	printf("entered probeDevice\n");
+	auto device_state = std::make_shared<DeviceState>();
+	device_state->address = 0;
+	device_state->endpointStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
+	device_state->endpointStates[0]->maxPacketSize = 8;
+	device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
+	activateAsync(device_state->endpointStates[0]->queue.get());
+
+	// set the device_state address.
+	assert(!_addressStack.empty());
+	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetAddress, _addressStack.front(), 0,
+			nullptr, 0));
+	device_state->address = _addressStack.front();
+	_addressStack.pop();
+
+	// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
+	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
+	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+			descriptor, 8));
+	device_state->endpointStates[0]->maxPacketSize = descriptor->maxPacketSize;
+	
+	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
+			descriptor, sizeof(DeviceDescriptor)));
+	assert(descriptor->length == sizeof(DeviceDescriptor));
+
+	// TODO:read configuration descriptor from the device
+
+	runHidDevice(Device(device_state));
+
+	COFIBER_RETURN();
+}))
+
+void Controller::activatePeriodic(int frame, ScheduleEntity *entity) {
+	if(periodicSchedule[frame].empty()) {
+		_periodicQh[frame]._linkPointer = entity->head();
+	}else{
+		periodicSchedule[frame].back().linkNext(entity->head());
+	}
+	entity->linkNext(QueueHead::LinkPointer::from(&_asyncQh));
+	periodicSchedule[frame].push_back(*entity);
+}
+
+void Controller::activateAsync(ScheduleEntity *entity) {
+	if(asyncSchedule.empty()) {
+		_asyncQh._linkPointer = entity->head();
+	}else{
+		asyncSchedule.back().linkNext(entity->head());
+	}
+	asyncSchedule.push_back(*entity);
+}
+
+cofiber::future<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
+		int endpoint,  ControlTransfer info) {
+	assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
+	auto endpoint_state = device_state->endpointStates[endpoint].get();
+
+	SetupPacket setup(info.flags & kXferToDevice ? kDirToDevice : kDirToHost,
+			info.recipient, info.type, info.request,
+			info.arg0, info.arg1, info.length);
+	auto transaction = new ControlTransaction(setup, info.buffer,
+			device_state->address, endpoint, endpoint_state->maxPacketSize,
+			info.flags);
+
+	if(endpoint_state->queue->transactionList.empty())
+		endpoint_state->queue->_queue->_elementPointer = transaction->head();
+	endpoint_state->queue->transactionList.push_back(*transaction);
+
+	return transaction->future();
+}
+
+cofiber::future<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
+		int endpoint, XferFlags flags, InterruptTransfer info) {
+	assert((flags & kXferToDevice) || (flags & kXferToHost));
+	auto endpoint_state = device_state->endpointStates[endpoint].get();
+
+	auto transaction = new NormalTransaction(info.buffer, info.length,
+			device_state->address, endpoint, endpoint_state->maxPacketSize,
+			flags);
+
+	if(endpoint_state->queue->transactionList.empty())
+		endpoint_state->queue->_queue->_elementPointer = transaction->head();
+	endpoint_state->queue->transactionList.push_back(*transaction);
+
+	return transaction->future();
+}
+
+COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+	while(true) {
+		helix::AwaitIrq<helix::AwaitMechanism> await_irq;
+		helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT await_irq.future();
+		HEL_CHECK(await_irq.error());
+
+		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(status & 0x10));
+		assert(!(status & 0x08));
+		if(!(status & (kStatusInterrupt | kStatusError)))
+			continue;
+
+		if(status & kStatusError)
+			printf("uhci: Error interrupt\n");
+		frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
+		
+		auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
+		auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
+				: (_lastCounter + 2048 - _lastFrame + frame);
+		
+		if(counter / 1024 > _lastCounter / 1024)
+			pollDevices();
+
+		//printf("uhci: Processing transfers.\n");
+		auto it = asyncSchedule.begin();
+		while(it != asyncSchedule.end()) {
+			it->progress();
+			++it;
+		}
+
+		_lastFrame = frame;
+		_lastCounter = counter;
+	}
+}))
 
 // ----------------------------------------------------------------------------
 // Device.
 // ----------------------------------------------------------------------------
 
-Device::Device(std::shared_ptr<Controller> controller, std::shared_ptr<DeviceState> device_state)
-: _controller(std::move(controller)), _deviceState(std::move(device_state)) { }
+Device::Device(std::shared_ptr<DeviceState> state)
+: _state(std::move(state)) { }
 
-COFIBER_ROUTINE(cofiber::future<std::string>, Device::configurationDescriptor() const, ([=] {
-	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
-	COFIBER_AWAIT _controller->transfer(_deviceState, 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			config, sizeof(ConfigDescriptor)));
-	assert(config->length == sizeof(ConfigDescriptor));
-
-	printf("Configuration value: %d\n", config->configValue);
-
-	auto buffer = (char *)contiguousAllocator.allocate(config->totalLength);
-	COFIBER_AWAIT _controller->transfer(_deviceState, 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			buffer, config->totalLength));
-
-	std::string copy(buffer, config->totalLength);
-	contiguousAllocator.free(buffer);
-	COFIBER_RETURN(std::move(copy));
-}))
-
-cofiber::future<void> Device::transfer(ControlTransfer info) const {
-	return _controller->transfer(_deviceState, 0, info);
+cofiber::future<std::string> Device::configurationDescriptor() const {
+	return _state->configurationDescriptor();
 }
 
-COFIBER_ROUTINE(cofiber::future<Configuration>, 
-		Device::useConfiguration(int number) const, ([=] {
-	// set the device configuration.
-	COFIBER_AWAIT _controller->transfer(_deviceState, 0, ControlTransfer(kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetConfig, number, 0,
-			nullptr, 0));
-	COFIBER_RETURN(Configuration(_controller, _deviceState));
-}))
+cofiber::future<Configuration> Device::useConfiguration(int number) const {
+	return _state->useConfiguration(number);
+}
+
+cofiber::future<void> Device::transfer(ControlTransfer info) const {
+	return _state->transfer(info);
+}
 
 // ----------------------------------------------------------------------------
 // Configuration.
 // ----------------------------------------------------------------------------
 
-Configuration::Configuration(std::shared_ptr<Controller> controller,
-		std::shared_ptr<DeviceState> device_state)
-: _controller(std::move(controller)), _deviceState(std::move(device_state)) { }
+Configuration::Configuration(std::shared_ptr<ConfigurationState> state)
+: _state(std::move(state)) { }
 
-COFIBER_ROUTINE(cofiber::future<Interface>, Configuration::useInterface(int number,
-		int alternative) const, ([=] {
-	Device device(_controller, _deviceState);
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
-
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type != kDescriptorEndpoint)
-			return;
-		auto desc = (EndpointDescriptor *)p;	
-		
-		int endpoint = info.endpointNumber.value();
-		_deviceState->endpointStates[endpoint] = std::make_unique<EndpointState>();
-		_deviceState->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
-		_deviceState->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
-		_controller->activateAsync(_deviceState->endpointStates[endpoint]->queue.get());
-	});
-
-	COFIBER_RETURN(Interface(_controller, _deviceState));
-}))
+cofiber::future<Interface> Configuration::useInterface(int number,
+		int alternative) const {
+	return _state->useInterface(number, alternative);
+}
 
 // ----------------------------------------------------------------------------
 // Interface.
 // ----------------------------------------------------------------------------
 
-Interface::Interface(std::shared_ptr<Controller> controller,
-		std::shared_ptr<DeviceState> device_state)
-: _controller(std::move(controller)), _deviceState(std::move(device_state)) { }
+Interface::Interface(std::shared_ptr<InterfaceState> state)
+: _state(std::move(state)) { }
 
-Endpoint Interface::getEndpoint(PipeType type, int number) {
-	return Endpoint(_controller, _deviceState, type, number);
+Endpoint Interface::getEndpoint(PipeType type, int number) const {
+	return Endpoint(_state->_config->_device->endpointStates[number]);
 }
 
 // ----------------------------------------------------------------------------
 // Endpoint.
 // ----------------------------------------------------------------------------
 
-Endpoint::Endpoint(std::shared_ptr<Controller> controller, 
-		std::shared_ptr<DeviceState> device_state, PipeType type, int number)
-: _controller(std::move(controller)), _deviceState(std::move(device_state)),
-		_type(type), _number(number) { }
+Endpoint::Endpoint(std::shared_ptr<EndpointState> state)
+: _state(std::move(state)) { }
 
-cofiber::future<void> Endpoint::transfer(InterruptTransfer info) {
-	XferFlags flag = kXferToDevice;
-	if(_type == PipeType::in)
-		flag = kXferToHost;
-
-	return _controller->transfer(_deviceState, _number, flag, info);
+cofiber::future<void> Endpoint::transfer(InterruptTransfer info) const {
+	return _state->transfer(info);
 }
+
+// ---------------------------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;
