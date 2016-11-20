@@ -93,12 +93,10 @@ COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _vfs_node::SharedNode::getChild(std::s
 
 namespace {
 
-std::future<SharedEntry> createRootEntry() {
-	std::promise<SharedEntry> promise;
+COFIBER_ROUTINE(std::future<SharedEntry>, createRootEntry(), ([=] {
 	auto node = extern_fs::createRootNode();
-	promise.set_value(SharedEntry::attach(SharedNode(), std::string(), std::move(node)));
-	return promise.get_future();
-}
+	COFIBER_RETURN(SharedEntry::attach(SharedNode(), std::string(), std::move(node)));
+}))
 
 } // anonymous namespace
 
