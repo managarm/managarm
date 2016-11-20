@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <future>
 
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
@@ -92,14 +93,16 @@ COFIBER_ROUTINE(FutureMaybe<SharedEntry>, _vfs_node::SharedNode::getChild(std::s
 
 namespace {
 
-SharedEntry createRootEntry() {
+std::future<SharedEntry> createRootEntry() {
+	std::promise<SharedEntry> promise;
 	auto node = extern_fs::createRootNode();
-	return SharedEntry::attach(SharedNode(), std::string(), std::move(node));
+	promise.set_value(SharedEntry::attach(SharedNode(), std::string(), std::move(node)));
+	return promise.get_future();
 }
 
 } // anonymous namespace
 
-SharedEntry rootEntry = createRootEntry();
+SharedEntry rootEntry = createRootEntry().get();
 
 COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(std::string name), ([=] {
 	auto entry = COFIBER_AWAIT rootEntry.getTarget().getChild(name);

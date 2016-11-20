@@ -502,7 +502,8 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 void Loader::loadFromFile(SharedObject *object, const char *file) {
 	assert(!object->isMainObject);
 	if(verbose)
-		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
+		frigg::infoLogger() << "Loading " << object->name
+				<< " at " << (void *)object->baseAddress << frigg::endLog;
 	
 	// FIXME: remove this initrd prefix
 	frigg::String<Allocator> initrd_prefix(*allocator, "");
