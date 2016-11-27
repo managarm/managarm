@@ -332,6 +332,40 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	processDependencies(object);
 }
 
+struct Queue {
+	Queue()
+	: _queue(nullptr), _progress(0) { }
+
+	HelQueue *getQueue() {
+		if(!_queue) {
+			auto ptr = allocator->allocate(sizeof(HelQueue) + 4096);
+			_queue = reinterpret_cast<HelQueue *>(ptr);
+			_queue->elementLimit = 128;
+			_queue->queueLength = 4096;
+			_queue->kernelState = 0;
+			_queue->userState = 0;
+		}
+		return _queue;
+	}
+
+	void *dequeueSingle() {
+		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+		while(true) {
+			if(_progress < (e & kHelQueueTail)) {
+				size_t offset = _progress;
+				_progress += sizeof(HelEvent);
+				return (char *)_queue + sizeof(HelQueue) + offset;
+			}
+
+			assert(!"Sleep here!");
+		}
+	}
+
+private:
+	HelQueue *_queue;
+	size_t _progress;
+};
+
 frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[4];
 	HelEvent results[4];
@@ -339,7 +373,9 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	managarm::posix::ClientRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::ClientRequestType::OPEN);
 	req.set_path(path);
-	
+
+	Queue m;
+
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
 	uint8_t buffer[128];
@@ -355,12 +391,12 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	actions[2].length = 128;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, eventHub->getHandle(), 0));
+	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, m.getQueue(), 0));
 
-	results[0] = eventHub->waitForEvent(0);
-	results[1] = eventHub->waitForEvent(0);
-	results[2] = eventHub->waitForEvent(0);
-	results[3] = eventHub->waitForEvent(0);
+	results[0] = *(HelEvent *)m.dequeueSingle();
+	results[1] = *(HelEvent *)m.dequeueSingle();
+	results[2] = *(HelEvent *)m.dequeueSingle();
+	results[3] = *(HelEvent *)m.dequeueSingle();
 
 	HEL_CHECK(results[0].error);
 	HEL_CHECK(results[1].error);
@@ -384,6 +420,8 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
 	req.set_rel_offset(offset);
 	
+	Queue m;
+
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
 	uint8_t buffer[128];
@@ -397,11 +435,11 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	actions[2].flags = 0;
 	actions[2].buffer = buffer;
 	actions[2].length = 128;
-	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 3, eventHub->getHandle(), 0));
+	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 3, m.getQueue(), 0));
 
-	results[0] = eventHub->waitForEvent(0);
-	results[1] = eventHub->waitForEvent(0);
-	results[2] = eventHub->waitForEvent(0);
+	results[0] = *(HelEvent *)m.dequeueSingle();
+	results[1] = *(HelEvent *)m.dequeueSingle();
+	results[2] = *(HelEvent *)m.dequeueSingle();
 
 	HEL_CHECK(results[0].error);
 	HEL_CHECK(results[1].error);
@@ -422,6 +460,8 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 		req.set_req_type(managarm::fs::CntReqType::READ);
 		req.set_size(length - offset);
 	
+		Queue m;
+
 		frigg::String<Allocator> ser(*allocator);
 		req.SerializeToString(&ser);
 		uint8_t buffer[128];
@@ -439,12 +479,12 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 		actions[3].flags = 0;
 		actions[3].buffer = (char *)data + offset;
 		actions[3].length = length - offset;
-		HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, eventHub->getHandle(), 0));
+		HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-		results[0] = eventHub->waitForEvent(0);
-		results[1] = eventHub->waitForEvent(0);
-		results[2] = eventHub->waitForEvent(0);
-		results[3] = eventHub->waitForEvent(0);
+		results[0] = *(HelEvent *)m.dequeueSingle();
+		results[1] = *(HelEvent *)m.dequeueSingle();
+		results[2] = *(HelEvent *)m.dequeueSingle();
+		results[3] = *(HelEvent *)m.dequeueSingle();
 
 		HEL_CHECK(results[0].error);
 		HEL_CHECK(results[1].error);
@@ -466,6 +506,8 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
+	Queue m;
+
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
 	uint8_t buffer[128];
@@ -481,12 +523,12 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 	actions[2].length = 128;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, eventHub->getHandle(), 0));
+	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-	results[0] = eventHub->waitForEvent(0);
-	results[1] = eventHub->waitForEvent(0);
-	results[2] = eventHub->waitForEvent(0);
-	results[3] = eventHub->waitForEvent(0);
+	results[0] = *(HelEvent *)m.dequeueSingle();
+	results[1] = *(HelEvent *)m.dequeueSingle();
+	results[2] = *(HelEvent *)m.dequeueSingle();
+	results[3] = *(HelEvent *)m.dequeueSingle();
 
 	HEL_CHECK(results[0].error);
 	HEL_CHECK(results[1].error);

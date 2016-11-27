@@ -3,6 +3,85 @@
 
 using namespace thor;
 
+// TODO: move this to a private namespace?
+static HelEvent translateToUserEvent(AsyncEvent event) {
+	int type;
+	switch(event.type) {
+	case kEventMemoryLoad: type = kHelEventLoadMemory; break;
+	case kEventMemoryLock: type = kHelEventLockMemory; break;
+	case kEventObserve: type = kHelEventObserve; break;
+	case kEventOffer: type = kHelEventOffer; break;
+	case kEventAccept: type = kHelEventAccept; break;
+	case kEventSendString: type = kHelEventSendString; break;
+	case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
+	case kEventRecvString: type = kHelEventRecvString; break;
+	case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
+	case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
+	case kEventIrq: type = kHelEventIrq; break;
+	default:
+		assert(!"Unexpected event type");
+		__builtin_unreachable();
+	}
+
+	HelError error;
+	switch(event.error) {
+	case kErrSuccess: error = kHelErrNone; break;
+	case kErrClosedLocally: error = kHelErrClosedLocally; break;
+	case kErrClosedRemotely: error = kHelErrClosedRemotely; break;
+	case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
+	default:
+		assert(!"Unexpected error");
+		__builtin_unreachable();
+	}
+
+	HelEvent user;
+	user.type = type;
+	user.error = error;
+	user.asyncId = event.submitInfo.asyncId;
+	user.submitFunction = event.submitInfo.submitFunction;
+	user.submitObject = event.submitInfo.submitObject;
+
+	user.msgRequest = event.msgRequest;
+	user.msgSequence = event.msgSequence;
+	user.offset = event.offset;
+	user.length = event.length;
+	user.handle = event.handle;
+
+	return user;
+}
+
+template<typename P>
+struct PostEvent {
+	struct Completer {
+		explicit Completer(PostEvent token)
+		: _space(frigg::move(token._space)), _queue(token._queue), _context(token._context) { }
+
+		template<typename... Args>
+		void operator() (Args &&... args) {
+			_space->queueSpace.submit(_space, (uintptr_t)_queue, sizeof(HelEvent),
+					[context = _context, args...] (ForeignSpaceAccessor accessor) {
+				auto info = SubmitInfo(0, context, 0);
+				auto event = P::makeEvent(info, frigg::move(args)...);
+				auto user = translateToUserEvent(event);
+				accessor.copyTo(&user, sizeof(HelEvent));
+			});
+		}
+
+	private:
+		frigg::SharedPtr<AddressSpace> _space;
+		void *_queue;
+		uintptr_t _context;
+	};
+
+	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
+	: _space(frigg::move(space)), _queue(queue), _context(context) { }
+
+private:
+	frigg::SharedPtr<AddressSpace> _space;
+	void *_queue;
+	uintptr_t _context;
+};
+
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
 		infoSink.print(string[i]);
@@ -809,7 +888,7 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 }
 
 HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
-		HelHandle hub_handle, uint32_t flags) {
+		HelQueue *queue, uint32_t flags) {
 	(void)flags;
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
@@ -817,7 +896,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	// TODO: check userspace page access rights
 	
 	LaneDescriptor descriptor;
-	EventHubDescriptor hub_descriptor;
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
 
@@ -827,13 +905,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		if(!wrapper->is<LaneDescriptor>())
 			return kHelErrBadDescriptor;
 		descriptor = wrapper->get<LaneDescriptor>();
-
-		auto hub_wrapper = this_universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		hub_descriptor = hub_wrapper->get<EventHubDescriptor>();
 	}
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
@@ -852,7 +923,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionOffer: {
 			using Token = PostEvent<OfferPolicy>;
 			LaneHandle lane = target.getStream()->submitOffer(target.getLane(),
-					Token(hub_descriptor.eventHub, action.context));
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
@@ -860,7 +931,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionAccept: {
 			using Token = PostEvent<AcceptPolicy>;
 			LaneHandle lane = target.getStream()->submitAccept(target.getLane(),
-					this_universe.toWeak(), Token(hub_descriptor.eventHub, action.context));
+					this_universe.toWeak(),
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
@@ -870,7 +942,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			memcpy(buffer.data(), action.buffer, action.length);
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
-					Token(hub_descriptor.eventHub, action.context));
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		case kHelActionRecvToBuffer: {
 			using Token = PostEvent<RecvStringPolicy>;
@@ -878,7 +950,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
 					action.buffer, action.length);
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
-					Token(hub_descriptor.eventHub, action.context));
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -892,12 +964,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			using Token = PostEvent<PushDescriptorPolicy>;
 			target.getStream()->submitPushDescriptor(target.getLane(), frigg::move(operand),
-					Token(hub_descriptor.eventHub, action.context));
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		case kHelActionPullDescriptor: {
 			using Token = PostEvent<PullDescriptorPolicy>;
 			target.getStream()->submitPullDescriptor(target.getLane(), this_universe.toWeak(),
-					Token(hub_descriptor.eventHub, action.context));
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		default:
 			assert(!"Fix error handling here");

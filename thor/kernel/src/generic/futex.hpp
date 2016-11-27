@@ -79,5 +79,77 @@ private:
 	> _slots;
 };
 
+struct QueueSpace {
+	using Address = uintptr_t;
+	
+	QueueSpace()
+	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
+
+	template<typename F>
+	void submit(frigg::UnsafePtr<AddressSpace> space, Address address,
+			size_t length, F functor) {
+		_submitElement(space, address, frigg::makeShared<Element<F>>(*kernelAlloc,
+				length, frigg::move(functor)));
+	}
+
+private:
+	using Mutex = frigg::TicketLock;
+
+	struct BaseElement {
+		BaseElement(size_t length)
+		: _length(length) { }
+
+		size_t getLength() {
+			return _length;
+		}
+
+		virtual void complete(ForeignSpaceAccessor accessor) = 0;
+	
+		frigg::IntrusiveSharedLinkedItem<BaseElement> hook;
+
+	private:
+		size_t _length;
+	};
+
+	template<typename F>
+	struct Element : BaseElement {
+		Element(size_t length, F functor)
+		: BaseElement(length), _functor(frigg::move(functor)) { }
+
+		void complete(ForeignSpaceAccessor accessor) override {
+			_functor(frigg::move(accessor));
+		}
+
+	private:
+		F _functor;
+	};
+
+	struct Queue {
+		Queue();
+
+		size_t offset;
+
+		// TODO: we do not actually need shared pointers here.
+		frigg::IntrusiveSharedLinkedList<
+			BaseElement,
+			&BaseElement::hook
+		> elements;
+	};
+
+	void _submitElement(frigg::UnsafePtr<AddressSpace> space, Address address,
+			frigg::SharedPtr<BaseElement> element);
+
+	// TODO: use a scalable hash table with fine-grained locks to
+	// improve the scalability of the futex algorithm.
+	Mutex _mutex;
+
+	frigg::Hashmap<
+		Address,
+		Queue,
+		frigg::DefaultHasher<Address>,
+		KernelAlloc
+	> _queues;
+};
+
 } // namespace thor
 

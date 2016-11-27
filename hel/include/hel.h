@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 72,
+	kHelNumCalls = 73,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -47,7 +47,7 @@ enum {
 	kHelCallWaitForCertainEvent = 65,
 	
 	kHelCallCreateStream = 68,
-	kHelCallSubmitAsync = 69,
+	kHelCallSubmitAsync = 72,
 
 	kHelCallCreateRing = 56,
 	kHelCallSubmitRing = 57,
@@ -211,6 +211,46 @@ struct HelRingBuffer {
 	char data[];
 };
 
+//! Flag for kernelState; signals that there are waiters.
+static const unsigned int kHelQueueWaiters = (unsigned int)1 << 31;
+
+//! Flag for kernelState; signals that the kernel needs a next HelQueue.
+static const unsigned int kHelQueueWantNext = (unsigned int)1 << 30;
+
+//! Bit mask for kernelState; the kernel enqueue pointer.
+static const unsigned int kHelQueueTail = ((unsigned int)1 << 30) - 1;
+
+//! Flag for userState; signals that there is a next HelQueue.
+static const unsigned int kHelQueueHasNext = (unsigned int)1 << 31;
+
+struct HelQueue {
+	//! Maximum size of a single element in bytes.
+	//! Constant.
+	unsigned int elementLimit;
+
+	//! Size of the whole queue (without header) in bytes.
+	//! Constant.
+	unsigned int queueLength;
+
+	//! This is the Futex user space waits on.
+	//! Must be accessed atomically.
+	unsigned int kernelState;
+
+	//! This is the Futex the kernel waits on.
+	//! Must be accessed atomically.
+	unsigned int userState;
+
+	//! Pointer to the next queue.
+	//! Supplied by user space.
+	//! The kernel requests a next queue by setting the kHelQueueWantNext bit.
+	//! Must be accessed atomically.
+	struct HelQueue *nextQueue;
+};
+
+struct HelElement {
+	unsigned int length;
+};
+
 enum HelIrqFlags {
 	kHelIrqExclusive = 1,
 	kHelIrqManualAcknowledge = 2
@@ -266,7 +306,7 @@ HEL_C_LINKAGE HelError helWaitForCertainEvent(HelHandle handle,
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
-		size_t count, HelHandle hub_handle, uint32_t flags);
+		size_t count, struct HelQueue *queue, uint32_t flags);
 
 HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);
 HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,

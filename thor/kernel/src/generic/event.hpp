@@ -64,43 +64,6 @@ struct AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
-template<typename P>
-struct PostEvent {
-	struct Item : AsyncOperation {
-		Item(frigg::SharedPtr<EventHub> hub, uintptr_t context)
-		: AsyncOperation(PostEventCompleter(frigg::move(hub), 0, 0, context)) { }
-
-		AsyncEvent getEvent() override {
-			return event;
-		}
-
-		AsyncEvent event;
-	};
-
-	struct Completer {
-		explicit Completer(PostEvent token)
-		: _item(frigg::makeShared<Item>(*kernelAlloc,
-				frigg::move(token._hub), token._context)) { }
-
-		template<typename... Args>
-		void operator() (Args &&... args) {
-			auto info = _item->completer.template get<PostEventCompleter>().submitInfo;
-			_item->event = P::makeEvent(info, frigg::forward<Args>(args)...);
-			AsyncOperation::complete(frigg::move(_item));
-		}
-
-	private:
-		frigg::SharedPtr<Item> _item;
-	};
-
-	PostEvent(frigg::SharedPtr<EventHub> hub, uintptr_t context)
-	: _hub(frigg::move(hub)), _context(context) { }
-
-private:
-	frigg::SharedPtr<EventHub> _hub;
-	uintptr_t _context;
-};
-
 struct OfferPolicy {
 	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
 		AsyncEvent event(kEventOffer, info);

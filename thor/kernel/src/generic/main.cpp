@@ -589,7 +589,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitAsync: {
 		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
-				(size_t)arg2, (HelHandle)arg3, (uint32_t)arg4);
+				(size_t)arg2, (HelQueue *)arg3, (uint32_t)arg4);
 	} break;
 	
 	case kHelCallCreateRing: {

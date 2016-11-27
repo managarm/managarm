@@ -294,6 +294,8 @@ public:
 	Mapping *getMapping(VirtualAddr address);
 
 	Lock lock;
+	
+	QueueSpace queueSpace;
 
 private:
 	
