@@ -25,12 +25,18 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	}
 	
 	size_t offset = it->offset;
-	assert(offset + element->getLength() <= *qs.get());
-	it->offset += element->getLength();
+	assert(offset % 8 == 0);
+	assert(offset + element->getLength() + 24 <= *qs.get());
+	it->offset += element->getLength() + 24;
 	frigg::infoLogger() << "HelQueue: Writing to " << offset << frigg::endLog;
+	
+	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + 24 + offset + 0), 4);
+	unsigned int length = element->getLength();
+	ez.copyTo(&length, 4);
 
 	auto accessor = ForeignSpaceAccessor::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + 24 + offset), element->getLength());
+			reinterpret_cast<void *>(address + 24 + offset + 24), element->getLength());
 	element->complete(frigg::move(accessor));
 
 	unsigned int expected = offset;

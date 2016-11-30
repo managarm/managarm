@@ -332,6 +332,13 @@ void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
 	processDependencies(object);
 }
 
+template<typename T>
+T load(void *ptr) {
+	T result;
+	memcpy(&result, ptr, sizeof(T));
+	return result;
+}
+
 struct Queue {
 	Queue()
 	: _queue(nullptr), _progress(0) { }
@@ -352,9 +359,10 @@ struct Queue {
 		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
 			if(_progress < (e & kHelQueueTail)) {
-				size_t offset = _progress;
-				_progress += sizeof(HelEvent);
-				return (char *)_queue + sizeof(HelQueue) + offset;
+				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
+				auto elem = load<HelElement>(ptr);
+				_progress += sizeof(HelElement) + elem.length;
+				return ptr + sizeof(HelElement);
 			}
 
 			assert(!"Sleep here!");

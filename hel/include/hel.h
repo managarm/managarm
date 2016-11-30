@@ -249,6 +249,9 @@ struct HelQueue {
 
 struct HelElement {
 	unsigned int length;
+	unsigned int reserved;
+	void *context;
+	int64_t id;
 };
 
 enum HelIrqFlags {
