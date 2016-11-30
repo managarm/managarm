@@ -52,29 +52,19 @@ static HelEvent translateToUserEvent(AsyncEvent event) {
 
 template<typename P>
 struct PostEvent {
-	struct Completer {
-		explicit Completer(PostEvent token)
-		: _space(frigg::move(token._space)), _queue(token._queue), _context(token._context) { }
-
-		template<typename... Args>
-		void operator() (Args &&... args) {
-			_space->queueSpace.submit(_space, (uintptr_t)_queue, sizeof(HelEvent),
-					[context = _context, args...] (ForeignSpaceAccessor accessor) {
-				auto info = SubmitInfo(0, context, 0);
-				auto event = P::makeEvent(info, frigg::move(args)...);
-				auto user = translateToUserEvent(event);
-				accessor.copyTo(&user, sizeof(HelEvent));
-			});
-		}
-
-	private:
-		frigg::SharedPtr<AddressSpace> _space;
-		void *_queue;
-		uintptr_t _context;
-	};
-
 	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
 	: _space(frigg::move(space)), _queue(queue), _context(context) { }
+	
+	template<typename... Args>
+	void operator() (Args &&... args) {
+		_space->queueSpace.submit(_space, (uintptr_t)_queue, sizeof(HelEvent),
+				[context = _context, args...] (ForeignSpaceAccessor accessor) {
+			auto info = SubmitInfo(0, context, 0);
+			auto event = P::makeEvent(info, frigg::move(args)...);
+			auto user = translateToUserEvent(event);
+			accessor.copyTo(&user, sizeof(HelEvent));
+		});
+	}
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;

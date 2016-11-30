@@ -19,20 +19,12 @@ struct UseCallback;
 
 template<typename... Args>
 struct UseCallback<void(Args...)> {
-	struct Completer {
-		explicit Completer(UseCallback token)
-		: _callback(token._callback) { }
-
-		void operator() (Args &&... args) {
-			_callback(frigg::forward<Args>(args)...);
-		}
-
-	private:
-		frigg::CallbackPtr<void(Args...)> _callback;
-	};
-
 	explicit UseCallback(frigg::CallbackPtr<void(Args...)> callback)
 	: _callback(callback) { }
+	
+	void operator() (Args &&... args) {
+		_callback(frigg::forward<Args>(args)...);
+	}
 
 private:
 	frigg::CallbackPtr<void(Args...)> _callback;

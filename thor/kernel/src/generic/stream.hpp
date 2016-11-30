@@ -3,21 +3,21 @@
 
 namespace thor {
 
-template<typename Base, typename Signature, typename Token>
+template<typename Base, typename Signature, typename F>
 struct Realization;
 
-template<typename Base, typename... Args, typename Token>
-struct Realization<Base, void(Args...), Token> : Base {
+template<typename Base, typename... Args, typename F>
+struct Realization<Base, void(Args...), F> : Base {
 	template<typename... CArgs>
-	explicit Realization(Token token, CArgs &&... args)
-	: Base(frigg::forward<CArgs>(args)...), _completer(frigg::move(token)) { }
+	explicit Realization(F functor, CArgs &&... args)
+	: Base(frigg::forward<CArgs>(args)...), _functor(frigg::move(functor)) { }
 
 	void complete(Args... args) override {
-		_completer(frigg::move(args)...);
+		_functor(frigg::move(args)...);
 	}
 
 private:
-	typename Token::Completer _completer;
+	F _functor;
 };
 
 struct StreamControl {
@@ -55,8 +55,8 @@ struct OfferBase : StreamControl {
 	virtual void complete(Error error) = 0;
 };
 
-template<typename Token>
-using Offer = Realization<OfferBase, void(Error), Token>;
+template<typename F>
+using Offer = Realization<OfferBase, void(Error), F>;
 
 struct AcceptBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -72,11 +72,11 @@ struct AcceptBase : StreamControl {
 	frigg::WeakPtr<Universe> _universe;
 };
 
-template<typename Token>
+template<typename F>
 using Accept = Realization<
 	AcceptBase,
 	void(Error, frigg::WeakPtr<Universe>, LaneDescriptor),
-	Token
+	F
 >;
 
 struct SendFromBufferBase : StreamControl {
@@ -92,8 +92,8 @@ struct SendFromBufferBase : StreamControl {
 	frigg::UniqueMemory<KernelAlloc> buffer;
 };
 
-template<typename Token>
-using SendFromBuffer = Realization<SendFromBufferBase, void(Error), Token>;
+template<typename F>
+using SendFromBuffer = Realization<SendFromBufferBase, void(Error), F>;
 
 struct RecvToBufferBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -108,8 +108,8 @@ struct RecvToBufferBase : StreamControl {
 	AnyBufferAccessor accessor;
 };
 
-template<typename Token>
-using RecvToBuffer = Realization<RecvToBufferBase, void(Error, size_t), Token>;
+template<typename F>
+using RecvToBuffer = Realization<RecvToBufferBase, void(Error, size_t), F>;
 
 struct PushDescriptorBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -124,8 +124,8 @@ struct PushDescriptorBase : StreamControl {
 	AnyDescriptor _lane;
 };
 
-template<typename Token>
-using PushDescriptor = Realization<PushDescriptorBase, void(Error), Token>;
+template<typename F>
+using PushDescriptor = Realization<PushDescriptorBase, void(Error), F>;
 
 struct PullDescriptorBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -141,11 +141,11 @@ struct PullDescriptorBase : StreamControl {
 	frigg::WeakPtr<Universe> _universe;
 };
 
-template<typename Token>
+template<typename F>
 using PullDescriptor = Realization<
 	PullDescriptorBase,
 	void(Error, frigg::WeakPtr<Universe>, AnyDescriptor),
-	Token
+	F
 >;
 
 struct Stream {
@@ -158,40 +158,40 @@ struct Stream {
 	Stream();
 	~Stream();
 	
-	template<typename Token>
-	LaneHandle submitOffer(int lane, Token token) {
-		return _submitControl(lane, frigg::makeShared<Offer<Token>>(*kernelAlloc,
-				frigg::move(token)));
+	template<typename F>
+	LaneHandle submitOffer(int lane, F functor) {
+		return _submitControl(lane, frigg::makeShared<Offer<F>>(*kernelAlloc,
+				frigg::move(functor)));
 	}
 	
-	template<typename Token>
-	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, Token token) {
-		return _submitControl(lane, frigg::makeShared<Accept<Token>>(*kernelAlloc,
-				frigg::move(token), frigg::move(universe)));
+	template<typename F>
+	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, F functor) {
+		return _submitControl(lane, frigg::makeShared<Accept<F>>(*kernelAlloc,
+				frigg::move(functor), frigg::move(universe)));
 	}
 
-	template<typename Token>
-	void submitSendBuffer(int lane, frigg::UniqueMemory<KernelAlloc> buffer, Token token) {
-		_submitControl(lane, frigg::makeShared<SendFromBuffer<Token>>(*kernelAlloc,
-				frigg::move(token), frigg::move(buffer)));
+	template<typename F>
+	void submitSendBuffer(int lane, frigg::UniqueMemory<KernelAlloc> buffer, F functor) {
+		_submitControl(lane, frigg::makeShared<SendFromBuffer<F>>(*kernelAlloc,
+				frigg::move(functor), frigg::move(buffer)));
 	}
 	
-	template<typename Token>
-	void submitRecvBuffer(int lane, AnyBufferAccessor accessor, Token token) {
-		_submitControl(lane, frigg::makeShared<RecvToBuffer<Token>>(*kernelAlloc,
-				frigg::move(token), frigg::move(accessor)));
+	template<typename F>
+	void submitRecvBuffer(int lane, AnyBufferAccessor accessor, F functor) {
+		_submitControl(lane, frigg::makeShared<RecvToBuffer<F>>(*kernelAlloc,
+				frigg::move(functor), frigg::move(accessor)));
 	}
 	
-	template<typename Token>
-	void submitPushDescriptor(int lane, AnyDescriptor descriptor, Token token) {
-		_submitControl(lane, frigg::makeShared<PushDescriptor<Token>>(*kernelAlloc,
-				frigg::move(token), frigg::move(descriptor)));
+	template<typename F>
+	void submitPushDescriptor(int lane, AnyDescriptor descriptor, F functor) {
+		_submitControl(lane, frigg::makeShared<PushDescriptor<F>>(*kernelAlloc,
+				frigg::move(functor), frigg::move(descriptor)));
 	}
 	
-	template<typename Token>
-	void submitPullDescriptor(int lane, frigg::WeakPtr<Universe> universe, Token token) {
-		_submitControl(lane, frigg::makeShared<PullDescriptor<Token>>(*kernelAlloc,
-				frigg::move(token), frigg::move(universe)));
+	template<typename F>
+	void submitPullDescriptor(int lane, frigg::WeakPtr<Universe> universe, F functor) {
+		_submitControl(lane, frigg::makeShared<PullDescriptor<F>>(*kernelAlloc,
+				frigg::move(functor), frigg::move(universe)));
 	}
 
 private:
