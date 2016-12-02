@@ -3,73 +3,146 @@
 
 using namespace thor;
 
-// TODO: move this to a private namespace?
-static HelEvent translateToUserEvent(AsyncEvent event) {
-	int type;
-	switch(event.type) {
-	case kEventMemoryLoad: type = kHelEventLoadMemory; break;
-	case kEventMemoryLock: type = kHelEventLockMemory; break;
-	case kEventObserve: type = kHelEventObserve; break;
-	case kEventOffer: type = kHelEventOffer; break;
-	case kEventAccept: type = kHelEventAccept; break;
-	case kEventSendString: type = kHelEventSendString; break;
-	case kEventSendDescriptor: type = kHelEventSendDescriptor; break;
-	case kEventRecvString: type = kHelEventRecvString; break;
-	case kEventRecvStringToRing: type = kHelEventRecvStringToQueue; break;
-	case kEventRecvDescriptor: type = kHelEventRecvDescriptor; break;
-	case kEventIrq: type = kHelEventIrq; break;
-	default:
-		assert(!"Unexpected event type");
-		__builtin_unreachable();
-	}
-
-	HelError error;
-	switch(event.error) {
-	case kErrSuccess: error = kHelErrNone; break;
-	case kErrClosedLocally: error = kHelErrClosedLocally; break;
-	case kErrClosedRemotely: error = kHelErrClosedRemotely; break;
-	case kErrBufferTooSmall: error = kHelErrBufferTooSmall; break;
+// TODO: one translate function per error source?
+HelError translateError(Error error) {
+	switch(error) {
+	case kErrSuccess: return kHelErrNone;
+//		case kErrClosedLocally: return kHelErrClosedLocally;
+//		case kErrClosedRemotely: return kHelErrClosedRemotely;
+//		case kErrBufferTooSmall: return kHelErrBufferTooSmall;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
 	}
-
-	HelEvent user;
-	user.type = type;
-	user.error = error;
-	user.asyncId = event.submitInfo.asyncId;
-	user.submitFunction = event.submitInfo.submitFunction;
-	user.submitObject = event.submitInfo.submitObject;
-
-	user.msgRequest = event.msgRequest;
-	user.msgSequence = event.msgSequence;
-	user.offset = event.offset;
-	user.length = event.length;
-	user.handle = event.handle;
-
-	return user;
 }
 
 template<typename P>
 struct PostEvent {
+private:
+	struct Functor {
+		Functor(P writer)
+		: _writer(frigg::move(writer)) { }
+
+		void operator() (ForeignSpaceAccessor accessor) {
+			_writer.write(frigg::move(accessor));
+		}
+
+	private:
+		P _writer;
+	};
+
+public:
 	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
-	: _space(frigg::move(space)), _queue(queue), _context(context) { }
+	: _space(frigg::move(space)), _queue(queue), _context(context) {
+		_handle = _space->queueSpace.prepare<Functor>();
+	}
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
-		_space->queueSpace.submit(_space, (uintptr_t)_queue, sizeof(HelEvent),
-				[context = _context, args...] (ForeignSpaceAccessor accessor) {
-			auto info = SubmitInfo(0, context, 0);
-			auto event = P::makeEvent(info, frigg::move(args)...);
-			auto user = translateToUserEvent(event);
-			accessor.copyTo(&user, sizeof(HelEvent));
-		});
+//		auto info = SubmitInfo(0, _context, 0);
+		auto writer = P(frigg::forward<Args>(args)...);
+		auto size = writer.size();
+		_space->queueSpace.submit(frigg::move(_handle), _space, (uintptr_t)_queue,
+				size, Functor(frigg::move(writer)));
 	}
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_queue;
 	uintptr_t _context;
+	QueueSpace::ElementHandle<Functor> _handle;
+};
+
+struct OfferWriter {
+	OfferWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelSimpleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelSimpleResult data{translateError(_error), 0};
+		accessor.copyTo(&data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
+
+/*struct AcceptWriter {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error,
+			frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane);
+};*/
+
+struct SendStringWriter {
+	SendStringWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelSimpleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelSimpleResult data{translateError(_error), 0};
+		accessor.copyTo(&data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
+
+struct RecvStringWriter {
+	RecvStringWriter(Error error, size_t length)
+	: _error(error), _length(length) { }
+
+	size_t size() {
+		return sizeof(HelLengthResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelLengthResult data{translateError(_error), 0, _length};
+		accessor.copyTo(&data, sizeof(HelLengthResult));
+	}
+
+private:
+	Error _error;
+	size_t _length;
+};
+
+/*struct PushDescriptorWriter {
+	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
+		AsyncEvent event(kEventSendDescriptor, info);
+		event.error = error;
+		return event;
+	}
+};*/
+
+struct PullDescriptorWriter {
+	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> universe, AnyDescriptor lane)
+	: _error(error), _weakUniverse(frigg::move(universe)), _lane(frigg::move(lane)) { }
+
+	size_t size() {
+		return sizeof(HelHandleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		Handle handle;
+		{
+			auto universe = _weakUniverse.grab();
+			assert(universe);
+			Universe::Guard lock(&universe->lock);
+			handle = universe->attachDescriptor(lock, frigg::move(_lane));
+		}
+
+		HelHandleResult data{translateError(_error), 0, handle};
+		accessor.copyTo(&data, sizeof(HelHandleResult));
+	}
+
+private:
+	Error _error;
+	frigg::WeakPtr<Universe> _weakUniverse;
+	AnyDescriptor _lane;
 };
 
 HelError helLog(const char *string, size_t length) {
@@ -911,38 +984,38 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		switch(action.type) {
 		case kHelActionOffer: {
-			using Token = PostEvent<OfferPolicy>;
+			using Token = PostEvent<OfferWriter>;
 			LaneHandle lane = target.getStream()->submitOffer(target.getLane(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
 		} break;
-		case kHelActionAccept: {
-			using Token = PostEvent<AcceptPolicy>;
+/*		case kHelActionAccept: {
+			using Token = PostEvent<AcceptWriter>;
 			LaneHandle lane = target.getStream()->submitAccept(target.getLane(),
 					this_universe.toWeak(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
-		} break;
+		} break;*/
 		case kHelActionSendFromBuffer: {
-			using Token = PostEvent<SendStringPolicy>;
+			using Token = PostEvent<SendStringWriter>;
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			memcpy(buffer.data(), action.buffer, action.length);
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		case kHelActionRecvToBuffer: {
-			using Token = PostEvent<RecvStringPolicy>;
+			using Token = PostEvent<RecvStringWriter>;
 			auto space = this_thread->getAddressSpace().toShared();
 			auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
 					action.buffer, action.length);
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
-		case kHelActionPushDescriptor: {
+/*		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
 			{
 				Universe::Guard universe_guard(&this_universe->lock);
@@ -952,12 +1025,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				operand = *wrapper;
 			}
 
-			using Token = PostEvent<PushDescriptorPolicy>;
+			using Token = PostEvent<PushDescriptorWriter>;
 			target.getStream()->submitPushDescriptor(target.getLane(), frigg::move(operand),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
-		} break;
+		} break;*/
 		case kHelActionPullDescriptor: {
-			using Token = PostEvent<PullDescriptorPolicy>;
+			using Token = PostEvent<PullDescriptorWriter>;
 			target.getStream()->submitPullDescriptor(target.getLane(), this_universe.toWeak(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;

@@ -3,7 +3,7 @@
 
 namespace thor {
 
-AsyncEvent AcceptPolicy::makeEvent(SubmitInfo info, Error error,
+/*AsyncEvent AcceptPolicy::makeEvent(SubmitInfo info, Error error,
 		frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane) {
 	auto universe = weak_universe.grab();
 	assert(universe);
@@ -18,24 +18,7 @@ AsyncEvent AcceptPolicy::makeEvent(SubmitInfo info, Error error,
 	event.error = error;
 	event.handle = handle;
 	return event;
-}
-
-AsyncEvent PullDescriptorPolicy::makeEvent(SubmitInfo info, Error error,
-		frigg::WeakPtr<Universe> weak_universe, AnyDescriptor lane) {
-	auto universe = weak_universe.grab();
-	assert(universe);
-
-	Handle handle;
-	{
-		Universe::Guard lock(&universe->lock);
-		handle = universe->attachDescriptor(lock, frigg::move(lane));
-	}
-
-	AsyncEvent event(kEventRecvDescriptor, info);
-	event.error = error;
-	event.handle = handle;
-	return event;
-}
+}*/
 
 LaneHandle::LaneHandle(const LaneHandle &other)
 : _stream(other._stream), _lane(other._lane) {

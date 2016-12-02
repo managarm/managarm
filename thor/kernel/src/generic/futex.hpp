@@ -81,27 +81,12 @@ private:
 
 struct QueueSpace {
 	using Address = uintptr_t;
-	
-	QueueSpace()
-	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
-
-	template<typename F>
-	void submit(frigg::UnsafePtr<AddressSpace> space, Address address,
-			size_t length, F functor) {
-		_submitElement(space, address, frigg::makeShared<Element<F>>(*kernelAlloc,
-				length, frigg::move(functor)));
-	}
 
 private:
-	using Mutex = frigg::TicketLock;
-
 	struct BaseElement {
-		BaseElement(size_t length)
-		: _length(length) { }
-
-		size_t getLength() {
-			return _length;
-		}
+		BaseElement(size_t length);
+		
+		size_t getLength();
 
 		virtual void complete(ForeignSpaceAccessor accessor) = 0;
 	
@@ -123,6 +108,31 @@ private:
 	private:
 		F _functor;
 	};
+
+public:
+	// TODO: allocate memory on construction.
+	template<typename F>
+	struct ElementHandle {
+	};
+
+	QueueSpace()
+	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
+
+	template<typename F>
+	ElementHandle<F> prepare() {
+		return {};
+	}
+	
+	template<typename F>
+	void submit(ElementHandle<F> handle, frigg::UnsafePtr<AddressSpace> space,
+			Address address, size_t length, F functor) {
+		(void)handle;
+		_submitElement(space, address, frigg::makeShared<Element<F>>(*kernelAlloc,
+				length, frigg::move(functor)));
+	}
+
+private:
+	using Mutex = frigg::TicketLock;
 
 	struct Queue {
 		Queue();

@@ -254,6 +254,23 @@ struct HelElement {
 	int64_t id;
 };
 
+struct HelSimpleResult {
+	HelError error;
+	int reserved;
+};
+
+struct HelLengthResult {
+	HelError error;
+	int reserved;
+	size_t length;
+};
+
+struct HelHandleResult {
+	HelError error;
+	int reserved;
+	HelHandle handle;
+};
+
 enum HelIrqFlags {
 	kHelIrqExclusive = 1,
 	kHelIrqManualAcknowledge = 2

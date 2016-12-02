@@ -3,6 +3,13 @@
 
 namespace thor {
 
+QueueSpace::BaseElement::BaseElement(size_t length)
+: _length(length) { }
+
+size_t QueueSpace::BaseElement::getLength() {
+	return _length;
+}
+
 QueueSpace::Queue::Queue()
 : offset(0) { }
 

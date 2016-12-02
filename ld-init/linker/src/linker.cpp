@@ -376,7 +376,10 @@ private:
 
 frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[4];
-	HelEvent results[4];
+	HelSimpleResult offer;
+	HelSimpleResult send_req;
+	HelLengthResult recv_resp;
+	HelHandleResult pull_lane;
 
 	managarm::posix::ClientRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::ClientRequestType::OPEN);
@@ -401,28 +404,30 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	actions[3].flags = 0;
 	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, m.getQueue(), 0));
 
-	results[0] = *(HelEvent *)m.dequeueSingle();
-	results[1] = *(HelEvent *)m.dequeueSingle();
-	results[2] = *(HelEvent *)m.dequeueSingle();
-	results[3] = *(HelEvent *)m.dequeueSingle();
+	offer = *(HelSimpleResult *)m.dequeueSingle();
+	send_req = *(HelSimpleResult *)m.dequeueSingle();
+	recv_resp = *(HelLengthResult *)m.dequeueSingle();
+	pull_lane = *(HelHandleResult *)m.dequeueSingle();
 
-	HEL_CHECK(results[0].error);
-	HEL_CHECK(results[1].error);
-	HEL_CHECK(results[2].error);
-	HEL_CHECK(results[3].error);
+	HEL_CHECK(offer.error);
+	HEL_CHECK(send_req.error);
+	HEL_CHECK(recv_resp.error);
+	HEL_CHECK(pull_lane.error);
 	
 	managarm::posix::ServerResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, results[2].length);
+	resp.ParseFromArray(buffer, recv_resp.length);
 
 	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
 	assert(resp.error() == managarm::posix::Errors::SUCCESS);
-	return helx::Pipe(results[3].handle);
+	return helx::Pipe(pull_lane.handle);
 }
 
 void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	HelAction actions[3];
-	HelEvent results[3];
+	HelSimpleResult offer;
+	HelSimpleResult send_req;
+	HelLengthResult recv_resp;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
@@ -445,16 +450,16 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	actions[2].length = 128;
 	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 3, m.getQueue(), 0));
 
-	results[0] = *(HelEvent *)m.dequeueSingle();
-	results[1] = *(HelEvent *)m.dequeueSingle();
-	results[2] = *(HelEvent *)m.dequeueSingle();
+	offer = *(HelSimpleResult *)m.dequeueSingle();
+	send_req = *(HelSimpleResult *)m.dequeueSingle();
+	recv_resp = *(HelLengthResult *)m.dequeueSingle();
 
-	HEL_CHECK(results[0].error);
-	HEL_CHECK(results[1].error);
-	HEL_CHECK(results[2].error);
+	HEL_CHECK(offer.error);
+	HEL_CHECK(send_req.error);
+	HEL_CHECK(recv_resp.error);
 	
 	managarm::fs::SvrResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, results[2].length);
+	resp.ParseFromArray(buffer, recv_resp.length);
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 }
 
@@ -462,7 +467,10 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		HelAction actions[4];
-		HelEvent results[4];
+		HelSimpleResult offer;
+		HelSimpleResult send_req;
+		HelLengthResult recv_resp;
+		HelLengthResult recv_data;
 
 		managarm::fs::CntRequest<Allocator> req(*allocator);
 		req.set_req_type(managarm::fs::CntReqType::READ);
@@ -489,27 +497,30 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 		actions[3].length = length - offset;
 		HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-		results[0] = *(HelEvent *)m.dequeueSingle();
-		results[1] = *(HelEvent *)m.dequeueSingle();
-		results[2] = *(HelEvent *)m.dequeueSingle();
-		results[3] = *(HelEvent *)m.dequeueSingle();
+		offer = *(HelSimpleResult *)m.dequeueSingle();
+		send_req = *(HelSimpleResult *)m.dequeueSingle();
+		recv_resp = *(HelLengthResult *)m.dequeueSingle();
+		recv_data = *(HelLengthResult *)m.dequeueSingle();
 
-		HEL_CHECK(results[0].error);
-		HEL_CHECK(results[1].error);
-		HEL_CHECK(results[2].error);
-		HEL_CHECK(results[3].error);
+		HEL_CHECK(offer.error);
+		HEL_CHECK(send_req.error);
+		HEL_CHECK(recv_resp.error);
+		HEL_CHECK(recv_data.error);
 
 		managarm::fs::SvrResponse<Allocator> resp(*allocator);
-		resp.ParseFromArray(buffer, results[2].length);
+		resp.ParseFromArray(buffer, recv_resp.length);
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		offset += results[3].length;
+		offset += recv_data.length;
 	}
 	assert(offset == length);
 }
 
 HelHandle posixMmap(helx::Pipe &pipe) {
 	HelAction actions[4];
-	HelEvent results[4];
+	HelSimpleResult offer;
+	HelSimpleResult send_req;
+	HelLengthResult recv_resp;
+	HelHandleResult pull_memory;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
@@ -533,20 +544,20 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 	actions[3].flags = 0;
 	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-	results[0] = *(HelEvent *)m.dequeueSingle();
-	results[1] = *(HelEvent *)m.dequeueSingle();
-	results[2] = *(HelEvent *)m.dequeueSingle();
-	results[3] = *(HelEvent *)m.dequeueSingle();
+	offer = *(HelSimpleResult *)m.dequeueSingle();
+	send_req = *(HelSimpleResult *)m.dequeueSingle();
+	recv_resp = *(HelLengthResult *)m.dequeueSingle();
+	pull_memory = *(HelHandleResult *)m.dequeueSingle();
 
-	HEL_CHECK(results[0].error);
-	HEL_CHECK(results[1].error);
-	HEL_CHECK(results[2].error);
-	HEL_CHECK(results[3].error);
+	HEL_CHECK(offer.error);
+	HEL_CHECK(send_req.error);
+	HEL_CHECK(recv_resp.error);
+	HEL_CHECK(pull_memory.error);
 	
 	managarm::fs::SvrResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, results[2].length);
+	resp.ParseFromArray(buffer, recv_resp.length);
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	return results[3].handle;
+	return pull_memory.handle;
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {

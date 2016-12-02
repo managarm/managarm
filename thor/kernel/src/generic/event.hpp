@@ -64,49 +64,6 @@ struct AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncOperation> hubItem;
 };
 
-struct OfferPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
-		AsyncEvent event(kEventOffer, info);
-		event.error = error;
-		return event;
-	}
-};
-
-struct AcceptPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error,
-			frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane);
-};
-
-struct SendStringPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
-		AsyncEvent event(kEventSendString, info);
-		event.error = error;
-		return event;
-	}
-};
-
-struct RecvStringPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error, size_t length) {
-		AsyncEvent event(kEventRecvString, info);
-		event.error = error;
-		event.length = length;
-		return event;
-	}
-};
-
-struct PushDescriptorPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
-		AsyncEvent event(kEventSendDescriptor, info);
-		event.error = error;
-		return event;
-	}
-};
-
-struct PullDescriptorPolicy {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error,
-			frigg::WeakPtr<Universe> weak_universe, AnyDescriptor lane);
-};
-
 struct AsyncHandleLoad : public AsyncOperation {
 	AsyncHandleLoad(AsyncCompleter completer)
 	: AsyncOperation(frigg::move(completer)) { }
