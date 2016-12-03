@@ -205,18 +205,18 @@ T *DirectSpaceAccessor<T>::get() {
 	return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
 }
 
-inline void ForeignSpaceAccessor::copyTo(void *pointer, size_t size) {
+inline void ForeignSpaceAccessor::copyTo(size_t offset, void *pointer, size_t size) {
 	AddressSpace::Guard guard(&_space->lock);
 	
-	size_t offset = 0;
-	while(offset < size) {
-		VirtualAddr write = (VirtualAddr)_address + offset;
+	size_t progress = 0;
+	while(progress < size) {
+		VirtualAddr write = (VirtualAddr)_address + offset + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - offset);
+		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		memcpy(physicalToVirtual(page + misalign), (char *)pointer + offset, chunk);
-		offset += chunk;
+		memcpy(physicalToVirtual(page + misalign), (char *)pointer + progress, chunk);
+		progress += chunk;
 	}
 }
 

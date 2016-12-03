@@ -40,7 +40,7 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
 			reinterpret_cast<void *>(address + 24 + offset + 0), 4);
 	unsigned int length = element->getLength();
-	ez.copyTo(&length, 4);
+	ez.copyTo(0, &length, 4);
 
 	auto accessor = ForeignSpaceAccessor::acquire(space.toShared(),
 			reinterpret_cast<void *>(address + 24 + offset + 24), element->getLength());

@@ -26,6 +26,7 @@ struct StreamControl {
 		kTagOffer,
 		kTagAccept,
 		kTagSendFromBuffer,
+		kTagRecvInline,
 		kTagRecvToBuffer,
 		kTagPushDescriptor,
 		kTagPullDescriptor
@@ -94,6 +95,24 @@ struct SendFromBufferBase : StreamControl {
 
 template<typename F>
 using SendFromBuffer = Realization<SendFromBufferBase, void(Error), F>;
+
+struct RecvInlineBase : StreamControl {
+	static bool classOf(const StreamControl &base) {
+		return base.tag() == kTagRecvInline;
+	}
+
+	explicit RecvInlineBase()
+	: StreamControl(kTagRecvInline) { }
+
+	virtual void complete(Error error, frigg::UniqueMemory<KernelAlloc> buffer) = 0;
+};
+
+template<typename F>
+using RecvInline = Realization<
+	RecvInlineBase,
+	void(Error, frigg::UniqueMemory<KernelAlloc>),
+	F
+>;
 
 struct RecvToBufferBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -174,6 +193,12 @@ struct Stream {
 	void submitSendBuffer(int lane, frigg::UniqueMemory<KernelAlloc> buffer, F functor) {
 		_submitControl(lane, frigg::makeShared<SendFromBuffer<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(buffer)));
+	}
+	
+	template<typename F>
+	void submitRecvInline(int lane, F functor) {
+		_submitControl(lane, frigg::makeShared<RecvInline<F>>(*kernelAlloc,
+				frigg::move(functor)));
 	}
 	
 	template<typename F>

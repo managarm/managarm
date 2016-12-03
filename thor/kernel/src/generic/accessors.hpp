@@ -93,7 +93,7 @@ struct ForeignSpaceAccessor {
 		return _length;
 	}
 
-	void copyTo(void *pointer, size_t size);
+	void copyTo(size_t offset, void *pointer, size_t size);
 
 private:
 	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
@@ -180,9 +180,10 @@ struct KernelAccessor {
 		return _length;
 	}
 
-	void copyTo(void *source, size_t size) {
-		assert(size <= _length);
-		memcpy(_pointer, source, size);
+	void copyTo(size_t offset, void *source, size_t size) {
+		// TODO: detect overflows here.
+		assert(offset + size <= _length);
+		memcpy((char *)_pointer + offset, source, size);
 	}
 
 private:
@@ -208,9 +209,9 @@ public:
 		});
 	}
 
-	void copyTo(void *source, size_t size) {
+	void copyTo(size_t offset, void *source, size_t size) {
 		_variant.apply([&] (auto &accessor) {
-			accessor.copyTo(source, size);
+			accessor.copyTo(offset, source, size);
 		});
 	}
 

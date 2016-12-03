@@ -42,9 +42,16 @@ static void transfer(frigg::SharedPtr<OfferBase> offer,
 }
 
 static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
+		frigg::SharedPtr<RecvInlineBase> to) {
+	auto buffer = frigg::move(from->buffer);
+	from->complete(kErrSuccess);
+	to->complete(kErrSuccess, frigg::move(buffer));
+}
+
+static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
 		frigg::SharedPtr<RecvToBufferBase> to) {
 	assert(from->buffer.size() <= to->accessor.length());
-	to->accessor.copyTo(from->buffer.data(), from->buffer.size());
+	to->accessor.copyTo(0, from->buffer.data(), from->buffer.size());
 	from->complete(kErrSuccess);
 	to->complete(kErrSuccess, from->buffer.size());
 }
@@ -157,6 +164,16 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 				LaneDescriptor(frigg::move(lane1)));
 		
 		return LaneHandle(adoptLane, conversation, p);
+	}else if(SendFromBufferBase::classOf(*u)
+			&& RecvInlineBase::classOf(*v)) {
+		transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),
+				frigg::staticPtrCast<RecvInlineBase>(frigg::move(v)));
+		return LaneHandle();
+	}else if(SendFromBufferBase::classOf(*v)
+			&& RecvInlineBase::classOf(*u)) {
+		transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(v)),
+				frigg::staticPtrCast<RecvInlineBase>(frigg::move(u)));
+		return LaneHandle();
 	}else if(SendFromBufferBase::classOf(*u)
 			&& RecvToBufferBase::classOf(*v)) {
 		transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),

@@ -114,6 +114,7 @@ enum {
 	kHelActionOffer = 5,
 	kHelActionAccept = 6,
 	kHelActionSendFromBuffer = 1,
+	kHelActionRecvInline = 7,
 	kHelActionRecvToBuffer = 3,
 	kHelActionPushDescriptor = 2,
 	kHelActionPullDescriptor = 4
@@ -257,6 +258,13 @@ struct HelElement {
 struct HelSimpleResult {
 	HelError error;
 	int reserved;
+};
+
+struct HelInlineResult {
+	HelError error;
+	int reserved;
+	size_t length;
+	char data[];
 };
 
 struct HelLengthResult {

@@ -63,7 +63,7 @@ struct OfferWriter {
 
 	void write(ForeignSpaceAccessor accessor) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(&data, sizeof(HelSimpleResult));
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -85,11 +85,32 @@ struct SendStringWriter {
 
 	void write(ForeignSpaceAccessor accessor) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(&data, sizeof(HelSimpleResult));
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 	}
 
 private:
 	Error _error;
+};
+
+struct RecvInlineWriter {
+	RecvInlineWriter(Error error, frigg::UniqueMemory<KernelAlloc> buffer)
+	: _error(error), _buffer(frigg::move(buffer)) { }
+
+	size_t size() {
+		size_t size = sizeof(HelInlineResult) + _buffer.size();
+		return (size + 7) & ~size_t(7);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelInlineResult data{translateError(_error), 0, _buffer.size()};
+		accessor.copyTo(0, &data, sizeof(HelInlineResult));
+		accessor.copyTo(__builtin_offsetof(HelInlineResult, data),
+				_buffer.data(), _buffer.size());
+	}
+
+private:
+	Error _error;
+	frigg::UniqueMemory<KernelAlloc> _buffer;
 };
 
 struct RecvStringWriter {
@@ -102,7 +123,7 @@ struct RecvStringWriter {
 
 	void write(ForeignSpaceAccessor accessor) {
 		HelLengthResult data{translateError(_error), 0, _length};
-		accessor.copyTo(&data, sizeof(HelLengthResult));
+		accessor.copyTo(0, &data, sizeof(HelLengthResult));
 	}
 
 private:
@@ -136,7 +157,7 @@ struct PullDescriptorWriter {
 		}
 
 		HelHandleResult data{translateError(_error), 0, handle};
-		accessor.copyTo(&data, sizeof(HelHandleResult));
+		accessor.copyTo(0, &data, sizeof(HelHandleResult));
 	}
 
 private:
@@ -1005,6 +1026,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			memcpy(buffer.data(), action.buffer, action.length);
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
+					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
+		} break;
+		case kHelActionRecvInline: {
+			using Token = PostEvent<RecvInlineWriter>;
+			auto space = this_thread->getAddressSpace().toShared();
+			target.getStream()->submitRecvInline(target.getLane(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
 		case kHelActionRecvToBuffer: {

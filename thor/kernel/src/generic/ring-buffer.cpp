@@ -32,7 +32,7 @@ void RingBuffer::doTransfer(frigg::SharedPtr<AsyncSendString> send,
 		auto address = (char *)front.spaceLock.foreignAddress() + sizeof(HelRingBuffer) + offset;
 		auto data_lock = ForeignSpaceAccessor::acquire(space.toShared(), address,
 				send->kernelBuffer.size());
-		data_lock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
+		data_lock.copyTo(0, send->kernelBuffer.data(), send->kernelBuffer.size());
 
 		send->error = kErrSuccess;
 

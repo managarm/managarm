@@ -209,7 +209,7 @@ bool Channel::processStringRequest(frigg::SharedPtr<AsyncSendString> send,
 	if(recv->type == AsyncRecvString::kTypeNormal) {
 		if(send->kernelBuffer.size() <= recv->spaceLock.length()) {
 			// perform the actual data transfer
-			recv->spaceLock.copyTo(send->kernelBuffer.data(), send->kernelBuffer.size());
+			recv->spaceLock.copyTo(0, send->kernelBuffer.data(), send->kernelBuffer.size());
 			
 			send->error = kErrSuccess;
 

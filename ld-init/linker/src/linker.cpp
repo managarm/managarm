@@ -376,10 +376,10 @@ private:
 
 frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[4];
-	HelSimpleResult offer;
-	HelSimpleResult send_req;
-	HelLengthResult recv_resp;
-	HelHandleResult pull_lane;
+	HelSimpleResult *offer;
+	HelSimpleResult *send_req;
+	HelInlineResult *recv_resp;
+	HelHandleResult *pull_lane;
 
 	managarm::posix::ClientRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::ClientRequestType::OPEN);
@@ -389,45 +389,42 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
-	uint8_t buffer[128];
 	actions[0].type = kHelActionOffer;
 	actions[0].flags = kHelItemAncillary;
 	actions[1].type = kHelActionSendFromBuffer;
 	actions[1].flags = kHelItemChain;
 	actions[1].buffer = ser.data();
 	actions[1].length = ser.size();
-	actions[2].type = kHelActionRecvToBuffer;
+	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = kHelItemChain;
-	actions[2].buffer = buffer;
-	actions[2].length = 128;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
 	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, m.getQueue(), 0));
 
-	offer = *(HelSimpleResult *)m.dequeueSingle();
-	send_req = *(HelSimpleResult *)m.dequeueSingle();
-	recv_resp = *(HelLengthResult *)m.dequeueSingle();
-	pull_lane = *(HelHandleResult *)m.dequeueSingle();
+	offer = (HelSimpleResult *)m.dequeueSingle();
+	send_req = (HelSimpleResult *)m.dequeueSingle();
+	recv_resp = (HelInlineResult *)m.dequeueSingle();
+	pull_lane = (HelHandleResult *)m.dequeueSingle();
 
-	HEL_CHECK(offer.error);
-	HEL_CHECK(send_req.error);
-	HEL_CHECK(recv_resp.error);
-	HEL_CHECK(pull_lane.error);
+	HEL_CHECK(offer->error);
+	HEL_CHECK(send_req->error);
+	HEL_CHECK(recv_resp->error);
+	HEL_CHECK(pull_lane->error);
 	
 	managarm::posix::ServerResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, recv_resp.length);
+	resp.ParseFromArray(recv_resp->data, recv_resp->length);
 
 	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
 	assert(resp.error() == managarm::posix::Errors::SUCCESS);
-	return helx::Pipe(pull_lane.handle);
+	return helx::Pipe(pull_lane->handle);
 }
 
 void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	HelAction actions[3];
-	HelSimpleResult offer;
-	HelSimpleResult send_req;
-	HelLengthResult recv_resp;
+	HelSimpleResult *offer;
+	HelSimpleResult *send_req;
+	HelInlineResult *recv_resp;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
@@ -437,29 +434,26 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
-	uint8_t buffer[128];
 	actions[0].type = kHelActionOffer;
 	actions[0].flags = kHelItemAncillary;
 	actions[1].type = kHelActionSendFromBuffer;
 	actions[1].flags = kHelItemChain;
 	actions[1].buffer = ser.data();
 	actions[1].length = ser.size();
-	actions[2].type = kHelActionRecvToBuffer;
+	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	actions[2].buffer = buffer;
-	actions[2].length = 128;
 	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 3, m.getQueue(), 0));
 
-	offer = *(HelSimpleResult *)m.dequeueSingle();
-	send_req = *(HelSimpleResult *)m.dequeueSingle();
-	recv_resp = *(HelLengthResult *)m.dequeueSingle();
+	offer = (HelSimpleResult *)m.dequeueSingle();
+	send_req = (HelSimpleResult *)m.dequeueSingle();
+	recv_resp = (HelInlineResult *)m.dequeueSingle();
 
-	HEL_CHECK(offer.error);
-	HEL_CHECK(send_req.error);
-	HEL_CHECK(recv_resp.error);
+	HEL_CHECK(offer->error);
+	HEL_CHECK(send_req->error);
+	HEL_CHECK(recv_resp->error);
 	
 	managarm::fs::SvrResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, recv_resp.length);
+	resp.ParseFromArray(recv_resp->data, recv_resp->length);
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 }
 
@@ -467,10 +461,10 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		HelAction actions[4];
-		HelSimpleResult offer;
-		HelSimpleResult send_req;
-		HelLengthResult recv_resp;
-		HelLengthResult recv_data;
+		HelSimpleResult *offer;
+		HelSimpleResult *send_req;
+		HelInlineResult *recv_resp;
+		HelLengthResult *recv_data;
 
 		managarm::fs::CntRequest<Allocator> req(*allocator);
 		req.set_req_type(managarm::fs::CntReqType::READ);
@@ -480,47 +474,44 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 
 		frigg::String<Allocator> ser(*allocator);
 		req.SerializeToString(&ser);
-		uint8_t buffer[128];
 		actions[0].type = kHelActionOffer;
 		actions[0].flags = kHelItemAncillary;
 		actions[1].type = kHelActionSendFromBuffer;
 		actions[1].flags = kHelItemChain;
 		actions[1].buffer = ser.data();
 		actions[1].length = ser.size();
-		actions[2].type = kHelActionRecvToBuffer;
+		actions[2].type = kHelActionRecvInline;
 		actions[2].flags = kHelItemChain;
-		actions[2].buffer = buffer;
-		actions[2].length = 128;
 		actions[3].type = kHelActionRecvToBuffer;
 		actions[3].flags = 0;
 		actions[3].buffer = (char *)data + offset;
 		actions[3].length = length - offset;
 		HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-		offer = *(HelSimpleResult *)m.dequeueSingle();
-		send_req = *(HelSimpleResult *)m.dequeueSingle();
-		recv_resp = *(HelLengthResult *)m.dequeueSingle();
-		recv_data = *(HelLengthResult *)m.dequeueSingle();
+		offer = (HelSimpleResult *)m.dequeueSingle();
+		send_req = (HelSimpleResult *)m.dequeueSingle();
+		recv_resp = (HelInlineResult *)m.dequeueSingle();
+		recv_data = (HelLengthResult *)m.dequeueSingle();
 
-		HEL_CHECK(offer.error);
-		HEL_CHECK(send_req.error);
-		HEL_CHECK(recv_resp.error);
-		HEL_CHECK(recv_data.error);
+		HEL_CHECK(offer->error);
+		HEL_CHECK(send_req->error);
+		HEL_CHECK(recv_resp->error);
+		HEL_CHECK(recv_data->error);
 
 		managarm::fs::SvrResponse<Allocator> resp(*allocator);
-		resp.ParseFromArray(buffer, recv_resp.length);
+		resp.ParseFromArray(recv_resp->data, recv_resp->length);
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		offset += recv_data.length;
+		offset += recv_data->length;
 	}
 	assert(offset == length);
 }
 
 HelHandle posixMmap(helx::Pipe &pipe) {
 	HelAction actions[4];
-	HelSimpleResult offer;
-	HelSimpleResult send_req;
-	HelLengthResult recv_resp;
-	HelHandleResult pull_memory;
+	HelSimpleResult *offer;
+	HelSimpleResult *send_req;
+	HelInlineResult *recv_resp;
+	HelHandleResult *pull_memory;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
@@ -529,35 +520,32 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
-	uint8_t buffer[128];
 	actions[0].type = kHelActionOffer;
 	actions[0].flags = kHelItemAncillary;
 	actions[1].type = kHelActionSendFromBuffer;
 	actions[1].flags = kHelItemChain;
 	actions[1].buffer = ser.data();
 	actions[1].length = ser.size();
-	actions[2].type = kHelActionRecvToBuffer;
+	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = kHelItemChain;
-	actions[2].buffer = buffer;
-	actions[2].length = 128;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
 	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
 
-	offer = *(HelSimpleResult *)m.dequeueSingle();
-	send_req = *(HelSimpleResult *)m.dequeueSingle();
-	recv_resp = *(HelLengthResult *)m.dequeueSingle();
-	pull_memory = *(HelHandleResult *)m.dequeueSingle();
+	offer = (HelSimpleResult *)m.dequeueSingle();
+	send_req = (HelSimpleResult *)m.dequeueSingle();
+	recv_resp = (HelInlineResult *)m.dequeueSingle();
+	pull_memory = (HelHandleResult *)m.dequeueSingle();
 
-	HEL_CHECK(offer.error);
-	HEL_CHECK(send_req.error);
-	HEL_CHECK(recv_resp.error);
-	HEL_CHECK(pull_memory.error);
+	HEL_CHECK(offer->error);
+	HEL_CHECK(send_req->error);
+	HEL_CHECK(recv_resp->error);
+	HEL_CHECK(pull_memory->error);
 	
 	managarm::fs::SvrResponse<Allocator> resp(*allocator);
-	resp.ParseFromArray(buffer, recv_resp.length);
+	resp.ParseFromArray(recv_resp->data, recv_resp->length);
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	return pull_memory.handle;
+	return pull_memory->handle;
 }
 
 void Loader::loadFromFile(SharedObject *object, const char *file) {
