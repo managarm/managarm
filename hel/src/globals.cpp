@@ -8,7 +8,7 @@
 namespace helix {
 
 Dispatcher &Dispatcher::global() {
-	static Dispatcher dispatcher(createHub());
+	static Dispatcher dispatcher;
 	return dispatcher;
 }
 

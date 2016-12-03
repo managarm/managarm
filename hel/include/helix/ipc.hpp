@@ -2,6 +2,7 @@
 #ifndef HELIX_HPP
 #define HELIX_HPP
 
+#include <assert.h>
 #include <atomic>
 #include <initializer_list>
 #include <stdexcept>
@@ -142,24 +143,52 @@ struct Irq { };
 using UniqueIrq = UniqueResource<Irq>;
 using BorrowedIrq = BorrowedResource<Irq>;
 
+struct QueuePtr {
+	explicit QueuePtr(HelQueue *queue)
+	: _queue(queue) { }
+
+	HelQueue *get() {
+		return _queue;
+	}
+
+private:
+	HelQueue *_queue;
+};
+
+struct ElementPtr {
+	explicit ElementPtr(void *queue)
+	: _queue(queue) { }
+
+	void *get() {
+		return _queue;
+	}
+
+private:
+	void *_queue;
+};
+
 // we use a pattern similar to CRTP here to reduce code size.
-template<typename Result>
-struct OperationBase : Result {
+struct OperationBase {
 	friend class Dispatcher;
 
 	OperationBase()
-	: _asyncId(0) { }
+	: _asyncId(0), _result(nullptr) { }
 	
 	virtual ~OperationBase() { }
+
+	void *element() {
+		return _result.get();
+	}
 
 protected:
 	virtual void complete() = 0;
 
 	int64_t _asyncId;
+	ElementPtr _result;
 };
 
-template<typename Result, typename M>
-struct Operation : OperationBase<Result> {
+template<typename M>
+struct Operation : OperationBase {
 	typename M::Future future() {
 		return _completer.future();
 	}
@@ -173,241 +202,139 @@ private:
 	typename M::Completer _completer;
 };
 
-struct ResultBase {
-	// TODO: replace by std::error_code
-	HelError error() {
-		return _error;
-	}
-
-protected:
-	HelError _error;
-};
-
-struct OfferResult : ResultBase {
-};
-
-struct AcceptResult : ResultBase {
-	UniqueDescriptor descriptor() {
-		UniqueDescriptor descriptor(_handle);
-		_handle = kHelNullHandle;
-		return descriptor;
-	}
-
-protected:
-	HelHandle _handle;
-};
-
-struct SendBufferResult : ResultBase {
-};
-
-struct PushDescriptorResult : ResultBase {
-};
-
-struct RecvBufferResult : ResultBase {
-	size_t actualLength() {
-		HEL_CHECK(_error);
-		return _actualLength;
-	}
-
-	int64_t requestId() {
-		HEL_CHECK(_error);
-		return _requestId;
-	}
-	int64_t sequenceId() {
-		HEL_CHECK(_error);
-		return _sequenceId;
-	}
-
-protected:
-	size_t _actualLength;
-	int64_t _requestId;
-	int64_t _sequenceId;
-};
-
-struct PullDescriptorResult : ResultBase {
-	UniqueDescriptor descriptor() {
-		UniqueDescriptor descriptor(_handle);
-		_handle = kHelNullHandle;
-		return descriptor;
-	}
-
-	int64_t requestId() {
-		HEL_CHECK(_error);
-		return _requestId;
-	}
-	int64_t sequenceId() {
-		HEL_CHECK(_error);
-		return _sequenceId;
-	}
-
-protected:
-	HelHandle _handle;
-	int64_t _requestId;
-	int64_t _sequenceId;
-};
-
-struct AwaitIrqResult : ResultBase {
-};
-
 struct Dispatcher {
-	using Offer = OperationBase<OfferResult>;
-	using Accept = OperationBase<AcceptResult>;
-	using RecvBuffer = OperationBase<RecvBufferResult>;
-	using PullDescriptor = OperationBase<PullDescriptorResult>;
-	using SendBuffer = OperationBase<SendBufferResult>;
-	using PushDescriptor = OperationBase<PushDescriptorResult>;
-	using AwaitIrq = OperationBase<AwaitIrqResult>;
-	
 	static Dispatcher &global();
+	
+	explicit Dispatcher()
+	: _queue(nullptr), _progress(0) { }
 
-	explicit Dispatcher(UniqueHub hub)
-	: _hub(std::move(hub)) { }
-
-	BorrowedHub getHub() const {
-		return _hub;
+	QueuePtr acquire() {
+		if(!_queue) {
+			auto ptr = operator new(sizeof(HelQueue) + 4096);
+			_queue = reinterpret_cast<HelQueue *>(ptr);
+			_queue->elementLimit = 128;
+			_queue->queueLength = 4096;
+			_queue->kernelState = 0;
+			_queue->userState = 0;
+		}
+		return QueuePtr(_queue);
 	}
 
 	void dispatch() {
-		static constexpr int kEventsPerCall = 16;
+		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+		while(true) {
+			if(_progress < (e & kHelQueueTail)) {
+				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
+				auto elem = reinterpret_cast<HelElement *>(ptr);
+				_progress += sizeof(HelElement) + elem->length;
 
-		HelEvent list[kEventsPerCall];
-		size_t num_items;
-		HEL_CHECK(helWaitForEvents(_hub.getHandle(), list, kEventsPerCall,
-				kHelWaitInfinite, &num_items));
-
-		for(size_t i = 0; i < num_items; i++) {
-			HelEvent &e = list[i];
-			switch(e.type) {
-			case kHelEventOffer: {
-				auto ptr = static_cast<Offer *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->complete();
-			} break;
-			case kHelEventAccept: {
-				auto ptr = static_cast<Accept *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->_handle = e.handle;
-				ptr->complete();
-			} break;
-			case kHelEventRecvString: {
-				auto ptr = static_cast<RecvBuffer *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->_actualLength = e.length;
-				ptr->_requestId = e.msgRequest;
-				ptr->_sequenceId = e.msgSequence;
-				ptr->complete();
-			} break;
-			case kHelEventRecvDescriptor: {
-				auto ptr = static_cast<PullDescriptor *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->_handle = e.handle;
-				ptr->_requestId = e.msgRequest;
-				ptr->_sequenceId = e.msgSequence;
-				ptr->complete();
-			} break;
-			case kHelEventSendString: {
-				auto ptr = static_cast<SendBuffer *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->complete();
-			} break;
-			case kHelEventSendDescriptor: {
-				auto ptr = static_cast<PushDescriptor *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->complete();
-			} break;
-			case kHelEventIrq: {
-				auto ptr = static_cast<AwaitIrq *>((void *)e.submitObject);
-				ptr->_error = e.error;
-				ptr->complete();
-			} break;
-			default:
-				throw std::runtime_error("Unknown event type");
+				auto base = reinterpret_cast<OperationBase *>(elem->context);
+				base->_result = ElementPtr(ptr + sizeof(HelElement));
+				base->complete();
 			}
+
+			assert(!"Sleep here!");
 		}
 	}
 
 private:
-	UniqueHub _hub;
+	HelQueue *_queue;
+	size_t _progress;
 };
 
 template<typename M>
-using Offer = Operation<OfferResult, M>;
+struct Offer : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
 
-template<typename M>
-using Accept = Operation<AcceptResult, M>;
-
-template<typename M>
-struct RecvBuffer : Operation<RecvBufferResult, M> {
-	RecvBuffer() = default;
-
-	RecvBuffer(Dispatcher &dispatcher, BorrowedPipe pipe, void *buffer, size_t max_length,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		auto error = helSubmitRecvString(pipe.getHandle(), dispatcher.getHub().getHandle(),
-				(uint8_t *)buffer, max_length, msg_request, msg_seq,
-				0, (uintptr_t)this, flags, &this->_asyncId);
-		if(error) {
-			this->_error = error;
-			this->complete();
-		}
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
 	}
 };
 
 template<typename M>
-struct PullDescriptor : Operation<PullDescriptorResult, M> {
-	PullDescriptor() = default;
+struct Accept : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+	
+	UniqueDescriptor descriptor() {
+		HEL_CHECK(error());
+		UniqueDescriptor descriptor(result()->handle);
+		result()->handle = kHelNullHandle;
+		return descriptor;
+	}
 
-	PullDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		auto error = helSubmitRecvDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
-				msg_request, msg_seq, 0, (uintptr_t)this, flags, &this->_asyncId);
-		if(error) {
-			this->_error = error;
-			this->complete();
-		}
+private:
+	HelHandleResult *result() {
+		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
 	}
 };
 
 template<typename M>
-struct SendBuffer : Operation<SendBufferResult, M> {
-	SendBuffer() = default;
+struct RecvBuffer : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+	
+	size_t actualLength() {
+		HEL_CHECK(error());
+		return result()->length;
+	}
 
-	SendBuffer(Dispatcher &dispatcher, BorrowedPipe pipe, const void *buffer, size_t length,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		auto error = helSubmitSendString(pipe.getHandle(), dispatcher.getHub().getHandle(),
-				(const uint8_t *)buffer, length, msg_request, msg_seq,
-				0, (uintptr_t)this, flags, &this->_asyncId);
-		if(error) {
-			this->_error = error;
-			this->complete();
-		}
+private:
+	HelLengthResult *result() {
+		return reinterpret_cast<HelLengthResult *>(OperationBase::element());
 	}
 };
 
 template<typename M>
-struct PushDescriptor : Operation<PushDescriptorResult, M> {
-	PushDescriptor() = default;
+struct PullDescriptor : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
 
-	PushDescriptor(Dispatcher &dispatcher, BorrowedPipe pipe, BorrowedDescriptor descriptor,
-			int64_t msg_request, int64_t msg_seq, uint32_t flags) {
-		auto error = helSubmitSendDescriptor(pipe.getHandle(), dispatcher.getHub().getHandle(),
-				descriptor.getHandle(), msg_request, msg_seq,
-				0, (uintptr_t)this, flags, &this->_asyncId);
-		if(error) {
-			this->_error = error;
-			this->complete();
-		}
+private:
+	HelHandleResult *result() {
+		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
 	}
 };
 
 template<typename M>
-struct AwaitIrq : Operation<AwaitIrqResult, M> {
-	AwaitIrq(Dispatcher &dispatcher, BorrowedIrq irq) {
-		auto error = helSubmitWaitForIrq(irq.getHandle(), dispatcher.getHub().getHandle(),
-				0, (uintptr_t)this, &this->_asyncId);
-		if(error) {
-			this->_error = error;
-			this->complete();
-		}
+struct SendBuffer : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
+template<typename M>
+struct PushDescriptor : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
+template<typename M>
+struct AwaitIrq : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
 	}
 };
 
@@ -479,9 +406,9 @@ HelAction action(PullDescriptor<M> *operation, uint32_t flags = 0) {
 
 template<size_t N>
 void submitAsync(BorrowedDescriptor descriptor, const HelAction (&actions)[N],
-		const Dispatcher &dispatcher) {
+		Dispatcher &dispatcher) {
 	HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
-			dispatcher.getHub().getHandle(), 0));
+			dispatcher.acquire().get(), 0));
 }
 
 } // namespace helix
