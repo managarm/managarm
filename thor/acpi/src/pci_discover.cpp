@@ -42,7 +42,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 		}
 	}
 
-	auto serialized = resp.SerializeAsString();
+	assert(!"Use streams instead of pipes");
+/*	auto serialized = resp.SerializeAsString();
 	helix::SendBuffer<M> send_resp(helix::Dispatcher::global(), lane,
 			serialized.data(), serialized.size(), 0, 0, kHelResponse);
 	COFIBER_AWAIT send_resp.future();
@@ -65,7 +66,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 	helix::PushDescriptor<M> send_irq(helix::Dispatcher::global(), lane,
 			helix::BorrowedDescriptor(device->interrupt.getHandle()), 0, 0, kHelResponse);
 	COFIBER_AWAIT send_irq.future();
-	HEL_CHECK(send_irq.error());
+	HEL_CHECK(send_irq.error());*/
 }));
 
 COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> device), ([=] {

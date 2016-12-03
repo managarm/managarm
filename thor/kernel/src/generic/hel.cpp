@@ -70,10 +70,32 @@ private:
 	Error _error;
 };
 
-/*struct AcceptWriter {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error,
-			frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane);
-};*/
+struct AcceptWriter {
+	AcceptWriter(Error error, frigg::WeakPtr<Universe> universe, LaneDescriptor lane)
+	: _error(error), _weakUniverse(frigg::move(universe)), _descriptor(frigg::move(lane)) { }
+
+	size_t size() {
+		return sizeof(HelHandleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		Handle handle;
+		{
+			auto universe = _weakUniverse.grab();
+			assert(universe);
+			Universe::Guard lock(&universe->lock);
+			handle = universe->attachDescriptor(lock, frigg::move(_descriptor));
+		}
+
+		HelHandleResult data{translateError(_error), 0, handle};
+		accessor.copyTo(0, &data, sizeof(HelHandleResult));
+	}
+
+private:
+	Error _error;
+	frigg::WeakPtr<Universe> _weakUniverse;
+	LaneDescriptor _descriptor;
+};
 
 struct SendStringWriter {
 	SendStringWriter(Error error)
@@ -140,8 +162,8 @@ private:
 };*/
 
 struct PullDescriptorWriter {
-	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> universe, AnyDescriptor lane)
-	: _error(error), _weakUniverse(frigg::move(universe)), _lane(frigg::move(lane)) { }
+	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> universe, AnyDescriptor descriptor)
+	: _error(error), _weakUniverse(frigg::move(universe)), _lane(frigg::move(descriptor)) { }
 
 	size_t size() {
 		return sizeof(HelHandleResult);
@@ -1012,7 +1034,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
 		} break;
-/*		case kHelActionAccept: {
+		case kHelActionAccept: {
 			using Token = PostEvent<AcceptWriter>;
 			LaneHandle lane = target.getStream()->submitAccept(target.getLane(),
 					this_universe.toWeak(),
@@ -1020,7 +1042,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(lane);
-		} break;*/
+		} break;
 		case kHelActionSendFromBuffer: {
 			using Token = PostEvent<SendStringWriter>;
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);

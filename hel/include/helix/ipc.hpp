@@ -295,6 +295,13 @@ struct PullDescriptor : Operation<M> {
 	HelError error() {
 		return result()->error;
 	}
+	
+	UniqueDescriptor descriptor() {
+		HEL_CHECK(error());
+		UniqueDescriptor descriptor(result()->handle);
+		result()->handle = kHelNullHandle;
+		return descriptor;
+	}
 
 private:
 	HelHandleResult *result() {
