@@ -165,7 +165,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveStdout(helix::UniqueDescriptor s),
 		helix::submitAsync(request_lane, {
 			helix::action(&send_resp, nullptr, 0)
 		}, helix::Dispatcher::global());
-		
+
 		COFIBER_AWAIT send_resp.future();
 		HEL_CHECK(send_resp.error());
 	}
@@ -506,11 +506,11 @@ int main() {
 	client.release();
 
 	std::cout << "Entering user_boot" << std::endl;
-	
-	startMbus();
+
+//	startMbus();
 //	startAcpi();
 //	startUhci();
-	startPosixSubsystem();
+//	startPosixSubsystem();
 //	runPosixInit();
 
 	std::cout << "user_boot completed successfully" << std::endl;

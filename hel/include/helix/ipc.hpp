@@ -221,6 +221,8 @@ struct Dispatcher {
 	}
 
 	void dispatch() {
+		assert(_queue);
+
 		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
 			if(_progress < (e & kHelQueueTail)) {
@@ -231,9 +233,18 @@ struct Dispatcher {
 				auto base = reinterpret_cast<OperationBase *>(elem->context);
 				base->_result = ElementPtr(ptr + sizeof(HelElement));
 				base->complete();
+				break;
 			}
 
-			assert(!"Sleep here!");
+			if(!(e & kHelQueueWaiters)) {
+				auto d = e | kHelQueueWaiters;
+				if(__atomic_compare_exchange_n(&_queue->kernelState,
+						&e, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
+					e = d;
+			}else{
+				HEL_CHECK(helFutexWait((int *)&_queue->kernelState, e));
+				e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+			}
 		}
 	}
 

@@ -84,9 +84,11 @@ struct QueueSpace {
 
 private:
 	struct BaseElement {
-		BaseElement(size_t length);
+		BaseElement(size_t length, uintptr_t context);
 		
 		size_t getLength();
+
+		uintptr_t getContext();
 
 		virtual void complete(ForeignSpaceAccessor accessor) = 0;
 	
@@ -94,12 +96,13 @@ private:
 
 	private:
 		size_t _length;
+		uintptr_t _context;
 	};
 
 	template<typename F>
 	struct Element : BaseElement {
-		Element(size_t length, F functor)
-		: BaseElement(length), _functor(frigg::move(functor)) { }
+		Element(size_t length, uintptr_t context, F functor)
+		: BaseElement(length, context), _functor(frigg::move(functor)) { }
 
 		void complete(ForeignSpaceAccessor accessor) override {
 			_functor(frigg::move(accessor));
@@ -125,10 +128,10 @@ public:
 	
 	template<typename F>
 	void submit(ElementHandle<F> handle, frigg::UnsafePtr<AddressSpace> space,
-			Address address, size_t length, F functor) {
+			Address address, size_t length, uintptr_t context, F functor) {
 		(void)handle;
 		_submitElement(space, address, frigg::makeShared<Element<F>>(*kernelAlloc,
-				length, frigg::move(functor)));
+				length, context, frigg::move(functor)));
 	}
 
 private:

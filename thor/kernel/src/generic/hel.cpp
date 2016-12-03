@@ -39,11 +39,10 @@ public:
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
-//		auto info = SubmitInfo(0, _context, 0);
 		auto writer = P(frigg::forward<Args>(args)...);
 		auto size = writer.size();
 		_space->queueSpace.submit(frigg::move(_handle), _space, (uintptr_t)_queue,
-				size, Functor(frigg::move(writer)));
+				size, _context, Functor(frigg::move(writer)));
 	}
 
 private:
@@ -1161,7 +1160,8 @@ HelError helFutexWait(int *pointer, int expected) {
 
 		auto futex = &mapping->memoryRegion->futex;
 		futex->waitIf(VirtualAddr(pointer) - mapping->baseAddress, [&] () -> bool {
-			return __atomic_load_n(pointer, __ATOMIC_RELAXED) == expected;
+			auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
+			return v == expected;
 		}, [&] {
 			complete.store(true, std::memory_order_release);
 			Thread::unblockOther(this_thread);
