@@ -36,10 +36,10 @@ namespace _detail {
 	>;
 
 	struct Connection {
-		Connection(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
-		: dispatcher(std::move(dispatcher)), pipe(std::move(pipe)) { }
+		Connection(helix::Dispatcher *dispatcher, helix::UniquePipe pipe)
+		: dispatcher(dispatcher), pipe(std::move(pipe)) { }
 
-		helix::Dispatcher dispatcher;
+		helix::Dispatcher *dispatcher;
 		helix::UniquePipe pipe;
 	};
 	
@@ -86,8 +86,8 @@ namespace _detail {
 	struct Instance {
 		static Instance global();
 		
-		Instance(helix::Dispatcher dispatcher, helix::UniquePipe pipe)
-		: _connection(std::make_shared<Connection>(std::move(dispatcher), std::move(pipe))) { }
+		Instance(helix::Dispatcher *dispatcher, helix::UniquePipe pipe)
+		: _connection(std::make_shared<Connection>(dispatcher, std::move(pipe))) { }
 
 		// attaches a root to the mbus.
 		cofiber::future<Entity> getRoot();

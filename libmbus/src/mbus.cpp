@@ -16,8 +16,7 @@ static Instance makeGlobal() {
 	unsigned long server;
 	if(peekauxval(AT_MBUS_SERVER, &server))
 		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	helix::BorrowedHub hub = helix::Dispatcher::global().getHub();
-	return Instance(helix::Dispatcher(hub.dup()), helix::BorrowedPipe(server).dup());
+	return Instance(&helix::Dispatcher::global(), helix::BorrowedPipe(server).dup());
 }
 
 Instance Instance::global() {
@@ -39,7 +38,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128)
-	}, _connection->dispatcher);
+	}, *_connection->dispatcher);
 
 	COFIBER_AWAIT offer.future();
 	COFIBER_AWAIT send_req.future();
@@ -68,7 +67,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req, buffer, 256)
-		}, connection->dispatcher);
+		}, *connection->dispatcher);
 
 		COFIBER_AWAIT accept.future();
 		COFIBER_AWAIT recv_req.future();
@@ -92,7 +91,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 			helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&push_desc, descriptor),
-			}, connection->dispatcher);
+			}, *connection->dispatcher);
 			
 			COFIBER_AWAIT send_resp.future();
 			COFIBER_AWAIT push_desc.future();
@@ -125,7 +124,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_lane),
-	}, _connection->dispatcher);
+	}, *_connection->dispatcher);
 	
 	COFIBER_AWAIT offer.future();
 	COFIBER_AWAIT send_req.future();
@@ -156,7 +155,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 		char buffer[256];
 		helix::submitAsync(lane, {
 			helix::action(&recv_req, buffer, 256)
-		}, connection->dispatcher);
+		}, *connection->dispatcher);
 		
 		COFIBER_AWAIT recv_req.future();
 
@@ -207,7 +206,7 @@ COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter 
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_lane),
-	}, _connection->dispatcher);
+	}, *_connection->dispatcher);
 	
 	COFIBER_AWAIT offer.future();
 	COFIBER_AWAIT send_req.future();
@@ -244,7 +243,7 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Entity::bind() const, 
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_desc),
-	}, _connection->dispatcher);
+	}, *_connection->dispatcher);
 	
 	COFIBER_AWAIT offer.future();
 	COFIBER_AWAIT send_req.future();
