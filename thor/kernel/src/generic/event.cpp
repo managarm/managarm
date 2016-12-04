@@ -34,45 +34,6 @@ AsyncEvent AsyncWaitForEvent::getEvent() {
 	assert(false);
 	__builtin_trap();
 }
-AsyncEvent AsyncSendString::getEvent() {
-	AsyncEvent event(kEventSendString, completer.get<PostEventCompleter>().submitInfo);
-	event.error = error;
-	return event;
-}
-AsyncEvent AsyncSendDescriptor::getEvent() {
-	AsyncEvent event(kEventSendDescriptor, completer.get<PostEventCompleter>().submitInfo);
-	event.error = error;
-	return event;
-}
-AsyncEvent AsyncRecvString::getEvent() {
-	if(type == kTypeNormal) {
-		AsyncEvent event(kEventRecvString, completer.get<PostEventCompleter>().submitInfo);
-		event.error = error;
-		event.msgRequest = msgRequest;
-		event.msgSequence = msgSequence;
-		event.length = length;
-		return event;
-	}else{
-		assert(type == kTypeToRing);
-		
-		AsyncEvent event(kEventRecvStringToRing, completer.get<PostEventCompleter>().submitInfo);
-		event.error = error;
-		event.msgRequest = msgRequest;
-		event.msgSequence = msgSequence;
-		event.offset = offset;
-		event.length = length;
-		return event;
-	}
-}
-AsyncEvent AsyncRecvDescriptor::getEvent() {
-	AsyncEvent event(kEventRecvDescriptor, completer.get<PostEventCompleter>().submitInfo);
-	event.error = error;
-	event.msgRequest = msgRequest;
-	event.msgSequence = msgSequence;
-	event.handle = handle;
-	return event;
-}
-AsyncEvent AsyncRingItem::getEvent() { assert(false); __builtin_trap(); }
 
 // --------------------------------------------------------
 // AsyncOperation

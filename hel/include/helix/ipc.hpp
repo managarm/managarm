@@ -110,26 +110,6 @@ struct BorrowedResource : BorrowedDescriptor {
 	}
 };
 
-struct Hub { };
-using UniqueHub = UniqueResource<Hub>;
-using BorrowedHub = BorrowedResource<Hub>;
-
-inline UniqueHub createHub() {
-	HelHandle handle;
-	HEL_CHECK(helCreateEventHub(&handle));
-	return UniqueHub(handle);
-}
-
-struct Pipe { };
-using UniquePipe = UniqueResource<Pipe>;
-using BorrowedPipe = BorrowedResource<Pipe>;
-
-inline std::pair<UniquePipe, UniquePipe> createFullPipe() {
-	HelHandle first_handle, second_handle;
-	HEL_CHECK(helCreateFullPipe(&first_handle, &second_handle));
-	return { UniquePipe(first_handle), UniquePipe(second_handle) };
-}
-
 struct Lane { };
 using UniqueLane = UniqueResource<Lane>;
 using BorrowedLane = BorrowedResource<Lane>;

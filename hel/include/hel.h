@@ -49,20 +49,8 @@ enum {
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 72,
 
-	kHelCallCreateRing = 56,
-	kHelCallSubmitRing = 57,
-
 	kHelCallFutexWait = 70,
 	kHelCallFutexWake = 71,
-
-	kHelCallCreateFullPipe = 4,
-	kHelCallSendString = 8,
-	kHelCallSubmitSendString = 54,
-	kHelCallSendDescriptor = 28,
-	kHelCallSubmitSendDescriptor = 58,
-	kHelCallSubmitRecvString = 9,
-	kHelCallSubmitRecvStringToRing = 55,
-	kHelCallSubmitRecvDescriptor = 29,
 	
 	kHelCallAccessIrq = 14,
 	kHelCallSetupIrq = 51,
@@ -337,46 +325,8 @@ HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
 		size_t count, struct HelQueue *queue, uint32_t flags);
 
-HEL_C_LINKAGE HelError helCreateRing(size_t max_chunk_size, HelHandle *handle);
-HEL_C_LINKAGE HelError helSubmitRing(HelHandle handle, HelHandle hub_handle,
-		struct HelRingBuffer *buffer, size_t buffer_size,
-		uintptr_t submit_function, uintptr_t submit_object,
-		int64_t *async_id);
-
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
-
-HEL_C_LINKAGE HelError helCreateFullPipe(HelHandle *first,
-		HelHandle *second);
-HEL_C_LINKAGE HelError helSendString(HelHandle handle,
-		const void *buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
-HEL_C_LINKAGE HelError helSubmitSendString(HelHandle handle,
-		HelHandle hub_handle, const void *buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id);
-HEL_C_LINKAGE HelError helSendDescriptor(HelHandle handle, HelHandle send_handle,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags);
-HEL_C_LINKAGE HelError helSubmitSendDescriptor(HelHandle handle,
-		HelHandle hub_handle, HelHandle send_handle,
-		int64_t msg_request, int64_t msg_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id);
-HEL_C_LINKAGE HelError helSubmitRecvString(HelHandle handle,
-		HelHandle hub_handle, void *buffer, size_t max_length,
-		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id);
-HEL_C_LINKAGE HelError helSubmitRecvStringToRing(HelHandle handle,
-		HelHandle hub_handle, HelHandle ring_handle,
-		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id);
-HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_handle,
-		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetupIrq(HelHandle handle, uint32_t flags);

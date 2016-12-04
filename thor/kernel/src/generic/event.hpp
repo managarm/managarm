@@ -7,15 +7,7 @@ enum EventType {
 	kEventNone,
 	kEventMemoryLoad,
 	kEventMemoryLock,
-	kEventObserve,
-	kEventOffer,
-	kEventAccept,
-	kEventSendString,
-	kEventSendDescriptor,
-	kEventRecvString,
-	kEventRecvStringToRing,
-	kEventRecvDescriptor,
-	kEventIrq
+	kEventObserve
 };
 
 struct AsyncEvent {
@@ -111,108 +103,6 @@ struct AsyncWaitForEvent : public AsyncOperation {
 	frigg::IntrusiveSharedLinkedItem<AsyncWaitForEvent> processQueueItem;
 
 	AsyncEvent event;
-};
-
-struct AsyncSendString : public AsyncOperation {
-	AsyncSendString(AsyncCompleter completer, int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(completer)), msgRequest(msg_request), msgSequence(msg_sequence),
-			flags(0) { }
-	
-	AsyncEvent getEvent() override;
-	
-	frigg::UniqueMemory<KernelAlloc> kernelBuffer;
-	int64_t msgRequest;
-	int64_t msgSequence;
-	uint32_t flags;
-
-	frigg::IntrusiveSharedLinkedItem<AsyncSendString> processQueueItem;
-	
-	Error error;
-};
-
-struct AsyncSendDescriptor : public AsyncOperation {
-	AsyncSendDescriptor(AsyncCompleter completer, int64_t msg_request, int64_t msg_sequence)
-	: AsyncOperation(frigg::move(completer)), msgRequest(msg_request), msgSequence(msg_sequence),
-			flags(0) { }
-	
-	AsyncEvent getEvent() override;
-	
-	AnyDescriptor descriptor;
-	int64_t msgRequest;
-	int64_t msgSequence;
-	uint32_t flags;
-
-	frigg::IntrusiveSharedLinkedItem<AsyncSendDescriptor> processQueueItem;
-	
-	Error error;
-};
-
-struct AsyncRecvString : public AsyncOperation {
-	enum Type {
-		kTypeNormal,
-		kTypeToRing
-	};
-
-	AsyncRecvString(AsyncCompleter completer, Type type,
-			int64_t filter_request, int64_t filter_sequence)
-	: AsyncOperation(frigg::move(completer)), type(type),
-			filterRequest(filter_request), filterSequence(filter_sequence) { }
-	
-	AsyncEvent getEvent() override;
-	
-	Type type;
-	int64_t filterRequest;
-	int64_t filterSequence;
-	uint32_t flags;
-	
-	// used by kTypeNormal
-	ForeignSpaceAccessor spaceLock;
-	
-	// used by kTypeToRing
-	frigg::SharedPtr<RingBuffer> ringBuffer;
-	
-	frigg::IntrusiveSharedLinkedItem<AsyncRecvString> processQueueItem;
-
-	Error error;
-	int64_t msgRequest;
-	int64_t msgSequence;
-	size_t offset;
-	size_t length;
-};
-
-struct AsyncRecvDescriptor : public AsyncOperation {
-	AsyncRecvDescriptor(AsyncCompleter completer, frigg::WeakPtr<Universe> universe,
-			int64_t filter_request, int64_t filter_sequence)
-	: AsyncOperation(frigg::move(completer)), universe(frigg::move(universe)),
-			filterRequest(filter_request), filterSequence(filter_sequence) { }
-	
-	AsyncEvent getEvent() override;
-	
-	frigg::WeakPtr<Universe> universe;
-	int64_t filterRequest;
-	int64_t filterSequence;
-	uint32_t flags;
-	
-	frigg::IntrusiveSharedLinkedItem<AsyncRecvDescriptor> processQueueItem;
-
-	Error error;
-	int64_t msgRequest;
-	int64_t msgSequence;
-	Handle handle;
-};
-
-struct AsyncRingItem : public AsyncOperation {
-	AsyncRingItem(AsyncCompleter completer, DirectSpaceAccessor<HelRingBuffer> space_lock,
-			size_t buffer_size);
-	
-	AsyncEvent getEvent() override;
-
-	DirectSpaceAccessor<HelRingBuffer> spaceLock;
-	size_t bufferSize;
-
-	size_t offset;
-
-	frigg::IntrusiveSharedLinkedItem<AsyncRingItem> bufferItem;
 };
 
 class EventHub {

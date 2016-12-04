@@ -592,71 +592,11 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				(size_t)arg2, (HelQueue *)arg3, (uint32_t)arg4);
 	} break;
 	
-	case kHelCallCreateRing: {
-		HelHandle handle;
-		*image.error() = helCreateRing((HelHandle)arg0, &handle);
-		*image.out0() = handle;
-	} break;
-	case kHelCallSubmitRing: {
-		int64_t async_id;
-		*image.error() = helSubmitRing((HelHandle)arg0, (HelHandle)arg1,
-				(HelRingBuffer *)arg2, (size_t)arg3,
-				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
-		*image.out0() = async_id;
-	} break;
-	
 	case kHelCallFutexWait: {
 		*image.error() = helFutexWait((int *)arg0, (int)arg1);
 	} break;
 	case kHelCallFutexWake: {
 		*image.error() = helFutexWake((int *)arg0);
-	} break;
-
-	case kHelCallCreateFullPipe: {
-		HelHandle first;
-		HelHandle second;
-		*image.error() = helCreateFullPipe(&first, &second);
-		*image.out0() = first;
-		*image.out1() = second;
-	} break;
-	case kHelCallSubmitSendString: {
-		int64_t async_id;
-		*image.error() = helSubmitSendString((HelHandle)arg0,
-				(HelHandle)arg1, (const void *)arg2, (size_t)arg3,
-				(int64_t)arg4, (int64_t)arg5,
-				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
-		*image.out0() = async_id;
-	} break;
-	case kHelCallSubmitSendDescriptor: {
-		int64_t async_id;
-		*image.error() = helSubmitSendDescriptor((HelHandle)arg0,
-				(HelHandle)arg1, (HelHandle)arg2,
-				(int64_t)arg3, (int64_t)arg4,
-				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
-		*image.out0() = async_id;
-	} break;
-	case kHelCallSubmitRecvDescriptor: {
-		int64_t async_id;
-		*image.error() = helSubmitRecvDescriptor((HelHandle)arg0, (HelHandle)arg1,
-				(int64_t)arg2, (int64_t)arg3,
-				(uintptr_t)arg4, (uintptr_t)arg5, (uint32_t)arg6, &async_id);
-		*image.out0() = async_id;
-	} break;
-	case kHelCallSubmitRecvString: {
-		int64_t async_id;
-		*image.error() = helSubmitRecvString((HelHandle)arg0,
-				(HelHandle)arg1, (void *)arg2, (size_t)arg3,
-				(int64_t)arg4, (int64_t)arg5,
-				(uintptr_t)arg6, (uintptr_t)arg7, (uint32_t)arg8, &async_id);
-		*image.out0() = async_id;
-	} break;
-	case kHelCallSubmitRecvStringToRing: {
-		int64_t async_id;
-		*image.error() = helSubmitRecvStringToRing((HelHandle)arg0,
-				(HelHandle)arg1, (HelHandle)arg2,
-				(int64_t)arg3, (int64_t)arg4,
-				(uintptr_t)arg5, (uintptr_t)arg6, (uint32_t)arg7, &async_id);
-		*image.out0() = async_id;
 	} break;
 
 	case kHelCallAccessIrq: {

@@ -174,32 +174,6 @@ void ThreadRunControl::decrement() {
 }
 
 // --------------------------------------------------------
-// EndpointRwControl
-// --------------------------------------------------------
-		
-void EndpointRwControl::increment() {
-	int previous_ref_count;
-	frigg::fetchInc(&_endpoint->_rwCount, previous_ref_count);
-	assert(previous_ref_count > 0);
-}
-
-void EndpointRwControl::decrement() {
-	int previous_ref_count;
-	frigg::fetchDec(&_endpoint->_rwCount, previous_ref_count);
-	if(previous_ref_count == 1) {
-		{
-			Channel::Guard guard(&_endpoint->_read->lock);
-			_endpoint->_read->closeReadEndpoint(guard);
-		}
-		{
-			Channel::Guard guard(&_endpoint->_write->lock);
-			_endpoint->_write->closeWriteEndpoint(guard);
-		}
-		_counter->decrement();
-	}
-}
-
-// --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
 

@@ -109,20 +109,6 @@ struct LaneDescriptor {
 	LaneHandle handle;
 };
 
-struct RingDescriptor {
-	RingDescriptor(frigg::SharedPtr<RingBuffer> ring_buffer)
-	: ringBuffer(frigg::move(ring_buffer)) { }
-	
-	frigg::SharedPtr<RingBuffer> ringBuffer;
-};
-
-struct EndpointDescriptor {
-	EndpointDescriptor(frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint)
-	: endpoint(frigg::move(endpoint)) { }
-	
-	frigg::SharedPtr<Endpoint, EndpointRwControl> endpoint;
-};
-
 // --------------------------------------------------------
 // IO related descriptors
 // --------------------------------------------------------
@@ -152,8 +138,6 @@ typedef frigg::Variant<
 	ThreadDescriptor,
 	EventHubDescriptor,
 	LaneDescriptor,
-	RingDescriptor,
-	EndpointDescriptor,
 	IrqDescriptor,
 	IoDescriptor
 > AnyDescriptor;

@@ -239,23 +239,6 @@ DEFINE_SYSCALL(SubmitAsync, HelHandle handle, const HelAction *actions,
 END_SYSCALL()
 
 
-DEFINE_SYSCALL(CreateRing, size_t max_chunk_size, HelHandle *handle)
-	IN(0, max_chunk_size);
-	DO_SYSCALL(CreateRing)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitRing, HelHandle handle, HelHandle hub_handle,
-		struct HelRingBuffer *buffer, size_t buffer_size,
-		uintptr_t submit_function, uintptr_t submit_object,
-		int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, buffer_size)
-			IN(4, submit_function) IN(5, submit_object)
-	DO_SYSCALL(SubmitRing)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-
 DEFINE_SYSCALL(FutexWait, int *pointer, int expected)
 	IN(0, pointer); IN(1, expected);
 	DO_SYSCALL(FutexWait)
@@ -264,82 +247,6 @@ END_SYSCALL()
 DEFINE_SYSCALL(FutexWake, int *pointer)
 	IN(0, pointer);
 	DO_SYSCALL(FutexWake)
-END_SYSCALL()
-
-
-DEFINE_SYSCALL(CreateFullPipe, HelHandle *first, HelHandle *second)
-	DO_SYSCALL(CreateFullPipe)
-	OUT(0, HelHandle, first)
-	OUT(1, HelHandle, second)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SendString, HelHandle handle, const void *buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags)
-	IN(0, handle) IN(1, buffer) IN(2, length) IN(3, msg_request) IN(4, msg_sequence)
-			IN(5, flags)
-	DO_SYSCALL(SendString)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitSendString, HelHandle handle, HelHandle hub_handle,
-		const void *buffer, size_t length,
-		int64_t msg_request, int64_t msg_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, length)
-			IN(4, msg_request) IN(5, msg_sequence)
-			IN(6, submit_function) IN(7, submit_object) IN(8, flags)
-	DO_SYSCALL(SubmitSendString)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SendDescriptor, HelHandle handle, HelHandle send_handle,
-		int64_t msg_request, int64_t msg_sequence, uint32_t flags)
-	IN(0, handle) IN(1, send_handle) IN(2, msg_request) IN(3, msg_sequence) IN(4, flags)
-	DO_SYSCALL(SendDescriptor)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitSendDescriptor, HelHandle handle, HelHandle hub_handle,
-		HelHandle send_handle, int64_t msg_request, int64_t msg_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, send_handle)
-			IN(3, msg_request) IN(4, msg_sequence)
-			IN(5, submit_function) IN(6, submit_object) IN(7, flags)
-	DO_SYSCALL(SubmitSendDescriptor)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitRecvString, HelHandle handle, HelHandle hub_handle,
-		void *buffer, size_t max_length,
-		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, buffer) IN(3, max_length)
-			IN(4, filter_request) IN(5, filter_sequence)
-			IN(6, submit_function) IN(7, submit_object) IN(8, flags)
-	DO_SYSCALL(SubmitRecvString)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitRecvStringToRing, HelHandle handle, HelHandle hub_handle,
-		HelHandle ring_handle, int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, ring_handle)
-			IN(3, filter_request) IN(4, filter_sequence)
-			IN(5, submit_function) IN(6, submit_object) IN(7, flags)
-	DO_SYSCALL(SubmitRecvStringToRing)
-	OUT(0, int64_t, async_id)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubmitRecvDescriptor, HelHandle handle, HelHandle hub_handle,
-		int64_t filter_request, int64_t filter_sequence,
-		uintptr_t submit_function, uintptr_t submit_object,
-		uint32_t flags, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, filter_request) IN(3, filter_sequence)
-			IN(4, submit_function) IN(5, submit_object) IN(6, flags)
-	DO_SYSCALL(SubmitRecvDescriptor)
-	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 

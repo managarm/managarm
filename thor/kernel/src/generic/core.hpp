@@ -61,10 +61,6 @@ class Thread;
 class EventHub;
 class Stream;
 class LaneControl;
-class RingBuffer;
-class Channel;
-class BiDirectionPipe;
-class Endpoint;
 class IrqLine;
 class IoSpace;
 
@@ -159,29 +155,6 @@ private:
 	frigg::SharedCounter *_counter;
 };
 
-struct EndpointRwControl {
-	EndpointRwControl()
-	: _counter(nullptr) { }
-
-	EndpointRwControl(Endpoint *endpoint, frigg::SharedCounter *counter)
-	: _endpoint(endpoint), _counter(counter) { }
-
-	explicit operator bool () {
-		return _counter;
-	}
-
-	operator frigg::SharedControl () const {
-		return frigg::SharedControl(_counter);
-	}
-
-	void increment();
-	void decrement();
-
-private:
-	Endpoint *_endpoint;
-	frigg::SharedCounter *_counter;
-};
-
 } // namespace thor
 
 #include "descriptor.hpp"
@@ -190,8 +163,6 @@ private:
 #include "usermem.hpp"
 #include "thread.hpp"
 #include "stream.hpp"
-#include "ring-buffer.hpp"
-#include "ipc.hpp"
 #include "io.hpp"
 
 namespace thor {
@@ -231,14 +202,6 @@ public:
 
 	Universe();
 
-	// these channels can be used to send/receive packets to/from
-	// an inferior/superior universe.
-	Channel &inferiorSendChannel() { return _channels[0]; }
-	Channel &inferiorRecvChannel() { return _channels[1]; }
-
-	Channel &superiorSendChannel() { return _channels[1]; }
-	Channel &superiorRecvChannel() { return _channels[0]; }
-	
 	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
 
 	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
@@ -248,8 +211,6 @@ public:
 	Lock lock;
 
 private:
-	Channel _channels[2];
-
 	frigg::Hashmap<Handle, AnyDescriptor,
 			frigg::DefaultHasher<Handle>, KernelAlloc> _descriptorMap;
 	Handle _nextHandle;
