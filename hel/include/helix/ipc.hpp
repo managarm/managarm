@@ -220,7 +220,13 @@ private:
 
 public:
 	static Dispatcher &global();
+
+	Dispatcher() = default;
+
+	Dispatcher(const Dispatcher &) = delete;
 	
+	Dispatcher &operator= (const Dispatcher &) = delete;
+
 	QueuePtr acquire() {
 		if(_items.empty())
 			allocate();

@@ -42,10 +42,13 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 		}
 	}
 
-	assert(!"Use streams instead of pipes");
-/*	auto serialized = resp.SerializeAsString();
-	helix::SendBuffer<M> send_resp(helix::Dispatcher::global(), lane,
-			serialized.data(), serialized.size(), 0, 0, kHelResponse);
+	helix::SendBuffer<M> send_resp;
+
+	auto ser = resp.SerializeAsString();
+	helix::submitAsync(lane, {
+		helix::action(&send_resp, ser.data(), ser.size()),
+	}, helix::Dispatcher::global());
+
 	COFIBER_AWAIT send_resp.future();
 	HEL_CHECK(send_resp.error());
 
@@ -55,18 +58,26 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 				&& device->bars[k].type != PciDevice::kBarMemory)
 			continue;
 
-		helix::PushDescriptor<M> send_bar(helix::Dispatcher::global(), lane,
-				helix::BorrowedDescriptor(device->bars[k].handle), 0, 0, kHelResponse);
+		helix::PushDescriptor<M> send_bar;
+
+		helix::submitAsync(lane, {
+			helix::action(&send_bar, helix::BorrowedDescriptor(device->bars[k].handle))
+		}, helix::Dispatcher::global());
+
 		COFIBER_AWAIT send_bar.future();
 		HEL_CHECK(send_bar.error());
 	}
 
 	// send the IRQ descriptor.
 	// TODO: this helx::Irq.getHandle() is very ugly!
-	helix::PushDescriptor<M> send_irq(helix::Dispatcher::global(), lane,
-			helix::BorrowedDescriptor(device->interrupt.getHandle()), 0, 0, kHelResponse);
+	helix::PushDescriptor<M> send_irq;
+
+	helix::submitAsync(lane, {
+		helix::action(&send_irq, helix::BorrowedDescriptor(device->interrupt.getHandle()))
+	}, helix::Dispatcher::global());
+
 	COFIBER_AWAIT send_irq.future();
-	HEL_CHECK(send_irq.error());*/
+	HEL_CHECK(send_irq.error());
 }));
 
 COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> device), ([=] {
@@ -96,7 +107,7 @@ COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> de
 	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
 			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
 		helix::UniquePipe local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createFullPipe();
+		std::tie(local_lane, remote_lane) = helix::createStream();
 		handleDevice(device, std::move(local_lane));
 
 		cofiber::promise<helix::UniqueDescriptor> promise;
