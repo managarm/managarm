@@ -7,7 +7,7 @@ namespace thor {
 // requires the object to be smaller than a page for the same reason.
 template<typename T>
 struct DirectSpaceAccessor {
-	static DirectSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space, T *address) {
+	static DirectSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space, void *address) {
 		assert(sizeof(T) <= kPageSize);
 		assert((VirtualAddr)address % sizeof(T) == 0);
 		// TODO: actually lock the memory + make sure the memory is mapped as writeable
@@ -51,7 +51,7 @@ struct DirectSpaceAccessor {
 	}
 
 private:
-	DirectSpaceAccessor(frigg::SharedPtr<AddressSpace> space, T *address)
+	DirectSpaceAccessor(frigg::SharedPtr<AddressSpace> space, void *address)
 	: _space(frigg::move(space)), _address(address) { }
 
 	frigg::SharedPtr<AddressSpace> _space;

@@ -3,6 +3,34 @@
 
 namespace thor {
 
+namespace {
+
+// NOTE: The following structs mirror the Hel{Queue,Element} structs.
+// They must be kept in sync!
+
+const unsigned int kQueueWaiters = (unsigned int)1 << 31;
+const unsigned int kQueueWantNext = (unsigned int)1 << 30;
+const unsigned int kQueueTail = ((unsigned int)1 << 30) - 1;
+
+const unsigned int kQueueHasNext = (unsigned int)1 << 31;
+
+struct QueueStruct {
+	unsigned int elementLimit;
+	unsigned int queueLength;
+	unsigned int kernelState;
+	unsigned int userState;
+	struct HelQueue *nextQueue;
+	char queueBuffer[];
+};
+
+struct ElementStruct {
+	unsigned int length;
+	unsigned int reserved;
+	void *context;
+};
+
+} // anonymous namespace
+
 QueueSpace::BaseElement::BaseElement(size_t length, uintptr_t context)
 : _length(length), _context(context) { }
 
@@ -19,59 +47,117 @@ QueueSpace::Queue::Queue()
 
 void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address address,
 		frigg::SharedPtr<BaseElement> element) {
+	auto wake = [&] (uintptr_t p) {
+		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
+		Mapping *mapping;
+		{
+			AddressSpace::Guard space_guard(&space->lock);
+			mapping = space->getMapping(p);
+		}
+		assert(mapping->type == Mapping::kTypeMemory);
+
+		auto futex = &mapping->memoryRegion->futex;
+		futex->wake(p - mapping->baseAddress);
+	};
+	
+	auto waitIf = [&] (uintptr_t p, auto c, auto f) {
+		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
+		Mapping *mapping;
+		{
+			AddressSpace::Guard space_guard(&space->lock);
+			mapping = space->getMapping(p);
+		}
+		assert(mapping->type == Mapping::kTypeMemory);
+
+		auto futex = &mapping->memoryRegion->futex;
+		futex->waitIf(p - mapping->baseAddress, frigg::move(c), frigg::move(f));
+	};
+
 	// TODO: do not globally lock the space mutex.
 	auto lock = frigg::guard(&_mutex);
 	
-	// TODO: do not use magic number for field offsets here.
-	auto qs = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-			reinterpret_cast<unsigned int *>(address + 4));
-	auto ks = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-			reinterpret_cast<unsigned int *>(address + 8));
-	
-	// TODO: handle linked queues.
-	auto it = _queues.get(address);
-	if(!it) {
-		_queues.insert(address, Queue());
-		it = _queues.get(address);
-	}
-	
-	size_t offset = it->offset;
-	assert(offset % 8 == 0);
-	assert(offset + element->getLength() + 24 <= *qs.get());
-	it->offset += element->getLength() + 24;
-	
-	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + 24 + offset), 16);
 	unsigned int length = element->getLength();
 	uintptr_t context = element->getContext();
-	ez.copyTo(0, &length, 4);
-	ez.copyTo(8, &context, sizeof(uintptr_t));
+	assert(length % 8 == 0);
+	
+	auto qs = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + offsetof(QueueStruct, queueLength)));
+	auto ks = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + offsetof(QueueStruct, kernelState)));
+	auto us = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + offsetof(QueueStruct, userState)));
+	auto next = DirectSpaceAccessor<HelQueue *>::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + offsetof(QueueStruct, nextQueue)));
 
-	auto accessor = ForeignSpaceAccessor::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + 24 + offset + 24), element->getLength());
-	element->complete(frigg::move(accessor));
+	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 
-	const unsigned int kQueueWaiters = (unsigned int)1 << 31;
-	const unsigned int kQueueTail = ((unsigned int)1 << 30) - 1;
-
-	unsigned int e = offset;
-	while(true) {
-		assert((e & kQueueTail) == offset);
-
-		// try to update the kernel state word here.
-		// this CAS potentially resets the waiters bit.
-		unsigned int d = it->offset;
-		if(__atomic_compare_exchange_n(ks.get(), &e, d, false,
-				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-			if(e & kQueueWaiters) {
-				AddressSpace::Guard space_guard(&space->lock);
-				auto mapping = space->getMapping(address + 8);
-				assert(mapping->type == Mapping::kTypeMemory);
-
-				auto futex = &mapping->memoryRegion->futex;
-				futex->wake(address + 8 - mapping->baseAddress);
+	// First we traverse the nextQueue list until we find a queue that
+	// is has enough free space for our element.
+	while((ke & kQueueWantNext)
+			|| (ke & kQueueTail) + sizeof(ElementStruct) + length > *qs.get()) {
+		if(ke & kQueueWantNext) {
+			// Here we wait on the userState futex until the kQueueHasNext bit is set.
+			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
+			if(!(ue & kQueueHasNext)) {
+				waitIf(address + offsetof(QueueStruct, userState), [&] {
+					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
+					return ue == v;
+				}, [this, space, address, element = frigg::move(element)] {
+					// FIXME: this can potentially recurse and overflow the stack!
+					_submitElement(space, address, frigg::move(element));
+				});
+				return;
 			}
 
+			// Finally we move to the next queue.
+			address = Address(*next.get());
+	
+			qs = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+					reinterpret_cast<void *>(address + offsetof(QueueStruct, queueLength)));
+			ks = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+					reinterpret_cast<void *>(address + offsetof(QueueStruct, kernelState)));
+			us = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
+					reinterpret_cast<void *>(address + offsetof(QueueStruct, userState)));
+			next = DirectSpaceAccessor<HelQueue *>::acquire(space.toShared(),
+					reinterpret_cast<void *>(address + offsetof(QueueStruct, nextQueue)));
+			
+			ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
+		}else{
+			// Set the kQueueWantNext bit. If this happens we will usually
+			// wait on the userState futex in the next while-iteration.
+			unsigned int d = ke | kQueueWantNext;
+			if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
+					__ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
+				if(ke & kQueueWaiters)
+					wake(address + offsetof(QueueStruct, kernelState));
+			}
+		}
+	}
+
+	unsigned int offset = (ke & kQueueTail);
+
+	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
+			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
+			sizeof(ElementStruct));
+	ez.copyTo(offsetof(ElementStruct, length), &length, 4);
+	ez.copyTo(offsetof(ElementStruct, context), &context, sizeof(uintptr_t));
+
+	auto element_ptr = reinterpret_cast<void *>(address
+			+ sizeof(QueueStruct) + offset + sizeof(ElementStruct));
+	element->complete(ForeignSpaceAccessor::acquire(space.toShared(),
+			element_ptr, length));
+
+	while(true) {
+		assert(!(ke & kQueueWantNext));
+		assert((ke & kQueueTail) == offset);
+
+		// Try to update the kernel state word here.
+		// This CAS potentially resets the waiters bit.
+		unsigned int d = offset + length + sizeof(ElementStruct);
+		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
+				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+			if(ke & kQueueWaiters)
+				wake(address + offsetof(QueueStruct, kernelState));
 			break;
 		}
 	}

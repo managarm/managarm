@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <atomic>
 #include <initializer_list>
+#include <list>
 #include <stdexcept>
 
 #include <hel.h>
@@ -203,54 +204,92 @@ private:
 };
 
 struct Dispatcher {
+private:
+	struct Item {
+		Item(HelQueue *queue)
+		: queue(queue), progress(0) { }
+
+		Item(const Item &other) = delete;
+
+		Item &operator= (const Item &other) = delete;
+
+		HelQueue *queue;
+
+		size_t progress;
+	};
+
+public:
 	static Dispatcher &global();
 	
-	explicit Dispatcher()
-	: _queue(nullptr), _progress(0) { }
-
 	QueuePtr acquire() {
-		if(!_queue) {
-			auto ptr = operator new(sizeof(HelQueue) + 4096);
-			_queue = reinterpret_cast<HelQueue *>(ptr);
-			_queue->elementLimit = 128;
-			_queue->queueLength = 4096;
-			_queue->kernelState = 0;
-			_queue->userState = 0;
-		}
-		return QueuePtr(_queue);
+		if(_items.empty())
+			allocate();
+		return QueuePtr(_items.front().queue);
 	}
 
 	void dispatch() {
-		assert(_queue);
+		assert(!_items.empty());
 
-		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+		auto it = std::prev(_items.end());
+
+		auto ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
-			if(_progress < (e & kHelQueueTail)) {
-				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
+			if(it->progress != (ke & kHelQueueTail)) {
+				assert(it->progress < (ke & kHelQueueTail));
+
+				auto ptr = (char *)it->queue + sizeof(HelQueue) + it->progress;
 				auto elem = reinterpret_cast<HelElement *>(ptr);
-				_progress += sizeof(HelElement) + elem->length;
+				it->progress += sizeof(HelElement) + elem->length;
 
 				auto base = reinterpret_cast<OperationBase *>(elem->context);
 				base->_result = ElementPtr(ptr + sizeof(HelElement));
 				base->complete();
 				break;
 			}
+			
+			auto ue = __atomic_load_n(&it->queue->userState, __ATOMIC_RELAXED);
+			if((ke & kHelQueueWantNext) && !(ue & kHelQueueHasNext)) {
+				allocate();
+				++it;
+				assert(it == std::prev(_items.end()));
+				ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
+				continue;
+			}
 
-			if(!(e & kHelQueueWaiters)) {
-				auto d = e | kHelQueueWaiters;
-				if(__atomic_compare_exchange_n(&_queue->kernelState,
-						&e, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
-					e = d;
+			if(!(ke & kHelQueueWaiters)) {
+				auto d = ke | kHelQueueWaiters;
+				if(__atomic_compare_exchange_n(&it->queue->kernelState,
+						&ke, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
+					ke = d;
 			}else{
-				HEL_CHECK(helFutexWait((int *)&_queue->kernelState, e));
-				e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+				HEL_CHECK(helFutexWait((int *)&it->queue->kernelState, ke));
+				ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
 			}
 		}
 	}
 
 private:
-	HelQueue *_queue;
-	size_t _progress;
+	void allocate() {
+		auto queue = reinterpret_cast<HelQueue *>(operator new(sizeof(HelQueue) + 0x1000));
+		queue->elementLimit = 128;
+		queue->queueLength = 0x1000;
+		queue->kernelState = 0;
+		queue->userState = 0;
+
+		if(!_items.empty()) {
+			_items.back().queue->nextQueue = queue;
+
+			unsigned int e = 0;
+			auto s = __atomic_compare_exchange_n(&_items.back().queue->userState,
+					&e, kHelQueueHasNext, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+			assert(s);
+			HEL_CHECK(helFutexWake((int *)&_items.back().queue->userState));
+		}
+
+		_items.emplace_back(queue);
+	}
+
+	std::list<Item> _items;
 };
 
 template<typename M>

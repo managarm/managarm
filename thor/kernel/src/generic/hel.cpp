@@ -1154,14 +1154,18 @@ HelError helFutexWait(int *pointer, int expected) {
 
 	std::atomic<bool> complete(false);
 	{
-		AddressSpace::Guard space_guard(&space->lock);
-		auto mapping = space->getMapping(VirtualAddr(pointer));
+		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
+		Mapping *mapping;
+		{
+			AddressSpace::Guard space_guard(&space->lock);
+			mapping = space->getMapping(VirtualAddr(pointer));
+		}
 		assert(mapping->type == Mapping::kTypeMemory);
 
 		auto futex = &mapping->memoryRegion->futex;
 		futex->waitIf(VirtualAddr(pointer) - mapping->baseAddress, [&] () -> bool {
 			auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
-			return v == expected;
+			return expected == v;
 		}, [&] {
 			complete.store(true, std::memory_order_release);
 			Thread::unblockOther(this_thread);
@@ -1180,8 +1184,12 @@ HelError helFutexWake(int *pointer) {
 	auto space = this_thread->getAddressSpace();
 
 	{
-		AddressSpace::Guard space_guard(&space->lock);
-		auto mapping = space->getMapping(VirtualAddr(pointer));
+		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
+		Mapping *mapping;
+		{
+			AddressSpace::Guard space_guard(&space->lock);
+			mapping = space->getMapping(VirtualAddr(pointer));
+		}
 		assert(mapping->type == Mapping::kTypeMemory);
 
 		auto futex = &mapping->memoryRegion->futex;

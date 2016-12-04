@@ -358,6 +358,8 @@ struct Queue {
 	void *dequeueSingle() {
 		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
+			assert(!(e & kHelQueueWantNext));
+
 			if(_progress < (e & kHelQueueTail)) {
 				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
 				auto elem = load<HelElement>(ptr);

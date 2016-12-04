@@ -246,13 +246,14 @@ struct HelQueue {
 	//! The kernel requests a next queue by setting the kHelQueueWantNext bit.
 	//! Must be accessed atomically.
 	struct HelQueue *nextQueue;
+
+	char queueBuffer[];
 };
 
 struct HelElement {
 	unsigned int length;
 	unsigned int reserved;
 	void *context;
-	int64_t id;
 };
 
 struct HelSimpleResult {

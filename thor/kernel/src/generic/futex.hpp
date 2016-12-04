@@ -10,8 +10,10 @@ struct Futex {
 	template<typename C, typename F>
 	void waitIf(Address address, C condition, F functor) {
 		auto lock = frigg::guard(&_mutex);
-		if(!condition())
+		if(!condition()) {
+			functor();
 			return;
+		}
 
 		auto it = _slots.get(address);
 		if(!it) {
@@ -25,16 +27,19 @@ struct Futex {
 	void wake(Address address) {
 		auto lock = frigg::guard(&_mutex);
 
-		// Invariant: If the slot exists then its queue is not empty.
 		auto it = _slots.get(address);
 		if(!it)
 			return;
+		
+		// Invariant: If the slot exists then its queue is not empty.
+		assert(!it->queue.empty());
 
-		auto waiter = it->queue.removeFront();
-		if(it->queue.empty())
-			_slots.remove(address);
-
-		waiter->complete();
+		// TODO: enable users to only wake a certain number of waiters.
+		while(!it->queue.empty()) {
+			auto waiter = it->queue.removeFront();
+			waiter->complete();
+		}
+		_slots.remove(address);
 	}
 
 private:	
