@@ -26,9 +26,6 @@ bool traceRequests = false;
 //FIXME: helx::Pipe ldServerPipe;
 //FIXME: helx::Pipe mbusPipe;
 
-HelHandle ringBuffer;
-HelRingBuffer *ringItem;
-
 COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
@@ -97,14 +94,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 	
-	ringItem = (HelRingBuffer *)malloc(sizeof(HelRingBuffer) + 0x10000);
-	
-	// initialize our string queue
-	HEL_CHECK(helCreateRing(0x1000, &ringBuffer));
-	int64_t async_id;
-	HEL_CHECK(helSubmitRing(ringBuffer, helix::Dispatcher::global().getHub().getHandle(),
-			ringItem, 0x10000, 0, 0, &async_id));
-
 	execute(SharedProcess::createInit(), "posix-init");
 
 	while(true)

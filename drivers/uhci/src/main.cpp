@@ -486,7 +486,8 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 	COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 		while(true) {
-			helix::AwaitIrq<helix::AwaitMechanism> edge(helix::Dispatcher::global(), _irq);
+			helix::AwaitIrq<helix::AwaitMechanism> edge;
+			assert(!"Submit the IRQ wait here");
 			COFIBER_AWAIT edge.future();
 			HEL_CHECK(edge.error());
 
@@ -636,7 +637,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	auto lane = helix::UniquePipe(COFIBER_AWAIT device.bind());
 
 	// receive the device descriptor.
-	uint8_t buffer[128];
+	assert(!"Fix this");
+/*	uint8_t buffer[128];
 	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), lane,
 			buffer, 128, 0, 0, kHelResponse);
 	COFIBER_AWAIT recv_resp.future();
@@ -671,7 +673,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 			helix::UniqueIrq(recv_irq.descriptor()));
 	controller->initialize();
 
-	globalControllers.push_back(std::move(controller));
+	globalControllers.push_back(std::move(controller));*/
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

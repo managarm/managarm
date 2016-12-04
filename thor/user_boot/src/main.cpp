@@ -509,7 +509,7 @@ int main() {
 
 	startMbus();
 	startAcpi();
-//	startUhci();
+	startUhci();
 //	startPosixSubsystem();
 //	runPosixInit();
 
