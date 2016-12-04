@@ -637,43 +637,40 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	auto lane = helix::UniquePipe(COFIBER_AWAIT device.bind());
 
 	// receive the device descriptor.
-	assert(!"Fix this");
-/*	uint8_t buffer[128];
-	helix::RecvBuffer<M> recv_resp(helix::Dispatcher::global(), lane,
-			buffer, 128, 0, 0, kHelResponse);
+	helix::RecvInline<M> recv_resp;
+	helix::PullDescriptor<M> pull_bar;
+	helix::PullDescriptor<M> pull_irq;
+
+	helix::submitAsync(lane, {
+		helix::action(&recv_resp, kHelItemChain),
+		helix::action(&pull_bar, kHelItemChain),
+		helix::action(&pull_irq),
+	}, helix::Dispatcher::global());
+
 	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_bar.future();
+	COFIBER_AWAIT pull_irq.future();
 	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_bar.error());
+	HEL_CHECK(pull_irq.error());
 
 	managarm::hw::PciDevice resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 
-	// receive the BAR.
-	helix::PullDescriptor<M> recv_bar(helix::Dispatcher::global(), lane,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_bar.future();
-	HEL_CHECK(recv_bar.error());
-	
-	// receive the IRQ.
-	helix::PullDescriptor<M> recv_irq(helix::Dispatcher::global(), lane,
-			0, 0, kHelResponse);
-	COFIBER_AWAIT recv_irq.future();
-	HEL_CHECK(recv_irq.error());
-	
 	// run the UHCI driver.
-
 	assert(resp.bars(0).io_type() == managarm::hw::IoType::NONE);
 	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
 	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
 	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
 	assert(resp.bars(4).io_type() == managarm::hw::IoType::PORT);
 	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
-	HEL_CHECK(helEnableIo(recv_bar.descriptor().getHandle()));
+	HEL_CHECK(helEnableIo(pull_bar.descriptor().getHandle()));
 
 	auto controller = std::make_shared<Controller>(resp.bars(4).address(),
-			helix::UniqueIrq(recv_irq.descriptor()));
+			helix::UniqueIrq(pull_irq.descriptor()));
 	controller->initialize();
 
-	globalControllers.push_back(std::move(controller));*/
+	globalControllers.push_back(std::move(controller));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

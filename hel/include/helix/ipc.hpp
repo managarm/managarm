@@ -330,6 +330,28 @@ private:
 };
 
 template<typename M>
+struct RecvInline : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+	
+	void *data() {
+		HEL_CHECK(error());
+		return result()->data;
+	}
+
+	size_t length() {
+		HEL_CHECK(error());
+		return result()->length;
+	}
+
+private:
+	HelInlineResult *result() {
+		return reinterpret_cast<HelInlineResult *>(OperationBase::element());
+	}
+};
+
+template<typename M>
 struct RecvBuffer : Operation<M> {
 	HelError error() {
 		return result()->error;
@@ -432,6 +454,15 @@ HelAction action(SendBuffer<M> *operation, const void *buffer, size_t length,
 	action.flags = flags;
 	action.buffer = const_cast<void *>(buffer);
 	action.length = length;
+	return action;
+}
+
+template<typename M>
+HelAction action(RecvInline<M> *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionRecvInline;
+	action.context = (uintptr_t)operation;
+	action.flags = flags;
 	return action;
 }
 
