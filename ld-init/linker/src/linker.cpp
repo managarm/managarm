@@ -18,7 +18,6 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
 #include <frigg/protobuf.hpp>
@@ -356,18 +355,27 @@ struct Queue {
 	}
 
 	void *dequeueSingle() {
-		unsigned int e = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+		auto ke = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
-			assert(!(e & kHelQueueWantNext));
+			assert(!(ke & kHelQueueWantNext));
 
-			if(_progress < (e & kHelQueueTail)) {
+			if(_progress < (ke & kHelQueueTail)) {
 				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
 				auto elem = load<HelElement>(ptr);
 				_progress += sizeof(HelElement) + elem.length;
 				return ptr + sizeof(HelElement);
 			}
 
-			assert(!"Sleep here!");
+			assert(!"Sleep here");
+/*			if(!(ke & kHelQueueWaiters)) {
+				auto d = ke | kHelQueueWaiters;
+				if(__atomic_compare_exchange_n(&_queue->kernelState,
+						&ke, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
+					ke = d;
+			}else{
+				HEL_CHECK(helFutexWait((int *)&_queue->kernelState, ke));
+				ke = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+			}*/
 		}
 	}
 
@@ -376,7 +384,7 @@ private:
 	size_t _progress;
 };
 
-frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
+frigg::Optional<HelHandle> posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[4];
 	HelSimpleResult *offer;
 	HelSimpleResult *send_req;
@@ -401,7 +409,7 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	actions[2].flags = kHelItemChain;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(posixPipe->getHandle(), actions, 4, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(posixPipe, actions, 4, m.getQueue(), 0));
 
 	offer = (HelSimpleResult *)m.dequeueSingle();
 	send_req = (HelSimpleResult *)m.dequeueSingle();
@@ -419,10 +427,10 @@ frigg::Optional<helx::Pipe> posixOpen(frigg::String<Allocator> path) {
 	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
 	assert(resp.error() == managarm::posix::Errors::SUCCESS);
-	return helx::Pipe(pull_lane->handle);
+	return pull_lane->handle;
 }
 
-void posixSeek(helx::Pipe &pipe, int64_t offset) {
+void posixSeek(HelHandle lane, int64_t offset) {
 	HelAction actions[3];
 	HelSimpleResult *offer;
 	HelSimpleResult *send_req;
@@ -444,7 +452,7 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 3, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 3, m.getQueue(), 0));
 
 	offer = (HelSimpleResult *)m.dequeueSingle();
 	send_req = (HelSimpleResult *)m.dequeueSingle();
@@ -459,7 +467,7 @@ void posixSeek(helx::Pipe &pipe, int64_t offset) {
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 }
 
-void posixRead(helx::Pipe &pipe, void *data, size_t length) {
+void posixRead(HelHandle lane, void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		HelAction actions[4];
@@ -488,7 +496,7 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 		actions[3].flags = 0;
 		actions[3].buffer = (char *)data + offset;
 		actions[3].length = length - offset;
-		HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
+		HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0));
 
 		offer = (HelSimpleResult *)m.dequeueSingle();
 		send_req = (HelSimpleResult *)m.dequeueSingle();
@@ -508,7 +516,7 @@ void posixRead(helx::Pipe &pipe, void *data, size_t length) {
 	assert(offset == length);
 }
 
-HelHandle posixMmap(helx::Pipe &pipe) {
+HelHandle posixMmap(HelHandle lane) {
 	HelAction actions[4];
 	HelSimpleResult *offer;
 	HelSimpleResult *send_req;
@@ -532,7 +540,7 @@ HelHandle posixMmap(helx::Pipe &pipe) {
 	actions[2].flags = kHelItemChain;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(pipe.getHandle(), actions, 4, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0));
 
 	offer = (HelSimpleResult *)m.dequeueSingle();
 	send_req = (HelSimpleResult *)m.dequeueSingle();
@@ -561,15 +569,15 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
 
 	// open the object file
-	frigg::Optional<helx::Pipe> pipe = posixOpen(initrd_prefix + file);
-	if(!pipe)
-		pipe = posixOpen(lib_prefix + file);
-	if(!pipe)
+	frigg::Optional<HelHandle> lane = posixOpen(initrd_prefix + file);
+	if(!lane)
+		lane = posixOpen(lib_prefix + file);
+	if(!lane)
 		frigg::panicLogger() << "Could not find library " << file << frigg::endLog;
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
-	posixRead(*pipe, &ehdr, sizeof(Elf64_Ehdr));
+	posixRead(*lane, &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -579,11 +587,11 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	// read the elf program headers
 	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	posixSeek(*pipe, ehdr.e_phoff);
-	posixRead(*pipe, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(*lane, ehdr.e_phoff);
+	posixRead(*lane, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	// mmap the file so we can map read-only segments instead of copying them
-	HelHandle file_memory = posixMmap(*pipe);
+	HelHandle file_memory = posixMmap(*lane);
 
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -626,8 +634,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
 
 				memset(write_ptr, 0, map_length);
-				posixSeek(*pipe, phdr->p_offset);
-				posixRead(*pipe, (char *)write_ptr + misalign, phdr->p_filesz);
+				posixSeek(*lane, phdr->p_offset);
+				posixRead(*lane, (char *)write_ptr + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 				// map the segment with correct permissions

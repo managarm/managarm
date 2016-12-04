@@ -152,8 +152,7 @@ extern "C" void pltRelocateStub() __attribute__ (( visibility("hidden") ));
 // Communication stuff
 // --------------------------------------------------------
 
-extern frigg::LazyInitializer<helx::EventHub> eventHub;
-extern frigg::LazyInitializer<helx::Pipe> posixPipe;
+extern HelHandle posixPipe;
 
 // --------------------------------------------------------
 // RTDL interface

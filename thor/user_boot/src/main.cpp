@@ -193,7 +193,7 @@ size_t copyArrayToStack(void *window, size_t &d, const Range &range) {
 	return copyArrayToStack(window, d, std::begin(range), std::end(range));
 }
 
-void runProgram(HelHandle space, helix::UniquePipe xpipe,
+void runProgram(HelHandle space, helix::UniqueLane xpipe,
 		ImageInfo exec_info, ImageInfo interp_info, bool exclusive) {
 	constexpr size_t stack_size = 0x10000;
 	
@@ -316,8 +316,8 @@ void startAcpi() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 
-	helix::UniquePipe xpipe_local, xpipe_remote;
-	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+	helix::UniqueLane xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createStream();
 
 	ImageInfo exec_info = loadImage(space, "acpi", 0);
 	// TODO: actually use the correct interpreter
@@ -346,8 +346,8 @@ void startUhci() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 	
-	helix::UniquePipe xpipe_local, xpipe_remote;
-	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+	helix::UniqueLane xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createStream();
 
 	ImageInfo exec_info = loadImage(space, "uhci", 0);
 	// TODO: actually use the correct interpreter
@@ -359,8 +359,8 @@ void startPosixSubsystem() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
 	
-	helix::UniquePipe xpipe_local, xpipe_remote;
-	std::tie(xpipe_local, xpipe_remote) = helix::createFullPipe();
+	helix::UniqueLane xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createStream();
 
 	ImageInfo exec_info = loadImage(space, "posix-subsystem", 0);
 	// TODO: actually use the correct interpreter

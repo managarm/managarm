@@ -78,14 +78,14 @@ private:
 struct Object final : Entity {
 	explicit Object(int64_t id, std::weak_ptr<Group> parent,
 			std::unordered_map<std::string, std::string> properties,
-			helix::UniquePipe lane)
+			helix::UniqueLane lane)
 	: Entity(id, std::move(parent), std::move(properties)),
 			_lane(std::move(lane)) { }
 
 	cofiber::future<helix::UniqueDescriptor> bind();
 
 private:
-	helix::UniquePipe _lane;
+	helix::UniqueLane _lane;
 };
 
 COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
@@ -157,7 +157,7 @@ private:
 };
 
 struct Observer {
-	explicit Observer(AnyFilter filter, helix::UniquePipe lane)
+	explicit Observer(AnyFilter filter, helix::UniqueLane lane)
 	: _filter(std::move(filter)), _lane(std::move(lane)) { }
 
 	cofiber::no_future traverse(std::shared_ptr<Entity> root);
@@ -166,7 +166,7 @@ struct Observer {
 
 private:
 	AnyFilter _filter;
-	helix::UniquePipe _lane;
+	helix::UniqueLane _lane;
 };
 
 static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
@@ -266,7 +266,7 @@ static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
+COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 		([lane = std::move(p)] () {
 	using M = helix::AwaitMechanism;
 
@@ -314,7 +314,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 			for(auto &kv : req.properties())
 				properties.insert({ kv.first, kv.second });
 
-			helix::UniquePipe local_lane, remote_lane;
+			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto child = std::make_shared<Object>(nextEntityId++,
 					group, std::move(properties), std::move(local_lane));
@@ -351,7 +351,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniquePipe p),
 				throw std::runtime_error("Observers can only be attached to groups");
 			auto group = std::static_pointer_cast<Group>(parent);
 
-			helix::UniquePipe local_lane, remote_lane;
+			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			auto observer = std::make_shared<Observer>(decodeFilter(req.filter()),
 					std::move(local_lane));
@@ -415,7 +415,7 @@ int main() {
 	if(peekauxval(AT_XPIPE, &xpipe))
 		throw std::runtime_error("No AT_XPIPE specified");
 
-	serve(helix::UniquePipe(xpipe));
+	serve(helix::UniqueLane(xpipe));
 
 	while(true)
 		helix::Dispatcher::global().dispatch();

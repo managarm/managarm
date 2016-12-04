@@ -18,7 +18,6 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <helx.hpp>
 
 #include <frigg/glue-hel.hpp>
 
@@ -60,8 +59,7 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return (void *)p->virtualAddress();
 }
 
-frigg::LazyInitializer<helx::EventHub> eventHub;
-frigg::LazyInitializer<helx::Pipe> posixPipe;
+HelHandle posixPipe;
 void *auxiliaryPtr;
 
 extern "C" [[ gnu::visibility("default") ]] void *__rtdl_auxvector() {
@@ -129,7 +127,7 @@ extern "C" void *interpreterMain(char *sp) {
 			case AT_PHNUM: phdr_count = aux.longValue; break;
 			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
 			case AT_POSIX_SERVER:
-				posixPipe.initialize(aux.longValue);
+				posixPipe = aux.longValue;
 				break;
 			case AT_XPIPE:
 			case AT_OPENFILES:
@@ -173,8 +171,6 @@ extern "C" void *interpreterMain(char *sp) {
 			assert(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
-
-	eventHub.initialize(helx::EventHub::create());
 
 	// perform the initial dynamic linking
 	globalScope.initialize();

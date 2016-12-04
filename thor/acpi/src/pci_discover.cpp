@@ -9,7 +9,6 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <helx.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <mbus.hpp>
@@ -21,7 +20,7 @@
 std::vector<std::shared_ptr<PciDevice>> allDevices;
 
 COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> device,
-		helix::UniquePipe p), ([device, lane = std::move(p)] {
+		helix::UniqueLane p), ([device, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
 
 	// send the device description.
@@ -69,11 +68,10 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 	}
 
 	// send the IRQ descriptor.
-	// TODO: this helx::Irq.getHandle() is very ugly!
 	helix::PushDescriptor<M> send_irq;
 
 	helix::submitAsync(lane, {
-		helix::action(&send_irq, helix::BorrowedDescriptor(device->interrupt.getHandle()))
+		helix::action(&send_irq, helix::BorrowedDescriptor(device->interrupt))
 	}, helix::Dispatcher::global());
 
 	COFIBER_AWAIT send_irq.future();
@@ -106,7 +104,7 @@ COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> de
 	sprintf(name, "%.2x.%.2x.%.1x", device->bus, device->slot, device->function);
 	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
 			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
-		helix::UniquePipe local_lane, remote_lane;
+		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		handleDevice(device, std::move(local_lane));
 
@@ -252,7 +250,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		// determine the interrupt line
 		uint8_t line_number = readPciByte(bus, slot, function, kPciRegularInterruptLine);
 		std::cout << "        Interrupt line: " << (int)line_number << std::endl;
-		device->interrupt = helx::Irq::access(line_number);
+		HEL_CHECK(helAccessIrq(line_number, &device->interrupt));
 
 		registerDevice(device);
 

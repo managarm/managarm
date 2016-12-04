@@ -634,7 +634,7 @@ cofiber::future<void> Endpoint::transfer(InterruptTransfer info) {
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;
 
-	auto lane = helix::UniquePipe(COFIBER_AWAIT device.bind());
+	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
 
 	// receive the device descriptor.
 	helix::RecvInline<M> recv_resp;

@@ -41,7 +41,8 @@ struct PciDevice {
 	uint8_t subClass;
 	uint8_t interface;
 
-	helx::Irq interrupt;
+	// TODO: this should be a helix::UniqueIrq or similar.
+	HelHandle interrupt;
 	
 	// device configuration
 	Bar bars[6];

@@ -16,7 +16,7 @@ static Instance makeGlobal() {
 	unsigned long server;
 	if(peekauxval(AT_MBUS_SERVER, &server))
 		throw std::runtime_error("No AT_MBUS_SERVER specified");
-	return Instance(&helix::Dispatcher::global(), helix::BorrowedPipe(server).dup());
+	return Instance(&helix::Dispatcher::global(), helix::BorrowedLane(server).dup());
 }
 
 Instance Instance::global() {
@@ -34,7 +34,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->pipe, {
+	helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128)
@@ -56,7 +56,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
 
 COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> connection,
 		std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler,
-		helix::UniquePipe p), ([connection, handler, lane = std::move(p)] {
+		helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
 
 	while(true) {
@@ -119,7 +119,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->pipe, {
+	helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
@@ -139,13 +139,13 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	handleObject(_connection, handler, helix::UniquePipe(pull_lane.descriptor()));
+	handleObject(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
 	COFIBER_RETURN(Entity(_connection, resp.id()));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> connection,
-		std::function<void(AnyEvent)> handler, helix::UniquePipe p),
+		std::function<void(AnyEvent)> handler, helix::UniqueLane p),
 		([connection, handler, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
 
@@ -201,7 +201,7 @@ COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter 
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->pipe, {
+	helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
@@ -221,7 +221,7 @@ COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter 
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 	
-	handleObserver(_connection, handler, helix::UniquePipe(pull_lane.descriptor()));
+	handleObserver(_connection, handler, helix::UniqueLane(pull_lane.descriptor()));
 
 	COFIBER_RETURN(Observer());
 }))
@@ -238,7 +238,7 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Entity::bind() const, 
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->pipe, {
+	helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
