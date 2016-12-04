@@ -1,4 +1,6 @@
 
+//! @file hel.h
+
 #ifndef HEL_H
 #define HEL_H
 
@@ -76,9 +78,14 @@ enum {
 	kHelErrBufferTooSmall = 1,
 };
 
+//! Integer type that represents an error or success value.
 typedef int HelError;
+
 typedef int HelAbi;
+
+//! Integer handle that represents a kernel resource.
 typedef int64_t HelHandle;
+
 typedef int64_t HelNanotime;
 
 enum {
@@ -212,20 +219,22 @@ static const unsigned int kHelQueueTail = ((unsigned int)1 << 30) - 1;
 //! Flag for userState; signals that there is a next HelQueue.
 static const unsigned int kHelQueueHasNext = (unsigned int)1 << 31;
 
+//! In-memory kernel-user queue.
+//! Each element in the queue is prefixed by a HelElement struct.
 struct HelQueue {
 	//! Maximum size of a single element in bytes.
-	//! Constant.
+	//! Constant. Does not include the per-element HelElement header.
 	unsigned int elementLimit;
 
-	//! Size of the whole queue (without header) in bytes.
-	//! Constant.
+	//! Size of the whole queue in bytes.
+	//! Constant. Does not include the HelQueue header.
 	unsigned int queueLength;
 
-	//! This is the Futex user space waits on.
+	//! The Futex user space waits on.
 	//! Must be accessed atomically.
 	unsigned int kernelState;
 
-	//! This is the Futex the kernel waits on.
+	//! The Futex the kernel waits on.
 	//! Must be accessed atomically.
 	unsigned int userState;
 
@@ -238,9 +247,12 @@ struct HelQueue {
 	char queueBuffer[];
 };
 
+//! A single element of a HelQueue.
 struct HelElement {
+	//! Length of the element in bytes.
 	unsigned int length;
 	unsigned int reserved;
+	//! User-defined value.
 	void *context;
 };
 

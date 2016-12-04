@@ -17,3 +17,12 @@ $(call install_header,helix/ipc.hpp)
 $(call install_header,helix/await.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
+$(BUILD_PATH)/$c/Doxyfile: $(TREE_PATH)/$c/Doxyfile.in
+	sed 's|@ROOTDIR@|$(TREE_PATH)/$d|' $< > $@
+
+.PHONY: $c-doc
+$(call decl_targets,$c-doc)
+$c-doc: $(BUILD_PATH)/$c/Doxyfile
+	mkdir -p $(BUILD_PATH)/$d/doc
+	doxygen $(BUILD_PATH)/$d/Doxyfile
+
