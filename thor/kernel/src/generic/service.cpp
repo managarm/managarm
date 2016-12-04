@@ -75,6 +75,7 @@ namespace initrd {
 
 			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(_file->offset);
 
 			resp.SerializeToString(&_buffer);
 			serviceSend(_lane, _buffer.data(), _buffer.size(),
