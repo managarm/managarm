@@ -94,10 +94,6 @@ enum {
 };
 
 enum {
-	kHelAnyRequest = -1,
-	kHelAnySequence = -1,
-	kHelNoFunction = 0,
-	kHelNoObject = 0,
 	kHelWaitInfinite = -1
 };
 
@@ -118,15 +114,7 @@ enum {
 enum {
 	kHelEventLoadMemory = 7,
 	kHelEventLockMemory = 8,
-	kHelEventOffer = 13,
-	kHelEventAccept = 14,
 	kHelEventObserve = 12,
-	kHelEventSendString = 11,
-	kHelEventSendDescriptor = 10,
-	kHelEventRecvString = 1,
-	kHelEventRecvStringToQueue = 9,
-	kHelEventRecvDescriptor = 5,
-	kHelEventIrq = 4
 };
 
 enum {
@@ -199,12 +187,6 @@ enum HelThreadFlags {
 enum HelMessageFlags {
 	kHelRequest = 1,
 	kHelResponse = 2
-};
-
-struct HelRingBuffer {
-	uint32_t refCount;
-
-	char data[];
 };
 
 //! Flag for kernelState; signals that there are waiters.
