@@ -65,7 +65,7 @@ int IrqLine::getNumber() {
 	return _number;
 }
 
-void IrqLine::submitWait(Guard &guard, frigg::SharedPtr<AsyncIrq> wait) {
+void IrqLine::submitWait(Guard &guard, frigg::SharedPtr<AwaitIrqBase> wait) {
 	assert(!intsAreEnabled());
 	assert(guard.protects(&lock));
 
@@ -87,11 +87,11 @@ void IrqLine::fire(Guard &guard, uint64_t sequence) {
 		processWait(_waitQueue.removeFront());
 }
 
-void IrqLine::processWait(frigg::SharedPtr<AsyncIrq> wait) {
+void IrqLine::processWait(frigg::SharedPtr<AwaitIrqBase> wait) {
 	assert(_firedSequence > _notifiedSequence);
 	_notifiedSequence = _firedSequence;
 
-	AsyncOperation::complete(frigg::move(wait));
+	wait->complete(kErrSuccess);
 }
 
 // --------------------------------------------------------

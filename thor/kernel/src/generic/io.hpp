@@ -37,6 +37,25 @@ private:
 
 extern frigg::LazyInitializer<IrqRelay> irqRelays[16];
 
+struct AwaitIrqBase {
+	virtual void complete(Error error) = 0;
+
+	frigg::IntrusiveSharedLinkedItem<AwaitIrqBase> processQueueItem;
+};
+
+template<typename F>
+struct AwaitIrq : AwaitIrqBase {
+	AwaitIrq(F functor)
+	: _functor(frigg::move(functor)) { }
+
+	void complete(Error error) override {
+		_functor(error);
+	}
+
+private:
+	F _functor;
+};
+
 class IrqLine {
 public:
 	typedef frigg::TicketLock Lock;
@@ -46,14 +65,14 @@ public:
 
 	int getNumber();
 
-	void submitWait(Guard &guard, frigg::SharedPtr<AsyncIrq> wait);
+	void submitWait(Guard &guard, frigg::SharedPtr<AwaitIrqBase> wait);
 	
 	void fire(Guard &guard, uint64_t sequence);
 
 	Lock lock;
 
 private:
-	void processWait(frigg::SharedPtr<AsyncIrq> wait);
+	void processWait(frigg::SharedPtr<AwaitIrqBase> wait);
 
 	int _number;
 	
@@ -61,8 +80,8 @@ private:
 	uint64_t _notifiedSequence;
 	
 	frigg::IntrusiveSharedLinkedList<
-		AsyncIrq,
-		&AsyncIrq::processQueueItem
+		AwaitIrqBase,
+		&AwaitIrqBase::processQueueItem
 	> _waitQueue;
 };
 

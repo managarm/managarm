@@ -73,11 +73,6 @@ AsyncEvent AsyncRecvDescriptor::getEvent() {
 	return event;
 }
 AsyncEvent AsyncRingItem::getEvent() { assert(false); __builtin_trap(); }
-AsyncEvent AsyncIrq::getEvent() {
-	AsyncEvent event(kEventIrq, completer.get<PostEventCompleter>().submitInfo);
-	event.error = kErrSuccess;
-	return event;
-}
 
 // --------------------------------------------------------
 // AsyncOperation

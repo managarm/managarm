@@ -10,7 +10,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 73,
+	kHelNumCalls = 74,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -67,7 +67,7 @@ enum {
 	kHelCallAccessIrq = 14,
 	kHelCallSetupIrq = 51,
 	kHelCallAcknowledgeIrq = 50,
-	kHelCallSubmitWaitForIrq = 15,
+	kHelCallSubmitWaitForIrq = 73,
 	kHelCallSubscribeIrq = 52,
 
 	kHelCallAccessIo = 11,
@@ -381,8 +381,8 @@ HEL_C_LINKAGE HelError helSubmitRecvDescriptor(HelHandle handle, HelHandle hub_h
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetupIrq(HelHandle handle, uint32_t flags);
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle);
-HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
+HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle,
+		struct HelQueue *queue, uintptr_t context);
 HEL_C_LINKAGE HelError helSubscribeIrq(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 

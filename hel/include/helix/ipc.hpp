@@ -505,6 +505,13 @@ void submitAsync(BorrowedDescriptor descriptor, const HelAction (&actions)[N],
 			dispatcher.acquire().get(), 0));
 }
 
+template<typename M>
+void submitAwaitIrq(BorrowedDescriptor descriptor, AwaitIrq<M> *operation,
+		Dispatcher &dispatcher) {
+	HEL_CHECK(helSubmitWaitForIrq(descriptor.getHandle(),
+			dispatcher.acquire().get(), (uintptr_t)operation));
+}
+
 } // namespace helix
 
 #endif // HELIX_HPP

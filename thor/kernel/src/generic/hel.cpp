@@ -196,6 +196,23 @@ private:
 	AnyDescriptor _lane;
 };
 
+struct AwaitIrqWriter {
+	AwaitIrqWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelSimpleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelSimpleResult data{translateError(_error), 0};
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
+
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
 		infoSink.print(string[i]);
@@ -1668,13 +1685,12 @@ HelError helAcknowledgeIrq(HelHandle handle) {
 
 	return kHelErrNone;
 }
-HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+HelError helSubmitWaitForIrq(HelHandle handle,
+		HelQueue *queue, uintptr_t context) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<IrqLine> line;
-	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
@@ -1684,19 +1700,11 @@ HelError helSubmitWaitForIrq(HelHandle handle, HelHandle hub_handle,
 		if(!irq_wrapper->is<IrqDescriptor>())
 			return kHelErrBadDescriptor;
 		line = irq_wrapper->get<IrqDescriptor>().irqLine;
-		
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 
-	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = completer.submitInfo.asyncId;
-	
-	auto wait = frigg::makeShared<AsyncIrq>(*kernelAlloc, frigg::move(completer));
+	PostEvent<AwaitIrqWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
+	auto wait = frigg::makeShared<AwaitIrq<PostEvent<AwaitIrqWriter>>>(*kernelAlloc,
+			frigg::move(functor));
 	{
 		IrqLine::Guard guard(&line->lock);
 		line->submitWait(guard, frigg::move(wait));

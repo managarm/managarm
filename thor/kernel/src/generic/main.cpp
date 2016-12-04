@@ -671,10 +671,8 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAcknowledgeIrq((HelHandle)arg0);
 	} break;
 	case kHelCallSubmitWaitForIrq: {
-		int64_t async_id;
 		*image.error() = helSubmitWaitForIrq((HelHandle)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
+				(HelQueue *)arg1, (uintptr_t)arg2);
 	} break;
 
 	case kHelCallAccessIo: {

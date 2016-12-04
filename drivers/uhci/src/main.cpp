@@ -486,10 +486,10 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 	COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 		while(true) {
-			helix::AwaitIrq<helix::AwaitMechanism> edge;
-			assert(!"Submit the IRQ wait here");
-			COFIBER_AWAIT edge.future();
-			HEL_CHECK(edge.error());
+			helix::AwaitIrq<helix::AwaitMechanism> await_irq;
+			helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+			COFIBER_AWAIT await_irq.future();
+			HEL_CHECK(await_irq.error());
 
 			auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
 			assert(!(status & 0x10));
