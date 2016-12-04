@@ -152,13 +152,22 @@ private:
 	size_t _length;
 };
 
-/*struct PushDescriptorWriter {
-	static AsyncEvent makeEvent(SubmitInfo info, Error error) {
-		AsyncEvent event(kEventSendDescriptor, info);
-		event.error = error;
-		return event;
+struct PushDescriptorWriter {
+	PushDescriptorWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelSimpleResult);
 	}
-};*/
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelSimpleResult data{translateError(_error), 0};
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
 
 struct PullDescriptorWriter {
 	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> universe, AnyDescriptor descriptor)
@@ -1063,7 +1072,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 		} break;
-/*		case kHelActionPushDescriptor: {
+		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
 			{
 				Universe::Guard universe_guard(&this_universe->lock);
@@ -1076,7 +1085,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			using Token = PostEvent<PushDescriptorWriter>;
 			target.getStream()->submitPushDescriptor(target.getLane(), frigg::move(operand),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
-		} break;*/
+		} break;
 		case kHelActionPullDescriptor: {
 			using Token = PostEvent<PullDescriptorWriter>;
 			target.getStream()->submitPullDescriptor(target.getLane(), this_universe.toWeak(),
