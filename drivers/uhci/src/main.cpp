@@ -349,8 +349,6 @@ InterruptTransfer::InterruptTransfer(void *buffer, size_t length)
 // Controller.
 // ----------------------------------------------------------------------------
 
-cofiber::no_future runHidDevice(Device device);
-
 Controller::Controller(uint16_t base, helix::UniqueIrq irq)
 : _base(base), _irq(frigg::move(irq)),
 		_lastFrame(0), _lastCounter(0) {
@@ -446,10 +444,6 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::pollDevices(), ([=] {
 			continue;
 		}
 	
-		auto usb_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(usb_status & kStatusInterrupt));
-		assert(!(usb_status & kStatusError));
-
 		COFIBER_AWAIT probeDevice();
 	}
 
@@ -471,9 +465,10 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
 			kDestDevice, kStandard, SetupPacket::kSetAddress, _addressStack.front(), 0,
 			nullptr, 0));
 	device_state->address = _addressStack.front();
+	_activeDevices[_addressStack.front()] = device_state;
 	_addressStack.pop();
 
-	// enquire the maximum packet size of endpoint 0 and get the device_state descriptor.
+	// enquire the maximum packet size of endpoint 0 and get the device descriptor.
 	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
 	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
@@ -487,7 +482,42 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
 
 	// TODO:read configuration descriptor from the device
 
-	runHidDevice(Device(device_state));
+	char class_code[3], sub_class[3], protocol[3];
+	char vendor[5], product[5], release[5];
+	sprintf(class_code, "%.2x", descriptor->deviceClass);
+	sprintf(sub_class, "%.2x", descriptor->deviceSubclass);
+	sprintf(protocol, "%.2x", descriptor->deviceProtocol);
+	sprintf(vendor, "%.4x", descriptor->idVendor);
+	sprintf(product, "%.4x", descriptor->idProduct);
+	sprintf(release, "%.4x", descriptor->bcdDevice);
+
+	std::unordered_map<std::string, std::string> mbus_desc {
+		{ "usb.type", "device" },
+		{ "usb.vendor", vendor },
+		{ "usb.product", product },
+		{ "usb.class", class_code },
+		{ "usb.subclass", sub_class },
+		{ "usb.protocol", protocol },
+		{ "usb.release", release }
+	};
+	
+	std::cout << "class_code: " << class_code << std::endl;
+
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	char name[3];
+	sprintf(name, "%.2x", device_state->address);
+	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
+			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		//handleDevice(device, std::move(local_lane));
+
+		cofiber::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.get_future();
+	});
+	std::cout << "Created object " << name << std::endl;
 
 	COFIBER_RETURN();
 }))
@@ -567,8 +597,8 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
 				: (_lastCounter + 2048 - _lastFrame + frame);
 		
-		if(counter / 1024 > _lastCounter / 1024)
-			pollDevices();
+		//if(counter / 1024 > _lastCounter / 1024)
+		//	pollDevices();
 
 		//printf("uhci: Processing transfers.\n");
 		auto it = asyncSchedule.begin();

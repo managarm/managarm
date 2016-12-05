@@ -355,6 +355,19 @@ void startUhci() {
 	runProgram(space, std::move(xpipe_remote), exec_info, interp_info, true);
 }
 
+void startHid() {
+	HelHandle space;
+	HEL_CHECK(helCreateSpace(&space));
+	
+	helix::UniqueLane xpipe_local, xpipe_remote;
+	std::tie(xpipe_local, xpipe_remote) = helix::createStream();
+
+	ImageInfo exec_info = loadImage(space, "hid", 0);
+	// TODO: actually use the correct interpreter
+	ImageInfo interp_info = loadImage(space, "ld-init.so", 0x40000000);
+	runProgram(space, std::move(xpipe_remote), exec_info, interp_info, true);
+}
+
 void startPosixSubsystem() {
 	HelHandle space;
 	HEL_CHECK(helCreateSpace(&space));
@@ -510,6 +523,7 @@ int main() {
 	startMbus();
 	startAcpi();
 	startUhci();
+	startHid();
 //	startPosixSubsystem();
 //	runPosixInit();
 

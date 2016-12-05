@@ -112,6 +112,7 @@ private:
 	uint64_t _lastCounter;
 
 	std::queue<int> _addressStack;
+	std::shared_ptr<DeviceState> _activeDevices[128];
 };
 
 // ----------------------------------------------------------------------------

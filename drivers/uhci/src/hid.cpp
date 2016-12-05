@@ -46,6 +46,7 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 }
 
 COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device, int index), [=] () {
+	printf("entered parseReportDescriptor\n");
 	size_t length = 52;
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
 	COFIBER_AWAIT device.transfer(ControlTransfer(kXferToHost,
@@ -200,12 +201,23 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
 	std::experimental::optional<int> report_desc_index;
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		printf("type: %i\n", type);
 		if(type == kDescriptorConfig) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
+			
+			auto desc = (ConfigDescriptor *)p;
+			printf("Config Descriptor: \n");
+			printf("    value: %i\n", desc->configValue);
 		}else if(type == kDescriptorInterface) {
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
+			
+			auto desc = (InterfaceDescriptor *)p;
+			printf("Interface Descriptor: \n");
+			printf("    class: %i\n", desc->interfaceClass);
+			printf("    sub class: %i\n", desc->interfaceSubClass);
+			printf("    protocoll: %i\n", desc->interfaceProtocoll);
 		}else if(type == kDescriptorHid) {
 			auto desc = (HidDescriptor *)p;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
@@ -224,9 +236,10 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
 			printf("Unexpected descriptor type: %d!\n", type);
 		}
 	});
-	
-	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value());
 
+	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value());
+	printf("exit parseReportDescriptor\n");
+	
 	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
 
