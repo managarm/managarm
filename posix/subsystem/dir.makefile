@@ -2,10 +2,8 @@
 $(call standard_dirs)
 
 $c_OBJECTS := main.o vfs.o exec.o
-$c_OBJECTS += extern_fs.o
+$c_OBJECTS += tmp_fs.o extern_fs.o
 $c_OBJECTS += posix.pb.o fs.pb.o
-#device.o vfs.o process.o exec.o \
-#		dev_fs.o pts_fs.o sysfile_fs.o extern_fs.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 all-$c: $($c_BINDIR)/posix-subsystem

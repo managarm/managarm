@@ -6,7 +6,7 @@
 
 namespace extern_fs {
 
-SharedNode createRootNode();
+SharedLink createRoot();
 
 } // namespace extern_fs
 

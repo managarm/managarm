@@ -13,7 +13,7 @@ namespace extern_fs {
 
 namespace {
 
-struct OpenFile {
+struct OpenFile : FileData {
 	OpenFile(int fd)
 	: _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
 
@@ -41,29 +41,43 @@ private:
 	protocols::fs::File _file;
 };
 
-struct RegularNode {
-	RegularNode(int fd)
+struct Regular : RegularData {
+	Regular(int fd)
 	: _fd(fd) { }
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(SharedEntry entry), ([=] {
-		COFIBER_RETURN(SharedFile::create<OpenFile>(std::move(entry), _fd));
+	COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(), ([=] {
+		COFIBER_RETURN(SharedFile{std::make_shared<OpenFile>(_fd)});
 	}))
 
 private:
 	int _fd;
 };
 
-struct DirectoryNode {
-	COFIBER_ROUTINE(FutureMaybe<SharedNode>, resolveChild(std::string name), ([=] {
+struct Directory : TreeData {
+	COFIBER_ROUTINE(FutureMaybe<SharedLink>, mkdir(std::string name), ([=] {
+		(void)name;
+		assert(!"mkdir is not implemented for extern_fs");
+	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<SharedLink>, symlink(std::string name, std::string link), ([=] {
+		(void)name;
+		(void)link;
+		assert(!"symlink is not implemented for extern_fs");
+	}))
+
+	COFIBER_ROUTINE(FutureMaybe<SharedLink>, getLink(std::string name), ([=] {
 		int fd = open(name.c_str(), O_RDONLY);
-		COFIBER_RETURN(SharedNode::createRegular<RegularNode>(fd));
+		auto node = SharedNode{std::make_shared<Regular>(fd)};
+		// TODO: do not use createRoot here!
+		COFIBER_RETURN(SharedLink::createRoot(std::move(node)));
 	}))
 };
 
 } // anonymous namespace
 
-SharedNode createRootNode() {
-	return SharedNode::createDirectory<DirectoryNode>();
+SharedLink createRoot() {
+	auto node = SharedNode{std::make_shared<Directory>()};
+	return SharedLink::createRoot(std::move(node));
 }
 
 } // namespace extern_fs
