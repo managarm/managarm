@@ -366,8 +366,7 @@ struct Queue {
 				return ptr + sizeof(HelElement);
 			}
 
-			assert(!"Sleep here");
-/*			if(!(ke & kHelQueueWaiters)) {
+			if(!(ke & kHelQueueWaiters)) {
 				auto d = ke | kHelQueueWaiters;
 				if(__atomic_compare_exchange_n(&_queue->kernelState,
 						&ke, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
@@ -375,7 +374,7 @@ struct Queue {
 			}else{
 				HEL_CHECK(helFutexWait((int *)&_queue->kernelState, ke));
 				ke = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
-			}*/
+			}
 		}
 	}
 
