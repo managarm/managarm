@@ -30,7 +30,8 @@ private:
 		COFIBER_RETURN(length);
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(std::shared_ptr<File> object), ([=] {
+	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
+			accessMemory(std::shared_ptr<File> object), ([=] {
 		auto derived = std::static_pointer_cast<OpenFile>(object);
 		auto memory = COFIBER_AWAIT derived->_file.accessMemory();
 		COFIBER_RETURN(std::move(memory));
@@ -52,10 +53,10 @@ private:
 };
 	
 const FileOperations OpenFile::operations{
-	&seek,
-	&readSome,
-	&accessMemory,
-	&getPassthroughLane
+	&OpenFile::seek,
+	&OpenFile::readSome,
+	&OpenFile::accessMemory,
+	&OpenFile::getPassthroughLane
 };
 
 struct Regular : RegularData {
@@ -71,30 +72,31 @@ private:
 };
 
 struct Directory : TreeData {
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, mkdir(std::string name), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdir(std::string name), ([=] {
 		(void)name;
 		assert(!"mkdir is not implemented for extern_fs");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, symlink(std::string name, std::string link), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, symlink(std::string name,
+			std::string link), ([=] {
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, getLink(std::string name), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, getLink(std::string name), ([=] {
 		int fd = open(name.c_str(), O_RDONLY);
 		auto node = SharedNode{std::make_shared<Regular>(fd)};
-		// TODO: do not use createRoot here!
-		COFIBER_RETURN(SharedLink::createRoot(std::move(node)));
+		// TODO: do not use createRootLink here!
+		COFIBER_RETURN(createRootLink(std::move(node)));
 	}))
 };
 
 } // anonymous namespace
 
-SharedLink createRoot() {
+std::shared_ptr<Link> createRoot() {
 	auto node = SharedNode{std::make_shared<Directory>()};
-	return SharedLink::createRoot(std::move(node));
+	return createRootLink(std::move(node));
 }
 
 } // namespace extern_fs

@@ -6,7 +6,7 @@
 
 namespace extern_fs {
 
-SharedLink createRoot();
+std::shared_ptr<Link> createRoot();
 
 } // namespace extern_fs
 

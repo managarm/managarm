@@ -62,44 +62,53 @@ private:
 };
 
 struct Directory : TreeData {
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, getLink(std::string name), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, getLink(std::string name), ([=] {
 		auto it = _entries.find(name);
 		assert(it != _entries.end());
-		COFIBER_RETURN(SharedLink{*it});
+		COFIBER_RETURN(*it);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, mkdir(std::string name), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdir(std::string name), ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = SharedNode{std::make_shared<Directory>()};
-		auto link = std::make_shared<Link>(SharedNode{}, std::move(name), std::move(node));
+		auto link = std::make_shared<MyLink>(SharedNode{}, std::move(name), std::move(node));
 		_entries.insert(link);
-		COFIBER_RETURN(SharedLink{link});
+		COFIBER_RETURN(link);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<SharedLink>, symlink(std::string name, std::string path), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, symlink(std::string name,
+			std::string path), ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = SharedNode{std::make_shared<Symlink>(std::move(path))};
-		auto link = std::make_shared<Link>(SharedNode{}, std::move(name), std::move(node));
+		auto link = std::make_shared<MyLink>(SharedNode{}, std::move(name), std::move(node));
 		_entries.insert(link);
-		COFIBER_RETURN(SharedLink{link});
+		COFIBER_RETURN(link);
 	}))
 
 private:
-	struct Link : LinkData {
-		explicit Link(SharedNode owner, std::string name, SharedNode target)
-		: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
-
-		SharedNode getOwner() override {
-			return owner;
+	struct MyLink : Link {
+	private:
+		static SharedNode getOwner(std::shared_ptr<Link> object) {
+			auto derived = std::static_pointer_cast<MyLink>(object);
+			return derived->owner;
 		}
 
-		std::string getName() override {
-			return name;
+		static std::string getName(std::shared_ptr<Link> object) {
+			auto derived = std::static_pointer_cast<MyLink>(object);
+			return derived->name;
 		}
 
-		SharedNode getTarget() override {
-			return target;
+		static SharedNode getTarget(std::shared_ptr<Link> object) {
+			auto derived = std::static_pointer_cast<MyLink>(object);
+			return derived->target;
 		}
+
+		static const LinkOperations operations;
+
+	public:
+		explicit MyLink(SharedNode owner, std::string name, SharedNode target)
+		: Link(&operations), owner(std::move(owner)),
+				name(std::move(name)), target(std::move(target)) { }
 
 		SharedNode owner;
 		std::string name;
@@ -109,26 +118,32 @@ private:
 	struct Compare {
 		struct is_transparent { };
 
-		bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+		bool operator() (const std::shared_ptr<MyLink> &link, const std::string &name) const {
 			return link->name < name;
 		}
-		bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+		bool operator() (const std::string &name, const std::shared_ptr<MyLink> &link) const {
 			return name < link->name;
 		}
 
-		bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+		bool operator() (const std::shared_ptr<MyLink> &a, const std::shared_ptr<MyLink> &b) const {
 			return a->name < b->name;
 		}
 	};
 
-	std::set<std::shared_ptr<Link>, Compare> _entries;
+	std::set<std::shared_ptr<MyLink>, Compare> _entries;
+};
+
+const LinkOperations Directory::MyLink::operations{
+	&MyLink::getOwner,
+	&MyLink::getName,
+	&MyLink::getTarget
 };
 
 } // anonymous namespace
 
-SharedLink createRoot() {
+std::shared_ptr<Link> createRoot() {
 	auto node = SharedNode{std::make_shared<Directory>()};
-	return SharedLink::createRoot(std::move(node));
+	return createRootLink(std::move(node));
 }
 
 } // namespace tmp_fs

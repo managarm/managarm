@@ -44,10 +44,10 @@ using FutureMaybe = cofiber::future<T>;
 struct File;
 struct FileOperations;
 
-namespace _vfs_node {
-	struct LinkData;
-	struct SharedLink;
+struct Link;
+struct LinkOperations;
 
+namespace _vfs_node {
 	struct NodeData;
 	struct TreeData;
 	struct BlobData;
@@ -55,9 +55,6 @@ namespace _vfs_node {
 	struct SymlinkData;
 	struct SharedNode;
 }
-
-using _vfs_node::LinkData;
-using _vfs_node::SharedLink;
 
 using _vfs_node::NodeData;
 using _vfs_node::TreeData;
@@ -105,30 +102,33 @@ FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file);
 
 helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file);
 
-namespace _vfs_node {
+// ----------------------------------------------------------------------------
+// Link class.
+// ----------------------------------------------------------------------------
 
-struct LinkData {
-	virtual SharedNode getOwner() = 0;
-	virtual std::string getName() = 0;
-	virtual SharedNode getTarget() = 0;
-};
+struct Link {
+	Link(const LinkOperations *operations)
+	: _operations(operations) { }
 
-//! Represents a directory entry on a physical/pseudo file system.
-struct SharedLink {
-	static SharedLink createRoot(SharedNode target);
-
-	SharedLink() = default;
-
-	explicit SharedLink(std::shared_ptr<LinkData> data)
-	: _data(std::move(data)) { }
-
-	bool operator< (const SharedLink &other) const;
-
-	SharedNode getTarget() const;
+	const LinkOperations *operations() {
+		return _operations;
+	}
 
 private:
-	std::shared_ptr<LinkData> _data;
+	const LinkOperations *_operations;
 };
+
+struct LinkOperations {
+	SharedNode (*getOwner)(std::shared_ptr<Link> link);
+	std::string (*getName)(std::shared_ptr<Link> link);
+	SharedNode (*getTarget)(std::shared_ptr<Link> link);
+};
+
+std::shared_ptr<Link> createRootLink(SharedNode target);
+
+SharedNode getTarget(std::shared_ptr<Link> link);
+
+namespace _vfs_node {
 
 struct NodeData {
 	virtual VfsType getType() = 0;
@@ -139,11 +139,11 @@ struct TreeData : NodeData {
 		return VfsType::directory;
 	}
 
-	virtual FutureMaybe<SharedLink> getLink(std::string name) = 0;
+	virtual FutureMaybe<std::shared_ptr<Link>> getLink(std::string name) = 0;
 	
-	virtual FutureMaybe<SharedLink> mkdir(std::string name) = 0;
+	virtual FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name) = 0;
 
-	virtual FutureMaybe<SharedLink> symlink(std::string name, std::string path) = 0;
+	virtual FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path) = 0;
 };
 
 struct BlobData : NodeData { };
@@ -176,13 +176,13 @@ struct SharedNode {
 	VfsType getType() const;
 
 	//! Resolves a file in a directory (directories only).
-	FutureMaybe<SharedLink> getLink(std::string name) const;
+	FutureMaybe<std::shared_ptr<Link>> getLink(std::string name) const;
 
 	//! Creates a new directory (directories only).
-	FutureMaybe<SharedLink> mkdir(std::string name) const;
+	FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name) const;
 	
 	//! Creates a new symlink (directories only).
-	FutureMaybe<SharedLink> symlink(std::string name, std::string path) const;
+	FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path) const;
 	
 	//! Opens the file (regular files only).
 	FutureMaybe<std::shared_ptr<File>> open() const;
@@ -203,7 +203,7 @@ struct Data;
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
 struct SharedView {
-	static SharedView createRoot(SharedLink origin);
+	static SharedView createRoot(std::shared_ptr<Link> origin);
 
 	SharedView() = default;
 
@@ -211,12 +211,12 @@ struct SharedView {
 		return (bool)_data;
 	}
 
-	SharedLink getAnchor() const;
-	SharedLink getOrigin() const;
+	std::shared_ptr<Link> getAnchor() const;
+	std::shared_ptr<Link> getOrigin() const;
 
-	void mount(SharedLink anchor, SharedLink origin) const;
+	void mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin) const;
 
-	SharedView getMount(SharedLink link) const;
+	SharedView getMount(std::shared_ptr<Link> link) const;
 
 private:
 	explicit SharedView(std::shared_ptr<Data> data)
@@ -228,10 +228,10 @@ private:
 struct Compare {
 	struct is_transparent { };
 
-	bool operator() (const SharedView &a, const SharedLink &b) const {
+	bool operator() (const SharedView &a, const std::shared_ptr<Link> &b) const {
 		return a.getAnchor() < b;
 	}
-	bool operator() (const SharedLink &a, const SharedView &b) const {
+	bool operator() (const std::shared_ptr<Link> &a, const SharedView &b) const {
 		return a < b.getAnchor();
 	}
 
@@ -242,8 +242,8 @@ struct Compare {
 
 struct Data {
 	SharedView parent;
-	SharedLink anchor;
-	SharedLink origin;
+	std::shared_ptr<Link> anchor;
+	std::shared_ptr<Link> origin;
 	std::set<SharedView, Compare> mounts;
 };
 

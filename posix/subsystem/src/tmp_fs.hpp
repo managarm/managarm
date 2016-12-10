@@ -6,7 +6,7 @@
 
 namespace tmp_fs {
 
-SharedLink createRoot();
+std::shared_ptr<Link> createRoot();
 
 } // namespace tmp_fs
 
