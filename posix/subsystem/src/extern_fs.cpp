@@ -13,40 +13,57 @@ namespace extern_fs {
 
 namespace {
 
-struct OpenFile : FileData {
-	OpenFile(int fd)
-	: _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
-
-	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence), ([=] {
+struct OpenFile : File {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<off_t>, seek(std::shared_ptr<File> object,
+			off_t offset, VfsSeek whence), ([=] {
+		auto derived = std::static_pointer_cast<OpenFile>(object);
 		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT _file.seekAbsolute(offset);
+		COFIBER_AWAIT derived->_file.seekAbsolute(offset);
 		COFIBER_RETURN(offset);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length), ([=] {
-		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
+	static COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(std::shared_ptr<File> object,
+			void *data, size_t max_length), ([=] {
+		auto derived = std::static_pointer_cast<OpenFile>(object);
+		size_t length = COFIBER_AWAIT derived->_file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(), ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory();
+	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(std::shared_ptr<File> object), ([=] {
+		auto derived = std::static_pointer_cast<OpenFile>(object);
+		auto memory = COFIBER_AWAIT derived->_file.accessMemory();
 		COFIBER_RETURN(std::move(memory));
 	}))
 
-	helix::BorrowedDescriptor getPassthroughLane() {
-		return _file.getLane();
+	static helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> object) {
+		auto derived = std::static_pointer_cast<OpenFile>(object);
+		return derived->_file.getLane();
 	}
+
+	static const FileOperations operations;
+
+public:
+	OpenFile(int fd)
+	: File(&operations), _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
 
 private:
 	protocols::fs::File _file;
+};
+	
+const FileOperations OpenFile::operations{
+	&seek,
+	&readSome,
+	&accessMemory,
+	&getPassthroughLane
 };
 
 struct Regular : RegularData {
 	Regular(int fd)
 	: _fd(fd) { }
 
-	COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(), ([=] {
-		COFIBER_RETURN(SharedFile{std::make_shared<OpenFile>(_fd)});
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(), ([=] {
+		COFIBER_RETURN(std::make_shared<OpenFile>(_fd));
 	}))
 
 private:

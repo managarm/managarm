@@ -13,7 +13,7 @@ struct SharedProcess {
 		return SharedProcess(std::move(data));
 	}
 
-	int attachFile(SharedFile file) const {
+	int attachFile(std::shared_ptr<File> file) const {
 		for(int fd = 0; ; fd++) {
 			if(_data->fileTable.find(fd) != _data->fileTable.end())
 				continue;
@@ -25,7 +25,7 @@ struct SharedProcess {
 private:
 	struct Data {
 		// TODO: replace this by a tree that remembers gaps between keys.
-		std::unordered_map<int, SharedFile> fileTable;
+		std::unordered_map<int, std::shared_ptr<File>> fileTable;
 	};
 
 	explicit SharedProcess(std::shared_ptr<Data> data)

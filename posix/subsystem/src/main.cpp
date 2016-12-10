@@ -62,7 +62,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			auto ser = resp.SerializeAsString();
 			helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&push_passthrough, file.getPassthroughLane())
+				helix::action(&push_passthrough, getPassthroughLane(file))
 			}, helix::Dispatcher::global());
 			
 			COFIBER_AWAIT send_resp.future();

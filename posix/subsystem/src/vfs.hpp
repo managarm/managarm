@@ -41,13 +41,8 @@ template<typename T>
 using FutureMaybe = cofiber::future<T>;
 
 // Forward declarations.
-namespace _vfs_file {
-	struct FileData;
-	struct SharedFile;
-}
-
-using _vfs_file::FileData;
-using _vfs_file::SharedFile;
+struct File;
+struct FileOperations;
 
 namespace _vfs_node {
 	struct LinkData;
@@ -78,41 +73,37 @@ namespace _vfs_view {
 using _vfs_view::SharedView;
 
 // ----------------------------------------------------------------------------
-// SharedFile class.
+// File class.
 // ----------------------------------------------------------------------------
 
-namespace _vfs_file {
+struct File {
+	File(const FileOperations *operations)
+	: _operations(operations) { }
 
-struct FileData {
-	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) = 0;
-
-	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
-	
-	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory() = 0;
-
-	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
-};
-
-//! Represents an open file.
-struct SharedFile {
-	FutureMaybe<void> readExactly(void *data, size_t length) const;
-	
-	FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) const;
-
-	FutureMaybe<size_t> readSome(void *data, size_t max_length) const;
-	
-	FutureMaybe<helix::UniqueDescriptor> accessMemory() const;
-
-	helix::BorrowedDescriptor getPassthroughLane() const;
-
-	explicit SharedFile(std::shared_ptr<FileData> data)
-	: _data(std::move(data)) { }
+	const FileOperations *operations() {
+		return _operations;
+	}
 
 private:
-	std::shared_ptr<FileData> _data;
+	const FileOperations *_operations;
 };
 
-} // namespace _vfs_file
+struct FileOperations {
+	FutureMaybe<off_t> (*seek)(std::shared_ptr<File> object, off_t offset, VfsSeek whence);
+	FutureMaybe<size_t> (*readSome)(std::shared_ptr<File> object, void *data, size_t max_length);
+	FutureMaybe<helix::UniqueDescriptor> (*accessMemory)(std::shared_ptr<File> object);
+	helix::BorrowedDescriptor (*getPassthroughLane)(std::shared_ptr<File> object);
+};
+
+FutureMaybe<void> readExactly(std::shared_ptr<File> file, void *data, size_t length);
+
+FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence);
+
+FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length);
+
+FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file);
+
+helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file);
 
 namespace _vfs_node {
 
@@ -162,7 +153,7 @@ struct RegularData : BlobData {
 		return VfsType::regular;
 	}
 
-	virtual FutureMaybe<SharedFile> open() = 0;
+	virtual FutureMaybe<std::shared_ptr<File>> open() = 0;
 };
 
 struct SymlinkData : BlobData {
@@ -194,7 +185,7 @@ struct SharedNode {
 	FutureMaybe<SharedLink> symlink(std::string name, std::string path) const;
 	
 	//! Opens the file (regular files only).
-	FutureMaybe<SharedFile> open() const;
+	FutureMaybe<std::shared_ptr<File>> open() const;
 	
 	//! Reads the target of a symlink (symlinks only).
 	FutureMaybe<std::string> readSymlink() const;
@@ -258,7 +249,7 @@ struct Data {
 
 } // namespace _vfs_view
 
-FutureMaybe<SharedFile> open(std::string name);
+FutureMaybe<std::shared_ptr<File>> open(std::string name);
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP
 

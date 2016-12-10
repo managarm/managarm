@@ -11,15 +11,14 @@
 #include "extern_fs.hpp"
 
 // --------------------------------------------------------
-// SharedFile implementation.
+// File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<void>, SharedFile::readExactly(void *data, size_t length) const,
+COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file, void *data, size_t length),
 		([=] {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = COFIBER_AWAIT readSome((char *)data + offset,
-				length - offset);
+		auto result = COFIBER_AWAIT readSome(file, (char *)data + offset, length - offset);
 		assert(result > 0);
 		offset += result;
 	}
@@ -27,20 +26,20 @@ COFIBER_ROUTINE(FutureMaybe<void>, SharedFile::readExactly(void *data, size_t le
 	COFIBER_RETURN();
 }))
 
-FutureMaybe<off_t> SharedFile::seek(off_t offset, VfsSeek whence) const {
-	return _data->seek(offset, whence);
+FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence) {
+	return file->operations()->seek(file, offset, whence);
 }
 
-FutureMaybe<size_t> SharedFile::readSome(void *data, size_t max_length) const {
-	return _data->readSome(data, max_length);
+FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length) {
+	return file->operations()->readSome(file, data, max_length);
 }
 
-FutureMaybe<helix::UniqueDescriptor> SharedFile::accessMemory() const {
-	return _data->accessMemory();
+FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file) {
+	return file->operations()->accessMemory(file);
 }
 
-helix::BorrowedDescriptor SharedFile::getPassthroughLane() const {
-	return _data->getPassthroughLane();
+helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
+	return file->operations()->getPassthroughLane(file);
 }
 
 // --------------------------------------------------------
@@ -103,7 +102,7 @@ FutureMaybe<SharedLink> SharedNode::symlink(std::string name, std::string path) 
 	return std::static_pointer_cast<TreeData>(_data)->symlink(std::move(name), std::move(path));
 }
 
-FutureMaybe<SharedFile> SharedNode::open() const {
+FutureMaybe<std::shared_ptr<File>> SharedNode::open() const {
 	return std::static_pointer_cast<RegularData>(_data)->open();
 }
 
@@ -157,6 +156,10 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	// symlink files from / to /initrd.
 	COFIBER_AWAIT(tree.getTarget().symlink("ld-init.so", "initrd/ld-init.so"));
 	COFIBER_AWAIT(tree.getTarget().symlink("posix-init", "initrd/posix-init"));
+	COFIBER_AWAIT(tree.getTarget().symlink("libgcc_s.so.1", "initrd/libgcc_s.so.1"));
+	COFIBER_AWAIT(tree.getTarget().symlink("libstdc++.so.6", "initrd/libstdc++.so.6"));
+	COFIBER_AWAIT(tree.getTarget().symlink("libc.so", "initrd/libc.so"));
+	COFIBER_AWAIT(tree.getTarget().symlink("libm.so", "initrd/libm.so"));
 
 	COFIBER_RETURN(std::move(view));
 }))
@@ -248,7 +251,7 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string
 
 } // anonymous namespace
 
-COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(std::string name), ([=] {
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=] {
 	auto path = Path::decompose(std::move(name));
 	std::deque<std::string> components(path.begin(), path.end());
 
@@ -257,7 +260,7 @@ COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(std::string name), ([=] {
 	while(!components.empty()) {
 		auto name = components.front();
 		components.pop_front();
-//		std::cout << "Resolving " << name << std::endl;
+		std::cout << "Resolving " << name << std::endl;
 
 		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
 		if(child.second.getTarget().getType() == VfsType::symlink) {
