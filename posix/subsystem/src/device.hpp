@@ -12,7 +12,7 @@ struct DeviceOperations;
 
 struct Device {
 	Device(DeviceId id, const DeviceOperations *operations)
-	: _operations(operations) { }
+	: _id(id), _operations(operations) { }
 
 	DeviceId id() {
 		return _id;
