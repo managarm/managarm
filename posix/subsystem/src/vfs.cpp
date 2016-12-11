@@ -49,9 +49,9 @@ helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
 namespace {
 	struct RootLink : Link {
 	private:
-		static SharedNode getOwner(std::shared_ptr<Link> object) {
+		static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
 			(void)object;
-			return SharedNode{};
+			return std::shared_ptr<Node>{};
 		}
 
 		static std::string getName(std::shared_ptr<Link> object) {
@@ -59,7 +59,7 @@ namespace {
 			assert(!"No associated name");
 		}
 
-		static SharedNode getTarget(std::shared_ptr<Link> object) {
+		static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
 			auto derived = std::static_pointer_cast<RootLink>(object);
 			return derived->_target;
 		}
@@ -67,11 +67,11 @@ namespace {
 		static const LinkOperations operations;
 
 	public:
-		RootLink(SharedNode target)
+		RootLink(std::shared_ptr<Node> target)
 		: Link(&operations), _target{std::move(target)} { }
 
 	private:
-		SharedNode _target;
+		std::shared_ptr<Node> _target;
 	};
 
 	const LinkOperations RootLink::operations{
@@ -81,49 +81,41 @@ namespace {
 	};
 }
 
-std::shared_ptr<Link> createRootLink(SharedNode target) {
+std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target) {
 	return std::make_shared<RootLink>(std::move(target));
 }
 
-/* FIXME
-bool SharedLink::operator< (const SharedLink &other) const {
-	return _data < other._data;
-}*/
-
-SharedNode getTarget(std::shared_ptr<Link> link) {
+std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link) {
 	return link->operations()->getTarget(link);
 }
 
 // --------------------------------------------------------
-// SharedNode implementation.
+// Node implementation.
 // --------------------------------------------------------
 
-bool SharedNode::operator< (const SharedNode &other) const {
-	return _data < other._data;
+VfsType getType(std::shared_ptr<Node> node) {
+	return node->operations()->getType(node);
 }
 
-VfsType SharedNode::getType() const {
-	return _data->getType();
+FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name) {
+	return node->operations()->getLink(node, std::move(name));
 }
 
-FutureMaybe<std::shared_ptr<Link>> SharedNode::getLink(std::string name) const {
-	return std::static_pointer_cast<TreeData>(_data)->getLink(std::move(name));
+FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name) {
+	return node->operations()->mkdir(node, std::move(name));
 }
 
-FutureMaybe<std::shared_ptr<Link>> SharedNode::mkdir(std::string name) const {
-	return std::static_pointer_cast<TreeData>(_data)->mkdir(std::move(name));
+FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
+		std::string name, std::string path) {
+	return node->operations()->symlink(node, std::move(name), std::move(path));
 }
 
-FutureMaybe<std::shared_ptr<Link>> SharedNode::symlink(std::string name, std::string path) const {
-	return std::static_pointer_cast<TreeData>(_data)->symlink(std::move(name), std::move(path));
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node) {
+	return node->operations()->open(node);
 }
 
-FutureMaybe<std::shared_ptr<File>> SharedNode::open() const {
-	return std::static_pointer_cast<RegularData>(_data)->open();
-}
-
-FutureMaybe<std::string> SharedNode::readSymlink() const {
-	return std::static_pointer_cast<SymlinkData>(_data)->readSymlink();
+FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node) {
+	return node->operations()->readSymlink(node);
 }
 
 // --------------------------------------------------------
@@ -166,16 +158,16 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	auto view = SharedView::createRoot(tree);
 
 	// mount the initrd to /initrd.
-	auto link = COFIBER_AWAIT(getTarget(tree).mkdir("initrd"));
+	auto link = COFIBER_AWAIT(mkdir(getTarget(tree), "initrd"));
 	view.mount(std::move(link), extern_fs::createRoot());
 
 	// symlink files from / to /initrd.
-	COFIBER_AWAIT(getTarget(tree).symlink("ld-init.so", "initrd/ld-init.so"));
-	COFIBER_AWAIT(getTarget(tree).symlink("posix-init", "initrd/posix-init"));
-	COFIBER_AWAIT(getTarget(tree).symlink("libgcc_s.so.1", "initrd/libgcc_s.so.1"));
-	COFIBER_AWAIT(getTarget(tree).symlink("libstdc++.so.6", "initrd/libstdc++.so.6"));
-	COFIBER_AWAIT(getTarget(tree).symlink("libc.so", "initrd/libc.so"));
-	COFIBER_AWAIT(getTarget(tree).symlink("libm.so", "initrd/libm.so"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "posix-init", "initrd/posix-init"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "libc.so", "initrd/libc.so"));
+	COFIBER_AWAIT(symlink(getTarget(tree), "libm.so", "initrd/libm.so"));
 
 	COFIBER_RETURN(std::move(view));
 }))
@@ -253,7 +245,7 @@ namespace {
 using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string name), ([=] {
-	auto child = COFIBER_AWAIT getTarget(parent.second).getLink(std::move(name));
+	auto child = COFIBER_AWAIT getLink(getTarget(parent.second), std::move(name));
 	auto mount = parent.first.getMount(child);
 	if(mount) {
 //		std::cout << "It's a mount point" << std::endl;
@@ -279,8 +271,8 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 		std::cout << "Resolving " << name << std::endl;
 
 		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
-		if(getTarget(child.second).getType() == VfsType::symlink) {
-			auto link = Path::decompose(COFIBER_AWAIT getTarget(child.second).readSymlink());
+		if(getType(getTarget(child.second)) == VfsType::symlink) {
+			auto link = Path::decompose(COFIBER_AWAIT readSymlink(getTarget(child.second)));
 			components.insert(components.begin(), link.begin(), link.end());
 		}else{
 			current = std::move(child);
@@ -289,8 +281,8 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 
 //	std::cout << "Opening file..." << std::endl;
 
-	assert(getTarget(current.second).getType() == VfsType::regular);
-	auto file = COFIBER_AWAIT getTarget(current.second).open();
+	assert(getType(getTarget(current.second)) == VfsType::regular);
+	auto file = COFIBER_AWAIT open(getTarget(current.second));
 	COFIBER_RETURN(std::move(file));
 }))
 

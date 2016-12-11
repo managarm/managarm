@@ -47,21 +47,8 @@ struct FileOperations;
 struct Link;
 struct LinkOperations;
 
-namespace _vfs_node {
-	struct NodeData;
-	struct TreeData;
-	struct BlobData;
-	struct RegularData;
-	struct SymlinkData;
-	struct SharedNode;
-}
-
-using _vfs_node::NodeData;
-using _vfs_node::TreeData;
-using _vfs_node::BlobData;
-using _vfs_node::RegularData;
-using _vfs_node::SymlinkData;
-using _vfs_node::SharedNode;
+struct Node;
+struct NodeOperations;
 
 namespace _vfs_view {
 	struct SharedView;
@@ -119,82 +106,73 @@ private:
 };
 
 struct LinkOperations {
-	SharedNode (*getOwner)(std::shared_ptr<Link> link);
+	std::shared_ptr<Node> (*getOwner)(std::shared_ptr<Link> link);
 	std::string (*getName)(std::shared_ptr<Link> link);
-	SharedNode (*getTarget)(std::shared_ptr<Link> link);
+	std::shared_ptr<Node> (*getTarget)(std::shared_ptr<Link> link);
 };
 
-std::shared_ptr<Link> createRootLink(SharedNode target);
+std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target);
 
-SharedNode getTarget(std::shared_ptr<Link> link);
+std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link);
 
-namespace _vfs_node {
+// ----------------------------------------------------------------------------
+// Node class.
+// ----------------------------------------------------------------------------
 
-struct NodeData {
-	virtual VfsType getType() = 0;
-};
+struct Node {
+	Node(const NodeOperations *operations)
+	: _operations(operations) { }
 
-struct TreeData : NodeData {
-	VfsType getType() override {
-		return VfsType::directory;
+	const NodeOperations *operations() {
+		return _operations;
 	}
-
-	virtual FutureMaybe<std::shared_ptr<Link>> getLink(std::string name) = 0;
-	
-	virtual FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name) = 0;
-
-	virtual FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path) = 0;
-};
-
-struct BlobData : NodeData { };
-
-struct RegularData : BlobData {
-	VfsType getType() override {
-		return VfsType::regular;
-	}
-
-	virtual FutureMaybe<std::shared_ptr<File>> open() = 0;
-};
-
-struct SymlinkData : BlobData {
-	VfsType getType() override {
-		return VfsType::symlink;
-	}
-
-	virtual FutureMaybe<std::string> readSymlink() = 0;
-};
-
-//! Represents a file on a physical/pseudo file system.
-struct SharedNode {
-	SharedNode() = default;
-
-	explicit SharedNode(std::shared_ptr<NodeData> data)
-	: _data(std::move(data)) { };
-
-	bool operator< (const SharedNode &other) const;
-
-	VfsType getType() const;
-
-	//! Resolves a file in a directory (directories only).
-	FutureMaybe<std::shared_ptr<Link>> getLink(std::string name) const;
-
-	//! Creates a new directory (directories only).
-	FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name) const;
-	
-	//! Creates a new symlink (directories only).
-	FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path) const;
-	
-	//! Opens the file (regular files only).
-	FutureMaybe<std::shared_ptr<File>> open() const;
-	
-	//! Reads the target of a symlink (symlinks only).
-	FutureMaybe<std::string> readSymlink() const;
 
 private:
-	std::shared_ptr<NodeData> _data;
+	const NodeOperations *_operations;
 };
 
-} // namespace _vfs_node
+struct NodeOperations {
+	VfsType (*getType)(std::shared_ptr<Node> node);
+
+	//! Resolves a file in a directory (directories only).
+	FutureMaybe<std::shared_ptr<Link>> (*getLink)(std::shared_ptr<Node> node, std::string name);
+
+	//! Creates a new directory (directories only).
+	FutureMaybe<std::shared_ptr<Link>> (*mkdir)(std::shared_ptr<Node> node, std::string name);
+	
+	//! Creates a new symlink (directories only).
+	FutureMaybe<std::shared_ptr<Link>> (*symlink)(std::shared_ptr<Node> node,
+			std::string name, std::string path);
+	
+	//! Opens the file (regular files only).
+	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Node> node);
+	
+	//! Reads the target of a symlink (symlinks only).
+	FutureMaybe<std::string> (*readSymlink)(std::shared_ptr<Node> node);
+};
+
+VfsType getType(std::shared_ptr<Node> node);
+
+FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name);
+
+FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name);
+
+FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
+		std::string name, std::string path);
+
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node);
+
+FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node);
+
+inline VfsType getDirectoryType(std::shared_ptr<Node>) {
+	return VfsType::directory;
+}
+inline VfsType getRegularType(std::shared_ptr<Node>) {
+	return VfsType::regular;
+}
+inline VfsType getSymlinkType(std::shared_ptr<Node>) {
+	return VfsType::symlink;
+}
 
 namespace _vfs_view {
 

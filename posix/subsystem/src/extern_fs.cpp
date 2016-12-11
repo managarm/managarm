@@ -59,43 +59,79 @@ const FileOperations OpenFile::operations{
 	&OpenFile::getPassthroughLane
 };
 
-struct Regular : RegularData {
-	Regular(int fd)
-	: _fd(fd) { }
-
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(), ([=] {
-		COFIBER_RETURN(std::make_shared<OpenFile>(_fd));
+struct Regular : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<Node> object), ([=] {
+		auto derived = std::static_pointer_cast<Regular>(object);
+		COFIBER_RETURN(std::make_shared<OpenFile>(derived->_fd));
 	}))
+
+	static const NodeOperations operations;
+
+public:
+	Regular(int fd)
+	: Node(&operations), _fd(fd) { }
 
 private:
 	int _fd;
 };
 
-struct Directory : TreeData {
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdir(std::string name), ([=] {
+const NodeOperations Regular::operations{
+	&getRegularType,
+	nullptr,
+	nullptr,
+	nullptr,
+	&Regular::open,
+	nullptr
+};
+
+struct Directory : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
+		(void)object;
 		(void)name;
 		assert(!"mkdir is not implemented for extern_fs");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, symlink(std::string name,
-			std::string link), ([=] {
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			symlink(std::shared_ptr<Node> object, std::string name, std::string link), ([=] {
+		(void)object;
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, getLink(std::string name), ([=] {
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
+		(void)object;
 		int fd = open(name.c_str(), O_RDONLY);
-		auto node = SharedNode{std::make_shared<Regular>(fd)};
+		auto node = std::make_shared<Regular>(fd);
 		// TODO: do not use createRootLink here!
 		COFIBER_RETURN(createRootLink(std::move(node)));
 	}))
+
+	static const NodeOperations operations;
+
+public:
+	Directory()
+	: Node(&operations) { }
+};
+
+const NodeOperations Directory::operations{
+	&getDirectoryType,
+	&Directory::getLink,
+	&Directory::mkdir,
+	&Directory::symlink,
+	nullptr,
+	nullptr
 };
 
 } // anonymous namespace
 
 std::shared_ptr<Link> createRoot() {
-	auto node = SharedNode{std::make_shared<Directory>()};
+	auto node = std::make_shared<Directory>();
 	return createRootLink(std::move(node));
 }
 

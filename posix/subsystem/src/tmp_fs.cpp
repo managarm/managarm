@@ -49,46 +49,73 @@ private:
 	int _fd;
 };*/
 
-struct Symlink : SymlinkData {
-	Symlink(std::string link)
-	: _link(std::move(link)) { }
-	
-	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink(), ([=] {
-		COFIBER_RETURN(_link);
+struct Symlink : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::string>,
+			readSymlink(std::shared_ptr<Node> object), ([=] {
+		auto derived = std::static_pointer_cast<Symlink>(object);
+		COFIBER_RETURN(derived->_link);
 	}))
+
+	static const NodeOperations operations;
+
+public:
+	Symlink(std::string link)
+	: Node(&operations), _link(std::move(link)) { }
 
 private:
 	std::string _link;
 };
 
-struct Directory : TreeData {
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, getLink(std::string name), ([=] {
-		auto it = _entries.find(name);
-		assert(it != _entries.end());
+const NodeOperations Symlink::operations{
+	&getSymlinkType,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	&Symlink::readSymlink
+};
+
+struct Directory : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
+		auto derived = std::static_pointer_cast<Directory>(object);
+		auto it = derived->_entries.find(name);
+		assert(it != derived->_entries.end());
 		COFIBER_RETURN(*it);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdir(std::string name), ([=] {
-		assert(_entries.find(name) == _entries.end());
-		auto node = SharedNode{std::make_shared<Directory>()};
-		auto link = std::make_shared<MyLink>(SharedNode{}, std::move(name), std::move(node));
-		_entries.insert(link);
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
+		auto derived = std::static_pointer_cast<Directory>(object);
+		assert(derived->_entries.find(name) == derived->_entries.end());
+		auto node = std::make_shared<Directory>();
+		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
+		derived->_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, symlink(std::string name,
-			std::string path), ([=] {
-		assert(_entries.find(name) == _entries.end());
-		auto node = SharedNode{std::make_shared<Symlink>(std::move(path))};
-		auto link = std::make_shared<MyLink>(SharedNode{}, std::move(name), std::move(node));
-		_entries.insert(link);
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			symlink(std::shared_ptr<Node> object, std::string name, std::string path), ([=] {
+		auto derived = std::static_pointer_cast<Directory>(object);
+		assert(derived->_entries.find(name) == derived->_entries.end());
+		auto node = std::make_shared<Symlink>(std::move(path));
+		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
+		derived->_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
+
+	static const NodeOperations operations;
+
+public:
+	Directory()
+	: Node(&operations) { }
 
 private:
 	struct MyLink : Link {
 	private:
-		static SharedNode getOwner(std::shared_ptr<Link> object) {
+		static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
 			auto derived = std::static_pointer_cast<MyLink>(object);
 			return derived->owner;
 		}
@@ -98,7 +125,7 @@ private:
 			return derived->name;
 		}
 
-		static SharedNode getTarget(std::shared_ptr<Link> object) {
+		static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
 			auto derived = std::static_pointer_cast<MyLink>(object);
 			return derived->target;
 		}
@@ -106,13 +133,13 @@ private:
 		static const LinkOperations operations;
 
 	public:
-		explicit MyLink(SharedNode owner, std::string name, SharedNode target)
+		explicit MyLink(std::shared_ptr<Node> owner, std::string name, std::shared_ptr<Node> target)
 		: Link(&operations), owner(std::move(owner)),
 				name(std::move(name)), target(std::move(target)) { }
 
-		SharedNode owner;
+		std::shared_ptr<Node> owner;
 		std::string name;
-		SharedNode target;
+		std::shared_ptr<Node> target;
 	};
 
 	struct Compare {
@@ -133,6 +160,15 @@ private:
 	std::set<std::shared_ptr<MyLink>, Compare> _entries;
 };
 
+const NodeOperations Directory::operations{
+	&getDirectoryType,
+	&Directory::getLink,
+	&Directory::mkdir,
+	&Directory::symlink,
+	nullptr,
+	nullptr
+};
+
 const LinkOperations Directory::MyLink::operations{
 	&MyLink::getOwner,
 	&MyLink::getName,
@@ -142,7 +178,7 @@ const LinkOperations Directory::MyLink::operations{
 } // anonymous namespace
 
 std::shared_ptr<Link> createRoot() {
-	auto node = SharedNode{std::make_shared<Directory>()};
+	auto node = std::make_shared<Directory>();
 	return createRootLink(std::move(node));
 }
 
