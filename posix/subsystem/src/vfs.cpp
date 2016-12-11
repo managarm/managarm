@@ -110,6 +110,11 @@ FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
 	return node->operations()->symlink(node, std::move(name), std::move(path));
 }
 
+FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node,
+		std::string name, VfsType type, DeviceId id) {
+	return node->operations()->mkdev(node, std::move(name), type, id);
+}
+
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node) {
 	return node->operations()->open(node);
 }
@@ -157,17 +162,21 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	auto tree = tmp_fs::createRoot();
 	auto view = SharedView::createRoot(tree);
 
+	// create a /dev directory + device files.
+	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
+	COFIBER_AWAIT mkdev(getTarget(dev), "helout", VfsType::charDevice, { 0, 1 });
+
 	// mount the initrd to /initrd.
-	auto link = COFIBER_AWAIT(mkdir(getTarget(tree), "initrd"));
-	view.mount(std::move(link), extern_fs::createRoot());
+	auto initrd = COFIBER_AWAIT mkdir(getTarget(tree), "initrd");
+	view.mount(std::move(initrd), extern_fs::createRoot());
 
 	// symlink files from / to /initrd.
-	COFIBER_AWAIT(symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so"));
-	COFIBER_AWAIT(symlink(getTarget(tree), "posix-init", "initrd/posix-init"));
-	COFIBER_AWAIT(symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1"));
-	COFIBER_AWAIT(symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6"));
-	COFIBER_AWAIT(symlink(getTarget(tree), "libc.so", "initrd/libc.so"));
-	COFIBER_AWAIT(symlink(getTarget(tree), "libm.so", "initrd/libm.so"));
+	COFIBER_AWAIT symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "posix-init", "initrd/posix-init");
+	COFIBER_AWAIT symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1");
+	COFIBER_AWAIT symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6");
+	COFIBER_AWAIT symlink(getTarget(tree), "libc.so", "initrd/libc.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libm.so", "initrd/libm.so");
 
 	COFIBER_RETURN(std::move(view));
 }))

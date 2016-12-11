@@ -9,46 +9,6 @@ namespace tmp_fs {
 
 namespace {
 
-/*struct OpenFile {
-	OpenFile(int fd)
-	: _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
-
-	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence), ([=] {
-		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT _file.seekAbsolute(offset);
-		COFIBER_RETURN(offset);
-	}))
-
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length), ([=] {
-		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
-		COFIBER_RETURN(length);
-	}))
-
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(), ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory();
-		COFIBER_RETURN(std::move(memory));
-	}))
-
-	helix::BorrowedDescriptor getPassthroughLane() {
-		return _file.getLane();
-	}
-
-private:
-	protocols::fs::File _file;
-};
-
-struct RegularNode {
-	RegularNode(int fd)
-	: _fd(fd) { }
-
-	COFIBER_ROUTINE(FutureMaybe<SharedFile>, open(SharedEntry entry), ([=] {
-		COFIBER_RETURN(SharedFile::create<OpenFile>(std::move(entry), _fd));
-	}))
-
-private:
-	int _fd;
-};*/
-
 struct Symlink : Node {
 private:
 	static COFIBER_ROUTINE(FutureMaybe<std::string>,
@@ -73,7 +33,45 @@ const NodeOperations Symlink::operations{
 	nullptr,
 	nullptr,
 	nullptr,
-	&Symlink::readSymlink
+	nullptr,
+	&Symlink::readSymlink,
+	nullptr
+};
+
+struct DeviceFile : Node {
+private:
+	static VfsType getType(std::shared_ptr<Node> object) {
+		auto derived = std::static_pointer_cast<DeviceFile>(object);
+		return derived->_type;
+	}
+
+	static DeviceId readDevice(std::shared_ptr<Node> object) {
+		auto derived = std::static_pointer_cast<DeviceFile>(object);
+		return derived->_id;
+	}
+
+	static const NodeOperations operations;
+
+public:
+	DeviceFile(VfsType type, DeviceId id)
+	: Node(&operations), _type(type), _id(id) {
+		assert(type == VfsType::charDevice || type == VfsType::blockDevice);
+	}
+
+private:
+	VfsType _type;
+	DeviceId _id;
+};
+
+const NodeOperations DeviceFile::operations{
+	&DeviceFile::getType,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	&DeviceFile::readDevice
 };
 
 struct Directory : Node {
@@ -101,6 +99,16 @@ private:
 		auto derived = std::static_pointer_cast<Directory>(object);
 		assert(derived->_entries.find(name) == derived->_entries.end());
 		auto node = std::make_shared<Symlink>(std::move(path));
+		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
+		derived->_entries.insert(link);
+		COFIBER_RETURN(link);
+	}))
+	
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
+			std::string name, VfsType type, DeviceId id), ([=] {
+		auto derived = std::static_pointer_cast<Directory>(object);
+		assert(derived->_entries.find(name) == derived->_entries.end());
+		auto node = std::make_shared<DeviceFile>(type, id);
 		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
 		derived->_entries.insert(link);
 		COFIBER_RETURN(link);
@@ -165,6 +173,8 @@ const NodeOperations Directory::operations{
 	&Directory::getLink,
 	&Directory::mkdir,
 	&Directory::symlink,
+	&Directory::mkdev,
+	nullptr,
 	nullptr,
 	nullptr
 };

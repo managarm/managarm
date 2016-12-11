@@ -10,16 +10,16 @@
 #include <cofiber/future.hpp>
 #include <hel.h>
 
-//#include "device.hpp"
-
 struct Process;
+
+using DeviceId = std::pair<int, int>;
 
 enum VfsError {
 	success, eof
 };
 
 enum class VfsType {
-	null, directory, symlink, regular
+	null, directory, regular, symlink, charDevice, blockDevice
 };
 
 enum class VfsSeek {
@@ -144,11 +144,18 @@ struct NodeOperations {
 	FutureMaybe<std::shared_ptr<Link>> (*symlink)(std::shared_ptr<Node> node,
 			std::string name, std::string path);
 	
+	//! Creates a new device file (directories only).
+	FutureMaybe<std::shared_ptr<Link>> (*mkdev)(std::shared_ptr<Node> node, std::string name,
+			VfsType type, DeviceId id);
+	
 	//! Opens the file (regular files only).
 	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Node> node);
 	
 	//! Reads the target of a symlink (symlinks only).
 	FutureMaybe<std::string> (*readSymlink)(std::shared_ptr<Node> node);
+
+	//! Read the major/minor device number (devices only).
+	DeviceId (*readDevice)(std::shared_ptr<Node> node);
 };
 
 VfsType getType(std::shared_ptr<Node> node);
@@ -160,9 +167,14 @@ FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string
 FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
 		std::string name, std::string path);
 
+FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node, std::string name,
+		VfsType type, DeviceId id);
+
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node);
 
 FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node);
+
+DeviceId readDevice(std::shared_ptr<Node> node);
 
 inline VfsType getDirectoryType(std::shared_ptr<Node>) {
 	return VfsType::directory;

@@ -82,7 +82,9 @@ const NodeOperations Regular::operations{
 	nullptr,
 	nullptr,
 	nullptr,
+	nullptr,
 	&Regular::open,
+	nullptr,
 	nullptr
 };
 
@@ -101,6 +103,15 @@ private:
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
+	}))
+	
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
+			std::string name, VfsType type, DeviceId id), ([=] {
+		(void)object;
+		(void)name;
+		(void)type;
+		(void)id;
+		assert(!"mkdev is not implemented for extern_fs");
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
@@ -124,6 +135,8 @@ const NodeOperations Directory::operations{
 	&Directory::getLink,
 	&Directory::mkdir,
 	&Directory::symlink,
+	&Directory::mkdev,
+	nullptr,
 	nullptr,
 	nullptr
 };
