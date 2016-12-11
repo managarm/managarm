@@ -46,9 +46,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		
 		auto conversation = accept.descriptor();
 
-		managarm::posix::ClientRequest req;
+		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.request_type() == managarm::posix::ClientRequestType::OPEN) {
+		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			auto file = COFIBER_AWAIT open(req.path());
 			int fd = self.attachFile(file);
 			(void)fd;
@@ -56,7 +56,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_passthrough;
 
-			managarm::posix::ServerResponse resp;
+			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
@@ -74,7 +74,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer<M> send_resp;
 
-			managarm::posix::ServerResponse resp;
+			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();

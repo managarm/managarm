@@ -390,8 +390,8 @@ frigg::Optional<HelHandle> posixOpen(frigg::String<Allocator> path) {
 	HelInlineResult *recv_resp;
 	HelHandleResult *pull_lane;
 
-	managarm::posix::ClientRequest<Allocator> req(*allocator);
-	req.set_request_type(managarm::posix::ClientRequestType::OPEN);
+	managarm::posix::CntRequest<Allocator> req(*allocator);
+	req.set_request_type(managarm::posix::CntReqType::OPEN);
 	req.set_path(path);
 
 	Queue m;
@@ -420,7 +420,7 @@ frigg::Optional<HelHandle> posixOpen(frigg::String<Allocator> path) {
 	HEL_CHECK(recv_resp->error);
 	HEL_CHECK(pull_lane->error);
 	
-	managarm::posix::ServerResponse<Allocator> resp(*allocator);
+	managarm::posix::SvrResponse<Allocator> resp(*allocator);
 	resp.ParseFromArray(recv_resp->data, recv_resp->length);
 
 	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)

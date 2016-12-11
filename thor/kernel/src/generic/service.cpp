@@ -238,12 +238,12 @@ namespace initrd {
 	// ----------------------------------------------------
 
 	struct OpenClosure {
-		OpenClosure(LaneHandle lane, posix::ClientRequest<KernelAlloc> req)
+		OpenClosure(LaneHandle lane, posix::CntRequest<KernelAlloc> req)
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
 
 		void operator() () {
 			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
-			posix::ServerResponse<KernelAlloc> resp(*kernelAlloc);
+			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			resp.SerializeToString(&_buffer);
@@ -276,7 +276,7 @@ namespace initrd {
 		}
 
 		LaneHandle _lane;
-		posix::ClientRequest<KernelAlloc> _req;
+		posix::CntRequest<KernelAlloc> _req;
 
 		frigg::String<KernelAlloc> _buffer;
 	};
@@ -302,10 +302,10 @@ namespace initrd {
 		void onReceive(Error error, size_t length) {
 			assert(error == kErrSuccess);
 
-			posix::ClientRequest<KernelAlloc> req(*kernelAlloc);
+			posix::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(_buffer, length);
 
-			if(req.request_type() == managarm::posix::ClientRequestType::OPEN) {
+			if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();

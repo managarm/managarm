@@ -16,7 +16,7 @@ enum Errors {
 	BAD_FD = 8;
 }
 
-enum ClientRequestType {
+enum CntReqType {
 	INIT = 7;
 	GET_PID = 17;
 	FORK = 8;
@@ -46,8 +46,8 @@ enum OpenMode {
 	HELFD = 2;
 };
 
-message ClientRequest {
-	optional ClientRequestType request_type = 1;
+message CntRequest {
+	optional CntReqType request_type = 1;
 	
 	// used by INIT, EXEC and OPEN
 	optional string path = 2;
@@ -77,7 +77,7 @@ message ClientRequest {
 	optional uint64 child_ip = 9;
 }
 
-message ServerResponse {
+message SvrResponse {
 	optional int32 error = 3;
 
 	// returned by GET_PID
