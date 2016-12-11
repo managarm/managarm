@@ -245,6 +245,7 @@ namespace initrd {
 			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(0); // TODO: for now we can get away without handling fds.
 
 			resp.SerializeToString(&_buffer);
 			serviceSend(_lane, _buffer.data(), _buffer.size(),
@@ -272,6 +273,31 @@ namespace initrd {
 		}
 
 		void onSendHandle(Error error) {
+			assert(error == kErrSuccess);
+		}
+
+		LaneHandle _lane;
+		posix::CntRequest<KernelAlloc> _req;
+
+		frigg::String<KernelAlloc> _buffer;
+	};
+	
+	struct CloseClosure {
+		CloseClosure(LaneHandle lane, posix::CntRequest<KernelAlloc> req)
+		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
+
+		void operator() () {
+			// TODO: for now we just ignore close requests.
+			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			resp.SerializeToString(&_buffer);
+			serviceSend(_lane, _buffer.data(), _buffer.size(),
+					CALLBACK_MEMBER(this, &CloseClosure::onSendResp));
+		}
+
+	private:
+		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 		}
 
@@ -309,8 +335,13 @@ namespace initrd {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
+			}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
+				auto closure = frigg::construct<CloseClosure>(*kernelAlloc,
+						frigg::move(_requestLane), frigg::move(req));
+				(*closure)();
 			}else{
-				frigg::panicLogger() << "Illegal request type" << frigg::endLog;
+				frigg::panicLogger() << "Illegal POSIX request type "
+						<< req.request_type() << frigg::endLog;
 			}
 
 			(*this)();

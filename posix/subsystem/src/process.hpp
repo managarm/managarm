@@ -35,6 +35,12 @@ struct SharedProcess {
 		return _data->fileTable.at(fd);
 	}
 
+	void closeFile(int fd) const {
+		auto it = _data->fileTable.find(fd);
+		if(it != _data->fileTable.end())
+			_data->fileTable.erase(it);
+	}
+
 private:
 	struct Data {
 		// TODO: replace this by a tree that remembers gaps between keys.

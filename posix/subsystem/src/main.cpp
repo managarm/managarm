@@ -71,6 +71,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
+			self.closeFile(req.fd());
+
+			helix::SendBuffer<M> send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size()),
+			}, helix::Dispatcher::global());
+			
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			std::cout << "dup2: " << req.fd() << " -> " << req.newfd() << std::endl;
 			auto file = self.getFile(req.fd());

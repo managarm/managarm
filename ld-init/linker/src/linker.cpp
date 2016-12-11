@@ -383,7 +383,7 @@ private:
 	size_t _progress;
 };
 
-frigg::Optional<HelHandle> posixOpen(frigg::String<Allocator> path) {
+frigg::Optional<frigg::Tuple<int, HelHandle>> posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[4];
 	HelSimpleResult *offer;
 	HelSimpleResult *send_req;
@@ -426,7 +426,7 @@ frigg::Optional<HelHandle> posixOpen(frigg::String<Allocator> path) {
 	if(resp.error() == managarm::posix::Errors::FILE_NOT_FOUND)
 		return frigg::nullOpt;
 	assert(resp.error() == managarm::posix::Errors::SUCCESS);
-	return pull_lane->handle;
+	return frigg::makeTuple(resp.fd(), pull_lane->handle);
 }
 
 void posixSeek(HelHandle lane, int64_t offset) {
@@ -557,7 +557,44 @@ HelHandle posixMmap(HelHandle lane) {
 	return pull_memory->handle;
 }
 
-void Loader::loadFromFile(SharedObject *object, const char *file) {
+void posixClose(int fd) {
+	HelAction actions[3];
+	HelSimpleResult *offer;
+	HelSimpleResult *send_req;
+	HelInlineResult *recv_resp;
+
+	managarm::posix::CntRequest<Allocator> req(*allocator);
+	req.set_request_type(managarm::posix::CntReqType::CLOSE);
+	req.set_fd(fd);
+	
+	Queue m;
+
+	frigg::String<Allocator> ser(*allocator);
+	req.SerializeToString(&ser);
+	actions[0].type = kHelActionOffer;
+	actions[0].flags = kHelItemAncillary;
+	actions[1].type = kHelActionSendFromBuffer;
+	actions[1].flags = kHelItemChain;
+	actions[1].buffer = ser.data();
+	actions[1].length = ser.size();
+	actions[2].type = kHelActionRecvInline;
+	actions[2].flags = 0;
+	HEL_CHECK(helSubmitAsync(posixPipe, actions, 3, m.getQueue(), 0));
+
+	offer = (HelSimpleResult *)m.dequeueSingle();
+	send_req = (HelSimpleResult *)m.dequeueSingle();
+	recv_resp = (HelInlineResult *)m.dequeueSingle();
+
+	HEL_CHECK(offer->error);
+	HEL_CHECK(send_req->error);
+	HEL_CHECK(recv_resp->error);
+	
+	managarm::posix::SvrResponse<Allocator> resp(*allocator);
+	resp.ParseFromArray(recv_resp->data, recv_resp->length);
+	assert(resp.error() == managarm::posix::Errors::SUCCESS);
+}
+
+void Loader::loadFromFile(SharedObject *object, const char *name) {
 	assert(!object->isMainObject);
 	if(verbose)
 		frigg::infoLogger() << "Loading " << object->name
@@ -568,15 +605,15 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
 
 	// open the object file
-	frigg::Optional<HelHandle> lane = posixOpen(initrd_prefix + file);
-	if(!lane)
-		lane = posixOpen(lib_prefix + file);
-	if(!lane)
-		frigg::panicLogger() << "Could not find library " << file << frigg::endLog;
+	auto file = posixOpen(initrd_prefix + name);
+	if(!file)
+		file = posixOpen(lib_prefix + name);
+	if(!file)
+		frigg::panicLogger() << "Could not find library " << name << frigg::endLog;
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
-	posixRead(*lane, &ehdr, sizeof(Elf64_Ehdr));
+	posixRead(file->get<1>(), &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -586,11 +623,11 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 
 	// read the elf program headers
 	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	posixSeek(*lane, ehdr.e_phoff);
-	posixRead(*lane, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(file->get<1>(), ehdr.e_phoff);
+	posixRead(file->get<1>(), phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	// mmap the file so we can map read-only segments instead of copying them
-	HelHandle file_memory = posixMmap(*lane);
+	HelHandle file_memory = posixMmap(file->get<1>());
 
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -633,8 +670,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
 
 				memset(write_ptr, 0, map_length);
-				posixSeek(*lane, phdr->p_offset);
-				posixRead(*lane, (char *)write_ptr + misalign, phdr->p_filesz);
+				posixSeek(file->get<1>(), phdr->p_offset);
+				posixRead(file->get<1>(), (char *)write_ptr + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 				// map the segment with correct permissions
@@ -667,6 +704,8 @@ void Loader::loadFromFile(SharedObject *object, const char *file) {
 	}
 
 	HEL_CHECK(helCloseDescriptor(file_memory));
+
+	posixClose(file->get<0>());
 
 	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
 	p_linkQueue.addBack(object);
