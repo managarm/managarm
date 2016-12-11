@@ -6,9 +6,9 @@
 #include <experimental/optional>
 
 #include <cofiber.hpp>
+#include <protocols/usb/usb.hpp>
+#include <protocols/usb/api.hpp>
 
-#include "usb.hpp"
-#include "api.hpp"
 #include "hid.hpp"
 
 // -----------------------------------------------------

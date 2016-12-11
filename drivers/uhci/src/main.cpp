@@ -14,9 +14,10 @@
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <mbus.hpp>
+#include <protocols/usb/usb.hpp>
+#include <protocols/usb/api.hpp>
+#include <protocols/usb/server.hpp>
 
-#include "usb.hpp"
-#include "api.hpp"
 #include "uhci.hpp"
 #include "schedule.hpp"
 #include <hw.pb.h>
@@ -514,7 +515,7 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
 			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		//handleDevice(device, std::move(local_lane));
+		protocols::usb::serve(Device(device_state), std::move(local_lane));
 
 		cofiber::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
@@ -614,61 +615,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		_lastCounter = counter;
 	}
 }))
-
-// ----------------------------------------------------------------------------
-// Device.
-// ----------------------------------------------------------------------------
-
-Device::Device(std::shared_ptr<DeviceData> state)
-: _state(std::move(state)) { }
-
-cofiber::future<std::string> Device::configurationDescriptor() const {
-	return _state->configurationDescriptor();
-}
-
-cofiber::future<Configuration> Device::useConfiguration(int number) const {
-	return _state->useConfiguration(number);
-}
-
-cofiber::future<void> Device::transfer(ControlTransfer info) const {
-	return _state->transfer(info);
-}
-
-// ----------------------------------------------------------------------------
-// Configuration.
-// ----------------------------------------------------------------------------
-
-Configuration::Configuration(std::shared_ptr<ConfigurationData> state)
-: _state(std::move(state)) { }
-
-cofiber::future<Interface> Configuration::useInterface(int number,
-		int alternative) const {
-	return _state->useInterface(number, alternative);
-}
-
-// ----------------------------------------------------------------------------
-// Interface.
-// ----------------------------------------------------------------------------
-
-Interface::Interface(std::shared_ptr<InterfaceData> state)
-: _state(std::move(state)) { }
-
-Endpoint Interface::getEndpoint(PipeType type, int number) const {
-	return _state->getEndpoint(type, number);
-}
-
-// ----------------------------------------------------------------------------
-// Endpoint.
-// ----------------------------------------------------------------------------
-
-Endpoint::Endpoint(std::shared_ptr<EndpointData> state)
-: _state(std::move(state)) { }
-
-cofiber::future<void> Endpoint::transfer(InterruptTransfer info) const {
-	return _state->transfer(info);
-}
-
-// ---------------------------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;

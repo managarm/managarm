@@ -1,4 +1,9 @@
 
+#ifndef LIBUSB_USB_HPP
+#define LIBUSB_USB_HPP
+
+#include <experimental/optional>
+
 enum DataDirection {
 	kDirToDevice = 0,
 	kDirToHost = 1
@@ -168,4 +173,6 @@ using ContiguousAllocator = frigg::SlabAllocator<
 >;
 
 extern ContiguousAllocator contiguousAllocator;
+
+#endif // LIBUSB_USB_HPP
 

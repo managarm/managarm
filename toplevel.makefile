@@ -25,6 +25,7 @@ $(call include_dir,libmbus)
 $(call include_dir,drivers/uhci)
 $(call include_dir,drivers/hid)
 $(call include_dir,protocols/fs)
+$(call include_dir,protocols/usb)
 #$(call include_dir,zisa)
 
 $(call include_dir,tools/frigg_pb)

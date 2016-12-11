@@ -1,7 +1,12 @@
 
+#ifndef LIBUSB_API_HPP
+#define LIBUSB_API_HPP
+
 #include <memory>
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
+
+#include "usb.hpp"
 
 enum XferFlags {
 	kXferToDevice = 1,
@@ -108,4 +113,6 @@ struct Device {
 private:
 	std::shared_ptr<DeviceData> _state;
 };
+
+#endif // LIBUSB_API_HPP
 

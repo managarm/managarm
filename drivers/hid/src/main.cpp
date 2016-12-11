@@ -6,13 +6,14 @@
 #include <helix/await.hpp>
 #include <cofiber.hpp>
 #include <mbus.hpp>
+#include <protocols/usb/client.hpp>
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	using M = helix::AwaitMechanism;
 
-	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
-
-	
+	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+	auto device = protocols::usb::connect(std::move(lane));
+	COFIBER_AWAIT device.configurationDescriptor();
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

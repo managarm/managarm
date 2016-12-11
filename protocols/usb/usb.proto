@@ -1,0 +1,23 @@
+
+syntax = "proto2";
+package managarm.usb;
+option optimize_for = LITE_RUNTIME;
+
+enum Errors {
+	SUCCESS = 0;
+	ILLEGAL_REQUEST = 1;
+}
+
+enum CntReqType {
+	NONE = 0;
+	GET_CONFIGURATION_DESCRIPTOR = 1;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+}
+
+message SvrResponse {
+	optional Errors error = 1;
+}
+
