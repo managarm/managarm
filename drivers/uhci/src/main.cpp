@@ -295,7 +295,7 @@ EndpointState::EndpointState(PipeType type, int number)
 : _type(type), _number(number) { }
 
 COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int number,
-		int alternative) const, ([=] {
+		int alternative), ([=] {
 	Device device(_device);
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
@@ -315,6 +315,10 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 	COFIBER_RETURN(Interface(interface));
 }))
 
+cofiber::future<void> EndpointState::transfer(ControlTransfer info) {
+	assert(!"FIXME: Implement this");
+}
+
 cofiber::future<void> EndpointState::transfer(InterruptTransfer info) {
 	XferFlags flag = kXferToDevice;
 	if(_type == PipeType::in)
@@ -325,8 +329,7 @@ cofiber::future<void> EndpointState::transfer(InterruptTransfer info) {
 }
 
 Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
-	auto endpoint_state = std::make_shared<EndpointState>(type, number);
-	return Endpoint(endpoint_state);
+	return Endpoint(_config->_device->endpointStates[number]);
 }
 
 // ----------------------------------------------------------------------------
@@ -616,7 +619,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 // Device.
 // ----------------------------------------------------------------------------
 
-Device::Device(std::shared_ptr<DeviceState> state)
+Device::Device(std::shared_ptr<DeviceData> state)
 : _state(std::move(state)) { }
 
 cofiber::future<std::string> Device::configurationDescriptor() const {
@@ -635,7 +638,7 @@ cofiber::future<void> Device::transfer(ControlTransfer info) const {
 // Configuration.
 // ----------------------------------------------------------------------------
 
-Configuration::Configuration(std::shared_ptr<ConfigurationState> state)
+Configuration::Configuration(std::shared_ptr<ConfigurationData> state)
 : _state(std::move(state)) { }
 
 cofiber::future<Interface> Configuration::useInterface(int number,
@@ -647,18 +650,18 @@ cofiber::future<Interface> Configuration::useInterface(int number,
 // Interface.
 // ----------------------------------------------------------------------------
 
-Interface::Interface(std::shared_ptr<InterfaceState> state)
+Interface::Interface(std::shared_ptr<InterfaceData> state)
 : _state(std::move(state)) { }
 
 Endpoint Interface::getEndpoint(PipeType type, int number) const {
-	return Endpoint(_state->_config->_device->endpointStates[number]);
+	return _state->getEndpoint(type, number);
 }
 
 // ----------------------------------------------------------------------------
 // Endpoint.
 // ----------------------------------------------------------------------------
 
-Endpoint::Endpoint(std::shared_ptr<EndpointState> state)
+Endpoint::Endpoint(std::shared_ptr<EndpointData> state)
 : _state(std::move(state)) { }
 
 cofiber::future<void> Endpoint::transfer(InterruptTransfer info) const {

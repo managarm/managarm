@@ -3,12 +3,6 @@
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
 
-struct DeviceState;
-struct EndpointState;
-struct ConfigurationState;
-struct InterfaceState;
-struct Controller;
-
 enum XferFlags {
 	kXferToDevice = 1,
 	kXferToHost = 2,
@@ -39,42 +33,79 @@ enum class PipeType {
 	null, in, out, control
 };
 
+// ----------------------------------------------------------------------------
+// EndpointData
+// ----------------------------------------------------------------------------
+
+struct EndpointData {
+	virtual cofiber::future<void> transfer(ControlTransfer info) = 0;
+	virtual cofiber::future<void> transfer(InterruptTransfer info) = 0;
+};
+
+
 struct Endpoint {
-	Endpoint(std::shared_ptr<EndpointState> state);
+	Endpoint(std::shared_ptr<EndpointData> state);
 	
 	cofiber::future<void> transfer(ControlTransfer info) const;
 	cofiber::future<void> transfer(InterruptTransfer info) const;
 
 private:
-	std::shared_ptr<EndpointState> _state;
+	std::shared_ptr<EndpointData> _state;
+};
+
+// ----------------------------------------------------------------------------
+// InterfaceData
+// ----------------------------------------------------------------------------
+
+struct InterfaceData {
+	virtual Endpoint getEndpoint(PipeType type, int number) = 0;
 };
 
 struct Interface {
-	Interface(std::shared_ptr<InterfaceState> state);
+	Interface(std::shared_ptr<InterfaceData> state);
 	
 	Endpoint getEndpoint(PipeType type, int number) const;
 
 private:
-	std::shared_ptr<InterfaceState> _state;
+	std::shared_ptr<InterfaceData> _state;
+};
+
+
+// ----------------------------------------------------------------------------
+// ConfigurationData
+// ----------------------------------------------------------------------------
+
+struct ConfigurationData {
+	virtual cofiber::future<Interface> useInterface(int number, int alternative) = 0;
 };
 
 struct Configuration {
-	Configuration(std::shared_ptr<ConfigurationState> state);
+	Configuration(std::shared_ptr<ConfigurationData> state);
 	
 	cofiber::future<Interface> useInterface(int number, int alternative) const;
 
 private:
-	std::shared_ptr<ConfigurationState> _state;
+	std::shared_ptr<ConfigurationData> _state;
+};
+
+// ----------------------------------------------------------------------------
+// DeviceData
+// ----------------------------------------------------------------------------
+
+struct DeviceData {
+	virtual cofiber::future<std::string> configurationDescriptor() = 0;
+	virtual cofiber::future<Configuration> useConfiguration(int number) = 0;
+	virtual cofiber::future<void> transfer(ControlTransfer info) = 0;
 };
 
 struct Device {
-	Device(std::shared_ptr<DeviceState> state);
+	Device(std::shared_ptr<DeviceData> state);
 
 	cofiber::future<std::string> configurationDescriptor() const;
 	cofiber::future<Configuration> useConfiguration(int number) const;
 	cofiber::future<void> transfer(ControlTransfer info) const;
 
 private:
-	std::shared_ptr<DeviceState> _state;
+	std::shared_ptr<DeviceData> _state;
 };
 

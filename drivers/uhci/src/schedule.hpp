@@ -1,4 +1,9 @@
 
+struct DeviceState;
+struct ConfigurationState;
+struct InterfaceState;
+struct EndpointState;
+
 struct QueuedTransaction {
 	QueuedTransaction();
 	
@@ -119,10 +124,10 @@ private:
 // DeviceState
 // ----------------------------------------------------------------------------
 
-struct DeviceState : std::enable_shared_from_this<DeviceState> {
-	cofiber::future<std::string> configurationDescriptor();
-	cofiber::future<Configuration> useConfiguration(int number);
-	cofiber::future<void> transfer(ControlTransfer info);
+struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
+	cofiber::future<std::string> configurationDescriptor() override;
+	cofiber::future<Configuration> useConfiguration(int number) override;
+	cofiber::future<void> transfer(ControlTransfer info) override;
 	
 	uint8_t address;
 	std::shared_ptr<EndpointState> endpointStates[32];
@@ -133,8 +138,8 @@ struct DeviceState : std::enable_shared_from_this<DeviceState> {
 // ConfigurationState
 // ----------------------------------------------------------------------------
 
-struct ConfigurationState : std::enable_shared_from_this<ConfigurationState> {
-	cofiber::future<Interface> useInterface(int number, int alternative) const;
+struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<ConfigurationState> {
+	cofiber::future<Interface> useInterface(int number, int alternative) override;
 
 	std::shared_ptr<DeviceState> _device;
 };
@@ -143,8 +148,8 @@ struct ConfigurationState : std::enable_shared_from_this<ConfigurationState> {
 // InterfaceState
 // ----------------------------------------------------------------------------
 
-struct InterfaceState {
-	Endpoint getEndpoint(PipeType type, int number);
+struct InterfaceState : InterfaceData {
+	Endpoint getEndpoint(PipeType type, int number) override;
 
 	std::shared_ptr<ConfigurationState> _config;
 };
@@ -153,10 +158,11 @@ struct InterfaceState {
 // EndpointState
 // ----------------------------------------------------------------------------
 
-struct EndpointState {
+struct EndpointState : EndpointData {
 	EndpointState(PipeType type, int number);
-	cofiber::future<void> transfer(ControlTransfer info);
-	cofiber::future<void> transfer(InterruptTransfer info);
+
+	cofiber::future<void> transfer(ControlTransfer info) override;
+	cofiber::future<void> transfer(InterruptTransfer info) override;
 
 	size_t maxPacketSize;
 	std::unique_ptr<QueueEntity> queue;
