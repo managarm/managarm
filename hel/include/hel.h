@@ -4,6 +4,9 @@
 #ifndef HEL_H
 #define HEL_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 #define HEL_C_LINKAGE extern "C"
 #else

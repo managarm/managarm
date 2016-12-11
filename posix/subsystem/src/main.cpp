@@ -9,7 +9,7 @@
 #include <cofiber.hpp>
 
 #include "common.hpp"
-//FIXME #include "device.hpp"
+#include "device.hpp"
 #include "vfs.hpp"
 #include "process.hpp"
 #include "exec.hpp"

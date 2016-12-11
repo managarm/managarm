@@ -7,6 +7,7 @@
 
 #include "common.hpp"
 #include "vfs.hpp"
+#include "device.hpp"
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
 
@@ -123,6 +124,9 @@ FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node) {
 	return node->operations()->readSymlink(node);
 }
 
+DeviceId readDevice(std::shared_ptr<Node> node) {
+	return node->operations()->readDevice(node);
+}
 // --------------------------------------------------------
 // SharedView implementation.
 // --------------------------------------------------------
@@ -290,8 +294,14 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 
 //	std::cout << "Opening file..." << std::endl;
 
-	assert(getType(getTarget(current.second)) == VfsType::regular);
-	auto file = COFIBER_AWAIT open(getTarget(current.second));
-	COFIBER_RETURN(std::move(file));
+	if(getType(getTarget(current.second)) == VfsType::regular) {
+		auto file = COFIBER_AWAIT open(getTarget(current.second));
+		COFIBER_RETURN(std::move(file));
+	}else{
+		assert(getType(getTarget(current.second)) == VfsType::charDevice);
+		auto id = readDevice(getTarget(current.second));
+		auto device = deviceManager.get(id);
+		COFIBER_RETURN(COFIBER_AWAIT open(device));
+	}
 }))
 
