@@ -21,6 +21,19 @@ struct SharedProcess {
 			return fd;
 		}
 	}
+	
+	void attachFile(int fd, std::shared_ptr<File> file) const {
+		auto it = _data->fileTable.find(fd);
+		if(it != _data->fileTable.end()) {
+			it->second = std::move(file);
+		}else{
+			_data->fileTable.insert({ fd, std::move(file) });
+		}
+	}
+
+	std::shared_ptr<File> getFile(int fd) const {
+		return _data->fileTable.at(fd);
+	}
 
 private:
 	struct Data {

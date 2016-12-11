@@ -51,7 +51,30 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			auto file = COFIBER_AWAIT open(req.path());
 			int fd = self.attachFile(file);
+			std::cout << "attach " << fd << std::endl;
 			(void)fd;
+
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> push_passthrough;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&push_passthrough, getPassthroughLane(file))
+			}, helix::Dispatcher::global());
+			
+			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT push_passthrough.future();
+			
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_passthrough.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
+			std::cout << "dup2: " << req.fd() << " -> " << req.newfd() << std::endl;
+			auto file = self.getFile(req.fd());
+			self.attachFile(req.newfd(), file);
 
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_passthrough;
