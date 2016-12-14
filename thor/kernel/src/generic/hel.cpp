@@ -1015,20 +1015,27 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	
 	// TODO: check userspace page access rights
 	
-	LaneDescriptor descriptor;
-	{
-		Universe::Guard universe_guard(&this_universe->lock);
+	LaneHandle lane;
+	if(handle == kHelThisThread) {
+		lane = this_thread->inferiorLane();
+	}else{
+		LaneDescriptor descriptor;
+		{
+			Universe::Guard universe_guard(&this_universe->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		if(!wrapper->is<LaneDescriptor>())
-			return kHelErrBadDescriptor;
-		descriptor = wrapper->get<LaneDescriptor>();
+			auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+			if(!wrapper)
+				return kHelErrNoDescriptor;
+			if(!wrapper->is<LaneDescriptor>())
+				return kHelErrBadDescriptor;
+			descriptor = wrapper->get<LaneDescriptor>();
+		}
+
+		lane = descriptor.handle;
 	}
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
-	stack.push(frigg::move(descriptor.handle));
+	stack.push(frigg::move(lane));
 
 	size_t i = 0;
 	while(!stack.empty()) {
@@ -1042,20 +1049,20 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		switch(action.type) {
 		case kHelActionOffer: {
 			using Token = PostEvent<OfferWriter>;
-			LaneHandle lane = target.getStream()->submitOffer(target.getLane(),
+			LaneHandle branch = target.getStream()->submitOffer(target.getLane(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
-				stack.push(lane);
+				stack.push(branch);
 		} break;
 		case kHelActionAccept: {
 			using Token = PostEvent<AcceptWriter>;
-			LaneHandle lane = target.getStream()->submitAccept(target.getLane(),
+			LaneHandle branch = target.getStream()->submitAccept(target.getLane(),
 					this_universe.toWeak(),
 					Token(this_thread->getAddressSpace().toShared(), queue, action.context));
 
 			if(action.flags & kHelItemAncillary)
-				stack.push(lane);
+				stack.push(branch);
 		} break;
 		case kHelActionSendFromBuffer: {
 			using Token = PostEvent<SendStringWriter>;

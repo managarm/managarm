@@ -54,6 +54,9 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 		_context(kernelStack.base()),
 		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
 //	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
+	auto stream = createStream();
+	_superiorLane = frigg::move(stream.get<0>());
+	_inferiorLane = frigg::move(stream.get<1>());
 }
 
 Thread::~Thread() {

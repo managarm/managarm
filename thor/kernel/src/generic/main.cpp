@@ -130,18 +130,6 @@ void executeModule(PhysicalAddr image_paddr) {
 	assert(interp_module);
 	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
 
-	// start relevant services.
-	auto stream = createStream();
-
-	Handle initrd_handle;
-	{
-		Universe::Guard lock(&(*rootUniverse)->lock);
-		initrd_handle = (*rootUniverse)->attachDescriptor(lock,
-				LaneDescriptor(frigg::move(stream.get<0>())));
-	}
-
-	runService(frigg::move(stream.get<1>()));
-
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
@@ -179,8 +167,7 @@ void executeModule(PhysicalAddr image_paddr) {
 		AT_PHNUM = 5,
 		AT_ENTRY = 9,
 
-		AT_OPENFILES = 0x1001,
-		AT_POSIX_SERVER = 0x1101
+		AT_OPENFILES = 0x1001
 	};
 
 	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
@@ -194,8 +181,6 @@ void executeModule(PhysicalAddr image_paddr) {
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
 //	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
 //	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
-	copyToStack<uintptr_t>(tail_area, AT_POSIX_SERVER);
-	copyToStack<uintptr_t>(tail_area, initrd_handle);
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
 
@@ -208,6 +193,9 @@ void executeModule(PhysicalAddr image_paddr) {
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
 			stack_base + tail_disp, false);
+	
+	// listen to POSIX calls from the thread.
+	runService(thread->superiorLane());
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();

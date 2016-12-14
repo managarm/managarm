@@ -408,7 +408,7 @@ frigg::Optional<frigg::Tuple<int, HelHandle>> posixOpen(frigg::String<Allocator>
 	actions[2].flags = kHelItemChain;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(posixPipe, actions, 4, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 4, m.getQueue(), 0));
 
 	offer = (HelSimpleResult *)m.dequeueSingle();
 	send_req = (HelSimpleResult *)m.dequeueSingle();
@@ -579,7 +579,7 @@ void posixClose(int fd) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(posixPipe, actions, 3, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0));
 
 	offer = (HelSimpleResult *)m.dequeueSingle();
 	send_req = (HelSimpleResult *)m.dequeueSingle();

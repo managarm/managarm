@@ -70,6 +70,14 @@ public:
 	KernelUnsafePtr<Universe> getUniverse();
 	KernelUnsafePtr<AddressSpace> getAddressSpace();
 
+	LaneHandle inferiorLane() {
+		return _inferiorLane;
+	}
+
+	LaneHandle superiorLane() {
+		return _superiorLane;
+	}
+
 	void signalKill();
 	Signal pendingSignal();
 
@@ -133,6 +141,9 @@ private:
 
 	KernelSharedPtr<Universe> _universe;
 	KernelSharedPtr<AddressSpace> _addressSpace;
+
+	LaneHandle _superiorLane;
+	LaneHandle _inferiorLane;
 
 	frigg::IntrusiveSharedLinkedList<
 		AsyncObserve,

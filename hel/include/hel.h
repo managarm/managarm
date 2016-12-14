@@ -93,7 +93,8 @@ typedef int64_t HelNanotime;
 
 enum {
 	kHelNullHandle = 0,
-	kHelThisUniverse = -1
+	kHelThisUniverse = -1,
+	kHelThisThread = -2
 };
 
 enum {
