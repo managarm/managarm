@@ -14,33 +14,15 @@ namespace thor {
 namespace posix = managarm::posix;
 namespace fs = managarm::fs;
 
-template<typename S>
-struct UseCallback;
-
-template<typename... Args>
-struct UseCallback<void(Args...)> {
-	explicit UseCallback(frigg::CallbackPtr<void(Args...)> callback)
-	: _callback(callback) { }
-	
-	void operator() (Args &&... args) {
-		_callback(frigg::forward<Args>(args)...);
-	}
-
-private:
-	frigg::CallbackPtr<void(Args...)> _callback;
-};
-
 void serviceAccept(LaneHandle handle,
 		frigg::CallbackPtr<void(Error, frigg::WeakPtr<Universe>, LaneDescriptor)> callback) {
-	handle.getStream()->submitAccept(handle.getLane(), frigg::WeakPtr<Universe>(),
-			UseCallback<void(Error, frigg::WeakPtr<Universe>, LaneDescriptor)>(callback));
+	handle.getStream()->submitAccept(handle.getLane(), frigg::WeakPtr<Universe>(), callback);
 }
 
 void serviceRecv(LaneHandle handle, void *buffer, size_t max_length,
 		frigg::CallbackPtr<void(Error, size_t)> callback) {
 	handle.getStream()->submitRecvBuffer(handle.getLane(),
-			KernelAccessor::acquire(buffer, max_length),
-			UseCallback<void(Error, size_t)>(callback));
+			KernelAccessor::acquire(buffer, max_length), callback);
 }
 
 void serviceSend(LaneHandle handle, const void *buffer, size_t length,
@@ -48,9 +30,87 @@ void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
 	memcpy(kernel_buffer.data(), buffer, length);
 	
-	handle.getStream()->submitSendBuffer(handle.getLane(), frigg::move(kernel_buffer),
-			UseCallback<void(Error)>(callback));
+	handle.getStream()->submitSendBuffer(handle.getLane(), frigg::move(kernel_buffer), callback);
 }
+
+namespace stdio {
+	struct WriteClosure {
+		WriteClosure(LaneHandle lane, fs::CntRequest<KernelAlloc> req)
+		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
+
+		void operator() () {
+			serviceRecv(_lane, _data, 128,
+					CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
+		}
+
+	private:
+		void onRecvData(Error error, size_t length) {
+			assert(error == kErrSuccess);
+			
+			helLog(_data, length);
+
+			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			resp.SerializeToString(&_buffer);
+			serviceSend(_lane, _buffer.data(), _buffer.size(),
+					CALLBACK_MEMBER(this, &WriteClosure::onSendResp));
+		}
+		
+		void onSendResp(Error error) {
+			assert(error == kErrSuccess);
+		}
+
+		LaneHandle _lane;
+		fs::CntRequest<KernelAlloc> _req;
+
+		char _data[128];
+		frigg::String<KernelAlloc> _buffer;
+	};
+
+	struct RequestClosure {
+		RequestClosure(LaneHandle lane)
+		: _lane(frigg::move(lane)) { }
+
+		void operator() () {
+			serviceAccept(_lane,
+					CALLBACK_MEMBER(this, &RequestClosure::onAccept));
+		}
+
+	private:
+		void onAccept(Error error, frigg::WeakPtr<Universe>, LaneDescriptor descriptor) {
+			assert(error == kErrSuccess);
+
+			_requestLane = frigg::move(descriptor.handle);
+			serviceRecv(_requestLane, _buffer, 128,
+					CALLBACK_MEMBER(this, &RequestClosure::onReceive));
+		}
+
+		void onReceive(Error error, size_t length) {
+			if(error == kErrClosedRemotely)
+				return;
+			assert(error == kErrSuccess);
+
+			fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+			req.ParseFromArray(_buffer, length);
+
+			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+				auto closure = frigg::construct<WriteClosure>(*kernelAlloc,
+						frigg::move(_requestLane), frigg::move(req));
+				(*closure)();
+			}else{
+				frigg::panicLogger() << "Illegal request type" << frigg::endLog;
+			}
+
+			(*this)();
+		}
+
+		LaneHandle _lane;
+
+		LaneHandle _requestLane;
+		uint8_t _buffer[128];
+	};
+} // namespace stdio
 
 namespace initrd {
 	struct OpenFile {
@@ -163,7 +223,7 @@ namespace initrd {
 					HardwareMemory(_file->module->physical, virt_length));
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
 					MemoryAccessDescriptor(frigg::move(memory)),
-					UseCallback<void(Error)>(CALLBACK_MEMBER(this, &MapClosure::onSendHandle)));
+					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		
 		void onSendHandle(Error error) {
@@ -269,7 +329,7 @@ namespace initrd {
 			
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
 					LaneDescriptor(frigg::move(lanes.get<1>())),
-					UseCallback<void(Error)>(CALLBACK_MEMBER(this, &OpenClosure::onSendHandle)));
+					CALLBACK_MEMBER(this, &OpenClosure::onSendHandle));
 		}
 
 		void onSendHandle(Error error) {
@@ -352,6 +412,12 @@ namespace initrd {
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
 	};
+}
+
+void runStdio(LaneHandle lane) {
+	auto closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
+			frigg::move(lane));
+	(*closure)();
 }
 
 void runService(LaneHandle lane) {

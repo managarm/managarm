@@ -15,6 +15,7 @@ frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
 
 // TODO: move this declaration to a header file
+void runStdio(LaneHandle lane);
 void runService(LaneHandle lane);
 
 Module *getModule(frigg::StringView filename) {
@@ -153,8 +154,18 @@ void executeModule(PhysicalAddr image_paddr) {
 		HelHandle pipe;
 	};
 
+	auto stdio_stream = createStream();
+	Handle stdio_handle;
+	{
+		auto lock = frigg::guard(&(*rootUniverse)->lock);
+		stdio_handle = (*rootUniverse)->attachDescriptor(lock,
+				LaneDescriptor{frigg::move(stdio_stream.get<0>())});
+	}
+
 	frigg::String<KernelAlloc> data_area(*kernelAlloc);
-//	auto fd0_offset = copyToStack<AuxFileData>(data_area, { 1, stdout_handle });
+	auto fd0_offset = copyToStack<AuxFileData>(data_area, { 1, stdio_handle });
+	auto fd1_offset = copyToStack<AuxFileData>(data_area, { 2, stdio_handle });
+	copyToStack<AuxFileData>(data_area, { -1, 0 });
 
 	uintptr_t data_disp = stack_size - data_area.size();
 	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
@@ -179,8 +190,8 @@ void executeModule(PhysicalAddr image_paddr) {
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrEntrySize);
 	copyToStack<uintptr_t>(tail_area, AT_PHNUM);
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
-//	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
-//	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
+	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
+	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
 
@@ -195,6 +206,7 @@ void executeModule(PhysicalAddr image_paddr) {
 			stack_base + tail_disp, false);
 	
 	// listen to POSIX calls from the thread.
+	runStdio(stdio_stream.get<1>());
 	runService(thread->superiorLane());
 
 	// see helCreateThread for the reasoning here
@@ -238,12 +250,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeThisProcessor();
 	
 	// create a directory and load the memory regions of all modules into it
-	assert(info->numModules >= 1);
 	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
 			info->numModules);
 	
 	allModules.initialize(*kernelAlloc);
-	for(size_t i = 1; i < info->numModules; i++) {
+	for(size_t i = 0; i < info->numModules; i++) {
 		size_t virt_length = modules[i].length + (kPageSize - (modules[i].length % kPageSize));
 		assert((virt_length % kPageSize) == 0);
 
@@ -265,7 +276,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
 	// finally we lauch the user_boot program
-	executeModule(modules[0].physicalBase);
+	auto mbus_module = getModule("mbus");
+	assert(mbus_module);
+	executeModule(mbus_module->physical);
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());
