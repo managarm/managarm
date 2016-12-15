@@ -169,12 +169,6 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
 	
-	helix::UniqueDescriptor posix_remote, posix_local;
-	std::tie(posix_remote, posix_local) = helix::createStream();
-	HelHandle posix_foreign;
-	HEL_CHECK(helTransferDescriptor(posix_remote.getHandle(), universe, &posix_foreign));
-	serve(std::move(process), std::move(posix_local));
-
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
 		uintptr_t(exec_info.entryIp),
@@ -184,8 +178,6 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 		exec_info.phdrEntrySize,
 		AT_PHNUM,
 		exec_info.phdrCount,
-		AT_POSIX_SERVER,
-		uintptr_t(posix_foreign),
 		AT_NULL,
 		0
 	});
@@ -198,6 +190,8 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(universe, space, kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
+	
+	serve(std::move(process), helix::UniqueDescriptor(thread));
 
 /*	auto action = frigg::await<void(HelError)>([=] (auto callback) {
 		int64_t async_id;

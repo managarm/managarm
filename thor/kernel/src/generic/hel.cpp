@@ -1019,19 +1019,18 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	if(handle == kHelThisThread) {
 		lane = this_thread->inferiorLane();
 	}else{
-		LaneDescriptor descriptor;
-		{
-			Universe::Guard universe_guard(&this_universe->lock);
+		Universe::Guard universe_guard(&this_universe->lock);
 
-			auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-			if(!wrapper)
-				return kHelErrNoDescriptor;
-			if(!wrapper->is<LaneDescriptor>())
-				return kHelErrBadDescriptor;
-			descriptor = wrapper->get<LaneDescriptor>();
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(wrapper->is<LaneDescriptor>()) {
+			lane = wrapper->get<LaneDescriptor>().handle;
+		}else if(wrapper->is<ThreadDescriptor>()) {
+			lane = wrapper->get<ThreadDescriptor>().thread->superiorLane();
+		}else{
+			return kHelErrBadDescriptor;
 		}
-
-		lane = descriptor.handle;
 	}
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);

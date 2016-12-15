@@ -276,7 +276,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
 	// finally we lauch the user_boot program
-	auto mbus_module = getModule("mbus");
+	auto mbus_module = getModule("posix-subsystem");
 	assert(mbus_module);
 	executeModule(mbus_module->physical);
 

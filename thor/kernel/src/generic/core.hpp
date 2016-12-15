@@ -139,7 +139,7 @@ struct ThreadRunControl {
 	ThreadRunControl(Thread *thread, frigg::SharedCounter *counter)
 	: _thread(thread), _counter(counter) { }
 
-	explicit operator bool () {
+	explicit operator bool () const {
 		return _counter;
 	}
 
