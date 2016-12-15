@@ -48,7 +48,7 @@ private:
 
 	static helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> object) {
 		(void)object;
-		return helix::BorrowedDescriptor(__mlibc_getPassthrough(0));
+		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));
 	}
 
 	static const FileOperations operations;

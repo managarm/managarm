@@ -5,11 +5,19 @@
 #include <memory>
 #include <unordered_map>
 
+#include "vfs.hpp"
+
 typedef int ProcessId;
 
 struct SharedProcess {
+	// TODO: fix this by replacing SharedProcess with a vtable.
+	friend SharedProcess fork(SharedProcess parent);
+
 	static SharedProcess createInit() {
 		auto data = std::make_shared<Data>();
+		HelHandle space;
+		HEL_CHECK(helCreateSpace(&space));
+		data->space = helix::UniqueDescriptor(space);
 		return SharedProcess(std::move(data));
 	}
 
@@ -41,8 +49,14 @@ struct SharedProcess {
 			_data->fileTable.erase(it);
 	}
 
+	helix::BorrowedDescriptor getVmSpace() const {
+		return _data->space;
+	}
+
 private:
 	struct Data {
+		helix::UniqueDescriptor space;
+
 		// TODO: replace this by a tree that remembers gaps between keys.
 		std::unordered_map<int, std::shared_ptr<File>> fileTable;
 	};
@@ -52,6 +66,8 @@ private:
 
 	std::shared_ptr<Data> _data;
 };
+
+SharedProcess fork(SharedProcess parent);
 
 #endif // POSIX_SUBSYSTEM_PROCESS_HPP
 

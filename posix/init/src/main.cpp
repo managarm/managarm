@@ -1,18 +1,22 @@
 
-#include <stdlib.h>
-#include <stdio.h>
 #include <assert.h>
-
-#include <unistd.h>
 #include <fcntl.h>
-#include <spawn.h>
-#include <sched.h>
-#include <sys/types.h>
-#include <sys/socket.h> // FIXME: for testing
 #include <netinet/in.h> // FIXME: for testing
+#include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/socket.h> // FIXME: for testing
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
+#include <iostream>
 #include <vector>
+
+//FIXME:
+#include <string.h>
+#include <hel.h>
+#include <hel-syscalls.h>
 
 int main() {
 	int fd = open("/dev/helout", O_WRONLY);
@@ -25,6 +29,19 @@ int main() {
 	args.push_back(nullptr);
 
 	char *envp[] = { nullptr };
+
+	int x = 0;
+	if(!fork()) {
+		helLog("zero_fork\n", 10);
+//		std::cout << "stdout is broken here" << std::endl;
+		while(true)
+			HEL_CHECK(helFutexWait(&x, 0));
+	}else{
+		helLog("child_fork\n", 11);
+		std::cout << "stdout is fine in parent" << std::endl;
+		while(true)
+			HEL_CHECK(helFutexWait(&x, 0));
+	}
 
 	pid_t child = fork();
 	assert(child != -1);

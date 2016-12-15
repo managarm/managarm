@@ -136,16 +136,13 @@ cofiber::no_future serve(SharedProcess process, helix::UniqueDescriptor);
 
 // FIXME: remove this helper function
 COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string path), ([=] {
-	HelHandle space;
-	HEL_CHECK(helCreateSpace(&space));
-
 	auto exec_file = COFIBER_AWAIT open(path);
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
 	auto exec_info = COFIBER_AWAIT load(exec_file,
-			helix::BorrowedDescriptor(space), 0);
+			process.getVmSpace(), 0);
 	auto interp_info = COFIBER_AWAIT load(interp_file,
-			helix::BorrowedDescriptor(space), 0x40000000);
+			process.getVmSpace(), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;
 	
@@ -154,7 +151,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, space, nullptr,
+	HEL_CHECK(helMapMemory(stack_memory, process.getVmSpace().getHandle(), nullptr,
 			0, stack_size, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up.
@@ -188,7 +185,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	//FIXME helx::Directory directory = Process::runServer(process);
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(universe, space, kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(universe, process.getVmSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	
 	serve(std::move(process), helix::UniqueDescriptor(thread));

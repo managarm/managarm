@@ -14,7 +14,6 @@ void Thread::deferCurrent() {
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
-		frigg::infoLogger() << "scheduling after defer" << frigg::endLog;
 		ScheduleGuard schedule_lock(scheduleLock.get());
 		enqueueInSchedule(schedule_lock, this_thread);
 		

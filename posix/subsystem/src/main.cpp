@@ -108,6 +108,31 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::FORK) {
+			auto child = fork(self);
+	
+			HelHandle universe;
+			HEL_CHECK(helCreateUniverse(&universe));
+	
+			HelHandle thread;
+			HEL_CHECK(helCreateThread(universe, child.getVmSpace().getHandle(), kHelAbiSystemV,
+					(void *)req.child_ip(), (char *)req.child_sp(), 0, &thread));
+//			serve(child, helix::UniqueDescriptor(thread));
+
+			helix::SendBuffer<M> send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(1);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size()),
+			}, helix::Dispatcher::global());
+			
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+			std::cout << "posix: fork complete" << std::endl;
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer<M> send_resp;

@@ -99,7 +99,8 @@ namespace stdio {
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else{
-				frigg::panicLogger() << "Illegal request type" << frigg::endLog;
+				frigg::panicLogger() << "Illegal request type " << req.req_type()
+						<< " kernel provided stdio file" << frigg::endLog;
 			}
 
 			(*this)();
@@ -280,7 +281,8 @@ namespace initrd {
 						_file, frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else{
-				frigg::panicLogger() << "Illegal request type" << frigg::endLog;
+				frigg::panicLogger() << "Illegal request type " << req.req_type()
+						<< " for kernel provided initrd file" << frigg::endLog;
 			}
 
 			(*this)();
