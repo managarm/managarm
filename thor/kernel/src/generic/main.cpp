@@ -213,8 +213,7 @@ void executeModule(PhysicalAddr image_paddr) {
 	thread.control().increment();
 	thread.control().increment();
 
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	enqueueInSchedule(schedule_guard, frigg::move(thread));
+	Thread::resumeOther(thread);
 }
 
 void setupDebugging();
@@ -371,12 +370,12 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	}
 }
 
-void handleOtherFault(FaultImageAccessor image, Fault fault) {
+void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 
 	const char *name;
 	switch(fault) {
-	case kFaultBreakpoint: name = "breakpoint"; break;
+	case kIntrBreakpoint: name = "breakpoint"; break;
 	default:
 		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
 	}
@@ -385,7 +384,7 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n"
 				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
 	}else{
-		Thread::faultCurrent(image);
+		Thread::interruptCurrent(fault, image);
 	}
 }
 
@@ -413,6 +412,12 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		frigg::infoLogger() << this_thread.get()
 				<< " syscall #" << *image.number() << frigg::endLog;
+
+	// TODO: The return in this code path prevents us from checking for signals!
+	if(*image.number() >= kHelCallSuper) {
+		Thread::interruptCurrent(kIntrSuperCall, image);
+		return;
+	}
 
 	Word arg0 = *image.in0();
 	Word arg1 = *image.in1();

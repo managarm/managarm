@@ -37,12 +37,37 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 		COFIBER_AWAIT(observe.future());
 		HEL_CHECK(observe.error());
 
-		if(observe.observation() == kHelObserveBreakpoint) {
-			struct {
-				uintptr_t rip;
-				uintptr_t rsp;
-			} ip_image;
-			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &ip_image));
+		if(observe.observation() == kHelObserveSuperCall) {
+			auto child = fork(self);
+	
+			HelHandle universe;
+			HEL_CHECK(helCreateUniverse(&universe));
+	
+			HelHandle new_thread;
+			HEL_CHECK(helCreateThread(universe, child.getVmSpace().getHandle(), kHelAbiSystemV,
+					0, 0, kHelThreadStopped, &new_thread));
+//			serve(child, helix::UniqueDescriptor(thread));
+
+			// Copy registers from the current thread to the new one.
+			uintptr_t pcrs[2], gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &pcrs));
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			
+			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsIp, &pcrs));
+
+			// Setup post supercall registers in both threads and finally resume the threads.
+			gprs[4] = kHelErrNone;
+			gprs[5] = 1;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			gprs[5] = 0;
+			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsGeneral, &gprs));
+
+			HEL_CHECK(helResume(thread.getHandle()));
+			HEL_CHECK(helResume(new_thread));
+		}else if(observe.observation() == kHelObserveBreakpoint) {
+			uintptr_t pcrs[2];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &pcrs));
 
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
@@ -53,11 +78,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 			printf(" r8: %.16x,  r9: %.16x, r10: %.16x\n", gprs[6], gprs[7], gprs[8]);
 			printf("r11: %.16x, r12: %.16x, r13: %.16x\n", gprs[9], gprs[10], gprs[11]);
 			printf("r14: %.16x, r15: %.16x, rbp: %.16x\n", gprs[12], gprs[13], gprs[14]);
-			printf("rip: %.16x, rsp: %.16x\n", ip_image.rip, ip_image.rsp);
+			printf("rip: %.16x, rsp: %.16x\n", pcrs[0], pcrs[1]);
 			printf("\e[39m");
-
-			// TODO: Instead of resuming here we should raise a signal.
-			HEL_CHECK(helResume(thread.getHandle()));
 		}else{
 			throw std::runtime_error("Unexpected observation");
 		}
@@ -148,31 +170,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::FORK) {
-			auto child = fork(self);
-	
-			HelHandle universe;
-			HEL_CHECK(helCreateUniverse(&universe));
-	
-			HelHandle thread;
-			HEL_CHECK(helCreateThread(universe, child.getVmSpace().getHandle(), kHelAbiSystemV,
-					(void *)req.child_ip(), (char *)req.child_sp(), 0, &thread));
-//			serve(child, helix::UniqueDescriptor(thread));
-
-			helix::SendBuffer<M> send_resp;
-
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(1);
-
-			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size()),
-			}, helix::Dispatcher::global());
-			
-			COFIBER_AWAIT send_resp.future();
-			HEL_CHECK(send_resp.error());
-			std::cout << "posix: fork complete" << std::endl;
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer<M> send_resp;

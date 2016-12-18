@@ -27,15 +27,33 @@ void Thread::blockCurrent(void *, void (*) (void *)) {
 	assert(!"Use blockCurrentWhile() instead");
 }
 
-void Thread::faultCurrent(FaultImageAccessor image) {
+void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunFaulted;
-	saveExecutorFromFault(image);
+	this_thread->_runState = kRunInterrupted;
+	saveExecutor(image);
 
 	while(!this_thread->_observeQueue.empty()) {
 		auto observe = this_thread->_observeQueue.removeFront();
-		observe->trigger(Error::kErrSuccess);
+		observe->trigger(Error::kErrSuccess, interrupt);
+	}
+
+	assert(!intsAreEnabled());
+	runDetached([] {
+		ScheduleGuard schedule_lock(scheduleLock.get());
+		doSchedule(frigg::move(schedule_lock));
+	});
+}
+
+void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
+	auto this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunInterrupted;
+	saveExecutor(image);
+
+	while(!this_thread->_observeQueue.empty()) {
+		auto observe = this_thread->_observeQueue.removeFront();
+		observe->trigger(Error::kErrSuccess, interrupt);
 	}
 
 	assert(!intsAreEnabled());
@@ -65,7 +83,7 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	auto lock = frigg::guard(&thread->_mutex);
-	assert(thread->_runState == kRunFaulted);
+	assert(thread->_runState == kRunInterrupted);
 
 	thread->_runState = kRunSuspended;
 	{
@@ -76,7 +94,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 
 Thread::Thread(KernelSharedPtr<Universe> universe,
 		KernelSharedPtr<AddressSpace> address_space)
-: flags(0), _runState(kRunSuspended),
+: flags(0), _runState(kRunInterrupted),
 		_numTicks(0), _activationTick(0),
 		_pendingSignal(kSigNone), _runCount(1),
 		_context(kernelStack.base()),

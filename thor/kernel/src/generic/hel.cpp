@@ -214,20 +214,31 @@ private:
 };
 
 struct ObserveThreadWriter {
-	ObserveThreadWriter(Error error)
-	: _error(error) { }
+	ObserveThreadWriter(Error error, Interrupt interrupt)
+	: _error(error), _interrupt(interrupt) { }
 
 	size_t size() {
 		return sizeof(HelObserveResult);
 	}
 
 	void write(ForeignSpaceAccessor accessor) {
-		HelObserveResult data{translateError(_error), kHelObserveBreakpoint, 0};
+		unsigned int observation;
+		if(_interrupt == kIntrBreakpoint) {
+			observation = kHelObserveBreakpoint;
+		}else if(_interrupt == kIntrSuperCall) {
+			observation = kHelObserveSuperCall;
+		}else{
+			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
+			__builtin_unreachable();
+		}
+
+		HelObserveResult data{translateError(_error), observation, 0};
 		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 	}
 
 private:
 	Error _error;
+	Interrupt _interrupt;
 };
 
 HelError helLog(const char *string, size_t length) {
@@ -722,7 +733,8 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
 
-	if(flags & ~(kHelThreadExclusive | kHelThreadTrapsAreFatal))
+	if(flags & ~(kHelThreadExclusive | kHelThreadTrapsAreFatal
+			| kHelThreadStopped))
 		return kHelErrIllegalArgs;
 
 	frigg::SharedPtr<Universe> universe;
@@ -761,7 +773,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 	
 	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
-	
+
 	// we increment the owning refcount twice here.
 	// it is decremented when all ThreadRunControl pointers go out of scope
 	// AND when the thread is finally killed.
@@ -770,10 +782,8 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	frigg::SharedPtr<Thread, ThreadRunControl> run_ptr(frigg::adoptShared, new_thread.get(),
 			ThreadRunControl(new_thread.get(), new_thread.control().counter()));
 
-	{
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		enqueueInSchedule(schedule_guard, new_thread);
-	}
+	if(!(flags & kHelThreadStopped))
+		Thread::resumeOther(new_thread);
 
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -853,14 +863,9 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	}
 
 	if(set == kHelRegsIp) {
-		struct Accessor {
-			uintptr_t rip;
-			uintptr_t rsp;
-		};
-		
-		auto accessor = reinterpret_cast<Accessor *>(image);
-		accessor->rip = *thread->image.ip();
-		accessor->rsp = *thread->image.sp();
+		auto accessor = reinterpret_cast<uintptr_t *>(image);
+		accessor[0] = *thread->image.ip();
+		accessor[1] = *thread->image.sp();
 	}else if(set == kHelRegsGeneral) {
 		auto accessor = reinterpret_cast<uintptr_t *>(image);
 		accessor[0] = thread->image.general()->rax;
@@ -900,9 +905,33 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
+	
+	if(set == kHelRegsIp) {
+		auto accessor = reinterpret_cast<const uintptr_t *>(image);
+		*thread->image.ip() = accessor[0];
+		*thread->image.sp() = accessor[1];
+	}else if(set == kHelRegsGeneral) {
+		auto accessor = reinterpret_cast<const uintptr_t *>(image);
+		thread->image.general()->rax = accessor[0];
+		thread->image.general()->rbx = accessor[1];
+		thread->image.general()->rcx = accessor[2];
+		thread->image.general()->rdx = accessor[3];
+		thread->image.general()->rdi = accessor[4];
+		thread->image.general()->rsi = accessor[5];
+		thread->image.general()->r8 = accessor[6];
+		thread->image.general()->r9 = accessor[7];
+		thread->image.general()->r10 = accessor[8];
+		thread->image.general()->r11 = accessor[9];
+		thread->image.general()->r12 = accessor[10];
+		thread->image.general()->r13 = accessor[11];
+		thread->image.general()->r14 = accessor[12];
+		thread->image.general()->r15 = accessor[13];
+		thread->image.general()->rbp = accessor[14];
+	}else{
+		return kHelErrIllegalArgs;
+	}
 
-	// TODO: this is a no-op for now.
-	return kHelErrIllegalArgs;
+	return kHelErrNone;
 }
 
 HelError helExitThisThread() {

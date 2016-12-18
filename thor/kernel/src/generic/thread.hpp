@@ -1,9 +1,10 @@
 
 namespace thor {
 
-enum Fault {
-	kFaultNone,
-	kFaultBreakpoint
+enum Interrupt {
+	kIntrNone,
+	kIntrBreakpoint,
+	kIntrSuperCall
 };
 
 struct Thread;
@@ -14,7 +15,7 @@ struct Thread : public PlatformExecutor {
 friend class ThreadRunControl;
 private:
 	struct ObserveBase {
-		virtual void trigger(Error error) = 0;
+		virtual void trigger(Error error, Interrupt interrupt) = 0;
 
 		frigg::IntrusiveSharedLinkedItem<ObserveBase> hook;
 	};
@@ -24,8 +25,8 @@ private:
 		Observe(F functor)
 		: _functor(frigg::move(functor)) { }
 
-		void trigger(Error error) override {
-			_functor(error);
+		void trigger(Error error, Interrupt interrupt) override {
+			_functor(error, interrupt);
 		}
 
 	private:
@@ -59,7 +60,8 @@ public:
 	// state transitions that apply to the current thread only.
 	static void deferCurrent();
 	static void blockCurrent(void *argument, void (*function) (void *));
-	static void faultCurrent(FaultImageAccessor image);
+	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
+	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
 	
 	// state transitions that apply to arbitrary threads.
 	static void activateOther(frigg::UnsafePtr<Thread> thread);
@@ -128,11 +130,6 @@ private:
 		// the thread is waiting for progress inside the kernel.
 		// it is not scheduled.
 		kRunBlocked,
-
-		// the thread is stopped after a fault and is waiting for a
-		// userspace watchdog to resume it.
-		// it is not scheduled.
-		kRunFaulted,
 
 		// the thread was manually stopped from userspace.
 		// it is not scheduled.

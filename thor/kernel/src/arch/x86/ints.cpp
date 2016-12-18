@@ -147,7 +147,7 @@ bool inStub(uintptr_t ip) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address);
-void handleOtherFault(FaultImageAccessor image, Fault fault);
+void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, int number);
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
@@ -164,7 +164,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 	switch(number) {
 	case 3: {
-		handleOtherFault(image, kFaultBreakpoint);
+		handleOtherFault(image, kIntrBreakpoint);
 	} break;
 	case 14: {
 		uintptr_t address;

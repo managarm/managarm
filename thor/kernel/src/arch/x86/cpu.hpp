@@ -91,7 +91,7 @@ private:
 };
 
 struct FaultImageAccessor {
-	friend void saveExecutorFromFault(FaultImageAccessor accessor);
+	friend void saveExecutor(FaultImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
 
@@ -175,6 +175,8 @@ private:
 };
 
 struct SyscallImageAccessor {
+	friend void saveExecutor(SyscallImageAccessor accessor);
+
 	Word *number() { return &_frame()->rdi; }
 	Word *in0() { return &_frame()->rsi; }
 	Word *in1() { return &_frame()->rdx; }
@@ -219,7 +221,8 @@ private:
 };
 
 struct UniqueExecutorImage {
-	friend void saveExecutorFromFault(FaultImageAccessor accessor);
+	friend void saveExecutor(FaultImageAccessor accessor);
+	friend void saveExecutor(SyscallImageAccessor accessor);
 	friend void restoreExecutor();
 
 	static size_t determineSize();
@@ -349,7 +352,8 @@ private:
 	char *_pointer;
 };
 
-void saveExecutorFromFault(FaultImageAccessor accessor);
+void saveExecutor(FaultImageAccessor accessor);
+void saveExecutor(SyscallImageAccessor accessor);
 
 // copies the current state into the executor and continues normal control flow.
 // returns 1 when the state is saved and 0 when it is restored.

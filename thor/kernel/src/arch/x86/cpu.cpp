@@ -158,7 +158,7 @@ void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp, bool supervisor) {
 	}
 }
 
-void saveExecutorFromFault(FaultImageAccessor accessor) {
+void saveExecutor(FaultImageAccessor accessor) {
 	UniqueExecutorImage &image = activeExecutor()->image;
 
 	image.general()->rax = accessor._frame()->rax;
@@ -183,6 +183,37 @@ void saveExecutorFromFault(FaultImageAccessor accessor) {
 	image.general()->rflags = accessor._frame()->rflags;
 	image.general()->rsp = accessor._frame()->rsp;
 	image.general()->ss = accessor._frame()->ss;
+	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	
+	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
+}
+
+void saveExecutor(SyscallImageAccessor accessor) {
+	UniqueExecutorImage &image = activeExecutor()->image;
+
+	// Note that rbx, rcx and r11 are used internally by the syscall mechanism.
+	image.general()->rax = accessor._frame()->rax;
+	image.general()->rdx = accessor._frame()->rdx;
+	image.general()->rdi = accessor._frame()->rdi;
+	image.general()->rsi = accessor._frame()->rsi;
+	image.general()->rbp = accessor._frame()->rbp;
+
+	image.general()->r8 = accessor._frame()->r8;
+	image.general()->r9 = accessor._frame()->r9;
+	image.general()->r10 = accessor._frame()->r10;
+	image.general()->r12 = accessor._frame()->r12;
+	image.general()->r13 = accessor._frame()->r13;
+	image.general()->r14 = accessor._frame()->r14;
+	image.general()->r15 = accessor._frame()->r15;
+
+	// Note that we do not save cs and ss on syscall.
+	// We just assume that these registers have their usual values.
+	image.general()->rip = accessor._frame()->rip;
+	image.general()->cs = kSelClientUserCode;
+	image.general()->rflags = accessor._frame()->rflags;
+	image.general()->rsp = accessor._frame()->rsp;
+	image.general()->ss = kSelClientUserData;
 	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
 	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	

@@ -19,8 +19,6 @@
 #include <hel-syscalls.h>
 
 int main() {
-	asm volatile ("int3");
-
 	int fd = open("/dev/helout", O_WRONLY);
 	dup2(fd, STDOUT_FILENO);
 	dup2(fd, STDERR_FILENO);

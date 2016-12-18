@@ -69,7 +69,9 @@ enum {
 	kHelCallEnableIo = 12,
 	kHelCallEnableFullIo = 35,
 	
-	kHelCallControlKernel = 31
+	kHelCallControlKernel = 31,
+	
+	kHelCallSuper = 0x80000000
 };
 
 enum {
@@ -187,11 +189,13 @@ enum HelMapFlags {
 
 enum HelThreadFlags {
 	kHelThreadExclusive = 2,
-	kHelThreadTrapsAreFatal = 8
+	kHelThreadTrapsAreFatal = 8,
+	kHelThreadStopped = 9
 };
 
 enum HelObservation {
-	kHelObserveBreakpoint = 1
+	kHelObserveBreakpoint = 1,
+	kHelObserveSuperCall = 0x80000000
 };
 
 enum HelRegisterSets {
@@ -260,7 +264,7 @@ struct HelSimpleResult {
 
 struct HelObserveResult {
 	HelError error;
-	int observation;
+	unsigned int observation;
 	uint64_t code;
 };
 
