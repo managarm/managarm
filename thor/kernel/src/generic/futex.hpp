@@ -7,6 +7,10 @@ struct Futex {
 	Futex()
 	: _slots(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
 
+	bool empty() {
+		return _slots.empty();
+	}
+
 	template<typename C, typename F>
 	void waitIf(Address address, C condition, F functor) {
 		auto lock = frigg::guard(&_mutex);

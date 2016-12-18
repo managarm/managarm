@@ -711,30 +711,58 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			&& (mapping->flags & Mapping::kFlagCopyOnWriteAtFork)) {
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 
-		// don't set the write flag to enable copy-on-write
+		// don't set the write flag here to enable copy-on-write.
 		uint32_t page_flags = 0;
 		if(mapping->executePermission)
 			page_flags |= PageSpace::kAccessExecute;
-		
-		// create a copy-on-write region for the original space
-		auto src_memory = frigg::makeShared<Memory>(*kernelAlloc,
-				CopyOnWriteMemory(memory.toShared()));
-		{
-			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
-			for(size_t page = 0; page < mapping->length; page += kPageSize) {
-				PhysicalAddr physical = src_memory->grabPage(physical_guard,
-						kGrabQuery | kGrabRead, mapping->memoryOffset + page);
-				assert(physical != PhysicalAddr(-1));
-				VirtualAddr vaddr = mapping->baseAddress + page;
-				p_pageSpace.unmapSingle4k(vaddr);
-				p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+
+		// Decide if we want a copy-on-write or a real copy of the mapping.
+		// * Futexes attached to the memory object prevent copy-on-write.
+		//     This ensures that processes do not miss wake ups that would otherwise
+		//     hit the copy-on-write memory object.
+		KernelSharedPtr<Memory> dest_memory;
+		if(memory->futex.empty()) {
+			// Create a copy-on-write object for the original space.
+			auto src_memory = frigg::makeShared<Memory>(*kernelAlloc,
+					CopyOnWriteMemory(memory.toShared()));
+			{
+				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+				for(size_t page = 0; page < mapping->length; page += kPageSize) {
+					PhysicalAddr physical = src_memory->grabPage(physical_guard,
+							kGrabQuery | kGrabRead, mapping->memoryOffset + page);
+					assert(physical != PhysicalAddr(-1));
+					VirtualAddr vaddr = mapping->baseAddress + page;
+					p_pageSpace.unmapSingle4k(vaddr);
+					p_pageSpace.mapSingle4k(physical_guard, vaddr, physical, true, page_flags);
+				}
+			}
+			mapping->memoryRegion = frigg::move(src_memory);
+			
+			// Create a copy-on-write region for the forked space
+			dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
+					CopyOnWriteMemory(memory.toShared()));
+		}else{
+			// We perform an actual copy so we can grant write permission.
+			if(mapping->writePermission)
+				page_flags |= PageSpace::kAccessWrite;
+
+			// Perform a real copy operation here.
+			dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
+					AllocatedMemory(memory->getLength(), kPageSize, kPageSize));
+			for(size_t page = 0; page < memory->getLength(); page += kPageSize) {
+				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+				PhysicalAddr src_physical = memory->grabPage(physical_guard,
+						kGrabQuery | kGrabRead, page);
+				PhysicalAddr dest_physical = dest_memory->grabPage(physical_guard,
+						kGrabFetch | kGrabWrite, page);
+				assert(src_physical != PhysicalAddr(-1));
+				assert(dest_physical != PhysicalAddr(-1));
+				memcpy(physicalToVirtual(dest_physical),
+						physicalToVirtual(src_physical), kPageSize);
 			}
 		}
-		mapping->memoryRegion = frigg::move(src_memory);
-		
-		// create a copy-on-write region for the forked space
-		auto dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
-				CopyOnWriteMemory(memory.toShared()));
+
+		// Finally we map the new memory object to the cloned address space.
 		{
 			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 			for(size_t page = 0; page < mapping->length; page += kPageSize) {
@@ -746,6 +774,7 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 						true, page_flags);
 			}
 		}
+
 		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;

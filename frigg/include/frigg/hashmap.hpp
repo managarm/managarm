@@ -71,6 +71,10 @@ public:
 	void insert(const Key &key, const Value &value);
 	void insert(const Key &key, Value &&value);
 
+	bool empty() {
+		return !p_size;
+	}
+
 	Iterator iterator() {
 		if(!p_size)
 			return Iterator(*this, p_capacity, nullptr);
