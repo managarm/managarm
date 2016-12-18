@@ -199,8 +199,9 @@ enum HelObservation {
 };
 
 enum HelRegisterSets {
-	kHelRegsIp = 1,
-	kHelRegsGeneral = 2
+	kHelRegsProgram = 1,
+	kHelRegsGeneral = 2,
+	kHelRegsThread = 3
 };
 
 enum HelMessageFlags {

@@ -862,7 +862,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 
-	if(set == kHelRegsIp) {
+	if(set == kHelRegsProgram) {
 		auto accessor = reinterpret_cast<uintptr_t *>(image);
 		accessor[0] = *thread->image.ip();
 		accessor[1] = *thread->image.sp();
@@ -883,6 +883,10 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		accessor[12] = thread->image.general()->r14;
 		accessor[13] = thread->image.general()->r15;
 		accessor[14] = thread->image.general()->rbp;
+	}else if(set == kHelRegsThread) {
+		auto accessor = reinterpret_cast<uintptr_t *>(image);
+		accessor[0] = thread->image.general()->clientFs;
+		accessor[1] = thread->image.general()->clientGs;
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -906,7 +910,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 	
-	if(set == kHelRegsIp) {
+	if(set == kHelRegsProgram) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
 		*thread->image.ip() = accessor[0];
 		*thread->image.sp() = accessor[1];
@@ -927,6 +931,10 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread->image.general()->r14 = accessor[12];
 		thread->image.general()->r15 = accessor[13];
 		thread->image.general()->rbp = accessor[14];
+	}else if(set == kHelRegsThread) {
+		auto accessor = reinterpret_cast<const uintptr_t *>(image);
+		thread->image.general()->clientFs = accessor[0];
+		thread->image.general()->clientGs = accessor[1];
 	}else{
 		return kHelErrIllegalArgs;
 	}

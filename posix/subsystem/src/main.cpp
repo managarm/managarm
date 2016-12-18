@@ -49,11 +49,13 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 //			serve(child, helix::UniqueDescriptor(thread));
 
 			// Copy registers from the current thread to the new one.
-			uintptr_t pcrs[2], gprs[15];
-			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &pcrs));
+			uintptr_t pcrs[2], gprs[15], thrs[2];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsThread, &thrs));
 			
-			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsIp, &pcrs));
+			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsProgram, &pcrs));
+			HEL_CHECK(helStoreRegisters(new_thread, kHelRegsThread, &thrs));
 
 			// Setup post supercall registers in both threads and finally resume the threads.
 			gprs[4] = kHelErrNone;
@@ -67,7 +69,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 			HEL_CHECK(helResume(new_thread));
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			uintptr_t pcrs[2];
-			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &pcrs));
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));

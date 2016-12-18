@@ -33,7 +33,7 @@ int main() {
 	int x = 0;
 	if(!fork()) {
 		helLog("zero_fork\n", 10);
-//		std::cout << "stdout is broken here" << std::endl;
+		std::cout << "stdout is broken here" << std::endl;
 		while(true)
 			HEL_CHECK(helFutexWait(&x, 0));
 	}else{
