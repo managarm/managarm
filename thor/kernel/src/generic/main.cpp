@@ -415,7 +415,8 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {
-		Thread::interruptCurrent(kIntrSuperCall, image);
+		Thread::interruptCurrent(static_cast<Interrupt>(kIntrSuperCall
+				+ (*image.number() - kHelCallSuper)), image);
 		return;
 	}
 

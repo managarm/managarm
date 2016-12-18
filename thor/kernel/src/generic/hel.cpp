@@ -225,8 +225,8 @@ struct ObserveThreadWriter {
 		unsigned int observation;
 		if(_interrupt == kIntrBreakpoint) {
 			observation = kHelObserveBreakpoint;
-		}else if(_interrupt == kIntrSuperCall) {
-			observation = kHelObserveSuperCall;
+		}else if(_interrupt >= kIntrSuperCall) {
+			observation = kHelObserveSuperCall + (_interrupt - kIntrSuperCall);
 		}else{
 			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
 			__builtin_unreachable();

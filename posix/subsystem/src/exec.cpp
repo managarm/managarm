@@ -163,9 +163,6 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	// the offset at which the stack image starts.
 	size_t d = stack_size;
 
-	HelHandle universe;
-	HEL_CHECK(helCreateUniverse(&universe));
-	
 	copyArrayToStack(window, d, (uintptr_t[]){
 		AT_ENTRY,
 		uintptr_t(exec_info.entryIp),
@@ -185,7 +182,8 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	//FIXME helx::Directory directory = Process::runServer(process);
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(universe, process.getVmSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(process.getUniverse().getHandle(),
+			process.getVmSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	
 	serve(std::move(process), helix::UniqueDescriptor(thread));

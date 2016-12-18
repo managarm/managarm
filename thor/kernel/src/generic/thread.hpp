@@ -4,7 +4,7 @@ namespace thor {
 enum Interrupt {
 	kIntrNone,
 	kIntrBreakpoint,
-	kIntrSuperCall
+	kIntrSuperCall = 0x80000000
 };
 
 struct Thread;

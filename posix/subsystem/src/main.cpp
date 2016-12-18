@@ -27,6 +27,8 @@ bool traceRequests = false;
 //FIXME: helx::Pipe ldServerPipe;
 //FIXME: helx::Pipe mbusPipe;
 
+cofiber::no_future serve(SharedProcess self, helix::UniqueDescriptor p);
+
 COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 		helix::BorrowedDescriptor thread), ([=] {
 	using M = helix::AwaitMechanism;
@@ -37,16 +39,23 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 		COFIBER_AWAIT(observe.future());
 		HEL_CHECK(observe.error());
 
-		if(observe.observation() == kHelObserveSuperCall) {
+		if(observe.observation() == kHelObserveSuperCall + 1) {
+//			std::cout << "clientFileTable supercall" << std::endl;
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			gprs[4] = kHelErrNone;
+			gprs[5] = reinterpret_cast<uintptr_t>(self.clientFileTable());
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 2) {
+//			std::cout << "fork supercall" << std::endl;
 			auto child = fork(self);
 	
-			HelHandle universe;
-			HEL_CHECK(helCreateUniverse(&universe));
-	
 			HelHandle new_thread;
-			HEL_CHECK(helCreateThread(universe, child.getVmSpace().getHandle(), kHelAbiSystemV,
+			HEL_CHECK(helCreateThread(child.getUniverse().getHandle(),
+					child.getVmSpace().getHandle(), kHelAbiSystemV,
 					0, 0, kHelThreadStopped, &new_thread));
-//			serve(child, helix::UniqueDescriptor(thread));
+			serve(child, helix::UniqueDescriptor(new_thread));
 
 			// Copy registers from the current thread to the new one.
 			uintptr_t pcrs[2], gprs[15], thrs[2];
