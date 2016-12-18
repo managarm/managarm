@@ -13,6 +13,8 @@ enum CntReqType {
 	GET_CONFIGURATION_DESCRIPTOR = 1;
 	TRANSFER_TO_HOST = 2;
 	TRANSFER_TO_DEVICE = 3;
+	USE_CONFIGURATION = 4;
+	USE_INTERFACE = 5;
 }
 
 message CntRequest {
@@ -27,6 +29,8 @@ message CntRequest {
 	optional int32 length = 7;
 
 	optional int32 number = 8;
+
+	optional int32 alternative = 9;
 }
 
 message SvrResponse {

@@ -139,8 +139,11 @@ struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
 // ----------------------------------------------------------------------------
 
 struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<ConfigurationState> {
+	ConfigurationState(std::shared_ptr<DeviceState> device);
+
 	cofiber::future<Interface> useInterface(int number, int alternative) override;
 
+//private:
 	std::shared_ptr<DeviceState> _device;
 };
 
@@ -149,8 +152,11 @@ struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<Conf
 // ----------------------------------------------------------------------------
 
 struct InterfaceState : InterfaceData {
+	InterfaceState(std::shared_ptr<ConfigurationState> config);
+
 	Endpoint getEndpoint(PipeType type, int number) override;
 
+//private:
 	std::shared_ptr<ConfigurationState> _config;
 };
 

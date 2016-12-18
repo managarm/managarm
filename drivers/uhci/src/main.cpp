@@ -237,7 +237,7 @@ boost::intrusive::list<
 > asyncSchedule;
 
 // ----------------------------------------------------------------
-// State definitions.
+// DeviceState
 // ----------------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::future<std::string>, DeviceState::configurationDescriptor(), ([=] {
@@ -265,7 +265,7 @@ COFIBER_ROUTINE(cofiber::future<Configuration>,
 	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToDevice,
 			kDestDevice, kStandard, SetupPacket::kSetConfig, number, 0,
 			nullptr, 0));
-	auto config_state = std::make_shared<ConfigurationState>();
+	auto config_state = std::make_shared<ConfigurationState>(shared_from_this());
 	COFIBER_RETURN(Configuration(config_state));
 }))
 
@@ -273,8 +273,12 @@ cofiber::future<void> DeviceState::transfer(ControlTransfer info) {
 	return _controller->transfer(shared_from_this(), 0, info);
 }
 
-EndpointState::EndpointState(PipeType type, int number)
-: _type(type), _number(number) { }
+// ----------------------------------------------------------------------------
+// ConfigurationState
+// ----------------------------------------------------------------------------
+
+ConfigurationState::ConfigurationState(std::shared_ptr<DeviceState> device)
+: _device(std::move(device)) { }
 
 COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int number,
 		int alternative), ([=] {
@@ -293,9 +297,27 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 		_device->_controller->activateAsync(_device->endpointStates[endpoint]->queue.get());
 	});
 
-	auto interface = std::make_shared<InterfaceState>();
+	auto interface = std::make_shared<InterfaceState>(shared_from_this());
 	COFIBER_RETURN(Interface(interface));
 }))
+
+// ----------------------------------------------------------------------------
+// InterfaceState
+// ----------------------------------------------------------------------------
+
+InterfaceState::InterfaceState(std::shared_ptr<ConfigurationState> config)
+: _config(std::move(config)) { }
+
+Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
+	return Endpoint(_config->_device->endpointStates[number]);
+}
+
+// ----------------------------------------------------------------------------
+// EndpointState
+// ----------------------------------------------------------------------------
+
+EndpointState::EndpointState(PipeType type, int number)
+: _type(type), _number(number) { }
 
 cofiber::future<void> EndpointState::transfer(ControlTransfer info) {
 	assert(!"FIXME: Implement this");
@@ -308,10 +330,6 @@ cofiber::future<void> EndpointState::transfer(InterruptTransfer info) {
 
 	return _interface->_config->_device->_controller->transfer(
 			_interface->_config->_device, _number, flag, info);
-}
-
-Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
-	return Endpoint(_config->_device->endpointStates[number]);
 }
 
 // ----------------------------------------------------------------------------
