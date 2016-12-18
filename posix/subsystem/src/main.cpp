@@ -27,9 +27,9 @@ bool traceRequests = false;
 //FIXME: helx::Pipe ldServerPipe;
 //FIXME: helx::Pipe mbusPipe;
 
-cofiber::no_future serve(SharedProcess self, helix::UniqueDescriptor p);
+cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
-COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
+COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
 	using M = helix::AwaitMechanism;
 
@@ -44,16 +44,16 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			gprs[4] = kHelErrNone;
-			gprs[5] = reinterpret_cast<uintptr_t>(self.clientFileTable());
+			gprs[5] = reinterpret_cast<uintptr_t>(self->clientFileTable());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 2) {
 //			std::cout << "fork supercall" << std::endl;
-			auto child = fork(self);
+			auto child = Process::fork(self);
 	
 			HelHandle new_thread;
-			HEL_CHECK(helCreateThread(child.getUniverse().getHandle(),
-					child.getVmSpace().getHandle(), kHelAbiSystemV,
+			HEL_CHECK(helCreateThread(child->getUniverse().getHandle(),
+					child->getVmSpace().getHandle(), kHelAbiSystemV,
 					0, 0, kHelThreadStopped, &new_thread));
 			serve(child, helix::UniqueDescriptor(new_thread));
 
@@ -97,7 +97,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
+COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
 
@@ -123,7 +123,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			auto file = COFIBER_AWAIT open(req.path());
-			int fd = self.attachFile(file);
+			int fd = self->attachFile(file);
 			std::cout << "attach " << fd << std::endl;
 			(void)fd;
 
@@ -145,7 +145,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
-			self.closeFile(req.fd());
+			self->closeFile(req.fd());
 
 			helix::SendBuffer<M> send_resp;
 
@@ -161,8 +161,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			std::cout << "dup2: " << req.fd() << " -> " << req.newfd() << std::endl;
-			auto file = self.getFile(req.fd());
-			self.attachFile(req.newfd(), file);
+			auto file = self->getFile(req.fd());
+			self->attachFile(req.newfd(), file);
 
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_passthrough;
@@ -205,7 +205,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 	
-	execute(SharedProcess::createInit(), "posix-init");
+	execute(Process::createInit(), "posix-init");
 
 	while(true)
 		helix::Dispatcher::global().dispatch();

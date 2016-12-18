@@ -132,17 +132,17 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-cofiber::no_future serve(SharedProcess process, helix::UniqueDescriptor);
+cofiber::no_future serve(std::shared_ptr<Process> process, helix::UniqueDescriptor);
 
 // FIXME: remove this helper function
-COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string path), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, std::string path), ([=] {
 	auto exec_file = COFIBER_AWAIT open(path);
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
 	auto exec_info = COFIBER_AWAIT load(exec_file,
-			process.getVmSpace(), 0);
+			process->getVmSpace(), 0);
 	auto interp_info = COFIBER_AWAIT load(interp_file,
-			process.getVmSpace(), 0x40000000);
+			process->getVmSpace(), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;
 	
@@ -151,7 +151,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, process.getVmSpace().getHandle(), nullptr,
+	HEL_CHECK(helMapMemory(stack_memory, process->getVmSpace().getHandle(), nullptr,
 			0, stack_size, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up.
@@ -178,31 +178,15 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(SharedProcess process, std::string 
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stack_size));
 
-	// finally create a new thread to run the executable
-	//FIXME helx::Directory directory = Process::runServer(process);
-
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(process.getUniverse().getHandle(),
-			process.getVmSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(process->getUniverse().getHandle(),
+			process->getVmSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	
 	serve(std::move(process), helix::UniqueDescriptor(thread));
-
-/*	auto action = frigg::await<void(HelError)>([=] (auto callback) {
-		int64_t async_id;
-		HEL_CHECK(helSubmitObserve(thread, eventHub.getHandle(),
-				(uintptr_t)callback.getFunction(), (uintptr_t)callback.getObject(),
-				&async_id));
-	})
-	+ frigg::lift([=](HelError error) {
-		frigg::infoLogger() << "Observe triggered" << frigg::endLog;
-		HEL_CHECK(helResume(thread));
-	});
-
-	frigg::run(frigg::move(action), allocator.get());*/
 }))
 
-void execute(SharedProcess process, std::string path) {
+void execute(std::shared_ptr<Process> process, std::string path) {
 	_execute(std::move(process), path);
 }
 
