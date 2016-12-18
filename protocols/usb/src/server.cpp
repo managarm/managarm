@@ -50,6 +50,28 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			COFIBER_AWAIT send_data.future();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
+		}else if(req.req_type() == managarm::usb::CntReqType::TRANSFER_TO_HOST) {
+			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer<M> send_data;
+
+			auto data = malloc(req.length());
+			COFIBER_AWAIT device.transfer(ControlTransfer(XferFlags::kXferToHost,
+					static_cast<ControlRecipient>(req.recipient()), 
+					static_cast<ControlType>(req.type()), req.request(), req.arg0(),
+					req.arg1(), data, req.length()));
+
+			managarm::usb::SvrResponse resp;
+			resp.set_error(managarm::usb::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, data, req.length())
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT send_data.future();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
 		}else{
 			helix::SendBuffer<M> send_resp;
 

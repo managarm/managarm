@@ -22,25 +22,6 @@
 #include "schedule.hpp"
 #include <hw.pb.h>
 
-uintptr_t ContiguousPolicy::map(size_t length) {
-	assert((length % 0x1000) == 0);
-
-	HelHandle memory;
-	void *actual_ptr;
-	HEL_CHECK(helAllocateMemory(length, kHelAllocContinuous, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, length,
-			kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &actual_ptr));
-	HEL_CHECK(helCloseDescriptor(memory));
-	return (uintptr_t)actual_ptr;
-}
-
-void ContiguousPolicy::unmap(uintptr_t address, size_t length) {
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, (void *)address, length));
-}
-
-ContiguousPolicy contiguousPolicy;
-ContiguousAllocator contiguousAllocator(contiguousPolicy);
-
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 // ----------------------------------------------------------------------------
@@ -332,22 +313,6 @@ cofiber::future<void> EndpointState::transfer(InterruptTransfer info) {
 Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
 	return Endpoint(_config->_device->endpointStates[number]);
 }
-
-// ----------------------------------------------------------------------------
-// Control & InterruptTransfer.
-// ----------------------------------------------------------------------------
-
-// arg0 = wValue in the USB spec
-// arg1 = wIndex in the USB spec
-
-ControlTransfer::ControlTransfer(XferFlags flags, ControlRecipient recipient,
-		ControlType type, uint8_t request, uint16_t arg0, uint16_t arg1,
-		void *buffer, size_t length)
-	: flags(flags), recipient(recipient), type(type), request(request), arg0(arg0),
-			arg1(arg1), buffer(buffer), length(length) { }
-
-InterruptTransfer::InterruptTransfer(void *buffer, size_t length)
-	: buffer(buffer), length(length) { }
 
 // ----------------------------------------------------------------------------
 // Controller.

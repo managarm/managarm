@@ -11,10 +11,22 @@ enum Errors {
 enum CntReqType {
 	NONE = 0;
 	GET_CONFIGURATION_DESCRIPTOR = 1;
+	TRANSFER_TO_HOST = 2;
+	TRANSFER_TO_DEVICE = 3;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
+	
+	optional int32 recipient = 2;
+	optional int32 type = 3;
+	optional int32 request = 4;
+	optional int32 arg0 = 5;
+	optional int32 arg1 = 6;
+
+	optional int32 length = 7;
+
+	optional int32 number = 8;
 }
 
 message SvrResponse {

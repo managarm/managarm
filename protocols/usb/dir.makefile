@@ -17,7 +17,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lhelix -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libusb_protocol.so,api.o client.o server.o usb.pb.o)
+$(call make_so,libusb_protocol.so,api.o client.o server.o util.o usb.o usb.pb.o)
 $(call install_header,protocols/usb/client.hpp)
 $(call install_header,protocols/usb/server.hpp)
 $(call install_header,protocols/usb/api.hpp)

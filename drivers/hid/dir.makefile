@@ -16,7 +16,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LIBS := -lhelix -lcofiber -lmbus -lusb_protocol \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_exec,hid,main.o)
+$(call make_exec,hid, main.o)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files

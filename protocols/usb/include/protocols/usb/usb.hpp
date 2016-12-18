@@ -3,6 +3,7 @@
 #define LIBUSB_USB_HPP
 
 #include <experimental/optional>
+#include <assert.h>
 
 enum DataDirection {
 	kDirToDevice = 0,

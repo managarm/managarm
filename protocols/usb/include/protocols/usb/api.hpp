@@ -10,7 +10,7 @@
 
 enum XferFlags {
 	kXferToDevice = 1,
-	kXferToHost = 2,
+	kXferToHost = 2
 };
 
 struct ControlTransfer {
