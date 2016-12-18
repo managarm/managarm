@@ -403,6 +403,22 @@ private:
 	}
 };
 
+template<typename M>
+struct Observe : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+
+	int observation() {
+		return result()->observation;
+	}
+
+private:
+	HelObserveResult *result() {
+		return reinterpret_cast<HelObserveResult *>(OperationBase::element());
+	}
+};
+
 // ----------------------------------------------------------------------------
 // Experimental: submitAsync
 // ----------------------------------------------------------------------------
@@ -476,6 +492,13 @@ HelAction action(PullDescriptor<M> *operation, uint32_t flags = 0) {
 	action.context = (uintptr_t)operation;
 	action.flags = flags;
 	return action;
+}
+
+template<typename M>
+void submitObserve(BorrowedDescriptor thread, Observe<M> *operation,
+		Dispatcher &dispatcher) {
+	HEL_CHECK(helSubmitObserve(thread.getHandle(),
+			dispatcher.acquire().get(), (uintptr_t)operation));
 }
 
 template<size_t N>

@@ -27,6 +27,24 @@ void Thread::blockCurrent(void *, void (*) (void *)) {
 	assert(!"Use blockCurrentWhile() instead");
 }
 
+void Thread::faultCurrent(FaultImageAccessor image) {
+	auto this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunFaulted;
+	saveExecutorFromFault(image);
+
+	while(!this_thread->_observeQueue.empty()) {
+		auto observe = this_thread->_observeQueue.removeFront();
+		observe->trigger(Error::kErrSuccess);
+	}
+
+	assert(!intsAreEnabled());
+	runDetached([] {
+		ScheduleGuard schedule_lock(scheduleLock.get());
+		doSchedule(frigg::move(schedule_lock));
+	});
+}
+
 void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
 	assert(other_thread->_runState == kRunSuspended
 			|| other_thread->_runState == kRunDeferred);
@@ -39,6 +57,17 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 		return;
 
 	thread->_runState = kRunDeferred;
+	{
+		ScheduleGuard schedule_lock(scheduleLock.get());
+		enqueueInSchedule(schedule_lock, thread);
+	}
+}
+
+void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
+	auto lock = frigg::guard(&thread->_mutex);
+	assert(thread->_runState == kRunFaulted);
+
+	thread->_runState = kRunSuspended;
 	{
 		ScheduleGuard schedule_lock(scheduleLock.get());
 		enqueueInSchedule(schedule_lock, thread);
@@ -87,21 +116,6 @@ void Thread::signalKill() {
 
 auto Thread::pendingSignal() -> Signal {
 	return _pendingSignal;
-}
-
-void Thread::transitionToFault() {
-	assert(!"Use Thread::faultCurrent() instead");
-/*	assert(_runState == kRunActive);
-	_runState = kRunFaulted;
-
-	while(!_observeQueue.empty()) {
-		frigg::SharedPtr<AsyncObserve> observe = _observeQueue.removeFront();
-		AsyncOperation::complete(frigg::move(observe));
-	}*/
-}
-
-void Thread::submitObserve(KernelSharedPtr<AsyncObserve> observe) {
-	_observeQueue.addBack(frigg::move(observe));
 }
 
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {

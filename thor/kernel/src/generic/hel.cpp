@@ -213,6 +213,23 @@ private:
 	Error _error;
 };
 
+struct ObserveThreadWriter {
+	ObserveThreadWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelObserveResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelObserveResult data{translateError(_error), kHelObserveBreakpoint, 0};
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
+
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
 		infoSink.print(string[i]);
@@ -775,13 +792,11 @@ HelError helYield() {
 	return kHelErrNone;
 }
 
-HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+HelError helSubmitObserve(HelHandle handle, HelQueue *queue, uintptr_t context) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	frigg::SharedPtr<Thread> thread;
-	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
@@ -791,24 +806,11 @@ HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
 		if(!thread_wrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
-		
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
 	
-	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = completer.submitInfo.asyncId;
-	
-	auto observe = frigg::makeShared<AsyncObserve>(*kernelAlloc,
-			frigg::move(completer));
-	{
-		// TODO: protect the thread with a lock!
-		thread->submitObserve(frigg::move(observe));
-	}
+	// TODO: protect the thread with a lock!
+	PostEvent<ObserveThreadWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
+	thread->submitObserve(frigg::move(functor));
 
 	return kHelErrNone;
 }
@@ -829,9 +831,78 @@ HelError helResume(HelHandle handle) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}	
 
-	assert(!"Reimplement helResume()");
+	Thread::resumeOther(thread);
 
 	return kHelErrNone;
+}
+
+HelError helLoadRegisters(HelHandle handle, int set, void *image) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<Thread> thread;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}
+
+	if(set == kHelRegsIp) {
+		struct Accessor {
+			uintptr_t rip;
+			uintptr_t rsp;
+		};
+		
+		auto accessor = reinterpret_cast<Accessor *>(image);
+		accessor->rip = *thread->image.ip();
+		accessor->rsp = *thread->image.sp();
+	}else if(set == kHelRegsGeneral) {
+		auto accessor = reinterpret_cast<uintptr_t *>(image);
+		accessor[0] = thread->image.general()->rax;
+		accessor[1] = thread->image.general()->rbx;
+		accessor[2] = thread->image.general()->rcx;
+		accessor[3] = thread->image.general()->rdx;
+		accessor[4] = thread->image.general()->rdi;
+		accessor[5] = thread->image.general()->rsi;
+		accessor[6] = thread->image.general()->r8;
+		accessor[7] = thread->image.general()->r9;
+		accessor[8] = thread->image.general()->r10;
+		accessor[9] = thread->image.general()->r11;
+		accessor[10] = thread->image.general()->r12;
+		accessor[11] = thread->image.general()->r13;
+		accessor[12] = thread->image.general()->r14;
+		accessor[13] = thread->image.general()->r15;
+		accessor[14] = thread->image.general()->rbp;
+	}else{
+		return kHelErrIllegalArgs;
+	}
+
+	return kHelErrNone;
+}
+
+HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<Thread> thread;
+	{
+		Universe::Guard universe_guard(&universe->lock);
+
+		auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}
+
+	// TODO: this is a no-op for now.
+	return kHelErrIllegalArgs;
 }
 
 HelError helExitThisThread() {

@@ -249,10 +249,10 @@ struct UniqueExecutorImage {
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
-	Word *rflags() { return &_general()->rflags; }
+	Word *rflags() { return &general()->rflags; }
 
-	Word *ip() { return &_general()->rip; }
-	Word *sp() { return &_general()->rsp; }
+	Word *ip() { return &general()->rip; }
+	Word *sp() { return &general()->rsp; }
 
 	void initSystemVAbi(Word ip, Word sp, bool supervisor);
 
@@ -333,13 +333,15 @@ private:
 		uint8_t available[48];
 	};
 	static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
-
-	explicit UniqueExecutorImage(char *pointer)
-	: _pointer(pointer) { }
-
-	General *_general() {
+public:
+	General *general() {
 		return reinterpret_cast<General *>(_pointer);
 	}
+
+private:
+	explicit UniqueExecutorImage(char *pointer)
+	: _pointer(pointer) { }
+	
 	FxState *_fxState() {
 		return reinterpret_cast<FxState *>(_pointer + sizeof(General));
 	}

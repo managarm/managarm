@@ -12,6 +12,26 @@ KernelUnsafePtr<Thread> getCurrentThread();
 
 struct Thread : public PlatformExecutor {
 friend class ThreadRunControl;
+private:
+	struct ObserveBase {
+		virtual void trigger(Error error) = 0;
+
+		frigg::IntrusiveSharedLinkedItem<ObserveBase> hook;
+	};
+
+	template<typename F>
+	struct Observe : ObserveBase {
+		Observe(F functor)
+		: _functor(frigg::move(functor)) { }
+
+		void trigger(Error error) override {
+			_functor(error);
+		}
+
+	private:
+		F _functor;
+	};
+
 public:
 	// wrapper for the function below
 	template<typename F>
@@ -39,7 +59,7 @@ public:
 	// state transitions that apply to the current thread only.
 	static void deferCurrent();
 	static void blockCurrent(void *argument, void (*function) (void *));
-	static void faultCurret(FaultImageAccessor image);
+	static void faultCurrent(FaultImageAccessor image);
 	
 	// state transitions that apply to arbitrary threads.
 	static void activateOther(frigg::UnsafePtr<Thread> thread);
@@ -81,9 +101,11 @@ public:
 	void signalKill();
 	Signal pendingSignal();
 
-	void transitionToFault();
-
-	void submitObserve(KernelSharedPtr<AsyncObserve> observe);
+	template<typename F>
+	void submitObserve(F functor) {
+		auto observe = frigg::makeShared<Observe<F>>(*kernelAlloc, frigg::move(functor));
+		_observeQueue.addBack(frigg::move(observe));
+	}
 
 	uint32_t flags;
 
@@ -146,8 +168,8 @@ private:
 	LaneHandle _inferiorLane;
 
 	frigg::IntrusiveSharedLinkedList<
-		AsyncObserve,
-		&AsyncObserve::processQueueItem
+		ObserveBase,
+		&ObserveBase::hook
 	> _observeQueue;
 };
 

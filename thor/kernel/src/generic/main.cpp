@@ -385,13 +385,8 @@ void handleOtherFault(FaultImageAccessor image, Fault fault) {
 		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n"
 				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
 	}else{
-		this_thread->transitionToFault();
-		saveExecutorFromFault(image);
+		Thread::faultCurrent(image);
 	}
-
-	frigg::infoLogger() << "schedule after fault" << frigg::endLog;
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(frigg::move(schedule_guard));
 }
 
 void handleIrq(IrqImageAccessor image, int number) {
@@ -538,13 +533,17 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helYield();
 	} break;
 	case kHelCallSubmitObserve: {
-		int64_t async_id;
-		*image.error() = helSubmitObserve((HelHandle)arg0, (HelHandle)arg1,
-				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
+		*image.error() = helSubmitObserve((HelHandle)arg0,
+				(HelQueue *)arg1, (uintptr_t)arg2);
 	} break;
 	case kHelCallResume: {
 		*image.error() = helResume((HelHandle)arg0);
+	} break;
+	case kHelCallLoadRegisters: {
+		*image.error() = helLoadRegisters((HelHandle)arg0, (int)arg1, (void *)arg2);
+	} break;
+	case kHelCallStoreRegisters: {
+		*image.error() = helStoreRegisters((HelHandle)arg0, (int)arg1, (const void *)arg2);
 	} break;
 	case kHelCallExitThisThread: {
 		*image.error() = helExitThisThread();

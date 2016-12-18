@@ -179,16 +179,25 @@ DEFINE_SYSCALL(Yield)
 	DO_SYSCALL(Yield)
 END_SYSCALL()
 
-DEFINE_SYSCALL(SubmitObserve, HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
+DEFINE_SYSCALL(SubmitObserve, HelHandle handle,
+		struct HelQueue *queue, uintptr_t context)
+	IN(0, handle) IN(1, queue) IN(2, context)
 	DO_SYSCALL(SubmitObserve)
-	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(Resume, HelHandle handle)
 	IN(0, handle)
 	DO_SYSCALL(Resume)
+END_SYSCALL()
+
+DEFINE_SYSCALL(LoadRegisters, HelHandle handle, int set, void *image)
+	IN(0, handle) IN(1, set) IN(2, image)
+	DO_SYSCALL(LoadRegisters)
+END_SYSCALL()
+
+DEFINE_SYSCALL(StoreRegisters, HelHandle handle, int set, const void *image)
+	IN(0, handle) IN(1, set) IN(2, image)
+	DO_SYSCALL(StoreRegisters)
 END_SYSCALL()
 
 DEFINE_SYSCALL(ExitThisThread)

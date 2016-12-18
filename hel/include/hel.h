@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 74,
+	kHelNumCalls = 77,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -41,8 +41,10 @@ enum {
 	
 	kHelCallCreateThread = 67,
 	kHelCallYield = 34,
-	kHelCallSubmitObserve = 60,
+	kHelCallSubmitObserve = 74,
 	kHelCallResume = 61,
+	kHelCallLoadRegisters = 75,
+	kHelCallStoreRegisters = 76,
 	kHelCallExitThisThread = 5,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
@@ -188,6 +190,15 @@ enum HelThreadFlags {
 	kHelThreadTrapsAreFatal = 8
 };
 
+enum HelObservation {
+	kHelObserveBreakpoint = 1
+};
+
+enum HelRegisterSets {
+	kHelRegsIp = 1,
+	kHelRegsGeneral = 2
+};
+
 enum HelMessageFlags {
 	kHelRequest = 1,
 	kHelResponse = 2
@@ -245,6 +256,12 @@ struct HelElement {
 struct HelSimpleResult {
 	HelError error;
 	int reserved;
+};
+
+struct HelObserveResult {
+	HelError error;
+	int observation;
+	uint64_t code;
 };
 
 struct HelInlineResult {
@@ -305,9 +322,11 @@ HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t l
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helYield();
-HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
+HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
+		struct HelQueue *queue, uintptr_t context);
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
+HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image); 
+HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
 HEL_C_LINKAGE HelError helExitThisThread();
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);

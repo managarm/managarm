@@ -78,7 +78,7 @@ Tuple<typename RemoveRef<Types>::type...> makeTuple(Types &&... args) {
 namespace _tuple {
 	template<typename F, typename... Args, size_t... I>
 	auto applyToFunctor(F functor, Tuple<Args...> args, IndexSequence<I...>) {
-		return functor(move(args.template get<I>()...));
+		return functor(move(args.template get<I>())...);
 	}
 } // namespace tuple
 

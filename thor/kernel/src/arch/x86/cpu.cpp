@@ -145,46 +145,46 @@ UniqueExecutorImage::~UniqueExecutorImage() {
 void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp, bool supervisor) {
 	memset(_pointer, 0, getStateSize());
 
-	_general()->rip = ip;
-	_general()->rflags = 0x200;
-	_general()->rsp = sp;
+	general()->rip = ip;
+	general()->rflags = 0x200;
+	general()->rsp = sp;
 
 	if(supervisor) {
-		_general()->cs = kSelExecutorSyscallCode;
-		_general()->ss = kSelExecutorKernelData;
+		general()->cs = kSelExecutorSyscallCode;
+		general()->ss = kSelExecutorKernelData;
 	}else{
-		_general()->cs = kSelClientUserCode;
-		_general()->ss = kSelClientUserData;
+		general()->cs = kSelClientUserCode;
+		general()->ss = kSelClientUserData;
 	}
 }
 
 void saveExecutorFromFault(FaultImageAccessor accessor) {
 	UniqueExecutorImage &image = activeExecutor()->image;
 
-	image._general()->rax = accessor._frame()->rax;
-	image._general()->rbx = accessor._frame()->rbx;
-	image._general()->rcx = accessor._frame()->rcx;
-	image._general()->rdx = accessor._frame()->rdx;
-	image._general()->rdi = accessor._frame()->rdi;
-	image._general()->rsi = accessor._frame()->rsi;
-	image._general()->rbp = accessor._frame()->rbp;
+	image.general()->rax = accessor._frame()->rax;
+	image.general()->rbx = accessor._frame()->rbx;
+	image.general()->rcx = accessor._frame()->rcx;
+	image.general()->rdx = accessor._frame()->rdx;
+	image.general()->rdi = accessor._frame()->rdi;
+	image.general()->rsi = accessor._frame()->rsi;
+	image.general()->rbp = accessor._frame()->rbp;
 
-	image._general()->r8 = accessor._frame()->r8;
-	image._general()->r9 = accessor._frame()->r9;
-	image._general()->r10 = accessor._frame()->r10;
-	image._general()->r11 = accessor._frame()->r11;
-	image._general()->r12 = accessor._frame()->r12;
-	image._general()->r13 = accessor._frame()->r13;
-	image._general()->r14 = accessor._frame()->r14;
-	image._general()->r15 = accessor._frame()->r15;
+	image.general()->r8 = accessor._frame()->r8;
+	image.general()->r9 = accessor._frame()->r9;
+	image.general()->r10 = accessor._frame()->r10;
+	image.general()->r11 = accessor._frame()->r11;
+	image.general()->r12 = accessor._frame()->r12;
+	image.general()->r13 = accessor._frame()->r13;
+	image.general()->r14 = accessor._frame()->r14;
+	image.general()->r15 = accessor._frame()->r15;
 	
-	image._general()->rip = accessor._frame()->rip;
-	image._general()->cs = accessor._frame()->cs;
-	image._general()->rflags = accessor._frame()->rflags;
-	image._general()->rsp = accessor._frame()->rsp;
-	image._general()->ss = accessor._frame()->ss;
-	image._general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	image._general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	image.general()->rip = accessor._frame()->rip;
+	image.general()->cs = accessor._frame()->cs;
+	image.general()->rflags = accessor._frame()->rflags;
+	image.general()->rsp = accessor._frame()->rsp;
+	image.general()->ss = accessor._frame()->ss;
+	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	
 	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
 }
@@ -245,10 +245,10 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	UniqueExecutorImage &image = activeExecutor()->image;
 
 	// TODO: use wr{fs,gs}base if it is available
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, image._general()->clientFs);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image._general()->clientGs);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, image.general()->clientFs);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image.general()->clientGs);
 	
-	uint16_t cs = image._general()->cs;
+	uint16_t cs = image.general()->cs;
 	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
 			|| cs == kSelClientUserCode);
 	if(cs == kSelClientUserCode)

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <iomanip>
 #include <iostream>
 
 #include <cofiber.hpp>
@@ -26,9 +27,48 @@ bool traceRequests = false;
 //FIXME: helx::Pipe ldServerPipe;
 //FIXME: helx::Pipe mbusPipe;
 
+COFIBER_ROUTINE(cofiber::no_future, observe(SharedProcess self,
+		helix::BorrowedDescriptor thread), ([=] {
+	using M = helix::AwaitMechanism;
+
+	while(true) {
+		helix::Observe<M> observe;
+		helix::submitObserve(thread, &observe, helix::Dispatcher::global());
+		COFIBER_AWAIT(observe.future());
+		HEL_CHECK(observe.error());
+
+		if(observe.observation() == kHelObserveBreakpoint) {
+			struct {
+				uintptr_t rip;
+				uintptr_t rsp;
+			} ip_image;
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsIp, &ip_image));
+
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
+
+			printf("\e[35mBreakpoint fault\n");
+			printf("rax: %.16x, rbx: %.16x, rcx: %.16x\n", gprs[0], gprs[1], gprs[2]);
+			printf("rdx: %.16x, rdi: %.16x, rsi: %.16x\n", gprs[3], gprs[4], gprs[5]);
+			printf(" r8: %.16x,  r9: %.16x, r10: %.16x\n", gprs[6], gprs[7], gprs[8]);
+			printf("r11: %.16x, r12: %.16x, r13: %.16x\n", gprs[9], gprs[10], gprs[11]);
+			printf("r14: %.16x, r15: %.16x, rbp: %.16x\n", gprs[12], gprs[13], gprs[14]);
+			printf("rip: %.16x, rsp: %.16x\n", ip_image.rip, ip_image.rsp);
+			printf("\e[39m");
+
+			// TODO: Instead of resuming here we should raise a signal.
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else{
+			throw std::runtime_error("Unexpected observation");
+		}
+	}
+}))
+
 COFIBER_ROUTINE(cofiber::no_future, serve(SharedProcess self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
+
+	observe(self, lane);
 
 	while(true) {
 		helix::Accept<M> accept;
