@@ -15,8 +15,7 @@ frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
 
 // TODO: move this declaration to a header file
-void runStdio(LaneHandle lane);
-void runService(LaneHandle lane);
+void runService(frigg::SharedPtr<Thread> thread);
 
 Module *getModule(frigg::StringView filename) {
 	for(size_t i = 0; i < allModules->size(); i++)
@@ -146,26 +145,8 @@ void executeModule(PhysicalAddr image_paddr) {
 
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).
-	struct AuxFileData {
-		AuxFileData(int fd, HelHandle pipe)
-		: fd(fd), pipe(pipe) { }
-
-		int fd;
-		HelHandle pipe;
-	};
-
-	auto stdio_stream = createStream();
-	Handle stdio_handle;
-	{
-		auto lock = frigg::guard(&(*rootUniverse)->lock);
-		stdio_handle = (*rootUniverse)->attachDescriptor(lock,
-				LaneDescriptor{frigg::move(stdio_stream.get<0>())});
-	}
-
+	// TODO: do we actually need this buffer?
 	frigg::String<KernelAlloc> data_area(*kernelAlloc);
-	auto fd0_offset = copyToStack<AuxFileData>(data_area, { 1, stdio_handle });
-	auto fd1_offset = copyToStack<AuxFileData>(data_area, { 2, stdio_handle });
-	copyToStack<AuxFileData>(data_area, { -1, 0 });
 
 	uintptr_t data_disp = stack_size - data_area.size();
 	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
@@ -177,8 +158,6 @@ void executeModule(PhysicalAddr image_paddr) {
 		AT_PHENT = 4,
 		AT_PHNUM = 5,
 		AT_ENTRY = 9,
-
-		AT_OPENFILES = 0x1001
 	};
 
 	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
@@ -190,8 +169,6 @@ void executeModule(PhysicalAddr image_paddr) {
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrEntrySize);
 	copyToStack<uintptr_t>(tail_area, AT_PHNUM);
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
-	copyToStack<uintptr_t>(tail_area, AT_OPENFILES);
-	copyToStack<uintptr_t>(tail_area, (uintptr_t)stack_base + data_disp + fd0_offset);
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
 
@@ -206,8 +183,7 @@ void executeModule(PhysicalAddr image_paddr) {
 			stack_base + tail_disp, false);
 	
 	// listen to POSIX calls from the thread.
-	runStdio(stdio_stream.get<1>());
-	runService(thread->superiorLane());
+	runService(thread);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();

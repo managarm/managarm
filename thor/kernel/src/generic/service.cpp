@@ -33,6 +33,13 @@ void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 	handle.getStream()->submitSendBuffer(handle.getLane(), frigg::move(kernel_buffer), callback);
 }
 
+struct OpenFile {
+	LaneHandle clientLane;
+};
+
+struct StdioFile : OpenFile {
+};
+
 namespace stdio {
 	struct WriteClosure {
 		WriteClosure(LaneHandle lane, fs::CntRequest<KernelAlloc> req)
@@ -114,8 +121,8 @@ namespace stdio {
 } // namespace stdio
 
 namespace initrd {
-	struct OpenFile {
-		OpenFile(Module *module)
+	struct ModuleFile : OpenFile {
+		ModuleFile(Module *module)
 		: module(module), offset(0) { }
 
 		Module *module;
@@ -127,7 +134,7 @@ namespace initrd {
 	// ----------------------------------------------------
 
 	struct SeekClosure {
-		SeekClosure(OpenFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
+		SeekClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
 				_buffer(*kernelAlloc) { }
 
@@ -148,7 +155,7 @@ namespace initrd {
 			assert(error == kErrSuccess);
 		}
 
-		OpenFile *_file;
+		ModuleFile *_file;
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
@@ -156,7 +163,7 @@ namespace initrd {
 	};
 	
 	struct ReadClosure {
-		ReadClosure(OpenFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
+		ReadClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
 				_buffer(*kernelAlloc), _payload(*kernelAlloc) { }
 
@@ -190,7 +197,7 @@ namespace initrd {
 			assert(error == kErrSuccess);
 		}
 
-		OpenFile *_file;
+		ModuleFile *_file;
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
@@ -199,7 +206,7 @@ namespace initrd {
 	};
 	
 	struct MapClosure {
-		MapClosure(OpenFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
+		MapClosure(ModuleFile *file, LaneHandle lane, fs::CntRequest<KernelAlloc> req)
 		: _file(file), _lane(frigg::move(lane)), _req(frigg::move(req)),
 				_buffer(*kernelAlloc) { }
 
@@ -231,7 +238,7 @@ namespace initrd {
 			assert(error == kErrSuccess);
 		}
 
-		OpenFile *_file;
+		ModuleFile *_file;
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
@@ -239,7 +246,7 @@ namespace initrd {
 	};
 
 	struct FileRequestClosure {
-		FileRequestClosure(LaneHandle lane, OpenFile *file)
+		FileRequestClosure(LaneHandle lane, ModuleFile *file)
 		: _lane(frigg::move(lane)), _file(file) { }
 
 		void operator() () {
@@ -289,7 +296,7 @@ namespace initrd {
 		}
 
 		LaneHandle _lane;
-		OpenFile *_file;
+		ModuleFile *_file;
 
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
@@ -299,15 +306,73 @@ namespace initrd {
 	// POSIX server.
 	// ----------------------------------------------------
 
+	struct Process {
+		Process(frigg::SharedPtr<Thread> thread)
+		: _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
+			fileTableMemory = frigg::makeShared<Memory>(*kernelAlloc,
+					AllocatedMemory(0x1000));
+			
+			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
+			_thread->getAddressSpace()->map(space_guard, fileTableMemory, 0, 0, 0x1000,
+					AddressSpace::kMapPreferTop | AddressSpace::kMapReadOnly,
+					&clientFileTable);
+		}
+
+		int attachFile(OpenFile *file) {
+			Handle handle;
+			{
+				Universe::Guard universe_guard(&_thread->getUniverse()->lock);
+				handle = _thread->getUniverse()->attachDescriptor(universe_guard,
+						LaneDescriptor(file->clientLane));
+			}
+
+			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
+				if(openFiles[fd])
+					continue;
+				openFiles[fd] = file;
+				fileTableMemory->copyFrom(sizeof(Handle) * fd, &handle, sizeof(Handle));
+				return fd;
+			}
+
+			int fd = openFiles.size();
+			openFiles.push(file);
+			fileTableMemory->copyFrom(sizeof(Handle) * fd, &handle, sizeof(Handle));
+			return fd;
+		}
+
+		frigg::SharedPtr<Thread> _thread;
+
+		frigg::Vector<OpenFile *, KernelAlloc> openFiles;
+
+		frigg::SharedPtr<Memory> fileTableMemory;
+
+		VirtualAddr clientFileTable;
+	};
+
 	struct OpenClosure {
-		OpenClosure(LaneHandle lane, posix::CntRequest<KernelAlloc> req)
-		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
+		OpenClosure(Process *process, LaneHandle lane, posix::CntRequest<KernelAlloc> req)
+		: _process(process), _lane(frigg::move(lane)), _req(frigg::move(req)),
+				_file(nullptr), _buffer(*kernelAlloc) { }
 
 		void operator() () {
 			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
+			// TODO: Actually handle the file-not-found case.	
+			Module *module = getModule(_req.path());
+			assert(module);
+			
+			auto stream = createStream();
+			_file = frigg::construct<ModuleFile>(*kernelAlloc, module);
+			_file->clientLane = frigg::move(stream.get<1>());
+
+			auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
+					frigg::move(stream.get<0>()), _file);
+			(*closure)();
+
+			auto fd = _process->attachFile(_file);
+
 			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(0); // TODO: for now we can get away without handling fds.
+			resp.set_fd(fd);
 
 			resp.SerializeToString(&_buffer);
 			serviceSend(_lane, _buffer.data(), _buffer.size(),
@@ -318,19 +383,8 @@ namespace initrd {
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 			
-			// TODO: this should not be handled here!
-			Module *module = getModule(_req.path());
-			assert(module);
-
-			auto lanes = createStream();
-
-			auto file = frigg::construct<OpenFile>(*kernelAlloc, module);
-			auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-					frigg::move(lanes.get<0>()), file);
-			(*closure)();
-			
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					LaneDescriptor(frigg::move(lanes.get<1>())),
+					LaneDescriptor(_file->clientLane),
 					CALLBACK_MEMBER(this, &OpenClosure::onSendHandle));
 		}
 
@@ -338,9 +392,11 @@ namespace initrd {
 			assert(error == kErrSuccess);
 		}
 
+		Process *_process;
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
+		ModuleFile *_file;
 		frigg::String<KernelAlloc> _buffer;
 	};
 	
@@ -370,8 +426,8 @@ namespace initrd {
 	};
 
 	struct ServerRequestClosure {
-		ServerRequestClosure(LaneHandle lane)
-		: _lane(frigg::move(lane)) { }
+		ServerRequestClosure(Process *process, LaneHandle lane)
+		: _process(process), _lane(frigg::move(lane)) { }
 
 		void operator() () {
 			serviceAccept(_lane,
@@ -395,7 +451,7 @@ namespace initrd {
 
 			if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
-						frigg::move(_requestLane), frigg::move(req));
+						_process, frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
 				auto closure = frigg::construct<CloseClosure>(*kernelAlloc,
@@ -409,24 +465,64 @@ namespace initrd {
 			(*this)();
 		}
 
+		Process *_process;
 		LaneHandle _lane;
 
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
 	};
+	
+	struct ObserveClosure {
+		ObserveClosure(Process *process, frigg::SharedPtr<Thread> thread)
+		: _process(process), _thread(frigg::move(thread)) { }
+
+		void operator() () {
+			_thread->submitObserve(CALLBACK_MEMBER(this, &ObserveClosure::onObserve));
+		}
+
+	private:
+		void onObserve(Error error, Interrupt interrupt) {
+			assert(error == kErrSuccess);
+			
+			if(interrupt == kIntrSuperCall + 1) {
+				_thread->image.general()->rdi = kHelErrNone;
+				_thread->image.general()->rsi = (Word)_process->clientFileTable;
+				Thread::resumeOther(_thread);
+			}else{
+				frigg::panicLogger() << "Unexpected observation" << frigg::endLog;
+			}
+
+			// TODO: We cannot do this here as it would loop indefinitely.
+			// We need to refactor this to be able to observe multiple events.
+//			(*this)();
+		}
+		
+		Process *_process;
+		frigg::SharedPtr<Thread> _thread;
+	};
 }
 
-void runStdio(LaneHandle lane) {
-	auto closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
-			frigg::move(lane));
-	(*closure)();
-}
+void runService(frigg::SharedPtr<Thread> thread) {
+	auto stdio_stream = createStream();
+	auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
+	stdio_file->clientLane = frigg::move(stdio_stream.get<1>());
+	
+	auto stdio_closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
+			frigg::move(stdio_stream.get<0>()));
+	(*stdio_closure)();
 
-void runService(LaneHandle lane) {
-	// start the initrd server.
-	auto closure = frigg::construct<initrd::ServerRequestClosure>(*kernelAlloc,
-			frigg::move(lane));
-	(*closure)();
+	auto process = frigg::construct<initrd::Process>(*kernelAlloc, thread);
+	process->attachFile(stdio_file);
+	process->attachFile(stdio_file);
+	process->attachFile(stdio_file);
+	
+	auto observe_closure = frigg::construct<initrd::ObserveClosure>(*kernelAlloc,
+			process, thread);
+	(*observe_closure)();
+
+	auto posix_closure = frigg::construct<initrd::ServerRequestClosure>(*kernelAlloc,
+			process, thread->superiorLane());
+	(*posix_closure)();
 }
 
 } // namespace thor
