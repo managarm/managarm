@@ -22,19 +22,18 @@ private:
 	helix::UniqueDescriptor _space;
 };
 
-struct Process {
-	static std::shared_ptr<Process> createInit();
-
-	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
+struct FileContext {
+	static std::shared_ptr<FileContext> create();
+	static std::shared_ptr<FileContext> clone(std::shared_ptr<FileContext> original);
 
 	helix::BorrowedDescriptor getUniverse() {
 		return _universe;
 	}
-
-	std::shared_ptr<VmContext> vmContext() {
-		return _vmContext;
+	
+	helix::BorrowedDescriptor fileTableMemory() {
+		return _fileTableMemory;
 	}
-
+	
 	int attachFile(std::shared_ptr<File> file);
 
 	void attachFile(int fd, std::shared_ptr<File> file);
@@ -43,21 +42,40 @@ struct Process {
 
 	void closeFile(int fd);
 
+
+private:
+	helix::UniqueDescriptor _universe;
+
+	// TODO: replace this by a tree that remembers gaps between keys.
+	std::unordered_map<int, std::shared_ptr<File>> _fileTable;
+
+	helix::UniqueDescriptor _fileTableMemory;
+
+	HelHandle *_fileTableWindow;
+};
+
+struct Process {
+	static std::shared_ptr<Process> createInit();
+
+	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
+
+	std::shared_ptr<VmContext> vmContext() {
+		return _vmContext;
+	}
+	
+	std::shared_ptr<FileContext> fileContext() {
+		return _fileContext;
+	}
+
 	void *clientFileTable() {
 		return _clientFileTable;
 	}
 
 private:
 	std::shared_ptr<VmContext> _vmContext;
-
-	helix::UniqueDescriptor _universe;
-
-	// TODO: replace this by a tree that remembers gaps between keys.
-	std::unordered_map<int, std::shared_ptr<File>> _fileTable;
+	std::shared_ptr<FileContext> _fileContext;
 
 	void *_clientFileTable;
-
-	HelHandle *_fileTableWindow;
 };
 
 #endif // POSIX_SUBSYSTEM_PROCESS_HPP

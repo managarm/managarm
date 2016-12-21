@@ -179,7 +179,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stack_size));
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(process->getUniverse().getHandle(),
+	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	

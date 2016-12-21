@@ -29,62 +29,54 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 // ----------------------------------------------------------------------------
-// Process.
+// FileContext.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Process> Process::createInit() {
-	auto process = std::make_shared<Process>();
-	process->_vmContext = VmContext::create();
+std::shared_ptr<FileContext> FileContext::create() {
+	auto context = std::make_shared<FileContext>();
 
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
-	process->_universe = helix::UniqueDescriptor(universe);
+	context->_universe = helix::UniqueDescriptor(universe);
 
-	HelHandle file_table_memory;
-	void *file_table_window;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &file_table_memory));
-	HEL_CHECK(helMapMemory(file_table_memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite, &file_table_window));
-	HEL_CHECK(helMapMemory(file_table_memory, process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
-			&process->_clientFileTable));
-	HEL_CHECK(helCloseDescriptor(file_table_memory));
-	process->_fileTableWindow = reinterpret_cast<HelHandle *>(file_table_window);
+	HelHandle memory;
+	void *window;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+			0, 0x1000, kHelMapReadWrite, &window));
+	context->_fileTableMemory = helix::UniqueDescriptor(memory);
+	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
-	return process;
+	return context;
 }
 
-std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
-	auto process = std::make_shared<Process>();
-	process->_vmContext = VmContext::clone(original->_vmContext);
+std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> original) {
+	auto context = std::make_shared<FileContext>();
 
 	HelHandle universe;
 	HEL_CHECK(helCreateUniverse(&universe));
-	process->_universe = helix::UniqueDescriptor(universe);
+	context->_universe = helix::UniqueDescriptor(universe);
 
-	HelHandle file_table_memory;
-	void *file_table_window;
-	HEL_CHECK(helAllocateMemory(0x1000, 0, &file_table_memory));
-	HEL_CHECK(helMapMemory(file_table_memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite, &file_table_window));
-	HEL_CHECK(helMapMemory(file_table_memory, process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
-			&process->_clientFileTable));
-	HEL_CHECK(helCloseDescriptor(file_table_memory));
-	process->_fileTableWindow = reinterpret_cast<HelHandle *>(file_table_window);
+	HelHandle memory;
+	void *window;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+			0, 0x1000, kHelMapReadWrite, &window));
+	context->_fileTableMemory = helix::UniqueDescriptor(memory);
+	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
 	for(auto entry : original->_fileTable) {
 		auto lane = getPassthroughLane(entry.second);
 
 		HelHandle handle;
 		HEL_CHECK(helTransferDescriptor(lane.getHandle(), universe, &handle));
-		process->_fileTableWindow[entry.first] = handle;
+		context->_fileTableWindow[entry.first] = handle;
 	}
 
-	return process;
+	return context;
 }
 
-int Process::attachFile(std::shared_ptr<File> file) {	
+int FileContext::attachFile(std::shared_ptr<File> file) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
 			_universe.getHandle(), &handle));
@@ -98,7 +90,7 @@ int Process::attachFile(std::shared_ptr<File> file) {
 	}
 }
 
-void Process::attachFile(int fd, std::shared_ptr<File> file) {	
+void FileContext::attachFile(int fd, std::shared_ptr<File> file) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
 			_universe.getHandle(), &handle));
@@ -112,13 +104,43 @@ void Process::attachFile(int fd, std::shared_ptr<File> file) {
 	_fileTableWindow[fd] = handle;
 }
 
-std::shared_ptr<File> Process::getFile(int fd) {
+std::shared_ptr<File> FileContext::getFile(int fd) {
 	return _fileTable.at(fd);
 }
 
-void Process::closeFile(int fd) {
+void FileContext::closeFile(int fd) {
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end())
 		_fileTable.erase(it);
+}
+
+// ----------------------------------------------------------------------------
+// Process.
+// ----------------------------------------------------------------------------
+
+std::shared_ptr<Process> Process::createInit() {
+	auto process = std::make_shared<Process>();
+	process->_vmContext = VmContext::create();
+	process->_fileContext = FileContext::create();
+
+	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			&process->_clientFileTable));
+
+	return process;
+}
+
+std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
+	auto process = std::make_shared<Process>();
+	process->_vmContext = VmContext::clone(original->_vmContext);
+	process->_fileContext = FileContext::clone(original->_fileContext);
+
+	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			&process->_clientFileTable));
+
+	return process;
 }
 

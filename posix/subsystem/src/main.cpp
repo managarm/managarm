@@ -52,7 +52,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			auto child = Process::fork(self);
 	
 			HelHandle new_thread;
-			HEL_CHECK(helCreateThread(child->getUniverse().getHandle(),
+			HEL_CHECK(helCreateThread(child->fileContext()->getUniverse().getHandle(),
 					child->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 					0, 0, kHelThreadStopped, &new_thread));
 			serve(child, helix::UniqueDescriptor(new_thread));
@@ -124,7 +124,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			auto file = COFIBER_AWAIT open(req.path());
 			assert(file);
-			int fd = self->attachFile(file);
+			int fd = self->fileContext()->attachFile(file);
 			std::cout << "attach " << fd << std::endl;
 			(void)fd;
 
@@ -146,7 +146,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
-			self->closeFile(req.fd());
+			self->fileContext()->closeFile(req.fd());
 
 			helix::SendBuffer<M> send_resp;
 
@@ -162,8 +162,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			std::cout << "dup2: " << req.fd() << " -> " << req.newfd() << std::endl;
-			auto file = self->getFile(req.fd());
-			self->attachFile(req.newfd(), file);
+			auto file = self->fileContext()->getFile(req.fd());
+			self->fileContext()->attachFile(req.newfd(), file);
 
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_passthrough;
