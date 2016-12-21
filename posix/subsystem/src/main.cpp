@@ -123,6 +123,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			auto file = COFIBER_AWAIT open(req.path());
+			assert(file);
 			int fd = self->attachFile(file);
 			std::cout << "attach " << fd << std::endl;
 			(void)fd;

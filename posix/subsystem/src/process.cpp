@@ -62,22 +62,32 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> parent) {
 	return data;
 }
 
-int Process::attachFile(std::shared_ptr<File> file) {
+int Process::attachFile(std::shared_ptr<File> file) {	
+	HelHandle handle;
+	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
+			_universe.getHandle(), &handle));
+
 	for(int fd = 0; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
 		_fileTable.insert({ fd, std::move(file) });
+		_fileTableWindow[fd] = handle;
 		return fd;
 	}
 }
 
-void Process::attachFile(int fd, std::shared_ptr<File> file) {
+void Process::attachFile(int fd, std::shared_ptr<File> file) {	
+	HelHandle handle;
+	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
+			_universe.getHandle(), &handle));
+
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
 		it->second = std::move(file);
 	}else{
 		_fileTable.insert({ fd, std::move(file) });
 	}
+	_fileTableWindow[fd] = handle;
 }
 
 std::shared_ptr<File> Process::getFile(int fd) {

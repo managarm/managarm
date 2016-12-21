@@ -28,18 +28,22 @@ COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file, void 
 }))
 
 FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence) {
+	assert(file);
 	return file->operations()->seek(file, offset, whence);
 }
 
 FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length) {
+	assert(file);
 	return file->operations()->readSome(file, data, max_length);
 }
 
 FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file) {
+	assert(file);
 	return file->operations()->accessMemory(file);
 }
 
 helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
+	assert(file);
 	return file->operations()->getPassthroughLane(file);
 }
 
@@ -87,6 +91,7 @@ std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target) {
 }
 
 std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link) {
+	assert(link);
 	return link->operations()->getTarget(link);
 }
 
@@ -95,36 +100,44 @@ std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link) {
 // --------------------------------------------------------
 
 VfsType getType(std::shared_ptr<Node> node) {
+	assert(node);
 	return node->operations()->getType(node);
 }
 
 FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name) {
+	assert(node);
 	return node->operations()->getLink(node, std::move(name));
 }
 
 FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name) {
+	assert(node);
 	return node->operations()->mkdir(node, std::move(name));
 }
 
 FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
 		std::string name, std::string path) {
+	assert(node);
 	return node->operations()->symlink(node, std::move(name), std::move(path));
 }
 
 FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node,
 		std::string name, VfsType type, DeviceId id) {
+	assert(node);
 	return node->operations()->mkdev(node, std::move(name), type, id);
 }
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node) {
+	assert(node);
 	return node->operations()->open(node);
 }
 
 FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node) {
+	assert(node);
 	return node->operations()->readSymlink(node);
 }
 
 DeviceId readDevice(std::shared_ptr<Node> node) {
+	assert(node);
 	return node->operations()->readDevice(node);
 }
 // --------------------------------------------------------
