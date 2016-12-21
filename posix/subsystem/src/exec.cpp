@@ -140,9 +140,9 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
 	auto exec_info = COFIBER_AWAIT load(exec_file,
-			process->getVmSpace(), 0);
+			process->vmContext()->getSpace(), 0);
 	auto interp_info = COFIBER_AWAIT load(interp_file,
-			process->getVmSpace(), 0x40000000);
+			process->vmContext()->getSpace(), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;
 	
@@ -151,7 +151,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, process->getVmSpace().getHandle(), nullptr,
+	HEL_CHECK(helMapMemory(stack_memory, process->vmContext()->getSpace().getHandle(), nullptr,
 			0, stack_size, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up.
@@ -180,7 +180,7 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 
 	HelHandle thread;
 	HEL_CHECK(helCreateThread(process->getUniverse().getHandle(),
-			process->getVmSpace().getHandle(), kHelAbiSystemV,
+			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	
 	serve(std::move(process), helix::UniqueDescriptor(thread));

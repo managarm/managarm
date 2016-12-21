@@ -9,6 +9,19 @@
 
 typedef int ProcessId;
 
+// TODO: This struct should store the process' VMAs once we implement them.
+struct VmContext {
+	static std::shared_ptr<VmContext> create();
+	static std::shared_ptr<VmContext> clone(std::shared_ptr<VmContext> original);
+
+	helix::BorrowedDescriptor getSpace() {
+		return _space;
+	}
+
+private:
+	helix::UniqueDescriptor _space;
+};
+
 struct Process {
 	static std::shared_ptr<Process> createInit();
 
@@ -18,14 +31,10 @@ struct Process {
 		return _universe;
 	}
 
-	helix::BorrowedDescriptor getVmSpace() {
-		return _space;
+	std::shared_ptr<VmContext> vmContext() {
+		return _vmContext;
 	}
 
-	void *clientFileTable() {
-		return _clientFileTable;
-	}
-	
 	int attachFile(std::shared_ptr<File> file);
 
 	void attachFile(int fd, std::shared_ptr<File> file);
@@ -34,9 +43,14 @@ struct Process {
 
 	void closeFile(int fd);
 
+	void *clientFileTable() {
+		return _clientFileTable;
+	}
+
 private:
+	std::shared_ptr<VmContext> _vmContext;
+
 	helix::UniqueDescriptor _universe;
-	helix::UniqueDescriptor _space;
 
 	// TODO: replace this by a tree that remembers gaps between keys.
 	std::unordered_map<int, std::shared_ptr<File>> _fileTable;

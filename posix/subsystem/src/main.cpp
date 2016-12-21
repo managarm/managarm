@@ -53,7 +53,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 	
 			HelHandle new_thread;
 			HEL_CHECK(helCreateThread(child->getUniverse().getHandle(),
-					child->getVmSpace().getHandle(), kHelAbiSystemV,
+					child->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 					0, 0, kHelThreadStopped, &new_thread));
 			serve(child, helix::UniqueDescriptor(new_thread));
 
