@@ -76,6 +76,9 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
+		}else if(observe.observation() == kHelObserveSuperCall + 3) {
+			std::cout << "execve supercall" << std::endl;
+			Process::exec(self, "uhci");
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			uintptr_t pcrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
@@ -125,14 +128,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto file = COFIBER_AWAIT open(req.path());
 			assert(file);
 			int fd = self->fileContext()->attachFile(file);
-			std::cout << "attach " << fd << std::endl;
-			(void)fd;
 
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_passthrough;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
 
 			auto ser = resp.SerializeAsString();
 			helix::submitAsync(conversation, {
@@ -206,7 +208,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 	
-	execute(Process::createInit(), "posix-init");
+	Process::init("posix-init");
 
 	while(true)
 		helix::Dispatcher::global().dispatch();

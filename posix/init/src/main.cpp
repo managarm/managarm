@@ -30,26 +30,13 @@ int main() {
 
 	char *envp[] = { nullptr };
 
-	int x = 0;
-	if(!fork()) {
-		helLog("zero_fork\n", 10);
-		std::cout << "stdout is broken here" << std::endl;
-		while(true)
-			HEL_CHECK(helFutexWait(&x, 0));
-	}else{
-		helLog("child_fork\n", 11);
-		std::cout << "stdout is fine in parent" << std::endl;
-		while(true)
-			HEL_CHECK(helFutexWait(&x, 0));
-	}
-
 	pid_t child = fork();
 	assert(child != -1);
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
 	}
-	
+/*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
 	for(int i = 0; i < 10000; i++)
 		sched_yield();
@@ -65,7 +52,7 @@ int main() {
 //		execve("/usr/bin/bochs_vga", args.data(), envp);
 //		execve("/usr/bin/zisa", args.data(), envp);
 	}
-	
+*/	
 	// TODO: this is a very ugly hack to wait until the fs is ready
 /*	for(int i = 0; i < 10000; i++)
 		sched_yield();

@@ -132,17 +132,13 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-cofiber::no_future serve(std::shared_ptr<Process> process, helix::UniqueDescriptor);
-
-// FIXME: remove this helper function
-COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, std::string path), ([=] {
+COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, execute(std::string path,
+		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe), ([=] {
 	auto exec_file = COFIBER_AWAIT open(path);
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
-	auto exec_info = COFIBER_AWAIT load(exec_file,
-			process->vmContext()->getSpace(), 0);
-	auto interp_info = COFIBER_AWAIT load(interp_file,
-			process->vmContext()->getSpace(), 0x40000000);
+	auto exec_info = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
+	auto interp_info = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;
 	
@@ -151,8 +147,9 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 	HEL_CHECK(helAllocateMemory(stack_size, kHelAllocOnDemand, &stack_memory));
 
 	void *stack_base;
-	HEL_CHECK(helMapMemory(stack_memory, process->vmContext()->getSpace().getHandle(), nullptr,
-			0, stack_size, kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
+	HEL_CHECK(helMapMemory(stack_memory, vm_context->getSpace().getHandle(),
+			nullptr, 0, stack_size,
+			kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up.
 	void *window;
@@ -179,14 +176,10 @@ COFIBER_ROUTINE(cofiber::no_future, _execute(std::shared_ptr<Process> process, s
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stack_size));
 
 	HelHandle thread;
-	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
-			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
+	HEL_CHECK(helCreateThread(universe.getHandle(),
+			vm_context->getSpace().getHandle(), kHelAbiSystemV,
 			(void *)interp_info.entryIp, (char *)stack_base + d, 0, &thread));
 	
-	serve(std::move(process), helix::UniqueDescriptor(thread));
+	COFIBER_RETURN(helix::UniqueDescriptor{thread});
 }))
-
-void execute(std::shared_ptr<Process> process, std::string path) {
-	_execute(std::move(process), path);
-}
 

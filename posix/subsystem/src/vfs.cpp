@@ -188,12 +188,17 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	view.mount(std::move(initrd), extern_fs::createRoot());
 
 	// symlink files from / to /initrd.
-	COFIBER_AWAIT symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "posix-init", "initrd/posix-init");
-	COFIBER_AWAIT symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1");
-	COFIBER_AWAIT symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6");
+	COFIBER_AWAIT symlink(getTarget(tree), "uhci", "initrd/uhci");
+	COFIBER_AWAIT symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libc.so", "initrd/libc.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libm.so", "initrd/libm.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1");
+	COFIBER_AWAIT symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6");
+	COFIBER_AWAIT symlink(getTarget(tree), "libhelix.so", "initrd/libhelix.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libcofiber.so", "initrd/libcofiber.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libmbus.so", "initrd/libmbus.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libprotobuf-lite.so.11", "initrd/libprotobuf-lite.so.11");
 
 	COFIBER_RETURN(std::move(view));
 }))

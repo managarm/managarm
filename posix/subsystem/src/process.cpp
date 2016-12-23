@@ -2,7 +2,10 @@
 #include <string.h>
 
 #include "common.hpp"
+#include "exec.hpp"
 #include "process.hpp"
+
+cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
 // ----------------------------------------------------------------------------
 // VmContext.
@@ -66,11 +69,8 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
 	for(auto entry : original->_fileTable) {
-		auto lane = getPassthroughLane(entry.second);
-
-		HelHandle handle;
-		HEL_CHECK(helTransferDescriptor(lane.getHandle(), universe, &handle));
-		context->_fileTableWindow[entry.first] = handle;
+		//std::cout << "Clone FD " << entry.first << std::endl;
+		context->attachFile(entry.first, entry.second);
 	}
 
 	return context;
@@ -109,6 +109,7 @@ std::shared_ptr<File> FileContext::getFile(int fd) {
 }
 
 void FileContext::closeFile(int fd) {
+	//std::cout << "Close " << fd << std::endl;
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end())
 		_fileTable.erase(it);
@@ -118,7 +119,8 @@ void FileContext::closeFile(int fd) {
 // Process.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Process> Process::createInit() {
+COFIBER_ROUTINE(cofiber::future<std::shared_ptr<Process>>, Process::init(std::string path),
+		([=] {
 	auto process = std::make_shared<Process>();
 	process->_vmContext = VmContext::create();
 	process->_fileContext = FileContext::create();
@@ -128,8 +130,12 @@ std::shared_ptr<Process> Process::createInit() {
 			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
-	return process;
-}
+	auto thread = COFIBER_AWAIT execute(path, process->_vmContext,
+			process->_fileContext->getUniverse());
+	serve(process, std::move(thread));
+
+	COFIBER_RETURN(process);
+}))
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto process = std::make_shared<Process>();
@@ -143,4 +149,25 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	return process;
 }
+
+COFIBER_ROUTINE(cofiber::future<void>, Process::exec(std::shared_ptr<Process> process,
+		std::string path), ([=] {
+	auto exec_vm_context = VmContext::create();
+
+	// Perform the exec() in a new VM context so that we
+	// can catch errors before trashing the calling process.
+	auto thread = COFIBER_AWAIT execute(path, exec_vm_context,
+			process->_fileContext->getUniverse());
+	serve(process, std::move(thread));
+
+	// "Commit" the exec() operation.
+	process->_vmContext = std::move(exec_vm_context);
+	
+	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			&process->_clientFileTable));
+
+	COFIBER_RETURN();
+}))
 

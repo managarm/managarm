@@ -4,7 +4,8 @@
 
 #include "process.hpp"
 
-void execute(std::shared_ptr<Process> process, std::string path);
+cofiber::future<helix::UniqueDescriptor> execute(std::string path,
+		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe);
 
 #endif // POSIX_SUBSYSTEM_EXEC_HPP
 

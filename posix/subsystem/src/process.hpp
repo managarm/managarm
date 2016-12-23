@@ -55,9 +55,12 @@ private:
 };
 
 struct Process {
-	static std::shared_ptr<Process> createInit();
+	static cofiber::future<std::shared_ptr<Process>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
+
+	static cofiber::future<void> exec(std::shared_ptr<Process> process,
+			std::string path);
 
 	std::shared_ptr<VmContext> vmContext() {
 		return _vmContext;
