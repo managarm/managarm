@@ -135,6 +135,18 @@ DEFINE_SYSCALL(PointerPhysical, void *pointer, uintptr_t *physical)
 	OUT(0, uintptr_t, physical)
 END_SYSCALL()
 
+DEFINE_SYSCALL(LoadForeign, HelHandle handle, uintptr_t address,
+		size_t length, void *buffer)
+	IN(0, handle) IN(1, address) IN(2, length) IN(3, buffer)
+	DO_SYSCALL(LoadForeign)
+END_SYSCALL()
+
+DEFINE_SYSCALL(StoreForeign, HelHandle handle, uintptr_t address,
+		size_t length, const void *buffer)
+	IN(0, handle) IN(1, address) IN(2, length) IN(3, buffer)
+	DO_SYSCALL(StoreForeign)
+END_SYSCALL()
+
 DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
 	IN(0, handle)
 	DO_SYSCALL(MemoryInfo)

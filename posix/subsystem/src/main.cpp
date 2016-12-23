@@ -78,7 +78,15 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(new_thread));
 		}else if(observe.observation() == kHelObserveSuperCall + 3) {
 			std::cout << "execve supercall" << std::endl;
-			Process::exec(self, "uhci");
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			std::string path;
+			path.resize(gprs[7]);
+			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
+					gprs[6], gprs[7], &path[0]));
+
+			Process::exec(self, path);
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			uintptr_t pcrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));

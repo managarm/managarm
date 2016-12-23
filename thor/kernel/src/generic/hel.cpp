@@ -579,6 +579,30 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	return kHelErrNone;
 }
 
+HelError helLoadForeign(HelHandle handle, uintptr_t address,
+		size_t length, void *buffer) {
+	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
+	
+	frigg::SharedPtr<AddressSpace> space;
+	{
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<AddressSpaceDescriptor>())
+			return kHelErrBadDescriptor;
+		space = wrapper->get<AddressSpaceDescriptor>().space;
+	}
+	
+	auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
+			(void *)address, length);
+	accessor.load(0, buffer, length);
+
+	return kHelErrNone;
+}
+
 HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();

@@ -93,6 +93,7 @@ struct ForeignSpaceAccessor {
 		return _length;
 	}
 
+	void load(size_t offset, void *pointer, size_t size);
 	void copyTo(size_t offset, void *pointer, size_t size);
 
 private:

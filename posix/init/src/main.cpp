@@ -34,7 +34,8 @@ int main() {
 	assert(child != -1);
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
-		execve("/initrd/virtio-block", args.data(), envp);
+//		execve("/initrd/virtio-block", args.data(), envp);
+		execve("uhci", args.data(), envp);
 	}
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
