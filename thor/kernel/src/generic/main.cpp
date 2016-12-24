@@ -116,7 +116,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(Module *module) {	
+void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) {
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	space->setupDefaultMappings();
@@ -150,12 +150,28 @@ void executeModule(Module *module) {
 	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
 
 	// build the stack tail area (containing the aux vector).
+	Handle xpipe_handle;
+	Handle mbus_handle;
+	if(xpipe_lane) {
+		auto lock = frigg::guard(&(*rootUniverse)->lock);
+		xpipe_handle = (*rootUniverse)->attachDescriptor(lock,
+				LaneDescriptor(xpipe_lane));
+	}
+	if(mbus_lane) {
+		auto lock = frigg::guard(&(*rootUniverse)->lock);
+		mbus_handle = (*rootUniverse)->attachDescriptor(lock,
+				LaneDescriptor(mbus_lane));
+	}
+
 	enum {
 		AT_NULL = 0,
 		AT_PHDR = 3,
 		AT_PHENT = 4,
 		AT_PHNUM = 5,
 		AT_ENTRY = 9,
+		
+		AT_XPIPE = 0x1000,
+		AT_MBUS_SERVER = 0x1103
 	};
 
 	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
@@ -167,6 +183,14 @@ void executeModule(Module *module) {
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrEntrySize);
 	copyToStack<uintptr_t>(tail_area, AT_PHNUM);
 	copyToStack<uintptr_t>(tail_area, exec_info.phdrCount);
+	if(xpipe_lane) {
+		copyToStack<uintptr_t>(tail_area, AT_XPIPE);
+		copyToStack<uintptr_t>(tail_area, xpipe_handle);
+	}
+	if(mbus_lane) {
+		copyToStack<uintptr_t>(tail_area, AT_MBUS_SERVER);
+		copyToStack<uintptr_t>(tail_area, mbus_handle);
+	}
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
 
@@ -248,6 +272,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
+	auto mbus_stream = createStream();
+
 	// finally we lauch the user_boot program
 	auto mbus_module = getModule("mbus");
 	auto acpi_module = getModule("acpi");
@@ -255,7 +281,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	assert(mbus_module);
 	assert(acpi_module);
 	assert(posix_module);
-	executeModule(posix_module);
+	executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
+	executeModule(acpi_module, LaneHandle{}, mbus_stream.get<1>());
+	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());

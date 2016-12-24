@@ -82,6 +82,10 @@ struct LaneHandle {
 
 	~LaneHandle();
 
+	explicit operator bool () {
+		return static_cast<bool>(_stream);
+	}
+
 	LaneHandle &operator= (LaneHandle other) {
 		swap(*this, other);
 		return *this;
