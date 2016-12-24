@@ -4,12 +4,11 @@
 namespace thor {
 
 struct Module {
-	Module(frigg::StringView filename, PhysicalAddr physical, size_t length)
-	: filename(filename), physical(physical), length(length) { }
+	Module(frigg::StringView filename, frigg::SharedPtr<Memory> memory)
+	: filename(filename), memory(frigg::move(memory)) { }
 
 	frigg::StringView filename;
-	PhysicalAddr physical;
-	size_t length;
+	frigg::SharedPtr<Memory> memory;
 };
 
 extern frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;

@@ -131,6 +131,9 @@ struct Memory {
 		CopyOnWriteMemory
 	> MemoryVariant;
 
+	static void transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
+			frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length);
+
 	Memory(MemoryVariant variant);
 		
 	size_t getLength() {
@@ -183,6 +186,7 @@ struct Memory {
 		}
 	}
 
+	void load(size_t offset, void *pointer, size_t length);
 	void copyFrom(size_t offset, void *pointer, size_t length);
 
 	Futex futex;

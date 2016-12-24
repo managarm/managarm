@@ -26,60 +26,58 @@ Module *getModule(frigg::StringView filename) {
 
 struct ImageInfo {
 	ImageInfo()
-	: entryIp(nullptr) { }
+	: entryIp(nullptr), interpreter(*kernelAlloc) { }
 
 	void *entryIp;
 	void *phdrPtr;
 	size_t phdrEntrySize;
 	size_t phdrCount;
-	frigg::StringView interpreter;
+	frigg::String<KernelAlloc> interpreter;
 };
 
 ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
-		VirtualAddr base, PhysicalAddr image_paddr) {
+		VirtualAddr base, frigg::SharedPtr<Memory> image) {
 	ImageInfo info;
 
-	void *image_ptr = physicalToVirtual(image_paddr);
-	
 	// parse the ELf file format
-	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)image_ptr;
-	assert(ehdr->e_ident[0] == 0x7F
-			&& ehdr->e_ident[1] == 'E'
-			&& ehdr->e_ident[2] == 'L'
-			&& ehdr->e_ident[3] == 'F');
+	Elf64_Ehdr ehdr;
+	image->load(0, &ehdr, sizeof(Elf64_Ehdr));
+	assert(ehdr.e_ident[0] == 0x7F
+			&& ehdr.e_ident[1] == 'E'
+			&& ehdr.e_ident[2] == 'L'
+			&& ehdr.e_ident[3] == 'F');
 
-	info.entryIp = (void *)(base + ehdr->e_entry);
-	info.phdrEntrySize = ehdr->e_phentsize;
-	info.phdrCount = ehdr->e_phnum;
+	info.entryIp = (void *)(base + ehdr.e_entry);
+	info.phdrEntrySize = ehdr.e_phentsize;
+	info.phdrCount = ehdr.e_phnum;
 
-	for(int i = 0; i < ehdr->e_phnum; i++) {
-		auto phdr = (Elf64_Phdr *)((uintptr_t)image_ptr + ehdr->e_phoff
-				+ i * ehdr->e_phentsize);
+	for(int i = 0; i < ehdr.e_phnum; i++) {
+		Elf64_Phdr phdr;
+		image->load(ehdr.e_phoff + i * ehdr.e_phentsize, &phdr, sizeof(Elf64_Phdr));
 		
-		if(phdr->p_type == PT_LOAD) {
-			assert(phdr->p_memsz > 0);
+		if(phdr.p_type == PT_LOAD) {
+			assert(phdr.p_memsz > 0);
 			
 			// align virtual address and length to page size
-			uintptr_t virt_address = phdr->p_vaddr;
+			uintptr_t virt_address = phdr.p_vaddr;
 			virt_address -= virt_address % kPageSize;
 
-			size_t virt_length = (phdr->p_vaddr + phdr->p_memsz) - virt_address;
+			size_t virt_length = (phdr.p_vaddr + phdr.p_memsz) - virt_address;
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			auto memory = frigg::makeShared<Memory>(*kernelAlloc,
 					AllocatedMemory(virt_length));
-
-			uintptr_t virt_disp = phdr->p_vaddr - virt_address;
-			memory->copyFrom(virt_disp, (char *)image_ptr + phdr->p_offset, phdr->p_filesz);
+			Memory::transfer(memory, phdr.p_vaddr - virt_address,
+					image, phdr.p_offset, phdr.p_filesz);
 
 			VirtualAddr actual_address;
-			if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				AddressSpace::Guard space_guard(&space->lock);
 				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
-			}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				AddressSpace::Guard space_guard(&space->lock);
 				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
@@ -89,15 +87,15 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 						<< frigg::endLog;
 			}
 			thorRtInvalidateSpace();
-		}else if(phdr->p_type == PT_INTERP) {
-			info.interpreter = frigg::StringView((char *)image_ptr + phdr->p_offset,
-					phdr->p_filesz);
-		}else if(phdr->p_type == PT_PHDR) {
-			info.phdrPtr = (char *)base + phdr->p_vaddr;
-		}else if(phdr->p_type == PT_DYNAMIC
-				|| phdr->p_type == PT_TLS
-				|| phdr->p_type == PT_GNU_EH_FRAME
-				|| phdr->p_type == PT_GNU_STACK) {
+		}else if(phdr.p_type == PT_INTERP) {
+			info.interpreter.resize(phdr.p_filesz);
+			image->load(phdr.p_offset, info.interpreter.data(), phdr.p_filesz);
+		}else if(phdr.p_type == PT_PHDR) {
+			info.phdrPtr = (char *)base + phdr.p_vaddr;
+		}else if(phdr.p_type == PT_DYNAMIC
+				|| phdr.p_type == PT_TLS
+				|| phdr.p_type == PT_GNU_EH_FRAME
+				|| phdr.p_type == PT_GNU_STACK) {
 			// ignore the phdr
 		}else{
 			assert(!"Unexpected PHDR");
@@ -118,17 +116,17 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(PhysicalAddr image_paddr) {	
+void executeModule(Module *module) {	
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 	space->setupDefaultMappings();
 
-	ImageInfo exec_info = loadModuleImage(space, 0, image_paddr);
+	ImageInfo exec_info = loadModuleImage(space, 0, module->memory);
 
 	// FIXME: use actual interpreter name here
 	Module *interp_module = getModule("ld-init.so");
 	assert(interp_module);
-	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->physical);
+	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->memory);
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
@@ -234,7 +232,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		assert((virt_length % kPageSize) == 0);
 
 		// TODO: free module memory if it is not used anymore
-		auto mod_memory = frigg::makeShared<Memory>(*kernelAlloc,
+		auto memory = frigg::makeShared<Memory>(*kernelAlloc,
 				HardwareMemory(modules[i].physicalBase, virt_length));
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
@@ -243,7 +241,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				<< ", length: " << modules[i].length << frigg::endLog;
 
 		Module module(frigg::StringView(name_ptr, modules[i].nameLength),
-				modules[i].physicalBase, modules[i].length);
+				frigg::move(memory));
 		allModules->push(module);
 	}
 	
@@ -251,9 +249,13 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
 	// finally we lauch the user_boot program
-	auto mbus_module = getModule("posix-subsystem");
+	auto mbus_module = getModule("mbus");
+	auto acpi_module = getModule("acpi");
+	auto posix_module = getModule("posix-subsystem");
 	assert(mbus_module);
-	executeModule(mbus_module->physical);
+	assert(acpi_module);
+	assert(posix_module);
+	executeModule(posix_module);
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	ScheduleGuard schedule_guard(scheduleLock.get());

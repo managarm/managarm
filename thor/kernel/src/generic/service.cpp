@@ -168,13 +168,11 @@ namespace initrd {
 				_buffer(*kernelAlloc), _payload(*kernelAlloc) { }
 
 		void operator() () {
-			assert(_file->offset <= _file->module->length);
+			assert(_file->offset <= _file->module->memory->getLength());
 			_payload.resize(frigg::min(size_t(_req.size()),
-					_file->module->length - _file->offset));
+					_file->module->memory->getLength() - _file->offset));
 			assert(_payload.size());
-			void *src = physicalToVirtual(_file->module->physical
-					+ _file->offset);
-			memcpy(_payload.data(), src, _payload.size());
+			_file->module->memory->load(_file->offset, _payload.data(), _payload.size());
 			_file->offset += _payload.size();
 
 			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -222,15 +220,9 @@ namespace initrd {
 	private:
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
-			
-			size_t virt_length = _file->module->length;
-			if(virt_length % kPageSize)
-				virt_length += kPageSize - (virt_length % kPageSize);
 
-			auto memory = frigg::makeShared<Memory>(*kernelAlloc,
-					HardwareMemory(_file->module->physical, virt_length));
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					MemoryAccessDescriptor(frigg::move(memory)),
+					MemoryAccessDescriptor(_file->module->memory),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		

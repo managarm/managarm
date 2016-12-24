@@ -275,10 +275,66 @@ PhysicalAddr CopyOnWriteMemory::grabPage(PhysicalChunkAllocator::Guard &physical
 // Memory
 // --------------------------------------------------------
 
+void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
+		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
+	PhysicalChunkAllocator::Guard lock(&physicalAllocator->lock,
+			frigg::dontLock);
+	
+	size_t progress = 0;
+	while(progress < length) {
+		auto dest_misalign = (dest_offset + progress) % kPageSize;
+		auto src_misalign = (src_offset + progress) % kPageSize;
+		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
+				kPageSize - src_misalign), length - progress);
+		
+		PhysicalAddr dest_page = dest_memory->grabPage(lock,
+				kGrabFetch | kGrabWrite, dest_offset + progress - dest_misalign);
+		PhysicalAddr src_page = src_memory->grabPage(lock,
+				kGrabFetch | kGrabRead, src_offset + progress - dest_misalign);
+		assert(dest_page != PhysicalAddr(-1));
+		assert(src_page != PhysicalAddr(-1));
+		memcpy((uint8_t *)physicalToVirtual(dest_page) + dest_misalign,
+				(uint8_t *)physicalToVirtual(src_page) + src_misalign, chunk);
+		
+		progress += chunk;
+	}
+}
+
 Memory::Memory(MemoryVariant variant)
 : _variant(frigg::move(variant)) { }
 
-void Memory::copyFrom(size_t offset, void *source, size_t length) {
+void Memory::load(size_t offset, void *buffer, size_t length) {
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
+			frigg::dontLock);
+	
+	size_t progress = 0;
+
+	size_t misalign = offset % kPageSize;
+	if(misalign > 0) {
+		size_t prefix = frigg::min(kPageSize - misalign, length);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset - misalign);
+		assert(page != PhysicalAddr(-1));
+		memcpy(buffer, (uint8_t *)physicalToVirtual(page) + misalign, prefix);
+		progress += prefix;
+	}
+
+	while(length - progress >= kPageSize) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), kPageSize);
+		progress += kPageSize;
+	}
+
+	if(length - progress > 0) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), length - progress);
+	}
+}
+
+void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
 			frigg::dontLock);
 	
@@ -289,7 +345,7 @@ void Memory::copyFrom(size_t offset, void *source, size_t length) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset - misalign);
 		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)physicalToVirtual(page) + misalign, source, prefix);
+		memcpy((uint8_t *)physicalToVirtual(page) + misalign, buffer, prefix);
 		progress += prefix;
 	}
 
@@ -297,7 +353,7 @@ void Memory::copyFrom(size_t offset, void *source, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)source + progress, kPageSize);
+		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, kPageSize);
 		progress += kPageSize;
 	}
 
@@ -305,7 +361,7 @@ void Memory::copyFrom(size_t offset, void *source, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)source + progress, length - progress);
+		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, length - progress);
 	}
 }
 
