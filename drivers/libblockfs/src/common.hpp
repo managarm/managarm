@@ -2,7 +2,7 @@
 #ifndef LIBFS_COMMON_H
 #define LIBFS_COMMON_H
 
-namespace libfs {
+namespace blockfs {
 
 enum FileType {
 	kTypeNone,
@@ -11,7 +11,7 @@ enum FileType {
 	kTypeSymlink
 };
 
-} // namespace libfs
+} // namespace blockfs
 
 #endif // LIBFS_COMMON_H
 

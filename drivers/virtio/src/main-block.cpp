@@ -1,26 +1,20 @@
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
 #include <assert.h>
-
-#include <vector>
-#include <queue>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <memory>
+#include <queue>
+#include <vector>
 
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <helx.hpp>
 
-#include <frigg/atomic.hpp>
-#include <frigg/arch_x86/machine.hpp>
+//FIXME: #include "block.hpp"
+#include "hw.pb.h"
 
-#include <bragi/mbus.hpp>
-#include <hw.pb.h>
-#include "block.hpp"
-
-helx::EventHub eventHub = helx::EventHub::create();
+/*helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
 virtio::block::Device device;
 
@@ -80,7 +74,7 @@ void InitClosure::queriredDevice(HelHandle handle) {
 	HEL_CHECK(irq_error);
 
 	device.setupDevice(acquire_response.bars(0).address(), helx::Irq(irq_handle));
-}
+}*/
 
 // --------------------------------------------------------
 // main() function
@@ -89,10 +83,5 @@ void InitClosure::queriredDevice(HelHandle handle) {
 int main() {
 	printf("Starting virtio-block driver\n");
 
-	auto closure = new InitClosure();
-	(*closure)();
-
-	while(true)
-		eventHub.defaultProcessEvents();
 }
 

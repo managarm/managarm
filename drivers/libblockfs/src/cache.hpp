@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <experimental/optional>
 
-namespace libfs {
+namespace blockfs {
 namespace util {
 
 template<typename Ident, typename Entry>
@@ -261,5 +261,5 @@ Cache<Ident, Entry>::Ref::Ref(Cache *cache, Element *element)
 	element->lockCount++;
 }
 
-} } // namespace libfs::util
+} } // namespace blockfs::util
 

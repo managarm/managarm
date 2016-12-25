@@ -1,9 +1,9 @@
 
 #include <vector>
 
-#include <libfs.hpp>
+#include <blockfs.hpp>
 
-namespace libfs {
+namespace blockfs {
 namespace gpt {
 
 // --------------------------------------------------------
@@ -45,7 +45,7 @@ static_assert(sizeof(DiskEntry) == 128, "Bad GPT entry struct size");
 
 struct Partition;
 
-struct Table {
+/*struct Table {
 public:
 	Table(BlockDevice *device);
 
@@ -83,13 +83,13 @@ private:
 struct Partition : public BlockDevice {
 	Partition(Table &table, uint64_t start_lba, uint64_t num_sectors);
 
-	void readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors, frigg::CallbackPtr<void()> callback) override;
+	cofiber::future<void> readSectors(uint64_t sector, void *buffer,
+			size_t num_sectors) override;
 	
 	Table &table;
 	uint64_t startLba;
 	uint64_t numSectors;
-};
+};*/
 
-} } // namespace libfs::gpt
+} } // namespace blockfs::gpt
 

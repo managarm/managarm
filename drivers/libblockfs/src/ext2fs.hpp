@@ -1,19 +1,16 @@
 
 #include <time.h>
-#include <memory>
-#include <vector>
-#include <unordered_map>
 #include <experimental/optional>
-#include <helx.hpp>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
-#include <bragi/mbus.hpp>
-
-#include <libfs.hpp>
+#include <blockfs.hpp>
 #include "common.hpp"
 #include "cache.hpp"
-#include <fs.pb.h>
+#include "fs.pb.h"
 
-namespace libfs {
+namespace blockfs {
 namespace ext2fs {
 
 // --------------------------------------------------------
@@ -148,7 +145,7 @@ enum {
 	EXT2_FT_DIR = 2,
 	EXT2_FT_SYMLINK = 7
 };
-
+/*
 // --------------------------------------------------------
 // DirEntry
 // --------------------------------------------------------
@@ -420,7 +417,7 @@ struct ReadClosure {
 	managarm::fs::CntRequest request;
 
 	OpenFile *openFile;
-};
+};*/
 
-} } // namespace libfs::ext2fs
+} } // namespace blockfs::ext2fs
 

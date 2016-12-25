@@ -1,16 +1,16 @@
 
 #include <stdio.h>
 
-#include <libfs.hpp>
+#include <blockfs.hpp>
 #include "gpt.hpp"
 #include "ext2fs.hpp"
 
-namespace libfs {
+namespace blockfs {
 
 BlockDevice::BlockDevice(size_t sector_size)
 : sectorSize(sector_size) { }
 
-helx::EventHub *theEventHub;
+/*helx::EventHub *theEventHub;
 gpt::Table *table;
 ext2fs::FileSystem *fs;
 ext2fs::Client *client;
@@ -27,14 +27,15 @@ void haveFs(void *object) {
 void havePartitions(void *object) {
 	fs = new ext2fs::FileSystem(*theEventHub, &table->getPartition(1));
 	fs->init(CALLBACK_STATIC(nullptr, &haveFs));
-}
+}*/
 
-void runDevice(helx::EventHub &event_hub, BlockDevice *device) {
-	theEventHub = &event_hub;
+void runDevice(BlockDevice *device) {
+	printf("FIXME: Fix runDevice()\n");
+/*	theEventHub = &event_hub;
 
 	table = new gpt::Table(device);
-	table->parse(CALLBACK_STATIC(nullptr, &havePartitions));
+	table->parse(CALLBACK_STATIC(nullptr, &havePartitions));*/
 }
 
-} // namespace libfs
+} // namespace blockfs
 

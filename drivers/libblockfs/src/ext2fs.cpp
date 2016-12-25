@@ -34,7 +34,7 @@ namespace frigg {
 	}
 };
 
-namespace libfs {
+namespace blockfs {
 namespace ext2fs {
 
 struct WaitForInode {
@@ -856,7 +856,7 @@ void ReadClosure::inodeReady() {
 
 			response.SerializeToString(serialized);
 			
-			printf("[libfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
+			printf("[blockfs/src/ext2fs] sendStringResp OpenClosure:inodeReady2 \n");
 			return connection.getPipe().sendStringResp(serialized->data(), serialized->size(),
 					connection.getFs().eventHub, responseId, 0)
 			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); })
@@ -980,5 +980,5 @@ COFIBER_ROUTINE(cofiber::no_future, processMapRequest(Connection *connection, in
 	HEL_CHECK(data_error);
 });
 
-} } // namespace libfs::ext2fs
+} } // namespace blockfs::ext2fs
 

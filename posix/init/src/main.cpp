@@ -30,13 +30,11 @@ int main() {
 
 	char *envp[] = { nullptr };
 
-	pid_t child = fork();
-	assert(child != -1);
+	auto child = fork();
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
-//		execve("/initrd/virtio-block", args.data(), envp);
-		execve("vga_terminal", args.data(), envp);
-	}
+		execve("/initrd/virtio-block", args.data(), envp);
+	}else assert(child != -1);
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
 	for(int i = 0; i < 10000; i++)

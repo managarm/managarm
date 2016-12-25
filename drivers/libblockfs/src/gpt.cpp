@@ -4,7 +4,7 @@
 
 #include "gpt.hpp"
 
-namespace libfs {
+namespace blockfs {
 namespace gpt {
 
 // --------------------------------------------------------
@@ -96,5 +96,5 @@ void Partition::readSectors(uint64_t sector, void *buffer,
 			buffer, num_read_sectors, callback);
 }
 
-} } // namespace libfs::gpt
+} } // namespace blockfs::gpt
 
