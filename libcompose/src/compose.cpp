@@ -1,5 +1,6 @@
 
 #include <assert.h>
+
 #include <libcompose.hpp>
 
 ComposeState::ComposeState(ComposeHandler *handler) : handler(handler) { }

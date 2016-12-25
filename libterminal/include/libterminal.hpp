@@ -2,20 +2,13 @@
 #ifndef LIBTERMINAL_HPP
 #define LIBTERMINAL_HPP
 
-#include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
-
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <helx.hpp>
-
-#include <frigg/arch_x86/machine.hpp>
-
+#include <stdlib.h>
+#include <string.h>
+#include <experimental/optional>
 #include <string>
 #include <vector>
-#include <experimental/optional>
 
 namespace libterminal {
 
