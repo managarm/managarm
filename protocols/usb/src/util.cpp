@@ -1,17 +1,17 @@
 
-#include <stdint.h>
-#include <stdlib.h>
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
-
+#include <stdlib.h>
 #include <deque>
 #include <experimental/optional>
 
-#include <protocols/usb/usb.hpp>
-#include <protocols/usb/api.hpp>
 #include <helix/await.hpp>
 #include <mbus.hpp>
+
+#include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>
+#include <protocols/usb/usb.hpp>
 
 uintptr_t ContiguousPolicy::map(size_t length) {
 	assert((length % 0x1000) == 0);

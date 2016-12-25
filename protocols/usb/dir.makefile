@@ -7,7 +7,7 @@ $c_PKGCONF := PKG_CONFIG_SYSROOT_DIR=$(SYSROOT_PATH) \
 	PKG_CONFIG_LIBDIR=$(SYSROOT_PATH)/usr/lib/pkgconfig pkg-config
 
 $c_INCLUDES := $(shell $($c_PKGCONF) --cflags protobuf-lite)
-$c_INCLUDES += -iquote$($c_GENDIR) -iquote$($c_HEADERDIR)
+$c_INCLUDES += -iquote$($c_GENDIR) -I$($c_HEADERDIR)
 $c_INCLUDES += -I$(TREE_PATH)/frigg/include
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
