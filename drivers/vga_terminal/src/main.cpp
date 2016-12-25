@@ -1,48 +1,24 @@
 
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
 #include <assert.h>
-
-#include <unistd.h>
 #include <fcntl.h>
-
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <experimental/optional>
 #include <string>
 #include <vector>
-#include <experimental/optional>
-
-#include <frigg/traits.hpp>
-#include <frigg/algorithm.hpp>
-#include <frigg/atomic.hpp>
-#include <frigg/memory.hpp>
-#include <frigg/callback.hpp>
-#include <frigg/arch_x86/machine.hpp>
 
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <helx.hpp>
 
-#include <bragi/mbus.hpp>
 #include <libcompose.hpp>
 #include <libterminal.hpp>
-#include <libchain/all.hpp>
 #include <posix.pb.h>
 #include <input.pb.h>
 
-HelHandle ioHandle;
-
-struct LibcAllocator {
-	void *allocate(size_t length) {
-		return malloc(length);
-	}
-
-	void free(void *pointer) {
-		free(pointer);
-	}
-};
-
-LibcAllocator allocator;
+//FIXME: HelHandle ioHandle;
 
 struct VgaDisplay : libterminal::Display {
 	void setChar(int x, int y, char c, libterminal::Attribute attribute) override;
@@ -93,14 +69,14 @@ void VgaDisplay::setChar(int x, int y, char c, libterminal::Attribute attribute)
 void VgaDisplay::setCursor(int x, int y) {
 	int position = x + width * y;
 
-	uintptr_t ports[] = { 0x3D4, 0x3D5 };
-	HEL_CHECK(helAccessIo(ports, 2, &ioHandle));
-	HEL_CHECK(helEnableIo(ioHandle));
+	//FIXME: uintptr_t ports[] = { 0x3D4, 0x3D5 };
+	//FIXME: HEL_CHECK(helAccessIo(ports, 2, &ioHandle));
+	//FIXME: HEL_CHECK(helEnableIo(ioHandle));
 
-    frigg::arch_x86::ioOutByte(0x3D4, 0x0F);
-    frigg::arch_x86::ioOutByte(0x3D5, position & 0xFF);
-    frigg::arch_x86::ioOutByte(0x3D4, 0x0E);
-    frigg::arch_x86::ioOutByte(0x3D5, (position >> 8) & 0xFF);
+    //FIXME: frigg::arch_x86::ioOutByte(0x3D4, 0x0F);
+    //FIXME: frigg::arch_x86::ioOutByte(0x3D5, position & 0xFF);
+    //FIXME: frigg::arch_x86::ioOutByte(0x3D4, 0x0E);
+    //FIXME: frigg::arch_x86::ioOutByte(0x3D5, (position >> 8) & 0xFF);
 }
 
 void VgaDisplay::initializeScreen() {
@@ -124,6 +100,10 @@ void VgaDisplay::initializeScreen() {
 	}
 }
 
+VgaDisplay display;
+libterminal::Emulator emulator(&display);
+
+/*
 int masterFd;
 
 void writeMaster(const char *string, size_t length) {
@@ -144,8 +124,6 @@ void VgaComposeHandler::input(std::string string) {
 
 helx::EventHub eventHub = helx::EventHub::create();
 bragi_mbus::Connection mbusConnection(eventHub);
-VgaDisplay display;
-libterminal::Emulator emulator(&display);
 
 VgaComposeHandler vgaComposeHandle;
 ComposeState composeState(&vgaComposeHandle);
@@ -312,14 +290,14 @@ void ReadMasterClosure::recvdData(HelError error,
 	emulator.printString(std::string(data, length));
 
 	doRead();
-}
+}*/
 
 int main() {
 	printf("Starting vga_terminal\n");
 
 	display.initializeScreen();
 
-	masterFd = open("/dev/pts/ptmx", O_RDWR);
+/*	masterFd = open("/dev/pts/ptmx", O_RDWR);
 	assert(masterFd != -1);
 
 	auto closure = new InitClosure();
@@ -341,6 +319,6 @@ int main() {
 	(*read_master)();
 	
 	while(true)
-		eventHub.defaultProcessEvents();
+		eventHub.defaultProcessEvents();*/
 }
 

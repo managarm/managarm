@@ -35,7 +35,7 @@ int main() {
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
 //		execve("/initrd/virtio-block", args.data(), envp);
-		execve("uhci", args.data(), envp);
+		execve("vga_terminal", args.data(), envp);
 	}
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
