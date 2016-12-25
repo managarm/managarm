@@ -1,5 +1,6 @@
 
 #include <string.h>
+#include <sys/auxv.h>
 
 #include "common.hpp"
 #include "exec.hpp"
@@ -50,6 +51,12 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
+	unsigned long mbus_upstream;
+	if(peekauxval(AT_MBUS_SERVER, &mbus_upstream))
+		throw std::runtime_error("No AT_MBUS_SERVER specified");
+	HEL_CHECK(helTransferDescriptor(mbus_upstream,
+			context->_universe.getHandle(), &context->_clientMbusLane));
+
 	return context;
 }
 
@@ -72,6 +79,12 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 		//std::cout << "Clone FD " << entry.first << std::endl;
 		context->attachFile(entry.first, entry.second);
 	}
+
+	unsigned long mbus_upstream;
+	if(peekauxval(AT_MBUS_SERVER, &mbus_upstream))
+		throw std::runtime_error("No AT_MBUS_SERVER specified");
+	HEL_CHECK(helTransferDescriptor(mbus_upstream,
+			context->_universe.getHandle(), &context->_clientMbusLane));
 
 	return context;
 }
@@ -131,7 +144,8 @@ COFIBER_ROUTINE(cofiber::future<std::shared_ptr<Process>>, Process::init(std::st
 			&process->_clientFileTable));
 
 	auto thread = COFIBER_AWAIT execute(path, process->_vmContext,
-			process->_fileContext->getUniverse());
+			process->_fileContext->getUniverse(),
+			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));
 
 	COFIBER_RETURN(process);
@@ -157,7 +171,8 @@ COFIBER_ROUTINE(cofiber::future<void>, Process::exec(std::shared_ptr<Process> pr
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
 	auto thread = COFIBER_AWAIT execute(path, exec_vm_context,
-			process->_fileContext->getUniverse());
+			process->_fileContext->getUniverse(),
+			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));
 
 	// "Commit" the exec() operation.

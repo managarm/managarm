@@ -42,6 +42,9 @@ struct FileContext {
 
 	void closeFile(int fd);
 
+	HelHandle clientMbusLane() {
+		return _clientMbusLane;
+	}
 
 private:
 	helix::UniqueDescriptor _universe;
@@ -52,6 +55,8 @@ private:
 	helix::UniqueDescriptor _fileTableMemory;
 
 	HelHandle *_fileTableWindow;
+
+	HelHandle _clientMbusLane;
 };
 
 struct Process {

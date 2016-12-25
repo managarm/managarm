@@ -124,16 +124,17 @@ COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<File> file,
 
 template<typename T, size_t N>
 void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
-	assert(d >= alignof(T) + sizeof(T));
+	assert(d >= alignof(T) + sizeof(T) * N);
+	d -= sizeof(T) * N;
 	d -= d % alignof(T);
-	d -= sizeof(value) * N;
 	void *ptr = (char *)window + d;
-	memcpy(ptr, &value, sizeof(value) * N);
+	memcpy(ptr, &value, sizeof(T) * N);
 	return ptr;
 }
 
 COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, execute(std::string path,
-		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe), ([=] {
+		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
+		HelHandle mbus_handle), ([=] {
 	auto exec_file = COFIBER_AWAIT open(path);
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
 
@@ -169,6 +170,8 @@ COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, execute(std::string pa
 		exec_info.phdrEntrySize,
 		AT_PHNUM,
 		exec_info.phdrCount,
+		AT_MBUS_SERVER,
+		mbus_handle,
 		AT_NULL,
 		0
 	});
