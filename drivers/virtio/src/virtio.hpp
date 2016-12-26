@@ -1,7 +1,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <vector>
+
+#include <arch/io_space.hpp>
+#include <arch/register.hpp>
+#include <helix/ipc.hpp>
 
 namespace virtio {
 
@@ -9,15 +14,16 @@ namespace virtio {
 // VirtIO data structures and constants
 // --------------------------------------------------------
 
+static arch::scalar_register<uint32_t> PCI_L_DEVICE_FEATURES(0);
+static arch::scalar_register<uint32_t> PCI_L_DRIVER_FEATURES(4);
+static arch::scalar_register<uint32_t> PCI_L_QUEUE_ADDRESS(8);
+static arch::scalar_register<uint16_t> PCI_L_QUEUE_SIZE(12);
+static arch::scalar_register<uint16_t> PCI_L_QUEUE_SELECT(14);
+static arch::scalar_register<uint16_t> PCI_L_QUEUE_NOTIFY(16);
+static arch::scalar_register<uint8_t> PCI_L_DEVICE_STATUS(18);
+static arch::scalar_register<uint8_t> PCI_L_ISR_STATUS(19);
+
 enum {
-	PCI_L_DEVICE_FEATURES = 0,
-	PCI_L_DRIVER_FEATURES = 4,
-	PCI_L_QUEUE_ADDRESS = 8,
-	PCI_L_QUEUE_SIZE = 12,
-	PCI_L_QUEUE_SELECT = 14,
-	PCI_L_QUEUE_NOTIFY = 16,
-	PCI_L_DEVICE_STATUS = 18,
-	PCI_L_ISR_STATUS = 19,
 	PCI_L_DEVICE_SPECIFIC = 20
 };
 
@@ -77,9 +83,9 @@ struct GenericDevice {
 
 	GenericDevice();
 
-	void setupDevice(uint16_t base_port, helx::Irq the_interrupt);
+	void setupDevice(uint16_t base_port, helix::UniqueDescriptor the_interrupt);
 
-	uint16_t readIsr();
+	uint8_t readIsr();
 
 	uint8_t readConfig8(size_t offset);
 
@@ -93,10 +99,10 @@ struct GenericDevice {
 	virtual void afterRetrieve() = 0;
 
 private:
-	uint16_t basePort;
+	arch::io_space space;
 
 protected:
-	helx::Irq interrupt;
+	helix::UniqueDescriptor interrupt;
 };
 
 // --------------------------------------------------------

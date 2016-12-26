@@ -2,9 +2,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include <frigg/arch_x86/machine.hpp>
-#include <helx.hpp>
-
 #include "virtio.hpp"
 
 namespace virtio {
@@ -14,42 +11,40 @@ namespace virtio {
 // --------------------------------------------------------
 
 GenericDevice::GenericDevice()
-: basePort(0) { }
+: space(0) { }
 
-uint16_t GenericDevice::readIsr() {
-	return frigg::readIo<uint16_t>(basePort + PCI_L_ISR_STATUS);
+uint8_t GenericDevice::readIsr() {
+	return space.load(PCI_L_ISR_STATUS);
 }
 
 uint8_t GenericDevice::readConfig8(size_t offset) {
-	return frigg::readIo<uint16_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
+	assert(!"Fix this function");
+//FIXME	return frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
 }
 
-void GenericDevice::setupDevice(uint16_t base_port, helx::Irq the_interrupt) {
-	basePort = base_port;
+void GenericDevice::setupDevice(uint16_t base_port, helix::UniqueDescriptor the_interrupt) {
+	space = arch::io_space(base_port);
 	interrupt = std::move(the_interrupt);
 
 	// reset the device
-	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS, 0);
+	space.store(PCI_L_DEVICE_STATUS, 0);
 	
 	// set the ACKNOWLEDGE and DRIVER bits
 	// the specification says this should be done in two steps
-	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS,
-			frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
-	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS,
-			frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS) | DRIVER);
+	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
+	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | DRIVER);
 	
 	// negotiate features we want to use
 	uint32_t negotiated = 0;
-	uint32_t offered = frigg::readIo<uint32_t>(basePort + PCI_L_DEVICE_FEATURES);
+	uint32_t offered = space.load(PCI_L_DEVICE_FEATURES);
 	printf("Features %x\n", offered);
 
-	frigg::writeIo<uint32_t>(basePort + PCI_L_DRIVER_FEATURES, negotiated);
+	space.store(PCI_L_DRIVER_FEATURES, negotiated);
 
 	doInitialize();
 
 	// finally set the DRIVER_OK bit to finish the configuration
-	frigg::writeIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS,
-			frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_STATUS) | DRIVER_OK);
+	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
 }
 
 // --------------------------------------------------------
@@ -69,8 +64,8 @@ void Queue::setupQueue() {
 	assert(!queueSize);
 
 	// select the queue and determine it's size
-	frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_SELECT, queueIndex);
-	queueSize = frigg::readIo<uint16_t>(device.basePort + PCI_L_QUEUE_SIZE);
+	device.space.store(PCI_L_QUEUE_SELECT, queueIndex);
+	queueSize = device.space.load(PCI_L_QUEUE_SIZE);
 	assert(queueSize > 0);
 
 	for(size_t i = 0; i < queueSize; i++)
@@ -111,7 +106,7 @@ void Queue::setupQueue() {
 	uintptr_t physical;
 	HEL_CHECK(helPointerPhysical(pointer, &physical));
 
-	frigg::writeIo<uint32_t>(device.basePort + PCI_L_QUEUE_ADDRESS, physical / 0x1000);
+	device.space.store(PCI_L_QUEUE_ADDRESS, physical / 0x1000);
 }
 
 size_t Queue::getSize() {
@@ -140,7 +135,7 @@ void Queue::postDescriptor(size_t desc_index) {
 void Queue::notifyDevice() {
 	asm volatile ( "" : : : "memory" );
 	if(!(accessUsedHeader()->flags & VIRTQ_USED_F_NO_NOTIFY))
-		frigg::writeIo<uint16_t>(device.basePort + PCI_L_QUEUE_NOTIFY, queueIndex);
+		device.space.store(PCI_L_QUEUE_NOTIFY, queueIndex);
 }
 
 void Queue::processInterrupt() {

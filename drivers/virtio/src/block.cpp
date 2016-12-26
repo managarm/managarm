@@ -1,9 +1,10 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include "block.hpp"
 
-extern helx::EventHub eventHub;
+#include <helix/await.hpp>
+
+#include "block.hpp"
 
 namespace virtio {
 namespace block {
@@ -14,9 +15,8 @@ static bool logInitiateRetire = false;
 // UserRequest
 // --------------------------------------------------------
 
-UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors,
-		frigg::CallbackPtr<void()> callback)
-: sector(sector), buffer(buffer), numSectors(num_sectors), callback(callback),
+UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors)
+: sector(sector), buffer(buffer), numSectors(num_sectors),
 		numSubmitted(0), sectorsRead(0) { }
 
 // --------------------------------------------------------
@@ -24,7 +24,7 @@ UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors,
 // --------------------------------------------------------
 
 Device::Device()
-: libfs::BlockDevice(512), requestQueue(*this, 0) { }
+: blockfs::BlockDevice(512), requestQueue(*this, 0) { }
 
 void Device::doInitialize() {
 	// perform device specific setup
@@ -37,19 +37,20 @@ void Device::doInitialize() {
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
 	
 	// setup an interrupt for the device
-	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
+	processIrqs();
 
-	libfs::runDevice(eventHub, this);
+	blockfs::runDevice(this);
 }
 
-void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
-			frigg::CallbackPtr<void()> callback) {
+cofiber::future<void> Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
 	// natural alignment makes sure a sector does not cross a page boundary
 	assert(((uintptr_t)buffer % 512) == 0);
 
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
-	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors, callback);
+	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors);
+	auto future = user_request->promise.get_future();
+
 //	FIXME: is this assertion still nesecarry?
 //	assert(pendingRequests.empty());
 	if(!requestIsReady(user_request)) {
@@ -57,6 +58,8 @@ void Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors,
 	}else{
 		submitRequest(user_request);
 	}
+
+	return future;
 }
 
 void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
@@ -95,7 +98,7 @@ void Device::afterRetrieve() {
 
 	while(!completeStack.empty()) {
 		UserRequest *user_request = completeStack.back();
-		user_request->callback();
+		user_request->promise.set_value();
 
 		if(logInitiateRetire)
 			printf("Retire %p\n", user_request);
@@ -105,14 +108,19 @@ void Device::afterRetrieve() {
 	}
 }
 
-void Device::onInterrupt(HelError error) {
-	HEL_CHECK(error);
+COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
+	using M = helix::AwaitMechanism;
 
-	readIsr();
-	requestQueue.processInterrupt();
+	while(true) {
+		helix::AwaitIrq<M> await;
+		helix::submitAwaitIrq(interrupt, &await, helix::Dispatcher::global());
+		COFIBER_AWAIT(await.future());
+		HEL_CHECK(await.error());
 
-	interrupt.wait(eventHub, CALLBACK_MEMBER(this, &Device::onInterrupt));
-}
+		readIsr();
+		requestQueue.processInterrupt();
+	}
+}))
 
 bool Device::requestIsReady(UserRequest *user_request) {
 	return requestQueue.numLockable() > 2;

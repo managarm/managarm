@@ -1,6 +1,6 @@
 
 #include <queue>
-#include <libfs.hpp>
+#include <blockfs.hpp>
 
 #include "virtio.hpp"
 
@@ -28,33 +28,33 @@ enum {
 // --------------------------------------------------------
 
 struct UserRequest {
-	UserRequest(uint64_t sector, void *buffer, size_t num_sectors,
-			frigg::CallbackPtr<void()> callback);
+	UserRequest(uint64_t sector, void *buffer, size_t num_sectors);
 
 	uint64_t sector;
 	void *buffer;
 	size_t numSectors;
-	frigg::CallbackPtr<void()> callback;
 
 	size_t numSubmitted;
 	size_t sectorsRead;
+	cofiber::promise<void> promise;
 };
 
 // --------------------------------------------------------
 // UserRequest
 // --------------------------------------------------------
 
-struct Device : public GenericDevice, public libfs::BlockDevice {
+struct Device : public GenericDevice, public blockfs::BlockDevice {
 	Device();
 
-	void readSectors(uint64_t sector, void *buffer, size_t num_sectors,
-			frigg::CallbackPtr<void()> callback) override;
+	cofiber::future<void> readSectors(uint64_t sector,
+			void *buffer, size_t num_sectors) override;
 
 	void doInitialize() override;
-	void retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) override;
+	void retrieveDescriptor(size_t queue_index,
+			size_t desc_index, size_t bytes_written) override;
 	void afterRetrieve() override;
 
-	void onInterrupt(HelError error);
+	cofiber::no_future processIrqs();
 
 private:
 	// returns true iff the request can be submitted to the device
@@ -65,9 +65,6 @@ private:
 
 	// the single virtqueue of this virtio-block device
 	Queue requestQueue;
-
-	// IRQ of this device
-	helx::Irq irq;
 
 	// these two buffer store virtio-block request header and status bytes
 	// they are indexed by the index of the request's first descriptor

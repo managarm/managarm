@@ -4,77 +4,80 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
 #include <memory>
 #include <queue>
 #include <vector>
 
+#include <cofiber.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
+#include <mbus.hpp>
 
-//FIXME: #include "block.hpp"
+#include "block.hpp"
 #include "hw.pb.h"
 
-/*helx::EventHub eventHub = helx::EventHub::create();
-bragi_mbus::Connection mbusConnection(eventHub);
+// TODO: Support more than one device.
 virtio::block::Device device;
 
-// --------------------------------------------------------
-// InitClosure
-// --------------------------------------------------------
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
+	using M = helix::AwaitMechanism;
 
-struct InitClosure {
-	void operator() ();
+	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 
-private:
-	void connected();
-	void enumeratedDevice(std::vector<bragi_mbus::ObjectId> objects);
-	void queriredDevice(HelHandle handle);
-};
+	// receive the device descriptor.
+	helix::RecvInline<M> recv_resp;
+	helix::PullDescriptor<M> pull_bar;
+	helix::PullDescriptor<M> pull_irq;
 
-void InitClosure::operator() () {
-	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
-}
+	helix::submitAsync(lane, {
+		helix::action(&recv_resp, kHelItemChain),
+		helix::action(&pull_bar, kHelItemChain),
+		helix::action(&pull_irq),
+	}, helix::Dispatcher::global());
 
-void InitClosure::connected() {
-	mbusConnection.enumerate({ "pci-vendor:0x1af4", "pci-device:0x1001" },
-			CALLBACK_MEMBER(this, &InitClosure::enumeratedDevice));
-}
+	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_bar.future();
+	COFIBER_AWAIT pull_irq.future();
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_bar.error());
+	HEL_CHECK(pull_irq.error());
 
-void InitClosure::enumeratedDevice(std::vector<bragi_mbus::ObjectId> objects) {
-	assert(objects.size() == 1);
-	mbusConnection.queryIf(objects[0],
-			CALLBACK_MEMBER(this, &InitClosure::queriredDevice));
-}
+	managarm::hw::PciDevice resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 
-void InitClosure::queriredDevice(HelHandle handle) {
-	helx::Pipe device_pipe(handle);
+	// run the UHCI driver.
+	assert(resp.bars(0).io_type() == managarm::hw::IoType::PORT);
+	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(4).io_type() == managarm::hw::IoType::NONE);
+	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
+	HEL_CHECK(helEnableIo(pull_bar.descriptor().getHandle()));
 
-	// acquire the device's resources
-	HelError acquire_error;
-	uint8_t acquire_buffer[128];
-	size_t acquire_length;
-	device_pipe.recvStringRespSync(acquire_buffer, 128, eventHub, 1, 0,
-			acquire_error, acquire_length);
-	HEL_CHECK(acquire_error);
+	std::cout << "Setting up the device" << std::endl;
+	device.setupDevice(resp.bars(0).address(), pull_irq.descriptor());
+}))
 
-	managarm::hw::PciDevice acquire_response;
-	acquire_response.ParseFromArray(acquire_buffer, acquire_length);
+COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
-	HelError bar_error;
-	HelHandle bar_handle;
-	device_pipe.recvDescriptorRespSync(eventHub, 1, 1, bar_error, bar_handle);
-	HEL_CHECK(bar_error);
-
-	assert(acquire_response.bars(0).io_type() == managarm::hw::IoType::PORT);
-	HEL_CHECK(helEnableIo(bar_handle));
-
-	HelError irq_error;
-	HelHandle irq_handle;
-	device_pipe.recvDescriptorRespSync(eventHub, 1, 7, irq_error, irq_handle);
-	HEL_CHECK(irq_error);
-
-	device.setupDevice(acquire_response.bars(0).address(), helx::Irq(irq_handle));
-}*/
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("pci-vendor", "1af4"),
+		mbus::EqualsFilter("pci-device", "1001")
+	});
+	COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			std::cout << "virtio: Detected block device" << std::endl;
+			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected device class");
+		}
+	});
+}))
 
 // --------------------------------------------------------
 // main() function
@@ -83,5 +86,9 @@ void InitClosure::queriredDevice(HelHandle handle) {
 int main() {
 	printf("Starting virtio-block driver\n");
 
+	observeDevices();
+
+	while(true)
+		helix::Dispatcher::global().dispatch();
 }
 
