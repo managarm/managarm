@@ -16,7 +16,7 @@ struct BlockDevice {
 	const size_t sectorSize;
 };
 
-void runDevice(BlockDevice *device);
+cofiber::no_future runDevice(BlockDevice *device);
 
 } // namespace blockfs
 

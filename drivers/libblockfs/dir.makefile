@@ -15,7 +15,7 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2 -fPIC
 $c_LIBS := -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libblockfs.so,libblockfs.o fs.pb.o)
+$(call make_so,libblockfs.so,libblockfs.o gpt.o fs.pb.o)
 $(call install_header,blockfs.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 

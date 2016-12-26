@@ -1,10 +1,36 @@
 
+#include <string.h>
 #include <vector>
 
 #include <blockfs.hpp>
 
 namespace blockfs {
 namespace gpt {
+
+struct Guid {
+	bool operator== (const Guid &other) {
+		return a == other.a && b == other.b && c == other.c
+				&& !memcmp(d, other.d, 2)
+				&& !memcmp(e, other.e, 6);
+	}
+
+	bool operator!= (const Guid &other) {
+		return !(*this == other);
+	}
+
+	uint32_t a;
+	uint16_t b;
+	uint16_t c;
+	uint8_t d[2];
+	uint8_t e[6];
+};
+static_assert(sizeof(Guid) == 16, "Bad sizeof(Guid)");
+
+namespace type_guids {
+	static constexpr Guid null{0, 0, 0, {0, 0}, {0, 0, 0, 0, 0, 0}};
+	static constexpr Guid windowsData{0xEBD0A0A2, 0xB9E5, 0x4433, {0x87, 0xC0},
+			{0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7}};
+};
 
 // --------------------------------------------------------
 // On-disk structures
@@ -30,8 +56,8 @@ struct DiskHeader {
 static_assert(sizeof(DiskHeader) == 512, "Bad GPT header struct size");
 
 struct DiskEntry {
-	uint8_t typeGuid[16];
-	uint8_t uniqueGuid[16];
+	Guid typeGuid;
+	Guid uniqueGuid;
 	uint64_t firstLba;
 	uint64_t lastLba;
 	uint64_t attrFlags;
@@ -45,33 +71,19 @@ static_assert(sizeof(DiskEntry) == 128, "Bad GPT entry struct size");
 
 struct Partition;
 
-/*struct Table {
+struct Table {
 public:
 	Table(BlockDevice *device);
 
 	BlockDevice *getDevice();
 
-	void parse(frigg::CallbackPtr<void()> callback);
+	cofiber::future<void> parse();
+
+	size_t numPartitions();
 
 	Partition &getPartition(int index);
 
 private:
-
-	struct ParseClosure {
-		ParseClosure(Table &table, frigg::CallbackPtr<void()> callback);
-
-		void operator() ();
-	
-	private:
-		void readHeader();
-		void readTable();
-
-		Table &table;
-		void *headerBuffer;
-		void *tableBuffer;
-		frigg::CallbackPtr<void()> callback;
-	};
-
 	BlockDevice *device;
 	std::vector<Partition> partitions;
 };
@@ -81,15 +93,23 @@ private:
 // --------------------------------------------------------
 
 struct Partition : public BlockDevice {
-	Partition(Table &table, uint64_t start_lba, uint64_t num_sectors);
+	Partition(Table &table, Guid id, Guid type,
+			uint64_t start_lba, uint64_t num_sectors);
 
 	cofiber::future<void> readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) override;
-	
-	Table &table;
-	uint64_t startLba;
-	uint64_t numSectors;
-};*/
+
+	Guid id();
+
+	Guid type();
+
+private:
+	Table &_table;
+	Guid _id;
+	Guid _type;
+	uint64_t _startLba;
+	uint64_t _numSectors;
+};
 
 } } // namespace blockfs::gpt
 
