@@ -51,8 +51,10 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_runState = kRunInterrupted;
 	saveExecutor(image);
 
-	while(!this_thread->_observeQueue.empty()) {
+	// FIXME: Huge hack! This should really be a loop and run more than one callback.
+	if(!this_thread->_observeQueue.empty()) {
 		auto observe = this_thread->_observeQueue.removeFront();
+		assert(this_thread->_observeQueue.empty());
 		observe->trigger(Error::kErrSuccess, interrupt);
 	}
 

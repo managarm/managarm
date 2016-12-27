@@ -475,9 +475,7 @@ namespace initrd {
 				frigg::panicLogger() << "Unexpected observation" << frigg::endLog;
 			}
 
-			// TODO: We cannot do this here as it would loop indefinitely.
-			// We need to refactor this to be able to observe multiple events.
-//			(*this)();
+			(*this)();
 		}
 		
 		Process *_process;
