@@ -1,4 +1,3 @@
-
 #ifndef POSIX_SUBSYSTEM_DEVICE_HPP
 #define POSIX_SUBSYSTEM_DEVICE_HPP
 
@@ -11,10 +10,17 @@
 struct DeviceOperations;
 
 struct Device {
-	Device(DeviceId id, const DeviceOperations *operations)
-	: _id(id), _operations(operations) { }
+	static VfsType getType(std::shared_ptr<Device> object);
+	static std::string getName(std::shared_ptr<Device> object);
 
-	DeviceId id() {
+	Device(const DeviceOperations *operations)
+	: _operations(operations) { }
+
+	void assignId(DeviceId id) {
+		_id = id;
+	}
+
+	DeviceId getId() {
 		return _id;
 	}
 
@@ -28,6 +34,9 @@ private:
 };
 
 struct DeviceOperations {
+	VfsType (*getType)(std::shared_ptr<Device> object) = 0;
+	std::string (*getName)(std::shared_ptr<Device> object) = 0;
+
 	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object) = 0;
 };
 
@@ -44,22 +53,25 @@ struct DeviceManager {
 
 private:
 	struct Compare {
-		bool operator() (std::shared_ptr<Device> a, DeviceId b) {
-			return a->id() < b;
+		struct is_transparent { };
+
+		bool operator() (std::shared_ptr<Device> a, DeviceId b) const {
+			return a->getId() < b;
 		}
-		bool operator() (DeviceId a, std::shared_ptr<Device> b) {
-			return a < b->id();
+		bool operator() (DeviceId a, std::shared_ptr<Device> b) const {
+			return a < b->getId();
 		}
 
-		bool operator() (std::shared_ptr<Device> a, std::shared_ptr<Device> b) {
-			return a->id() < b->id();
+		bool operator() (std::shared_ptr<Device> a, std::shared_ptr<Device> b) const {
+			return a->getId() < b->getId();
 		}
 	};
 
 	std::set<std::shared_ptr<Device>, Compare> _devices;
 };
 
+std::shared_ptr<Link> getDevtmpfs();
+
 extern DeviceManager deviceManager;
 
 #endif // POSIX_SUBSYSTEM_DEVICE_HPP
-

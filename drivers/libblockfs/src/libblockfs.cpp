@@ -1,6 +1,10 @@
 
 #include <stdio.h>
+#include <string.h>
 #include <iostream>
+
+#include <helix/ipc.hpp>
+#include <mbus.hpp>
 
 #include <blockfs.hpp>
 #include "gpt.hpp"
@@ -22,6 +26,11 @@ BlockDevice::BlockDevice(size_t sector_size)
 }
 */
 
+COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
+		([lane = std::move(p)] {
+	std::cout << "unix device: Connection" << std::endl;
+}))
+
 COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 	table = new gpt::Table(device);
 	COFIBER_AWAIT table->parse();
@@ -39,6 +48,23 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		fs = new ext2fs::FileSystem(&table->getPartition(i));
 		COFIBER_AWAIT fs->init();
 		printf("ext2fs is ready!\n");
+
+		// Create an mbus object for the partition.
+		auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+		
+		std::unordered_map<std::string, std::string> descriptor {
+			{ "unix.devtype", "block" }
+		};
+		auto object = COFIBER_AWAIT root.createObject("partition", descriptor,
+				[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			servePartition(std::move(local_lane));
+
+			cofiber::promise<helix::UniqueDescriptor> promise;
+			promise.set_value(std::move(remote_lane));
+			return promise.get_future();
+		});
 	}
 }))
 

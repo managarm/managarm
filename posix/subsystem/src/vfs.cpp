@@ -183,7 +183,7 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 
 	// create a /dev directory + device files.
 	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
-	COFIBER_AWAIT mkdev(getTarget(dev), "helout", VfsType::charDevice, { 0, 1 });
+	view.mount(std::move(dev), getDevtmpfs());
 
 	// mount the initrd to /initrd.
 	auto initrd = COFIBER_AWAIT mkdir(getTarget(tree), "initrd");

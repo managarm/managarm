@@ -29,24 +29,12 @@ int main() {
 	args.push_back(nullptr);
 
 	char *envp[] = { nullptr };
-	
-	auto uhci = fork();
-	if(!uhci) {
-		execve("/initrd/uhci", args.data(), envp);
-	}else assert(uhci != -1);
-	
-	auto hid = fork();
-	if(!hid) {
-		execve("/initrd/hid", args.data(), envp);
-	}else assert(hid != -1);
 
-/*
 	auto child = fork();
 	if(!child) {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(child != -1);
-*/
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready

@@ -3,14 +3,20 @@
 
 #include "common.hpp"
 #include "device.hpp"
+#include "tmp_fs.hpp"
 
 DeviceManager deviceManager;
-
-HelHandle __mlibc_getPassthrough(int fd);
 
 // --------------------------------------------------------
 // Device
 // --------------------------------------------------------
+
+VfsType Device::getType(std::shared_ptr<Device> object) {
+	return object->operations()->getType(object);
+}
+std::string Device::getName(std::shared_ptr<Device> object) {
+	return object->operations()->getName(object);
+}
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device) {
 	return device->operations()->open(device);
@@ -20,72 +26,30 @@ FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device) {
 // DeviceManager
 // --------------------------------------------------------
 
-namespace {
+void DeviceManager::install(std::shared_ptr<Device> device) {
+	DeviceId id{0, 1};
+	while(_devices.find(id) != _devices.end())
+		id.second++;
+	device->assignId(id);
+	// TODO: Ensure that the insert succeeded.
+	_devices.insert(device);
 
-struct HeloutFile : File {
-private:
-	static COFIBER_ROUTINE(FutureMaybe<off_t>, seek(std::shared_ptr<File> object,
-			off_t offset, VfsSeek whence), ([=] {
-		(void)object;
-		(void)offset;
-		(void)whence;
-		assert(!"Not implemented");
-	}))
-
-	static COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(std::shared_ptr<File> object,
-			void *data, size_t max_length), ([=] {
-		(void)object;
-		(void)data;
-		(void)max_length;
-		assert(!"Not implemented");
-	}))
-
-	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
-			accessMemory(std::shared_ptr<File> object), ([=] {
-		(void)object;
-		assert(!"Not implemented");
-	}))
-
-	static helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> object) {
-		(void)object;
-		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));
-	}
-
-	static const FileOperations operations;
-
-public:
-	HeloutFile()
-	: File(&operations) { }
-};
-	
-const FileOperations HeloutFile::operations{
-	&HeloutFile::seek,
-	&HeloutFile::readSome,
-	&HeloutFile::accessMemory,
-	&HeloutFile::getPassthroughLane
-};
-
-struct HeloutDevice : Device {
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device), ([=] {
-		(void)device;
-		COFIBER_RETURN(std::make_shared<HeloutFile>());
-	}))
-
-	static const DeviceOperations operations;
-
-	HeloutDevice()
-	: Device({0, 1}, &operations) { }
-};
-
-const DeviceOperations HeloutDevice::operations{
-	&HeloutDevice::open
-};
-
-} // anonymous namespace
+	mkdev(getTarget(getDevtmpfs()), Device::getName(device),
+			Device::getType(device), id);
+}
 
 std::shared_ptr<Device> DeviceManager::get(DeviceId id) {
-	(void)id; // TODO: implement proper device allocation.
-	return std::make_shared<HeloutDevice>();
+	auto it = _devices.find(id);
+	assert(it != _devices.end());
+	return *it;
+}
+
+// --------------------------------------------------------
+// Free functions.
+// --------------------------------------------------------
+
+std::shared_ptr<Link> getDevtmpfs() {
+	static std::shared_ptr<Link> devtmpfs = tmp_fs::createRoot();
+	return devtmpfs;
 }
 

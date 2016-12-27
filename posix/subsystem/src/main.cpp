@@ -8,12 +8,14 @@
 #include <iostream>
 
 #include <cofiber.hpp>
+#include <mbus.hpp>
 
 #include "common.hpp"
 #include "device.hpp"
 #include "vfs.hpp"
 #include "process.hpp"
 #include "exec.hpp"
+#include "devices/helout.hpp"
 //FIXME #include "dev_fs.hpp"
 //FIXME #include "pts_fs.hpp"
 //FIXME #include "sysfile_fs.hpp"
@@ -213,9 +215,39 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // main() function
 // --------------------------------------------------------
 
+struct ExternDevice : Device {
+	static const DeviceOperations operations;
+};
+
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+	using M = helix::AwaitMechanism;
+
+	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("unix.devtype", "block")
+	});
+	COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			std::cout << "posix: Detected UNIX device" << std::endl;
+			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected event type");
+		}
+	});
+}))
+
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
-	
+
+	deviceManager.install(createHeloutDevice());
+	observeDevices();
+
 	Process::init("posix-init");
 
 	while(true)
