@@ -212,6 +212,7 @@ struct FileSystem {
 	std::shared_ptr<Inode> accessInode(uint32_t number);
 
 	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
+	cofiber::no_future manageInode(std::shared_ptr<Inode> inode);
 
 	cofiber::future<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);

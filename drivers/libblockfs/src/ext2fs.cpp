@@ -74,59 +74,6 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	COFIBER_RETURN(std::experimental::nullopt);
 }))
 
-/*
-struct PageClosure {
-	PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t length);
-
-	void operator() ();
-
-	void readComplete();
-
-	std::shared_ptr<Inode> inode;
-	uintptr_t offset;
-	size_t length;
-
-	void *mapping;
-};
-
-PageClosure::PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t length)
-: inode(std::move(inode)), offset(offset), length(length) { }
-
-void PageClosure::operator() () {
-	HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
-			offset, length, kHelMapReadWrite, &mapping));
-
-	assert(offset < inode->fileSize);
-	size_t read_size = std::min(length, inode->fileSize - offset);
-	size_t num_blocks = read_size / inode->fs.blockSize;
-	if(read_size % inode->fs.blockSize != 0)
-		num_blocks++;
-
-	assert(offset % inode->fs.blockSize == 0);
-	inode->fs.readData(inode, offset / inode->fs.blockSize, num_blocks, (char *)mapping,
-			CALLBACK_MEMBER(this, &PageClosure::readComplete));
-}
-
-void PageClosure::readComplete() {
-	HEL_CHECK(helCompleteLoad(inode->backingMemory, offset, length));
-
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping, length));
-
-	delete this;
-}
-
-void Inode::onLoadRequest(HelError error, uintptr_t offset, size_t length) {
-	HEL_CHECK(error);
-
-	auto closure = new PageClosure(shared_from_this(), offset, length);
-	(*closure)();
-	
-	auto cb = CALLBACK_MEMBER(this, &Inode::onLoadRequest);
-	int64_t async_id;
-	HEL_CHECK(helSubmitProcessLoad(backingMemory, fs.eventHub.getHandle(),
-			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
-}*/
-
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
@@ -233,16 +180,41 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 		cache_size += 0x1000 - cache_size % 0x1000;
 	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
 			&inode->backingMemory, &inode->frontalMemory));
-
-/* FIXME:
-	auto cb = CALLBACK_MEMBER(inode.get(), &Inode::onLoadRequest);
-	int64_t async_id;
-	HEL_CHECK(helSubmitProcessLoad(inode->backingMemory, ext2fs.eventHub.getHandle(),
-			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
-*/
 	
 	inode->isReady = true;
 	inode->readyJump.trigger();
+
+	manageInode(inode);
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inode> inode),
+		([=] {
+	using M = helix::AwaitMechanism;
+
+	while(true) {
+		helix::ManageMemory<M> manage;
+		helix::submitManageMemory(helix::BorrowedDescriptor(inode->backingMemory),
+				&manage, helix::Dispatcher::global());
+		COFIBER_AWAIT(manage.future());
+		HEL_CHECK(manage.error());
+		
+		void *window;
+		HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
+				manage.offset(), manage.length(), kHelMapReadWrite, &window));
+
+		assert(manage.offset() < inode->fileSize);
+		size_t read_size = std::min(manage.length(), inode->fileSize - manage.offset());
+		size_t num_blocks = read_size / inode->fs.blockSize;
+		if(read_size % inode->fs.blockSize != 0)
+			num_blocks++;
+
+		assert(manage.offset() % inode->fs.blockSize == 0);
+		COFIBER_AWAIT inode->fs.readData(inode, manage.offset() / inode->fs.blockSize,
+				num_blocks, window);
+
+		HEL_CHECK(helCompleteLoad(inode->backingMemory, manage.offset(), manage.length()));
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, window, manage.length()));
+	}
 }))
 
 cofiber::future<void> FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,

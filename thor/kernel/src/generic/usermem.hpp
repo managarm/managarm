@@ -44,6 +44,25 @@ private:
 	size_t _chunkSize, _chunkAlign;
 };
 
+struct ManageBase {
+	virtual void complete(Error error, uintptr_t offset, size_t size) = 0;
+
+	frigg::IntrusiveSharedLinkedItem<ManageBase> processQueueItem;
+};
+
+template<typename F>
+struct Manage : ManageBase {
+	Manage(F functor)
+	: _functor(frigg::move(functor)) { }
+
+	void complete(Error error, uintptr_t offset, size_t size) override {
+		_functor(error, offset, size);
+	}
+
+private:
+	F _functor;
+};
+
 struct InitiateBase {
 	InitiateBase(size_t offset, size_t length)
 	: offset(offset), length(length), progress(0) { }
@@ -99,8 +118,8 @@ struct ManagedSpace {
 	> pendingLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
-		AsyncHandleLoad,
-		&AsyncHandleLoad::processQueueItem
+		ManageBase,
+		&ManageBase::processQueueItem
 	> handleLoadQueue;
 };
 
@@ -114,7 +133,7 @@ public:
 	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			GrabIntent grab_intent, size_t offset);
 	
-	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle);
+	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
 
 private:
@@ -196,7 +215,7 @@ struct Memory {
 		}
 	}
 
-	void submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle) {
+	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
 		switch(_variant.tag()) {
 		case MemoryVariant::tagOf<BackingMemory>():
 			_variant.get<BackingMemory>().submitHandleLoad(frigg::move(handle));

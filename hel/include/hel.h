@@ -36,7 +36,7 @@ enum {
 	kHelCallLoadForeign = 77,
 	kHelCallStoreForeign = 78,
 	kHelCallMemoryInfo = 26,
-	kHelCallSubmitProcessLoad = 46,
+	kHelCallSubmitManageMemory = 46,
 	kHelCallCompleteLoad = 47,
 	kHelCallSubmitLockMemory = 48,
 	kHelCallLoadahead = 49,
@@ -265,6 +265,13 @@ struct HelSimpleResult {
 	int reserved;
 };
 
+struct HelManageResult {
+	HelError error;
+	int reserved;
+	uintptr_t offset;
+	size_t length;
+};
+
 struct HelObserveResult {
 	HelError error;
 	unsigned int observation;
@@ -322,11 +329,11 @@ HEL_C_LINKAGE HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		size_t length, const void *buffer);
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
-HEL_C_LINKAGE HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
+HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
+		struct HelQueue *queue, uintptr_t context);
 HEL_C_LINKAGE HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length);
 HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
-	struct HelQueue *queue, uintptr_t context);
+		struct HelQueue *queue, uintptr_t context);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,

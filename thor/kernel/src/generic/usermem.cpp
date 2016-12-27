@@ -84,10 +84,8 @@ void ManagedSpace::progressLoads() {
 
 			loadState[index] = kStateLoading;
 
-			frigg::SharedPtr<AsyncHandleLoad> handle = handleLoadQueue.removeFront();
-			handle->offset = initiate->offset + initiate->progress;
-			handle->length = kPageSize;
-			AsyncOperation::complete(frigg::move(handle));
+			frigg::SharedPtr<ManageBase> handle = handleLoadQueue.removeFront();
+			handle->complete(kErrSuccess, initiate->offset + initiate->progress, kPageSize);
 
 			initiate->progress += kPageSize;
 		}else if(loadState[index] == kStateLoading) {
@@ -143,7 +141,7 @@ PhysicalAddr BackingMemory::grabPage(PhysicalChunkAllocator::Guard &physical_gua
 	return _managed->physicalPages[index];
 }
 
-void BackingMemory::submitHandleLoad(frigg::SharedPtr<AsyncHandleLoad> handle) {
+void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
 	_managed->handleLoadQueue.addBack(frigg::move(handle));
 	_managed->progressLoads();
 }

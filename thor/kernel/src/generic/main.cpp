@@ -516,11 +516,9 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helMemoryInfo((HelHandle)arg0, &size);
 		*image.out0() = size;
 	} break;
-	case kHelCallSubmitProcessLoad: {
-		int64_t async_id;
-		*image.error() = helSubmitProcessLoad((HelHandle)arg0, (HelHandle)arg1,
-				(uintptr_t)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
+	case kHelCallSubmitManageMemory: {
+		*image.error() = helSubmitManageMemory((HelHandle)arg0,
+				(HelQueue *)arg1, (uintptr_t)arg2);
 	} break;
 	case kHelCallCompleteLoad: {
 		*image.error() = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
