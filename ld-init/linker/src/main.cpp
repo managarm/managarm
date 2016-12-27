@@ -36,6 +36,8 @@ frigg::LazyInitializer<Loader> globalLoader;
 
 frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
 
+HelHandle *fileTable;
+
 extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	assert(object->lazyExplicitAddend);
 	auto reloc = (Elf64_Rela *)(object->baseAddress + object->lazyRelocTableOffset
@@ -82,6 +84,10 @@ extern "C" void *interpreterMain(char *sp) {
 	auxiliaryPtr = sp;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
+	
+	HelError error;
+	asm volatile ("syscall" : "=D"(error), "=S"(fileTable) : "0"(kHelCallSuper + 1));
+	HEL_CHECK(error);
 
 	enum {
 		// this value is not part of the ABI
