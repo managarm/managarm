@@ -1,76 +1,17 @@
 
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <algorithm>
-#include <libchain/all.hpp>
+
 #include <cofiber.hpp>
+#include <hel.h>
+#include <hel-syscalls.h>
 
 #include "ext2fs.hpp"
 
-namespace frigg {
-	template<typename S, typename Functor>
-	struct Awaiter {
-	public:
-		Awaiter(Await<S, Functor> chain)
-		: _chain(std::move(chain)) { }
-
-		bool await_ready() { return false; }
-		HelError await_resume() { return _error; }
-
-		void await_suspend(cofiber::coroutine_handle<> handle) {
-			libchain::run(std::move(_chain), [=] (HelError error) {
-				_error = error;
-				handle.resume();
-			});
-		}
-	private:
-		Await<S, Functor> _chain;
-		HelError _error;
-	};
-	
-	template<typename S, typename Functor>
-	Awaiter<S, Functor> cofiber_awaiter(Await<S, Functor> chain) {
-		return Awaiter<S, Functor>(std::move(chain));
-	}
-};
-
 namespace blockfs {
 namespace ext2fs {
-
-struct WaitForInode {
-private:
-public:
-	friend auto cofiber_awaiter(WaitForInode action) {
-		struct Awaiter {
-			Awaiter(std::shared_ptr<Inode> inode)
-			: _inode(std::move(inode)) { }
-
-			bool await_ready() { return false; }
-			void await_resume() { }
-
-			void await_suspend(cofiber::coroutine_handle<> handle) {
-				_handle = handle;
-				_inode->readyQueue.push_back(CALLBACK_MEMBER(this, &Awaiter::onReady));
-			}
-
-		private:
-			void onReady() {
-				_handle.resume();
-			}
-
-			std::shared_ptr<Inode> _inode;
-			cofiber::coroutine_handle<> _handle;
-		};
-	
-		return Awaiter(std::move(action._inode));
-	}
-
-	WaitForInode(std::shared_ptr<Inode> inode)
-	: _inode(std::move(inode)) { }
-
-private:
-	std::shared_ptr<Inode> _inode;
-};
 
 // --------------------------------------------------------
 // Inode
@@ -79,64 +20,34 @@ private:
 Inode::Inode(FileSystem &fs, uint32_t number)
 : fs(fs), number(number), isReady(false) { }
 
-struct FindEntryClosure {
-	FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
-			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
+COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
+		Inode::findEntry(std::string name), ([=] {
+	assert(!name.empty() && name != "." && name != "..");
 
-	~FindEntryClosure();
+	COFIBER_AWAIT readyJump.async_wait();
 
-	void operator() ();
+	auto map_size = fileSize;
+	if(map_size % 0x1000 != 0)
+		map_size += 0x1000 - map_size % 0x1000;
 
-	void inodeReady();
-	void lockedMemory();
-
-	std::shared_ptr<Inode> inode;
-	std::string name;
-	frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback;
-
-	size_t mapSize;
-	void *cachePtr;
-};
-
-FindEntryClosure::FindEntryClosure(std::shared_ptr<Inode> inode, std::string name,
-		frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback)
-: inode(std::move(inode)), name(name), callback(callback), cachePtr(nullptr) { }
-
-FindEntryClosure::~FindEntryClosure() {
-	// unmap the page cache
-	if(cachePtr)
-		HEL_CHECK(helUnmapMemory(kHelNullHandle, cachePtr, mapSize));
-}
-
-void FindEntryClosure::operator() () {
-	if(inode->isReady) {
-		inodeReady();
-	}else{
-		inode->readyQueue.push_back(CALLBACK_MEMBER(this, &FindEntryClosure::inodeReady));
-	}
-}
-
-void FindEntryClosure::inodeReady() {
-	mapSize = inode->fileSize;
-	if(mapSize % 0x1000 != 0)
-		mapSize += 0x1000 - mapSize % 0x1000;
-
+/* FIXME:
 	auto cb = CALLBACK_MEMBER(this, &FindEntryClosure::lockedMemory);
 	int64_t async_id;
-	HEL_CHECK(helSubmitLockMemory(inode->frontalMemory,
-			inode->fs.eventHub.getHandle(), 0, mapSize,
+	HEL_CHECK(helSubmitLockMemory(frontalMemory,
+			fs.eventHub.getHandle(), 0, map_size,
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
-}
+*/
 
-void FindEntryClosure::lockedMemory() {
+	// TODO: Use a RAII mapping class to get rid of the mapping on return.
 	// map the page cache into the address space
-	HEL_CHECK(helMapMemory(inode->frontalMemory, kHelNullHandle,
-		nullptr, 0, mapSize, kHelMapReadWrite | kHelMapDontRequireBacking, &cachePtr));
+	void *window;
+	HEL_CHECK(helMapMemory(frontalMemory, kHelNullHandle,
+			nullptr, 0, map_size, kHelMapReadWrite | kHelMapDontRequireBacking, &window));
 
 	// read the directory structure
 	uintptr_t offset = 0;
-	while(offset < inode->fileSize) {
-		auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)cachePtr + offset);
+	while(offset < fileSize) {
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)window + offset);
 		// TODO: use memcmp?
 		if(name.length() == disk_entry->nameLength
 				&& strncmp(disk_entry->name, name.c_str(), disk_entry->nameLength) == 0) {
@@ -154,27 +65,17 @@ void FindEntryClosure::lockedMemory() {
 				entry.fileType = kTypeNone;
 			}
 
-			callback(entry);
-			delete this;
-			return;
+			COFIBER_RETURN(entry);
 		}
 
 		offset += disk_entry->recordLength;
 	}
-	assert(offset == inode->fileSize);
+	assert(offset == fileSize);
 
-	callback(std::experimental::nullopt);
-	delete this;
-}
+	COFIBER_RETURN(std::experimental::nullopt);
+}))
 
-void Inode::findEntry(std::string name,
-		frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback) {
-	assert(!name.empty() && name != "." && name != "..");
-
-	auto closure = new FindEntryClosure(shared_from_this(), std::move(name), callback);
-	(*closure)();
-}
-
+/*
 struct PageClosure {
 	PageClosure(std::shared_ptr<Inode> inode, uintptr_t offset, size_t length);
 
@@ -225,21 +126,43 @@ void Inode::onLoadRequest(HelError error, uintptr_t offset, size_t length) {
 	int64_t async_id;
 	HEL_CHECK(helSubmitProcessLoad(backingMemory, fs.eventHub.getHandle(),
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
-}
+}*/
 
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
 
-FileSystem::FileSystem(helx::EventHub &event_hub, BlockDevice *device)
-: eventHub(event_hub), device(device), blockCache(*this) {
+FileSystem::FileSystem(BlockDevice *device)
+: device(device), blockCache(*this) {
 	blockCache.preallocate(32);
 }
 
-void FileSystem::init(frigg::CallbackPtr<void()> callback) {
-	auto closure = new InitClosure(*this, callback);
-	(*closure)();
-}
+COFIBER_ROUTINE(cofiber::future<void>, FileSystem::init(), ([=] {
+	// TODO: Use std::string instead of malloc().
+	auto superblock_buffer = malloc(1024);
+	
+	COFIBER_AWAIT device->readSectors(2, superblock_buffer, 2);
+	
+	DiskSuperblock *sb = (DiskSuperblock *)superblock_buffer;
+	assert(sb->magic == 0xEF53);
+
+	inodeSize = sb->inodeSize;
+	blockSize = 1024 << sb->logBlockSize;
+	sectorsPerBlock = blockSize / 512;
+	numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
+	inodesPerGroup = sb->inodesPerGroup;
+
+	size_t bgdt_size = numBlockGroups * sizeof(DiskGroupDesc);
+	if(bgdt_size % 512)
+		bgdt_size += 512 - (bgdt_size % 512);
+	// TODO: Use std::string instead of malloc().
+	blockGroupDescriptorBuffer = malloc(bgdt_size);
+
+	COFIBER_AWAIT device->readSectors(2 * sectorsPerBlock,
+			blockGroupDescriptorBuffer, bgdt_size / 512);
+	
+	COFIBER_RETURN();
+}))
 
 auto FileSystem::accessRoot() -> std::shared_ptr<Inode> {
 	return accessInode(EXT2_ROOT_INO);
@@ -254,86 +177,27 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	
 	auto new_inode = std::make_shared<Inode>(*this, number);
 	inode_slot = std::weak_ptr<Inode>(new_inode);
-
-	auto closure = new ReadInodeClosure(*this, new_inode);
-	(*closure)();
+	initiateInode(new_inode);
 
 	return std::move(new_inode);
 }
 
-void FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
-		size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback) {
-	auto closure = new ReadDataClosure(*this, std::move(inode), block_offset,
-			num_blocks, buffer, callback);
-	(*closure)();
-}
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<Inode> inode),
+		([=] {
+	// TODO: Use std::string instead of malloc().
+	auto sector_buffer = (char *)malloc(512);
+	
+	uint32_t block_group = (inode->number - 1) / inodesPerGroup;
+	uint32_t index = (inode->number - 1) % inodesPerGroup;
+	uint32_t offset = index * inodeSize;
 
-// --------------------------------------------------------
-// FileSystem::InitClosure
-// --------------------------------------------------------
-
-FileSystem::InitClosure::InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback)
-: ext2fs(ext2fs), callback(callback) {
-	superblockBuffer = (char *)malloc(1024);
-}
-
-void FileSystem::InitClosure::operator() () {
-	ext2fs.device->readSectors(2, superblockBuffer, 2,
-			CALLBACK_MEMBER(this, &InitClosure::readSuperblock));
-}
-
-void FileSystem::InitClosure::readSuperblock() {
-	DiskSuperblock *sb = (DiskSuperblock *)superblockBuffer;
-	assert(sb->magic == 0xEF53);
-
-	ext2fs.inodeSize = sb->inodeSize;
-	ext2fs.blockSize = 1024 << sb->logBlockSize;
-	ext2fs.sectorsPerBlock = ext2fs.blockSize / 512;
-	ext2fs.numBlockGroups = sb->blocksCount / sb->blocksPerGroup;
-	ext2fs.inodesPerGroup = sb->inodesPerGroup;
-
-	size_t bgdt_size = ext2fs.numBlockGroups * sizeof(DiskGroupDesc);
-	if(bgdt_size % 512)
-		bgdt_size += 512 - (bgdt_size % 512);
-	ext2fs.blockGroupDescriptorBuffer = malloc(bgdt_size);
-
-	ext2fs.device->readSectors(2 * ext2fs.sectorsPerBlock,
-			ext2fs.blockGroupDescriptorBuffer, bgdt_size / 512,
-			CALLBACK_MEMBER(this, &InitClosure::readBlockGroups));
-}
-
-void FileSystem::InitClosure::readBlockGroups() {
-	callback();
-	delete this;
-};
-
-// --------------------------------------------------------
-// FileSystem::ReadInodeClosure
-// --------------------------------------------------------
-
-FileSystem::ReadInodeClosure::ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode)
-: ext2fs(ext2fs), inode(std::move(inode)) {
-	sectorBuffer = (char *)malloc(512);
-}
-
-void FileSystem::ReadInodeClosure::operator() () {
-	uint32_t block_group = (inode->number - 1) / ext2fs.inodesPerGroup;
-	uint32_t index = (inode->number - 1) % ext2fs.inodesPerGroup;
-
-	auto bgdt = (DiskGroupDesc *)ext2fs.blockGroupDescriptorBuffer;
+	auto bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer;
 	uint32_t inode_table_block = bgdt[block_group].inodeTable;
-	uint32_t offset = index * ext2fs.inodeSize;
 
-	uint32_t sector = inode_table_block * ext2fs.sectorsPerBlock + (offset / 512);
-	ext2fs.device->readSectors(sector, sectorBuffer, 1,
-			CALLBACK_MEMBER(this, &ReadInodeClosure::readSector));
-}
-
-void FileSystem::ReadInodeClosure::readSector() {
-	uint32_t index = (inode->number - 1) % ext2fs.inodesPerGroup;
-	uint32_t offset = index * ext2fs.inodeSize;
-
-	DiskInode *disk_inode = (DiskInode *)(sectorBuffer + (offset % 512));
+	uint32_t sector = inode_table_block * sectorsPerBlock + (offset / 512);
+	COFIBER_AWAIT device->readSectors(sector, sector_buffer, 1);
+	
+	DiskInode *disk_inode = (DiskInode *)(sector_buffer + (offset % 512));
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode->size);
 
 	if((disk_inode->mode & EXT2_S_IFMT) == EXT2_S_IFREG) {
@@ -371,19 +235,26 @@ void FileSystem::ReadInodeClosure::readSector() {
 	HEL_CHECK(helCreateManagedMemory(cache_size, kHelAllocBacked,
 			&inode->backingMemory, &inode->frontalMemory));
 
+/* FIXME:
 	auto cb = CALLBACK_MEMBER(inode.get(), &Inode::onLoadRequest);
 	int64_t async_id;
 	HEL_CHECK(helSubmitProcessLoad(inode->backingMemory, ext2fs.eventHub.getHandle(),
 			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
+*/
 	
 	inode->isReady = true;
-	for(auto it = inode->readyQueue.begin(); it != inode->readyQueue.end(); ++it)
-		(*it)();
-	inode->readyQueue.clear();
+	inode->readyJump.trigger();
+}))
 
-	delete this;
+cofiber::future<void> FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
+		size_t num_blocks, void *buffer) {
+	assert(!"Fix this function");
+//FIXME	auto closure = new ReadDataClosure(*this, std::move(inode), block_offset,
+//FIXME			num_blocks, buffer, callback);
+//FIXME	(*closure)();
 }
 
+/*
 // --------------------------------------------------------
 // FileSystem::ReadDataClosure
 // --------------------------------------------------------
@@ -486,30 +357,31 @@ void FileSystem::ReadDataClosure::readBlock() {
 	blocksRead += chunkSize;
 	(*this)();
 }
+*/
 
 // --------------------------------------------------------
 // FileSystem::BlockCacheEntry
 // --------------------------------------------------------
 
+COFIBER_ROUTINE(cofiber::no_future, FileSystem::BlockCacheEntry::initiate(FileSystem *fs,
+		uint64_t block, BlockCacheEntry *entry), ([=] {
+	assert(entry->state == BlockCacheEntry::kStateInitial);
+	
+	entry->state = BlockCacheEntry::kStateLoading;
+	COFIBER_AWAIT fs->device->readSectors(block * fs->sectorsPerBlock,
+			entry->buffer, fs->sectorsPerBlock);
+
+	assert(entry->state == kStateLoading);
+	entry->state = kStateReady;
+	entry->readyJump.trigger();
+}))
+
 FileSystem::BlockCacheEntry::BlockCacheEntry(void *buffer)
 : buffer(buffer), state(kStateInitial) { }
 
-void FileSystem::BlockCacheEntry::waitUntilReady(frigg::CallbackPtr<void()> callback) {
-	if(state == kStateReady) {
-		callback();
-	}else{
-		assert(state == kStateLoading);
-		readyQueue.push_back(callback);
-	}
-}
-
-void FileSystem::BlockCacheEntry::loadComplete() {
-	assert(state == kStateLoading);
-	state = kStateReady;
-
-	for(auto it = readyQueue.begin(); it != readyQueue.end(); ++it)
-		(*it)();
-	readyQueue.clear();
+async::result<void> FileSystem::BlockCacheEntry::waitUntilReady() {
+	assert(state == kStateLoading || state == kStateReady);
+	return readyJump.async_wait();
 }
 
 // --------------------------------------------------------
@@ -520,16 +392,13 @@ FileSystem::BlockCache::BlockCache(FileSystem &fs)
 : fs(fs) { }
 
 auto FileSystem::BlockCache::allocate() -> Element * {
+	// TODO: Use std::string instead of malloc().
 	void *buffer = malloc(fs.blockSize);
-	return new Element(BlockCacheEntry(buffer));
+	return new Element{buffer};
 }
 
 void FileSystem::BlockCache::initEntry(uint64_t block, BlockCacheEntry *entry) {
-	assert(entry->state == BlockCacheEntry::kStateInitial);
-	
-	entry->state = BlockCacheEntry::kStateLoading;
-	fs.device->readSectors(block * fs.sectorsPerBlock, entry->buffer, fs.sectorsPerBlock,
-			CALLBACK_MEMBER(entry, &BlockCacheEntry::loadComplete));
+	BlockCacheEntry::initiate(&fs, block, entry);
 }
 
 void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
@@ -537,6 +406,7 @@ void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
 	entry->state = BlockCacheEntry::kStateInitial;
 }
 
+/*
 // --------------------------------------------------------
 // OpenFile
 // --------------------------------------------------------
@@ -979,6 +849,7 @@ COFIBER_ROUTINE(cofiber::no_future, processMapRequest(Connection *connection, in
 				connection->getFs().eventHub, response_id, 1);
 	HEL_CHECK(data_error);
 });
+*/
 
 } } // namespace blockfs::ext2fs
 

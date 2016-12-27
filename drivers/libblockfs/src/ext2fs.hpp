@@ -1,9 +1,13 @@
 
+#include <string.h>
 #include <time.h>
 #include <experimental/optional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
+
+#include <async/jump.hpp>
+#include <hel.h>
 
 #include <blockfs.hpp>
 #include "common.hpp"
@@ -145,7 +149,7 @@ enum {
 	EXT2_FT_DIR = 2,
 	EXT2_FT_SYMLINK = 7
 };
-/*
+
 // --------------------------------------------------------
 // DirEntry
 // --------------------------------------------------------
@@ -164,10 +168,9 @@ struct FileSystem;
 struct Inode : std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
-	void findEntry(std::string name,
-			frigg::CallbackPtr<void(std::experimental::optional<DirEntry>)> callback);
+	async::result<std::experimental::optional<DirEntry>> findEntry(std::string name);
 
-	void onLoadRequest(HelError error, uintptr_t offset, size_t length);
+	//FIXME: void onLoadRequest(HelError error, uintptr_t offset, size_t length);
 
 	FileSystem &fs;
 
@@ -178,7 +181,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	bool isReady;
 	
 	// called when the inode becomes ready
-	std::vector<frigg::CallbackPtr<void()>> readyQueue;
+	async::jump readyJump;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
@@ -201,20 +204,25 @@ struct Inode : std::enable_shared_from_this<Inode> {
 // --------------------------------------------------------
 
 struct FileSystem {
-	FileSystem(helx::EventHub &event_hub, BlockDevice *device);
+	FileSystem(BlockDevice *device);
 
-	void init(frigg::CallbackPtr<void()> callback);	
+	cofiber::future<void> init();
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
 
-	void readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, void *buffer, frigg::CallbackPtr<void()> callback);
+	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
+
+	cofiber::future<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
+			size_t num_blocks, void *buffer);
 
 	struct BlockCache;
 
 	struct BlockCacheEntry {
 	friend class BlockCache;
+		static cofiber::no_future initiate(FileSystem *fs,
+				uint64_t block, BlockCacheEntry *entry);
+
 		enum State {
 			kStateInitial,
 			kStateLoading,
@@ -223,18 +231,16 @@ struct FileSystem {
 
 		BlockCacheEntry(void *buffer);
 
-		void waitUntilReady(frigg::CallbackPtr<void()> callback);
+		async::result<void> waitUntilReady();
 
 		void *buffer;
 	
 	private:
-		void loadComplete();
-
 		// current state of the cached content
 		State state;
 	
 		// called when the cache entry becomes ready
-		std::vector<frigg::CallbackPtr<void()>> readyQueue;
+		async::jump readyJump;
 	};
 	
 	struct BlockCache : util::Cache<uint64_t, BlockCacheEntry> {
@@ -247,21 +253,7 @@ struct FileSystem {
 		FileSystem &fs;
 	};
 
-	struct InitClosure {
-		InitClosure(FileSystem &ext2fs, frigg::CallbackPtr<void()> callback);
-
-		void operator() ();
-	
-	private:
-		void readSuperblock();
-		void readBlockGroups();
-
-		FileSystem &ext2fs;
-		frigg::CallbackPtr<void()> callback;
-		char *superblockBuffer;
-	};
-
-	struct ReadInodeClosure {
+/*	struct ReadInodeClosure {
 		ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode);
 
 		void operator() ();
@@ -300,9 +292,8 @@ struct FileSystem {
 		size_t indexLevel0;
 		BlockCache::Ref refLevel1;
 		BlockCache::Ref refLevel0;
-	};
+	};*/
 
-	helx::EventHub &eventHub;
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockSize;
@@ -316,7 +307,7 @@ struct FileSystem {
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
-
+/*
 // --------------------------------------------------------
 // File operation closures
 // --------------------------------------------------------

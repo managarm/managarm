@@ -13,7 +13,11 @@ namespace util {
 template<typename Ident, typename Entry>
 struct Cache {
 	struct Element {
-		explicit Element(Entry entry);
+		template<typename... Args>
+		explicit Element(Args &&... args)
+		: entry{std::forward<Args>(args)...},
+			lockCount{0}, accessTime{0}, reuseIndex{size_t(-1)} { }
+
 	
 	//FIXME private:
 		Entry entry;
@@ -165,14 +169,6 @@ auto Cache<Ident, Entry>::lock(Ident identifier) -> Ref {
 		return Ref(this, element);
 	}
 }
-
-// --------------------------------------------------------
-// Cache::Element
-// --------------------------------------------------------
-
-template<typename Ident, typename Entry>
-Cache<Ident, Entry>::Element::Element(Entry entry)
-: entry(std::move(entry)), lockCount(0), accessTime(0), reuseIndex(size_t(-1)) { }
 
 // --------------------------------------------------------
 // Cache::Ref

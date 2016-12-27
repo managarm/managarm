@@ -10,26 +10,17 @@ namespace blockfs {
 
 // TODO: Support more than one table.
 gpt::Table *table;
+ext2fs::FileSystem *fs;
+//ext2fs::Client *client;
 
 BlockDevice::BlockDevice(size_t sector_size)
 : sectorSize(sector_size) { }
 
-/*ext2fs::FileSystem *fs;
-ext2fs::Client *client;
-
-void haveMbus(void *object) {
-	printf("ext2fs initialized successfully\n");
-}
-
-void haveFs(void *object) {
+/*void haveFs(void *object) {
 	client = new ext2fs::Client(*theEventHub, *fs);
 	client->init(CALLBACK_STATIC(nullptr, &haveMbus));
 }
-
-void havePartitions(void *object) {
-	fs = new ext2fs::FileSystem(*theEventHub, &table->getPartition(1));
-	fs->init(CALLBACK_STATIC(nullptr, &haveFs));
-}*/
+*/
 
 COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 	table = new gpt::Table(device);
@@ -44,6 +35,14 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		if(type != gpt::type_guids::windowsData)
 			continue;
 		printf("It's a Windows data partition!\n");
+		
+		fs = new ext2fs::FileSystem(&table->getPartition(i));
+		COFIBER_AWAIT fs->init();
+
+		auto root = fs->accessRoot();
+		std::cout << "A" << std::endl;
+		auto entry = COFIBER_AWAIT root->findEntry("hello.txt");
+		std::cout << "B" << std::endl;
 	}
 }))
 
