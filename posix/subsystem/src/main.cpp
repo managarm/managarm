@@ -135,28 +135,35 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
-			auto file = COFIBER_AWAIT open(req.path());
-			assert(file);
-			int fd = self->fileContext()->attachFile(file);
-
 			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> push_passthrough;
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			auto file = COFIBER_AWAIT open(req.path());
+			if(file) {
+				int fd = self->fileContext()->attachFile(file);
 
-			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&push_passthrough, getPassthroughLane(file))
-			}, helix::Dispatcher::global());
-			
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT push_passthrough.future();
-			
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_passthrough.error());
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd);
+
+				auto ser = resp.SerializeAsString();
+				helix::submitAsync(conversation, {
+					helix::action(&send_resp, ser.data(), ser.size()),
+				}, helix::Dispatcher::global());
+				
+				COFIBER_AWAIT send_resp.future();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				helix::submitAsync(conversation, {
+					helix::action(&send_resp, ser.data(), ser.size()),
+				}, helix::Dispatcher::global());
+				
+				COFIBER_AWAIT send_resp.future();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
 			self->fileContext()->closeFile(req.fd());
 
@@ -216,13 +223,38 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // --------------------------------------------------------
 
 struct ExternDevice : Device {
+	static VfsType getType(std::shared_ptr<Device>) {
+		return VfsType::charDevice;
+	}
+
+	static std::string getName(std::shared_ptr<Device>) {
+		return "sda0";
+	}
+
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<Device> device), ([=] {
+		(void)device;
+		assert(!"Fix this");
+	}))
+
 	static const DeviceOperations operations;
+
+	ExternDevice()
+	: Device(&operations) { }
+};
+
+const DeviceOperations ExternDevice::operations{
+	&ExternDevice::getType,
+	&ExternDevice::getName,
+	&ExternDevice::open
 };
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;
 
 	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
+	auto device = std::make_shared<ExternDevice>();
+	deviceManager.install(device);
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

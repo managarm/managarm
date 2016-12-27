@@ -344,7 +344,7 @@ namespace initrd {
 	struct OpenClosure {
 		OpenClosure(Process *process, LaneHandle lane, posix::CntRequest<KernelAlloc> req)
 		: _process(process), _lane(frigg::move(lane)), _req(frigg::move(req)),
-				_file(nullptr), _buffer(*kernelAlloc) { }
+				_buffer(*kernelAlloc) { }
 
 		void operator() () {
 			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
@@ -353,14 +353,14 @@ namespace initrd {
 			assert(module);
 			
 			auto stream = createStream();
-			_file = frigg::construct<ModuleFile>(*kernelAlloc, module);
-			_file->clientLane = frigg::move(stream.get<1>());
+			auto file = frigg::construct<ModuleFile>(*kernelAlloc, module);
+			file->clientLane = frigg::move(stream.get<1>());
 
 			auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-					frigg::move(stream.get<0>()), _file);
+					frigg::move(stream.get<0>()), file);
 			(*closure)();
 
-			auto fd = _process->attachFile(_file);
+			auto fd = _process->attachFile(file);
 
 			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -374,21 +374,12 @@ namespace initrd {
 	private:
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
-			
-			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					LaneDescriptor(_file->clientLane),
-					CALLBACK_MEMBER(this, &OpenClosure::onSendHandle));
-		}
-
-		void onSendHandle(Error error) {
-			assert(error == kErrSuccess);
 		}
 
 		Process *_process;
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
-		ModuleFile *_file;
 		frigg::String<KernelAlloc> _buffer;
 	};
 	

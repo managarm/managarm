@@ -36,6 +36,11 @@ int main() {
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(child != -1);
 
+	// Spin until /dev/sda0 becomes available.
+	int sda = -1;
+	while((sda = open("/dev/sda0", O_RDONLY)) == -1)
+		assert(errno == ENOENT);
+
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
 	for(int i = 0; i < 10000; i++)

@@ -80,8 +80,9 @@ private:
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
 		auto derived = std::static_pointer_cast<Directory>(object);
 		auto it = derived->_entries.find(name);
-		assert(it != derived->_entries.end());
-		COFIBER_RETURN(*it);
+		if(it != derived->_entries.end())
+			COFIBER_RETURN(*it);
+		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,

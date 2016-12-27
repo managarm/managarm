@@ -281,6 +281,9 @@ using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string name), ([=] {
 	auto child = COFIBER_AWAIT getLink(getTarget(parent.second), std::move(name));
+	if(!child)
+		COFIBER_RETURN((ViewPath{parent.first, nullptr})); // TODO: Return an error code.
+
 	auto mount = parent.first.getMount(child);
 	if(mount) {
 //		std::cout << "It's a mount point" << std::endl;
@@ -307,6 +310,9 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 			std::cout << "Resolving " << name << std::endl;
 
 		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
+		if(!child.second)
+			COFIBER_RETURN(nullptr); // TODO: Return an error code.
+
 		if(getType(getTarget(child.second)) == VfsType::symlink) {
 			auto link = Path::decompose(COFIBER_AWAIT readSymlink(getTarget(child.second)));
 			components.insert(components.begin(), link.begin(), link.end());
