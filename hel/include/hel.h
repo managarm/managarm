@@ -325,9 +325,8 @@ HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 HEL_C_LINKAGE HelError helSubmitProcessLoad(HelHandle handle, HelHandle hub_handle,
 		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 HEL_C_LINKAGE HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length);
-HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
-		uintptr_t offset, size_t size,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
+HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
+	struct HelQueue *queue, uintptr_t context);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,

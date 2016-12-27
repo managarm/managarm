@@ -52,6 +52,23 @@ private:
 	QueueSpace::ElementHandle<Functor> _handle;
 };
 
+struct LockMemoryWriter {
+	LockMemoryWriter(Error error)
+	: _error(error) { }
+
+	size_t size() {
+		return sizeof(HelSimpleResult);
+	}
+
+	void write(ForeignSpaceAccessor accessor) {
+		HelSimpleResult data{translateError(_error), 0};
+		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+	}
+
+private:
+	Error _error;
+};
+
 struct OfferWriter {
 	OfferWriter(Error error)
 	: _error(error) { }
@@ -684,14 +701,12 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 	return kHelErrNone;
 }
 
-HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
-		uintptr_t offset, size_t size,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id) {
+HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
+		HelQueue *queue, uintptr_t context) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
 	frigg::SharedPtr<Memory> memory;
-	frigg::SharedPtr<EventHub> event_hub;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
@@ -701,23 +716,14 @@ HelError helSubmitLockMemory(HelHandle handle, HelHandle hub_handle,
 		if(!memory_wrapper->is<MemoryAccessDescriptor>())
 			return kHelErrBadDescriptor;
 		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
-		
-		auto hub_wrapper = universe->getDescriptor(universe_guard, hub_handle);
-		if(!hub_wrapper)
-			return kHelErrNoDescriptor;
-		if(!hub_wrapper->is<EventHubDescriptor>())
-			return kHelErrBadDescriptor;
-		event_hub = hub_wrapper->get<EventHubDescriptor>().eventHub;
 	}
-	
-	PostEventCompleter completer(event_hub, allocAsyncId(), submit_function, submit_object);
-	*async_id = completer.submitInfo.asyncId;
 
-	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
-			frigg::move(completer), offset, size);
+	PostEvent<LockMemoryWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
+	auto initiate = frigg::makeShared<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
+			offset, size, frigg::move(functor));
 	{
 		// TODO: protect memory object with a guard
-		memory->submitInitiateLoad(frigg::move(handle_load));
+		memory->submitInitiateLoad(frigg::move(initiate));
 	}
 
 	return kHelErrNone;

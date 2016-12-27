@@ -75,7 +75,7 @@ ManagedSpace::ManagedSpace(size_t length)
 void ManagedSpace::progressLoads() {
 	// TODO: this function could issue loads > a single kPageSize
 	while(!initiateLoadQueue.empty()) {
-		frigg::UnsafePtr<AsyncInitiateLoad> initiate = initiateLoadQueue.front();
+		frigg::UnsafePtr<InitiateBase> initiate = initiateLoadQueue.front();
 
 		size_t index = (initiate->offset + initiate->progress) / kPageSize;
 		if(loadState[index] == kStateMissing) {
@@ -99,7 +99,8 @@ void ManagedSpace::progressLoads() {
 
 		if(initiate->progress == initiate->length) {
 			if(isComplete(initiate)) {
-				AsyncOperation::complete(initiateLoadQueue.removeFront());
+				initiate->complete(kErrSuccess);
+				initiateLoadQueue.removeFront();
 			}else{
 				pendingLoadQueue.addBack(initiateLoadQueue.removeFront());
 			}
@@ -107,7 +108,7 @@ void ManagedSpace::progressLoads() {
 	}
 }
 
-bool ManagedSpace::isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate) {
+bool ManagedSpace::isComplete(frigg::UnsafePtr<InitiateBase> initiate) {
 	for(size_t p = 0; p < initiate->length; p += kPageSize) {
 		size_t index = (initiate->offset + p) / kPageSize;
 		if(loadState[index] != kStateLoaded)
@@ -171,8 +172,10 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 
 	for(auto it = _managed->pendingLoadQueue.frontIter(); it; ) {
 		auto it_copy = it++;
-		if(_managed->isComplete(*it_copy))
-			AsyncOperation::complete(_managed->pendingLoadQueue.remove(it_copy));
+		if(_managed->isComplete(*it_copy)) {
+			(*it_copy)->complete(kErrSuccess);
+			_managed->pendingLoadQueue.remove(it_copy);
+		}
 	}
 }
 
@@ -201,20 +204,21 @@ PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &,
 		if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
 			assert(!(grab_intent & kGrabDontRequireBacking));
 
-			struct NullAllocator {
+			assert(!"Fix this using Thread::blockCurrentWhile()");
+/*			struct NullAllocator {
 				void free(void *) { }
 			};
 			NullAllocator null_allocator;
 
 			KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-			frigg::SharedBlock<AsyncInitiateLoad, NullAllocator> block(null_allocator,
+			frigg::SharedBlock<InitiateBase, NullAllocator> block(null_allocator,
 					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
-			frigg::SharedPtr<AsyncInitiateLoad> initiate(frigg::adoptShared, &block);
+			frigg::SharedPtr<InitiateBase> initiate(frigg::adoptShared, &block);
 			
 			Thread::blockCurrent([&] () {
 				_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 				_managed->progressLoads();
-			});
+			});*/
 		}
 
 		PhysicalAddr physical = _managed->physicalPages[index];
@@ -223,7 +227,7 @@ PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &,
 	}
 }
 
-void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
+void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
 	assert(initiate->offset % kPageSize == 0);
 	assert(initiate->length % kPageSize == 0);
 	assert((initiate->offset + initiate->length) / kPageSize

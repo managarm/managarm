@@ -44,6 +44,35 @@ private:
 	size_t _chunkSize, _chunkAlign;
 };
 
+struct InitiateBase {
+	InitiateBase(size_t offset, size_t length)
+	: offset(offset), length(length), progress(0) { }
+
+	virtual void complete(Error error) = 0;
+	
+	size_t offset;
+	size_t length;
+
+	// Current progress in bytes.
+	size_t progress;
+	
+
+	frigg::IntrusiveSharedLinkedItem<InitiateBase> processQueueItem;
+};
+
+template<typename F>
+struct Initiate : InitiateBase {
+	Initiate(size_t offset, size_t length, F functor)
+	: InitiateBase(offset, length), _functor(frigg::move(functor)) { }
+
+	void complete(Error error) override {
+		_functor(error);
+	}
+
+private:
+	F _functor;
+};
+
 struct ManagedSpace {
 	enum LoadState {
 		kStateMissing,
@@ -54,19 +83,19 @@ struct ManagedSpace {
 	ManagedSpace(size_t length);
 	
 	void progressLoads();
-	bool isComplete(frigg::UnsafePtr<AsyncInitiateLoad> initiate);
+	bool isComplete(frigg::UnsafePtr<InitiateBase> initiate);
 
 	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frigg::Vector<LoadState, KernelAlloc> loadState;
 
 	frigg::IntrusiveSharedLinkedList<
-		AsyncInitiateLoad,
-		&AsyncInitiateLoad::processQueueItem
+		InitiateBase,
+		&InitiateBase::processQueueItem
 	> initiateLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
-		AsyncInitiateLoad,
-		&AsyncInitiateLoad::processQueueItem
+		InitiateBase,
+		&InitiateBase::processQueueItem
 	> pendingLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
@@ -102,7 +131,7 @@ public:
 	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 			GrabIntent grab_intent, size_t offset);
 	
-	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate);
+	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;
@@ -151,14 +180,14 @@ struct Memory {
 		});
 	}
 	
-	void submitInitiateLoad(frigg::SharedPtr<AsyncInitiateLoad> initiate) {
+	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
 		switch(_variant.tag()) {
 		case MemoryVariant::tagOf<FrontalMemory>():
 			_variant.get<FrontalMemory>().submitInitiateLoad(frigg::move(initiate));
 			break;
 		case MemoryVariant::tagOf<HardwareMemory>():
 		case MemoryVariant::tagOf<AllocatedMemory>():
-			AsyncOperation::complete(frigg::move(initiate));
+			initiate->complete(kErrSuccess);
 			break;
 		case MemoryVariant::tagOf<CopyOnWriteMemory>():
 			assert(!"Not implemented yet");

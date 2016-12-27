@@ -527,9 +527,8 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitLockMemory: {
 		int64_t async_id;
-		*image.error() = helSubmitLockMemory((HelHandle)arg0, (HelHandle)arg1,
-				(uintptr_t)arg2, (size_t)arg3,
-				(uintptr_t)arg4, (uintptr_t)arg5, &async_id);
+		*image.error() = helSubmitLockMemory((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
+				(HelQueue *)arg3, (uintptr_t)arg4);
 		*image.out0() = async_id;
 	} break;
 	case kHelCallLoadahead: {

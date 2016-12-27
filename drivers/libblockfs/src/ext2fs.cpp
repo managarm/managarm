@@ -5,8 +5,8 @@
 #include <algorithm>
 
 #include <cofiber.hpp>
-#include <hel.h>
-#include <hel-syscalls.h>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
 
 #include "ext2fs.hpp"
 
@@ -22,6 +22,7 @@ Inode::Inode(FileSystem &fs, uint32_t number)
 
 COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 		Inode::findEntry(std::string name), ([=] {
+	using M = helix::AwaitMechanism;
 	assert(!name.empty() && name != "." && name != "..");
 
 	COFIBER_AWAIT readyJump.async_wait();
@@ -30,13 +31,11 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	if(map_size % 0x1000 != 0)
 		map_size += 0x1000 - map_size % 0x1000;
 
-/* FIXME:
-	auto cb = CALLBACK_MEMBER(this, &FindEntryClosure::lockedMemory);
-	int64_t async_id;
-	HEL_CHECK(helSubmitLockMemory(frontalMemory,
-			fs.eventHub.getHandle(), 0, map_size,
-			(uintptr_t)cb.getFunction(), (uintptr_t)cb.getObject(), &async_id));
-*/
+	helix::LockMemory<M> lock_memory;
+	helix::submitLockMemory(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT(lock_memory.future());
+	HEL_CHECK(lock_memory.error());
 
 	// TODO: Use a RAII mapping class to get rid of the mapping on return.
 	// map the page cache into the address space

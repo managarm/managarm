@@ -279,6 +279,18 @@ private:
 };
 
 template<typename M>
+struct LockMemory : Operation<M> {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
+template<typename M>
 struct Offer : Operation<M> {
 	HelError error() {
 		return result()->error;
@@ -492,6 +504,13 @@ HelAction action(PullDescriptor<M> *operation, uint32_t flags = 0) {
 	action.context = (uintptr_t)operation;
 	action.flags = flags;
 	return action;
+}
+
+template<typename M>
+void submitLockMemory(BorrowedDescriptor descriptor, LockMemory<M> *operation,
+		uintptr_t offset, size_t size, Dispatcher &dispatcher) {
+	HEL_CHECK(helSubmitLockMemory(descriptor.getHandle(), offset, size,
+			dispatcher.acquire().get(), (uintptr_t)operation));
 }
 
 template<typename M>

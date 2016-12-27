@@ -165,13 +165,10 @@ DEFINE_SYSCALL(CompleteLoad, HelHandle handle, uintptr_t offset, size_t length)
 	DO_SYSCALL(CompleteLoad)
 END_SYSCALL()
 
-DEFINE_SYSCALL(SubmitLockMemory, HelHandle handle, HelHandle hub_handle,
-		uintptr_t offset, size_t size,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, offset) IN(3, size)
-		IN(4, submit_function) IN(5, submit_object)
+DEFINE_SYSCALL(SubmitLockMemory, HelHandle handle, uintptr_t offset, size_t size,
+		struct HelQueue *queue, uintptr_t context)
+	IN(0, handle) IN(1, offset) IN(2, size) IN(3, queue) IN(4, context)
 	DO_SYSCALL(SubmitLockMemory)
-	OUT(0, int64_t, async_id)
 END_SYSCALL()
 
 DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
