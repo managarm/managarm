@@ -28,8 +28,9 @@ struct ControlTransfer {
 };
 
 struct InterruptTransfer {
-	InterruptTransfer(void *buffer, size_t length);
+	InterruptTransfer(XferFlags flags, void *buffer, size_t length);
 
+	XferFlags flags;
 	void *buffer;
 	size_t length;
 };
@@ -63,13 +64,13 @@ private:
 // ----------------------------------------------------------------------------
 
 struct InterfaceData {
-	virtual Endpoint getEndpoint(PipeType type, int number) = 0;
+	virtual cofiber::future<Endpoint> getEndpoint(PipeType type, int number) = 0;
 };
 
 struct Interface {
 	Interface(std::shared_ptr<InterfaceData> state);
 	
-	Endpoint getEndpoint(PipeType type, int number) const;
+	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) const;
 
 private:
 	std::shared_ptr<InterfaceData> _state;

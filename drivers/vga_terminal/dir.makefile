@@ -15,7 +15,7 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2
 $c_LIBS := -lcompose -lterminal \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_exec,vga_terminal,main.o posix.pb.o input.pb.o)
+$(call make_exec,vga_terminal,main.o)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files

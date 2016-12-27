@@ -41,7 +41,19 @@ struct InterfaceState : InterfaceData {
 	InterfaceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	Endpoint getEndpoint(PipeType type, int number) override;
+	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) override;
+
+private:
+	helix::UniqueLane _lane;
+};
+
+
+struct EndpointState : EndpointData {
+	EndpointState(helix::UniqueLane lane)
+	:_lane(std::move(lane)) { }
+	
+	cofiber::future<void> transfer(ControlTransfer info) override;
+	cofiber::future<void> transfer(InterruptTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -209,9 +221,91 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 	COFIBER_RETURN(Interface(std::move(state)));
 }))
 
-Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
-	throw std::runtime_error("get endpoint");
-}
+COFIBER_ROUTINE(cofiber::future<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
+		([=] {
+	using M = helix::AwaitMechanism;
+	
+	helix::Offer<M> offer;
+	helix::SendBuffer<M> send_req;
+	helix::RecvInline<M> recv_resp;
+	helix::PullDescriptor<M> pull_lane;
+
+	managarm::usb::CntRequest req;
+	req.set_req_type(managarm::usb::CntReqType::GET_ENDPOINT);
+	req.set_pipetype(static_cast<int>(type));
+	req.set_number(number);
+
+	auto ser = req.SerializeAsString();
+	helix::submitAsync(_lane, {
+		helix::action(&offer, kHelItemAncillary),
+		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+		helix::action(&recv_resp, kHelItemChain),
+		helix::action(&pull_lane),
+	}, helix::Dispatcher::global());
+	
+	COFIBER_AWAIT offer.future();
+	COFIBER_AWAIT send_req.future();
+	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT pull_lane.future();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_lane.error());
+	
+	managarm::usb::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::usb::Errors::SUCCESS);
+
+	auto state = std::make_shared<EndpointState>(pull_lane.descriptor());
+	COFIBER_RETURN(Endpoint(std::move(state)));
+}))
+
+COFIBER_ROUTINE(cofiber::future<void>, EndpointState::transfer(ControlTransfer info),
+		([=] {
+	throw std::runtime_error("endpoint control transfer not implemented");
+}))
+
+COFIBER_ROUTINE(cofiber::future<void>, EndpointState::transfer(InterruptTransfer info),
+		([=] {
+	using M = helix::AwaitMechanism;
+	
+	if(info.flags == kXferToDevice) {
+		throw std::runtime_error("xfer to device not implemented");
+	}else{
+		assert(info.flags == kXferToHost);
+	
+		helix::Offer<M> offer;
+		helix::SendBuffer<M> send_req;
+		helix::RecvInline<M> recv_resp;
+		helix::RecvBuffer<M> recv_data;
+
+		managarm::usb::CntRequest req;
+		req.set_req_type(managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST);
+		req.set_length(info.length);
+
+		auto ser = req.SerializeAsString();
+		helix::submitAsync(_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&recv_data, info.buffer, info.length)
+		}, helix::Dispatcher::global());
+
+		COFIBER_AWAIT offer.future();
+		COFIBER_AWAIT send_req.future();
+		COFIBER_AWAIT recv_resp.future();
+		COFIBER_AWAIT recv_data.future();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(recv_data.error());
+
+		managarm::usb::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::usb::Errors::SUCCESS);
+		COFIBER_RETURN();
+	}
+}))
 
 } // anonymous namespace
 

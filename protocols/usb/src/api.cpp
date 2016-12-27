@@ -39,7 +39,7 @@ cofiber::future<Interface> Configuration::useInterface(int number,
 Interface::Interface(std::shared_ptr<InterfaceData> state)
 : _state(std::move(state)) { }
 
-Endpoint Interface::getEndpoint(PipeType type, int number) const {
+cofiber::future<Endpoint> Interface::getEndpoint(PipeType type, int number) const {
 	return _state->getEndpoint(type, number);
 }
 

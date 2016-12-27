@@ -15,6 +15,10 @@ enum CntReqType {
 	TRANSFER_TO_DEVICE = 3;
 	USE_CONFIGURATION = 4;
 	USE_INTERFACE = 5;
+	GET_ENDPOINT = 6;
+	CONTROL_TRANSFER = 7;
+	INTERRUPT_TRANSFER_TO_HOST = 8;
+	INTERRUPT_TRANSFER_TO_DEVICE = 9;
 }
 
 message CntRequest {
@@ -31,6 +35,8 @@ message CntRequest {
 	optional int32 number = 8;
 
 	optional int32 alternative = 9;
+
+	optional int32 pipetype = 10;
 }
 
 message SvrResponse {

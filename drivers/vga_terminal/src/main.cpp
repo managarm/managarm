@@ -15,8 +15,6 @@
 
 #include <libcompose.hpp>
 #include <libterminal.hpp>
-#include <posix.pb.h>
-#include <input.pb.h>
 
 //FIXME: HelHandle ioHandle;
 

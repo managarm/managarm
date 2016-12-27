@@ -10,6 +10,6 @@ ControlTransfer::ControlTransfer(XferFlags flags, ControlRecipient recipient,
 	: flags(flags), recipient(recipient), type(type), request(request), arg0(arg0),
 			arg1(arg1), buffer(buffer), length(length) { }
 
-InterruptTransfer::InterruptTransfer(void *buffer, size_t length)
-	: buffer(buffer), length(length) { }
+InterruptTransfer::InterruptTransfer(XferFlags flags, void *buffer, size_t length)
+	: flags(flags), buffer(buffer), length(length) { }
 

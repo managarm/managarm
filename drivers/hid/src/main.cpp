@@ -230,10 +230,10 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
 	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
 
-	auto endp = intf.getEndpoint(PipeType::in, in_endp_number.value());
+	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	while(true) {
 		auto data = (uint8_t *)contiguousAllocator.allocate(4);
-		COFIBER_AWAIT endp.transfer(InterruptTransfer(data, 4));
+		COFIBER_AWAIT endp.transfer(InterruptTransfer(XferFlags::kXferToHost, data, 4));
 	
 		auto values = parse(fields, data);
 		int counter = 0;

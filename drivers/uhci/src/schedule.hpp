@@ -154,7 +154,7 @@ struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<Conf
 struct InterfaceState : InterfaceData {
 	InterfaceState(std::shared_ptr<ConfigurationState> config);
 
-	Endpoint getEndpoint(PipeType type, int number) override;
+	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) override;
 
 //private:
 	std::shared_ptr<ConfigurationState> _config;

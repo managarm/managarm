@@ -282,9 +282,9 @@ ConfigurationState::ConfigurationState(std::shared_ptr<DeviceState> device)
 
 COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int number,
 		int alternative), ([=] {
-	Device device(_device);
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
-
+	auto interface = std::make_shared<InterfaceState>(shared_from_this());
+	
+	auto descriptor = COFIBER_AWAIT Device(_device).configurationDescriptor();
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		if(type != kDescriptorEndpoint)
 			return;
@@ -294,10 +294,10 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 		_device->endpointStates[endpoint] = std::make_shared<EndpointState>(PipeType::in, endpoint);
 		_device->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
 		_device->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
+		_device->endpointStates[endpoint]->_interface = interface;
 		_device->_controller->activateAsync(_device->endpointStates[endpoint]->queue.get());
 	});
-
-	auto interface = std::make_shared<InterfaceState>(shared_from_this());
+	
 	COFIBER_RETURN(Interface(interface));
 }))
 
@@ -308,9 +308,10 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 InterfaceState::InterfaceState(std::shared_ptr<ConfigurationState> config)
 : _config(std::move(config)) { }
 
-Endpoint InterfaceState::getEndpoint(PipeType type, int number) {
-	return Endpoint(_config->_device->endpointStates[number]);
-}
+COFIBER_ROUTINE(cofiber::future<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
+		([=] {
+	COFIBER_RETURN(Endpoint(_config->_device->endpointStates[number]));
+}))
 
 // ----------------------------------------------------------------------------
 // EndpointState
