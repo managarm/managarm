@@ -217,118 +217,54 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 	}
 }))
 
-cofiber::future<void> FileSystem::readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
-		size_t num_blocks, void *buffer) {
-	assert(!"Fix this function");
-//FIXME	auto closure = new ReadDataClosure(*this, std::move(inode), block_offset,
-//FIXME			num_blocks, buffer, callback);
-//FIXME	(*closure)();
-}
+COFIBER_ROUTINE(cofiber::future<void>, FileSystem::readData(std::shared_ptr<Inode> inode,
+		uint64_t offset, size_t num_blocks, void *buffer), ([=] {
+	size_t per_single = blockSize / 4;
+	size_t per_double = per_single * per_single;
 
-/*
-// --------------------------------------------------------
-// FileSystem::ReadDataClosure
-// --------------------------------------------------------
+	size_t single_range = 12;
+	size_t double_range = single_range + per_single;
+	size_t triple_range = double_range + per_double;
 
-FileSystem::ReadDataClosure::ReadDataClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode,
-		uint64_t block_offset, size_t num_blocks, void *buffer,
-		frigg::CallbackPtr<void()> callback)
-: ext2fs(ext2fs), inode(std::move(inode)), blockOffset(block_offset),
-		numBlocks(num_blocks), buffer(buffer), callback(callback),
-		blocksRead(0) { }
+	COFIBER_AWAIT inode->readyJump.async_wait();
 
-void FileSystem::ReadDataClosure::operator() () {
-	if(inode->isReady) {
-		inodeReady();
-	}else{
-		inode->readyQueue.push_back(CALLBACK_MEMBER(this, &ReadDataClosure::inodeReady));
-	}
-}
+	// We perform "read-fusion" here i.e. we try to read multiple
+	// consecutive blocks in a single readSectors() operation.
+	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) -> size_t {
+		size_t s = 1;
+		while(s < remaining && index + s < limit) {
+			if(list[s] != list[index] + s)
+				break;
+			s++;
+		}
+		return s;
+	};
 
-void FileSystem::ReadDataClosure::inodeReady() {
-	if(blocksRead < numBlocks) {
-		size_t block_index = blockOffset + blocksRead;
-//		printf("Reading block %lu of inode %u\n", block_index, inode->number);
+	size_t progress = 0;
+	while(progress < num_blocks) {
+		auto remaining = num_blocks - progress;
+		auto index = offset + progress;
+//		printf("Reading block %lu of inode %u\n", index, inode->number);
 
-		size_t per_single = ext2fs.blockSize / 4;
-		size_t per_double = per_single * per_single;
-
-		size_t single_offset = 12;
-		size_t double_offset = single_offset + per_single;
-		size_t triple_offset = double_offset + per_double;
-
-		if(block_index < single_offset) {
-			uint32_t block = inode->fileData.blocks.direct[block_index];
+		assert(index < triple_range);
+		if(index >= double_range) {
+			assert(!"Fix double indirect blocks");
+		}else if(index >= single_range) {
+			assert(!"Fix single indirect blocks");
+		}else{
+			auto block = inode->fileData.blocks.direct[index];
+			auto fuse_count = fuse(index, remaining, inode->fileData.blocks.direct, 12);
 			assert(block != 0);
 
-			chunkSize = 1;
-			while(block_index + chunkSize < single_offset && blocksRead + chunkSize < numBlocks) {
-				if(inode->fileData.blocks.direct[block_index + chunkSize] != block + chunkSize)
-					break;
-				chunkSize++;
-			}
-
-			ext2fs.device->readSectors(block * ext2fs.sectorsPerBlock,
-					(uint8_t *)buffer + blocksRead * ext2fs.blockSize,
-					chunkSize * ext2fs.sectorsPerBlock,
-					CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
-		}else if(block_index < double_offset) {
-			indexLevel0 = block_index - single_offset;
-
-			refLevel0.reset();
-			refLevel0 = ext2fs.blockCache.lock(inode->fileData.blocks.singleIndirect);
-			refLevel0->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
-		}else{
-			assert(block_index < triple_offset);
-			indexLevel1 = (block_index - double_offset) / per_single;
-			indexLevel0 = (block_index - double_offset) % per_single;
-
-			refLevel1.reset();
-			refLevel1 = ext2fs.blockCache.lock(inode->fileData.blocks.doubleIndirect);
-			refLevel1->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel1));
+			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
+					(uint8_t *)buffer + progress * blockSize,
+					fuse_count * sectorsPerBlock);
+			progress += fuse_count;
 		}
-	}else{
-		assert(blocksRead == numBlocks);
-
-		callback();
-		delete this;
-	}
-}
-
-void FileSystem::ReadDataClosure::readLevel1() {
-	auto array_level1 = (uint32_t *)refLevel1->buffer;
-	uint32_t indirect = array_level1[indexLevel1];
-	assert(indirect != 0);
-
-	refLevel0.reset();
-	refLevel0 = ext2fs.blockCache.lock(indirect);
-	refLevel0->waitUntilReady(CALLBACK_MEMBER(this, &ReadDataClosure::readLevel0));
-}
-
-void FileSystem::ReadDataClosure::readLevel0() {
-	auto array_level0 = (uint32_t *)refLevel0->buffer;
-	uint32_t block = array_level0[indexLevel0];
-	assert(block != 0);
-
-	size_t per_single = ext2fs.blockSize / 4;
-	chunkSize = 1;
-	while(indexLevel0 + chunkSize < per_single && blocksRead + chunkSize < numBlocks) {
-		// TODO: artifical limit because the virtio driver cannot handle large blocks
-		if(array_level0[indexLevel0 + chunkSize] != block + chunkSize)
-			break;
-		chunkSize++;
 	}
 
-	ext2fs.device->readSectors(block * ext2fs.sectorsPerBlock,
-			(uint8_t *)buffer + blocksRead * ext2fs.blockSize, chunkSize * ext2fs.sectorsPerBlock,
-			CALLBACK_MEMBER(this, &ReadDataClosure::readBlock));
-}
-
-void FileSystem::ReadDataClosure::readBlock() {
-	blocksRead += chunkSize;
-	(*this)();
-}
-*/
+	COFIBER_RETURN();
+}))
 
 // --------------------------------------------------------
 // FileSystem::BlockCacheEntry

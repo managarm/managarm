@@ -11,6 +11,8 @@
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
 
+static bool debugResolve = false;
+
 // --------------------------------------------------------
 // File implementation.
 // --------------------------------------------------------
@@ -301,7 +303,8 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 	while(!components.empty()) {
 		auto name = components.front();
 		components.pop_front();
-		std::cout << "Resolving " << name << std::endl;
+		if(debugResolve)
+			std::cout << "Resolving " << name << std::endl;
 
 		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
 		if(getType(getTarget(child.second)) == VfsType::symlink) {

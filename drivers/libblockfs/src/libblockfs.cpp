@@ -38,11 +38,7 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		
 		fs = new ext2fs::FileSystem(&table->getPartition(i));
 		COFIBER_AWAIT fs->init();
-
-		auto root = fs->accessRoot();
-		std::cout << "A" << std::endl;
-		auto entry = COFIBER_AWAIT root->findEntry("hello.txt");
-		std::cout << "B" << std::endl;
+		printf("ext2fs is ready!\n");
 	}
 }))
 
