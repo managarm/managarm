@@ -570,29 +570,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = counter;
 	} break;
 
-	case kHelCallCreateEventHub: {
-//			frigg::infoLogger() << "helCreateEventHub" << frigg::endLog;
-		HelHandle handle;
-		*image.error() = helCreateEventHub(&handle);
-//			frigg::infoLogger() << "    -> " << handle << frigg::endLog;
-		*image.out0() = handle;
-	} break;
-	case kHelCallWaitForEvents: {
-//			frigg::infoLogger() << "helWaitForEvents(" << (HelHandle)arg0
-//					<< ", " << (void *)arg1 << ", " << (HelNanotime)arg2
-//					<< ", " << (HelNanotime)arg3 << ")" << frigg::endLog;
-
-		size_t num_items;
-		*image.error() = helWaitForEvents((HelHandle)arg0,
-				(HelEvent *)arg1, (size_t)arg2, (HelNanotime)arg3,
-				&num_items);
-		*image.out0() = num_items;
-	} break;
-	case kHelCallWaitForCertainEvent: {
-		*image.error() = helWaitForCertainEvent((HelHandle)arg0,
-				(int64_t)arg1, (HelEvent *)arg2, (HelNanotime)arg3);
-	} break;
-	
 	case kHelCallCreateStream: {
 		HelHandle lane1;
 		HelHandle lane2;

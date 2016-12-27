@@ -38,19 +38,6 @@ struct ThreadDescriptor {
 };
 
 // --------------------------------------------------------
-// Event related descriptors
-// --------------------------------------------------------
-
-struct EventHubDescriptor {
-	EventHubDescriptor() = default;
-
-	explicit EventHubDescriptor(frigg::SharedPtr<EventHub> event_hub)
-	: eventHub(frigg::move(event_hub)) { }
-
-	frigg::SharedPtr<EventHub> eventHub;
-};
-
-// --------------------------------------------------------
 // IPC related descriptors
 // --------------------------------------------------------
 
@@ -140,7 +127,6 @@ typedef frigg::Variant<
 	AddressSpaceDescriptor,
 	UniverseDescriptor,
 	ThreadDescriptor,
-	EventHubDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,
 	IoDescriptor

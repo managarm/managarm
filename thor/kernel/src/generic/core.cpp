@@ -145,13 +145,6 @@ SubmitInfo::SubmitInfo(int64_t async_id,
 		submitObject(submit_object) { }
 
 // --------------------------------------------------------
-// BaseRequest
-// --------------------------------------------------------
-
-BaseRequest::BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info)
-: eventHub(frigg::move(event_hub)), submitInfo(submit_info) { }
-
-// --------------------------------------------------------
 // ThreadRunControl
 // --------------------------------------------------------
 		

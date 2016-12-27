@@ -58,7 +58,6 @@ class Universe;
 class Memory;
 class AddressSpace;
 class Thread;
-class EventHub;
 class Stream;
 class LaneControl;
 class IrqLine;
@@ -103,34 +102,6 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-struct NullCompleter {
-
-};
-
-struct PostEventCompleter {
-	PostEventCompleter(frigg::WeakPtr<EventHub> event_hub, int64_t async_id,
-			uintptr_t submit_function, uintptr_t submit_object)
-	: eventHub(frigg::move(event_hub)),
-			submitInfo(async_id, submit_function, submit_object) { }
-	
-	frigg::WeakPtr<EventHub> eventHub;
-	SubmitInfo submitInfo;
-};
-
-struct ReturnFromForkCompleter {
-	ReturnFromForkCompleter(frigg::WeakPtr<Thread> thread)
-	: thread(frigg::move(thread)) { }
-
-	frigg::WeakPtr<Thread> thread;
-};
-
-// this is a base class for async request classes
-struct BaseRequest {
-	BaseRequest(KernelSharedPtr<EventHub> event_hub, SubmitInfo submit_info);
-	
-	KernelSharedPtr<EventHub> eventHub;
-	SubmitInfo submitInfo;
-};
 
 struct ThreadRunControl {
 	ThreadRunControl()
@@ -159,7 +130,6 @@ private:
 
 #include "descriptor.hpp"
 #include "accessors.hpp"
-#include "event.hpp"
 #include "usermem.hpp"
 #include "thread.hpp"
 #include "stream.hpp"

@@ -222,25 +222,6 @@ DEFINE_SYSCALL(GetClock, uint64_t *counter)
 	OUT(0, uint64_t, counter)
 END_SYSCALL()
 
-DEFINE_SYSCALL(CreateEventHub, HelHandle *handle)
-	DO_SYSCALL(CreateEventHub)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(WaitForEvents, HelHandle handle,
-		struct HelEvent *list, size_t max_items, HelNanotime max_time,
-		size_t *num_items)
-	IN(0, handle) IN(1, list) IN(2, max_items) IN(3, max_time)
-	DO_SYSCALL(WaitForEvents)
-	OUT(0, size_t, num_items)
-END_SYSCALL()
-
-DEFINE_SYSCALL(WaitForCertainEvent, HelHandle handle,
-		int64_t async_id, struct HelEvent *event, HelNanotime max_time)
-	IN(0, handle) IN(1, async_id) IN(2, event) IN(3, max_time)
-	DO_SYSCALL(WaitForCertainEvent)
-END_SYSCALL()
-
 
 DEFINE_SYSCALL(CreateStream, HelHandle *lane1, HelHandle *lane2)
 	DO_SYSCALL(CreateStream)

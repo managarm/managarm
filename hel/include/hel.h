@@ -50,10 +50,6 @@ enum {
 	kHelCallExitThisThread = 5,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
-
-	kHelCallCreateEventHub = 13,
-	kHelCallWaitForEvents = 45,
-	kHelCallWaitForCertainEvent = 65,
 	
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 72,
@@ -122,12 +118,6 @@ enum {
 };
 
 enum {
-	kHelEventLoadMemory = 7,
-	kHelEventLockMemory = 8,
-	kHelEventObserve = 12,
-};
-
-enum {
 	kHelItemChain = 1,
 	kHelItemAncillary = 2
 };
@@ -142,28 +132,10 @@ struct HelAction {
 	HelHandle handle;
 };
 
-struct HelEvent {
-	int type;
-	HelError error;
-
-	int64_t msgRequest;
-	int64_t msgSequence;
-	size_t length;
-	HelHandle handle;
-
-	// used by kHelEventLoadMemory
-	size_t offset;
-
-	int64_t asyncId;
-	uintptr_t submitFunction;
-	uintptr_t submitObject;
-};
-
 enum {
 	kHelDescMemory = 1,
 	kHelDescAddressSpace = 2,
 	kHelDescThread = 3,
-	kHelDescEventHub = 4,
 	kHelDescEndpoint = 5,
 	kHelDescIrq = 9,
 	kHelDescIo = 10,
@@ -347,13 +319,6 @@ HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *
 HEL_C_LINKAGE HelError helExitThisThread();
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
-
-HEL_C_LINKAGE HelError helCreateEventHub(HelHandle *handle);
-HEL_C_LINKAGE HelError helWaitForEvents(HelHandle handle,
-		struct HelEvent *list, size_t max_items,
-		HelNanotime max_time, size_t *num_items);
-HEL_C_LINKAGE HelError helWaitForCertainEvent(HelHandle handle,
-		int64_t async_id, struct HelEvent *event, HelNanotime max_time);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
