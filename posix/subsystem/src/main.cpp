@@ -134,7 +134,35 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.request_type() == managarm::posix::CntReqType::OPEN) {
+		if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
+			helix::SendBuffer<M> send_resp;
+
+			auto path = COFIBER_AWAIT resolve(req.path());
+			if(path.second) {
+				std::cout << "Resolve succeeded" << std::endl;
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				helix::submitAsync(conversation, {
+					helix::action(&send_resp, ser.data(), ser.size()),
+				}, helix::Dispatcher::global());
+				
+				COFIBER_AWAIT send_resp.future();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				helix::submitAsync(conversation, {
+					helix::action(&send_resp, ser.data(), ser.size()),
+				}, helix::Dispatcher::global());
+				
+				COFIBER_AWAIT send_resp.future();
+				HEL_CHECK(send_resp.error());
+			}
+		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			helix::SendBuffer<M> send_resp;
 
 			auto file = COFIBER_AWAIT open(req.path());

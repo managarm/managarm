@@ -277,8 +277,6 @@ private:
 
 namespace {
 
-using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
-
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string name), ([=] {
 	auto child = COFIBER_AWAIT getLink(getTarget(parent.second), std::move(name));
 	if(!child)
@@ -297,7 +295,7 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string
 
 } // anonymous namespace
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=] {
+COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(std::string name), ([=] {
 	auto path = Path::decompose(std::move(name));
 	std::deque<std::string> components(path.begin(), path.end());
 
@@ -311,7 +309,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 
 		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
 		if(!child.second)
-			COFIBER_RETURN(nullptr); // TODO: Return an error code.
+			COFIBER_RETURN(child); // TODO: Return an error code.
 
 		if(getType(getTarget(child.second)) == VfsType::symlink) {
 			auto link = Path::decompose(COFIBER_AWAIT readSymlink(getTarget(child.second)));
@@ -321,7 +319,11 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 		}
 	}
 
-//	std::cout << "Opening file..." << std::endl;
+	COFIBER_RETURN(std::move(current));
+}))
+
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=] {
+	ViewPath current = COFIBER_AWAIT resolve(std::move(name));
 
 	if(getType(getTarget(current.second)) == VfsType::regular) {
 		auto file = COFIBER_AWAIT open(getTarget(current.second));

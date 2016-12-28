@@ -240,6 +240,10 @@ struct Data {
 
 } // namespace _vfs_view
 
+using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
+
+FutureMaybe<ViewPath> resolve(std::string name);
+
 FutureMaybe<std::shared_ptr<File>> open(std::string name);
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP

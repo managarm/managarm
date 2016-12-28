@@ -21,6 +21,7 @@ enum CntReqType {
 	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
+	ACCESS = 20;
 	FSTAT = 12;
 	OPEN = 2;
 	CONNECT = 19;

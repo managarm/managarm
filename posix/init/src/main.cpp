@@ -37,9 +37,13 @@ int main() {
 	}else assert(child != -1);
 
 	// Spin until /dev/sda0 becomes available.
-	int sda = -1;
-	while((sda = open("/dev/sda0", O_RDONLY)) == -1)
+	while(access("/dev/sda0", R_OK) == -1) {
 		assert(errno == ENOENT);
+		for(int i = 0; i < 100; i++)
+			sched_yield();
+	}
+
+	printf("Done\n");
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
