@@ -42,14 +42,14 @@ void Device::doInitialize() {
 	blockfs::runDevice(this);
 }
 
-cofiber::future<void> Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
+async::result<void> Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
 	// natural alignment makes sure a sector does not cross a page boundary
 	assert(((uintptr_t)buffer % 512) == 0);
 
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
 	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors);
-	auto future = user_request->promise.get_future();
+	auto future = user_request->promise.async_get();
 
 //	FIXME: is this assertion still nesecarry?
 //	assert(pendingRequests.empty());

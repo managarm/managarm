@@ -83,7 +83,7 @@ FileSystem::FileSystem(BlockDevice *device)
 	blockCache.preallocate(32);
 }
 
-COFIBER_ROUTINE(cofiber::future<void>, FileSystem::init(), ([=] {
+COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 	// TODO: Use std::string instead of malloc().
 	auto superblock_buffer = malloc(1024);
 	
@@ -217,7 +217,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::future<void>, FileSystem::readData(std::shared_ptr<Inode> inode,
+COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer), ([=] {
 	size_t per_single = blockSize / 4;
 	size_t per_double = per_single * per_single;

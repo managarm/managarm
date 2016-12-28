@@ -77,7 +77,7 @@ public:
 
 	BlockDevice *getDevice();
 
-	cofiber::future<void> parse();
+	async::result<void> parse();
 
 	size_t numPartitions();
 
@@ -96,7 +96,7 @@ struct Partition : public BlockDevice {
 	Partition(Table &table, Guid id, Guid type,
 			uint64_t start_lba, uint64_t num_sectors);
 
-	cofiber::future<void> readSectors(uint64_t sector, void *buffer,
+	async::result<void> readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) override;
 
 	Guid id();

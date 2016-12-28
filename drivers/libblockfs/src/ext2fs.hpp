@@ -206,7 +206,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 struct FileSystem {
 	FileSystem(BlockDevice *device);
 
-	cofiber::future<void> init();
+	async::result<void> init();
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
@@ -214,7 +214,7 @@ struct FileSystem {
 	cofiber::no_future initiateInode(std::shared_ptr<Inode> inode);
 	cofiber::no_future manageInode(std::shared_ptr<Inode> inode);
 
-	cofiber::future<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
+	async::result<void> readData(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, void *buffer);
 
 	struct BlockCache;

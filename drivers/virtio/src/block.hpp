@@ -36,7 +36,7 @@ struct UserRequest {
 
 	size_t numSubmitted;
 	size_t sectorsRead;
-	cofiber::promise<void> promise;
+	async::promise<void> promise;
 };
 
 // --------------------------------------------------------
@@ -46,7 +46,7 @@ struct UserRequest {
 struct Device : public GenericDevice, public blockfs::BlockDevice {
 	Device();
 
-	cofiber::future<void> readSectors(uint64_t sector,
+	async::result<void> readSectors(uint64_t sector,
 			void *buffer, size_t num_sectors) override;
 
 	void doInitialize() override;

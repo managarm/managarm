@@ -14,7 +14,7 @@ namespace gpt {
 Table::Table(BlockDevice *device)
 : device(device) { }
 
-COFIBER_ROUTINE(cofiber::future<void>, Table::parse(), ([=] {
+COFIBER_ROUTINE(async::result<void>, Table::parse(), ([=] {
 	assert(getDevice()->sectorSize == 512);
 
 	auto header_buffer = malloc(512);
@@ -73,7 +73,7 @@ Guid Partition::type() {
 	return _type;
 }
 
-cofiber::future<void> Partition::readSectors(uint64_t sector, void *buffer,
+async::result<void> Partition::readSectors(uint64_t sector, void *buffer,
 		size_t num_read_sectors) {
 	assert(sector + num_read_sectors <= _numSectors);
 	return _table.getDevice()->readSectors(_startLba + sector,
