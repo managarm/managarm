@@ -5,6 +5,7 @@
 #include <iostream>
 #include <set>
 
+#include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
@@ -38,7 +39,7 @@ struct FileStats {
 };
 
 template<typename T>
-using FutureMaybe = cofiber::future<T>;
+using FutureMaybe = async::result<T>;
 
 // Forward declarations.
 struct File;

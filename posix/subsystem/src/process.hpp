@@ -5,6 +5,8 @@
 #include <memory>
 #include <unordered_map>
 
+#include <async/result.hpp>
+
 #include "vfs.hpp"
 
 typedef int ProcessId;
@@ -60,11 +62,11 @@ private:
 };
 
 struct Process {
-	static cofiber::future<std::shared_ptr<Process>> init(std::string path);
+	static async::result<std::shared_ptr<Process>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
 
-	static cofiber::future<void> exec(std::shared_ptr<Process> process,
+	static async::result<void> exec(std::shared_ptr<Process> process,
 			std::string path);
 
 	std::shared_ptr<VmContext> vmContext() {

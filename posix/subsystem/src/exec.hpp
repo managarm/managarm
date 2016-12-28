@@ -4,7 +4,7 @@
 
 #include "process.hpp"
 
-cofiber::future<helix::UniqueDescriptor> execute(std::string path,
+async::result<helix::UniqueDescriptor> execute(std::string path,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle);
 

@@ -132,7 +132,7 @@ void FileContext::closeFile(int fd) {
 // Process.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::future<std::shared_ptr<Process>>, Process::init(std::string path),
+COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
 	auto process = std::make_shared<Process>();
 	process->_vmContext = VmContext::create();
@@ -164,7 +164,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	return process;
 }
 
-COFIBER_ROUTINE(cofiber::future<void>, Process::exec(std::shared_ptr<Process> process,
+COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> process,
 		std::string path), ([=] {
 	auto exec_vm_context = VmContext::create();
 

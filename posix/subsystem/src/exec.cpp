@@ -6,8 +6,6 @@
 #include <iostream>
 
 #include <cofiber.hpp>
-#include <cofiber/stash.hpp>
-#include <cofiber/future.hpp>
 #include <frigg/elf.hpp>
 
 #include "common.hpp"
@@ -27,7 +25,7 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(cofiber::future<ImageInfo>, load(std::shared_ptr<File> file,
+COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;
@@ -132,7 +130,7 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, execute(std::string path,
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(std::string path,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle), ([=] {
 	auto exec_file = COFIBER_AWAIT open(path);
