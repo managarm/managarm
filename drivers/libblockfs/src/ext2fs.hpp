@@ -308,7 +308,7 @@ struct FileSystem {
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
-/*
+
 // --------------------------------------------------------
 // File operation closures
 // --------------------------------------------------------
@@ -320,6 +320,7 @@ struct OpenFile {
 	uint64_t offset;
 };
 
+/*
 struct Client {
 	Client(helx::EventHub &event_hub, FileSystem &fs);
 

@@ -21,10 +21,7 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object, std::string name);
-
-constexpr protocols::fs::NodeOperations nodeOperations{
-	&getLink
+constexpr protocols::fs::FileOperations fileOperations{
 };
 
 COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,
@@ -47,6 +44,16 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 
 	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), type}));
 }))
+
+COFIBER_ROUTINE(async::result<std::shared_ptr<void>>, open(std::shared_ptr<void> object), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	COFIBER_RETURN(std::make_shared<ext2fs::OpenFile>(self));
+}))
+
+constexpr protocols::fs::NodeOperations nodeOperations{
+	&getLink,
+	&open
+};
 
 } // anonymous namespace
 
@@ -81,7 +88,8 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(), &nodeOperations);
+			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
+					&nodeOperations, &fileOperations);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

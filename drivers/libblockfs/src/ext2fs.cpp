@@ -313,7 +313,7 @@ void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
 	entry->state = BlockCacheEntry::kStateInitial;
 }
 
-/*
+
 // --------------------------------------------------------
 // OpenFile
 // --------------------------------------------------------
@@ -324,7 +324,7 @@ OpenFile::OpenFile(std::shared_ptr<Inode> inode)
 // --------------------------------------------------------
 // Client
 // --------------------------------------------------------
-
+/*
 Client::Client(helx::EventHub &event_hub, FileSystem &fs)
 : eventHub(event_hub), fs(fs), objectHandler(*this), mbusConnection(eventHub) {
 	mbusConnection.setObjectHandler(&objectHandler);

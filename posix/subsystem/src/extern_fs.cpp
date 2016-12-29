@@ -46,8 +46,8 @@ private:
 	static const FileOperations operations;
 
 public:
-	OpenFile(int fd)
-	: File(&operations), _file(helix::UniqueDescriptor(__mlibc_getPassthrough(fd))) { }
+	OpenFile(helix::UniqueLane lane)
+	: File(&operations), _file(std::move(lane)) { }
 
 private:
 	protocols::fs::File _file;
@@ -64,7 +64,38 @@ struct Regular : Node {
 private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
-		assert(!"Implement this");
+		using M = helix::AwaitMechanism;
+		auto self = std::static_pointer_cast<Regular>(object);
+
+		helix::Offer<M> offer;
+		helix::SendBuffer<M> send_req;
+		helix::RecvInline<M> recv_resp;
+		helix::PullDescriptor<M> pull_passthrough;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
+
+		auto ser = req.SerializeAsString();
+		helix::submitAsync(self->_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_passthrough)
+		}, helix::Dispatcher::global());
+
+		COFIBER_AWAIT offer.future();
+		COFIBER_AWAIT send_req.future();
+		COFIBER_AWAIT recv_resp.future();
+		COFIBER_AWAIT pull_passthrough.future();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_passthrough.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor()));
 	}))
 
 	static const NodeOperations operations;
@@ -189,7 +220,8 @@ private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
 		auto derived = std::static_pointer_cast<FakeRegular>(object);
-		COFIBER_RETURN(std::make_shared<OpenFile>(derived->_fd));
+		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(derived->_fd));
+		COFIBER_RETURN(std::make_shared<OpenFile>(std::move(passthrough)));
 	}))
 
 	static const NodeOperations operations;
