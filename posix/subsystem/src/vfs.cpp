@@ -200,7 +200,7 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	COFIBER_AWAIT symlink(getTarget(tree), "libhelix.so", "initrd/libhelix.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libcofiber.so", "initrd/libcofiber.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libprotobuf-lite.so.11", "initrd/libprotobuf-lite.so.11");
-	COFIBER_AWAIT symlink(getTarget(tree), "libmbus.so", "initrd/libmbus.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libmbus_protocol.so", "initrd/libmbus_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libusb_protocol.so", "initrd/libusb_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libblockfs.so", "initrd/libblockfs.so");
 
@@ -324,6 +324,8 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(std::string name), ([=] {
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=] {
 	ViewPath current = COFIBER_AWAIT resolve(std::move(name));
+	if(!current.second)
+		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 
 	if(getType(getTarget(current.second)) == VfsType::regular) {
 		auto file = COFIBER_AWAIT open(getTarget(current.second));
