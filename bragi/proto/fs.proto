@@ -18,14 +18,24 @@ enum FileType {
 
 enum CntReqType {
 	NONE = 0;
-	FSTAT = 5;
-	OPEN = 1;
-	CONNECT = 10;
+
+	// Device API.
+	DEV_MOUNT = 11;
+
+	// File system API
+
+	// File passthrough API.
+	// TODO: Add a FP_ prefix to those requests.
 	READ = 2;
 	WRITE = 3;
 	SEEK_ABS = 6;
 	SEEK_REL = 7;
 	SEEK_EOF = 8;
+
+	// Legacy API.
+	FSTAT = 5;
+	OPEN = 1;
+	CONNECT = 10;
 	MMAP = 9;
 	CLOSE = 4;
 }

@@ -21,6 +21,7 @@ enum CntReqType {
 	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
+	MOUNT = 21;
 	ACCESS = 20;
 	FSTAT = 12;
 	OPEN = 2;
@@ -52,6 +53,9 @@ message CntRequest {
 	
 	// used by INIT, EXEC and OPEN
 	optional string path = 2;
+
+	// used by MOUNT
+	optional string target_path = 12;
 
 	// used by OPEN
 	optional int32 flags = 3;
