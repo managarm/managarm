@@ -497,7 +497,7 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
 	char name[3];
 	sprintf(name, "%.2x", device_state->address);
 	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
-			[&] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		protocols::usb::serve(Device(device_state), std::move(local_lane));
