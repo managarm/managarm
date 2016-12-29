@@ -13,7 +13,7 @@
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
-#include <mbus.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/server.hpp>

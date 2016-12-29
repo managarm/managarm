@@ -13,7 +13,7 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -lhelix -lcofiber -lmbus -lusb_protocol \
+$c_LIBS := -lhelix -lcofiber -lmbus_protocol -lusb_protocol \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_exec,hid, main.o)

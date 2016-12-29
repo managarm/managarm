@@ -11,7 +11,7 @@
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
-#include <mbus.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "common.hpp"
 #include "pci.hpp"

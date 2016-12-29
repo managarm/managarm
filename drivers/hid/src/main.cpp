@@ -8,10 +8,10 @@
 #include <experimental/optional>
 
 #include <cofiber.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
 #include <helix/await.hpp>
-#include <mbus.hpp>
 #include <protocols/usb/client.hpp>
 #include "hid.hpp"
 

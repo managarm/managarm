@@ -7,7 +7,6 @@
 #include <experimental/optional>
 
 #include <helix/await.hpp>
-#include <mbus.hpp>
 
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>

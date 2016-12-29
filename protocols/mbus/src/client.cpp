@@ -4,7 +4,7 @@
 
 #include <helix/await.hpp>
 
-#include <mbus.hpp>
+#include <protocols/mbus/client.hpp>
 #include "mbus.pb.h"
 
 using M = helix::AwaitMechanism;

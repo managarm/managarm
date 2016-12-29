@@ -16,8 +16,8 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra -fPIC -O2
 $c_LIBS := -lhelix -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libmbus.so,mbus.o mbus.pb.o)
-$(call install_header,mbus.hpp)
+$(call make_so,libmbus_protocol.so,client.o mbus.pb.o)
+$(call install_header,protocols/mbus/client.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files

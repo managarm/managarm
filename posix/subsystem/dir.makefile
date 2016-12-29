@@ -20,7 +20,7 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
-$c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus
+$c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus_protocol
 $c_LIBS += -lfs_protocol
 
 $($c_BINDIR)/posix-subsystem: $($c_OBJECT_PATHS) | $($c_BINDIR)

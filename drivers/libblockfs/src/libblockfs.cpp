@@ -4,7 +4,7 @@
 #include <iostream>
 
 #include <helix/ipc.hpp>
-#include <mbus.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <blockfs.hpp>
 #include "gpt.hpp"

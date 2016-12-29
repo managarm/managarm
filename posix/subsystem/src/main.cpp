@@ -8,7 +8,7 @@
 #include <iostream>
 
 #include <cofiber.hpp>
-#include <mbus.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "common.hpp"
 #include "device.hpp"

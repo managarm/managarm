@@ -13,7 +13,7 @@ $c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
-$c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus
+$c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus_protocol
 
 $c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
