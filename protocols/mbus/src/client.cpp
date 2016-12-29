@@ -24,7 +24,7 @@ Instance Instance::global() {
 	return instance;
 }
 
-COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
+COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;
@@ -55,7 +55,7 @@ COFIBER_ROUTINE(cofiber::future<Entity>, Instance::getRoot(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> connection,
-		std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler,
+		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler,
 		helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
 	using M = helix::AwaitMechanism;
 
@@ -103,9 +103,9 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::future<Entity>, Entity::createObject(std::string name,
+COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 		const Properties &properties,
-		std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
+		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;
@@ -187,7 +187,7 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 	}
 }
 
-COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter &filter,
+COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &filter,
 		std::function<void(AnyEvent)> handler) const, ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
@@ -226,7 +226,7 @@ COFIBER_ROUTINE(cofiber::future<Observer>, Entity::linkObserver(const AnyFilter 
 	COFIBER_RETURN(Observer());
 }))
 
-COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;

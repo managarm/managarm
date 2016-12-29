@@ -9,11 +9,12 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <queue>
 #include <vector>
 
+#include <async/result.hpp>
 #include <boost/variant.hpp>
 #include <cofiber.hpp>
-#include <cofiber/future.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 
@@ -82,13 +83,13 @@ struct Object final : Entity {
 	: Entity(id, std::move(parent), std::move(properties)),
 			_lane(std::move(lane)) { }
 
-	cofiber::future<helix::UniqueDescriptor> bind();
+	async::result<helix::UniqueDescriptor> bind();
 
 private:
 	helix::UniqueLane _lane;
 };
 
-COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, Object::bind(), ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
 	using M = helix::AwaitMechanism;
 	
 	helix::Offer<M> offer;

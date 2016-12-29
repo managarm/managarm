@@ -7,6 +7,7 @@
 #include <iostream>
 #include <vector>
 
+#include <async/result.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
@@ -103,14 +104,14 @@ COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> de
 	char name[9];
 	sprintf(name, "%.2x.%.2x.%.1x", device->bus, device->slot, device->function);
 	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
-			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+			[&] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		handleDevice(device, std::move(local_lane));
 
-		cofiber::promise<helix::UniqueDescriptor> promise;
+		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
-		return promise.get_future();
+		return promise.async_get();
 	});
 	std::cout << "Created object " << name << std::endl;
 }))

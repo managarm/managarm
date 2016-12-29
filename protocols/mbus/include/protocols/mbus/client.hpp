@@ -7,12 +7,11 @@
 #include <string.h>
 #include <unordered_map>
 
-#include <helix/ipc.hpp>
+#include <async/result.hpp>
 #include <boost/variant.hpp>
 #include <cofiber.hpp>
-#include <cofiber/future.hpp>
+#include <helix/ipc.hpp>
 
-// EVENTUALLY: use std::future instead of cofiber::future!
 // EVENTUALLY: use std::variant instead of boost::variant!
 
 namespace mbus {
@@ -90,7 +89,7 @@ namespace _detail {
 		: _connection(std::make_shared<Connection>(dispatcher, std::move(lane))) { }
 
 		// attaches a root to the mbus.
-		cofiber::future<Entity> getRoot();
+		async::result<Entity> getRoot();
 
 	private:
 		std::shared_ptr<Connection> _connection;
@@ -109,19 +108,19 @@ namespace _detail {
 		: _connection(std::move(connection)), _id(id) { }
 
 		// creates a child group.
-		cofiber::future<Entity> createGroup(std::string name) const;
+		async::result<Entity> createGroup(std::string name) const;
 
 		// creates a child object.
-		cofiber::future<Entity> createObject(std::string name,
+		async::result<Entity> createObject(std::string name,
 				const Properties &properties,
-				std::function<cofiber::future<helix::UniqueDescriptor>(AnyQuery)> handler) const;
+				std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler) const;
 
 		// links an observer to this group.
-		cofiber::future<Observer> linkObserver(const AnyFilter &filter,
+		async::result<Observer> linkObserver(const AnyFilter &filter,
 				std::function<void(AnyEvent)> handler) const;
 
 		// bind to the device.
-		cofiber::future<helix::UniqueDescriptor> bind() const;
+		async::result<helix::UniqueDescriptor> bind() const;
 
 	private:
 		std::shared_ptr<Connection> _connection;

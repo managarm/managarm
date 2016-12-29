@@ -6,6 +6,7 @@
 #include <iostream>
 #include <memory>
 
+#include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
 #include <frigg/atomic.hpp>
@@ -496,14 +497,14 @@ COFIBER_ROUTINE(cofiber::future<void>, Controller::probeDevice(), ([=] {
 	char name[3];
 	sprintf(name, "%.2x", device_state->address);
 	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
-			[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+			[&] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		protocols::usb::serve(Device(device_state), std::move(local_lane));
 
-		cofiber::promise<helix::UniqueDescriptor> promise;
+		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
-		return promise.get_future();
+		return promise.async_get();
 	});
 	std::cout << "Created object " << name << std::endl;
 

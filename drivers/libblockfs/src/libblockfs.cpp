@@ -56,14 +56,14 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 			{ "unix.devtype", "block" }
 		};
 		auto object = COFIBER_AWAIT root.createObject("partition", descriptor,
-				[&] (mbus::AnyQuery query) -> cofiber::future<helix::UniqueDescriptor> {
+				[&] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			servePartition(std::move(local_lane));
 
-			cofiber::promise<helix::UniqueDescriptor> promise;
+			async::promise<helix::UniqueDescriptor> promise;
 			promise.set_value(std::move(remote_lane));
-			return promise.get_future();
+			return promise.async_get();
 		});
 	}
 }))
