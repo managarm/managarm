@@ -7,12 +7,11 @@
 #include <string.h>
 #include <unordered_map>
 
-#include <helix/ipc.hpp>
+#include <async/result.hpp>
 #include <boost/variant.hpp>
 #include <cofiber.hpp>
-#include <cofiber/future.hpp>
+#include <helix/ipc.hpp>
 
-// EVENTUALLY: use std::future instead of cofiber::future!
 // EVENTUALLY: use std::variant instead of boost::variant!
 
 namespace protocols {
@@ -27,11 +26,11 @@ struct File {
 		return _lane;
 	}
 	
-	cofiber::future<void> seekAbsolute(int64_t offset);
+	async::result<void> seekAbsolute(int64_t offset);
 
-	cofiber::future<size_t> readSome(void *data, size_t max_length);
+	async::result<size_t> readSome(void *data, size_t max_length);
 	
-	cofiber::future<helix::UniqueDescriptor> accessMemory();
+	async::result<helix::UniqueDescriptor> accessMemory();
 
 private:
 	helix::UniqueDescriptor _lane;

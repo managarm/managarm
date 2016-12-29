@@ -12,7 +12,7 @@ namespace fs {
 File::File(helix::UniqueDescriptor lane)
 : _lane(std::move(lane)) { }
 
-COFIBER_ROUTINE(cofiber::future<void>, File::seekAbsolute(int64_t offset), ([=] {
+COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;
@@ -42,7 +42,7 @@ COFIBER_ROUTINE(cofiber::future<void>, File::seekAbsolute(int64_t offset), ([=] 
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(cofiber::future<size_t>, File::readSome(void *data, size_t max_length), ([=] {
+COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_length), ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;
@@ -79,7 +79,7 @@ COFIBER_ROUTINE(cofiber::future<size_t>, File::readSome(void *data, size_t max_l
 	COFIBER_RETURN(recv_data.actualLength());
 }))	
 
-COFIBER_ROUTINE(cofiber::future<helix::UniqueDescriptor>, File::accessMemory(), ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(), ([=] {
 	helix::Offer<M> offer;
 	helix::SendBuffer<M> send_req;
 	helix::RecvBuffer<M> recv_resp;
