@@ -75,7 +75,8 @@ struct HeloutDevice : Device {
 const DeviceOperations HeloutDevice::operations{
 	&HeloutDevice::getType,
 	&HeloutDevice::getName,
-	&HeloutDevice::open
+	&HeloutDevice::open,
+	nullptr
 };
 
 } // anonymous namespace

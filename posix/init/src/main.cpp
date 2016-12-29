@@ -5,6 +5,7 @@
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mount.h>
 #include <sys/socket.h> // FIXME: for testing
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -43,7 +44,12 @@ int main() {
 			sched_yield();
 	}
 
-	printf("Done\n");
+	printf("Mounting /dev/sda0\n");
+	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {
+		printf("Mount failed!\n");
+	}else{
+		printf("Mount success!\n");
+	}
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready

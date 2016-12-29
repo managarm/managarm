@@ -117,17 +117,18 @@ private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
 		(void)object;
-		int fd = open(name.c_str(), O_RDONLY);
-		auto node = std::make_shared<Regular>(fd);
-		// TODO: do not use createRootLink here!
-		COFIBER_RETURN(createRootLink(std::move(node)));
+		(void)name;
+		assert(!"getLink is not implemented for extern_fs");
 	}))
 
 	static const NodeOperations operations;
 
 public:
-	Directory()
-	: Node(&operations) { }
+	Directory(helix::UniqueLane lane)
+	: Node{&operations}, _lane{std::move(lane)} { }
+
+private:
+	helix::UniqueLane _lane;
 };
 
 const NodeOperations Directory::operations{
@@ -141,10 +142,68 @@ const NodeOperations Directory::operations{
 	nullptr
 };
 
+struct FakeDirectory : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
+		(void)object;
+		(void)name;
+		assert(!"mkdir is not implemented for extern_fs");
+	}))
+	
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			symlink(std::shared_ptr<Node> object, std::string name, std::string link), ([=] {
+		(void)object;
+		(void)name;
+		(void)link;
+		assert(!"symlink is not implemented for extern_fs");
+	}))
+	
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
+			std::string name, VfsType type, DeviceId id), ([=] {
+		(void)object;
+		(void)name;
+		(void)type;
+		(void)id;
+		assert(!"mkdev is not implemented for extern_fs");
+	}))
+
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
+		(void)object;
+		int fd = open(name.c_str(), O_RDONLY);
+		auto node = std::make_shared<Regular>(fd);
+		// TODO: do not use createRootLink here!
+		COFIBER_RETURN(createRootLink(std::move(node)));
+	}))
+
+	static const NodeOperations operations;
+
+public:
+	FakeDirectory()
+	: Node(&operations) { }
+};
+
+const NodeOperations FakeDirectory::operations{
+	&getDirectoryType,
+	&FakeDirectory::getLink,
+	&FakeDirectory::mkdir,
+	&FakeDirectory::symlink,
+	&FakeDirectory::mkdev,
+	nullptr,
+	nullptr,
+	nullptr
+};
+
 } // anonymous namespace
 
 std::shared_ptr<Link> createRoot() {
-	auto node = std::make_shared<Directory>();
+	auto node = std::make_shared<FakeDirectory>();
+	return createRootLink(std::move(node));
+}
+
+std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
+	auto node = std::make_shared<Directory>(std::move(lane));
 	return createRootLink(std::move(node));
 }
 

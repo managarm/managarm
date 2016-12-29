@@ -21,6 +21,9 @@ std::string Device::getName(std::shared_ptr<Device> object) {
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device) {
 	return device->operations()->open(device);
 }
+FutureMaybe<std::shared_ptr<Link>> Device::mount(std::shared_ptr<Device> object) {
+	return object->operations()->mount(object);
+}
 
 // --------------------------------------------------------
 // DeviceManager

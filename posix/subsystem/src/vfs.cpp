@@ -181,6 +181,8 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	auto tree = tmp_fs::createRoot();
 	auto view = SharedView::createRoot(tree);
 
+	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
+
 	// create a /dev directory + device files.
 	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
 	view.mount(std::move(dev), getDevtmpfs());

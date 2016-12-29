@@ -15,19 +15,12 @@
 #include "vfs.hpp"
 #include "process.hpp"
 #include "exec.hpp"
+#include "extern_fs.hpp"
 #include "devices/helout.hpp"
-//FIXME #include "dev_fs.hpp"
-//FIXME #include "pts_fs.hpp"
-//FIXME #include "sysfile_fs.hpp"
-//FIXME #include "extern_fs.hpp"
+#include <fs.pb.h>
 #include <posix.pb.h>
 
 bool traceRequests = false;
-
-//FIXME: helx::EventHub eventHub = helx::EventHub::create();
-//FIXME: helx::Client mbusConnect;
-//FIXME: helx::Pipe ldServerPipe;
-//FIXME: helx::Pipe mbusPipe;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -144,12 +137,32 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
+		if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
+			helix::SendBuffer<M> send_resp;
+
+			auto source = COFIBER_AWAIT resolve(req.path());
+			auto target = COFIBER_AWAIT resolve(req.target_path());
+			assert(source.second);
+			assert(target.second);
+			auto device = deviceManager.get(readDevice(getTarget(source.second)));
+			auto link = COFIBER_AWAIT Device::mount(device);
+			source.first.mount(target.second, std::move(link));
+			
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size()),
+			}, helix::Dispatcher::global());
+				
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
 			helix::SendBuffer<M> send_resp;
 
 			auto path = COFIBER_AWAIT resolve(req.path());
 			if(path.second) {
-				std::cout << "Resolve succeeded" << std::endl;
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -218,7 +231,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT send_resp.future();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
-			std::cout << "dup2: " << req.fd() << " -> " << req.newfd() << std::endl;
 			auto file = self->fileContext()->getFile(req.fd());
 			self->fileContext()->attachFile(req.newfd(), file);
 
@@ -275,23 +287,63 @@ struct ExternDevice : Device {
 		assert(!"Fix this");
 	}))
 
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mount(std::shared_ptr<Device> object), ([=] {
+		using M = helix::AwaitMechanism;
+		auto self = std::static_pointer_cast<ExternDevice>(object);
+
+		helix::Offer<M> offer;
+		helix::SendBuffer<M> send_req;
+		helix::RecvInline<M> recv_resp;
+		helix::PullDescriptor<M> pull_node;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
+
+		auto ser = req.SerializeAsString();
+		helix::submitAsync(self->_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_node)
+		}, helix::Dispatcher::global());
+
+		COFIBER_AWAIT offer.future();
+		COFIBER_AWAIT send_req.future();
+		COFIBER_AWAIT recv_resp.future();
+		COFIBER_AWAIT pull_node.future();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_node.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		COFIBER_RETURN(extern_fs::createRoot(pull_node.descriptor()));
+	}))
+
 	static const DeviceOperations operations;
 
-	ExternDevice()
-	: Device(&operations) { }
+	ExternDevice(helix::UniqueLane lane)
+	: Device(&operations), _lane(std::move(lane)) { }
+
+private:
+	helix::UniqueLane _lane;
 };
 
 const DeviceOperations ExternDevice::operations{
 	&ExternDevice::getType,
 	&ExternDevice::getName,
-	&ExternDevice::open
+	&ExternDevice::open,
+	&ExternDevice::mount
 };
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
 	using M = helix::AwaitMechanism;
 
 	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
-	auto device = std::make_shared<ExternDevice>();
+	auto device = std::make_shared<ExternDevice>(std::move(lane));
 	deviceManager.install(device);
 }))
 
