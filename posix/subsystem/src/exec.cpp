@@ -135,6 +135,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(std::string path
 		HelHandle mbus_handle), ([=] {
 	auto exec_file = COFIBER_AWAIT open(path);
 	auto interp_file = COFIBER_AWAIT open("ld-init.so");
+	assert(exec_file);
+	assert(interp_file);
 
 	auto exec_info = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
 	auto interp_info = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);

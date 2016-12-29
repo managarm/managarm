@@ -202,6 +202,7 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	COFIBER_AWAIT symlink(getTarget(tree), "libhelix.so", "initrd/libhelix.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libcofiber.so", "initrd/libcofiber.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libprotobuf-lite.so.11", "initrd/libprotobuf-lite.so.11");
+	COFIBER_AWAIT symlink(getTarget(tree), "libfs_protocol.so", "initrd/libfs_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libmbus_protocol.so", "initrd/libmbus_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libusb_protocol.so", "initrd/libusb_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libblockfs.so", "initrd/libblockfs.so");
@@ -286,11 +287,13 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string
 
 	auto mount = parent.first.getMount(child);
 	if(mount) {
-//		std::cout << "It's a mount point" << std::endl;
+		if(debugResolve)
+			std::cout << "    It's a mount point" << std::endl;
 		auto origin = mount.getOrigin();
 		COFIBER_RETURN((ViewPath{std::move(mount), std::move(origin)}));
 	}else{
-//		std::cout << "It's NOT a mount point" << std::endl;
+		if(debugResolve)
+			std::cout << "    It's NOT a mount point" << std::endl;
 		COFIBER_RETURN((ViewPath{std::move(parent.first), std::move(child)}));
 	}
 }))

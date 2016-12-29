@@ -7,7 +7,7 @@ $c_PKGCONF := PKG_CONFIG_SYSROOT_DIR=$(SYSROOT_PATH) \
 	PKG_CONFIG_LIBDIR=$(SYSROOT_PATH)/usr/lib/pkgconfig pkg-config
 
 $c_INCLUDES := $(shell $($c_PKGCONF) --cflags protobuf-lite)
-$c_INCLUDES += -iquote$($c_GENDIR) -iquote$($c_HEADERDIR)
+$c_INCLUDES += -I$($c_HEADERDIR) -iquote$($c_GENDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall -Wextra -fPIC -O2
@@ -15,8 +15,9 @@ $c_CXXFLAGS += -std=c++14 -Wall -Wextra -fPIC -O2
 $c_LIBS := -lhelix -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_so,libfs_protocol.so,client.o fs.pb.o)
+$(call make_so,libfs_protocol.so,client.o server.o fs.pb.o)
 $(call install_header,protocols/fs/client.hpp)
+$(call install_header,protocols/fs/server.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile protobuf files

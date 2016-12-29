@@ -5,6 +5,7 @@
 
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include <blockfs.hpp>
@@ -17,16 +18,27 @@ namespace blockfs {
 // TODO: Support more than one table.
 gpt::Table *table;
 ext2fs::FileSystem *fs;
-//ext2fs::Client *client;
+
+namespace {
+
+async::result<std::shared_ptr<void>> getLink(std::shared_ptr<void> object, std::string name);
+
+constexpr protocols::fs::NodeOperations nodeOperations{
+	&getLink
+};
+
+COFIBER_ROUTINE(async::result<std::shared_ptr<void>>, getLink(std::shared_ptr<void> object,
+		std::string name), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto entry = COFIBER_AWAIT(self->findEntry(name));
+	assert(entry);
+	COFIBER_RETURN(fs->accessInode(entry->inode));
+}))
+
+} // anonymous namespace
 
 BlockDevice::BlockDevice(size_t sector_size)
 : sectorSize(sector_size) { }
-
-/*void haveFs(void *object) {
-	client = new ext2fs::Client(*theEventHub, *fs);
-	client->init(CALLBACK_STATIC(nullptr, &haveMbus));
-}
-*/
 
 COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		([lane = std::move(p)] {
@@ -56,6 +68,7 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
+			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(), &nodeOperations);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

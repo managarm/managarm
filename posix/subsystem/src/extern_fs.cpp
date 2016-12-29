@@ -5,6 +5,7 @@
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
+#include "fs.pb.h"
 
 HelHandle __mlibc_getPassthrough(int fd);
 HelHandle __raw_map(int fd);
@@ -116,9 +117,41 @@ private:
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
-		(void)object;
-		(void)name;
-		assert(!"getLink is not implemented for extern_fs");
+		using M = helix::AwaitMechanism;
+		auto self = std::static_pointer_cast<Directory>(object);
+
+		helix::Offer<M> offer;
+		helix::SendBuffer<M> send_req;
+		helix::RecvInline<M> recv_resp;
+		helix::PullDescriptor<M> pull_node;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_GET_LINK);
+		req.set_path(name);
+
+		auto ser = req.SerializeAsString();
+		helix::submitAsync(self->_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_node)
+		}, helix::Dispatcher::global());
+
+		COFIBER_AWAIT offer.future();
+		COFIBER_AWAIT send_req.future();
+		COFIBER_AWAIT recv_resp.future();
+		COFIBER_AWAIT pull_node.future();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_node.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		auto child = std::make_shared<Directory>(pull_node.descriptor());
+		COFIBER_RETURN(createRootLink(child));
 	}))
 
 	static const NodeOperations operations;

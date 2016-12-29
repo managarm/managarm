@@ -146,7 +146,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(target.second);
 			auto device = deviceManager.get(readDevice(getTarget(source.second)));
 			auto link = COFIBER_AWAIT Device::mount(device);
-			source.first.mount(target.second, std::move(link));
+			target.first.mount(target.second, std::move(link));
 			
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

@@ -12,7 +12,7 @@ $c_INCLUDES := -I$($c_HEADERDIR) -iquote$($c_GENDIR) \
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2 -fPIC
 
-$c_LIBS := -lcofiber \
+$c_LIBS := -lcofiber -lfs_protocol \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_so,libblockfs.so,libblockfs.o gpt.o ext2fs.o fs.pb.o)

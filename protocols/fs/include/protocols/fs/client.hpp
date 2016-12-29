@@ -1,4 +1,3 @@
-
 #ifndef LIBFS_CLIENT_HPP
 #define LIBFS_CLIENT_HPP
 
@@ -43,4 +42,3 @@ using _detail::File;
 } } // namespace protocols::fs
 
 #endif // LIBFS_CLIENT_HPP
-

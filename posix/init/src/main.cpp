@@ -38,7 +38,7 @@ int main() {
 	}else assert(child != -1);
 
 	// Spin until /dev/sda0 becomes available.
-	while(access("/dev/sda0", R_OK) == -1) {
+	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
 		for(int i = 0; i < 100; i++)
 			sched_yield();
@@ -50,6 +50,17 @@ int main() {
 	}else{
 		printf("Mount success!\n");
 	}
+	
+	if(!access("/realfs/usr/bin/vga_terminal", F_OK)) {
+		printf("/realfs is accessible!\n");
+	}else{
+		printf("/realfs is NOT accessible!\n");
+	}
+
+/*	auto vga_terminal = fork();
+	if(!vga_terminal) {
+		execve("/realfs/usr/bin/vga_terminal", args.data(), envp);
+	}else assert(vga_terminal != -1);*/
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
