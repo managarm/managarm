@@ -37,15 +37,25 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			helix::SendBuffer<M> send_resp;
 			helix::PushDescriptor<M> push_node;
 			
-			auto child = COFIBER_AWAIT node_ops->getLink(node, req.path());
-			assert(child);
+			auto result = COFIBER_AWAIT node_ops->getLink(node, req.path());
+			assert(std::get<0>(result));
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			serveNode(std::move(local_lane), std::move(child), node_ops);
+			serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			switch(std::get<1>(result)) {
+			case FileType::directory:
+				resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+				break;
+			case FileType::regular:
+				resp.set_file_type(managarm::fs::FileType::REGULAR);
+				break;
+			default:
+				throw std::runtime_error("Unexpected file type");
+			}
 
 			auto ser = resp.SerializeAsString();
 			helix::submitAsync(conversation, {

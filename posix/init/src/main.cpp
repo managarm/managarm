@@ -51,16 +51,10 @@ int main() {
 		printf("Mount success!\n");
 	}
 	
-	if(!access("/realfs/usr/bin/vga_terminal", F_OK)) {
-		printf("/realfs is accessible!\n");
-	}else{
-		printf("/realfs is NOT accessible!\n");
-	}
-
-/*	auto vga_terminal = fork();
+	auto vga_terminal = fork();
 	if(!vga_terminal) {
 		execve("/realfs/usr/bin/vga_terminal", args.data(), envp);
-	}else assert(vga_terminal != -1);*/
+	}else assert(vga_terminal != -1);
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready

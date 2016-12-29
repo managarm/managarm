@@ -21,18 +21,31 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-async::result<std::shared_ptr<void>> getLink(std::shared_ptr<void> object, std::string name);
+async::result<protocols::fs::GetLinkResult> getLink(std::shared_ptr<void> object, std::string name);
 
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getLink
 };
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<void>>, getLink(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,
 		std::string name), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto entry = COFIBER_AWAIT(self->findEntry(name));
 	assert(entry);
-	COFIBER_RETURN(fs->accessInode(entry->inode));
+
+	protocols::fs::FileType type;
+	switch(entry->fileType) {
+	case kTypeDirectory:
+		type = protocols::fs::FileType::directory;
+		break;
+	case kTypeRegular:
+		type = protocols::fs::FileType::regular;
+		break;
+	default:
+		throw std::runtime_error("Unexpected file type");
+	}
+
+	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), type}));
 }))
 
 } // anonymous namespace

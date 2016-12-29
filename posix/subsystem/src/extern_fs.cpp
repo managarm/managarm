@@ -64,18 +64,17 @@ struct Regular : Node {
 private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
-		auto derived = std::static_pointer_cast<Regular>(object);
-		COFIBER_RETURN(std::make_shared<OpenFile>(derived->_fd));
+		assert(!"Implement this");
 	}))
 
 	static const NodeOperations operations;
 
 public:
-	Regular(int fd)
-	: Node(&operations), _fd(fd) { }
+	Regular(helix::UniqueLane lane)
+	: Node{&operations}, _lane{std::move(lane)} { }
 
 private:
-	int _fd;
+	helix::UniqueLane _lane;
 };
 
 const NodeOperations Regular::operations{
@@ -150,7 +149,17 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		auto child = std::make_shared<Directory>(pull_node.descriptor());
+		std::shared_ptr<Node> child;
+		switch(resp.file_type()) {
+		case managarm::fs::FileType::DIRECTORY:
+			child = std::make_shared<Directory>(pull_node.descriptor());
+			break;
+		case managarm::fs::FileType::REGULAR:
+			child = std::make_shared<Regular>(pull_node.descriptor());
+			break;
+		default:
+			throw std::runtime_error("extern_fs: Unexpected file type");
+		}
 		COFIBER_RETURN(createRootLink(child));
 	}))
 
@@ -171,6 +180,35 @@ const NodeOperations Directory::operations{
 	&Directory::symlink,
 	&Directory::mkdev,
 	nullptr,
+	nullptr,
+	nullptr
+};
+
+struct FakeRegular : Node {
+private:
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<Node> object), ([=] {
+		auto derived = std::static_pointer_cast<FakeRegular>(object);
+		COFIBER_RETURN(std::make_shared<OpenFile>(derived->_fd));
+	}))
+
+	static const NodeOperations operations;
+
+public:
+	FakeRegular(int fd)
+	: Node(&operations), _fd(fd) { }
+
+private:
+	int _fd;
+};
+
+const NodeOperations FakeRegular::operations{
+	&getRegularType,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	&FakeRegular::open,
 	nullptr,
 	nullptr
 };
@@ -205,7 +243,7 @@ private:
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
 		(void)object;
 		int fd = open(name.c_str(), O_RDONLY);
-		auto node = std::make_shared<Regular>(fd);
+		auto node = std::make_shared<FakeRegular>(fd);
 		// TODO: do not use createRootLink here!
 		COFIBER_RETURN(createRootLink(std::move(node)));
 	}))

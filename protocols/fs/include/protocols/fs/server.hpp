@@ -12,8 +12,16 @@
 namespace protocols {
 namespace fs {
 
+enum class FileType {
+	unknown,
+	directory,
+	regular
+};
+
+using GetLinkResult = std::tuple<std::shared_ptr<void>, FileType>;
+
 struct NodeOperations {
-	async::result<std::shared_ptr<void>> (*getLink)(std::shared_ptr<void> object,
+	async::result<GetLinkResult> (*getLink)(std::shared_ptr<void> object,
 			std::string name);
 };
 
