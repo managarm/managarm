@@ -169,6 +169,7 @@ enum HelThreadFlags {
 
 enum HelObservation {
 	kHelObserveBreakpoint = 1,
+	kHelObservePageFault = 2,
 	kHelObserveSuperCall = 0x80000000
 };
 

@@ -31,6 +31,21 @@ bool traceRequests = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
+void dumpRegisters(helix::BorrowedDescriptor thread) {
+	uintptr_t pcrs[2];
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
+
+	uintptr_t gprs[15];
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
+
+	printf("rax: %.16lx, rbx: %.16lx, rcx: %.16lx\n", gprs[0], gprs[1], gprs[2]);
+	printf("rdx: %.16lx, rdi: %.16lx, rsi: %.16lx\n", gprs[3], gprs[4], gprs[5]);
+	printf(" r8: %.16lx,  r9: %.16lx, r10: %.16lx\n", gprs[6], gprs[7], gprs[8]);
+	printf("r11: %.16lx, r12: %.16lx, r13: %.16lx\n", gprs[9], gprs[10], gprs[11]);
+	printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
+	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
+}
+
 COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
 	using M = helix::AwaitMechanism;
@@ -90,20 +105,15 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 			Process::exec(self, path);
 		}else if(observe.observation() == kHelObserveBreakpoint) {
-			uintptr_t pcrs[2];
-			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
-
-			uintptr_t gprs[15];
-			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
-
-			printf("\e[35mBreakpoint fault\n");
-			printf("rax: %.16lx, rbx: %.16lx, rcx: %.16lx\n", gprs[0], gprs[1], gprs[2]);
-			printf("rdx: %.16lx, rdi: %.16lx, rsi: %.16lx\n", gprs[3], gprs[4], gprs[5]);
-			printf(" r8: %.16lx,  r9: %.16lx, r10: %.16lx\n", gprs[6], gprs[7], gprs[8]);
-			printf("r11: %.16lx, r12: %.16lx, r13: %.16lx\n", gprs[9], gprs[10], gprs[11]);
-			printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
-			printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
+			printf("\e[35mBreakpoint\n");
+			dumpRegisters(thread);
 			printf("\e[39m");
+			fflush(stdout);
+		}else if(observe.observation() == kHelObservePageFault) {
+			printf("\e[31mPage fault\n");
+			dumpRegisters(thread);
+			printf("\e[39m");
+			fflush(stdout);
 		}else{
 			throw std::runtime_error("Unexpected observation");
 		}

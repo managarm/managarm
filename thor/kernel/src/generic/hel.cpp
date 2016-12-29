@@ -261,6 +261,8 @@ struct ObserveThreadWriter {
 		unsigned int observation;
 		if(_interrupt == kIntrBreakpoint) {
 			observation = kHelObserveBreakpoint;
+		}else if(_interrupt == kIntrPageFault) {
+			observation = kHelObservePageFault;
 		}else if(_interrupt >= kIntrSuperCall) {
 			observation = kHelObserveSuperCall + (_interrupt - kIntrSuperCall);
 		}else{

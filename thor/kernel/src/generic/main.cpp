@@ -349,7 +349,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	bool handled = address_space->handleFault(space_guard, address, flags);
 	space_guard.unlock();
 	
-	if(!handled) {
+	if(handled)
+		return;
+	
+	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
 		auto msg = frigg::panicLogger();
 		msg << "Page fault"
 				<< " at " << (void *)address
@@ -373,6 +376,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			msg << " (Read)";
 		}
 		msg << frigg::endLog;
+	}else{
+		Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 	}
 }
 
