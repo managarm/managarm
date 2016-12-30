@@ -257,5 +257,126 @@ namespace _buddy {
 
 using BuddyAllocator = _buddy::Allocator;
 
+// ----------------------------------------------------------------------------
+// The new buddy allocator.
+// ----------------------------------------------------------------------------
+
+struct buddy_tools {
+	using address_type = size_t;
+
+private:
+	// Determines the largest free chunk in the given range.
+	static int scan_free(int8_t *slice, address_type base, address_type limit) {
+		int free_order = -1;
+		for(address_type i = 0; i < limit; i++) {
+			if(slice[base + i] >= free_order)
+				free_order = slice[base + i];
+		}
+		return free_order;
+	}
+
+	static address_type find_target(int8_t *slice, address_type base, address_type limit,
+			int target) {
+		for(address_type i = 0; i < limit; i++) {
+			if(slice[base + i] >= target)
+				return base + i;
+		}
+		__builtin_trap();
+	}
+
+public:
+	// This function determines a suitable order based on the number of items.
+	static int suitable_order(address_type num_items) {
+		int order = 0;
+		while(num_items / (address_type(1) << order) > 64)
+			order++;
+		return order;
+	}
+
+	// Determines the size required for the buddy allocator in bytes.
+	static size_t determine_size(address_type num_roots, int table_order) {
+		size_t size = 0;
+		for(int order = 0; order < table_order; order++)
+			size += size_t(num_roots) << (table_order - order);
+		return size;
+	}
+
+	// Inititalizes the buddy allocator array.
+	static void initialize(int8_t *pointer, address_type num_roots, int table_order) {
+		int8_t *slice = pointer;
+		for(int order = table_order; order >= 0; order--) {
+			auto order_size = size_t(num_roots) << (table_order - order);
+			for(address_type i = 0; i < order_size; i++)
+				slice[i] = order;
+			slice += order_size;
+		}
+	}
+
+	static address_type allocate(int8_t *pointer, address_type num_roots, int table_order,
+			int target) {
+		assert(target >= 0 && target <= table_order);
+
+		int order = table_order;
+		int8_t *slice = pointer;
+
+		// First phase: Descent to the target order.
+		// In this phase find a free element.
+		address_type alloc_index = find_target(slice, 0,  num_roots, target);
+		while(order > target) {
+			slice += size_t(num_roots) << (table_order - order);
+			order--;
+			alloc_index = find_target(slice, 2 * alloc_index, 2, target);
+		}
+
+		// Here we perform the actual allocation.
+		assert(slice[alloc_index] == target);
+		slice[alloc_index] = -1;
+
+		// Second phase: Ascent to the table_order.
+		// In this phase we fix all superior elements.
+		address_type update_index = alloc_index;
+		while(order < table_order) {
+			update_index /= 2;
+			auto free_order = scan_free(slice, 2 * update_index, 2);
+			order++;
+			slice -= size_t(num_roots) << (table_order - order);		
+			slice[update_index] = free_order;
+		}
+
+		return alloc_index << target;
+	}
+
+	static void free(int8_t *pointer, address_type num_roots, int table_order,
+			address_type address, int target) {
+		assert(target >= 0 && target <= table_order);
+		assert(address % (size_t(1) << target) == 0);
+
+		int order = table_order;
+		int8_t *slice = pointer;
+		
+		// Analogous to the allocate operation:
+		// First we decend to the target order.
+		while(order > target) {
+			slice += size_t(num_roots) << (table_order - order);
+			order--;
+		}
+
+		// Perform the actual free operation.
+		address_type update_index = address >> target;
+		assert(slice[update_index] == -1);
+		slice[update_index] = target;
+
+		// Update all superior elements.
+		while(order < table_order) {
+			update_index /= 2;
+			auto free_order = scan_free(slice, 2 * update_index, 2);
+			order++;
+			slice -= size_t(num_roots) << (table_order - order);		
+			slice[update_index] = free_order;
+		}
+	}
+};
+
+
 } // namespace frigg
 

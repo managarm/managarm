@@ -10,42 +10,54 @@ namespace thor {
 PhysicalChunkAllocator::PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
 		size_t bootstrap_length)
 : _bootstrapBase(bootstrap_base), _bootstrapLength(bootstrap_length),
-		_usedPages(0), _freePages(0) {
+		_buddyPointer(nullptr), _usedPages(0), _freePages(0) {
 	assert((bootstrap_base % 0x1000) == 0);
 	assert((bootstrap_length % 0x1000) == 0);
 }
 
 void PhysicalChunkAllocator::bootstrap() {
-	size_t fine_shift = kPageShift, coarse_shift = kPageShift + 8;
-	size_t overhead = frigg::BuddyAllocator::computeOverhead(_bootstrapLength,
-			fine_shift, coarse_shift);
+	assert(!_buddyPointer);
+
+	// Now we proceed to initialize the buddy allocator.
+	_buddyOrder = frigg::buddy_tools::suitable_order(_bootstrapLength >> kPageShift);
+
+	// Subtract the buddy tree from the size of the chunk
+	// and determine the number of roots for the buddy tree.
+	auto pre_roots = _bootstrapLength >> (kPageShift + _buddyOrder);
+	auto overhead = frigg::buddy_tools::determine_size(pre_roots, _buddyOrder) >> kPageShift;
+	assert(overhead < _bootstrapLength);
 	
-	uintptr_t base = _bootstrapBase + overhead;
-	size_t length = _bootstrapLength - overhead;
+	frigg::infoLogger() << "thor: Using an order "
+			<< _buddyOrder << " buddy allocator"
+			<< " (" << overhead << " pages overhead)"<< frigg::endLog;
 
-	// align the base to the next coarse boundary.
-	uintptr_t misalign = base % (uintptr_t(1) << coarse_shift);
-	if(misalign) {
-		base += (uintptr_t(1) << coarse_shift) - misalign;
-		length -= misalign;
-	}
+	_buddyRoots = (_bootstrapLength - overhead) >> (kPageShift + _buddyOrder);
+	assert(_buddyRoots >= 32);
 
-	// shrink the length to the next coarse boundary.
-	length -= length % (size_t(1) << coarse_shift);
+	// Finally initialize the buddy tree.
+	_physicalBase = _bootstrapBase + (overhead << kPageShift);
+	_buddyPointer = reinterpret_cast<int8_t *>(physicalToVirtual(_bootstrapBase));
+	frigg::buddy_tools::initialize(_buddyPointer, _buddyRoots, _buddyOrder);
 
-	_buddy.addChunk(base, length, fine_shift, coarse_shift,
-			physicalToVirtual(_bootstrapBase));
-	_freePages += length / kPageSize;
+	_freePages += (_bootstrapLength - overhead) >> kPageShift;
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	assert(guard.protects(&lock));
-	
+
 	assert(_freePages > 0);
 	_freePages -= size / kPageSize;
 	_usedPages += size / kPageSize;
 
-	return _buddy.allocate(size);
+	int target = 0;
+	while(size > (size_t(kPageSize) << target))
+		target++;
+	assert(size == (size_t(kPageSize) << target));
+
+	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyPointer,
+			_buddyRoots, _buddyOrder, target) << kPageShift);
+	assert(!(physical % (size_t(kPageSize) << target)));
+	return physical;
 }
 
 void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {

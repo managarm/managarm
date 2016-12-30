@@ -23,7 +23,10 @@ private:
 	PhysicalAddr _bootstrapBase;
 	size_t _bootstrapLength;
 
-	frigg::BuddyAllocator _buddy;
+	uintptr_t _physicalBase;
+	int8_t *_buddyPointer;
+	int _buddyOrder;
+	int _buddyRoots;
 
 	size_t _usedPages;
 	size_t _freePages;
