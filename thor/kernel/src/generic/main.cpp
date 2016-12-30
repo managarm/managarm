@@ -66,8 +66,7 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = frigg::makeShared<Memory>(*kernelAlloc,
-					AllocatedMemory(virt_length));
+			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
 			Memory::transfer(memory, phdr.p_vaddr - virt_address,
 					image, phdr.p_offset, phdr.p_filesz);
 
@@ -130,8 +129,7 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = frigg::makeShared<Memory>(*kernelAlloc,
-			AllocatedMemory(stack_size));
+	auto stack_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, stack_size);
 
 	VirtualAddr stack_base;
 	{
@@ -256,8 +254,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		assert((virt_length % kPageSize) == 0);
 
 		// TODO: free module memory if it is not used anymore
-		auto memory = frigg::makeShared<Memory>(*kernelAlloc,
-				HardwareMemory(modules[i].physicalBase, virt_length));
+		auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+				modules[i].physicalBase, virt_length);
 		
 		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
 				modules[i].nameLength);

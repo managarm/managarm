@@ -2,15 +2,183 @@
 #include "kernel.hpp"
 
 namespace thor {
+	
+// --------------------------------------------------------
+// Memory
+// --------------------------------------------------------
+
+void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
+		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
+	PhysicalChunkAllocator::Guard lock(&physicalAllocator->lock,
+			frigg::dontLock);
+	
+	size_t progress = 0;
+	while(progress < length) {
+		auto dest_misalign = (dest_offset + progress) % kPageSize;
+		auto src_misalign = (src_offset + progress) % kPageSize;
+		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
+				kPageSize - src_misalign), length - progress);
+		
+		PhysicalAddr dest_page = dest_memory->grabPage(lock,
+				kGrabFetch | kGrabWrite, dest_offset + progress - dest_misalign);
+		PhysicalAddr src_page = src_memory->grabPage(lock,
+				kGrabFetch | kGrabRead, src_offset + progress - dest_misalign);
+		assert(dest_page != PhysicalAddr(-1));
+		assert(src_page != PhysicalAddr(-1));
+		memcpy((uint8_t *)physicalToVirtual(dest_page) + dest_misalign,
+				(uint8_t *)physicalToVirtual(src_page) + src_misalign, chunk);
+		
+		progress += chunk;
+	}
+}
+
+size_t Memory::getLength() {
+	switch(tag()) {
+	case MemoryTag::hardware: return static_cast<HardwareMemory *>(this)->getLength();
+	case MemoryTag::allocated: return static_cast<AllocatedMemory *>(this)->getLength();
+	case MemoryTag::backing: return static_cast<BackingMemory *>(this)->getLength();
+	case MemoryTag::frontal: return static_cast<FrontalMemory *>(this)->getLength();
+	case MemoryTag::copyOnWrite: return static_cast<CopyOnWriteMemory *>(this)->getLength();
+	default:
+		frigg::panicLogger() << "Memory::getLength(): Unexpected tag" << frigg::endLog;
+	}
+}
+
+PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+		GrabIntent grab_flags, size_t offset) {
+	assert((grab_flags & kGrabQuery) || (grab_flags & kGrabFetch));
+	assert(!((grab_flags & kGrabQuery) && (grab_flags & kGrabFetch)));
+	switch(tag()) {
+	case MemoryTag::hardware:
+		return static_cast<HardwareMemory *>(this)->grabPage(physical_guard,
+				grab_flags, offset);
+	case MemoryTag::allocated:
+		return static_cast<AllocatedMemory *>(this)->grabPage(physical_guard,
+				grab_flags, offset);
+	case MemoryTag::backing:
+		return static_cast<BackingMemory *>(this)->grabPage(physical_guard,
+				grab_flags, offset);
+	case MemoryTag::frontal:
+		return static_cast<FrontalMemory *>(this)->grabPage(physical_guard,
+				grab_flags, offset);
+	case MemoryTag::copyOnWrite:
+		return static_cast<CopyOnWriteMemory *>(this)->grabPage(physical_guard,
+				grab_flags, offset);
+	default:
+		frigg::panicLogger() << "Memory::grabPage(): Unexpected tag" << frigg::endLog;
+	}
+}
+
+void Memory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
+	switch(tag()) {
+	case MemoryTag::frontal:
+		static_cast<FrontalMemory *>(this)->submitInitiateLoad(frigg::move(initiate));
+		break;
+	case MemoryTag::hardware:
+	case MemoryTag::allocated:
+		initiate->complete(kErrSuccess);
+		break;
+	case MemoryTag::copyOnWrite:
+		assert(!"Not implemented yet");
+	default:
+		assert(!"Not supported");
+	}
+}
+
+void Memory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
+	switch(tag()) {
+	case MemoryTag::backing:
+		static_cast<BackingMemory *>(this)->submitHandleLoad(frigg::move(handle));
+		break;
+	default:
+		assert(!"Not supported");
+	}
+}
+
+void Memory::completeLoad(size_t offset, size_t length) {
+	switch(tag()) {
+	case MemoryTag::backing:
+		static_cast<BackingMemory *>(this)->completeLoad(offset, length);
+		break;
+	default:
+		assert(!"Not supported");
+	}
+}
+
+void Memory::load(size_t offset, void *buffer, size_t length) {
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
+			frigg::dontLock);
+	
+	size_t progress = 0;
+
+	size_t misalign = offset % kPageSize;
+	if(misalign > 0) {
+		size_t prefix = frigg::min(kPageSize - misalign, length);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset - misalign);
+		assert(page != PhysicalAddr(-1));
+		memcpy(buffer, (uint8_t *)physicalToVirtual(page) + misalign, prefix);
+		progress += prefix;
+	}
+
+	while(length - progress >= kPageSize) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), kPageSize);
+		progress += kPageSize;
+	}
+
+	if(length - progress > 0) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), length - progress);
+	}
+}
+
+void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
+			frigg::dontLock);
+	
+	size_t progress = 0;
+
+	size_t misalign = offset % kPageSize;
+	if(misalign > 0) {
+		size_t prefix = frigg::min(kPageSize - misalign, length);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset - misalign);
+		assert(page != PhysicalAddr(-1));
+		memcpy((uint8_t *)physicalToVirtual(page) + misalign, buffer, prefix);
+		progress += prefix;
+	}
+
+	while(length - progress >= kPageSize) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, kPageSize);
+		progress += kPageSize;
+	}
+
+	if(length - progress > 0) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
+		assert(page != PhysicalAddr(-1));
+		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, length - progress);
+	}
+}
 
 // --------------------------------------------------------
 // HardwareMemory
 // --------------------------------------------------------
 
 HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length)
-: _base(base), _length(length) {
+: Memory(MemoryTag::hardware), _base(base), _length(length) {
 	assert(base % kPageSize == 0);
 	assert(length % kPageSize == 0);
+}
+
+HardwareMemory::~HardwareMemory() {
+	// For now we do nothing when deallocating hardware memory.
 }
 
 size_t HardwareMemory::getLength() {
@@ -29,12 +197,17 @@ PhysicalAddr HardwareMemory::grabPage(PhysicalChunkAllocator::Guard &,
 // --------------------------------------------------------
 
 AllocatedMemory::AllocatedMemory(size_t length, size_t chunk_size, size_t chunk_align)
-: _physicalChunks(*kernelAlloc), _chunkSize(chunk_size), _chunkAlign(chunk_align) {
+: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc),
+		_chunkSize(chunk_size), _chunkAlign(chunk_align) {
 	assert(_chunkSize % kPageSize == 0);
 	assert(_chunkAlign % kPageSize == 0);
 	assert(_chunkSize % _chunkAlign == 0);
 	assert(length % _chunkSize == 0);
 	_physicalChunks.resize(length / _chunkSize, PhysicalAddr(-1));
+}
+
+AllocatedMemory::~AllocatedMemory() {
+	frigg::infoLogger() << "\e[35mFix AllocatedMemory deallocation\e[39m" << frigg::endLog;
 }
 
 size_t AllocatedMemory::getLength() {
@@ -70,6 +243,10 @@ ManagedSpace::ManagedSpace(size_t length)
 	assert(length % kPageSize == 0);
 	physicalPages.resize(length / kPageSize, PhysicalAddr(-1));
 	loadState.resize(length / kPageSize, kStateMissing);
+}
+
+ManagedSpace::~ManagedSpace() {
+	assert(!"Implement this");
 }
 
 void ManagedSpace::progressLoads() {
@@ -243,9 +420,13 @@ void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) 
 // --------------------------------------------------------
 
 CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<Memory> origin)
-: _origin(frigg::move(origin)), _physicalPages(*kernelAlloc) {
+: Memory(MemoryTag::copyOnWrite), _origin(frigg::move(origin)), _physicalPages(*kernelAlloc) {
 	assert(_origin->getLength() % kPageSize == 0);
 	_physicalPages.resize(_origin->getLength() / kPageSize, PhysicalAddr(-1));
+}
+
+CopyOnWriteMemory::~CopyOnWriteMemory() {
+	assert(!"Implement this");
 }
 
 size_t CopyOnWriteMemory::getLength() {
@@ -274,100 +455,6 @@ PhysicalAddr CopyOnWriteMemory::grabPage(PhysicalChunkAllocator::Guard &physical
 	}
 
 	return _physicalPages[index];
-}
-
-// --------------------------------------------------------
-// Memory
-// --------------------------------------------------------
-
-void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
-		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
-	PhysicalChunkAllocator::Guard lock(&physicalAllocator->lock,
-			frigg::dontLock);
-	
-	size_t progress = 0;
-	while(progress < length) {
-		auto dest_misalign = (dest_offset + progress) % kPageSize;
-		auto src_misalign = (src_offset + progress) % kPageSize;
-		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
-				kPageSize - src_misalign), length - progress);
-		
-		PhysicalAddr dest_page = dest_memory->grabPage(lock,
-				kGrabFetch | kGrabWrite, dest_offset + progress - dest_misalign);
-		PhysicalAddr src_page = src_memory->grabPage(lock,
-				kGrabFetch | kGrabRead, src_offset + progress - dest_misalign);
-		assert(dest_page != PhysicalAddr(-1));
-		assert(src_page != PhysicalAddr(-1));
-		memcpy((uint8_t *)physicalToVirtual(dest_page) + dest_misalign,
-				(uint8_t *)physicalToVirtual(src_page) + src_misalign, chunk);
-		
-		progress += chunk;
-	}
-}
-
-Memory::Memory(MemoryVariant variant)
-: _variant(frigg::move(variant)) { }
-
-void Memory::load(size_t offset, void *buffer, size_t length) {
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
-			frigg::dontLock);
-	
-	size_t progress = 0;
-
-	size_t misalign = offset % kPageSize;
-	if(misalign > 0) {
-		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset - misalign);
-		assert(page != PhysicalAddr(-1));
-		memcpy(buffer, (uint8_t *)physicalToVirtual(page) + misalign, prefix);
-		progress += prefix;
-	}
-
-	while(length - progress >= kPageSize) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
-		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), kPageSize);
-		progress += kPageSize;
-	}
-
-	if(length - progress > 0) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
-		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), length - progress);
-	}
-}
-
-void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock,
-			frigg::dontLock);
-	
-	size_t progress = 0;
-
-	size_t misalign = offset % kPageSize;
-	if(misalign > 0) {
-		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset - misalign);
-		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)physicalToVirtual(page) + misalign, buffer, prefix);
-		progress += prefix;
-	}
-
-	while(length - progress >= kPageSize) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
-		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, kPageSize);
-		progress += kPageSize;
-	}
-
-	if(length - progress > 0) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
-		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, length - progress);
-	}
 }
 
 // --------------------------------------------------------
@@ -784,8 +871,8 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		KernelSharedPtr<Memory> dest_memory;
 		if(memory->futex.empty()) {
 			// Create a copy-on-write object for the original space.
-			auto src_memory = frigg::makeShared<Memory>(*kernelAlloc,
-					CopyOnWriteMemory(memory.toShared()));
+			auto src_memory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+					memory.toShared());
 			{
 				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 				for(size_t page = 0; page < mapping->length; page += kPageSize) {
@@ -800,16 +887,16 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			mapping->memoryRegion = frigg::move(src_memory);
 			
 			// Create a copy-on-write region for the forked space
-			dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
-					CopyOnWriteMemory(memory.toShared()));
+			dest_memory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
+					memory.toShared());
 		}else{
 			// We perform an actual copy so we can grant write permission.
 			if(mapping->writePermission)
 				page_flags |= PageSpace::kAccessWrite;
 
 			// Perform a real copy operation here.
-			dest_memory = frigg::makeShared<Memory>(*kernelAlloc,
-					AllocatedMemory(memory->getLength(), kPageSize, kPageSize));
+			dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+					memory->getLength(), kPageSize, kPageSize);
 			for(size_t page = 0; page < memory->getLength(); page += kPageSize) {
 				PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 				PhysicalAddr src_physical = memory->grabPage(physical_guard,

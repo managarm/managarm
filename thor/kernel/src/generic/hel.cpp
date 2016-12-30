@@ -367,7 +367,6 @@ HelError helCloseDescriptor(HelHandle handle) {
 	return kHelErrNone;
 }
 
-
 HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	assert(size > 0);
 	assert(size % kPageSize == 0);
@@ -375,16 +374,18 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
+	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
+	frigg::infoLogger() << "Allocate " << (void *)size
+			<< ", sum of allocated memory: " << (void *)pressure << frigg::endLog;
+
 	frigg::SharedPtr<Memory> memory;
 	if(flags & kHelAllocContinuous) {
-		memory = frigg::makeShared<Memory>(*kernelAlloc,
-				AllocatedMemory(size, size, kPageSize));
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, size, kPageSize);
 	}else if(flags & kHelAllocOnDemand) {
-		memory = frigg::makeShared<Memory>(*kernelAlloc,
-				AllocatedMemory(size));
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
 	}else{
 		// TODO: 
-		memory = frigg::makeShared<Memory>(*kernelAlloc, AllocatedMemory(size));
+		memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size);
 	}
 	
 	{
@@ -406,10 +407,8 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	auto managed = frigg::makeShared<ManagedSpace>(*kernelAlloc, size);
-	auto backing_memory = frigg::makeShared<Memory>(*kernelAlloc,
-			BackingMemory(managed));
-	auto frontal_memory = frigg::makeShared<Memory>(*kernelAlloc,
-			FrontalMemory(frigg::move(managed)));
+	auto backing_memory = frigg::makeShared<BackingMemory>(*kernelAlloc, managed);
+	auto frontal_memory = frigg::makeShared<FrontalMemory>(*kernelAlloc, frigg::move(managed));
 	
 	{
 		Universe::Guard universe_guard(&universe->lock);
@@ -429,7 +428,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto memory = frigg::makeShared<Memory>(*kernelAlloc, HardwareMemory(physical, size));
+	auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc, physical, size);
 	{
 		Universe::Guard universe_guard(&universe->lock);
 		*handle = universe->attachDescriptor(universe_guard,

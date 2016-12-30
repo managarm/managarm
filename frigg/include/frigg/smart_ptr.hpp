@@ -186,7 +186,9 @@ class SharedPtr {
 	friend class SharedPtr;
 
 	friend class WeakPtr<T, Control>;
-	friend class UnsafePtr<T, Control>;
+	
+	template<typename U, typename D>
+	friend class UnsafePtr;
 
 public:
 	friend void swap(SharedPtr &a, SharedPtr &b) {
@@ -362,7 +364,8 @@ public:
 	UnsafePtr()
 	: _control(nullptr), _object(nullptr) { }
 	
-	UnsafePtr(const SharedPtr<T, Control> &shared)
+	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
+	UnsafePtr(const SharedPtr<U, Control> &shared)
 	: _control(shared._control), _object(shared._object) { }
 	
 	UnsafePtr(const WeakPtr<T, Control> &weak)

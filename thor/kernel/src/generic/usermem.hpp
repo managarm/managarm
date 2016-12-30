@@ -15,33 +15,13 @@ enum : GrabIntent {
 	kGrabDontRequireBacking = GrabIntent(1) << 4
 };
 
-struct HardwareMemory {
-	HardwareMemory(PhysicalAddr base, size_t length);
-	
-	size_t getLength();
-
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
-
-private:
-	PhysicalAddr _base;
-	size_t _length;
-};
-
-struct AllocatedMemory {
-	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
-			size_t chunk_align = kPageSize);
-	
-	size_t getLength();
-
-	// TODO: add a method to populate the memory
-	
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
-
-private:
-	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
-	size_t _chunkSize, _chunkAlign;
+enum class MemoryTag {
+	null,
+	hardware,
+	allocated,
+	backing,
+	frontal,
+	copyOnWrite
 };
 
 struct ManageBase {
@@ -92,6 +72,78 @@ private:
 	F _functor;
 };
 
+struct Memory {
+	static void transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
+			frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length);
+
+	Memory(MemoryTag tag)
+	: _tag(tag) { }
+
+	Memory(const Memory &) = delete;
+
+	Memory &operator= (const Memory &) = delete;
+	
+	MemoryTag tag() const {
+		return _tag;
+	}
+
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_flags, size_t offset);
+	
+	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
+	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
+	void completeLoad(size_t offset, size_t length);
+
+	void load(size_t offset, void *pointer, size_t length);
+	void copyFrom(size_t offset, void *pointer, size_t length);
+
+	Futex futex;
+
+private:
+	MemoryTag _tag;
+};
+
+struct HardwareMemory : Memory {
+	static bool classOf(const Memory &memory) {
+		return memory.tag() == MemoryTag::hardware;
+	}
+
+	HardwareMemory(PhysicalAddr base, size_t length);
+	~HardwareMemory();
+
+	size_t getLength();
+
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+
+private:
+	PhysicalAddr _base;
+	size_t _length;
+};
+
+struct AllocatedMemory : Memory {
+	static bool classOf(const Memory &memory) {
+		return memory.tag() == MemoryTag::allocated;
+	}
+
+	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
+			size_t chunk_align = kPageSize);
+	~AllocatedMemory();
+	
+	size_t getLength();
+
+	// TODO: add a method to populate the memory
+	
+	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
+			GrabIntent grab_intent, size_t offset);
+
+private:
+	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
+	size_t _chunkSize, _chunkAlign;
+};
+
 struct ManagedSpace {
 	enum LoadState {
 		kStateMissing,
@@ -100,6 +152,7 @@ struct ManagedSpace {
 	};
 
 	ManagedSpace(size_t length);
+	~ManagedSpace();
 	
 	void progressLoads();
 	bool isComplete(frigg::UnsafePtr<InitiateBase> initiate);
@@ -123,10 +176,14 @@ struct ManagedSpace {
 	> handleLoadQueue;
 };
 
-struct BackingMemory {
+struct BackingMemory : Memory {
 public:
+	static bool classOf(const Memory &memory) {
+		return memory.tag() == MemoryTag::backing;
+	}
+
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: _managed(frigg::move(managed)) { }
+	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
 	size_t getLength();
 
@@ -140,10 +197,14 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct FrontalMemory {
+struct FrontalMemory : Memory {
 public:
+	static bool classOf(const Memory &memory) {
+		return memory.tag() == MemoryTag::frontal;
+	}
+
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
-	: _managed(frigg::move(managed)) { }
+	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
 	size_t getLength();
 
@@ -156,8 +217,13 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct CopyOnWriteMemory {
+struct CopyOnWriteMemory : Memory {
+	static bool classOf(const Memory &memory) {
+		return memory.tag() == MemoryTag::copyOnWrite;
+	}
+
 	CopyOnWriteMemory(frigg::SharedPtr<Memory> origin);
+	~CopyOnWriteMemory();
 
 	size_t getLength();
 
@@ -168,79 +234,6 @@ private:
 	frigg::SharedPtr<Memory> _origin;
 
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalPages;
-};
-
-struct Memory {
-	typedef frigg::Variant<
-		HardwareMemory,
-		AllocatedMemory,
-		BackingMemory,
-		FrontalMemory,
-		CopyOnWriteMemory
-	> MemoryVariant;
-
-	static void transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
-			frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length);
-
-	Memory(MemoryVariant variant);
-		
-	size_t getLength() {
-		return _variant.apply([&] (auto &unboxed) {
-			return unboxed.getLength();
-		});
-	}
-
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_flags, size_t offset) {
-		assert((grab_flags & kGrabQuery) || (grab_flags & kGrabFetch));
-		assert(!((grab_flags & kGrabQuery) && (grab_flags & kGrabFetch)));
-		return _variant.apply([&] (auto &unboxed) {
-			return unboxed.grabPage(physical_guard, grab_flags, offset);
-		});
-	}
-	
-	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
-		switch(_variant.tag()) {
-		case MemoryVariant::tagOf<FrontalMemory>():
-			_variant.get<FrontalMemory>().submitInitiateLoad(frigg::move(initiate));
-			break;
-		case MemoryVariant::tagOf<HardwareMemory>():
-		case MemoryVariant::tagOf<AllocatedMemory>():
-			initiate->complete(kErrSuccess);
-			break;
-		case MemoryVariant::tagOf<CopyOnWriteMemory>():
-			assert(!"Not implemented yet");
-		default:
-			assert(!"Not supported");
-		}
-	}
-
-	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
-		switch(_variant.tag()) {
-		case MemoryVariant::tagOf<BackingMemory>():
-			_variant.get<BackingMemory>().submitHandleLoad(frigg::move(handle));
-			break;
-		default:
-			assert(!"Not supported");
-		}
-	}
-	void completeLoad(size_t offset, size_t length) {
-		switch(_variant.tag()) {
-		case MemoryVariant::tagOf<BackingMemory>():
-			_variant.get<BackingMemory>().completeLoad(offset, length);
-			break;
-		default:
-			assert(!"Not supported");
-		}
-	}
-
-	void load(size_t offset, void *pointer, size_t length);
-	void copyFrom(size_t offset, void *pointer, size_t length);
-
-	Futex futex;
-
-private:
-	MemoryVariant _variant;
 };
 
 struct Mapping;

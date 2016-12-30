@@ -240,6 +240,8 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 template<typename VirtualAlloc, typename Mutex>
 auto SlabAllocator<VirtualAlloc, Mutex>::allocateNewArea(AreaType type, size_t area_size)
 -> VirtualArea * {
+//	frigg::infoLogger() << "Allocate new area for " << (void *)area_size << frigg::endLog;
+
 	// allocate virtual memory for the chunk
 	assert((area_size % kPageSize) == 0);
 	uintptr_t address = p_virtAllocator.map(area_size + kVirtualAreaPadding);
