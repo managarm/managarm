@@ -201,22 +201,25 @@ PhysicalAddr FrontalMemory::grabPage(PhysicalChunkAllocator::Guard &,
 
 		if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
 			assert(!(grab_intent & kGrabDontRequireBacking));
+			auto this_thread = getCurrentThread();
 
-			assert(!"Fix this using Thread::blockCurrentWhile()");
-/*			struct NullAllocator {
-				void free(void *) { }
+			std::atomic<bool> complete(false);
+			auto functor = [&] (Error error) {
+				assert(error == kErrSuccess);
+				complete.store(true, std::memory_order_release);
+				Thread::unblockOther(this_thread);
 			};
-			NullAllocator null_allocator;
 
-			KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-			frigg::SharedBlock<InitiateBase, NullAllocator> block(null_allocator,
-					ReturnFromForkCompleter(this_thread.toWeak()), offset, kPageSize);
-			frigg::SharedPtr<InitiateBase> initiate(frigg::adoptShared, &block);
-			
-			Thread::blockCurrent([&] () {
-				_managed->initiateLoadQueue.addBack(frigg::move(initiate));
-				_managed->progressLoads();
-			});*/
+			// TODO: Store the initiation object on the stack.
+			// This ensures that we can not run out of kernel heap memory here.
+			auto initiate = frigg::makeShared<Initiate<decltype(functor)>>(*kernelAlloc,
+					offset, kPageSize, frigg::move(functor));
+			_managed->initiateLoadQueue.addBack(frigg::move(initiate));
+			_managed->progressLoads();
+
+			Thread::blockCurrentWhile([&] {
+				return !complete.load(std::memory_order_acquire);
+			});
 		}
 
 		PhysicalAddr physical = _managed->physicalPages[index];
