@@ -3,6 +3,7 @@ namespace thor {
 
 enum Interrupt {
 	kIntrNone,
+	kIntrPanic,
 	kIntrBreakpoint,
 	kIntrPageFault,
 	kIntrSuperCall = 0x80000000

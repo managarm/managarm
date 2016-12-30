@@ -444,10 +444,12 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLog((const char *)arg0, (size_t)arg1);
 	} break;
 	case kHelCallPanic: {
-		frigg::infoLogger() << "User space panic:" << frigg::endLog;
-		helLog((const char *)arg0, (size_t)arg1);
-		
-		while(true) { }
+		if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
+			frigg::infoLogger() << "User space panic:" << frigg::endLog;
+			helLog((const char *)arg0, (size_t)arg1);
+		}else{
+			Thread::interruptCurrent(kIntrPanic, image);
+		}
 	} break;
 
 	case kHelCallCreateUniverse: {

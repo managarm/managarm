@@ -259,7 +259,9 @@ struct ObserveThreadWriter {
 
 	void write(ForeignSpaceAccessor accessor) {
 		unsigned int observation;
-		if(_interrupt == kIntrBreakpoint) {
+		if(_interrupt == kIntrPanic) {
+			observation = kHelObservePanic;
+		}else if(_interrupt == kIntrBreakpoint) {
 			observation = kHelObserveBreakpoint;
 		}else if(_interrupt == kIntrPageFault) {
 			observation = kHelObservePageFault;
