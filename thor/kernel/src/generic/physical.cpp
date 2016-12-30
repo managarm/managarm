@@ -45,7 +45,7 @@ void PhysicalChunkAllocator::bootstrap() {
 PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	assert(guard.protects(&lock));
 
-	assert(_freePages > 0);
+	assert(_freePages > size / kPageSize);
 	_freePages -= size / kPageSize;
 	_usedPages += size / kPageSize;
 
@@ -60,20 +60,21 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	return physical;
 }
 
-void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address) {
-	(void)address;
-
+void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address, size_t size) {
 	assert(guard.protects(&lock));
-	//assert(address >= p_root->baseAddress);
-	//assert(address < p_root->baseAddress
-	//		+ p_root->pageSize * p_root->numPages);
 	
-	assert(!"Fix free()");
-	__builtin_trap();
+	int target = 0;
+	while(size > (size_t(kPageSize) << target))
+		target++;
+	assert(size == (size_t(kPageSize) << target));
+
+	auto index = (address - _physicalBase) >> kPageShift;
+	frigg::buddy_tools::free(_buddyPointer, _buddyRoots, _buddyOrder,
+			index, target);
 	
-//	assert(_usedPages > 0);
-//	_usedPages -= size / kPageSize;
-//	_freePages += size / kPageSize;
+	assert(_usedPages > size / kPageSize);
+	_freePages += size / kPageSize;
+	_usedPages -= size / kPageSize;
 }
 
 size_t PhysicalChunkAllocator::numUsedPages() {

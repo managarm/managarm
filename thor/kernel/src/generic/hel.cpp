@@ -374,9 +374,9 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
-	frigg::infoLogger() << "Allocate " << (void *)size
-			<< ", sum of allocated memory: " << (void *)pressure << frigg::endLog;
+//	auto pressure = physicalAllocator->numUsedPages() * kPageSize;
+//	frigg::infoLogger() << "Allocate " << (void *)size
+//			<< ", sum of allocated memory: " << (void *)pressure << frigg::endLog;
 
 	frigg::SharedPtr<Memory> memory;
 	if(flags & kHelAllocContinuous) {

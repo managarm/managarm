@@ -207,7 +207,13 @@ AllocatedMemory::AllocatedMemory(size_t length, size_t chunk_size, size_t chunk_
 }
 
 AllocatedMemory::~AllocatedMemory() {
-	frigg::infoLogger() << "\e[35mFix AllocatedMemory deallocation\e[39m" << frigg::endLog;
+	// TODO: This destructor takes a lock. This is potentially unexpected.
+	// Rework this to only schedule the deallocation but not actually perform it?
+	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
+	for(size_t i = 0; i < _physicalChunks.size(); ++i) {
+		if(_physicalChunks[i] != PhysicalAddr(-1))
+			physicalAllocator->free(physical_guard, _physicalChunks[i], _chunkSize);
+	}
 }
 
 size_t AllocatedMemory::getLength() {

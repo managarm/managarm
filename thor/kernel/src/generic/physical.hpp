@@ -12,7 +12,7 @@ public:
 	void bootstrap();
 
 	PhysicalAddr allocate(Guard &guard, size_t size);
-	void free(Guard &guard, PhysicalAddr address);
+	void free(Guard &guard, PhysicalAddr address, size_t size);
 
 	size_t numUsedPages();
 	size_t numFreePages();
