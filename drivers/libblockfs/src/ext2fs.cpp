@@ -219,48 +219,56 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer), ([=] {
-	size_t per_single = blockSize / 4;
-	size_t per_double = per_single * per_single;
-
-	size_t single_range = 12;
-	size_t double_range = single_range + per_single;
-	size_t triple_range = double_range + per_double;
-
-	COFIBER_AWAIT inode->readyJump.async_wait();
-
 	// We perform "read-fusion" here i.e. we try to read multiple
 	// consecutive blocks in a single readSectors() operation.
-	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) -> size_t {
-		size_t s = 1;
-		while(s < remaining && index + s < limit) {
-			if(list[s] != list[index] + s)
+	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
+		size_t n = 1;
+		while(n < remaining && index + n < limit) {
+			if(list[index + n] != list[index] + n)
 				break;
-			s++;
+			n++;
 		}
-		return s;
+		return std::pair<size_t, size_t>{list[index], n};
 	};
+	
+	size_t per_indirect = blockSize / 4;
+	size_t per_single = per_indirect;
+	size_t per_double = per_indirect * per_indirect;
+
+	// Number of blocks that can be accessed by:
+	size_t i_range = 12; // Direct blocks only.
+	size_t s_range = i_range + per_single; // Plus the first single indirect block.
+	size_t d_range = s_range + per_double; // Plus the first double indirect block.
+
+	COFIBER_AWAIT inode->readyJump.async_wait();
+	// TODO: Assert that we do not read past the EOF.
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
-		auto remaining = num_blocks - progress;
-		auto index = offset + progress;
 //		printf("Reading block %lu of inode %u\n", index, inode->number);
+		BlockCache::Ref s_cache;
 
-		assert(index < triple_range);
-		if(index >= double_range) {
+		// Block number and block count of the readSectors() command that we will issue here.
+		std::pair<size_t, size_t> issue;
+
+		auto index = offset + progress;
+		assert(index < d_range);
+		if(index >= s_range) {
 			assert(!"Fix double indirect blocks");
-		}else if(index >= single_range) {
-			assert(!"Fix single indirect blocks");
+		}else if(index >= i_range) {
+			s_cache = blockCache.lock(inode->fileData.blocks.singleIndirect);
+			COFIBER_AWAIT s_cache->waitUntilReady();
+			issue = fuse(index - i_range, num_blocks - progress,
+					(uint32_t *)s_cache->buffer, per_indirect);
 		}else{
-			auto block = inode->fileData.blocks.direct[index];
-			auto fuse_count = fuse(index, remaining, inode->fileData.blocks.direct, 12);
-			assert(block != 0);
-
-			COFIBER_AWAIT device->readSectors(block * sectorsPerBlock,
-					(uint8_t *)buffer + progress * blockSize,
-					fuse_count * sectorsPerBlock);
-			progress += fuse_count;
+			issue = fuse(index, num_blocks - progress, inode->fileData.blocks.direct, 12);
 		}
+
+		assert(issue.first != 0);
+		COFIBER_AWAIT device->readSectors(issue.first * sectorsPerBlock,
+				(uint8_t *)buffer + progress * blockSize,
+				issue.second * sectorsPerBlock);
+		progress += issue.second;
 	}
 
 	COFIBER_RETURN();
