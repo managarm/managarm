@@ -21,6 +21,9 @@ enum class FileType {
 using GetLinkResult = std::tuple<std::shared_ptr<void>, FileType>;
 
 struct FileOperations {
+	async::result<void> (*seek)(std::shared_ptr<void> object, uintptr_t offset);
+	async::result<void> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
+	async::result<helix::BorrowedDescriptor> (*accessMemory)(std::shared_ptr<void> object);
 };
 
 struct NodeOperations {

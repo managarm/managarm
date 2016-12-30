@@ -21,7 +21,56 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
+COFIBER_ROUTINE(async::result<void>, seek(std::shared_ptr<void> object,
+		uintptr_t offset), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+	self->offset = offset;
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<void>, read(std::shared_ptr<void> object,
+		void *buffer, size_t length), ([=] {
+	using M = helix::AwaitMechanism;
+	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+	COFIBER_AWAIT self->inode->readyJump.async_wait();
+
+	assert(self->offset <= self->inode->fileSize);
+	auto remaining = self->inode->fileSize - self->offset;
+	auto chunk_size = std::min(length, remaining);
+	assert(chunk_size);
+
+	auto chunk_offset = self->offset;
+	auto map_offset = chunk_offset & ~size_t(0xFFF);
+	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
+	self->offset += chunk_size;
+
+	helix::LockMemory<M> lock_memory;
+	helix::submitLockMemory(helix::BorrowedDescriptor(self->inode->frontalMemory), &lock_memory,
+			map_offset, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT(lock_memory.future());
+	HEL_CHECK(lock_memory.error());
+
+	// TODO: Use a RAII mapping class to get rid of the mapping on return.
+	// map the page cache into the address space
+	void *window;
+	HEL_CHECK(helMapMemory(self->inode->frontalMemory, kHelNullHandle,
+			nullptr, map_offset, map_size, kHelMapReadOnly | kHelMapDontRequireBacking, &window));
+
+	memcpy(buffer, (char *)window + (chunk_offset - map_offset), chunk_size);
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>,
+		accessMemory(std::shared_ptr<void> object), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+	COFIBER_AWAIT self->inode->readyJump.async_wait();
+	COFIBER_RETURN(helix::BorrowedDescriptor{self->inode->frontalMemory});
+}))
+
 constexpr protocols::fs::FileOperations fileOperations{
+	&seek,
+	&read,
+	&accessMemory
 };
 
 COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,

@@ -34,13 +34,60 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-			assert(!"Implement this");
+			helix::SendBuffer<M> send_resp;
+			
+			COFIBER_AWAIT(file_ops->seek(file, req.rel_offset()));
+			
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size()),
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT send_resp.future();
+			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-			assert(!"Implement this");
+			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer<M> send_data;
+			
+			std::string data;
+			data.resize(req.size());
+			COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, data.data(), data.size())
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT send_data.future();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-			assert(!"Implement this");
+			helix::SendBuffer<M> send_resp;
+			helix::PushDescriptor<M> push_memory;
+			
+			auto memory = COFIBER_AWAIT(file_ops->accessMemory(file));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&push_memory, memory)
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT push_memory.future();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_memory.error());
 		}else{
-			throw std::runtime_error("libfs_protocol: Unexpected request type in servePassthrough()");
+			throw std::runtime_error("libfs_protocol: Unexpected"
+					" request type in servePassthrough()");
 		}
 	}
 }))
