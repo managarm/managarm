@@ -1,4 +1,6 @@
 
+#include <queue>
+
 struct DeviceState;
 struct ConfigurationState;
 struct InterfaceState;
@@ -7,7 +9,7 @@ struct EndpointState;
 struct QueuedTransaction {
 	QueuedTransaction();
 	
-	cofiber::future<void> future();
+	async::result<void> future();
 
 	void setupTransfers(TransferDescriptor *transfers, size_t num_transfers);
 	QueueHead::LinkPointer head();
@@ -17,7 +19,7 @@ struct QueuedTransaction {
 	boost::intrusive::list_member_hook<> transactionHook;
 
 private:
-	cofiber::promise<void> _promise;
+	async::promise<void> _promise;
 	size_t _numTransfers;
 	TransferDescriptor *_transfers;
 	size_t _completeCounter;
@@ -94,13 +96,13 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(uint16_t base, helix::UniqueIrq irq);
 
 	void initialize();
-	cofiber::future<void> pollDevices();
-	cofiber::future<void> probeDevice();
+	async::result<void> pollDevices();
+	async::result<void> probeDevice();
 	void activateAsync(ScheduleEntity *entity);
 	void activatePeriodic(int frame, ScheduleEntity *entity);
-	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
+	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
 			int endpoint,  ControlTransfer info);
-	cofiber::future<void> transfer(std::shared_ptr<DeviceState> device_state,
+	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
 			int endpoint, XferFlags flags, InterruptTransfer info);
 	cofiber::no_future handleIrqs();
 
@@ -125,9 +127,9 @@ private:
 // ----------------------------------------------------------------------------
 
 struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
-	cofiber::future<std::string> configurationDescriptor() override;
-	cofiber::future<Configuration> useConfiguration(int number) override;
-	cofiber::future<void> transfer(ControlTransfer info) override;
+	async::result<std::string> configurationDescriptor() override;
+	async::result<Configuration> useConfiguration(int number) override;
+	async::result<void> transfer(ControlTransfer info) override;
 	
 	uint8_t address;
 	std::shared_ptr<EndpointState> endpointStates[32];
@@ -141,7 +143,7 @@ struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
 struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<ConfigurationState> {
 	ConfigurationState(std::shared_ptr<DeviceState> device);
 
-	cofiber::future<Interface> useInterface(int number, int alternative) override;
+	async::result<Interface> useInterface(int number, int alternative) override;
 
 //private:
 	std::shared_ptr<DeviceState> _device;
@@ -154,7 +156,7 @@ struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<Conf
 struct InterfaceState : InterfaceData {
 	InterfaceState(std::shared_ptr<ConfigurationState> config);
 
-	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) override;
+	async::result<Endpoint> getEndpoint(PipeType type, int number) override;
 
 //private:
 	std::shared_ptr<ConfigurationState> _config;
@@ -167,8 +169,8 @@ struct InterfaceState : InterfaceData {
 struct EndpointState : EndpointData {
 	EndpointState(PipeType type, int number);
 
-	cofiber::future<void> transfer(ControlTransfer info) override;
-	cofiber::future<void> transfer(InterruptTransfer info) override;
+	async::result<void> transfer(ControlTransfer info) override;
+	async::result<void> transfer(InterruptTransfer info) override;
 
 	size_t maxPacketSize;
 	std::unique_ptr<QueueEntity> queue;

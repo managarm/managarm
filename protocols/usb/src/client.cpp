@@ -4,9 +4,11 @@
 
 #include <string.h>
 
+#include <async/result.hpp>
+#include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
-#include <cofiber.hpp>
+
 #include "usb.pb.h"
 #include "protocols/usb/client.hpp"
 
@@ -19,9 +21,9 @@ struct DeviceState : DeviceData {
 	DeviceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	cofiber::future<std::string> configurationDescriptor() override;
-	cofiber::future<Configuration> useConfiguration(int number) override;
-	cofiber::future<void> transfer(ControlTransfer info) override;
+	async::result<std::string> configurationDescriptor() override;
+	async::result<Configuration> useConfiguration(int number) override;
+	async::result<void> transfer(ControlTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -31,7 +33,7 @@ struct ConfigurationState : ConfigurationData {
 	ConfigurationState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	cofiber::future<Interface> useInterface(int number, int alternative) override;
+	async::result<Interface> useInterface(int number, int alternative) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -41,7 +43,7 @@ struct InterfaceState : InterfaceData {
 	InterfaceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) override;
+	async::result<Endpoint> getEndpoint(PipeType type, int number) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -52,14 +54,14 @@ struct EndpointState : EndpointData {
 	EndpointState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 	
-	cofiber::future<void> transfer(ControlTransfer info) override;
-	cofiber::future<void> transfer(InterruptTransfer info) override;
+	async::result<void> transfer(ControlTransfer info) override;
+	async::result<void> transfer(InterruptTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
 };
 
-COFIBER_ROUTINE(cofiber::future<std::string>, DeviceState::configurationDescriptor(),
+COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor(),
 		([=] {
 	using M = helix::AwaitMechanism;
 
@@ -97,7 +99,7 @@ COFIBER_ROUTINE(cofiber::future<std::string>, DeviceState::configurationDescript
 	COFIBER_RETURN(std::move(data));
 }))
 
-COFIBER_ROUTINE(cofiber::future<Configuration>, DeviceState::useConfiguration(int number),
+COFIBER_ROUTINE(async::result<Configuration>, DeviceState::useConfiguration(int number),
 		([=] {
 	using M = helix::AwaitMechanism;
 
@@ -135,7 +137,7 @@ COFIBER_ROUTINE(cofiber::future<Configuration>, DeviceState::useConfiguration(in
 	COFIBER_RETURN(Configuration(std::move(state)));
 }))
 
-COFIBER_ROUTINE(cofiber::future<void>, DeviceState::transfer(ControlTransfer info),
+COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info),
 		([=] {
 	using M = helix::AwaitMechanism;
 
@@ -182,7 +184,7 @@ COFIBER_ROUTINE(cofiber::future<void>, DeviceState::transfer(ControlTransfer inf
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int number, int alternative),
+COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number, int alternative),
 		([=] {
 	using M = helix::AwaitMechanism;
 	
@@ -221,7 +223,7 @@ COFIBER_ROUTINE(cofiber::future<Interface>, ConfigurationState::useInterface(int
 	COFIBER_RETURN(Interface(std::move(state)));
 }))
 
-COFIBER_ROUTINE(cofiber::future<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
+COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
 		([=] {
 	using M = helix::AwaitMechanism;
 	
@@ -260,12 +262,12 @@ COFIBER_ROUTINE(cofiber::future<Endpoint>, InterfaceState::getEndpoint(PipeType 
 	COFIBER_RETURN(Endpoint(std::move(state)));
 }))
 
-COFIBER_ROUTINE(cofiber::future<void>, EndpointState::transfer(ControlTransfer info),
+COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(ControlTransfer info),
 		([=] {
 	throw std::runtime_error("endpoint control transfer not implemented");
 }))
 
-COFIBER_ROUTINE(cofiber::future<void>, EndpointState::transfer(InterruptTransfer info),
+COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer info),
 		([=] {
 	using M = helix::AwaitMechanism;
 	

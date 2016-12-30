@@ -1,18 +1,20 @@
 
+#include <deque>
+#include <experimental/optional>
 #include <iostream>
 
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
-#include <deque>
-#include <experimental/optional>
 
+#include <async/result.hpp>
 #include <cofiber.hpp>
+#include <helix/await.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
-#include <helix/await.hpp>
 #include <protocols/usb/client.hpp>
+
 #include "hid.hpp"
 
 
@@ -50,7 +52,7 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(cofiber::future<void>, parseReportDescriptor(Device device, int index), [=] () {
+COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index), [=] () {
 	printf("entered parseReportDescriptor\n");
 	size_t length = 52;
 	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);

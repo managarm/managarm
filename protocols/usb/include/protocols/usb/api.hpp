@@ -3,8 +3,9 @@
 #define LIBUSB_API_HPP
 
 #include <memory>
+
+#include <async/result.hpp>
 #include <cofiber.hpp>
-#include <cofiber/future.hpp>
 
 #include "usb.hpp"
 
@@ -44,16 +45,16 @@ enum class PipeType {
 // ----------------------------------------------------------------------------
 
 struct EndpointData {
-	virtual cofiber::future<void> transfer(ControlTransfer info) = 0;
-	virtual cofiber::future<void> transfer(InterruptTransfer info) = 0;
+	virtual async::result<void> transfer(ControlTransfer info) = 0;
+	virtual async::result<void> transfer(InterruptTransfer info) = 0;
 };
 
 
 struct Endpoint {
 	Endpoint(std::shared_ptr<EndpointData> state);
 	
-	cofiber::future<void> transfer(ControlTransfer info) const;
-	cofiber::future<void> transfer(InterruptTransfer info) const;
+	async::result<void> transfer(ControlTransfer info) const;
+	async::result<void> transfer(InterruptTransfer info) const;
 
 private:
 	std::shared_ptr<EndpointData> _state;
@@ -64,13 +65,13 @@ private:
 // ----------------------------------------------------------------------------
 
 struct InterfaceData {
-	virtual cofiber::future<Endpoint> getEndpoint(PipeType type, int number) = 0;
+	virtual async::result<Endpoint> getEndpoint(PipeType type, int number) = 0;
 };
 
 struct Interface {
 	Interface(std::shared_ptr<InterfaceData> state);
 	
-	cofiber::future<Endpoint> getEndpoint(PipeType type, int number) const;
+	async::result<Endpoint> getEndpoint(PipeType type, int number) const;
 
 private:
 	std::shared_ptr<InterfaceData> _state;
@@ -82,13 +83,13 @@ private:
 // ----------------------------------------------------------------------------
 
 struct ConfigurationData {
-	virtual cofiber::future<Interface> useInterface(int number, int alternative) = 0;
+	virtual async::result<Interface> useInterface(int number, int alternative) = 0;
 };
 
 struct Configuration {
 	Configuration(std::shared_ptr<ConfigurationData> state);
 	
-	cofiber::future<Interface> useInterface(int number, int alternative) const;
+	async::result<Interface> useInterface(int number, int alternative) const;
 
 private:
 	std::shared_ptr<ConfigurationData> _state;
@@ -99,17 +100,17 @@ private:
 // ----------------------------------------------------------------------------
 
 struct DeviceData {
-	virtual cofiber::future<std::string> configurationDescriptor() = 0;
-	virtual cofiber::future<Configuration> useConfiguration(int number) = 0;
-	virtual cofiber::future<void> transfer(ControlTransfer info) = 0;
+	virtual async::result<std::string> configurationDescriptor() = 0;
+	virtual async::result<Configuration> useConfiguration(int number) = 0;
+	virtual async::result<void> transfer(ControlTransfer info) = 0;
 };
 
 struct Device {
 	Device(std::shared_ptr<DeviceData> state);
 
-	cofiber::future<std::string> configurationDescriptor() const;
-	cofiber::future<Configuration> useConfiguration(int number) const;
-	cofiber::future<void> transfer(ControlTransfer info) const;
+	async::result<std::string> configurationDescriptor() const;
+	async::result<Configuration> useConfiguration(int number) const;
+	async::result<void> transfer(ControlTransfer info) const;
 
 private:
 	std::shared_ptr<DeviceData> _state;

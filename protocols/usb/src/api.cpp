@@ -8,15 +8,15 @@
 Device::Device(std::shared_ptr<DeviceData> state)
 : _state(std::move(state)) { }
 
-cofiber::future<std::string> Device::configurationDescriptor() const {
+async::result<std::string> Device::configurationDescriptor() const {
 	return _state->configurationDescriptor();
 }
 
-cofiber::future<Configuration> Device::useConfiguration(int number) const {
+async::result<Configuration> Device::useConfiguration(int number) const {
 	return _state->useConfiguration(number);
 }
 
-cofiber::future<void> Device::transfer(ControlTransfer info) const {
+async::result<void> Device::transfer(ControlTransfer info) const {
 	return _state->transfer(info);
 }
 
@@ -27,7 +27,7 @@ cofiber::future<void> Device::transfer(ControlTransfer info) const {
 Configuration::Configuration(std::shared_ptr<ConfigurationData> state)
 : _state(std::move(state)) { }
 
-cofiber::future<Interface> Configuration::useInterface(int number,
+async::result<Interface> Configuration::useInterface(int number,
 		int alternative) const {
 	return _state->useInterface(number, alternative);
 }
@@ -39,7 +39,7 @@ cofiber::future<Interface> Configuration::useInterface(int number,
 Interface::Interface(std::shared_ptr<InterfaceData> state)
 : _state(std::move(state)) { }
 
-cofiber::future<Endpoint> Interface::getEndpoint(PipeType type, int number) const {
+async::result<Endpoint> Interface::getEndpoint(PipeType type, int number) const {
 	return _state->getEndpoint(type, number);
 }
 
@@ -50,7 +50,7 @@ cofiber::future<Endpoint> Interface::getEndpoint(PipeType type, int number) cons
 Endpoint::Endpoint(std::shared_ptr<EndpointData> state)
 : _state(std::move(state)) { }
 
-cofiber::future<void> Endpoint::transfer(InterruptTransfer info) const {
+async::result<void> Endpoint::transfer(InterruptTransfer info) const {
 	return _state->transfer(info);
 }
 
