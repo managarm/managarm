@@ -199,7 +199,7 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 # generate protobuf
 gen-$c: $($c_GENDIR)/hw.pb.tag
 
-$($c_GENDIR)/%.pb.tag: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
-	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
+$($c_GENDIR)/%.pb.tag: $(TREE_PATH)/protocols/hw/%.proto | $($c_GENDIR)
+	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/hw $<
 	touch $@
 

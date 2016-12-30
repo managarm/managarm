@@ -1,0 +1,41 @@
+
+syntax = "proto2";
+package managarm.hw;
+option optimize_for = LITE_RUNTIME;
+
+enum Errors {
+	SUCCESS = 0;
+	ILLEGAL_REQUEST = 1;
+}
+
+enum IoType {
+	NO_BAR = 0;
+	PORT = 1;
+	MEMORY = 2;
+}
+
+enum CntReqType {
+	NONE = 0;
+	GET_PCI_INFO = 1;
+	ACCESS_BAR = 2;
+	ACCESS_IRQ = 3;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+	optional int32 index = 2;
+}
+
+message PciBar {
+	optional IoType io_type = 1;
+	// physical address of this BAR. only relevant for IO BARs
+	optional uint64 address = 3;
+	optional uint64 length = 2;
+	// bool prefetchable = 4;
+}
+
+message SvrResponse {
+	optional Errors error = 1;
+	repeated PciBar bars = 2;
+}
+

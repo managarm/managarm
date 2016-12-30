@@ -15,9 +15,9 @@
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <protocols/mbus/client.hpp>
+#include <protocols/hw/client.hpp>
 
 #include "block.hpp"
-#include "hw.pb.h"
 
 // TODO: Support more than one device.
 virtio::block::Device device;
@@ -25,40 +25,16 @@ virtio::block::Device device;
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	using M = helix::AwaitMechanism;
 
-	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
+	auto info = COFIBER_AWAIT hw_device.getPciInfo();
+	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
+	auto bar = COFIBER_AWAIT hw_device.accessBar(0);
+	auto irq = COFIBER_AWAIT hw_device.accessIrq();
 
-	// receive the device descriptor.
-	helix::RecvInline<M> recv_resp;
-	helix::PullDescriptor<M> pull_bar;
-	helix::PullDescriptor<M> pull_irq;
-
-	helix::submitAsync(lane, {
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_bar, kHelItemChain),
-		helix::action(&pull_irq),
-	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_bar.future();
-	COFIBER_AWAIT pull_irq.future();
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_bar.error());
-	HEL_CHECK(pull_irq.error());
-
-	managarm::hw::PciDevice resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-
-	// run the UHCI driver.
-	assert(resp.bars(0).io_type() == managarm::hw::IoType::PORT);
-	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(4).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
-	HEL_CHECK(helEnableIo(pull_bar.descriptor().getHandle()));
+	HEL_CHECK(helEnableIo(bar.getHandle()));
 
 	std::cout << "Setting up the device" << std::endl;
-	device.setupDevice(resp.bars(0).address(), pull_irq.descriptor());
+	device.setupDevice(info.barInfo[0].address, std::move(irq));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

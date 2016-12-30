@@ -30,19 +30,26 @@ int main() {
 	args.push_back(nullptr);
 
 	char *envp[] = { nullptr };
+	
+	auto uhci = fork();
+	if(!uhci) {
+		execve("/initrd/uhci", args.data(), envp);
+	}else assert(uhci != -1);
 
-	auto child = fork();
-	if(!child) {
+	auto virtio = fork();
+	if(!virtio) {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
-	}else assert(child != -1);
+	}else assert(virtio != -1);
 
+/*
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
 		for(int i = 0; i < 100; i++)
 			sched_yield();
 	}
+*/
 
 	printf("Mounting /dev/sda0\n");
 	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {

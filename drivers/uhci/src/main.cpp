@@ -14,6 +14,7 @@
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
@@ -21,7 +22,6 @@
 
 #include "uhci.hpp"
 #include "schedule.hpp"
-#include <hw.pb.h>
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
@@ -601,43 +601,18 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	}
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	using M = helix::AwaitMechanism;
 
-	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
+	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
+	auto info = COFIBER_AWAIT device.getPciInfo();
+	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);
+	auto bar = COFIBER_AWAIT device.accessBar(4);
+	auto irq = COFIBER_AWAIT device.accessIrq();
 
-	// receive the device descriptor.
-	helix::RecvInline<M> recv_resp;
-	helix::PullDescriptor<M> pull_bar;
-	helix::PullDescriptor<M> pull_irq;
+	HEL_CHECK(helEnableIo(bar.getHandle()));
 
-	helix::submitAsync(lane, {
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_bar, kHelItemChain),
-		helix::action(&pull_irq),
-	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_bar.future();
-	COFIBER_AWAIT pull_irq.future();
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(pull_bar.error());
-	HEL_CHECK(pull_irq.error());
-
-	managarm::hw::PciDevice resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-
-	// run the UHCI driver.
-	assert(resp.bars(0).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(1).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(2).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(3).io_type() == managarm::hw::IoType::NONE);
-	assert(resp.bars(4).io_type() == managarm::hw::IoType::PORT);
-	assert(resp.bars(5).io_type() == managarm::hw::IoType::NONE);
-	HEL_CHECK(helEnableIo(pull_bar.descriptor().getHandle()));
-
-	auto controller = std::make_shared<Controller>(resp.bars(4).address(),
-			helix::UniqueIrq(pull_irq.descriptor()));
+	auto controller = std::make_shared<Controller>(info.barInfo[4].address, std::move(irq));
 	controller->initialize();
 
 	globalControllers.push_back(std::move(controller));
