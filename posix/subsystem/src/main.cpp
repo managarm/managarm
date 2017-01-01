@@ -97,7 +97,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 					gprs[6], gprs[7], &path[0]));
 
 			Process::exec(self, path);
-		}else if(observe.observation() == kHelObserveStop) {
+		}else if(observe.observation() == kHelObserveSuperCall + 4) {
 			printf("\e[35mThread exited\e[39m\n");
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;

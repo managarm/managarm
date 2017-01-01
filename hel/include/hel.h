@@ -47,7 +47,6 @@ enum {
 	kHelCallResume = 61,
 	kHelCallLoadRegisters = 75,
 	kHelCallStoreRegisters = 76,
-	kHelCallExitThisThread = 5,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
 	
@@ -319,7 +318,6 @@ HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
 HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image); 
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
-HEL_C_LINKAGE HelError helExitThisThread();
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 

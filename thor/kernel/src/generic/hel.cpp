@@ -975,14 +975,6 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	return kHelErrNone;
 }
 
-HelError helExitThisThread() {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-
-	this_thread->signalStop();
-
-	return kHelErrNone;
-}
-
 HelError helWriteFsBase(void *pointer) {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, (uintptr_t)pointer);
 	return kHelErrNone;

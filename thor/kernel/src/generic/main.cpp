@@ -563,9 +563,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallStoreRegisters: {
 		*image.error() = helStoreRegisters((HelHandle)arg0, (int)arg1, (const void *)arg2);
 	} break;
-	case kHelCallExitThisThread: {
-		*image.error() = helExitThisThread();
-	} break;
 	case kHelCallWriteFsBase: {
 		*image.error() = helWriteFsBase((void *)arg0);
 	} break;

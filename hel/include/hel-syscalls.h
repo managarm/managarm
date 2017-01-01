@@ -208,10 +208,6 @@ DEFINE_SYSCALL(StoreRegisters, HelHandle handle, int set, const void *image)
 	DO_SYSCALL(StoreRegisters)
 END_SYSCALL()
 
-DEFINE_SYSCALL(ExitThisThread)
-	DO_SYSCALL(ExitThisThread)
-END_SYSCALL()
-
 DEFINE_SYSCALL(WriteFsBase, void *pointer)
 	IN(0, pointer)
 	DO_SYSCALL(WriteFsBase)
