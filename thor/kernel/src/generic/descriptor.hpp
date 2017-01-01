@@ -31,10 +31,10 @@ struct UniverseDescriptor {
 };
 
 struct ThreadDescriptor {
-	ThreadDescriptor(frigg::SharedPtr<Thread, ThreadRunControl> thread)
+	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
 	: thread(frigg::move(thread)) { }
 	
-	frigg::SharedPtr<Thread, ThreadRunControl> thread;
+	frigg::SharedPtr<Thread> thread;
 };
 
 // --------------------------------------------------------

@@ -815,21 +815,13 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	
 	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
 
-	// we increment the owning refcount twice here.
-	// it is decremented when all ThreadRunControl pointers go out of scope
-	// AND when the thread is finally killed.
-	new_thread.control().increment();
-	new_thread.control().increment();
-	frigg::SharedPtr<Thread, ThreadRunControl> run_ptr(frigg::adoptShared, new_thread.get(),
-			ThreadRunControl(new_thread.get(), new_thread.control().counter()));
-
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(new_thread);
 
 	{
 		Universe::Guard universe_guard(&this_universe->lock);
 		*handle = this_universe->attachDescriptor(universe_guard,
-				ThreadDescriptor(frigg::move(run_ptr)));
+				ThreadDescriptor(frigg::move(new_thread)));
 	}
 
 	return kHelErrNone;

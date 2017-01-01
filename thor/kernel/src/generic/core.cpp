@@ -145,24 +145,6 @@ SubmitInfo::SubmitInfo(int64_t async_id,
 		submitObject(submit_object) { }
 
 // --------------------------------------------------------
-// ThreadRunControl
-// --------------------------------------------------------
-		
-void ThreadRunControl::increment() {
-	auto count = _thread->_runCount.fetch_add(1, std::memory_order_relaxed);
-	assert(count > 0);
-}
-
-void ThreadRunControl::decrement() {
-	auto count = _thread->_runCount.fetch_sub(1, std::memory_order_acq_rel);
-	if(count == 1) {
-		// FIXME: protect this with a lock
-		frigg::infoLogger() << "\e[35mMake sure ThreadRunControl::decrement()"
-				<< " works correctly\e[39m" << frigg::endLog;
-	}
-}
-
-// --------------------------------------------------------
 // Threading related functions
 // --------------------------------------------------------
 

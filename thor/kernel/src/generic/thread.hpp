@@ -17,7 +17,6 @@ struct Thread;
 KernelUnsafePtr<Thread> getCurrentThread();
 
 struct Thread : public PlatformExecutor {
-friend class ThreadRunControl;
 private:
 	struct ObserveBase {
 		virtual void trigger(Error error, Interrupt interrupt) = 0;

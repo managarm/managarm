@@ -102,30 +102,6 @@ struct SubmitInfo {
 	uintptr_t submitObject;
 };
 
-
-struct ThreadRunControl {
-	ThreadRunControl()
-	: _counter(nullptr) { }
-
-	ThreadRunControl(Thread *thread, frigg::SharedCounter *counter)
-	: _thread(thread), _counter(counter) { }
-
-	explicit operator bool () const {
-		return _counter;
-	}
-
-	operator frigg::SharedControl () const {
-		return frigg::SharedControl(_counter);
-	}
-
-	void increment();
-	void decrement();
-
-private:
-	Thread *_thread;
-	frigg::SharedCounter *_counter;
-};
-
 } // namespace thor
 
 #include "descriptor.hpp"
