@@ -259,7 +259,9 @@ struct ObserveThreadWriter {
 
 	void write(ForeignSpaceAccessor accessor) {
 		unsigned int observation;
-		if(_interrupt == kIntrPanic) {
+		if(_interrupt == kIntrStop) {
+			observation = kHelObserveStop;
+		}else if(_interrupt == kIntrPanic) {
 			observation = kHelObservePanic;
 		}else if(_interrupt == kIntrBreakpoint) {
 			observation = kHelObserveBreakpoint;
@@ -984,7 +986,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 HelError helExitThisThread() {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 
-	this_thread->signalKill();
+	this_thread->signalStop();
 
 	return kHelErrNone;
 }

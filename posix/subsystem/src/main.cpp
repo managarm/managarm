@@ -97,8 +97,10 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 					gprs[6], gprs[7], &path[0]));
 
 			Process::exec(self, path);
+		}else if(observe.observation() == kHelObserveStop) {
+			printf("\e[35mThread exited\e[39m\n");
 		}else if(observe.observation() == kHelObservePanic) {
-			printf("\e[31mUser space panic\n");
+			printf("\e[35mUser space panic\n");
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);

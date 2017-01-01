@@ -1,8 +1,11 @@
 
+#include <atomic>
+
 namespace thor {
 
 enum Interrupt {
 	kIntrNone,
+	kIntrStop,
 	kIntrPanic,
 	kIntrBreakpoint,
 	kIntrPageFault,
@@ -65,6 +68,8 @@ public:
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
 	
+	static void raiseSignals(SyscallImageAccessor image);
+
 	// state transitions that apply to arbitrary threads.
 	static void activateOther(frigg::UnsafePtr<Thread> thread);
 	static void unblockOther(frigg::UnsafePtr<Thread> thread);
@@ -75,7 +80,7 @@ public:
 	// do not confuse them with POSIX signals!
 	enum Signal {
 		kSigNone,
-		kSigKill
+		kSigStop
 	};
 
 	enum Flags : uint32_t {
@@ -102,8 +107,7 @@ public:
 		return _superiorLane;
 	}
 
-	void signalKill();
-	Signal pendingSignal();
+	void signalStop();
 
 	template<typename F>
 	void submitObserve(F functor) {
@@ -135,7 +139,7 @@ private:
 
 		// the thread was manually stopped from userspace.
 		// it is not scheduled.
-		kRunInterrupted
+		kRunInterrupted,
 	};
 
 	static void _blockLocked(frigg::LockGuard<Mutex> lock);
@@ -150,13 +154,12 @@ private:
 	// tick in which this thread transitioned to the active state
 	uint64_t _activationTick;
 
-	// this is set by signalKill() and queried each time the kernel
-	// is ready to process the kill request, e.g. after a syscall finishes.
+	// This is set by signalStop() and polled by raiseSignals().
 	Signal _pendingSignal;
 
-	// number of references that keep this thread running.
-	// the thread is killed when this counter reaches zero.
-	int _runCount;
+	// Number of references that keep this thread running.
+	// The thread is killed when this counter reaches zero.
+	std::atomic<int> _runCount;
 
 	Context _context;
 

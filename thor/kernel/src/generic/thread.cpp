@@ -65,6 +65,29 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	});
 }
 
+void Thread::raiseSignals(SyscallImageAccessor image) {
+	auto this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	
+	if(this_thread->_pendingSignal == kSigStop) {
+		this_thread->_runState = kRunInterrupted;
+		saveExecutor(image);
+
+		// FIXME: Huge hack! This should really be a loop and run more than one callback.
+		if(!this_thread->_observeQueue.empty()) {
+			auto observe = this_thread->_observeQueue.removeFront();
+			assert(this_thread->_observeQueue.empty());
+			observe->trigger(Error::kErrSuccess, kIntrStop);
+		}
+
+		assert(!intsAreEnabled());
+		runDetached([] {
+			ScheduleGuard schedule_lock(scheduleLock.get());
+			doSchedule(frigg::move(schedule_lock));
+		});
+	}
+}
+
 void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
 	assert(other_thread->_runState == kRunSuspended
 			|| other_thread->_runState == kRunDeferred);
@@ -124,18 +147,9 @@ KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return _addressSpace;
 }
 
-void Thread::signalKill() {
+void Thread::signalStop() {
 	assert(_pendingSignal == kSigNone);
-	_pendingSignal = kSigKill;
-
-	if(_runState == kRunActive)
-		return;
-
-	frigg::panicLogger() << "Thread killed in inactive state" << frigg::endLog;
-}
-
-auto Thread::pendingSignal() -> Signal {
-	return _pendingSignal;
+	_pendingSignal = kSigStop;
 }
 
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {

@@ -149,20 +149,16 @@ SubmitInfo::SubmitInfo(int64_t async_id,
 // --------------------------------------------------------
 		
 void ThreadRunControl::increment() {
-	int previous_ref_count;
-	frigg::fetchInc(&_thread->_runCount, previous_ref_count);
-	assert(previous_ref_count > 0);
+	auto count = _thread->_runCount.fetch_add(1, std::memory_order_relaxed);
+	assert(count > 0);
 }
 
 void ThreadRunControl::decrement() {
-	int previous_ref_count;
-	frigg::fetchDec(&_thread->_runCount, previous_ref_count);
-	if(previous_ref_count == 1) {
+	auto count = _thread->_runCount.fetch_sub(1, std::memory_order_acq_rel);
+	if(count == 1) {
 		// FIXME: protect this with a lock
-		frigg::infoLogger() << "Make sure thread going out of scope works correctly"
-				<< frigg::endLog;
-		_thread->signalKill();
-		_counter->decrement();
+		frigg::infoLogger() << "\e[35mMake sure ThreadRunControl::decrement()"
+				<< " works correctly\e[39m" << frigg::endLog;
 	}
 }
 

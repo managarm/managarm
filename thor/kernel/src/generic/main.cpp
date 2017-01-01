@@ -650,14 +650,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = kHelErrIllegalSyscall;
 	}
 
-	if(this_thread->pendingSignal() == Thread::kSigKill) {
-		frigg::infoLogger() << "Fix thread collection" << frigg::endLog;
-//		this_thread.control().decrement();
-
-		ScheduleGuard schedule_guard(scheduleLock.get());
-		doSchedule(frigg::move(schedule_guard));
-	}
-	assert(!this_thread->pendingSignal());
+	Thread::raiseSignals(image);
 
 //	frigg::infoLogger() << "exit syscall" << frigg::endLog;
 }
