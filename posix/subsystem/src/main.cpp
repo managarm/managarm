@@ -99,6 +99,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			Process::exec(self, path);
 		}else if(observe.observation() == kHelObserveStop) {
 			printf("\e[35mThread exited\e[39m\n");
+			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
+			return;
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic\n");
 			dumpRegisters(thread);

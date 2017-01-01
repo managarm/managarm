@@ -131,9 +131,8 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 }
 
 Thread::~Thread() {
-	assert(!"Thread destructed");
 	if(!_observeQueue.empty())
-		frigg::infoLogger() << "Fix thread destructor!" << frigg::endLog;
+		frigg::infoLogger() << "\e[35mFix thread destructor!\e[39m" << frigg::endLog;
 }
 
 Context &Thread::getContext() {
