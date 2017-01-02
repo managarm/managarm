@@ -122,6 +122,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		std::experimental::optional<int> interfaceNumber;
 		std::experimental::optional<int> interfaceAlternative;
 		std::experimental::optional<int> endpointNumber;
+		std::experimental::optional<bool> endpointIn;
 	} info;
 
 	auto p = &buffer[0];
@@ -138,6 +139,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceNumber = std::experimental::nullopt;
 			info.interfaceAlternative = std::experimental::nullopt;
 			info.endpointNumber = std::experimental::nullopt;
+			info.endpointIn = std::experimental::nullopt;
 		}else if(base->descriptorType == kDescriptorInterface) {
 			auto desc = (InterfaceDescriptor *)base;
 			assert(desc->length == sizeof(InterfaceDescriptor));
@@ -145,11 +147,13 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceNumber = desc->interfaceNumber;
 			info.interfaceAlternative = desc->alternateSetting;
 			info.endpointNumber = std::experimental::nullopt;
+			info.endpointIn = std::experimental::nullopt;
 		}else if(base->descriptorType == kDescriptorEndpoint) {
 			auto desc = (EndpointDescriptor *)base;
 			assert(desc->length == sizeof(EndpointDescriptor));
 		
 			info.endpointNumber = desc->endpointAddress & 0x0F;
+			info.endpointIn = desc->endpointAddress & 0x80;
 		}
 
 		functor(base->descriptorType, base->length, base, info);

@@ -36,6 +36,14 @@ struct InterruptTransfer {
 	size_t length;
 };
 
+struct BulkTransfer {
+	BulkTransfer(XferFlags flags, void *buffer, size_t length);
+
+	XferFlags flags;
+	void *buffer;
+	size_t length;
+};
+
 enum class PipeType {
 	null, in, out, control
 };
@@ -47,6 +55,7 @@ enum class PipeType {
 struct EndpointData {
 	virtual async::result<void> transfer(ControlTransfer info) = 0;
 	virtual async::result<void> transfer(InterruptTransfer info) = 0;
+	virtual async::result<void> transfer(BulkTransfer info) = 0;
 };
 
 
@@ -55,6 +64,7 @@ struct Endpoint {
 	
 	async::result<void> transfer(ControlTransfer info) const;
 	async::result<void> transfer(InterruptTransfer info) const;
+	async::result<void> transfer(BulkTransfer info) const;
 
 private:
 	std::shared_ptr<EndpointData> _state;

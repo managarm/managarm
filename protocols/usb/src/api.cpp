@@ -54,3 +54,7 @@ async::result<void> Endpoint::transfer(InterruptTransfer info) const {
 	return _state->transfer(info);
 }
 
+async::result<void> Endpoint::transfer(BulkTransfer info) const {
+	return _state->transfer(info);
+}
+

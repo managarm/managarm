@@ -13,3 +13,7 @@ ControlTransfer::ControlTransfer(XferFlags flags, ControlRecipient recipient,
 InterruptTransfer::InterruptTransfer(XferFlags flags, void *buffer, size_t length)
 	: flags(flags), buffer(buffer), length(length) { }
 
+BulkTransfer::BulkTransfer(XferFlags flags, void *buffer, size_t length)
+	: flags(flags), buffer(buffer), length(length) { }
+
+

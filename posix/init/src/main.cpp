@@ -36,6 +36,11 @@ int main() {
 		execve("/initrd/uhci", args.data(), envp);
 	}else assert(uhci != -1);
 
+	auto storage = fork();
+	if(!storage) {
+		execve("/initrd/storage", args.data(), envp);
+	}else assert(storage != -1);
+
 /*
 	auto virtio = fork();
 	if(!virtio) {

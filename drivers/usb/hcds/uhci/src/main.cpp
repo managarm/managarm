@@ -292,11 +292,19 @@ COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int n
 		auto desc = (EndpointDescriptor *)p;	
 		
 		int endpoint = info.endpointNumber.value();
-		_device->endpointStates[endpoint] = std::make_shared<EndpointState>(PipeType::in, endpoint);
-		_device->endpointStates[endpoint]->maxPacketSize = desc->maxPacketSize;
-		_device->endpointStates[endpoint]->queue = std::make_unique<QueueEntity>();
-		_device->endpointStates[endpoint]->_interface = interface;
-		_device->_controller->activateAsync(_device->endpointStates[endpoint]->queue.get());
+		if(info.endpointIn.value()) {
+			_device->inStates[endpoint] = std::make_shared<EndpointState>(PipeType::in, endpoint);
+			_device->inStates[endpoint]->maxPacketSize = desc->maxPacketSize;
+			_device->inStates[endpoint]->queue = std::make_unique<QueueEntity>();
+			_device->inStates[endpoint]->_interface = interface;
+			_device->_controller->activateAsync(_device->inStates[endpoint]->queue.get());
+		}else{
+			_device->outStates[endpoint] = std::make_shared<EndpointState>(PipeType::out, endpoint);
+			_device->outStates[endpoint]->maxPacketSize = desc->maxPacketSize;
+			_device->outStates[endpoint]->queue = std::make_unique<QueueEntity>();
+			_device->outStates[endpoint]->_interface = interface;
+			_device->_controller->activateAsync(_device->outStates[endpoint]->queue.get());
+		}
 	});
 	
 	COFIBER_RETURN(Interface(interface));
@@ -311,7 +319,14 @@ InterfaceState::InterfaceState(std::shared_ptr<ConfigurationState> config)
 
 COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
 		([=] {
-	COFIBER_RETURN(Endpoint(_config->_device->endpointStates[number]));
+	if(type == PipeType::control) {
+		COFIBER_RETURN(Endpoint(_config->_device->controlStates[number]));
+	}else if(type == PipeType::out) {
+		COFIBER_RETURN(Endpoint(_config->_device->outStates[number]));
+	}else{
+		assert(type == PipeType::in);
+		COFIBER_RETURN(Endpoint(_config->_device->inStates[number]));
+	}
 }))
 
 // ----------------------------------------------------------------------------
@@ -326,6 +341,15 @@ async::result<void> EndpointState::transfer(ControlTransfer info) {
 }
 
 async::result<void> EndpointState::transfer(InterruptTransfer info) {
+	XferFlags flag = kXferToDevice;
+	if(_type == PipeType::in)
+		flag = kXferToHost;
+
+	return _interface->_config->_device->_controller->transfer(
+			_interface->_config->_device, _number, flag, info);
+}
+
+async::result<void> EndpointState::transfer(BulkTransfer info) {
 	XferFlags flag = kXferToDevice;
 	if(_type == PipeType::in)
 		flag = kXferToHost;
@@ -443,10 +467,10 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	printf("entered probeDevice\n");
 	auto device_state = std::make_shared<DeviceState>();
 	device_state->address = 0;
-	device_state->endpointStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
-	device_state->endpointStates[0]->maxPacketSize = 8;
-	device_state->endpointStates[0]->queue = std::make_unique<QueueEntity>();
-	activateAsync(device_state->endpointStates[0]->queue.get());
+	device_state->controlStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
+	device_state->controlStates[0]->maxPacketSize = 8;
+	device_state->controlStates[0]->queue = std::make_unique<QueueEntity>();
+	activateAsync(device_state->controlStates[0]->queue.get());
 
 	// set the device_state address.
 	assert(!_addressStack.empty());
@@ -462,7 +486,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
 			descriptor, 8));
-	device_state->endpointStates[0]->maxPacketSize = descriptor->maxPacketSize;
+	device_state->controlStates[0]->maxPacketSize = descriptor->maxPacketSize;
 	
 	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
@@ -531,9 +555,9 @@ void Controller::activateAsync(ScheduleEntity *entity) {
 }
 
 async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
-		int endpoint,  ControlTransfer info) {
+		int endpoint, ControlTransfer info) {
 	assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
-	auto endpoint_state = device_state->endpointStates[endpoint].get();
+	auto endpoint_state = device_state->controlStates[endpoint].get();
 
 	SetupPacket setup(info.flags & kXferToDevice ? kDirToDevice : kDirToHost,
 			info.recipient, info.type, info.request,
@@ -552,7 +576,33 @@ async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_sta
 async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
 		int endpoint, XferFlags flags, InterruptTransfer info) {
 	assert((flags & kXferToDevice) || (flags & kXferToHost));
-	auto endpoint_state = device_state->endpointStates[endpoint].get();
+	EndpointState *endpoint_state;
+	if(flags == XferFlags::kXferToHost) {
+		endpoint_state = device_state->inStates[endpoint].get();
+	}else{
+		endpoint_state = device_state->outStates[endpoint].get();
+	}
+
+	auto transaction = new NormalTransaction(info.buffer, info.length,
+			device_state->address, endpoint, endpoint_state->maxPacketSize,
+			flags);
+
+	if(endpoint_state->queue->transactionList.empty())
+		endpoint_state->queue->_queue->_elementPointer = transaction->head();
+	endpoint_state->queue->transactionList.push_back(*transaction);
+
+	return transaction->future();
+}
+
+async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
+		int endpoint, XferFlags flags, BulkTransfer info) {
+	assert((flags & kXferToDevice) || (flags & kXferToHost));
+	EndpointState *endpoint_state;
+	if(flags == XferFlags::kXferToHost) {
+		endpoint_state = device_state->inStates[endpoint].get();
+	}else{
+		endpoint_state = device_state->outStates[endpoint].get();
+	}
 
 	auto transaction = new NormalTransaction(info.buffer, info.length,
 			device_state->address, endpoint, endpoint_state->maxPacketSize,

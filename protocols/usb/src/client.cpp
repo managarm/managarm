@@ -56,6 +56,7 @@ struct EndpointState : EndpointData {
 	
 	async::result<void> transfer(ControlTransfer info) override;
 	async::result<void> transfer(InterruptTransfer info) override;
+	async::result<void> transfer(BulkTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -272,6 +273,70 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer i
 		COFIBER_RETURN();
 	}
 }))
+
+COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
+		([=] {
+	if(info.flags == kXferToDevice) {
+		assert(info.flags == kXferToDevice);
+	
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::SendBuffer send_data;
+		helix::RecvInline recv_resp;
+
+		managarm::usb::CntRequest req;
+		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE);
+		req.set_length(info.length);
+		
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_data, info.buffer, info.length, kHelItemChain),
+			helix::action(&recv_resp)
+		}, helix::Dispatcher::global());
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_data.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::usb::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::usb::Errors::SUCCESS);
+		COFIBER_RETURN();
+	}else{
+		assert(info.flags == kXferToHost);
+	
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::RecvBuffer recv_data;
+
+		managarm::usb::CntRequest req;
+		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST);
+		req.set_length(info.length);
+		
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(_lane, {
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&recv_data, info.buffer, info.length)
+		}, helix::Dispatcher::global());
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(recv_data.error());
+
+		managarm::usb::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::usb::Errors::SUCCESS);
+		COFIBER_RETURN();
+	}
+}))
+
 
 } // anonymous namespace
 

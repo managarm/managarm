@@ -46,7 +46,48 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else {
+		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE) {
+			helix::RecvInline recv_buffer;
+			helix::SendBuffer send_resp;
+		
+			auto &&payload = helix::submitAsync(conversation, {
+				helix::action(&recv_buffer)
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT payload.async_wait();
+			HEL_CHECK(recv_buffer.error());
+		
+			COFIBER_AWAIT endpoint.transfer(BulkTransfer(XferFlags::kXferToDevice,
+					recv_buffer.data(), recv_buffer.length()));	
+
+			managarm::usb::SvrResponse resp;
+			resp.set_error(managarm::usb::Errors::SUCCESS);
+			
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size())
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST) {
+			helix::SendBuffer send_resp;
+			helix::SendBuffer send_data;
+
+			auto data = malloc(req.length());
+			COFIBER_AWAIT endpoint.transfer(BulkTransfer(XferFlags::kXferToHost, 
+					data, req.length()));
+
+			managarm::usb::SvrResponse resp;
+			resp.set_error(managarm::usb::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, {
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, data, req.length())
+			}, helix::Dispatcher::global());
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
+		}else{
 			helix::SendBuffer send_resp;
 
 			managarm::usb::SvrResponse resp;

@@ -104,6 +104,8 @@ struct Controller : std::enable_shared_from_this<Controller> {
 			int endpoint,  ControlTransfer info);
 	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
 			int endpoint, XferFlags flags, InterruptTransfer info);
+	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
+			int endpoint, XferFlags flags, BulkTransfer info);
 	cofiber::no_future handleIrqs();
 
 private:
@@ -132,7 +134,9 @@ struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
 	async::result<void> transfer(ControlTransfer info) override;
 	
 	uint8_t address;
-	std::shared_ptr<EndpointState> endpointStates[32];
+	std::shared_ptr<EndpointState> controlStates[16];
+	std::shared_ptr<EndpointState> outStates[16];
+	std::shared_ptr<EndpointState> inStates[16];
 	std::shared_ptr<Controller> _controller;
 };
 
@@ -171,6 +175,7 @@ struct EndpointState : EndpointData {
 
 	async::result<void> transfer(ControlTransfer info) override;
 	async::result<void> transfer(InterruptTransfer info) override;
+	async::result<void> transfer(BulkTransfer info) override;
 
 	size_t maxPacketSize;
 	std::unique_ptr<QueueEntity> queue;
