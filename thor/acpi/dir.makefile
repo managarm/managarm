@@ -6,7 +6,7 @@ $c_INCLUDE := -I$($c_GENDIR)
 $c_INCLUDE += -I$(ACPICA)/source/include -I$(TREE_PATH)/frigg/include
 
 $c_CC := x86_64-managarm-gcc
-$c_CCFLAGS := $($c_INCLUDE)
+$c_CFLAGS := $($c_INCLUDE)
 
 $c_CXX := x86_64-managarm-g++
 $c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
@@ -182,19 +182,12 @@ $($c_ACPICA_SUBDIR_PATHS):
 $($c_BINDIR)/acpi: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS) $($d_LIBS)
 
-$($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
-	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
-
-$($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
-	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+$(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
 # compile ACPICA.
 # debugger would require -DACPI_DEBUGGER -DACPI_DISASSEMBLER.
 $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
-	$($d_CC) -c -o $@ $($d_CCFLAGS) $<
-	$($d_CC) $($d_CCFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CC) -c -o $@ $($d_CFLAGS) -MD -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # generate protobuf
 gen-$c: $($c_GENDIR)/hw.pb.tag

@@ -153,15 +153,23 @@ $(eval
 )
 endef
 
+define compile_c
+$(eval
+  $2/%.o: $1/%.cpp | $2
+	$$($$d_CC) -c -o $$@ $$($$d_CFLAGS) -MD -MP -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+
+  $2/%.o: $1/%.cc | $2
+	$$($$d_CC) -c -o $$@ $$($$d_CFLAGS) -MD -MP -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+)
+endef
+
 define compile_cxx
 $(eval
   $2/%.o: $1/%.cpp | $2
-	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) $$<
-	$$($$d_CXX) $$($$d_CXXFLAGS) -MM -MP -MF $$(@:%.o=%.d) -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) -MD -MP -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
 
   $2/%.o: $1/%.cc | $2
-	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) $$<
-	$$($$d_CXX) $$($$d_CXXFLAGS) -MM -MP -MF $$(@:%.o=%.d) -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
+	$$($$d_CXX) -c -o $$@ $$($$d_CXXFLAGS) -MD -MP -MT "$$@" -MT "$$(@:%.o=%.d)" $$<
 )
 endef
 
