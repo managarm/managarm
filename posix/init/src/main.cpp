@@ -41,13 +41,11 @@ int main() {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 
-/*
 	auto virtio = fork();
 	if(!virtio) {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
-
 
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
@@ -55,7 +53,6 @@ int main() {
 		for(int i = 0; i < 100; i++)
 			sched_yield();
 	}
-
 
 	printf("Mounting /dev/sda0\n");
 	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {
@@ -68,7 +65,7 @@ int main() {
 	if(!vga_terminal) {
 		execve("/realfs/usr/bin/vga_terminal", args.data(), envp);
 	}else assert(vga_terminal != -1);
-*/
+
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready
 	for(int i = 0; i < 10000; i++)
