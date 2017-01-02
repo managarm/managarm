@@ -16,7 +16,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include -iquote$($c_SRCDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -I$($c_GENDIR)
-$c_CXXFLAGS += -std=c++14 -Wall -Wextra
+$c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
