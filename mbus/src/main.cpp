@@ -90,29 +90,23 @@ private:
 };
 
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
-	using M = helix::AwaitMechanism;
-	
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::PullDescriptor<M> pull_desc;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::PullDescriptor pull_desc;
 
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::BIND);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_desc),
 	}, helix::Dispatcher::global());
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_desc.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -197,8 +191,6 @@ void Group::processAttach(std::shared_ptr<Entity> entity) {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> root), ([=] {
-	using M = helix::AwaitMechanism;
-	
 	std::queue<std::shared_ptr<Entity>> entities;
 	entities.push(root);
 	while(!entities.empty()) {
@@ -213,40 +205,36 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 		if(!matchesFilter(entity.get(), _filter)) 
 			continue;
 		
-		helix::SendBuffer<M> send_req;
+		helix::SendBuffer send_req;
 
 		managarm::mbus::SvrRequest req;
 		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 		req.set_id(entity->getId());
 
 		auto ser = req.SerializeAsString();
-		helix::submitAsync(_lane, {
+		auto &&transmit = helix::submitAsync(_lane, {
 			helix::action(&send_req, ser.data(), ser.size())
 		}, helix::Dispatcher::global());
-		
-		COFIBER_AWAIT send_req.future();
+		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_req.error());
 	}
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> entity), ([=] {
-	using M = helix::AwaitMechanism;
-	
 	if(!matchesFilter(entity.get(), _filter)) 
 		return;
 	
-	helix::SendBuffer<M> send_req;
+	helix::SendBuffer send_req;
 
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 	req.set_id(entity->getId());
 
 	auto ser = req.SerializeAsString();
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&send_req, ser.data(), ser.size())
 	}, helix::Dispatcher::global());
-	
-	COFIBER_AWAIT send_req.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(send_req.error());
 }))
 
@@ -269,19 +257,16 @@ static AnyFilter decodeFilter(const managarm::mbus::AnyFilter &proto_filter) {
 
 COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 		([lane = std::move(p)] () {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::Accept<M> accept;
-		helix::RecvBuffer<M> recv_req;
+		helix::Accept accept;
+		helix::RecvBuffer recv_req;
 
 		char buffer[256];
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req, buffer, 256)
 		}, helix::Dispatcher::global());
-		COFIBER_AWAIT accept.future();
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -290,21 +275,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 		managarm::mbus::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::CntReqType::GET_ROOT) {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(1);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size())
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::CREATE_OBJECT) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> send_lane;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor send_lane;
 
 			auto parent = allEntities.at(req.parent_id());
 			if(typeid(*parent) != typeid(Group))
@@ -335,17 +320,16 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			resp.set_id(child->getId());
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&send_lane, remote_lane)
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT send_lane.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::LINK_OBSERVER) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> send_lane;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor send_lane;
 
 			auto parent = allEntities.at(req.id());
 			if(typeid(*parent) != typeid(Group))
@@ -364,17 +348,16 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&send_lane, remote_lane)
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT send_lane.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
 		}else if(req.req_type() == managarm::mbus::CntReqType::BIND2) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> send_desc;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor send_desc;
 
 			auto entity = allEntities.at(req.id());
 			if(typeid(*entity) != typeid(Object))
@@ -387,12 +370,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&send_desc, descriptor)
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT send_desc.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_desc.error());
 		}else{

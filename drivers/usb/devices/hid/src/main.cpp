@@ -247,8 +247,6 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
 })
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
-	using M = helix::AwaitMechanism;
-
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
 	runHidDevice(device);

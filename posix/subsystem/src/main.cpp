@@ -41,12 +41,10 @@ void dumpRegisters(helix::BorrowedDescriptor thread) {
 
 COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::Observe<M> observe;
-		helix::submitObserve(thread, &observe, helix::Dispatcher::global());
-		COFIBER_AWAIT(observe.future());
+		helix::Observe observe;
+		auto &&submit = helix::submitObserve(thread, &observe, helix::Dispatcher::global());
+		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(observe.error());
 
 		if(observe.observation() == kHelObserveSuperCall + 1) {
@@ -124,21 +122,18 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
-	using M = helix::AwaitMechanism;
-
 	observe(self, lane);
 
 	while(true) {
-		helix::Accept<M> accept;
-		helix::RecvBuffer<M> recv_req;
+		helix::Accept accept;
+		helix::RecvBuffer recv_req;
 
 		char buffer[256];
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req, buffer, 256)
 		}, helix::Dispatcher::global());
-		COFIBER_AWAIT accept.future();
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -147,7 +142,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			auto source = COFIBER_AWAIT resolve(req.path());
 			auto target = COFIBER_AWAIT resolve(req.target_path());
@@ -161,14 +156,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size()),
 			}, helix::Dispatcher::global());
-				
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			auto path = COFIBER_AWAIT resolve(req.path());
 			if(path.second) {
@@ -176,26 +170,24 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				auto ser = resp.SerializeAsString();
-				helix::submitAsync(conversation, {
+				auto &&transmit = helix::submitAsync(conversation, {
 					helix::action(&send_resp, ser.data(), ser.size()),
 				}, helix::Dispatcher::global());
-				
-				COFIBER_AWAIT send_resp.future();
+				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
-				helix::submitAsync(conversation, {
+				auto &&transmit = helix::submitAsync(conversation, {
 					helix::action(&send_resp, ser.data(), ser.size()),
 				}, helix::Dispatcher::global());
-				
-				COFIBER_AWAIT send_resp.future();
+				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			auto file = COFIBER_AWAIT open(req.path());
 			if(file) {
@@ -206,72 +198,66 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				resp.set_fd(fd);
 
 				auto ser = resp.SerializeAsString();
-				helix::submitAsync(conversation, {
+				auto &&transmit = helix::submitAsync(conversation, {
 					helix::action(&send_resp, ser.data(), ser.size()),
 				}, helix::Dispatcher::global());
-				
-				COFIBER_AWAIT send_resp.future();
+				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
-				helix::submitAsync(conversation, {
+				auto &&transmit = helix::submitAsync(conversation, {
 					helix::action(&send_resp, ser.data(), ser.size()),
 				}, helix::Dispatcher::global());
-				
-				COFIBER_AWAIT send_resp.future();
+				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
 			self->fileContext()->closeFile(req.fd());
 
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size()),
 			}, helix::Dispatcher::global());
-			
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			auto file = self->fileContext()->getFile(req.fd());
 			self->fileContext()->attachFile(req.newfd(), file);
 
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> push_passthrough;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_passthrough;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&push_passthrough, getPassthroughLane(file))
 			}, helix::Dispatcher::global());
-			
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT push_passthrough.future();
-			
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size())
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}
@@ -298,29 +284,24 @@ struct ExternDevice : Device {
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			mount(std::shared_ptr<Device> object), ([=] {
-		using M = helix::AwaitMechanism;
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
-		helix::Offer<M> offer;
-		helix::SendBuffer<M> send_req;
-		helix::RecvInline<M> recv_resp;
-		helix::PullDescriptor<M> pull_node;
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_node;
 
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
 
 		auto ser = req.SerializeAsString();
-		helix::submitAsync(self->_lane, {
+		auto &&transmit = helix::submitAsync(self->_lane, {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_node)
 		}, helix::Dispatcher::global());
-
-		COFIBER_AWAIT offer.future();
-		COFIBER_AWAIT send_req.future();
-		COFIBER_AWAIT recv_resp.future();
-		COFIBER_AWAIT pull_node.future();
+		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -349,8 +330,6 @@ const DeviceOperations ExternDevice::operations{
 };
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
-	using M = helix::AwaitMechanism;
-
 	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
 	auto device = std::make_shared<ExternDevice>(std::move(lane));
 	deviceManager.install(device);

@@ -22,7 +22,6 @@ Inode::Inode(FileSystem &fs, uint32_t number)
 
 COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 		Inode::findEntry(std::string name), ([=] {
-	using M = helix::AwaitMechanism;
 	assert(!name.empty() && name != "." && name != "..");
 
 	COFIBER_AWAIT readyJump.async_wait();
@@ -31,10 +30,10 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	if(map_size % 0x1000 != 0)
 		map_size += 0x1000 - map_size % 0x1000;
 
-	helix::LockMemory<M> lock_memory;
-	helix::submitLockMemory(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
+	helix::LockMemory lock_memory;
+	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(frontalMemory), &lock_memory,
 			0, map_size, helix::Dispatcher::global());
-	COFIBER_AWAIT(lock_memory.future());
+	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
 	// TODO: Use a RAII mapping class to get rid of the mapping on return.
@@ -189,13 +188,11 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::initiateInode(std::shared_ptr<In
 
 COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inode> inode),
 		([=] {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::ManageMemory<M> manage;
-		helix::submitManageMemory(helix::BorrowedDescriptor(inode->backingMemory),
+		helix::ManageMemory manage;
+		auto &&submit = helix::submitManageMemory(helix::BorrowedDescriptor(inode->backingMemory),
 				&manage, helix::Dispatcher::global());
-		COFIBER_AWAIT(manage.future());
+		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
 		
 		void *window;

@@ -567,9 +567,9 @@ async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_sta
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	while(true) {
-		helix::AwaitIrq<helix::AwaitMechanism> await_irq;
-		helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
-		COFIBER_AWAIT await_irq.future();
+		helix::AwaitIrq await_irq;
+		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
 
 		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
@@ -602,8 +602,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
-	using M = helix::AwaitMechanism;
-
 	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
 	auto info = COFIBER_AWAIT device.getPciInfo();
 	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);

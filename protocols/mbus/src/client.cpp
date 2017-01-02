@@ -7,8 +7,6 @@
 #include <protocols/mbus/client.hpp>
 #include "mbus.pb.h"
 
-using M = helix::AwaitMechanism;
-
 namespace mbus {
 namespace _detail {
 
@@ -25,24 +23,21 @@ Instance Instance::global() {
 }
 
 COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::GET_ROOT);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->lane, {
+	auto &&transmit = helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128)
 	}, *_connection->dispatcher);
-
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -57,20 +52,16 @@ COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> connection,
 		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler,
 		helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::Accept<M> accept;
-		helix::RecvBuffer<M> recv_req;
+		helix::Accept accept;
+		helix::RecvBuffer recv_req;
 
 		char buffer[256];
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req, buffer, 256)
 		}, *connection->dispatcher);
-
-		COFIBER_AWAIT accept.future();
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 
@@ -79,8 +70,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 		managarm::mbus::SvrRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::SvrReqType::BIND) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> push_desc;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_desc;
 
 			auto descriptor = COFIBER_AWAIT handler(BindQuery());
 			
@@ -88,13 +79,11 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&push_desc, descriptor),
 			}, *connection->dispatcher);
-			
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT push_desc.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_desc.error());
 		}else{
@@ -106,10 +95,10 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 		const Properties &properties,
 		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::PullDescriptor<M> pull_lane;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::PullDescriptor pull_lane;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
@@ -119,17 +108,13 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->lane, {
+	auto &&transmit = helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_lane),
 	}, *_connection->dispatcher);
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_lane.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -147,17 +132,15 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> connection,
 		std::function<void(AnyEvent)> handler, helix::UniqueLane p),
 		([connection, handler, lane = std::move(p)] {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::RecvBuffer<M> recv_req;
+		helix::RecvBuffer recv_req;
 
 		char buffer[256];
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&recv_req, buffer, 256)
 		}, *connection->dispatcher);
-		
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
+		HEL_CHECK(recv_req.error());
 
 		managarm::mbus::SvrRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
@@ -189,10 +172,10 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 
 COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &filter,
 		std::function<void(AnyEvent)> handler) const, ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::PullDescriptor<M> pull_lane;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::PullDescriptor pull_lane;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::LINK_OBSERVER);
@@ -201,17 +184,13 @@ COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &f
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->lane, {
+	auto &&transmit = helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_lane),
 	}, *_connection->dispatcher);
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_lane.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -227,10 +206,10 @@ COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &f
 }))
 
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::PullDescriptor<M> pull_desc;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::PullDescriptor pull_desc;
 
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::BIND2);
@@ -238,17 +217,13 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Entity::bind() const, ([
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_connection->lane, {
+	auto &&transmit = helix::submitAsync(_connection->lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&pull_desc),
 	}, *_connection->dispatcher);
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_desc.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

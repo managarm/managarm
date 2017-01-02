@@ -22,18 +22,15 @@ std::vector<std::shared_ptr<PciDevice>> allDevices;
 
 COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> device,
 		helix::UniqueLane p), ([device, lane = std::move(p)] {
-	using M = helix::AwaitMechanism;
-
 	while(true) {
-		helix::Accept<M> accept;
-		helix::RecvInline<M> recv_req;
+		helix::Accept accept;
+		helix::RecvInline recv_req;
 
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req)
 		}, helix::Dispatcher::global());
-		COFIBER_AWAIT accept.future();
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -43,7 +40,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 	
 		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			managarm::hw::SvrResponse resp;
 			for(size_t k = 0; k < 6; k++) {
@@ -64,14 +61,14 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 		
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size()),
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> send_bar;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor send_bar;
 	
 			if(device->bars[req.index()].type != PciDevice::kBarIo 
 					&& device->bars[req.index()].type != PciDevice::kBarMemory)
@@ -81,42 +78,40 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&send_bar, helix::BorrowedDescriptor(device->bars[req.index()].handle))
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT send_bar.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_bar.error());
 		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_IRQ) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> send_irq;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor send_irq;
 
 			managarm::hw::SvrResponse resp;
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&send_irq, helix::BorrowedDescriptor(device->interrupt))
 			}, helix::Dispatcher::global());
 
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT send_irq.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_irq.error());
 		}else {
-			helix::SendBuffer<M> send_resp;
+			helix::SendBuffer send_resp;
 
 			managarm::hw::SvrResponse resp;
 			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size())
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
 	}

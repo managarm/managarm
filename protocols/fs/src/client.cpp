@@ -4,8 +4,6 @@
 #include "fs.pb.h"
 #include "protocols/fs/client.hpp"
 
-using M = helix::AwaitMechanism;
-
 namespace protocols {
 namespace fs {
 
@@ -13,9 +11,9 @@ File::File(helix::UniqueDescriptor lane)
 : _lane(std::move(lane)) { }
 
 COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
@@ -23,15 +21,12 @@ COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128),
 	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -43,10 +38,10 @@ COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 }))
 
 COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_length), ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::RecvBuffer<M> recv_data;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::RecvBuffer recv_data;
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
@@ -54,17 +49,13 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&recv_data, data, max_length)
 	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT recv_data.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -80,27 +71,23 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 }))	
 
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(), ([=] {
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvBuffer<M> recv_resp;
-	helix::PullDescriptor<M> recv_memory;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+	helix::PullDescriptor recv_memory;
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, buffer, 128, kHelItemChain),
 		helix::action(&recv_memory)
 	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT recv_memory.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

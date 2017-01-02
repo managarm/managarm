@@ -64,29 +64,24 @@ struct Regular : Node {
 private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
-		using M = helix::AwaitMechanism;
 		auto self = std::static_pointer_cast<Regular>(object);
 
-		helix::Offer<M> offer;
-		helix::SendBuffer<M> send_req;
-		helix::RecvInline<M> recv_resp;
-		helix::PullDescriptor<M> pull_passthrough;
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_passthrough;
 
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 
 		auto ser = req.SerializeAsString();
-		helix::submitAsync(self->_lane, {
+		auto &&transmit = helix::submitAsync(self->_lane, {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_passthrough)
 		}, helix::Dispatcher::global());
-
-		COFIBER_AWAIT offer.future();
-		COFIBER_AWAIT send_req.future();
-		COFIBER_AWAIT recv_resp.future();
-		COFIBER_AWAIT pull_passthrough.future();
+		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -147,30 +142,25 @@ private:
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
-		using M = helix::AwaitMechanism;
 		auto self = std::static_pointer_cast<Directory>(object);
 
-		helix::Offer<M> offer;
-		helix::SendBuffer<M> send_req;
-		helix::RecvInline<M> recv_resp;
-		helix::PullDescriptor<M> pull_node;
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_node;
 
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_GET_LINK);
 		req.set_path(name);
 
 		auto ser = req.SerializeAsString();
-		helix::submitAsync(self->_lane, {
+		auto &&transmit = helix::submitAsync(self->_lane, {
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_node)
 		}, helix::Dispatcher::global());
-
-		COFIBER_AWAIT offer.future();
-		COFIBER_AWAIT send_req.future();
-		COFIBER_AWAIT recv_resp.future();
-		COFIBER_AWAIT pull_node.future();
+		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());

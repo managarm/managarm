@@ -8,6 +8,7 @@
 #include <list>
 #include <stdexcept>
 
+#include <async/result.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 
@@ -148,7 +149,6 @@ private:
 	void *_queue;
 };
 
-// we use a pattern similar to CRTP here to reduce code size.
 struct OperationBase {
 	friend class Dispatcher;
 
@@ -162,25 +162,16 @@ struct OperationBase {
 	}
 
 protected:
-	virtual void complete() = 0;
-
 	int64_t _asyncId;
+public: // TODO: This should not be public.
 	ElementPtr _result;
 };
 
-template<typename M>
 struct Operation : OperationBase {
-	typename M::Future future() {
-		return _completer.future();
-	}
+};
 
-protected:
-	void complete() override final {
-		_completer();
-	}
-
-private:
-	typename M::Completer _completer;
+struct Context {
+	virtual void complete(ElementPtr element) = 0;
 };
 
 struct Dispatcher {
@@ -227,9 +218,8 @@ public:
 				auto elem = reinterpret_cast<HelElement *>(ptr);
 				it->progress += sizeof(HelElement) + elem->length;
 
-				auto base = reinterpret_cast<OperationBase *>(elem->context);
-				base->_result = ElementPtr(ptr + sizeof(HelElement));
-				base->complete();
+				auto context = reinterpret_cast<Context *>(elem->context);
+				context->complete(ElementPtr{ptr + sizeof(HelElement)});
 				break;
 			}
 			
@@ -278,8 +268,7 @@ private:
 	std::list<Item> _items;
 };
 
-template<typename M>
-struct ManageMemory : Operation<M> {
+struct ManageMemory : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -298,8 +287,7 @@ private:
 	}
 };
 
-template<typename M>
-struct LockMemory : Operation<M> {
+struct LockMemory : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -310,8 +298,7 @@ private:
 	}
 };
 
-template<typename M>
-struct Offer : Operation<M> {
+struct Offer : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -322,8 +309,7 @@ private:
 	}
 };
 
-template<typename M>
-struct Accept : Operation<M> {
+struct Accept : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -341,8 +327,7 @@ private:
 	}
 };
 
-template<typename M>
-struct RecvInline : Operation<M> {
+struct RecvInline : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -363,8 +348,7 @@ private:
 	}
 };
 
-template<typename M>
-struct RecvBuffer : Operation<M> {
+struct RecvBuffer : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -380,8 +364,7 @@ private:
 	}
 };
 
-template<typename M>
-struct PullDescriptor : Operation<M> {
+struct PullDescriptor : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -399,8 +382,7 @@ private:
 	}
 };
 
-template<typename M>
-struct SendBuffer : Operation<M> {
+struct SendBuffer : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -411,8 +393,7 @@ private:
 	}
 };
 
-template<typename M>
-struct PushDescriptor : Operation<M> {
+struct PushDescriptor : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -423,8 +404,7 @@ private:
 	}
 };
 
-template<typename M>
-struct AwaitIrq : Operation<M> {
+struct AwaitIrq : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -435,8 +415,7 @@ private:
 	}
 };
 
-template<typename M>
-struct Observe : Operation<M> {
+struct Observe : Operation {
 	HelError error() {
 		return result()->error;
 	}
@@ -455,110 +434,195 @@ private:
 // Experimental: submitAsync
 // ----------------------------------------------------------------------------
 
-template<typename M>
-HelAction action(Offer<M> *operation, uint32_t flags = 0) {
+struct Submission : private Context {
+	Submission(BorrowedDescriptor memory, ManageMemory *operation,
+			Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitManageMemory(memory.getHandle(),
+				dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
+	Submission(BorrowedDescriptor memory, LockMemory *operation,
+			uintptr_t offset, size_t size, Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitLockMemory(memory.getHandle(), offset, size,
+				dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
+	Submission(BorrowedDescriptor thread, Observe *operation,
+			Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitObserve(thread.getHandle(),
+				dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
+	Submission(BorrowedDescriptor descriptor, AwaitIrq *operation,
+			Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitWaitForIrq(descriptor.getHandle(),
+				dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
+	Submission(const Submission &) = delete;
+
+	Submission &operator= (Submission &other) = delete;
+
+	async::result<void> async_wait() {
+		return _pledge.async_get();
+	}
+
+private:
+	Context *context() {
+		return this;
+	}
+
+	void complete(ElementPtr element) override {
+		_result->_result = element;
+		_pledge.set_value();
+	}
+
+	Operation *_result;
+	async::promise<void> _pledge;
+};
+
+struct Item {
+	Operation *operation;
+	HelAction action;
+};
+
+inline Item action(Offer *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionOffer;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(Accept<M> *operation, uint32_t flags = 0) {
+inline Item action(Accept *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionAccept;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(SendBuffer<M> *operation, const void *buffer, size_t length,
+inline Item action(SendBuffer *operation, const void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionSendFromBuffer;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
 	action.buffer = const_cast<void *>(buffer);
 	action.length = length;
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(RecvInline<M> *operation, uint32_t flags = 0) {
+inline Item action(RecvInline *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionRecvInline;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(RecvBuffer<M> *operation, void *buffer, size_t length,
+inline Item action(RecvBuffer *operation, void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionRecvToBuffer;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
 	action.buffer = buffer;
 	action.length = length;
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(PushDescriptor<M> *operation, BorrowedDescriptor descriptor,
+inline Item action(PushDescriptor *operation, BorrowedDescriptor descriptor,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPushDescriptor;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
 	action.handle = descriptor.getHandle();
-	return action;
+	return {operation, action};
 }
 
-template<typename M>
-HelAction action(PullDescriptor<M> *operation, uint32_t flags = 0) {
+inline Item action(PullDescriptor *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPullDescriptor;
-	action.context = (uintptr_t)operation;
 	action.flags = flags;
-	return action;
-}
-
-template<typename M>
-void submitManageMemory(BorrowedDescriptor memory, ManageMemory<M> *operation,
-		Dispatcher &dispatcher) {
-	HEL_CHECK(helSubmitManageMemory(memory.getHandle(),
-			dispatcher.acquire().get(), (uintptr_t)operation));
-}
-
-template<typename M>
-void submitLockMemory(BorrowedDescriptor memory, LockMemory<M> *operation,
-		uintptr_t offset, size_t size, Dispatcher &dispatcher) {
-	HEL_CHECK(helSubmitLockMemory(memory.getHandle(), offset, size,
-			dispatcher.acquire().get(), (uintptr_t)operation));
-}
-
-template<typename M>
-void submitObserve(BorrowedDescriptor thread, Observe<M> *operation,
-		Dispatcher &dispatcher) {
-	HEL_CHECK(helSubmitObserve(thread.getHandle(),
-			dispatcher.acquire().get(), (uintptr_t)operation));
+	return {operation, action};
 }
 
 template<size_t N>
-void submitAsync(BorrowedDescriptor descriptor, const HelAction (&actions)[N],
+struct Transmission {
+	Transmission(BorrowedDescriptor descriptor, const Item *items,
+			Dispatcher &dispatcher)
+	: _numComplete(0) {
+		HelAction actions[N];
+		for(size_t i = 0; i < N; i++) {
+			actions[i] = items[i].action;
+			actions[i].context = reinterpret_cast<uintptr_t>(&_contexts[i]);
+			_results[i] = items[i].operation;
+			_contexts[i].link = this;
+			_contexts[i].index = i;
+		}
+		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
+				dispatcher.acquire().get(), 0));
+	}
+
+	Transmission(const Transmission &) = delete;
+
+	~Transmission() {
+		assert(_numComplete.load(std::memory_order_relaxed) == N);
+	}
+
+	Transmission &operator= (Transmission &other) = delete;
+
+	async::result<void> async_wait() {
+		return _pledge.async_get();
+	}
+
+private:
+	struct TransmitContext : Context {
+		void complete(ElementPtr element) override {
+			link->_results[index]->_result = std::move(element);
+			auto c = link->_numComplete.fetch_add(1, std::memory_order_acq_rel);
+			if(c + 1 == N)
+				link->_pledge.set_value();
+		}
+
+		Transmission *link;
+		size_t index;
+	};
+
+	Operation *_results[N];
+	TransmitContext _contexts[N];
+	std::atomic<int> _numComplete;
+	async::promise<void> _pledge;
+};
+
+inline Submission submitManageMemory(BorrowedDescriptor memory, ManageMemory *operation,
 		Dispatcher &dispatcher) {
-	HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
-			dispatcher.acquire().get(), 0));
+	return {memory, operation, dispatcher};
 }
 
-template<typename M>
-void submitAwaitIrq(BorrowedDescriptor descriptor, AwaitIrq<M> *operation,
+inline Submission submitLockMemory(BorrowedDescriptor memory, LockMemory *operation,
+		uintptr_t offset, size_t size, Dispatcher &dispatcher) {
+	return {memory, operation, offset, size, dispatcher};
+}
+
+inline Submission submitObserve(BorrowedDescriptor thread, Observe *operation,
 		Dispatcher &dispatcher) {
-	HEL_CHECK(helSubmitWaitForIrq(descriptor.getHandle(),
-			dispatcher.acquire().get(), (uintptr_t)operation));
+	return {thread, operation, dispatcher};
+}
+
+template<size_t N>
+inline Transmission<N> submitAsync(BorrowedDescriptor descriptor, const Item (&items)[N],
+		Dispatcher &dispatcher) {
+	return {descriptor, items, dispatcher};
+}
+
+inline Submission submitAwaitIrq(BorrowedDescriptor descriptor, AwaitIrq *operation,
+		Dispatcher &dispatcher) {
+	return {descriptor, operation, dispatcher};
 }
 
 } // namespace helix

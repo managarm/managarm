@@ -15,25 +15,20 @@ namespace hw {
 
 COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 		([=] {
-	using M = helix::AwaitMechanism;
-
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvInline<M> recv_resp;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
 
 	managarm::hw::CntRequest req;
 	req.set_req_type(managarm::hw::CntReqType::GET_PCI_INFO);
 
 	auto ser = req.SerializeAsString();
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp)
 	}, helix::Dispatcher::global());
-
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -63,29 +58,23 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int index),
 		([=] {
-	using M = helix::AwaitMechanism;
-
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvInline<M> recv_resp;
-	helix::PullDescriptor<M> pull_bar;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_bar;
 
 	managarm::hw::CntRequest req;
 	req.set_req_type(managarm::hw::CntReqType::ACCESS_BAR);
 	req.set_index(index);
 
 	auto ser = req.SerializeAsString();
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, kHelItemChain),
 		helix::action(&pull_bar),
 	}, helix::Dispatcher::global());
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_bar.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
@@ -101,28 +90,22 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int in
 
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
 		([=] {
-	using M = helix::AwaitMechanism;
-
-	helix::Offer<M> offer;
-	helix::SendBuffer<M> send_req;
-	helix::RecvInline<M> recv_resp;
-	helix::PullDescriptor<M> pull_irq;
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_irq;
 
 	managarm::hw::CntRequest req;
 	req.set_req_type(managarm::hw::CntReqType::ACCESS_IRQ);
 
 	auto ser = req.SerializeAsString();
-	helix::submitAsync(_lane, {
+	auto &&transmit = helix::submitAsync(_lane, {
 		helix::action(&offer, kHelItemAncillary),
 		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 		helix::action(&recv_resp, kHelItemChain),
 		helix::action(&pull_irq),
 	}, helix::Dispatcher::global());
-	
-	COFIBER_AWAIT offer.future();
-	COFIBER_AWAIT send_req.future();
-	COFIBER_AWAIT recv_resp.future();
-	COFIBER_AWAIT pull_irq.future();
+	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

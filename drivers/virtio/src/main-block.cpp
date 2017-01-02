@@ -23,8 +23,6 @@
 virtio::block::Device device;
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
-	using M = helix::AwaitMechanism;
-
 	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
 	auto info = COFIBER_AWAIT hw_device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);

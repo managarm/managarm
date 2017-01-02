@@ -30,7 +30,6 @@ COFIBER_ROUTINE(async::result<void>, seek(std::shared_ptr<void> object,
 
 COFIBER_ROUTINE(async::result<void>, read(std::shared_ptr<void> object,
 		void *buffer, size_t length), ([=] {
-	using M = helix::AwaitMechanism;
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
 
@@ -44,10 +43,10 @@ COFIBER_ROUTINE(async::result<void>, read(std::shared_ptr<void> object,
 	auto map_size = ((chunk_offset + chunk_size) & ~size_t(0xFFF)) - map_offset + 0x1000;
 	self->offset += chunk_size;
 
-	helix::LockMemory<M> lock_memory;
-	helix::submitLockMemory(helix::BorrowedDescriptor(self->inode->frontalMemory), &lock_memory,
-			map_offset, map_size, helix::Dispatcher::global());
-	COFIBER_AWAIT(lock_memory.future());
+	helix::LockMemory lock_memory;
+	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(self->inode->frontalMemory),
+			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT(submit.async_wait());
 	HEL_CHECK(lock_memory.error());
 
 	// TODO: Use a RAII mapping class to get rid of the mapping on return.
@@ -111,19 +110,17 @@ BlockDevice::BlockDevice(size_t sector_size)
 
 COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		([lane = std::move(p)] {
-	using M = helix::AwaitMechanism;
 	std::cout << "unix device: Connection" << std::endl;
 
 	while(true) {
-		helix::Accept<M> accept;
-		helix::RecvInline<M> recv_req;
+		helix::Accept accept;
+		helix::RecvInline recv_req;
 
-		helix::submitAsync(lane, {
+		auto &&header = helix::submitAsync(lane, {
 			helix::action(&accept, kHelItemAncillary),
 			helix::action(&recv_req)
 		}, helix::Dispatcher::global());
-		COFIBER_AWAIT accept.future();
-		COFIBER_AWAIT recv_req.future();
+		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
 		
@@ -132,8 +129,8 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
-			helix::SendBuffer<M> send_resp;
-			helix::PushDescriptor<M> push_node;
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -144,12 +141,11 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			helix::submitAsync(conversation, {
+			auto &&transmit = helix::submitAsync(conversation, {
 				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&push_node, remote_lane)
 			}, helix::Dispatcher::global());
-			COFIBER_AWAIT send_resp.future();
-			COFIBER_AWAIT push_node.future();
+			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else{
