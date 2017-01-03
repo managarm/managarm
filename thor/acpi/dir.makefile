@@ -6,10 +6,10 @@ $c_INCLUDE := -I$($c_GENDIR)
 $c_INCLUDE += -I$(ACPICA)/source/include -I$(TREE_PATH)/frigg/include
 
 $c_CC := x86_64-managarm-gcc
-$c_CFLAGS := $($c_INCLUDE)
+$c_CFLAGS := $($c_INCLUDE) -O2
 
 $c_CXX := x86_64-managarm-g++
-$c_CXXFLAGS := -std=c++14 $($c_INCLUDE)
+$c_CXXFLAGS := -std=c++14 $($c_INCLUDE) -O2
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
 $c_LDFLAGS :=
