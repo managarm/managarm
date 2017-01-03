@@ -68,7 +68,7 @@ bool QueuedTransaction::progress() {
 		_completeCounter++;
 	}
 
-	printf("Transfer complete!\n");
+	//printf("Transfer complete!\n");
 	_promise.set_value();
 	return true;
 }
@@ -248,7 +248,7 @@ COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor
 			config, sizeof(ConfigDescriptor)));
 	assert(config->length == sizeof(ConfigDescriptor));
 
-	printf("Configuration value: %d\n", config->configValue);
+	//printf("Configuration value: %d\n", config->configValue);
 
 	auto buffer = (char *)contiguousAllocator.allocate(config->totalLength);
 	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToHost,
@@ -410,61 +410,61 @@ void Controller::initialize() {
 }
 
 COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
-	printf("entered pollDevices\n");
-	for(int i = 0; i < 2; i++) {
-		auto port_register = kRegPort1StatusControl + 2 * i;
+	while(true) {
+		for(int i = 0; i < 2; i++) {
+			auto port_register = kRegPort1StatusControl + 2 * i;
 
-		// poll for connect status change and immediately reset that bit.
-		if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
-			continue;
-		frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
+			// poll for connect status change and immediately reset that bit.
+			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
+				continue;
+			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
 
-		// TODO: delete current device.
+			// TODO: delete current device.
+			
+			// check if a new device was attached to the port.
+			auto port_status = frigg::readIo<uint16_t>(_base + port_register);
+			assert(!(port_status & kRootEnabled));
+			if(!(port_status & kRootConnected))
+				continue;
+
+			std::cout << "uhci: USB device connected" << std::endl;
+
+			// reset the port for 50ms.
+			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
 		
-		// check if a new device was attached to the port.
-		auto port_status = frigg::readIo<uint16_t>(_base + port_register);
-		assert(!(port_status & kRootEnabled));
-		if(!(port_status & kRootConnected))
-			continue;
+			// TODO: do not busy-wait.
+			uint64_t start;
+			HEL_CHECK(helGetClock(&start));
+			while(true) {
+				uint64_t ticks;
+				HEL_CHECK(helGetClock(&ticks));
+				if(ticks - start >= 50000000)
+					break;
+			}
 
-		std::cout << "uhci: USB device connected" << std::endl;
+			// enable the port and wait until it is available.
+			frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
+			while(true) {
+				port_status = frigg::readIo<uint16_t>(_base + port_register);
+				if((port_status & kRootEnabled))
+					break;
+			}
 
-		// reset the port for 50ms.
-		frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
-	
-		// TODO: do not busy-wait.
-		uint64_t start;
-		HEL_CHECK(helGetClock(&start));
-		while(true) {
-			uint64_t ticks;
-			HEL_CHECK(helGetClock(&ticks));
-			if(ticks - start >= 50000000)
-				break;
+			// disable the port if there was a concurrent disconnect.
+			if(port_status & kRootConnectChange) {
+				std::cout << "uhci: Disconnect during device enumeration." << std::endl;
+				frigg::writeIo<uint16_t>(_base + port_register, 0);
+				continue;
+			}
+		
+			COFIBER_AWAIT probeDevice();
 		}
 
-		// enable the port and wait until it is available.
-		frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
-		while(true) {
-			port_status = frigg::readIo<uint16_t>(_base + port_register);
-			if((port_status & kRootEnabled))
-				break;
-		}
-
-		// disable the port if there was a concurrent disconnect.
-		if(port_status & kRootConnectChange) {
-			std::cout << "uhci: Disconnect during device enumeration." << std::endl;
-			frigg::writeIo<uint16_t>(_base + port_register, 0);
-			continue;
-		}
-	
-		COFIBER_AWAIT probeDevice();
+		COFIBER_AWAIT _pollDoorbell.async_wait();
 	}
-
-	COFIBER_RETURN();
 }))
 
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
-	printf("entered probeDevice\n");
 	auto device_state = std::make_shared<DeviceState>();
 	device_state->address = 0;
 	device_state->controlStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
@@ -636,8 +636,8 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
 				: (_lastCounter + 2048 - _lastFrame + frame);
 		
-		//if(counter / 1024 > _lastCounter / 1024)
-		//	pollDevices();
+		if(counter / 1024 > _lastCounter / 1024)
+			_pollDoorbell.ring();
 
 		//printf("uhci: Processing transfers.\n");
 		auto it = asyncSchedule.begin();
@@ -690,7 +690,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting uhci (usb-)driver\n");
+	printf("Starting UHCI driver\n");
 
 	observeDevices();
 

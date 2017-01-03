@@ -1,5 +1,6 @@
 
 #include <queue>
+#include <async/doorbell.hpp>
 
 struct DeviceState;
 struct ConfigurationState;
@@ -119,6 +120,7 @@ private:
 
 	uint16_t _lastFrame;
 	uint64_t _lastCounter;
+	async::doorbell _pollDoorbell;
 
 	std::queue<int> _addressStack;
 	std::shared_ptr<DeviceState> _activeDevices[128];
