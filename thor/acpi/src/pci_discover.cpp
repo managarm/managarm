@@ -98,6 +98,22 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_irq.error());
+		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
+			helix::SendBuffer send_resp;
+
+			// TODO: Support other access sizes.
+			// TODO: Perform some sanity checks on the offset.
+			auto word = readPciHalf(device->bus, device->slot, device->function, req.offset());
+
+			managarm::hw::SvrResponse resp;
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+			resp.set_word(word);
+		
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else {
 			helix::SendBuffer send_resp;
 

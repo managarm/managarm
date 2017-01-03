@@ -31,6 +31,8 @@ struct Device {
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessIrq();
+	
+	async::result<uint32_t> loadPciSpace(size_t offset);
 
 private:
 	helix::UniqueLane _lane;

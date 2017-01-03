@@ -19,11 +19,15 @@ enum CntReqType {
 	GET_PCI_INFO = 1;
 	ACCESS_BAR = 2;
 	ACCESS_IRQ = 3;
+	LOAD_PCI_SPACE = 4;
+	STORE_PCI_SPACE = 5;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
 	optional int32 index = 2;
+	optional uint64 offset = 3;
+	optional uint32 word = 4;
 }
 
 message PciBar {
@@ -37,5 +41,6 @@ message PciBar {
 message SvrResponse {
 	optional Errors error = 1;
 	repeated PciBar bars = 2;
+	optional uint32 word = 3;
 }
 

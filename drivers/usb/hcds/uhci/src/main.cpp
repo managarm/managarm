@@ -658,6 +658,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto bar = COFIBER_AWAIT device.accessBar(4);
 	auto irq = COFIBER_AWAIT device.accessIrq();
 
+	// TODO: Disable the legacy support registers of all UHCI devices
+	// before using one of them!
+	auto legsup = COFIBER_AWAIT device.loadPciSpace(kPciLegacySupport);
+	std::cout << "UHCI: Legacy support register: " << legsup << std::endl;
+
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 
 	auto controller = std::make_shared<Controller>(info.barInfo[4].address, std::move(irq));

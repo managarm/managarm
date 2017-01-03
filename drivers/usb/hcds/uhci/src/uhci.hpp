@@ -189,6 +189,10 @@ struct FrameList {
 	FrameListPointer entries[1024];
 };
 
+enum {
+	kPciLegacySupport = 0xC0
+};
+
 enum RegisterOffset {
 	kRegCommand = 0x00,
 	kRegStatus = 0x02,
@@ -197,7 +201,7 @@ enum RegisterOffset {
 	kRegFrameListBaseAddr = 0x08,
 	kRegStartFrameModify = 0x0C,
 	kRegPort1StatusControl = 0x10,
-	kRegPort2StatusControl = 0x12
+	kRegPort2StatusControl = 0x12,
 };
 
 enum {
