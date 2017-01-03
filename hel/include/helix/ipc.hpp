@@ -528,26 +528,27 @@ private:
 	async::promise<void> _pledge;
 };
 
+template<typename R>
 struct Item {
 	Operation *operation;
 	HelAction action;
 };
 
-inline Item action(Offer *operation, uint32_t flags = 0) {
+inline Item<Offer> action(Offer *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionOffer;
 	action.flags = flags;
 	return {operation, action};
 }
 
-inline Item action(Accept *operation, uint32_t flags = 0) {
+inline Item<Accept> action(Accept *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionAccept;
 	action.flags = flags;
 	return {operation, action};
 }
 
-inline Item action(SendBuffer *operation, const void *buffer, size_t length,
+inline Item<SendBuffer> action(SendBuffer *operation, const void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionSendFromBuffer;
@@ -557,14 +558,14 @@ inline Item action(SendBuffer *operation, const void *buffer, size_t length,
 	return {operation, action};
 }
 
-inline Item action(RecvInline *operation, uint32_t flags = 0) {
+inline Item<RecvInline> action(RecvInline *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionRecvInline;
 	action.flags = flags;
 	return {operation, action};
 }
 
-inline Item action(RecvBuffer *operation, void *buffer, size_t length,
+inline Item<RecvBuffer> action(RecvBuffer *operation, void *buffer, size_t length,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionRecvToBuffer;
@@ -574,7 +575,7 @@ inline Item action(RecvBuffer *operation, void *buffer, size_t length,
 	return {operation, action};
 }
 
-inline Item action(PushDescriptor *operation, BorrowedDescriptor descriptor,
+inline Item<PushDescriptor> action(PushDescriptor *operation, BorrowedDescriptor descriptor,
 		uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPushDescriptor;
@@ -583,24 +584,20 @@ inline Item action(PushDescriptor *operation, BorrowedDescriptor descriptor,
 	return {operation, action};
 }
 
-inline Item action(PullDescriptor *operation, uint32_t flags = 0) {
+inline Item<PullDescriptor> action(PullDescriptor *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionPullDescriptor;
 	action.flags = flags;
 	return {operation, action};
 }
 
-template<size_t N>
+template<typename... I>
 struct Transmission : private Context {
-	Transmission(BorrowedDescriptor descriptor, const Item *items, Dispatcher &dispatcher) {
-		HelAction actions[N];
-		for(size_t i = 0; i < N; i++) {
-			actions[i] = items[i].action;
-			_results[i] = items[i].operation;
-		}
-
+	Transmission(BorrowedDescriptor descriptor, std::array<HelAction, sizeof...(I)> actions,
+			std::array<Operation *, sizeof...(I)> results, Dispatcher &dispatcher)
+	: _results(results) {
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
+		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions.data(), sizeof...(I),
 				dispatcher.acquire().get(),
 				reinterpret_cast<uintptr_t>(context), 0));
 	}
@@ -616,12 +613,12 @@ struct Transmission : private Context {
 private:
 	void complete(ElementPtr element) override {
 		auto ptr = element.get();
-		for(size_t i = 0; i < N; ++i)
+		for(size_t i = 0; i < sizeof...(I); ++i)
 			_results[i]->parse(ptr);
 		_pledge.set_value();
 	}
 
-	Operation *_results[N];
+	std::array<Operation *, sizeof...(I)> _results;
 	async::promise<void> _pledge;
 };
 
@@ -640,10 +637,12 @@ inline Submission submitObserve(BorrowedDescriptor thread, Observe *operation,
 	return {thread, operation, dispatcher};
 }
 
-template<size_t N>
-inline Transmission<N> submitAsync(BorrowedDescriptor descriptor, const Item (&items)[N],
-		Dispatcher &dispatcher) {
-	return {descriptor, items, dispatcher};
+template<typename... I>
+inline Transmission<I...> submitAsync(BorrowedDescriptor descriptor, Dispatcher &dispatcher,
+		Item<I>... items) {
+	std::array<HelAction, sizeof...(I)> actions{items.action...};
+	std::array<Operation *, sizeof...(I)> results{items.operation...};
+	return {descriptor, actions, results, dispatcher};
 }
 
 inline Submission submitAwaitIrq(BorrowedDescriptor descriptor, AwaitIrq *operation,

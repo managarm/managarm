@@ -75,12 +75,11 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(self->_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_passthrough)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_passthrough));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -154,12 +153,11 @@ private:
 		req.set_path(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(self->_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_node)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_node));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());

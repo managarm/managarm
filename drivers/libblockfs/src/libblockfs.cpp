@@ -116,10 +116,9 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, {
-			helix::action(&accept, kHelItemAncillary),
-			helix::action(&recv_req)
-		}, helix::Dispatcher::global());
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -141,10 +140,9 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&push_node, remote_lane)
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_node, remote_lane));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());

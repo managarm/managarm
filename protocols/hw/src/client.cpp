@@ -23,11 +23,10 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 	req.set_req_type(managarm::hw::CntReqType::GET_PCI_INFO);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp)
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -68,12 +67,11 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int in
 	req.set_index(index);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_bar),
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_bar));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -99,12 +97,11 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
 	req.set_req_type(managarm::hw::CntReqType::ACCESS_IRQ);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_irq),
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_irq));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());

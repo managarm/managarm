@@ -14,10 +14,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, {
-			helix::action(&accept, kHelItemAncillary),
-			helix::action(&recv_req)
-		}, helix::Dispatcher::global());
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -39,10 +38,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, data, req.length())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, data, req.length()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -50,9 +48,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::RecvInline recv_buffer;
 			helix::SendBuffer send_resp;
 		
-			auto &&payload = helix::submitAsync(conversation, {
-				helix::action(&recv_buffer)
-			}, helix::Dispatcher::global());
+			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&recv_buffer));
 			COFIBER_AWAIT payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 		
@@ -63,9 +60,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 			
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST) {
@@ -80,10 +76,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, data, req.length())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, data, req.length()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -94,9 +89,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
@@ -109,10 +103,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, {
-			helix::action(&accept, kHelItemAncillary),
-			helix::action(&recv_req)
-		}, helix::Dispatcher::global());
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -137,10 +130,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_lane, remote_lane)
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_lane, remote_lane));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
@@ -151,9 +143,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveInterface(Interface interface,
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
@@ -166,10 +157,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, {
-			helix::action(&accept, kHelItemAncillary),
-			helix::action(&recv_req)
-		}, helix::Dispatcher::global());
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -194,10 +184,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_lane, remote_lane)
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_lane, remote_lane));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
@@ -208,9 +197,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveConfiguration(Configuration configurati
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}
@@ -223,10 +211,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, {
-			helix::action(&accept, kHelItemAncillary),
-			helix::action(&recv_req)
-		}, helix::Dispatcher::global());
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -246,10 +233,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, data.data(), data.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, data.data(), data.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -267,10 +253,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, data, req.length())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, data, req.length()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -288,10 +273,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_lane, remote_lane)
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_lane, remote_lane));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_lane.error());
@@ -302,9 +286,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, {
-				helix::action(&send_resp, ser.data(), ser.size())
-			}, helix::Dispatcher::global());
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}

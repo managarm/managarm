@@ -73,12 +73,11 @@ COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor
 	req.set_req_type(managarm::usb::CntReqType::GET_CONFIGURATION_DESCRIPTOR);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&recv_data)
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&recv_data));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -106,12 +105,11 @@ COFIBER_ROUTINE(async::result<Configuration>, DeviceState::useConfiguration(int 
 	req.set_number(number);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_lane),
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_lane));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -148,12 +146,11 @@ COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info)
 		req.set_length(info.length);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&recv_data, info.buffer, info.length)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&recv_data, info.buffer, info.length));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -180,12 +177,11 @@ COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int n
 	req.set_alternative(alternative);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_lane),
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_lane));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -213,12 +209,11 @@ COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType ty
 	req.set_number(number);
 
 	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, {
-		helix::action(&offer, kHelItemAncillary),
-		helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-		helix::action(&recv_resp, kHelItemChain),
-		helix::action(&pull_lane),
-	}, helix::Dispatcher::global());
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_lane));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -255,12 +250,11 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer i
 		req.set_length(info.length);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&recv_data, info.buffer, info.length)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&recv_data, info.buffer, info.length));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -289,12 +283,11 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 		req.set_length(info.length);
 		
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, info.buffer, info.length, kHelItemChain),
-			helix::action(&recv_resp)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, info.buffer, info.length, kHelItemChain),
+				helix::action(&recv_resp));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -318,12 +311,11 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 		req.set_length(info.length);
 		
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, {
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&recv_data, info.buffer, info.length)
-		}, helix::Dispatcher::global());
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&recv_data, info.buffer, info.length));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
