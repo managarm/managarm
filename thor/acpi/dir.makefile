@@ -183,6 +183,7 @@ $($c_BINDIR)/acpi: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS) | $($c_BINDIR)
 	$($d_CXX) -o $@ $($d_LDFLAGS) $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS) $($d_LIBS)
 
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
+$(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))
 
 # compile ACPICA.
 # debugger would require -DACPI_DEBUGGER -DACPI_DISASSEMBLER.
