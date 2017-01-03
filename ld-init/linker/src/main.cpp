@@ -86,9 +86,44 @@ extern "C" void *interpreterMain(char *sp) {
 	runtimeTlsMap.initialize();
 	
 	HelError error;
-	asm volatile ("syscall" : "=D"(error), "=S"(fileTable) : "0"(kHelCallSuper + 1));
+	asm volatile ("syscall" : "=D"(error), "=S"(fileTable) : "0"(kHelCallSuper + 1)
+			: "rbx", "rcx", "r11");
 	HEL_CHECK(error);
 
+	// Parse the RTLDs own dynamic section.
+	// FIXME: read own SONAME
+	interpreter.initialize("ld-init.so", false);
+	interpreter->baseAddress = (uintptr_t)_DYNAMIC
+			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
+	interpreter->dynamic = _DYNAMIC;
+
+	_GLOBAL_OFFSET_TABLE_[1] = interpreter.get();
+	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
+	
+	for(size_t i = 0; _DYNAMIC[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &_DYNAMIC[i];
+		switch(dynamic->d_tag) {
+		// handle hash table, symbol table and string table
+		case DT_HASH:
+			interpreter->hashTableOffset = dynamic->d_ptr;
+			break;
+		case DT_STRTAB:
+			interpreter->stringTableOffset = dynamic->d_ptr;
+			break;
+		case DT_STRSZ:
+			break; // we don't need the size of the string table
+		case DT_SYMTAB:
+			interpreter->symbolTableOffset = dynamic->d_ptr;
+			break;
+		case DT_SYMENT:
+			assert(dynamic->d_val == sizeof(Elf64_Sym));
+			break;
+		default:
+			assert(!"Unexpected dynamic entry in program interpreter");
+		}
+	}
+
+	// Parse the auxiliary vector.
 	enum {
 		// this value is not part of the ABI
 		AT_ILLEGAL = -1,
@@ -119,7 +154,7 @@ extern "C" void *interpreterMain(char *sp) {
 	size_t phdr_entry_size;
 	size_t phdr_count;
 	void *entry_pointer;
-
+	
 	while(true) {
 		auto aux = loadItem<Auxiliary>(sp);
 		if(aux.type == AT_NULL)
@@ -138,38 +173,6 @@ extern "C" void *interpreterMain(char *sp) {
 		default:
 			frigg::panicLogger() << "Unexpected auxiliary item type "
 					<< aux.type << frigg::endLog;
-		}
-	}
-
-	// FIXME: read own SONAME
-	interpreter.initialize("ld-init.so", false);
-	interpreter->baseAddress = (uintptr_t)_DYNAMIC
-			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
-	interpreter->dynamic = _DYNAMIC;
-
-	_GLOBAL_OFFSET_TABLE_[1] = interpreter.get();
-	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
-	
-	for(size_t i = 0; _DYNAMIC[i].d_tag != DT_NULL; i++) {
-		Elf64_Dyn *dynamic = &_DYNAMIC[i];
-		switch(dynamic->d_tag) {
-		// handle hash table, symbol table and string table
-		case DT_HASH:
-			interpreter->hashTableOffset = dynamic->d_ptr;
-			break;
-		case DT_STRTAB:
-			interpreter->stringTableOffset = dynamic->d_ptr;
-			break;
-		case DT_STRSZ:
-			break; // we don't need the size of the string table
-		case DT_SYMTAB:
-			interpreter->symbolTableOffset = dynamic->d_ptr;
-			break;
-		case DT_SYMENT:
-			assert(dynamic->d_val == sizeof(Elf64_Sym));
-			break;
-		default:
-			assert(!"Unexpected dynamic entry in program interpreter");
 		}
 	}
 
