@@ -96,9 +96,9 @@ struct OfferWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -113,7 +113,7 @@ struct AcceptWriter {
 		return sizeof(HelHandleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		Handle handle;
 		{
 			auto universe = _weakUniverse.grab();
@@ -123,7 +123,7 @@ struct AcceptWriter {
 		}
 
 		HelHandleResult data{translateError(_error), 0, handle};
-		accessor.copyTo(0, &data, sizeof(HelHandleResult));
+		accessor.copyTo(disp, &data, sizeof(HelHandleResult));
 	}
 
 private:
@@ -140,9 +140,9 @@ struct SendStringWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -158,10 +158,10 @@ struct RecvInlineWriter {
 		return (size + 7) & ~size_t(7);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelInlineResult data{translateError(_error), 0, _buffer.size()};
-		accessor.copyTo(0, &data, sizeof(HelInlineResult));
-		accessor.copyTo(__builtin_offsetof(HelInlineResult, data),
+		accessor.copyTo(disp, &data, sizeof(HelInlineResult));
+		accessor.copyTo(disp + __builtin_offsetof(HelInlineResult, data),
 				_buffer.data(), _buffer.size());
 	}
 
@@ -178,9 +178,9 @@ struct RecvStringWriter {
 		return sizeof(HelLengthResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelLengthResult data{translateError(_error), 0, _length};
-		accessor.copyTo(0, &data, sizeof(HelLengthResult));
+		accessor.copyTo(disp, &data, sizeof(HelLengthResult));
 	}
 
 private:
@@ -196,9 +196,9 @@ struct PushDescriptorWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -213,7 +213,7 @@ struct PullDescriptorWriter {
 		return sizeof(HelHandleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		Handle handle;
 		{
 			auto universe = _weakUniverse.grab();
@@ -223,7 +223,7 @@ struct PullDescriptorWriter {
 		}
 
 		HelHandleResult data{translateError(_error), 0, handle};
-		accessor.copyTo(0, &data, sizeof(HelHandleResult));
+		accessor.copyTo(disp, &data, sizeof(HelHandleResult));
 	}
 
 private:
@@ -298,58 +298,66 @@ struct MsgHandler {
 	friend struct SetResult;
 private:
 	struct Functor {
-		Functor(MsgHandler *handler, size_t index)
-		: _handler(handler), _index(index) { }
+		Functor(MsgHandler *handler)
+		: _handler(handler) { }
 
 		void operator() (ForeignSpaceAccessor accessor) {
-			_handler->_results[_index].apply([&] (auto &writer) {
-				writer.write(frigg::move(accessor));
-			});
+			_handler->write(frigg::move(accessor));
 		}
 
 	private:
 		MsgHandler *_handler;
-		size_t _index;
 	};
 
 public:
-	MsgHandler(size_t num_items, frigg::SharedPtr<AddressSpace> space, void *queue)
-	: _results(*kernelAlloc), _contexts(*kernelAlloc), _numComplete(0),
-			_space(frigg::move(space)), _queue(queue) {
+	MsgHandler(size_t num_items, frigg::SharedPtr<AddressSpace> space,
+			void *queue, uintptr_t context)
+	: _results(*kernelAlloc), _numComplete(0),
+			_space(frigg::move(space)), _queue(queue), _context(context) {
 		_results.resize(num_items);
-		_contexts.resize(num_items);
 	}
 
 private:
 	void complete() {
+		size_t size = 0;
 		for(size_t i = 0; i < _results.size(); ++i) {
-			auto size = _results[i].apply([] (auto &writer) -> size_t {
+			size += _results[i].apply([] (auto &writer) -> size_t {
 				return writer.size();
 			});
+		}
 
-			auto handle = _space->queueSpace.prepare<Functor>();
-			_space->queueSpace.submit(frigg::move(handle), _space, (uintptr_t)_queue,
-					size, _contexts[i], Functor{this, i});
+		auto handle = _space->queueSpace.prepare<Functor>();
+		_space->queueSpace.submit(frigg::move(handle), _space, (uintptr_t)_queue,
+				size, _context, Functor{this});
+	}
+	
+	void write(ForeignSpaceAccessor accessor) {
+		size_t disp = 0;
+		for(size_t i = 0; i < _results.size(); ++i) {
+			_results[i].apply([&] (auto &writer) {
+				assert(!(disp & 7)); // TODO: Replace the magic constant by alignof(...).
+				writer.write(accessor, disp);
+				disp += writer.size();
+			});
 		}
 	}
 
 	frigg::Vector<ItemWriter, KernelAlloc> _results;
-	frigg::Vector<uintptr_t, KernelAlloc> _contexts;
 	std::atomic<unsigned int> _numComplete;
 
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_queue;
+	uintptr_t _context;
 };
 
 template<typename W>
 struct SetResult {
-	SetResult(MsgHandler *handler, size_t index, uintptr_t context)
-	: _handler(handler), _index(index), _context(context) { }
+	SetResult(MsgHandler *handler, size_t index)
+	: _handler(handler), _index(index) { }
 
 	template<typename... Args>
 	void operator() (Args &&... args) {
 		_handler->_results[_index] = W{frigg::forward<Args>(args)...};
-		_handler->_contexts[_index] = _context;
 		auto c = _handler->_numComplete.fetch_add(1, std::memory_order_acq_rel);
 		if(c + 1 == _handler->_results.size())
 			_handler->complete();
@@ -358,7 +366,6 @@ struct SetResult {
 private:
 	MsgHandler *_handler;
 	size_t _index;
-	uintptr_t _context;
 };
 
 HelError helLog(const char *string, size_t length) {
@@ -1081,7 +1088,7 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 }
 
 HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
-		HelQueue *queue, uint32_t flags) {
+		HelQueue *queue, uintptr_t context, uint32_t flags) {
 	(void)flags;
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> this_universe = this_thread->getUniverse();
@@ -1107,7 +1114,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	}
 
 	auto handler = frigg::construct<MsgHandler>(*kernelAlloc, count,
-			this_thread->getAddressSpace().toShared(), queue);
+			this_thread->getAddressSpace().toShared(), queue, context);
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
 	stack.push(frigg::move(lane));
@@ -1125,7 +1132,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionOffer: {
 			using Token = SetResult<OfferWriter>;
 			LaneHandle branch = target.getStream()->submitOffer(target.getLane(),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(branch);
@@ -1134,7 +1141,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			using Token = SetResult<AcceptWriter>;
 			LaneHandle branch = target.getStream()->submitAccept(target.getLane(),
 					this_universe.toWeak(),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(branch);
@@ -1144,13 +1151,13 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			memcpy(buffer.data(), action.buffer, action.length);
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 		} break;
 		case kHelActionRecvInline: {
 			using Token = SetResult<RecvInlineWriter>;
 			auto space = this_thread->getAddressSpace().toShared();
 			target.getStream()->submitRecvInline(target.getLane(),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 		} break;
 		case kHelActionRecvToBuffer: {
 			using Token = SetResult<RecvStringWriter>;
@@ -1158,7 +1165,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
 					action.buffer, action.length);
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -1172,12 +1179,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			using Token = SetResult<PushDescriptorWriter>;
 			target.getStream()->submitPushDescriptor(target.getLane(), frigg::move(operand),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 		} break;
 		case kHelActionPullDescriptor: {
 			using Token = SetResult<PullDescriptorWriter>;
 			target.getStream()->submitPullDescriptor(target.getLane(), this_universe.toWeak(),
-					Token(handler, i - 1, action.context));
+					Token(handler, i - 1));
 		} break;
 		default:
 			assert(!"Fix error handling here");

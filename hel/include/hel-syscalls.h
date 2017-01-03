@@ -226,9 +226,9 @@ DEFINE_SYSCALL(CreateStream, HelHandle *lane1, HelHandle *lane2)
 END_SYSCALL()
 
 DEFINE_SYSCALL(SubmitAsync, HelHandle handle, const HelAction *actions,
-		size_t count, struct HelQueue *queue, uint32_t flags)
+		size_t count, struct HelQueue *queue, uintptr_t context, uint32_t flags)
 	IN(0, handle) IN(1, actions) IN(2, count) IN(3, queue)
-			IN(4, flags)
+			IN(4, context) IN(5, flags)
 	DO_SYSCALL(SubmitAsync)
 END_SYSCALL()
 

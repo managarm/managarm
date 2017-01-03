@@ -153,21 +153,24 @@ struct OperationBase {
 	friend class Dispatcher;
 
 	OperationBase()
-	: _asyncId(0), _result(nullptr) { }
+	: _asyncId(0), _element(nullptr) { }
 	
 	virtual ~OperationBase() { }
 
 	void *element() {
-		return _result.get();
+		return _element;
 	}
 
 protected:
 	int64_t _asyncId;
 public: // TODO: This should not be public.
-	ElementPtr _result;
+	void *_element;
 };
 
 struct Operation : OperationBase {
+	virtual void parse(void *&element) {
+		assert(!"Not supported");
+	}
 };
 
 struct Context {
@@ -303,6 +306,11 @@ struct Offer : Operation {
 		return result()->error;
 	}
 
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+	}
+
 private:
 	HelSimpleResult *result() {
 		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
@@ -319,6 +327,11 @@ struct Accept : Operation {
 		UniqueDescriptor descriptor(result()->handle);
 		result()->handle = kHelNullHandle;
 		return descriptor;
+	}
+
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelHandleResult);
 	}
 
 private:
@@ -342,6 +355,12 @@ struct RecvInline : Operation {
 		return result()->length;
 	}
 
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelInlineResult)
+				+ ((result()->length + 7) & ~size_t(7));
+	}
+
 private:
 	HelInlineResult *result() {
 		return reinterpret_cast<HelInlineResult *>(OperationBase::element());
@@ -356,6 +375,11 @@ struct RecvBuffer : Operation {
 	size_t actualLength() {
 		HEL_CHECK(error());
 		return result()->length;
+	}
+
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelLengthResult);
 	}
 
 private:
@@ -376,6 +400,11 @@ struct PullDescriptor : Operation {
 		return descriptor;
 	}
 
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelHandleResult);
+	}
+
 private:
 	HelHandleResult *result() {
 		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
@@ -387,6 +416,11 @@ struct SendBuffer : Operation {
 		return result()->error;
 	}
 
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+	}
+
 private:
 	HelSimpleResult *result() {
 		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
@@ -396,6 +430,11 @@ private:
 struct PushDescriptor : Operation {
 	HelError error() {
 		return result()->error;
+	}
+
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
 	}
 
 private:
@@ -481,7 +520,7 @@ private:
 	}
 
 	void complete(ElementPtr element) override {
-		_result->_result = element;
+		_result->_element = element.get();
 		_pledge.set_value();
 	}
 
@@ -552,27 +591,21 @@ inline Item action(PullDescriptor *operation, uint32_t flags = 0) {
 }
 
 template<size_t N>
-struct Transmission {
-	Transmission(BorrowedDescriptor descriptor, const Item *items,
-			Dispatcher &dispatcher)
-	: _numComplete(0) {
+struct Transmission : private Context {
+	Transmission(BorrowedDescriptor descriptor, const Item *items, Dispatcher &dispatcher) {
 		HelAction actions[N];
 		for(size_t i = 0; i < N; i++) {
 			actions[i] = items[i].action;
-			actions[i].context = reinterpret_cast<uintptr_t>(&_contexts[i]);
 			_results[i] = items[i].operation;
-			_contexts[i].link = this;
-			_contexts[i].index = i;
 		}
+
+		auto context = static_cast<Context *>(this);
 		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions, N,
-				dispatcher.acquire().get(), 0));
+				dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context), 0));
 	}
 
 	Transmission(const Transmission &) = delete;
-
-	~Transmission() {
-		assert(_numComplete.load(std::memory_order_relaxed) == N);
-	}
 
 	Transmission &operator= (Transmission &other) = delete;
 
@@ -581,21 +614,14 @@ struct Transmission {
 	}
 
 private:
-	struct TransmitContext : Context {
-		void complete(ElementPtr element) override {
-			link->_results[index]->_result = std::move(element);
-			auto c = link->_numComplete.fetch_add(1, std::memory_order_acq_rel);
-			if(c + 1 == N)
-				link->_pledge.set_value();
-		}
-
-		Transmission *link;
-		size_t index;
-	};
+	void complete(ElementPtr element) override {
+		auto ptr = element.get();
+		for(size_t i = 0; i < N; ++i)
+			_results[i]->parse(ptr);
+		_pledge.set_value();
+	}
 
 	Operation *_results[N];
-	TransmitContext _contexts[N];
-	std::atomic<int> _numComplete;
 	async::promise<void> _pledge;
 };
 

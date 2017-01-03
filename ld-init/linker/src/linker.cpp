@@ -383,11 +383,33 @@ private:
 	size_t _progress;
 };
 
+HelSimpleResult *parseSimple(void *&element) {
+	auto result = reinterpret_cast<HelSimpleResult *>(element);
+	element = (char *)element + sizeof(HelSimpleResult);
+	return result;
+}
+
+HelInlineResult *parseInline(void *&element) {
+	auto result = reinterpret_cast<HelInlineResult *>(element);
+	element = (char *)element + sizeof(HelInlineResult)
+			+ ((result->length + 7) & ~size_t(7));
+	return result;
+}
+
+HelLengthResult *parseLength(void *&element) {
+	auto result = reinterpret_cast<HelLengthResult *>(element);
+	element = (char *)element + sizeof(HelLengthResult);
+	return result;
+}
+
+HelHandleResult *parseHandle(void *&element) {
+	auto result = reinterpret_cast<HelHandleResult *>(element);
+	element = (char *)element + sizeof(HelHandleResult);
+	return result;
+}
+
 int posixOpen(frigg::String<Allocator> path) {
 	HelAction actions[3];
-	HelSimpleResult *offer;
-	HelSimpleResult *send_req;
-	HelInlineResult *recv_resp;
 
 	managarm::posix::CntRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::CntReqType::OPEN);
@@ -405,12 +427,12 @@ int posixOpen(frigg::String<Allocator> path) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0, 0));
 
-	offer = (HelSimpleResult *)m.dequeueSingle();
-	send_req = (HelSimpleResult *)m.dequeueSingle();
-	recv_resp = (HelInlineResult *)m.dequeueSingle();
-
+	auto element = m.dequeueSingle();
+	auto offer = parseSimple(element);
+	auto send_req = parseSimple(element);
+	auto recv_resp = parseInline(element);
 	HEL_CHECK(offer->error);
 	HEL_CHECK(send_req->error);
 	HEL_CHECK(recv_resp->error);
@@ -428,9 +450,6 @@ void posixSeek(int fd, int64_t offset) {
 	auto lane = fileTable[fd];
 
 	HelAction actions[3];
-	HelSimpleResult *offer;
-	HelSimpleResult *send_req;
-	HelInlineResult *recv_resp;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
@@ -448,12 +467,12 @@ void posixSeek(int fd, int64_t offset) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(lane, actions, 3, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 3, m.getQueue(), 0, 0));
 
-	offer = (HelSimpleResult *)m.dequeueSingle();
-	send_req = (HelSimpleResult *)m.dequeueSingle();
-	recv_resp = (HelInlineResult *)m.dequeueSingle();
-
+	auto element = m.dequeueSingle();
+	auto offer = parseSimple(element);
+	auto send_req = parseSimple(element);
+	auto recv_resp = parseInline(element);
 	HEL_CHECK(offer->error);
 	HEL_CHECK(send_req->error);
 	HEL_CHECK(recv_resp->error);
@@ -469,10 +488,6 @@ void posixRead(int fd, void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		HelAction actions[4];
-		HelSimpleResult *offer;
-		HelSimpleResult *send_req;
-		HelInlineResult *recv_resp;
-		HelLengthResult *recv_data;
 
 		managarm::fs::CntRequest<Allocator> req(*allocator);
 		req.set_req_type(managarm::fs::CntReqType::READ);
@@ -494,13 +509,13 @@ void posixRead(int fd, void *data, size_t length) {
 		actions[3].flags = 0;
 		actions[3].buffer = (char *)data + offset;
 		actions[3].length = length - offset;
-		HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0));
+		HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0, 0));
 
-		offer = (HelSimpleResult *)m.dequeueSingle();
-		send_req = (HelSimpleResult *)m.dequeueSingle();
-		recv_resp = (HelInlineResult *)m.dequeueSingle();
-		recv_data = (HelLengthResult *)m.dequeueSingle();
-
+		auto element = m.dequeueSingle();
+		auto offer = parseSimple(element);
+		auto send_req = parseSimple(element);
+		auto recv_resp = parseInline(element);
+		auto recv_data = parseLength(element);
 		HEL_CHECK(offer->error);
 		HEL_CHECK(send_req->error);
 		HEL_CHECK(recv_resp->error);
@@ -518,10 +533,6 @@ HelHandle posixMmap(int fd) {
 	auto lane = fileTable[fd];
 
 	HelAction actions[4];
-	HelSimpleResult *offer;
-	HelSimpleResult *send_req;
-	HelInlineResult *recv_resp;
-	HelHandleResult *pull_memory;
 
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
@@ -540,13 +551,13 @@ HelHandle posixMmap(int fd) {
 	actions[2].flags = kHelItemChain;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0, 0));
 
-	offer = (HelSimpleResult *)m.dequeueSingle();
-	send_req = (HelSimpleResult *)m.dequeueSingle();
-	recv_resp = (HelInlineResult *)m.dequeueSingle();
-	pull_memory = (HelHandleResult *)m.dequeueSingle();
-
+	auto element = m.dequeueSingle();
+	auto offer = parseSimple(element);
+	auto send_req = parseSimple(element);
+	auto recv_resp = parseInline(element);
+	auto pull_memory = parseHandle(element);
 	HEL_CHECK(offer->error);
 	HEL_CHECK(send_req->error);
 	HEL_CHECK(recv_resp->error);
@@ -560,9 +571,6 @@ HelHandle posixMmap(int fd) {
 
 void posixClose(int fd) {
 	HelAction actions[3];
-	HelSimpleResult *offer;
-	HelSimpleResult *send_req;
-	HelInlineResult *recv_resp;
 
 	managarm::posix::CntRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::CntReqType::CLOSE);
@@ -580,12 +588,12 @@ void posixClose(int fd) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0, 0));
 
-	offer = (HelSimpleResult *)m.dequeueSingle();
-	send_req = (HelSimpleResult *)m.dequeueSingle();
-	recv_resp = (HelInlineResult *)m.dequeueSingle();
-
+	auto element = m.dequeueSingle();
+	auto offer = parseSimple(element);
+	auto send_req = parseSimple(element);
+	auto recv_resp = parseInline(element);
 	HEL_CHECK(offer->error);
 	HEL_CHECK(send_req->error);
 	HEL_CHECK(recv_resp->error);

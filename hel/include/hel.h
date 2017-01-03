@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 79,
+	kHelNumCalls = 80,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -51,7 +51,7 @@ enum {
 	kHelCallGetClock = 42,
 	
 	kHelCallCreateStream = 68,
-	kHelCallSubmitAsync = 72,
+	kHelCallSubmitAsync = 79,
 
 	kHelCallFutexWait = 70,
 	kHelCallFutexWake = 71,
@@ -123,7 +123,6 @@ enum {
 
 struct HelAction {
 	int type;
-	uintptr_t context;
 	uint32_t flags;
 	// TODO: the following fields could be put into unions
 	void *buffer;
@@ -323,7 +322,7 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
-		size_t count, struct HelQueue *queue, uint32_t flags);
+		size_t count, struct HelQueue *queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
