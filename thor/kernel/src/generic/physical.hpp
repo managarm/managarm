@@ -6,10 +6,9 @@ public:
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
 
-	PhysicalChunkAllocator(PhysicalAddr bootstrap_base,
-			size_t bootstrap_length);
+	PhysicalChunkAllocator();
 	
-	void bootstrap();
+	void bootstrap(PhysicalAddr address, int order, size_t num_roots);
 
 	PhysicalAddr allocate(Guard &guard, size_t size);
 	void free(Guard &guard, PhysicalAddr address, size_t size);
@@ -20,13 +19,10 @@ public:
 	Lock lock;
 
 private:
-	PhysicalAddr _bootstrapBase;
-	size_t _bootstrapLength;
-
-	uintptr_t _physicalBase;
+	PhysicalAddr _physicalBase;
 	int8_t *_buddyPointer;
 	int _buddyOrder;
-	int _buddyRoots;
+	size_t _buddyRoots;
 
 	size_t _usedPages;
 	size_t _freePages;

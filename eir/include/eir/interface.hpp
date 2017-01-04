@@ -10,9 +10,11 @@ struct EirModule {
 };
 
 struct EirInfo {
-	EirPtr bootstrapPhysical;
-	EirSize bootstrapLength;
-	
+	EirPtr address;
+	EirSize length;
+	EirSize order; // TODO: This could be an int.
+	EirSize numRoots;
+
 	EirSize numModules;
 	EirPtr moduleInfo;
 };

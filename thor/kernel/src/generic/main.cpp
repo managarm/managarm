@@ -221,12 +221,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeProcessorEarly();
 	
 	auto info = accessPhysical<EirInfo>(info_paddr);
-	frigg::infoLogger() << "Bootstrap memory at "
-			<< (void *)info->bootstrapPhysical
-			<< ", length: " << (info->bootstrapLength / 1024) << " KiB" << frigg::endLog;
-
-	physicalAllocator.initialize(info->bootstrapPhysical, info->bootstrapLength);
-	physicalAllocator->bootstrap();
+	physicalAllocator.initialize();
+	physicalAllocator->bootstrap(info->address, info->order, info->numRoots);
 
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
