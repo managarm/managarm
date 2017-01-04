@@ -1,6 +1,11 @@
 
 namespace thor {
 
+enum {
+	kPageSize = 0x1000,
+	kPageShift = 12
+};
+
 void *physicalToVirtual(PhysicalAddr address);
 
 template<typename T>
@@ -15,10 +20,42 @@ T *accessPhysicalN(PhysicalAddr address, int n) {
 	return (T *)physicalToVirtual(address);
 }
 
-enum {
-	kPageSize = 0x1000,
-	kPageShift = 12
+struct PhysicalWindow {
+	constexpr PhysicalWindow(uint64_t *table, void *content);
+
+	void *acquire(PhysicalAddr physical);
+	void release(void *pointer);
+
+private:
+	uint64_t *_table;
+	void *_content;
+	bool _locked[512];
 };
+
+struct PageAccessor {
+	PageAccessor(PhysicalWindow &window, PhysicalAddr physical)
+	: _window(&window) {
+		_pointer = _window->acquire(physical);
+	}
+
+	PageAccessor(const PageAccessor &) = delete;
+
+	~PageAccessor() {
+		_window->release(_pointer);
+	}
+	
+	PageAccessor &operator= (const PageAccessor &) = delete;
+
+	void *get() {
+		return _pointer;
+	}
+
+private:
+	PhysicalWindow *_window;
+	void *_pointer;
+};
+
+extern PhysicalWindow generalWindow;
 
 class PageSpace {
 public:

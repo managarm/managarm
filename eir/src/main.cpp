@@ -497,14 +497,11 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	// finally setup the BSPs physical windows.
 	auto physical1 = allocPt();
-	auto physical3 = allocPt();
-	auto physical4 = allocPt();
+	auto physical2 = allocPt();
 	mapSingle4kPage(0xFFFF'FF80'0000'1000, physical1, kAccessWrite);
-	mapSingle4kPage(0xFFFF'FF80'0000'3000, physical3, kAccessWrite);
-	mapSingle4kPage(0xFFFF'FF80'0000'4000, physical4, kAccessWrite);
+	mapSingle4kPage(0xFFFF'FF80'0000'2000, physical2, kAccessWrite);
 	mapPt(0xFFFF'FF80'0020'0000, physical1);
-	mapPt(0xFFFF'FF80'0060'0000, physical3);
-	mapPt(0xFFFF'FF80'0080'0000, physical4);
+	mapPt(0xFFFF'FF80'0040'0000, physical2);
 	
 	// Setup the eir interface struct.
 	auto info = bootAlloc<EirInfo>();

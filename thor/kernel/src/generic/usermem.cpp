@@ -25,8 +25,11 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 				kGrabFetch | kGrabRead, src_offset + progress - dest_misalign);
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
-		memcpy((uint8_t *)physicalToVirtual(dest_page) + dest_misalign,
-				(uint8_t *)physicalToVirtual(src_page) + src_misalign, chunk);
+		
+		PageAccessor dest_accessor{generalWindow, dest_page};
+		PageAccessor src_accessor{generalWindow, src_page};
+		memcpy((uint8_t *)dest_accessor.get() + dest_misalign,
+				(uint8_t *)src_accessor.get() + src_misalign, chunk);
 		
 		progress += chunk;
 	}
@@ -41,6 +44,7 @@ size_t Memory::getLength() {
 	case MemoryTag::copyOnWrite: return static_cast<CopyOnWriteMemory *>(this)->getLength();
 	default:
 		frigg::panicLogger() << "Memory::getLength(): Unexpected tag" << frigg::endLog;
+		__builtin_unreachable();
 	}
 }
 
@@ -66,6 +70,7 @@ PhysicalAddr Memory::grabPage(PhysicalChunkAllocator::Guard &physical_guard,
 				grab_flags, offset);
 	default:
 		frigg::panicLogger() << "Memory::grabPage(): Unexpected tag" << frigg::endLog;
+		__builtin_unreachable();
 	}
 }
 
@@ -116,7 +121,9 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset - misalign);
 		assert(page != PhysicalAddr(-1));
-		memcpy(buffer, (uint8_t *)physicalToVirtual(page) + misalign, prefix);
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy(buffer, (uint8_t *)accessor.get() + misalign, prefix);
 		progress += prefix;
 	}
 
@@ -124,7 +131,9 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), kPageSize);
+		
+		PageAccessor accessor{generalWindow, page};
+		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
 		progress += kPageSize;
 	}
 
@@ -132,7 +141,9 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabRead, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)buffer + progress, physicalToVirtual(page), length - progress);
+		
+		PageAccessor accessor{generalWindow, page};
+		memcpy((uint8_t *)buffer + progress, accessor.get(), length - progress);
 	}
 }
 
@@ -147,7 +158,9 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset - misalign);
 		assert(page != PhysicalAddr(-1));
-		memcpy((uint8_t *)physicalToVirtual(page) + misalign, buffer, prefix);
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy((uint8_t *)accessor.get() + misalign, buffer, prefix);
 		progress += prefix;
 	}
 
@@ -155,7 +168,9 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, kPageSize);
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy(accessor.get(), (uint8_t *)buffer + progress, kPageSize);
 		progress += kPageSize;
 	}
 
@@ -163,7 +178,9 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 		assert((offset + progress) % kPageSize == 0);
 		PhysicalAddr page = grabPage(physical_guard, kGrabFetch | kGrabWrite, offset + progress);
 		assert(page != PhysicalAddr(-1));
-		memcpy(physicalToVirtual(page), (uint8_t *)buffer + progress, length - progress);
+		
+		PageAccessor accessor{generalWindow, page};
+		memcpy(accessor.get(), (uint8_t *)buffer + progress, length - progress);
 	}
 }
 
@@ -233,7 +250,11 @@ PhysicalAddr AllocatedMemory::grabPage(PhysicalChunkAllocator::Guard &physical_g
 			physical_guard.lock();
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, _chunkSize);
 		assert(physical % _chunkAlign == 0);
-		memset(physicalToVirtual(physical), 0, _chunkSize);
+		
+		for(size_t progress = 0; progress < _chunkSize; progress += kPageSize) {
+			PageAccessor accessor{generalWindow, physical + progress};
+			memset(accessor.get(), 0, kPageSize);
+		}
 		_physicalChunks[index] = physical;
 	}
 
@@ -317,7 +338,9 @@ PhysicalAddr BackingMemory::grabPage(PhysicalChunkAllocator::Guard &physical_gua
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
 		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, kPageSize);
-		memset(physicalToVirtual(physical), 0, kPageSize);
+		
+		PageAccessor accessor{generalWindow, physical};
+		memset(accessor.get(), 0, kPageSize);
 		_managed->physicalPages[index] = physical;
 	}
 
@@ -456,7 +479,10 @@ PhysicalAddr CopyOnWriteMemory::grabPage(PhysicalChunkAllocator::Guard &physical
 		if(!physical_guard.isLocked())
 			physical_guard.lock();
 		PhysicalAddr own_physical = physicalAllocator->allocate(physical_guard, kPageSize);
-		memcpy(physicalToVirtual(own_physical), physicalToVirtual(origin_physical), kPageSize);
+		
+		PageAccessor own_accessor{generalWindow, own_physical};
+		PageAccessor origin_accessor{generalWindow, origin_physical};
+		memcpy(own_accessor.get(), origin_accessor.get(), kPageSize);
 		_physicalPages[index] = own_physical;
 	}
 
@@ -911,8 +937,10 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 						kGrabFetch | kGrabWrite, page);
 				assert(src_physical != PhysicalAddr(-1));
 				assert(dest_physical != PhysicalAddr(-1));
-				memcpy(physicalToVirtual(dest_physical),
-						physicalToVirtual(src_physical), kPageSize);
+		
+				PageAccessor dest_accessor{generalWindow, dest_physical};
+				PageAccessor src_accessor{generalWindow, src_physical};
+				memcpy(dest_accessor.get(), src_accessor.get(), kPageSize);
 			}
 		}
 

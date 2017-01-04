@@ -132,7 +132,10 @@ inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		memcpy((char *)pointer + progress, physicalToVirtual(page + misalign), chunk);
+		assert(page != PhysicalAddr(-1));
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy((char *)pointer + progress, (char *)accessor.get() + misalign, chunk);
 		progress += chunk;
 	}
 }
@@ -147,7 +150,10 @@ inline void ForeignSpaceAccessor::copyTo(size_t offset, void *pointer, size_t si
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		memcpy(physicalToVirtual(page + misalign), (char *)pointer + progress, chunk);
+		assert(page != PhysicalAddr(-1));
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy((char *)accessor.get() + misalign, (char *)pointer + progress, chunk);
 		progress += chunk;
 	}
 }

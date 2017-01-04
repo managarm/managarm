@@ -12,9 +12,53 @@ namespace thor {
 
 frigg::LazyInitializer<PageSpace> kernelSpace;
 
+void invlpg(const void *address) {
+	auto p = reinterpret_cast<const char *>(address);
+	asm volatile ("invlpg %0" : : "m"(*p));
+}
+
 void *physicalToVirtual(PhysicalAddr address) {
 	return (void *)(0xFFFF800100000000 + address);
 }
+
+constexpr PhysicalWindow::PhysicalWindow(uint64_t *table, void *content)
+: _table{table}, _content{content}, _locked{} { }
+
+void *PhysicalWindow::acquire(PhysicalAddr physical) {
+	assert(!(physical % kPageSize));
+
+	// FIXME: This hack is uncredibly ugly!
+	// Fix global initializers instead of using this hack!
+	_table = reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000);
+	_content = reinterpret_cast<uint64_t *>(0xFFFF'FF80'0040'0000);
+
+	for(int i = 0; i < 512; ++i) {
+		if(_locked[i])
+			continue;
+
+//		frigg::infoLogger() << "Locking " << i << " to " << (void *)physical << frigg::endLog;
+		_locked[i] = true;
+		_table[i] = physical | kPagePresent | kPageWrite | kPageXd;
+		invlpg((char *)_content + i * kPageSize);
+		return (char *)_content + i * kPageSize;
+	}
+
+	frigg::panicLogger() << "Cannot lock a slot of a PhysicalWindow" << frigg::endLog;
+	__builtin_unreachable();
+}
+
+void PhysicalWindow::release(void *pointer) {
+	assert(!(uintptr_t(pointer) % kPageSize));
+	assert((char *)pointer >= (char *)_content);
+	auto index = ((char *)pointer - (char *)_content) / kPageSize;
+
+	_locked[index] = false;
+	_table[index] = 0;
+	invlpg((char *)_content + index * kPageSize);
+}
+
+PhysicalWindow generalWindow{reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000),
+		reinterpret_cast<void *>(0xFFFF'FF80'0040'0000)};
 
 // --------------------------------------------------------
 // PageSpace
@@ -32,8 +76,10 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	PhysicalAddr new_pml4_page = physicalAllocator->allocate(physical_guard, 0x1000);
 	physical_guard.unlock();
 
-	uint64_t *this_pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
-	uint64_t *new_pml4_pointer = (uint64_t *)physicalToVirtual(new_pml4_page);
+	PageAccessor this_accessor{generalWindow, p_pml4Address};
+	PageAccessor new_accessor{generalWindow, new_pml4_page};
+	uint64_t *this_pml4_pointer = (uint64_t *)this_accessor.get();
+	uint64_t *new_pml4_pointer = (uint64_t *)new_accessor.get();
 
 	for(int i = 0; i < 256; i++)
 		new_pml4_pointer[i] = 0;
@@ -43,11 +89,6 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	}
 
 	return PageSpace(new_pml4_page);
-}
-
-void invlpg(const void *address) {
-	auto p = reinterpret_cast<const char *>(address);
-	asm volatile ("invlpg %0" : : "m"(*p));
 }
 
 // provides a window into physical memory.
@@ -194,24 +235,29 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
+
+	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
+	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
+	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
+	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
 	
 	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
 	assert((pml4_entry & kPagePresent) != 0);
-	uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pdpt_pointer = (uint64_t *)window3.access(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// find the pd entry
 	assert((pdpt_entry & kPagePresent) != 0);
-	uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pd_pointer = (uint64_t *)window2.access(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// find the pt entry
 	assert((pd_entry & kPagePresent) != 0);
-	uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pt_pointer = (uint64_t *)window1.access(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// change the pt entry
 	assert((pt_pointer[pt_index] & kPagePresent) != 0);
@@ -229,27 +275,32 @@ bool PageSpace::isMapped(VirtualAddr pointer) {
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
+
+	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
+	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
+	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
+	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
 	
 	// check the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)physicalToVirtual(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// check the pdpt entry
 	if(!(pml4_entry & kPagePresent))
 		return false;
-	uint64_t *pdpt_pointer = (uint64_t *)physicalToVirtual(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pdpt_pointer = (uint64_t *)window3.access(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// check the pd entry
 	if(!(pdpt_entry & kPagePresent))
 		return false;
-	uint64_t *pd_pointer = (uint64_t *)physicalToVirtual(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pd_pointer = (uint64_t *)window2.access(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// check the pt entry
 	if(!(pd_entry & kPagePresent))
 		return false;
-	uint64_t *pt_pointer = (uint64_t *)physicalToVirtual(pd_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pt_pointer = (uint64_t *)window1.access(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// check the pt entry
 	if(!(pt_pointer[pt_index] & kPagePresent))

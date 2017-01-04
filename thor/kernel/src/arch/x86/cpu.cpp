@@ -20,8 +20,9 @@ void advanceY() {
 	if(y >= 25) {
 		if(haveTimer())
 			pollSleepNano(100000000);
-	
-		auto base = (volatile char *)physicalToVirtual(0xB8000);
+
+		PageAccessor accessor{generalWindow, 0xB8000};
+		auto base = (volatile char *)accessor.get();
 		for(auto i = 0; i < 24; i++) {
 			for(auto j = 0; j < 80; j++) {
 				base[(80 * i + j) * 2] = base[(80 * (i + 1) + j) * 2];
@@ -93,7 +94,8 @@ void BochsSink::print(char c) {
 	if(c == '\n') {
 		advanceY();
 	}else{
-		auto base = (volatile char *)physicalToVirtual(0xB8000);
+		PageAccessor accessor{generalWindow, 0xB8000};
+		auto base = (volatile char *)accessor.get();
 
 		base[(80 * y + x) * 2] = c;
 		base[(80 * y + x) * 2 + 1] = 0x0F;
@@ -436,7 +438,10 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	size_t trampoline_size = (uintptr_t)_trampoline_endLma - (uintptr_t)_trampoline_startLma;
 	assert((trampoline_addr % 0x1000) == 0);
 	assert((trampoline_size % 0x1000) == 0);
-	memcpy(physicalToVirtual(trampoline_addr), _trampoline_startLma, trampoline_size);
+	for(size_t progress = 0; progress < trampoline_size; progress += kPageSize) {
+		PageAccessor accessor{generalWindow, trampoline_addr + progress};
+		memcpy(accessor.get(), _trampoline_startLma + progress, kPageSize);
+	}
 	
 	size_t trampoline_stack_size = 0x10000;
 	void *trampoline_stack_base = kernelAlloc->allocate(trampoline_stack_size);
