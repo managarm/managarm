@@ -33,18 +33,36 @@ private:
 };
 
 struct PageAccessor {
+	friend void swap(PageAccessor &a, PageAccessor &b) {
+		using frigg::swap;
+		swap(a._window, b._window);
+		swap(a._pointer, b._pointer);
+	}
+
+	PageAccessor()
+	: _window{nullptr} { }
+
 	PageAccessor(PhysicalWindow &window, PhysicalAddr physical)
-	: _window(&window) {
+	: _window{&window} {
 		_pointer = _window->acquire(physical);
 	}
 
 	PageAccessor(const PageAccessor &) = delete;
+	
+	PageAccessor(PageAccessor &&other)
+	: PageAccessor{} {
+		swap(*this, other);
+	}
 
 	~PageAccessor() {
-		_window->release(_pointer);
+		if(_window)
+			_window->release(_pointer);
 	}
 	
-	PageAccessor &operator= (const PageAccessor &) = delete;
+	PageAccessor &operator= (PageAccessor other) {
+		swap(*this, other);
+		return *this;
+	}
 
 	void *get() {
 		return _pointer;

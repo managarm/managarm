@@ -80,14 +80,11 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	uintptr_t context = element->getContext();
 	assert(length % 8 == 0);
 	
-	auto qs = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + offsetof(QueueStruct, queueLength)));
-	auto ks = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + offsetof(QueueStruct, kernelState)));
-	auto us = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + offsetof(QueueStruct, userState)));
-	auto next = DirectSpaceAccessor<HelQueue *>::acquire(space.toShared(),
-			reinterpret_cast<void *>(address + offsetof(QueueStruct, nextQueue)));
+	auto pin = ForeignSpaceAccessor{space.toShared(), address, sizeof(QueueStruct)};
+	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
+	auto ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
+	auto us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
+	auto next = DirectSpaceAccessor<HelQueue *>{pin, offsetof(QueueStruct, nextQueue)};
 
 	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 
@@ -112,14 +109,11 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 			// Finally we move to the next queue.
 			address = Address(*next.get());
 	
-			qs = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-					reinterpret_cast<void *>(address + offsetof(QueueStruct, queueLength)));
-			ks = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-					reinterpret_cast<void *>(address + offsetof(QueueStruct, kernelState)));
-			us = DirectSpaceAccessor<unsigned int>::acquire(space.toShared(),
-					reinterpret_cast<void *>(address + offsetof(QueueStruct, userState)));
-			next = DirectSpaceAccessor<HelQueue *>::acquire(space.toShared(),
-					reinterpret_cast<void *>(address + offsetof(QueueStruct, nextQueue)));
+			pin = ForeignSpaceAccessor{space.toShared(), address, sizeof(QueueStruct)};
+			qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
+			ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
+			us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
+			next = DirectSpaceAccessor<HelQueue *>{pin, offsetof(QueueStruct, nextQueue)};
 			
 			ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 		}else{

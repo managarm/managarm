@@ -1,69 +1,13 @@
 
 namespace thor {
 
-// directly accesses an object in an arbitrary address space.
-// requires the object's address to be naturally aligned
-// so that the object cannot cross a page boundary.
-// requires the object to be smaller than a page for the same reason.
-template<typename T>
-struct DirectSpaceAccessor {
-	static DirectSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space, void *address) {
-		assert(sizeof(T) <= kPageSize);
-		assert((VirtualAddr)address % sizeof(T) == 0);
-		// TODO: actually lock the memory + make sure the memory is mapped as writeable
-		// TODO: return an empty lock if the acquire fails
-		return DirectSpaceAccessor(frigg::move(space), address);
-	}
-
-	friend void swap(DirectSpaceAccessor &a, DirectSpaceAccessor &b) {
-		frigg::swap(a._space, b._space);
-		frigg::swap(a._address, b._address);
-	}
-
-	DirectSpaceAccessor() = default;
-
-	DirectSpaceAccessor(const DirectSpaceAccessor &other) = delete;
-
-	DirectSpaceAccessor(DirectSpaceAccessor &&other)
-	: DirectSpaceAccessor() {
-		swap(*this, other);
-	}
-	
-	DirectSpaceAccessor &operator= (DirectSpaceAccessor other) {
-		swap(*this, other);
-		return *this;
-	}
-	
-	frigg::UnsafePtr<AddressSpace> space() {
-		return _space;
-	}
-	void *foreignAddress() {
-		return _address;
-	}
-
-	T *get();
-
-	T &operator* () {
-		return *get();
-	}
-	T *operator-> () {
-		return get();
-	}
-
-private:
-	DirectSpaceAccessor(frigg::SharedPtr<AddressSpace> space, void *address)
-	: _space(frigg::move(space)), _address(address) { }
-
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_address;
-};
-
 struct ForeignSpaceAccessor {
+	// TODO: Use the constructor instead.
 	static ForeignSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length) {
 		// TODO: actually lock the memory + make sure the memory is mapped as writeable
 		// TODO: return an empty lock if the acquire fails
-		return ForeignSpaceAccessor(frigg::move(space), address, length);
+		return ForeignSpaceAccessor(frigg::move(space), (uintptr_t)address, length);
 	}
 
 	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
@@ -73,6 +17,10 @@ struct ForeignSpaceAccessor {
 	}
 
 	ForeignSpaceAccessor() = default;
+	
+	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
+			uintptr_t address, size_t length)
+	: _space(frigg::move(space)), _address((void *)address), _length(length) { }
 
 	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
 
@@ -89,6 +37,9 @@ struct ForeignSpaceAccessor {
 	frigg::UnsafePtr<AddressSpace> space() {
 		return _space;
 	}
+	uintptr_t address() {
+		return (uintptr_t)_address;
+	}
 	size_t length() {
 		return _length;
 	}
@@ -97,13 +48,26 @@ struct ForeignSpaceAccessor {
 	void copyTo(size_t offset, void *pointer, size_t size);
 
 private:
-	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
-			void *address, size_t length)
-	: _space(frigg::move(space)), _address(address), _length(length) { }
-
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_address;
 	size_t _length;
+};
+
+// directly accesses an object in an arbitrary address space.
+// requires the object's address to be naturally aligned
+// so that the object cannot cross a page boundary.
+// requires the object to be smaller than a page for the same reason.
+template<typename T>
+struct DirectSpaceAccessor {
+	DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset);
+
+	T *get() {
+		return reinterpret_cast<T *>((char *)_accessor.get() + _misalign);
+	}
+
+private:
+	PageAccessor _accessor;
+	ptrdiff_t _misalign;
 };
 
 template<typename T>

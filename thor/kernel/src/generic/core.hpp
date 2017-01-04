@@ -114,12 +114,14 @@ struct SubmitInfo {
 namespace thor {
 
 template<typename T>
-T *DirectSpaceAccessor<T>::get() {
-	assert(_space);
-	size_t misalign = (VirtualAddr)_address % kPageSize;
-	AddressSpace::Guard guard(&_space->lock);
-	PhysicalAddr page = _space->grabPhysical(guard, (VirtualAddr)_address - misalign);
-	return reinterpret_cast<T *>(physicalToVirtual(page + misalign));
+DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset) {
+	static_assert(!(kPageSize % sizeof(T)), "Type too large for DirectSpaceAccessor");
+	assert(!(lock.address() % sizeof(T)));
+	
+	_misalign = (lock.address() + offset) % kPageSize;
+	AddressSpace::Guard guard(&lock.space()->lock);
+	auto physical = lock.space()->grabPhysical(guard, lock.address() + offset - _misalign);
+	_accessor = PageAccessor{generalWindow, physical};
 }
 
 inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
