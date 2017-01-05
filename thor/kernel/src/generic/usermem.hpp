@@ -89,8 +89,7 @@ struct Memory {
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_flags, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_flags, size_t offset);
 	
 	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
@@ -115,8 +114,7 @@ struct HardwareMemory : Memory {
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 
 private:
 	PhysicalAddr _base;
@@ -136,8 +134,7 @@ struct AllocatedMemory : Memory {
 
 	// TODO: add a method to populate the memory
 	
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 
 private:
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
@@ -187,8 +184,7 @@ public:
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 	
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
@@ -208,8 +204,7 @@ public:
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 	
 	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
 
@@ -227,8 +222,7 @@ struct CopyOnWriteMemory : Memory {
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(PhysicalChunkAllocator::Guard &physical_guard,
-			GrabIntent grab_intent, size_t offset);
+	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 
 private:
 	frigg::SharedPtr<Memory> _origin;

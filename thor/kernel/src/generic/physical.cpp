@@ -21,8 +21,8 @@ void PhysicalChunkAllocator::bootstrap(PhysicalAddr address, int order, size_t n
 	frigg::infoLogger() << "Number of available pages: " << _freePages << frigg::endLog;
 }
 
-PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
-	assert(guard.protects(&lock));
+PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
+	auto lock = frigg::guard(&_mutex);
 
 	assert(_freePages > size / kPageSize);
 	_freePages -= size / kPageSize;
@@ -42,8 +42,8 @@ PhysicalAddr PhysicalChunkAllocator::allocate(Guard &guard, size_t size) {
 	return physical;
 }
 
-void PhysicalChunkAllocator::free(Guard &guard, PhysicalAddr address, size_t size) {
-	assert(guard.protects(&lock));
+void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
+	auto lock = frigg::guard(&_mutex);
 	
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))

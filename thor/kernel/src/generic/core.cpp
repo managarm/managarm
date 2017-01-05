@@ -51,10 +51,9 @@ public:
 		frigg::infoLogger() << "Kernel virtual memory overhead: 0x"
 				<< frigg::logHex(overhead) << frigg::endLog;
 		{
-			PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 			for(size_t offset = 0; offset < overhead; offset += kPageSize) {
-				PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 0x1000);
-				kernelSpace->mapSingle4k(physical_guard, original_base + offset, physical, false,
+				PhysicalAddr physical = physicalAllocator->allocate(0x1000);
+				kernelSpace->mapSingle4k(original_base + offset, physical, false,
 						PageSpace::kAccessWrite);
 			}
 		}
@@ -90,13 +89,11 @@ KernelVirtualAlloc::KernelVirtualAlloc() { }
 uintptr_t KernelVirtualAlloc::map(size_t length) {
 	auto p = KernelVirtualMemory::global().allocate(length);
 
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = physicalAllocator->allocate(physical_guard, 0x1000);
-		kernelSpace->mapSingle4k(physical_guard, VirtualAddr(p) + offset, physical, false,
+		PhysicalAddr physical = physicalAllocator->allocate(0x1000);
+		kernelSpace->mapSingle4k(VirtualAddr(p) + offset, physical, false,
 				PageSpace::kAccessWrite);
 	}
-	physical_guard.unlock();
 
 	asm("" : : : "memory");
 	thorRtInvalidateSpace();
@@ -109,14 +106,12 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	assert((length % kPageSize) == 0);
 
 	asm("" : : : "memory");
-	PhysicalChunkAllocator::Guard physical_guard(&physicalAllocator->lock);
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
 		(void)physical;
 //	TODO: reeneable this after fixing physical memory allocator
-//		physicalAllocator->free(physical_guard, physical);
+//		physicalAllocator->free(physical);
 	}
-	physical_guard.unlock();
 
 	thorRtInvalidateSpace();
 }
