@@ -98,8 +98,6 @@ struct Memory {
 	void load(size_t offset, void *pointer, size_t length);
 	void copyFrom(size_t offset, void *pointer, size_t length);
 
-	Futex futex;
-
 private:
 	MemoryTag _tag;
 };
@@ -230,15 +228,11 @@ private:
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalPages;
 };
 
-struct Mapping;
+enum class MappingType {
+	null, hole, other
+};
 
 struct Mapping {
-	enum Type {
-		kTypeNone,
-		kTypeHole,
-		kTypeMemory
-	};
-
 	enum Flags : uint32_t {
 		kFlagDropAtFork = 0x01,
 		kFlagShareAtFork = 0x02,
@@ -246,23 +240,73 @@ struct Mapping {
 		kFlagDontRequireBacking = 0x08
 	};
 
-	Mapping(Type type, VirtualAddr base_address, size_t length);
+	Mapping(AddressSpace *owner, VirtualAddr address, size_t length);
 
-	~Mapping();
+	AddressSpace *owner() {
+		return _owner;
+	}
+
+	virtual MappingType type() = 0;
+
+	virtual Mapping *shareMapping(AddressSpace *space) = 0;
+	virtual Mapping *copyMapping(AddressSpace *space) = 0;
+
+	virtual void install(bool overwrite) = 0;
+	virtual void uninstall(bool clear) = 0;
+	
+	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
 
 	VirtualAddr baseAddress;
 	size_t length;
-	Type type;
 	
 	// larget hole in the subtree of this node
 	size_t largestHole;
 
-	KernelSharedPtr<Memory> memoryRegion;
-	size_t memoryOffset;
 	uint32_t flags;
 	bool writePermission, executePermission;
 
 	frigg::rbtree_hook spaceHook;
+
+private:
+	AddressSpace *_owner;
+};
+
+struct HoleMapping : Mapping {
+	HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length);
+
+	MappingType type() override {
+		return MappingType::hole;
+	}
+
+	Mapping *shareMapping(AddressSpace *space) override;
+	Mapping *copyMapping(AddressSpace *space) override;
+
+	void install(bool overwrite) override;
+	void uninstall(bool clear) override;
+	
+	PhysicalAddr grabPhysical(VirtualAddr disp) override;
+};
+
+struct NormalMapping : Mapping {
+	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+			frigg::SharedPtr<Memory> memory, uintptr_t offset);
+	~NormalMapping();
+
+	MappingType type() override {
+		return MappingType::other;
+	}
+
+	Mapping *shareMapping(AddressSpace *space) override;
+	Mapping *copyMapping(AddressSpace *space) override;
+
+	void install(bool overwrite) override;
+	void uninstall(bool clear) override;
+
+	PhysicalAddr grabPhysical(VirtualAddr disp) override;
+
+private:
+	KernelSharedPtr<Memory> _memory;
+	size_t _offset;
 };
 
 struct SpaceLess {
@@ -334,27 +378,26 @@ public:
 
 	Lock lock;
 	
+	Futex futexSpace;
 	QueueSpace queueSpace;
 
 private:
 	
-	// allocates a new mapping of the given length somewhere in the address space
-	// the new mapping has type kTypeNone
-	Mapping *allocate(size_t length, MapFlags flags);
+	// Allocates a new mapping of the given length somewhere in the address space.
+	VirtualAddr _allocate(size_t length, MapFlags flags);
 
-	Mapping *allocateAt(VirtualAddr address, size_t length);
+	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
 
 	void cloneRecursive(Mapping *mapping, AddressSpace *dest_space);
 
-	// creates a new mapping inside a hole
-	// the new mapping has type kTypeNone
-	Mapping *splitHole(Mapping *mapping,
-			VirtualAddr split_offset, VirtualAddr split_length);
+	// Splits some memory range from a hole mapping.
+	void splitHole(Mapping *mapping, VirtualAddr offset, VirtualAddr length);
 	
-	Mapping *allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
+	VirtualAddr _allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
 	
 	SpaceTree spaceTree;
 
+public: // TODO: Make this private.
 	PageSpace p_pageSpace;
 };
 

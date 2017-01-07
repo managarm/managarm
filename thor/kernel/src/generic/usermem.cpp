@@ -467,7 +467,7 @@ PhysicalAddr CopyOnWriteMemory::grabPage(GrabIntent, size_t offset) {
 
 bool SpaceAggregator::aggregate(Mapping *mapping) {
 	size_t hole = 0;
-	if(mapping->type == Mapping::kTypeHole)
+	if(mapping->type() == MappingType::hole)
 		hole = mapping->length;
 	if(SpaceTree::get_left(mapping) && SpaceTree::get_left(mapping)->largestHole > hole)
 		hole = SpaceTree::get_left(mapping)->largestHole;
@@ -486,7 +486,7 @@ bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
 
 	// check largest hole invariant.
 	size_t hole = 0;
-	if(node->type == Mapping::kTypeHole)
+	if(node->type() == MappingType::hole)
 		hole = node->length;
 	if(tree.get_left(node) && tree.get_left(node)->largestHole > hole)
 		hole = tree.get_left(node)->largestHole;
@@ -516,15 +516,134 @@ bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
 // Mapping
 // --------------------------------------------------------
 
-Mapping::Mapping(Type type, VirtualAddr base_address, size_t length)
-: baseAddress(base_address), length(length), type(type),
-		largestHole(0), memoryOffset(0), flags(0),
+Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length)
+: _owner(owner), baseAddress(base_address), length(length),
+		largestHole(0), flags(0),
 		writePermission(false), executePermission(false) {
-	if(type == kTypeHole)
-		largestHole = length;
 }
 
-Mapping::~Mapping() { }
+// --------------------------------------------------------
+// HoleMapping
+// --------------------------------------------------------
+
+HoleMapping::HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length)
+: Mapping{owner, address, length} {
+	// TODO: Is this even necessary?
+	largestHole = length;
+}
+
+Mapping *HoleMapping::shareMapping(AddressSpace *dest_space) {
+	(void)dest_space;
+	assert(!"Cannot share a HoleMapping");
+	__builtin_unreachable();
+}
+
+Mapping *HoleMapping::copyMapping(AddressSpace *dest_space) {
+	(void)dest_space;
+	assert(!"Cannot share a HoleMapping");
+	__builtin_unreachable();
+}
+
+void HoleMapping::install(bool overwrite) {
+	// We do not need to do anything here.
+	// TODO: Ensure that this is never called?
+	(void)overwrite;
+}	
+
+void HoleMapping::uninstall(bool clear) {
+	// See comments of HoleMapping.
+	(void)clear;
+}
+
+PhysicalAddr HoleMapping::grabPhysical(VirtualAddr disp) {
+	(void)disp;
+	assert(!"Cannot grab pages of HoleMapping");
+	__builtin_unreachable();
+}
+
+// --------------------------------------------------------
+// NormalMapping
+// --------------------------------------------------------
+
+NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+		frigg::SharedPtr<Memory> memory, uintptr_t offset)
+: Mapping{owner, address, length}, _memory{frigg::move(memory)}, _offset{offset} { }
+
+Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
+	auto dest_mapping = frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
+			baseAddress, length, _memory, _offset);
+	dest_mapping->writePermission = writePermission;
+	dest_mapping->executePermission = executePermission;
+	return dest_mapping;
+}
+
+Mapping *NormalMapping::copyMapping(AddressSpace *dest_space) {
+	// TODO: We do not need to copy the whole memory object.
+	// TODO: Call a copy operation of the corresponding memory object here.
+	auto dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+			_memory->getLength(), kPageSize, kPageSize);
+	for(size_t progress = 0; progress < _memory->getLength(); progress += kPageSize) {
+		PhysicalAddr src_physical = _memory->grabPage(kGrabQuery | kGrabRead, progress);
+		PhysicalAddr dest_physical = dest_memory->grabPage(kGrabFetch | kGrabWrite, progress);
+		assert(src_physical != PhysicalAddr(-1));
+		assert(dest_physical != PhysicalAddr(-1));
+
+		PageAccessor dest_accessor{generalWindow, dest_physical};
+		PageAccessor src_accessor{generalWindow, src_physical};
+		memcpy(dest_accessor.get(), src_accessor.get(), kPageSize);
+	}
+	
+	auto dest_mapping = frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
+			baseAddress, length, frigg::move(dest_memory), _offset);
+	dest_mapping->writePermission = writePermission;
+	dest_mapping->executePermission = executePermission;
+	return dest_mapping;
+}
+
+void NormalMapping::install(bool overwrite) {
+	assert(!overwrite);
+
+	uint32_t page_flags = 0;
+	if(writePermission)
+		page_flags |= PageSpace::kAccessWrite;
+	if(executePermission)
+		page_flags |= PageSpace::kAccessExecute;
+
+	for(size_t progress = 0; progress < length; progress += kPageSize) {
+		VirtualAddr vaddr = baseAddress + progress;
+		assert(!owner()->p_pageSpace.isMapped(vaddr));
+
+		GrabIntent grab_flags = kGrabQuery | kGrabWrite;
+		if(flags & Mapping::kFlagDontRequireBacking)
+			grab_flags |= kGrabDontRequireBacking;
+
+		PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + progress);
+		if(physical != PhysicalAddr(-1))
+			owner()->p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+	}
+}
+
+void NormalMapping::uninstall(bool clear) {
+	assert(clear);
+
+	for(size_t progress = 0; progress < length; progress += kPageSize) {
+		VirtualAddr vaddr = baseAddress + progress;
+		if(owner()->p_pageSpace.isMapped(vaddr))
+			owner()->p_pageSpace.unmapSingle4k(vaddr);
+	}
+}
+
+PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
+	// TODO: Allocate missing pages for OnDemand or CopyOnWrite pages.
+
+	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
+	if(flags & Mapping::kFlagDontRequireBacking)
+		grab_flags |= kGrabDontRequireBacking;
+
+	PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + disp);
+	assert(physical != PhysicalAddr(-1));
+	return physical;
+}
 
 // --------------------------------------------------------
 // AddressSpace
@@ -539,7 +658,7 @@ AddressSpace::~AddressSpace() {
 }
 
 void AddressSpace::setupDefaultMappings() {
-	auto mapping = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
+	auto mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
 			0x100000, 0x7ffffff00000);
 	spaceTree.insert(mapping);
 }
@@ -548,36 +667,35 @@ void AddressSpace::map(Guard &guard,
 		KernelUnsafePtr<Memory> memory, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
-	assert(length != 0);
-	assert((length % kPageSize) == 0);
+	assert(length);
+	assert(!(length % kPageSize));
 
-	Mapping *mapping;
-	if((flags & kMapFixed) != 0) {
-		assert(address != 0);
+	VirtualAddr target;
+	if(flags & kMapFixed) {
+		assert(address);
 		assert((address % kPageSize) == 0);
-		mapping = allocateAt(address, length);
+		target = _allocateAt(address, length);
 	}else{
-		mapping = allocate(length, flags);
+		target = _allocate(length, flags);
 	}
-	assert(mapping != nullptr);
+	assert(target);
 
-	mapping->type = Mapping::kTypeMemory;
-	mapping->memoryRegion = memory.toShared();
-	mapping->memoryOffset = offset;
+//	frigg::infoLogger() << "Creating new mapping at " << (void *)target
+//			<< ", length: " << (void *)length << frigg::endLog;
 
-	uint32_t page_flags = 0;
-
+	// Setup a new Mapping object.
+	auto mapping = frigg::construct<NormalMapping>(*kernelAlloc, this, target, length,
+			memory.toShared(), offset);
+	
 	constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
 	if((flags & mask) == kMapReadWrite) {
-		page_flags |= PageSpace::kAccessWrite;
 		mapping->writePermission = true;
 	}else if((flags & mask) == kMapReadExecute) {
-		page_flags |= PageSpace::kAccessExecute;
 		mapping->executePermission = true;
 	}else{
 		assert((flags & mask) == kMapReadOnly);
 	}
-
+	
 	if(flags & kMapDropAtFork) {
 		mapping->flags |= Mapping::kFlagDropAtFork;
 	}else if(flags & kMapShareAtFork) {
@@ -588,51 +706,32 @@ void AddressSpace::map(Guard &guard,
 	
 	if(flags & kMapDontRequireBacking)
 		mapping->flags |= Mapping::kFlagDontRequireBacking;
+	
+	// Install the new mapping object.
+	spaceTree.insert(mapping);
+	assert(!(flags & kMapPopulate));
+	mapping->install(false);
 
-	{
-		for(size_t page = 0; page < length; page += kPageSize) {
-			VirtualAddr vaddr = mapping->baseAddress + page;
-			assert(!p_pageSpace.isMapped(vaddr));
-
-			GrabIntent grab_flags = ((flags & kMapPopulate) ? kGrabFetch : kGrabQuery) | kGrabWrite;
-			if(mapping->flags & Mapping::kFlagDontRequireBacking)
-				grab_flags |= kGrabDontRequireBacking;
-
-			PhysicalAddr physical = memory->grabPage(grab_flags, offset + page);
-			if(physical != PhysicalAddr(-1))
-				p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
-		}
-	}
-
-	*actual_address = mapping->baseAddress;
+	*actual_address = target;
 }
 
 void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	assert(guard.protects(&lock));
 
 	Mapping *mapping = getMapping(address);
-	assert(mapping != nullptr);
-	assert(mapping->type == Mapping::kTypeMemory);
+	assert(mapping);
 
 	// TODO: allow shrink of mapping
 	assert(mapping->baseAddress == address);
 	assert(mapping->length == length);
-	
-	for(size_t i = 0; i < mapping->length / kPageSize; i++) {
-		VirtualAddr vaddr = mapping->baseAddress + i * kPageSize;
-		if(p_pageSpace.isMapped(vaddr))
-			p_pageSpace.unmapSingle4k(vaddr);
-	}
-
-	mapping->memoryRegion = frigg::SharedPtr<Memory>();
+	mapping->uninstall(true);
 
 	Mapping *lower_ptr = SpaceTree::predecessor(mapping);
 	Mapping *higher_ptr = SpaceTree::successor(mapping);
 	
-	if(lower_ptr && higher_ptr
-			&& lower_ptr->type == Mapping::kTypeHole
-			&& higher_ptr->type == Mapping::kTypeHole) {
-		// grow the lower region and remove both the mapping and the higher region
+	if(lower_ptr && lower_ptr->type() == MappingType::hole
+			&& higher_ptr && higher_ptr->type() == MappingType::hole) {
+		// Grow the lower region and remove both the mapping and the higher region.
 		size_t mapping_length = mapping->length;
 		size_t higher_length = higher_ptr->length;
 
@@ -643,8 +742,8 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 
 		lower_ptr->length += mapping_length + higher_length;
 		spaceTree.aggregate_path(lower_ptr);
-	}else if(lower_ptr && lower_ptr->type == Mapping::kTypeHole) {
-		// grow the lower region and remove the mapping
+	}else if(lower_ptr && lower_ptr->type() == MappingType::hole) {
+		// Grow the lower region and remove the mapping.
 		size_t mapping_length = mapping->length;
 
 		spaceTree.remove(mapping);
@@ -652,8 +751,8 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 		
 		lower_ptr->length += mapping_length;
 		spaceTree.aggregate_path(lower_ptr);
-	}else if(higher_ptr && higher_ptr->type == Mapping::kTypeHole) {
-		// grow the higher region and remove the mapping
+	}else if(higher_ptr && higher_ptr->type() == MappingType::hole) {
+		// Grow the higher region and remove the mapping.
 		size_t mapping_length = mapping->length;
 
 		spaceTree.remove(mapping);
@@ -663,9 +762,12 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 		higher_ptr->length += mapping_length;
 		spaceTree.aggregate_path(higher_ptr);
 	}else{
-		// turn the mapping into a hole
-		mapping->type = Mapping::kTypeHole;
-		spaceTree.aggregate_path(mapping);
+		auto hole = frigg::construct<HoleMapping>(*kernelAlloc, this,
+				mapping->baseAddress, mapping->length);
+
+		spaceTree.remove(mapping);
+		spaceTree.insert(hole);
+		frigg::destruct(*kernelAlloc, mapping);
 	}
 }
 
@@ -673,6 +775,11 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	(void)flags;
 	assert(guard.protects(&lock));
 
+	// TODO: It seems that this is not invoked for on-demand allocation
+	// of AllocatedMemory objects!
+
+	assert(!"Put this into a method of Mapping");
+	/*
 	Mapping *mapping = getMapping(address);
 	if(!mapping)
 		return false;
@@ -701,6 +808,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags
 	if(p_pageSpace.isMapped(page_vaddr))
 		p_pageSpace.unmapSingle4k(page_vaddr);
 	p_pageSpace.mapSingle4k(page_vaddr, physical, true, page_flags);
+	*/
 
 	return true;
 }
@@ -722,19 +830,7 @@ PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 
 	Mapping *mapping = getMapping(address);
 	assert(mapping);
-	assert(mapping->type == Mapping::kTypeMemory);
-
-	// TODO: allocate missing pages for OnDemand or CopyOnWrite pages
-
-	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
-	if(mapping->flags & Mapping::kFlagDontRequireBacking)
-		grab_flags |= kGrabDontRequireBacking;
-
-	auto page = address - mapping->baseAddress;
-	PhysicalAddr physical = mapping->memoryRegion->grabPage(grab_flags,
-			mapping->memoryOffset + page);
-	assert(physical != PhysicalAddr(-1));
-	return physical;
+	return mapping->grabPhysical(address - mapping->baseAddress);
 }
 
 void AddressSpace::activate() {
@@ -759,100 +855,86 @@ Mapping *AddressSpace::getMapping(VirtualAddr address) {
 	return nullptr;
 }
 
-Mapping *AddressSpace::allocate(size_t length, MapFlags flags) {
+VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
 //	frigg::infoLogger() << "Allocate virtual memory area"
 //			<< ", size: 0x" << frigg::logHex(length) << frigg::endLog;
 
 	if(spaceTree.get_root()->largestHole < length)
-		return nullptr;
+		return 0; // TODO: Return something else here?
 	
-	return allocateDfs(spaceTree.get_root(), length, flags);
+	return _allocateDfs(spaceTree.get_root(), length, flags);
 }
 
-Mapping *AddressSpace::allocateDfs(Mapping *mapping, size_t length,
+VirtualAddr AddressSpace::_allocateDfs(Mapping *mapping, size_t length,
 		MapFlags flags) {
 	if((flags & kMapPreferBottom) != 0) {
-		// try to allocate memory at the bottom of the range
-		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
-			return splitHole(mapping, 0, length);
+		// Try to allocate memory at the bottom of the range.
+		if(mapping->type() == MappingType::hole && mapping->length >= length) {
+			splitHole(mapping, 0, length);
+			return mapping->baseAddress;
+		}
 		
 		if(SpaceTree::get_left(mapping) && SpaceTree::get_left(mapping)->largestHole >= length)
-			return allocateDfs(SpaceTree::get_left(mapping), length, flags);
+			return _allocateDfs(SpaceTree::get_left(mapping), length, flags);
 		
 		assert(SpaceTree::get_right(mapping));
 		assert(SpaceTree::get_right(mapping)->largestHole >= length);
-		return allocateDfs(SpaceTree::get_right(mapping), length, flags);
+		return _allocateDfs(SpaceTree::get_right(mapping), length, flags);
 	}else{
-		// try to allocate memory at the top of the range
+		// Try to allocate memory at the top of the range.
 		assert((flags & kMapPreferTop) != 0);
-		if(mapping->type == Mapping::kTypeHole && mapping->length >= length)
-			return splitHole(mapping, mapping->length - length, length);
+		if(mapping->type() == MappingType::hole && mapping->length >= length) {
+			size_t offset = mapping->length - length;
+			splitHole(mapping, offset, length);
+			return mapping->baseAddress + offset;
+		}
 
 		if(SpaceTree::get_right(mapping) && SpaceTree::get_right(mapping)->largestHole >= length)
-			return allocateDfs(SpaceTree::get_right(mapping), length, flags);
+			return _allocateDfs(SpaceTree::get_right(mapping), length, flags);
 		
 		assert(SpaceTree::get_left(mapping));
 		assert(SpaceTree::get_left(mapping)->largestHole >= length);
-		return allocateDfs(SpaceTree::get_left(mapping), length, flags);
+		return _allocateDfs(SpaceTree::get_left(mapping), length, flags);
 	}
 }
 
-Mapping *AddressSpace::allocateAt(VirtualAddr address, size_t length) {
-	assert((address % kPageSize) == 0);
-	assert((length % kPageSize) == 0);
+VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
+	assert(!(address % kPageSize));
+	assert(!(length % kPageSize));
 
 	Mapping *hole = getMapping(address);
-	assert(hole != nullptr);
-	assert(hole->type == Mapping::kTypeHole);
+	assert(hole);
+	assert(hole->type() == MappingType::hole);
 	
-	return splitHole(hole, address - hole->baseAddress, length);
+	splitHole(hole, address - hole->baseAddress, length);
+	return address;
 }
 
 void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
-	Mapping *dest_mapping = frigg::construct<Mapping>(*kernelAlloc, mapping->type,
-			mapping->baseAddress, mapping->length);
+	if(mapping->type() == MappingType::hole) {
+		auto dest_mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
+				mapping->baseAddress, mapping->length);
+		dest_space->spaceTree.insert(dest_mapping);
+	}else if(mapping->flags & Mapping::kFlagDropAtFork) {
+		// TODO: Merge this hole into adjacent holes.
+		auto dest_mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
+				mapping->baseAddress, mapping->length);
+		dest_space->spaceTree.insert(dest_mapping);
+	}else if(mapping->flags & Mapping::kFlagShareAtFork) {
+		auto dest_mapping = mapping->shareMapping(dest_space);
 
-	if(mapping->type == Mapping::kTypeHole) {
-		// holes do not require additional handling
-	}else if(mapping->type == Mapping::kTypeMemory
-			&& (mapping->flags & Mapping::kFlagDropAtFork)) {
-		// TODO: merge this hole into adjacent holes
-	}else if(mapping->type == Mapping::kTypeMemory
-			&& (mapping->flags & Mapping::kFlagShareAtFork)) {
-		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
+		dest_space->spaceTree.insert(dest_mapping);
+		dest_mapping->install(false);
+	}else if(mapping->flags & Mapping::kFlagCopyOnWriteAtFork) {
+		auto dest_mapping = mapping->copyMapping(dest_space);
 
-		uint32_t page_flags = 0;
-		if(mapping->writePermission)
-			page_flags |= PageSpace::kAccessWrite;
-		if(mapping->executePermission)
-			page_flags |= PageSpace::kAccessExecute;
+		dest_space->spaceTree.insert(dest_mapping);
+		dest_mapping->install(false);
 
-		for(size_t page = 0; page < dest_mapping->length; page += kPageSize) {
-			// TODO: do not grab pages that are unavailable
-			// TODO: respect some defer-write-access flag?
-			PhysicalAddr physical;
-			if(mapping->writePermission) {
-				physical = memory->grabPage(kGrabQuery | kGrabWrite,
-					mapping->memoryOffset + page);
-			}else{
-				physical = memory->grabPage(kGrabQuery | kGrabRead,
-					mapping->memoryOffset + page);
-			}
-
-			VirtualAddr vaddr = dest_mapping->baseAddress + page;
-			if(physical != PhysicalAddr(-1))
-				dest_space->p_pageSpace.mapSingle4k(vaddr, physical,
-						true, page_flags);
-		}
-		
-		dest_mapping->memoryRegion = memory.toShared();
-		dest_mapping->memoryOffset = mapping->memoryOffset;
-		dest_mapping->writePermission = mapping->writePermission;
-		dest_mapping->executePermission = mapping->executePermission;
-	}else if(mapping->type == Mapping::kTypeMemory
-			&& (mapping->flags & Mapping::kFlagCopyOnWriteAtFork)) {
+		// TODO: Repair the copy-on-write code!
+/*
 		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
 
 		// don't set the write flag here to enable copy-on-write.
@@ -888,9 +970,9 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 			// We perform an actual copy so we can grant write permission.
 			if(mapping->writePermission)
 				page_flags |= PageSpace::kAccessWrite;
-
+			
 			// Perform a real copy operation here.
-			dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+			auto dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 					memory->getLength(), kPageSize, kPageSize);
 			for(size_t page = 0; page < memory->getLength(); page += kPageSize) {
 				PhysicalAddr src_physical = memory->grabPage(kGrabQuery | kGrabRead, page);
@@ -902,6 +984,10 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 				PageAccessor src_accessor{generalWindow, src_physical};
 				memcpy(dest_accessor.get(), src_accessor.get(), kPageSize);
 			}
+			
+			auto dest_mapping = frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
+					mapping->baseAddress, mapping->length, frigg::move(memory), order);
+			// ------------------------------------------------------
 		}
 
 		// Finally we map the new memory object to the cloned address space.
@@ -915,16 +1001,14 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 						true, page_flags);
 			}
 		}
-
 		dest_mapping->memoryRegion = frigg::move(dest_memory);
 		dest_mapping->writePermission = mapping->writePermission;
 		dest_mapping->executePermission = mapping->executePermission;
 		dest_mapping->memoryOffset = mapping->memoryOffset;
+*/
 	}else{
 		assert(!"Illegal mapping type");
 	}
-
-	dest_space->spaceTree.insert(dest_mapping);
 
 	if(SpaceTree::get_left(mapping))
 		cloneRecursive(SpaceTree::get_left(mapping), dest_space);
@@ -932,42 +1016,35 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		cloneRecursive(SpaceTree::get_right(mapping), dest_space);
 }
 
-Mapping *AddressSpace::splitHole(Mapping *mapping,
-		VirtualAddr split_offset, size_t split_length) {
-	assert(split_length > 0);
-	assert(mapping->type == Mapping::kTypeHole);
-	assert(split_offset + split_length <= mapping->length);
+void AddressSpace::splitHole(Mapping *hole, VirtualAddr offset, size_t length) {
+	assert(length);
+	assert(hole->type() == MappingType::hole);
+	assert(offset + length <= hole->length);
 	
-	VirtualAddr hole_address = mapping->baseAddress;
-	size_t hole_length = mapping->length;
+	VirtualAddr hole_address = hole->baseAddress;
+	size_t hole_length = hole->length;
 	
-	if(split_offset == 0) {
+	if(!offset) {
 		// the split mapping starts at the beginning of the hole
 		// we have to delete the hole mapping
-		spaceTree.remove(mapping);
-		frigg::destruct(*kernelAlloc, mapping);
+		spaceTree.remove(hole);
+		frigg::destruct(*kernelAlloc, hole);
 	}else{
 		// the split mapping starts in the middle of the hole
-		mapping->length = split_offset;
-		spaceTree.aggregate_path(mapping);
+		hole->length = offset;
+		spaceTree.aggregate_path(hole);
 	}
 
-	auto split = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeNone,
-			hole_address + split_offset, split_length);
-	spaceTree.insert(split);
-
-	if(hole_length > split_offset + split_length) {
+	if(hole_length > offset + length) {
 		// the split mapping does not go on until the end of the hole
 		// we have to create another mapping for the rest of the hole
-		auto following = frigg::construct<Mapping>(*kernelAlloc, Mapping::kTypeHole,
-				hole_address + (split_offset + split_length),
-				hole_length - (split_offset + split_length));
+		auto following = frigg::construct<HoleMapping>(*kernelAlloc, this,
+				hole_address + (offset + length),
+				hole_length - (offset + length));
 		spaceTree.insert(following);
 	}else{
-		assert(hole_length == split_offset + split_length);
+		assert(hole_length == offset + length);
 	}
-
-	return split;
 }
 
 } // namespace thor

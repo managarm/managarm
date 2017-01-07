@@ -48,29 +48,13 @@ QueueSpace::Queue::Queue()
 void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address address,
 		frigg::SharedPtr<BaseElement> element) {
 	auto wake = [&] (uintptr_t p) {
-		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
-		Mapping *mapping;
-		{
-			AddressSpace::Guard space_guard(&space->lock);
-			mapping = space->getMapping(p);
-		}
-		assert(mapping->type == Mapping::kTypeMemory);
-
-		auto futex = &mapping->memoryRegion->futex;
-		futex->wake(p - mapping->baseAddress);
+		auto futex = &space->futexSpace;
+		futex->wake(p);
 	};
 	
 	auto waitIf = [&] (uintptr_t p, auto c, auto f) {
-		// FIXME: the mapping needs to be protected after the lock on the AddressSpace is released.
-		Mapping *mapping;
-		{
-			AddressSpace::Guard space_guard(&space->lock);
-			mapping = space->getMapping(p);
-		}
-		assert(mapping->type == Mapping::kTypeMemory);
-
-		auto futex = &mapping->memoryRegion->futex;
-		futex->waitIf(p - mapping->baseAddress, frigg::move(c), frigg::move(f));
+		auto futex = &space->futexSpace;
+		futex->waitIf(p, frigg::move(c), frigg::move(f));
 	};
 
 	// TODO: do not globally lock the space mutex.
