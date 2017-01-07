@@ -232,21 +232,43 @@ enum class MappingType {
 	null, hole, other
 };
 
-struct Mapping {
-	enum Flags : uint32_t {
-		kFlagDropAtFork = 0x01,
-		kFlagShareAtFork = 0x02,
-		kFlagCopyOnWriteAtFork = 0x04,
-		kFlagDontRequireBacking = 0x08
-	};
+enum MappingFlags : uint32_t {
+	null = 0,
 
-	Mapping(AddressSpace *owner, VirtualAddr address, size_t length);
+	forkMask = 0x07,
+	dropAtFork = 0x01,
+	shareAtFork = 0x02,
+	copyOnWriteAtFork = 0x04,
+
+	permissionMask = 0x30,
+	readOnly = 0x00,
+	readWrite = 0x10,
+	readExecute = 0x20,
+
+	dontRequireBacking = 0x100
+};
+
+struct Mapping {
+	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
+			MappingFlags flags);
+
+	virtual MappingType type() = 0;
 
 	AddressSpace *owner() {
 		return _owner;
 	}
 
-	virtual MappingType type() = 0;
+	VirtualAddr address() const {
+		return _address;
+	}
+
+	size_t length() const {
+		return _length;
+	}
+
+	MappingFlags flags() const {
+		return _flags;
+	}
 
 	virtual Mapping *shareMapping(AddressSpace *space) = 0;
 	virtual Mapping *copyMapping(AddressSpace *space) = 0;
@@ -256,23 +278,22 @@ struct Mapping {
 	
 	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
 
-	VirtualAddr baseAddress;
-	size_t length;
-	
-	// larget hole in the subtree of this node
-	size_t largestHole;
-
-	uint32_t flags;
-	bool writePermission, executePermission;
-
 	frigg::rbtree_hook spaceHook;
 
 private:
 	AddressSpace *_owner;
+	VirtualAddr _address;
+	size_t _length;
+	MappingFlags _flags;
+
+public:
+	// larget hole in the subtree of this node
+	size_t largestHole;
 };
 
 struct HoleMapping : Mapping {
-	HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length);
+	HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+			MappingFlags flags);
 
 	MappingType type() override {
 		return MappingType::hole;
@@ -289,7 +310,7 @@ struct HoleMapping : Mapping {
 
 struct NormalMapping : Mapping {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			frigg::SharedPtr<Memory> memory, uintptr_t offset);
+			MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset);
 	~NormalMapping();
 
 	MappingType type() override {
@@ -311,7 +332,7 @@ private:
 
 struct SpaceLess {
 	bool operator() (const Mapping &a, const Mapping &b) {
-		return a.baseAddress < b.baseAddress;
+		return a.address() < b.address();
 	}
 };
 
