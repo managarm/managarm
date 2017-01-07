@@ -1,4 +1,9 @@
 
+#include <async/doorbell.hpp>
+#include <async/result.hpp>
+#include <blockfs.hpp>
+#include <boost/intrusive/list.hpp>
+
 enum Signatures {
 	kSignCbw = 0x43425355,
 	kSignCsw = 0x53425355
@@ -74,4 +79,38 @@ struct Read32 {
 };
 
 } // namespace scsi
+
+struct StorageDevice : blockfs::BlockDevice {
+	StorageDevice(Device usb_device) 
+	: blockfs::BlockDevice(512), _usbDevice(std::move(usb_device)) { }
+
+	async::result<void> run();
+
+	async::result<void> readSectors(uint64_t sector, void *buffer,
+			size_t num_sectors) override;
+
+private:
+	struct Request {
+		Request(uint64_t sector, void *buffer, size_t num_sectors)
+		: sector(sector), buffer(buffer), numSectors(num_sectors) { }
+
+		uint64_t sector;
+		void *buffer;
+		size_t numSectors;
+		async::promise<void> promise;
+		boost::intrusive::list_member_hook<> requestHook;
+	};
+
+	Device _usbDevice;
+	async::doorbell _doorbell;
+
+	boost::intrusive::list<
+		Request,
+		boost::intrusive::member_hook<
+			Request,
+			boost::intrusive::list_member_hook<>,
+			&Request::requestHook
+		>
+	> _queue;
+};
 

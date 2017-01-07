@@ -17,9 +17,9 @@
 
 #include "storage.hpp"
 
-COFIBER_ROUTINE(cofiber::no_future, runStorageDevice(Device device), [=] () {
-	printf("entered runStorageDevice\n");
-	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
+	printf("entered StorageDevice.run()\n");
+	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
 
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
@@ -59,45 +59,71 @@ COFIBER_ROUTINE(cofiber::no_future, runStorageDevice(Device device), [=] () {
 		}
 	});
 
-	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
+	auto config = COFIBER_AWAIT _usbDevice.useConfiguration(config_number.value());
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
 	auto endp_in = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	auto endp_out = COFIBER_AWAIT(intf.getEndpoint(PipeType::out, out_endp_number.value()));
 
-	scsi::Read6 read;
-	read.opCode = 0x08;
-	read.lba[0] = 0x00;
-	read.lba[1] = 0x00;
-	read.lba[2] = 0x00;
-	read.transferLength = 1;
-	read.control = 0;
+	while(true) {
+		if(!_queue.empty()) {
+			auto req = &_queue.front();
+			
+			assert(req->sector <= 0x1FFFFF);
+			scsi::Read6 read;
+			read.opCode = 0x08;
+			read.lba[0] = (req->sector >> 16) & 0x1F;
+			read.lba[1] = (req->sector >> 8) & 0xFF;
+			read.lba[2] = req->sector & 0xFF;
+			read.transferLength = req->numSectors;
+			read.control = 0;
 
-	CommandBlockWrapper cbw;
-	cbw.signature = Signatures::kSignCbw;
-	cbw.tag = 1;
-	cbw.transferLength = 512;
-	cbw.flags = 0x80;
-	cbw.lun = 0;
-	cbw.cmdLength = sizeof(scsi::Read6);
-	memcpy(cbw.cmdData, &read, sizeof(scsi::Read6));
+			CommandBlockWrapper cbw;
+			cbw.signature = Signatures::kSignCbw;
+			cbw.tag = 1;
+			cbw.transferLength = req->numSectors * 512;
+			cbw.flags = 0x80;
+			cbw.lun = 0;
+			cbw.cmdLength = sizeof(scsi::Read6);
+			memcpy(cbw.cmdData, &read, sizeof(scsi::Read6));
 
-	COFIBER_AWAIT endp_out.transfer(BulkTransfer(XferFlags::kXferToDevice, &cbw, sizeof(CommandBlockWrapper)));
+			COFIBER_AWAIT endp_out.transfer(BulkTransfer(XferFlags::kXferToDevice, &cbw,
+					sizeof(CommandBlockWrapper)));
 
-	uint8_t data[512];
-	COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost, data, 512));
+			COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost,
+					req->buffer, req->numSectors * 512));
 
-	CommandStatusWrapper csw;
-	COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost,
-			&csw, sizeof(CommandStatusWrapper)));
+			CommandStatusWrapper csw;
+			COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost,
+					&csw, sizeof(CommandStatusWrapper)));
+			assert(csw.signature == Signatures::kSignCsw);
 
-	assert(csw.signature == Signatures::kSignCsw);
-	std::cout << "Bulk read complete. Data: " << (int)data[0] << " " << (int)data[1] << std::endl;
-})
+			req->promise.set_value();
+			_queue.pop_front();
+			delete req;
+		}else{
+			COFIBER_AWAIT _doorbell.async_wait();
+		}
+	}
+
+}))
+
+async::result<void> StorageDevice::readSectors(uint64_t sector, void *buffer,
+			size_t num_sectors) {
+	auto req = new Request(sector, buffer, num_sectors);
+	_queue.push_back(*req);
+	auto result = req->promise.async_get();
+	_doorbell.ring();
+	return result;
+}
+
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
-	runStorageDevice(device);
+
+	auto storage_device = new StorageDevice(device);
+	storage_device->run();
+	blockfs::runDevice(storage_device);
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
