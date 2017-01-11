@@ -26,51 +26,42 @@
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 // ----------------------------------------------------------------------------
-// QueuedTransaction.
+// Memory management.
 // ----------------------------------------------------------------------------
 
-QueuedTransaction::QueuedTransaction()
-	: _completeCounter(0) { }
-
-async::result<void> QueuedTransaction::future() {
-	return _promise.async_get();
+template<typename T, typename... Args>
+contiguous_ptr<T> make_contiguous(Args &&... args) {
+	// TODO: Delete p on exception.
+	auto p = contiguousAllocator.allocate(sizeof(T));
+	return contiguous_ptr<T>{new (p) QueueHead{std::forward<Args>(args)...}};
 }
 
-void QueuedTransaction::setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
-	_transfers = transfers;
-	_numTransfers = num_transfers;
+// ----------------------------------------------------------------------------
+// Transaction.
+// ----------------------------------------------------------------------------
+
+Transaction::Transaction()
+	: numComplete(0) { }
+
+async::result<void> Transaction::future() {
+	return promise.async_get();
 }
 
-QueueHead::LinkPointer QueuedTransaction::head() {
-	return QueueHead::LinkPointer::from(&_transfers[0]);
+void Transaction::setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
+	this->transfers = transfers;
+	numTransfers = num_transfers;
 }
 
-void QueuedTransaction::dumpTransfer() {
-	for(size_t i = 0; i < _numTransfers; i++) {
+QueueHead::LinkPointer Transaction::head() {
+	return QueueHead::LinkPointer::from(&transfers[0]);
+}
+
+void Transaction::dumpTransfer() {
+	for(size_t i = 0; i < numTransfers; i++) {
 		 printf("    TD %lu:", i);
-		_transfers[i].dumpStatus();
+		transfers[i].dumpStatus();
 		printf("\n");
 	}
-}
-
-bool QueuedTransaction::progress() {
-	while(_completeCounter < _numTransfers) {
-		TransferDescriptor *transfer = &_transfers[_completeCounter];
-		if(transfer->_controlStatus.isActive())
-			return false;
-
-		if(transfer->_controlStatus.isAnyError()) {
-			printf("Transfer error!\n");
-			dumpTransfer();
-			return true;
-		}
-		
-		_completeCounter++;
-	}
-
-	//printf("Transfer complete!\n");
-	_promise.set_value();
-	return true;
 }
 
 // ----------------------------------------------------------------------------
@@ -188,58 +179,18 @@ void DummyEntity::progress() { }
 // QueueEntity.
 // ----------------------------------------------------------------------------
 
-QueueEntity::QueueEntity() {
-	_queue = (QueueHead *)contiguousAllocator.allocate(sizeof(QueueHead));
-	
-	new (_queue) QueueHead;
-	_queue->_linkPointer = QueueHead::LinkPointer();
-	_queue->_elementPointer = QueueHead::ElementPointer();
+QueueEntity::QueueEntity()
+: head{make_contiguous<QueueHead>()} {
+	head->_linkPointer = QueueHead::LinkPointer();
+	head->_elementPointer = QueueHead::ElementPointer();
 }
-
-QueueHead::LinkPointer QueueEntity::head() {
-	return QueueHead::LinkPointer::from(_queue);
-}
-
-void QueueEntity::linkNext(QueueHead::LinkPointer link) {
-	_queue->_linkPointer = link;
-}
-
-void QueueEntity::progress() {
-	if(transactionList.empty())
-		return;
-
-	if(!transactionList.front().progress())
-		return;
-	
-	transactionList.pop_front();
-	assert(_queue->_elementPointer.isTerminate());
-
-	if(!transactionList.empty()) {
-		_queue->_elementPointer = transactionList.front().head();
-	}
-}
-
-boost::intrusive::list<
-	ScheduleEntity,
-	boost::intrusive::member_hook<
-		ScheduleEntity,
-		boost::intrusive::list_member_hook<>,
-		&ScheduleEntity::scheduleHook
-	>
-> periodicSchedule[1024];
-
-boost::intrusive::list<
-	ScheduleEntity,
-	boost::intrusive::member_hook<
-		ScheduleEntity,
-		boost::intrusive::list_member_hook<>,
-		&ScheduleEntity::scheduleHook
-	>
-> asyncSchedule;
 
 // ----------------------------------------------------------------
 // DeviceState
 // ----------------------------------------------------------------
+
+DeviceState::DeviceState(std::shared_ptr<Controller> controller)
+: _controller{std::move(controller)} { }
 
 COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor(), ([=] {
 	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
@@ -297,13 +248,13 @@ COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int n
 			_device->inStates[endpoint]->maxPacketSize = desc->maxPacketSize;
 			_device->inStates[endpoint]->queue = std::make_unique<QueueEntity>();
 			_device->inStates[endpoint]->_interface = interface;
-			_device->_controller->activateAsync(_device->inStates[endpoint]->queue.get());
+			_device->_controller->_linkAsync(_device->inStates[endpoint]->queue.get());
 		}else{
 			_device->outStates[endpoint] = std::make_shared<EndpointState>(PipeType::out, endpoint);
 			_device->outStates[endpoint]->maxPacketSize = desc->maxPacketSize;
 			_device->outStates[endpoint]->queue = std::make_unique<QueueEntity>();
 			_device->outStates[endpoint]->_interface = interface;
-			_device->_controller->activateAsync(_device->outStates[endpoint]->queue.get());
+			_device->_controller->_linkAsync(_device->outStates[endpoint]->queue.get());
 		}
 	});
 	
@@ -364,7 +315,7 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 
 Controller::Controller(uint16_t base, helix::UniqueIrq irq)
 : _base(base), _irq(frigg::move(irq)),
-		_lastFrame(0), _lastCounter(0) {
+		_lastFrame(0), _frameCounter(0) {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -405,9 +356,57 @@ void Controller::initialize() {
 	activatePeriodic(0, &_irqDummy);
 
 	pollDevices();
-
 	handleIrqs();
 }
+
+COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+	while(true) {
+		helix::AwaitIrq await_irq;
+		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
+		HEL_CHECK(await_irq.error());
+
+		_updateFrame();
+
+		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
+		assert(!(status & 0x10));
+		assert(!(status & 0x08));
+		if(!(status & (kStatusInterrupt | kStatusError)))
+			continue;
+
+		if(status & kStatusError)
+			printf("uhci: Error interrupt\n");
+		frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
+		
+		//printf("uhci: Processing transfers.\n");
+		_progressSchedule();
+	}
+}))
+
+void Controller::_updateFrame() {
+	auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
+	auto counter = (frame > _lastFrame) ? (_frameCounter + frame - _lastFrame)
+			: (_frameCounter + 2048 - _lastFrame + frame);
+
+	if(counter / 1024 > _frameCounter / 1024)
+		_pollDoorbell.ring();
+
+	_lastFrame = frame;
+	_frameCounter = counter;
+
+	// This is where we perform actual reclamation.
+	while(!_reclaimQueue.empty()) {
+		auto item = &_reclaimQueue.front();
+		if(item->reclaimFrame > _frameCounter)
+			break;
+		_reclaimQueue.pop_front();
+		delete item;
+	}
+}
+
+// ----------------------------------------------------------------
+// Controller: USB device discovery methods.
+// ----------------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 	while(true) {
@@ -465,12 +464,12 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 }))
 
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
-	auto device_state = std::make_shared<DeviceState>();
+	auto device_state = std::make_shared<DeviceState>(shared_from_this());
 	device_state->address = 0;
 	device_state->controlStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
 	device_state->controlStates[0]->maxPacketSize = 8;
 	device_state->controlStates[0]->queue = std::make_unique<QueueEntity>();
-	activateAsync(device_state->controlStates[0]->queue.get());
+	_linkAsync(device_state->controlStates[0]->queue.get());
 
 	// set the device_state address.
 	assert(!_addressStack.empty());
@@ -536,23 +535,18 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 void Controller::activatePeriodic(int frame, ScheduleEntity *entity) {
-	if(periodicSchedule[frame].empty()) {
+	if(_interruptSchedule[frame].empty()) {
 		_periodicQh[frame]._linkPointer = entity->head();
 	}else{
-		periodicSchedule[frame].back().linkNext(entity->head());
+		_interruptSchedule[frame].back().linkNext(entity->head());
 	}
 	entity->linkNext(QueueHead::LinkPointer::from(&_asyncQh));
-	periodicSchedule[frame].push_back(*entity);
+	_interruptSchedule[frame].push_back(*entity);
 }
 
-void Controller::activateAsync(ScheduleEntity *entity) {
-	if(asyncSchedule.empty()) {
-		_asyncQh._linkPointer = entity->head();
-	}else{
-		asyncSchedule.back().linkNext(entity->head());
-	}
-	asyncSchedule.push_back(*entity);
-}
+// ----------------------------------------------------------------
+// Controller: Transfer functions.
+// ----------------------------------------------------------------
 
 async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
 		int endpoint, ControlTransfer info) {
@@ -566,9 +560,9 @@ async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_sta
 			device_state->address, endpoint, endpoint_state->maxPacketSize,
 			info.flags);
 
-	if(endpoint_state->queue->transactionList.empty())
-		endpoint_state->queue->_queue->_elementPointer = transaction->head();
-	endpoint_state->queue->transactionList.push_back(*transaction);
+	if(endpoint_state->queue->transactions.empty())
+		endpoint_state->queue->head->_elementPointer = transaction->head();
+	endpoint_state->queue->transactions.push_back(*transaction);
 
 	return transaction->future();
 }
@@ -587,9 +581,9 @@ async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_sta
 			device_state->address, endpoint, endpoint_state->maxPacketSize,
 			flags);
 
-	if(endpoint_state->queue->transactionList.empty())
-		endpoint_state->queue->_queue->_elementPointer = transaction->head();
-	endpoint_state->queue->transactionList.push_back(*transaction);
+	if(endpoint_state->queue->transactions.empty())
+		endpoint_state->queue->head->_elementPointer = transaction->head();
+	endpoint_state->queue->transactions.push_back(*transaction);
 
 	return transaction->future();
 }
@@ -608,48 +602,81 @@ async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_sta
 			device_state->address, endpoint, endpoint_state->maxPacketSize,
 			flags);
 
-	if(endpoint_state->queue->transactionList.empty())
-		endpoint_state->queue->_queue->_elementPointer = transaction->head();
-	endpoint_state->queue->transactionList.push_back(*transaction);
+	if(endpoint_state->queue->transactions.empty())
+		endpoint_state->queue->head->_elementPointer = transaction->head();
+	endpoint_state->queue->transactions.push_back(*transaction);
 
 	return transaction->future();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
-	while(true) {
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
-		HEL_CHECK(await_irq.error());
+// ----------------------------------------------------------------
+// Controller: Schedule manipulation functions.
+// ----------------------------------------------------------------
 
-		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(status & 0x10));
-		assert(!(status & 0x08));
-		if(!(status & (kStatusInterrupt | kStatusError)))
-			continue;
-
-		if(status & kStatusError)
-			printf("uhci: Error interrupt\n");
-		frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
-		
-		auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
-		auto counter = (frame > _lastFrame) ? (_lastCounter + frame - _lastFrame)
-				: (_lastCounter + 2048 - _lastFrame + frame);
-		
-		if(counter / 1024 > _lastCounter / 1024)
-			_pollDoorbell.ring();
-
-		//printf("uhci: Processing transfers.\n");
-		auto it = asyncSchedule.begin();
-		while(it != asyncSchedule.end()) {
-			it->progress();
-			++it;
-		}
-
-		_lastFrame = frame;
-		_lastCounter = counter;
+void Controller::_linkAsync(QueueEntity *entity) {
+	if(_asyncSchedule.empty()) {
+		_asyncQh._linkPointer = QueueHead::LinkPointer::from(entity->head.get());
+	}else{
+		_asyncSchedule.back().head->_linkPointer
+				= QueueHead::LinkPointer::from(entity->head.get());
 	}
-}))
+	_asyncSchedule.push_back(*entity);
+}
+
+void Controller::_progressSchedule() {
+	auto it = _asyncSchedule.begin();
+	while(it != _asyncSchedule.end()) {
+		_progressQueue(&(*it));
+		++it;
+	}
+}
+
+void Controller::_progressQueue(QueueEntity *entity) {
+	if(entity->transactions.empty())
+		return;
+
+	auto active = &entity->transactions.front();
+	while(active->numComplete < active->numTransfers) {
+		auto &transfer = active->transfers[active->numComplete];
+		if(transfer._controlStatus.isActive() || transfer._controlStatus.isAnyError())
+			break;
+
+		active->numComplete++;
+	}
+	
+	if(active->numComplete == active->numTransfers) {
+		//printf("Transfer complete!\n");
+		active->promise.set_value();
+
+		// Clean up the Queue.
+		entity->transactions.pop_front();
+		_reclaim(active);
+		
+		// Schedule the next transaction.
+		assert(entity->head->_elementPointer.isTerminate());
+		if(!entity->transactions.empty())
+			entity->head->_elementPointer = entity->transactions.front().head();
+	}else if(active->transfers[active->numComplete]._controlStatus.isAnyError()) {
+		printf("Transfer error!\n");
+		active->dumpTransfer();
+		
+		// Clean up the Queue.
+		entity->transactions.pop_front();
+		_reclaim(active);
+	}
+}
+
+void Controller::_reclaim(ScheduleItem *item) {
+	assert(item->reclaimFrame == -1);
+
+	_updateFrame();
+	item->reclaimFrame = _frameCounter + 1;
+	_reclaimQueue.push_back(*item);
+}
+
+// ----------------------------------------------------------------
+// Freestanding PCI discovery functions.
+// ----------------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
