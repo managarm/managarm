@@ -4,6 +4,12 @@
 struct TransferDescriptor;
 struct QueueHead;
 
+enum class Packet : uint8_t {
+	in = 0x69,
+	out = 0xE1,
+	setup = 0x2D
+};
+
 namespace td_status {
 	static constexpr arch::field<uint32_t, uint16_t> actualLength(0, 11);
 	static constexpr arch::field<uint32_t, uint8_t> errorBits(17, 6);
@@ -19,6 +25,14 @@ namespace td_status {
 	static constexpr arch::field<uint32_t, bool> lowSpeed(26, 1);
 	static constexpr arch::field<uint32_t, uint8_t> numRetries(27, 2);
 	static constexpr arch::field<uint32_t, bool> detectShort(28, 1);
+}
+
+namespace td_token {
+	static constexpr arch::field<uint32_t, Packet> pid(0, 8);
+	static constexpr arch::field<uint32_t, uint8_t> address(8, 7);
+	static constexpr arch::field<uint32_t, uint8_t> pipe(15, 4);
+	static constexpr arch::field<uint32_t, unsigned int> toggle(19, 1);
+	static constexpr arch::field<uint32_t, size_t> length(21, 11);
 }
 
 struct Pointer {
@@ -41,38 +55,6 @@ struct Pointer {
 	bool isQueue() { return _bits & (1 << QhSelectBit);	}
 	bool isTerminate() { return _bits & (1 << TerminateBit); }
 	uint32_t actualPointer() { return _bits & PointerMask; }
-
-	uint32_t _bits;
-};
-
-struct TransferToken {
-	enum PacketId {
-		kPacketIn = 0x69,
-		kPacketOut = 0xE1,
-		kPacketSetup = 0x2D
-	};
-
-	enum DataToggle {
-		kData0 = 0,
-		kData1 = 1
-	};
-
-	static constexpr uint32_t PidBits = 0;
-	static constexpr uint32_t DeviceAddressBits = 8;
-	static constexpr uint32_t EndpointBits = 15;
-	static constexpr uint32_t DataToggleBit = 19;
-	static constexpr uint32_t MaxLenBits = 21;
-	
-	TransferToken(PacketId packet_id, DataToggle data_toggle,
-			uint8_t device_address, uint8_t endpoint_address, uint16_t max_length) 
-	: _bits((uint32_t(packet_id) << PidBits)
-			| (uint32_t(device_address) << DeviceAddressBits)
-			| (uint32_t(endpoint_address) << EndpointBits)
-			| (uint32_t(data_toggle) << DataToggleBit)
-			| (uint32_t((max_length ? max_length - 1 : 0x7FF)) << MaxLenBits)) {
-		assert(device_address < 128);
-		assert(max_length < 2048);
-	}
 
 	uint32_t _bits;
 };
@@ -102,8 +84,8 @@ struct alignas(16) TransferDescriptor {
 	typedef Pointer LinkPointer;
 
 	TransferDescriptor(arch::bit_value<uint32_t> status,
-			TransferToken token, TransferBufferPointer buffer_pointer)
-	: status{status}, _token(token), _bufferPointer(buffer_pointer) { }
+			arch::bit_value<uint32_t> token, TransferBufferPointer buffer_pointer)
+	: status{status}, token{token}, _bufferPointer(buffer_pointer) { }
 
 	void dumpStatus() {
 		if(status.load() & td_status::active) printf(" active");
@@ -117,7 +99,7 @@ struct alignas(16) TransferDescriptor {
 
 	LinkPointer _linkPointer;
 	arch::bit_variable<uint32_t> status;
-	TransferToken _token;
+	arch::bit_variable<uint32_t> token;
 	TransferBufferPointer _bufferPointer;
 };
 

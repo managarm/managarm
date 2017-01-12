@@ -482,19 +482,20 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 
 	new (&transfers[0]) TransferDescriptor(td_status::active(true)
 			| td_status::detectShort(true),
-			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-					address, pipe, sizeof(SetupPacket)),
+			td_token::pid(Packet::setup) | td_token::address(address) | td_token::pipe(pipe)
+			| td_token::length(sizeof(SetupPacket) - 1),
 			TransferBufferPointer::from(setup));
 	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
 
 	size_t progress = 0;
 	for(size_t i = 0; i < data_packets; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
+		assert(chunk);
 		new (&transfers[i + 1]) TransferDescriptor(td_status::active(true)
 			| td_status::detectShort(true),
-			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, pipe, chunk),
+			td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
+			| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
+			| td_token::length(chunk - 1),
 			TransferBufferPointer::from((char *)buffer + progress));
 		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
 		progress += chunk;
@@ -502,8 +503,9 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 
 	new (&transfers[data_packets + 1]) TransferDescriptor(td_status::active(true)
 			| td_status::completionIrq(true),
-			TransferToken(dir == kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
-					TransferToken::kData0, address, pipe, 0),
+			td_token::pid(dir == kXferToDevice ? Packet::in : Packet::out)
+			| td_token::address(address) | td_token::pipe(pipe)
+			| td_token::length(0x7FF),
 			TransferBufferPointer());
 
 	return new Transaction{transfers, data_packets + 2};
@@ -520,11 +522,12 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 	size_t progress = 0;
 	for(size_t i = 0; i < data_packets; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
+		assert(chunk);
 		new (&transfers[i]) TransferDescriptor(td_status::active(true)
 			| td_status::completionIrq(i + 1 == data_packets) | td_status::detectShort(true),
-			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, pipe, chunk),
+			td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
+			| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
+			| td_token::length(chunk - 1),
 			TransferBufferPointer::from((char *)buffer + progress));
 
 		if(i + 1 < data_packets)
