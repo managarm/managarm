@@ -29,81 +29,6 @@ using contiguous_ptr = std::unique_ptr<T, contiguous_delete<T>>;
 template<typename T, typename... Args>
 contiguous_ptr<T> make_contiguous(Args &&... args);
 
-// Base class for classes that represent elements of the UHCI schedule.
-// All those classes are linked into a list that represents a part of the schedule.
-// TODO: They need to be freed through a reclaim mechansim.
-struct ScheduleItem : boost::intrusive::list_base_hook<> {
-	ScheduleItem()
-	: reclaimFrame(-1) { }
-
-	virtual ~ScheduleItem() {
-		assert(reclaimFrame != -1);
-	}
-
-	int64_t reclaimFrame;
-};
-
-struct Transaction : ScheduleItem {
-	Transaction();
-	
-	async::result<void> future();
-
-	void setupTransfers(TransferDescriptor *transfers, size_t num_transfers);
-	QueueHead::LinkPointer head();
-	void dumpTransfer();
-	bool progress();
-
-	async::promise<void> promise;
-	size_t numTransfers;
-	TransferDescriptor *transfers;
-	size_t numComplete;
-};
-
-
-struct ControlTransaction : Transaction {
-	ControlTransaction(SetupPacket setup, void *buffer, int address,
-			int endpoint, size_t packet_size, XferFlags flags);
-
-private:
-	SetupPacket _setup;
-};
-
-
-struct NormalTransaction : Transaction {
-	NormalTransaction(void *buffer, size_t length, int address,
-			int endpoint, size_t packet_size, XferFlags flags);
-};
-
-
-struct ScheduleEntity {
-	virtual	QueueHead::LinkPointer head() = 0;
-	virtual void linkNext(QueueHead::LinkPointer link) = 0;
-	virtual void progress() = 0;
-
-	boost::intrusive::list_member_hook<> scheduleHook;
-};
-
-
-struct DummyEntity : ScheduleEntity {
-	DummyEntity();
-
-	QueueHead::LinkPointer head() override;
-	void linkNext(QueueHead::LinkPointer link) override;
-	void progress() override;
-
-	TransferDescriptor *_transfer;
-	
-	boost::intrusive::list<Transaction> transactions;
-};
-
-struct QueueEntity : ScheduleItem {
-	QueueEntity();
-
-	contiguous_ptr<QueueHead> head;
-
-	boost::intrusive::list<Transaction> transactions;
-};
-
 // ----------------------------------------------------------------
 // Controller.
 // ----------------------------------------------------------------
@@ -116,20 +41,56 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	void initialize();
 	async::result<void> pollDevices();
 	async::result<void> probeDevice();
-	void activatePeriodic(int frame, ScheduleEntity *entity);
 	cofiber::no_future handleIrqs();
 
 private:
 	uint16_t _base;
 	helix::UniqueIrq _irq;
 
-	DummyEntity _irqDummy;
-
 	uint16_t _lastFrame;
 	int64_t _frameCounter;
 	async::doorbell _pollDoorbell;
 
 	void _updateFrame();
+
+	// ------------------------------------------------------------------------
+	// Schedule classes.
+	// ------------------------------------------------------------------------
+
+	// Base class for classes that represent elements of the UHCI schedule.
+	// All those classes are linked into a list that represents a part of the schedule.
+	// They need to be freed through the reclaim mechansim.
+	struct ScheduleItem : boost::intrusive::list_base_hook<> {
+		ScheduleItem()
+		: reclaimFrame(-1) { }
+
+		virtual ~ScheduleItem() {
+			assert(reclaimFrame != -1);
+		}
+
+		int64_t reclaimFrame;
+	};
+
+	struct Transaction : ScheduleItem {
+		explicit Transaction(TransferDescriptor *transfers, size_t num_transfers)
+		: transfers{transfers}, numTransfers{num_transfers}, numComplete{0} { }
+		
+		TransferDescriptor *transfers;
+		size_t numTransfers;
+		size_t numComplete;
+		async::promise<void> promise;
+	};
+
+	struct QueueEntity : ScheduleItem {
+		QueueEntity()
+		: head{make_contiguous<QueueHead>()} {
+			head->_linkPointer = QueueHead::LinkPointer();
+			head->_elementPointer = QueueHead::ElementPointer();
+		}
+
+		contiguous_ptr<QueueHead> head;
+		boost::intrusive::list<Transaction> transactions;
+	};
 
 	// ------------------------------------------------------------------------
 	// Device management.
@@ -157,13 +118,19 @@ public:
 	// ------------------------------------------------------------------------
 	// Transfer functions.
 	// ------------------------------------------------------------------------
+	
+	static Transaction *_buildControl(int address, int pipe, XferFlags dir,
+			SetupPacket *setup, void *buffer, size_t length, size_t max_packet_size);
+	static Transaction *_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
+			void *buffer, size_t length, size_t max_packet_size);
+
 public:
 	async::result<void> transfer(int address, int pipe, ControlTransfer info);
 	async::result<void> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
 	async::result<void> transfer(int address, PipeType type, int pipe, BulkTransfer info);
 
 private:
-	async::result<void> _directTransfer(int address, int endpoint, ControlTransfer info,
+	async::result<void> _directTransfer(int address, int pipe, ControlTransfer info,
 			QueueEntity *queue, size_t max_packet_size);
 
 private:
@@ -180,21 +147,22 @@ private:
 
 	void _reclaim(ScheduleItem *item);
 
-	boost::intrusive::list<
-		ScheduleEntity,
-		boost::intrusive::member_hook<
-			ScheduleEntity,
-			boost::intrusive::list_member_hook<>,
-			&ScheduleEntity::scheduleHook
-		>
-	> _interruptSchedule[1024];
+	boost::intrusive::list<QueueEntity> _interruptSchedule[1024];
 
 	boost::intrusive::list<QueueEntity> _asyncSchedule;
-	
+
+	// This queue holds all schedule structs that are currently
+	// being garbage collected.
 	boost::intrusive::list<ScheduleItem> _reclaimQueue;
 
 	QueueHead _periodicQh[1024];
 	QueueHead _asyncQh;
+	
+	// ----------------------------------------------------------------------------
+	// Debugging functions.
+	// ----------------------------------------------------------------------------
+
+	static void _dump(Transaction *transaction);
 };
 
 // ----------------------------------------------------------------------------

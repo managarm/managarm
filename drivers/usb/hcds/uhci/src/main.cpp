@@ -37,102 +37,6 @@ contiguous_ptr<T> make_contiguous(Args &&... args) {
 }
 
 // ----------------------------------------------------------------------------
-// Transaction.
-// ----------------------------------------------------------------------------
-
-Transaction::Transaction()
-	: numComplete(0) { }
-
-async::result<void> Transaction::future() {
-	return promise.async_get();
-}
-
-void Transaction::setupTransfers(TransferDescriptor *transfers, size_t num_transfers) {
-	this->transfers = transfers;
-	numTransfers = num_transfers;
-}
-
-QueueHead::LinkPointer Transaction::head() {
-	return QueueHead::LinkPointer::from(&transfers[0]);
-}
-
-void Transaction::dumpTransfer() {
-	for(size_t i = 0; i < numTransfers; i++) {
-		 printf("    TD %lu:", i);
-		transfers[i].dumpStatus();
-		printf("\n");
-	}
-}
-
-// ----------------------------------------------------------------------------
-// ControlTransaction.
-// ----------------------------------------------------------------------------
-
-ControlTransaction::ControlTransaction(SetupPacket setup, void *buffer, int address,
-		int endpoint, size_t packet_size, XferFlags flags)
-		: _setup(setup) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
-
-	size_t data_packets = (_setup.wLength + packet_size - 1) / packet_size;
-	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
-
-	new (&transfers[0]) TransferDescriptor(TransferStatus(true, true, false, false),
-			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
-					address, endpoint, sizeof(SetupPacket)),
-			TransferBufferPointer::from(&_setup));
-	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
-
-	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
-		size_t chunk = std::min(packet_size, _setup.wLength - progress);
-		new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, endpoint, chunk),
-			TransferBufferPointer::from((char *)buffer + progress));
-		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
-		progress += chunk;
-	}
-
-	new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
-					TransferToken::kData0, address, endpoint, 0),
-			TransferBufferPointer());
-
-	setupTransfers(transfers, data_packets + 2);
-}
-
-// ----------------------------------------------------------------------------
-// NormalTransaction.
-// ----------------------------------------------------------------------------
-
-NormalTransaction::NormalTransaction(void *buffer, size_t length, int address,
-		int endpoint, size_t packet_size, XferFlags flags) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
-
-	size_t data_packets = (length + packet_size - 1) / packet_size;
-	size_t desc_size = data_packets * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
-
-	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
-		size_t chunk = std::min(packet_size, length - progress);
-		new (&transfers[i]) TransferDescriptor(TransferStatus(true, true, false, false),
-			TransferToken(flags & kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
-					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
-					address, endpoint, chunk),
-			TransferBufferPointer::from((char *)buffer + progress));
-
-		if(i + 1 < data_packets)
-			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
-		progress += chunk;
-	}
-
-	setupTransfers(transfers, data_packets);
-}
-
-// ----------------------------------------------------------------------------
 // Pointer.
 // ----------------------------------------------------------------------------
 
@@ -149,40 +53,6 @@ Pointer Pointer::from(QueueHead *item) {
 	assert(physical % sizeof(*item) == 0);
 	assert((physical & 0xFFFFFFFF) == physical);
 	return Pointer(physical, true);
-}
-
-// ----------------------------------------------------------------------------
-// DummyEntity.
-// ----------------------------------------------------------------------------
-
-DummyEntity::DummyEntity() {
-	_transfer = (TransferDescriptor *)contiguousAllocator.allocate(sizeof(TransferDescriptor));
-
-	new (_transfer) TransferDescriptor(TransferStatus(false, true, false, false),
-			TransferToken(TransferToken::PacketId::kPacketIn, 
-			TransferToken::DataToggle::kData0, 0, 0, 0), TransferBufferPointer());
-	_transfer->_linkPointer = QueueHead::LinkPointer();
-}
-
-QueueHead::LinkPointer DummyEntity::head() {
-	return QueueHead::LinkPointer::from(_transfer);
-}
-
-void DummyEntity::linkNext(QueueHead::LinkPointer link) {
-	_transfer->_linkPointer = link;
-}
-
-// this function does not need to do anything
-void DummyEntity::progress() { }
-
-// ----------------------------------------------------------------------------
-// QueueEntity.
-// ----------------------------------------------------------------------------
-
-QueueEntity::QueueEntity()
-: head{make_contiguous<QueueHead>()} {
-	head->_linkPointer = QueueHead::LinkPointer();
-	head->_elementPointer = QueueHead::ElementPointer();
 }
 
 // ----------------------------------------------------------------
@@ -300,8 +170,6 @@ void Controller::initialize() {
 	
 	// enable interrupts.
 	frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
-
-	activatePeriodic(0, &_irqDummy);
 
 	pollDevices();
 	handleIrqs();
@@ -485,16 +353,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	COFIBER_RETURN();
 }))
 
-void Controller::activatePeriodic(int frame, ScheduleEntity *entity) {
-	if(_interruptSchedule[frame].empty()) {
-		_periodicQh[frame]._linkPointer = entity->head();
-	}else{
-		_interruptSchedule[frame].back().linkNext(entity->head());
-	}
-	entity->linkNext(QueueHead::LinkPointer::from(&_asyncQh));
-	_interruptSchedule[frame].push_back(*entity);
-}
-
 // ------------------------------------------------------------------------
 // Controller: Device management.
 // ------------------------------------------------------------------------
@@ -565,13 +423,17 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto endpoint = &device->controlStates[pipe];
 	
 	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
-	SetupPacket setup(info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
-			info.recipient, info.type, info.request, info.arg0, info.arg1, info.length);
+	// TODO: Pass the setup packet into this function; do not allocate it here.
+	// TODO: Ensure the packet size fits into 16 bits.
+	auto setup = (SetupPacket *)contiguousAllocator.allocate(sizeof(SetupPacket));
+	new (setup) SetupPacket{info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
+			info.recipient, info.type, info.request, info.arg0, info.arg1,
+			static_cast<uint16_t>(info.length)};
 
-	auto transaction = new ControlTransaction(setup, info.buffer,
-			address, pipe, endpoint->maxPacketSize, info.flags);
+	auto transaction = _buildControl(address, pipe, info.flags,
+			setup, info.buffer, info.length, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->future();
+	return transaction->promise.async_get();
 }
 
 async::result<void> Controller::transfer(int address, PipeType type, int pipe,
@@ -586,10 +448,10 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = new NormalTransaction(info.buffer, info.length,
-			address, pipe, endpoint->maxPacketSize, info.flags);
+	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+			info.buffer, info.length, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->future();
+	return transaction->promise.async_get();
 }
 
 async::result<void> Controller::transfer(int address, PipeType type, int pipe,
@@ -604,22 +466,85 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = new NormalTransaction(info.buffer, info.length,
-			address, pipe, endpoint->maxPacketSize, info.flags);
+	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+			info.buffer, info.length, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->future();
+	return transaction->promise.async_get();
+}
+
+auto Controller::_buildControl(int address, int pipe, XferFlags dir,
+		SetupPacket *setup, void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
+	assert((dir == kXferToDevice) || (dir == kXferToHost));
+
+	size_t data_packets = (length + max_packet_size - 1) / max_packet_size;
+	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
+	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+
+	new (&transfers[0]) TransferDescriptor(TransferStatus(true, true, false, false),
+			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
+					address, pipe, sizeof(SetupPacket)),
+			TransferBufferPointer::from(setup));
+	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
+
+	size_t progress = 0;
+	for(size_t i = 0; i < data_packets; i++) {
+		size_t chunk = std::min(max_packet_size, length - progress);
+		new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+					address, pipe, chunk),
+			TransferBufferPointer::from((char *)buffer + progress));
+		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
+		progress += chunk;
+	}
+
+	new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+			TransferToken(dir == kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
+					TransferToken::kData0, address, pipe, 0),
+			TransferBufferPointer());
+
+	return new Transaction{transfers, data_packets + 2};
+}
+
+auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
+		void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
+	assert((dir == kXferToDevice) || (dir == kXferToHost));
+
+	size_t data_packets = (length + max_packet_size - 1) / max_packet_size;
+	size_t desc_size = data_packets * sizeof(TransferDescriptor);
+	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+
+	size_t progress = 0;
+	for(size_t i = 0; i < data_packets; i++) {
+		size_t chunk = std::min(max_packet_size, length - progress);
+		new (&transfers[i]) TransferDescriptor(TransferStatus(true, true, false, false),
+			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
+					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
+					address, pipe, chunk),
+			TransferBufferPointer::from((char *)buffer + progress));
+
+		if(i + 1 < data_packets)
+			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
+		progress += chunk;
+	}
+
+	return new Transaction{transfers, data_packets};
 }
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
 	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
-	SetupPacket setup(info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
-			info.recipient, info.type, info.request, info.arg0, info.arg1, info.length);
+	// TODO: Pass the setup packet into this function; do not allocate it here.
+	// TODO: Ensure the packet size fits into 16 bits.
+	auto setup = (SetupPacket *)contiguousAllocator.allocate(sizeof(SetupPacket));
+	new (setup) SetupPacket{info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
+			info.recipient, info.type, info.request, info.arg0, info.arg1,
+			static_cast<uint16_t>(info.length)};
 
-	auto transaction = new ControlTransaction(setup, info.buffer,
-			address, pipe, max_packet_size, info.flags);
+	auto transaction = _buildControl(address, pipe, info.flags,
+			setup, info.buffer, info.length, max_packet_size);
 	_linkTransaction(queue, transaction);
-	return transaction->future();
+	return transaction->promise.async_get();
 }
 
 // ----------------------------------------------------------------
@@ -638,7 +563,7 @@ void Controller::_linkAsync(QueueEntity *entity) {
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
 	if(queue->transactions.empty())
-		queue->head->_elementPointer = transaction->head();
+		queue->head->_elementPointer = QueueHead::LinkPointer::from(&transaction->transfers[0]);
 	queue->transactions.push_back(*transaction);
 }
 
@@ -673,11 +598,13 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		
 		// Schedule the next transaction.
 		assert(entity->head->_elementPointer.isTerminate());
-		if(!entity->transactions.empty())
-			entity->head->_elementPointer = entity->transactions.front().head();
+		if(!entity->transactions.empty()) {
+			auto front = &entity->transactions.front();
+			entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
+		}
 	}else if(active->transfers[active->numComplete]._controlStatus.isAnyError()) {
 		printf("Transfer error!\n");
-		active->dumpTransfer();
+		_dump(active);
 		
 		// Clean up the Queue.
 		entity->transactions.pop_front();
@@ -691,6 +618,18 @@ void Controller::_reclaim(ScheduleItem *item) {
 	_updateFrame();
 	item->reclaimFrame = _frameCounter + 1;
 	_reclaimQueue.push_back(*item);
+}
+
+// ----------------------------------------------------------------------------
+// Debugging functions.
+// ----------------------------------------------------------------------------
+
+void Controller::_dump(Transaction *transaction) {
+	for(size_t i = 0; i < transaction->numTransfers; i++) {
+		printf("    TD %lu:", i);
+		transaction->transfers[i].dumpStatus();
+		printf("\n");
+	}
 }
 
 // ----------------------------------------------------------------
