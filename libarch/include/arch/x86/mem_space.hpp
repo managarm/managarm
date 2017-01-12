@@ -13,6 +13,19 @@ namespace _detail {
 	struct mem_ops;
 
 	template<>
+	struct mem_ops<uint8_t> {
+		static void store(uint8_t *p, uint8_t v) {
+			asm volatile ("movb %0, %1" : : "r"(v), "m"(*p) : "memory");
+		}
+
+		static uint8_t load(const uint8_t *p) {
+			uint8_t v;
+			asm volatile ("movb %1, %0" : "=r"(v) : "m"(*p) : "memory");
+			return v;
+		}
+	};
+
+	template<>
 	struct mem_ops<uint32_t> {
 		static void store(uint32_t *p, uint32_t v) {
 			asm volatile ("movl %0, %1" : : "r"(v), "m"(*p) : "memory");

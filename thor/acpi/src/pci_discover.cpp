@@ -283,11 +283,11 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				writePciWord(bus, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
 				
-/*				device->bars[i].type = PciDevice::kBarMemory;
+				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
 				device->bars[i].length = length;
 				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
-*/
+
 				std::cout << "        32-bit memory BAR #" << i
 						<< " at 0x" << std::hex << address << std::dec
 						<< ", length: " << length << " bytes" << std::endl;
