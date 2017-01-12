@@ -189,124 +189,72 @@ QueueEntity::QueueEntity()
 // DeviceState
 // ----------------------------------------------------------------
 
-DeviceState::DeviceState(std::shared_ptr<Controller> controller)
-: _controller{std::move(controller)} { }
+DeviceState::DeviceState(std::shared_ptr<Controller> controller, int device)
+: _controller{std::move(controller)}, _device(device) { }
 
-COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor(), ([=] {
-	auto config = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
-	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			config, sizeof(ConfigDescriptor)));
-	assert(config->length == sizeof(ConfigDescriptor));
-
-	//printf("Configuration value: %d\n", config->configValue);
-
-	auto buffer = (char *)contiguousAllocator.allocate(config->totalLength);
-	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			buffer, config->totalLength));
-
-	std::string copy(buffer, config->totalLength);
-	contiguousAllocator.free(buffer);
-	COFIBER_RETURN(std::move(copy));
-}))
+async::result<std::string> DeviceState::configurationDescriptor() {
+	return _controller->configurationDescriptor(_device);
+}
 
 COFIBER_ROUTINE(async::result<Configuration>, 
 		DeviceState::useConfiguration(int number), ([=] {
-	// set the device configuration.
-	COFIBER_AWAIT _controller->transfer(shared_from_this(), 0, ControlTransfer(kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetConfig, number, 0,
-			nullptr, 0));
-	auto config_state = std::make_shared<ConfigurationState>(shared_from_this());
-	COFIBER_RETURN(Configuration(config_state));
+	COFIBER_AWAIT _controller->useConfiguration(_device, number);
+	COFIBER_RETURN(Configuration{std::make_shared<ConfigurationState>(_controller,
+			_device, number)});
 }))
 
 async::result<void> DeviceState::transfer(ControlTransfer info) {
-	return _controller->transfer(shared_from_this(), 0, info);
+	return _controller->transfer(_device, 0, info);
 }
 
 // ----------------------------------------------------------------------------
 // ConfigurationState
 // ----------------------------------------------------------------------------
 
-ConfigurationState::ConfigurationState(std::shared_ptr<DeviceState> device)
-: _device(std::move(device)) { }
+ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
+		int device, int configuration)
+: _controller{std::move(controller)}, _device(device), _configuration(configuration) { }
 
 COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number,
 		int alternative), ([=] {
-	auto interface = std::make_shared<InterfaceState>(shared_from_this());
-	
-	auto descriptor = COFIBER_AWAIT Device(_device).configurationDescriptor();
-	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type != kDescriptorEndpoint)
-			return;
-		auto desc = (EndpointDescriptor *)p;	
-		
-		int endpoint = info.endpointNumber.value();
-		if(info.endpointIn.value()) {
-			_device->inStates[endpoint] = std::make_shared<EndpointState>(PipeType::in, endpoint);
-			_device->inStates[endpoint]->maxPacketSize = desc->maxPacketSize;
-			_device->inStates[endpoint]->queue = std::make_unique<QueueEntity>();
-			_device->inStates[endpoint]->_interface = interface;
-			_device->_controller->_linkAsync(_device->inStates[endpoint]->queue.get());
-		}else{
-			_device->outStates[endpoint] = std::make_shared<EndpointState>(PipeType::out, endpoint);
-			_device->outStates[endpoint]->maxPacketSize = desc->maxPacketSize;
-			_device->outStates[endpoint]->queue = std::make_unique<QueueEntity>();
-			_device->outStates[endpoint]->_interface = interface;
-			_device->_controller->_linkAsync(_device->outStates[endpoint]->queue.get());
-		}
-	});
-	
-	COFIBER_RETURN(Interface(interface));
+	COFIBER_AWAIT _controller->useInterface(_device, number, alternative);
+	COFIBER_RETURN(Interface{std::make_shared<InterfaceState>(_controller, _device, number)});
 }))
 
 // ----------------------------------------------------------------------------
 // InterfaceState
 // ----------------------------------------------------------------------------
 
-InterfaceState::InterfaceState(std::shared_ptr<ConfigurationState> config)
-: _config(std::move(config)) { }
+InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
+		int device, int interface)
+: _controller{std::move(controller)}, _device(device), _interface(interface) { }
 
-COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type, int number),
-		([=] {
-	if(type == PipeType::control) {
-		COFIBER_RETURN(Endpoint(_config->_device->controlStates[number]));
-	}else if(type == PipeType::out) {
-		COFIBER_RETURN(Endpoint(_config->_device->outStates[number]));
-	}else{
-		assert(type == PipeType::in);
-		COFIBER_RETURN(Endpoint(_config->_device->inStates[number]));
-	}
+COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type,
+		int number), ([=] {
+	COFIBER_RETURN(Endpoint{std::make_shared<EndpointState>(_controller,
+			_device, type, number)});
 }))
 
 // ----------------------------------------------------------------------------
 // EndpointState
 // ----------------------------------------------------------------------------
 
-EndpointState::EndpointState(PipeType type, int number)
-: _type(type), _number(number) { }
+EndpointState::EndpointState(std::shared_ptr<Controller> controller,
+		int device, PipeType type, int endpoint)
+: _controller{std::move(controller)}, _device(device), _type(type), _endpoint(endpoint) { }
 
 async::result<void> EndpointState::transfer(ControlTransfer info) {
+	(void)info;
 	assert(!"FIXME: Implement this");
+	__builtin_unreachable();
 }
 
 async::result<void> EndpointState::transfer(InterruptTransfer info) {
-	XferFlags flag = kXferToDevice;
-	if(_type == PipeType::in)
-		flag = kXferToHost;
-
-	return _interface->_config->_device->_controller->transfer(
-			_interface->_config->_device, _number, flag, info);
+	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
 async::result<void> EndpointState::transfer(BulkTransfer info) {
-	XferFlags flag = kXferToDevice;
-	if(_type == PipeType::in)
-		flag = kXferToHost;
-
-	return _interface->_config->_device->_controller->transfer(
-			_interface->_config->_device, _number, flag, info);
+	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
 // ----------------------------------------------------------------------------
@@ -464,35 +412,35 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 }))
 
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
-	auto device_state = std::make_shared<DeviceState>(shared_from_this());
-	device_state->address = 0;
-	device_state->controlStates[0] = std::make_shared<EndpointState>(PipeType::control, 0);
-	device_state->controlStates[0]->maxPacketSize = 8;
-	device_state->controlStates[0]->queue = std::make_unique<QueueEntity>();
-	_linkAsync(device_state->controlStates[0]->queue.get());
+	// This queue will become the default control pipe of our new device.
+	auto queue = new QueueEntity;
+	_linkAsync(queue);
 
-	// set the device_state address.
+	// Allocate an address for the device.
 	assert(!_addressStack.empty());
-	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetAddress, _addressStack.front(), 0,
-			nullptr, 0));
-	device_state->address = _addressStack.front();
-	_activeDevices[_addressStack.front()] = device_state;
+	auto address = _addressStack.front();
 	_addressStack.pop();
 
-	// enquire the maximum packet size of endpoint 0 and get the device descriptor.
+	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetAddress,
+			static_cast<uint16_t>(address), 0, nullptr, 0}, queue, 8);
+
+	// Enquire the maximum packet size of the default control pipe.
 	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
-	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+	COFIBER_AWAIT _directTransfer(address, 0, ControlTransfer{kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, 8));
-	device_state->controlStates[0]->maxPacketSize = descriptor->maxPacketSize;
-	
-	COFIBER_AWAIT transfer(device_state, 0, ControlTransfer(kXferToHost,
+			descriptor, 8}, queue, 8);
+
+	_activeDevices[address].controlStates[0].queueEntity = queue;
+	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
+
+	// Now the device is set up.
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
 			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, sizeof(DeviceDescriptor)));
+			descriptor, sizeof(DeviceDescriptor)});
 	assert(descriptor->length == sizeof(DeviceDescriptor));
 
-	// TODO:read configuration descriptor from the device
+	// TODO: Read configuration descriptor from the device.
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
@@ -518,12 +466,15 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	char name[3];
-	sprintf(name, "%.2x", device_state->address);
+	sprintf(name, "%.2x", address);
 	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
 			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+		(void)query;
+
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		protocols::usb::serve(Device(device_state), std::move(local_lane));
+		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
+		protocols::usb::serve(Device{std::move(state)}, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
@@ -544,68 +495,130 @@ void Controller::activatePeriodic(int frame, ScheduleEntity *entity) {
 	_interruptSchedule[frame].push_back(*entity);
 }
 
-// ----------------------------------------------------------------
+// ------------------------------------------------------------------------
+// Controller: Device management.
+// ------------------------------------------------------------------------
+
+COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(int address),
+		([=] {
+	auto header = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			header, sizeof(ConfigDescriptor)});
+	assert(header->length == sizeof(ConfigDescriptor));
+
+	//printf("Configuration value: %d\n", config->configValue);
+
+	auto descriptor = (char *)contiguousAllocator.allocate(header->totalLength);
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
+			descriptor, header->totalLength});
+
+	std::string copy(descriptor, header->totalLength);
+	contiguousAllocator.free(header);
+	contiguousAllocator.free(descriptor);
+	COFIBER_RETURN(std::move(copy));
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
+		int configuration), ([=] {
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
+			kDestDevice, kStandard, SetupPacket::kSetConfig,
+			static_cast<uint16_t>(configuration), 0, nullptr, 0});
+	
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
+		int interface, int alternative), ([=] {
+	auto descriptor = COFIBER_AWAIT configurationDescriptor(address);
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		(void)length;
+
+		if(type != kDescriptorEndpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;
+
+		// TODO: Pay attention to interface/alternative.
+		
+		int pipe = info.endpointNumber.value();
+		if(info.endpointIn.value()) {
+			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
+			_activeDevices[address].inStates[pipe].queueEntity = new QueueEntity;
+			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
+		}else{
+			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
+			_activeDevices[address].outStates[pipe].queueEntity = new QueueEntity;
+			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
+		}
+	});
+	
+	COFIBER_RETURN();
+}))
+
+// ------------------------------------------------------------------------
 // Controller: Transfer functions.
-// ----------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
-		int endpoint, ControlTransfer info) {
-	assert((info.flags & kXferToDevice) || (info.flags & kXferToHost));
-	auto endpoint_state = device_state->controlStates[endpoint].get();
+async::result<void> Controller::transfer(int address, int pipe, ControlTransfer info) {
+	auto device = &_activeDevices[address];
+	auto endpoint = &device->controlStates[pipe];
+	
+	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
+	SetupPacket setup(info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
+			info.recipient, info.type, info.request, info.arg0, info.arg1, info.length);
 
-	SetupPacket setup(info.flags & kXferToDevice ? kDirToDevice : kDirToHost,
-			info.recipient, info.type, info.request,
-			info.arg0, info.arg1, info.length);
 	auto transaction = new ControlTransaction(setup, info.buffer,
-			device_state->address, endpoint, endpoint_state->maxPacketSize,
-			info.flags);
-
-	if(endpoint_state->queue->transactions.empty())
-		endpoint_state->queue->head->_elementPointer = transaction->head();
-	endpoint_state->queue->transactions.push_back(*transaction);
-
+			address, pipe, endpoint->maxPacketSize, info.flags);
+	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->future();
 }
 
-async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
-		int endpoint, XferFlags flags, InterruptTransfer info) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
-	EndpointState *endpoint_state;
-	if(flags == XferFlags::kXferToHost) {
-		endpoint_state = device_state->inStates[endpoint].get();
+async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+		InterruptTransfer info) {
+	// TODO: Ensure pipe type matches transfer direction.
+	auto device = &_activeDevices[address];
+	EndpointSlot *endpoint;
+	if(type == PipeType::in) {
+		endpoint = &device->inStates[pipe];
 	}else{
-		endpoint_state = device_state->outStates[endpoint].get();
+		assert(type == PipeType::out);
+		endpoint = &device->outStates[pipe];
 	}
 
 	auto transaction = new NormalTransaction(info.buffer, info.length,
-			device_state->address, endpoint, endpoint_state->maxPacketSize,
-			flags);
-
-	if(endpoint_state->queue->transactions.empty())
-		endpoint_state->queue->head->_elementPointer = transaction->head();
-	endpoint_state->queue->transactions.push_back(*transaction);
-
+			address, pipe, endpoint->maxPacketSize, info.flags);
+	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->future();
 }
 
-async::result<void> Controller::transfer(std::shared_ptr<DeviceState> device_state,
-		int endpoint, XferFlags flags, BulkTransfer info) {
-	assert((flags & kXferToDevice) || (flags & kXferToHost));
-	EndpointState *endpoint_state;
-	if(flags == XferFlags::kXferToHost) {
-		endpoint_state = device_state->inStates[endpoint].get();
+async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+		BulkTransfer info) {
+	// TODO: Ensure pipe type matches transfer direction.
+	auto device = &_activeDevices[address];
+	EndpointSlot *endpoint;
+	if(type == PipeType::in) {
+		endpoint = &device->inStates[pipe];
 	}else{
-		endpoint_state = device_state->outStates[endpoint].get();
+		assert(type == PipeType::out);
+		endpoint = &device->outStates[pipe];
 	}
 
 	auto transaction = new NormalTransaction(info.buffer, info.length,
-			device_state->address, endpoint, endpoint_state->maxPacketSize,
-			flags);
+			address, pipe, endpoint->maxPacketSize, info.flags);
+	_linkTransaction(endpoint->queueEntity, transaction);
+	return transaction->future();
+}
 
-	if(endpoint_state->queue->transactions.empty())
-		endpoint_state->queue->head->_elementPointer = transaction->head();
-	endpoint_state->queue->transactions.push_back(*transaction);
+async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
+		QueueEntity *queue, size_t max_packet_size) {
+	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
+	SetupPacket setup(info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
+			info.recipient, info.type, info.request, info.arg0, info.arg1, info.length);
 
+	auto transaction = new ControlTransaction(setup, info.buffer,
+			address, pipe, max_packet_size, info.flags);
+	_linkTransaction(queue, transaction);
 	return transaction->future();
 }
 
@@ -621,6 +634,12 @@ void Controller::_linkAsync(QueueEntity *entity) {
 				= QueueHead::LinkPointer::from(entity->head.get());
 	}
 	_asyncSchedule.push_back(*entity);
+}
+
+void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
+	if(queue->transactions.empty())
+		queue->head->_elementPointer = transaction->head();
+	queue->transactions.push_back(*transaction);
 }
 
 void Controller::_progressSchedule() {
@@ -678,7 +697,7 @@ void Controller::_reclaim(ScheduleItem *item) {
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
 	auto info = COFIBER_AWAIT device.getPciInfo();
 	assert(info.barInfo[4].ioType == protocols::hw::IoType::kIoTypePort);
@@ -698,7 +717,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	globalControllers.push_back(std::move(controller));
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
@@ -710,7 +729,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
 			std::cout << "uhci: Detected device" << std::endl;
-			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected event type");
 		}
@@ -724,7 +743,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 int main() {
 	printf("Starting UHCI driver\n");
 
-	observeDevices();
+	observeControllers();
 
 	while(true)
 		helix::Dispatcher::global().dispatch();

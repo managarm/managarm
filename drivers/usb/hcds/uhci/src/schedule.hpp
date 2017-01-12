@@ -117,12 +117,6 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	async::result<void> pollDevices();
 	async::result<void> probeDevice();
 	void activatePeriodic(int frame, ScheduleEntity *entity);
-	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
-			int endpoint,  ControlTransfer info);
-	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
-			int endpoint, XferFlags flags, InterruptTransfer info);
-	async::result<void> transfer(std::shared_ptr<DeviceState> device_state,
-			int endpoint, XferFlags flags, BulkTransfer info);
 	cofiber::no_future handleIrqs();
 
 private:
@@ -137,15 +131,49 @@ private:
 
 	void _updateFrame();
 
-	std::queue<int> _addressStack;
-	std::shared_ptr<DeviceState> _activeDevices[128];
+	// ------------------------------------------------------------------------
+	// Device management.
+	// ------------------------------------------------------------------------
 
+	struct EndpointSlot {
+		size_t maxPacketSize;
+		QueueEntity *queueEntity;
+	};
+
+	struct DeviceSlot {
+		EndpointSlot controlStates[16];
+		EndpointSlot outStates[16];
+		EndpointSlot inStates[16];
+	};
+
+	std::queue<int> _addressStack;
+	DeviceSlot _activeDevices[128];
+
+public:
+	async::result<std::string> configurationDescriptor(int address);
+	async::result<void> useConfiguration(int address, int configuration);
+	async::result<void> useInterface(int address, int interface, int alternative);
+
+	// ------------------------------------------------------------------------
+	// Transfer functions.
+	// ------------------------------------------------------------------------
+public:
+	async::result<void> transfer(int address, int pipe, ControlTransfer info);
+	async::result<void> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
+	async::result<void> transfer(int address, PipeType type, int pipe, BulkTransfer info);
+
+private:
+	async::result<void> _directTransfer(int address, int endpoint, ControlTransfer info,
+			QueueEntity *queue, size_t max_packet_size);
+
+private:
 	// ------------------------------------------------------------------------
 	// Schedule management.
 	// ------------------------------------------------------------------------
 	
 	void _linkInterrupt(QueueEntity *entity);
 	void _linkAsync(QueueEntity *entity);
+	void _linkTransaction(QueueEntity *queue, Transaction *transaction);
 
 	void _progressSchedule();
 	void _progressQueue(QueueEntity *entity);
@@ -173,33 +201,32 @@ private:
 // DeviceState
 // ----------------------------------------------------------------------------
 
-struct DeviceState : DeviceData, std::enable_shared_from_this<DeviceState> {
-	explicit DeviceState(std::shared_ptr<Controller> controller);
+struct DeviceState : DeviceData {
+	explicit DeviceState(std::shared_ptr<Controller> controller, int device);
 
 	async::result<std::string> configurationDescriptor() override;
 	async::result<Configuration> useConfiguration(int number) override;
 	async::result<void> transfer(ControlTransfer info) override;
-	
+
+private:
 	std::shared_ptr<Controller> _controller;
-
-	uint8_t address;
-
-	std::shared_ptr<EndpointState> controlStates[16];
-	std::shared_ptr<EndpointState> outStates[16];
-	std::shared_ptr<EndpointState> inStates[16];
+	int _device;
 };
 
 // ----------------------------------------------------------------------------
 // ConfigurationState
 // ----------------------------------------------------------------------------
 
-struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<ConfigurationState> {
-	ConfigurationState(std::shared_ptr<DeviceState> device);
+struct ConfigurationState : ConfigurationData {
+	explicit ConfigurationState(std::shared_ptr<Controller> controller,
+			int device, int configuration);
 
 	async::result<Interface> useInterface(int number, int alternative) override;
 
-//private:
-	std::shared_ptr<DeviceState> _device;
+private:
+	std::shared_ptr<Controller> _controller;
+	int _device;
+	int _configuration;
 };
 
 // ----------------------------------------------------------------------------
@@ -207,12 +234,15 @@ struct ConfigurationState : ConfigurationData, std::enable_shared_from_this<Conf
 // ----------------------------------------------------------------------------
 
 struct InterfaceState : InterfaceData {
-	InterfaceState(std::shared_ptr<ConfigurationState> config);
+	explicit InterfaceState(std::shared_ptr<Controller> controller,
+			int device, int configuration);
 
 	async::result<Endpoint> getEndpoint(PipeType type, int number) override;
 
-//private:
-	std::shared_ptr<ConfigurationState> _config;
+private:
+	std::shared_ptr<Controller> _controller;
+	int _device;
+	int _interface;
 };
 
 // ----------------------------------------------------------------------------
@@ -220,17 +250,17 @@ struct InterfaceState : InterfaceData {
 // ----------------------------------------------------------------------------
 
 struct EndpointState : EndpointData {
-	EndpointState(PipeType type, int number);
+	explicit EndpointState(std::shared_ptr<Controller> controller,
+			int device, PipeType type, int endpoint);
 
 	async::result<void> transfer(ControlTransfer info) override;
 	async::result<void> transfer(InterruptTransfer info) override;
 	async::result<void> transfer(BulkTransfer info) override;
 
-	size_t maxPacketSize;
-	std::unique_ptr<QueueEntity> queue;
-
-	std::shared_ptr<InterfaceState> _interface;
+private:
+	std::shared_ptr<Controller> _controller;
+	int _device;
 	PipeType _type;
-	int _number;
+	int _endpoint;
 };
 
