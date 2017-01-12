@@ -1,4 +1,3 @@
-
 #ifndef LIBARCH_BITS_HPP
 #define LIBARCH_BITS_HPP
 

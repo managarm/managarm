@@ -480,7 +480,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
 	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
 
-	new (&transfers[0]) TransferDescriptor(TransferStatus(true, true, false, false),
+	new (&transfers[0]) TransferDescriptor(td_status::active(true)
+			| td_status::detectShort(true),
 			TransferToken(TransferToken::kPacketSetup, TransferToken::kData0,
 					address, pipe, sizeof(SetupPacket)),
 			TransferBufferPointer::from(setup));
@@ -489,7 +490,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	size_t progress = 0;
 	for(size_t i = 0; i < data_packets; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
-		new (&transfers[i + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+		new (&transfers[i + 1]) TransferDescriptor(td_status::active(true)
+			| td_status::detectShort(true),
 			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
 					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
 					address, pipe, chunk),
@@ -498,7 +500,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		progress += chunk;
 	}
 
-	new (&transfers[data_packets + 1]) TransferDescriptor(TransferStatus(true, true, false, false),
+	new (&transfers[data_packets + 1]) TransferDescriptor(td_status::active(true)
+			| td_status::completionIrq(true),
 			TransferToken(dir == kXferToDevice ? TransferToken::kPacketIn : TransferToken::kPacketOut,
 					TransferToken::kData0, address, pipe, 0),
 			TransferBufferPointer());
@@ -517,7 +520,8 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 	size_t progress = 0;
 	for(size_t i = 0; i < data_packets; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
-		new (&transfers[i]) TransferDescriptor(TransferStatus(true, true, false, false),
+		new (&transfers[i]) TransferDescriptor(td_status::active(true)
+			| td_status::completionIrq(i + 1 == data_packets) | td_status::detectShort(true),
 			TransferToken(dir == kXferToDevice ? TransferToken::kPacketOut : TransferToken::kPacketIn,
 					i % 2 == 0 ? TransferToken::kData0 : TransferToken::kData1,
 					address, pipe, chunk),
@@ -582,7 +586,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	auto active = &entity->transactions.front();
 	while(active->numComplete < active->numTransfers) {
 		auto &transfer = active->transfers[active->numComplete];
-		if(transfer._controlStatus.isActive() || transfer._controlStatus.isAnyError())
+		if((transfer.status.load() & td_status::active)
+				|| (transfer.status.load() & td_status::errorBits))
 			break;
 
 		active->numComplete++;
@@ -602,7 +607,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			auto front = &entity->transactions.front();
 			entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
 		}
-	}else if(active->transfers[active->numComplete]._controlStatus.isAnyError()) {
+	}else if(active->transfers[active->numComplete].status.load() & td_status::errorBits) {
 		printf("Transfer error!\n");
 		_dump(active);
 		

@@ -1,6 +1,25 @@
 
+#include <arch/variable.hpp>
+
 struct TransferDescriptor;
 struct QueueHead;
+
+namespace td_status {
+	static constexpr arch::field<uint32_t, uint16_t> actualLength(0, 11);
+	static constexpr arch::field<uint32_t, uint8_t> errorBits(17, 6);
+	static constexpr arch::field<uint32_t, bool> bitstuffError(17, 1);
+	static constexpr arch::field<uint32_t, bool> timeoutError(18, 1);
+	static constexpr arch::field<uint32_t, bool> nakError(19, 1);
+	static constexpr arch::field<uint32_t, bool> babbleError(20, 1);
+	static constexpr arch::field<uint32_t, bool> bufferError(21, 1);
+	static constexpr arch::field<uint32_t, bool> stalled(22, 1);
+	static constexpr arch::field<uint32_t, bool> active(23, 1);
+	static constexpr arch::field<uint32_t, bool> completionIrq(24, 1);
+	static constexpr arch::field<uint32_t, bool> isochronous(25, 1);
+	static constexpr arch::field<uint32_t, bool> lowSpeed(26, 1);
+	static constexpr arch::field<uint32_t, uint8_t> numRetries(27, 2);
+	static constexpr arch::field<uint32_t, bool> detectShort(28, 1);
+}
 
 struct Pointer {
 	static Pointer from(TransferDescriptor *item);
@@ -22,54 +41,6 @@ struct Pointer {
 	bool isQueue() { return _bits & (1 << QhSelectBit);	}
 	bool isTerminate() { return _bits & (1 << TerminateBit); }
 	uint32_t actualPointer() { return _bits & PointerMask; }
-
-	uint32_t _bits;
-};
-
-struct TransferStatus {
-	enum {
-		kActiveBit = 23,
-		kStalledBit = 22,
-		kDataBufferErrorBit = 21,
-		kBabbleDetectedBit = 20,
-		kNakReceivedBit = 19,
-		kTimeOutErrorBit = 18,
-		kBitstuffErrorBit = 17
-	};
-
-	static constexpr uint32_t ActLenBits = 0;
-	static constexpr uint32_t StatusBits = 16;
-	static constexpr uint32_t InterruptOnCompleteBits = 24;
-	static constexpr uint32_t IsochronSelectBits = 25;
-	static constexpr uint32_t LowSpeedBits = 26;
-	static constexpr uint32_t NumErrorsBits = 27;
-	static constexpr uint32_t ShortPacketDetectBits = 29;
-
-	TransferStatus(bool active, bool ioc, bool isochron, bool spd)
-	: _bits((uint32_t(active) << kActiveBit) 
-			| (uint32_t(ioc) << InterruptOnCompleteBits) 
-			| (uint32_t(isochron) << IsochronSelectBits) 
-			| (uint32_t(spd) << ShortPacketDetectBits)) {
-	
-	}
-	
-	bool isActive() { return _bits & (1 << kActiveBit); }
-	bool isStalled() { return _bits & (1 << kStalledBit); }
-	bool isDataBufferError() { return _bits & (1 << kDataBufferErrorBit); }
-	bool isBabbleDetected() { return _bits & (1 << kBabbleDetectedBit); }
-	bool isNakReceived() { return _bits & (1 << kNakReceivedBit); }
-	bool isTimeOutError() { return _bits & (1 << kTimeOutErrorBit); }
-	bool isBitstuffError() { return _bits & (1 << kBitstuffErrorBit); }
-
-	bool isAnyError() { 
-		return isStalled() 
-			|| isDataBufferError()
-			|| isBabbleDetected() 
-			|| isNakReceived() 
-			|| isTimeOutError() 
-			|| isBitstuffError(); 
-	}
-
 
 	uint32_t _bits;
 };
@@ -125,31 +96,32 @@ private:
 	uint32_t _bits;
 };
 
-// UHCI mandates 16 byte alignment. we align at 32 bytes
-// to make sure that the TransferDescriptor does not cross a page boundary.
-struct alignas(32) TransferDescriptor {
+// UHCI specifies TDs to be 32 bytes with the last 16 bytes reserved
+// for the driver. We just use a 16 byte structure.
+struct alignas(16) TransferDescriptor {
 	typedef Pointer LinkPointer;
 
-	TransferDescriptor(TransferStatus control_status,
+	TransferDescriptor(arch::bit_value<uint32_t> status,
 			TransferToken token, TransferBufferPointer buffer_pointer)
-	: _controlStatus(control_status),
-			_token(token), _bufferPointer(buffer_pointer) { }
+	: status{status}, _token(token), _bufferPointer(buffer_pointer) { }
 
 	void dumpStatus() {
-		if(_controlStatus.isActive()) printf(" active");
-		if(_controlStatus.isStalled()) printf(" stalled");
-		if(_controlStatus.isDataBufferError()) printf(" data-buffer-error");
-		if(_controlStatus.isBabbleDetected()) printf(" babble-detected");
-		if(_controlStatus.isNakReceived()) printf(" nak");
-		if(_controlStatus.isTimeOutError()) printf(" time-out");
-		if(_controlStatus.isBitstuffError()) printf(" bitstuff-error");
+		if(status.load() & td_status::active) printf(" active");
+		if(status.load() & td_status::stalled) printf(" stalled");
+		if(status.load() & td_status::bitstuffError) printf(" bitstuff-error");
+		if(status.load() & td_status::timeoutError) printf(" time-out");
+		if(status.load() & td_status::nakError) printf(" nak");
+		if(status.load() & td_status::babbleError) printf(" babble-detected");
+		if(status.load() & td_status::bufferError) printf(" data-buffer-error");
 	}
 
 	LinkPointer _linkPointer;
-	TransferStatus _controlStatus;
+	arch::bit_variable<uint32_t> status;
 	TransferToken _token;
 	TransferBufferPointer _bufferPointer;
 };
+
+static_assert(sizeof(TransferDescriptor) == 16, "Bad sizeof(TransferDescriptor)");
 
 struct alignas(16) QueueHead {
 	typedef Pointer LinkPointer;
