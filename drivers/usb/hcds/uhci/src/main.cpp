@@ -247,15 +247,14 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			// reset the port for 50ms.
 			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
 		
-			// TODO: do not busy-wait.
-			uint64_t start;
-			HEL_CHECK(helGetClock(&start));
-			while(true) {
-				uint64_t ticks;
-				HEL_CHECK(helGetClock(&ticks));
-				if(ticks - start >= 50000000)
-					break;
-			}
+			uint64_t tick;
+			HEL_CHECK(helGetClock(&tick));
+
+			helix::AwaitClock await_clock;
+			auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
+					helix::Dispatcher::global());
+			COFIBER_AWAIT submit.async_wait();
+			HEL_CHECK(await_clock.error());
 
 			// enable the port and wait until it is available.
 			frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);

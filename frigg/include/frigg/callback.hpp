@@ -18,7 +18,7 @@ public:
 	static CallbackPtr ptrToMember(T *object) {
 		struct Wrapper {
 			static R invoke(void *object, Args... args) {
-				return (static_cast<T *>(object)->*pointer)(args...);
+				return (static_cast<T *>(object)->*pointer)(move(args)...);
 			}
 		};
 
@@ -29,7 +29,7 @@ public:
 	static CallbackPtr staticPtr(T *object) {
 		struct Wrapper {
 			static R invoke(void *object, Args... args) {
-				return pointer(static_cast<T *>(object), args...);
+				return pointer(static_cast<T *>(object), move(args)...);
 			}
 		};
 
@@ -52,7 +52,7 @@ public:
 	}
 
 	R operator() (Args... args) const {
-		return function(object, args...);
+		return function(object, move(args)...);
 	}
 
 private:

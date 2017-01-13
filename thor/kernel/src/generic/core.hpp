@@ -1,4 +1,6 @@
 
+#include <frigg/callback.hpp>
+
 namespace thor {
 
 int64_t allocAsyncId();
@@ -79,8 +81,8 @@ struct CpuData : public PlatformCpuData {
 };
 
 struct Timer {
-	Timer(uint64_t deadline)
-	: deadline(deadline) { }
+	Timer(uint64_t deadline, frigg::CallbackPtr<void()> callback)
+	: deadline{deadline}, callback{callback} { }
 
 	bool operator< (const Timer &other) {
 		return deadline < other.deadline;
@@ -88,7 +90,7 @@ struct Timer {
 
 	uint64_t deadline;
 
-	KernelWeakPtr<Thread> thread;
+	frigg::CallbackPtr<void()> callback;
 };
 
 struct SubmitInfo {

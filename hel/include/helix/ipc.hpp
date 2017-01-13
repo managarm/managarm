@@ -271,6 +271,17 @@ private:
 	std::list<Item> _items;
 };
 
+struct AwaitClock : Operation {
+	HelError error() {
+		return result()->error;
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
 struct ManageMemory : Operation {
 	HelError error() {
 		return result()->error;
@@ -474,6 +485,13 @@ private:
 // ----------------------------------------------------------------------------
 
 struct Submission : private Context {
+	Submission(AwaitClock *operation,
+			uint64_t counter, Dispatcher &dispatcher)
+	: _result(operation) {
+		HEL_CHECK(helSubmitAwaitClock(counter, dispatcher.acquire().get(),
+				reinterpret_cast<uintptr_t>(context())));
+	}
+
 	Submission(BorrowedDescriptor memory, ManageMemory *operation,
 			Dispatcher &dispatcher)
 	: _result(operation) {
@@ -621,6 +639,11 @@ private:
 	std::array<Operation *, sizeof...(I)> _results;
 	async::promise<void> _pledge;
 };
+
+inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
+		Dispatcher &dispatcher) {
+	return {operation, counter, dispatcher};
+}
 
 inline Submission submitManageMemory(BorrowedDescriptor memory, ManageMemory *operation,
 		Dispatcher &dispatcher) {

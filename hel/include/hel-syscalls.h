@@ -218,6 +218,11 @@ DEFINE_SYSCALL(GetClock, uint64_t *counter)
 	OUT(0, uint64_t, counter)
 END_SYSCALL()
 
+DEFINE_SYSCALL(SubmitAwaitClock, uint64_t counter, struct HelQueue *queue, uintptr_t context)
+	IN(0, counter) IN(1, queue) IN(2, context)
+	DO_SYSCALL(SubmitAwaitClock)
+END_SYSCALL()
+
 
 DEFINE_SYSCALL(CreateStream, HelHandle *lane1, HelHandle *lane2)
 	DO_SYSCALL(CreateStream)

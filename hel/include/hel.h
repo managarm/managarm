@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 80,
+	kHelNumCalls = 81,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -49,6 +49,7 @@ enum {
 	kHelCallStoreRegisters = 76,
 	kHelCallWriteFsBase = 41,
 	kHelCallGetClock = 42,
+	kHelCallSubmitAwaitClock = 80,
 	
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
@@ -319,6 +320,8 @@ HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image);
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
+HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
+		struct HelQueue *queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,

@@ -113,31 +113,24 @@ uint64_t durationToTicks(uint64_t seconds,
 			+ (nanos * kFemtosPerNano) / hpetFrequency;
 }
 
-void installTimer(Timer &&timer) {
-	if(timerQueue->empty()) {
-		hpetBase.store(timerComparator0, timer.deadline);
-	}
-
+void installTimer(Timer timer) {
+	// TODO: We have to make this irq- and thread-safe.
 	timerQueue->enqueue(frigg::move(timer));
+
+	hpetBase.store(timerComparator0, timerQueue->front().deadline);
+	// TODO: We might have missed the deadline already if it is short enough.
+	// Read the counter here and dequeue all elapsed timers manually.
 }
 
 void timerInterrupt() {
 	auto current = hpetBase.load(mainCounter);
 	while(!timerQueue->empty() && timerQueue->front().deadline < current) {
 		Timer timer = timerQueue->dequeue();
-
-		KernelSharedPtr<Thread> thread = timer.thread.grab();
-		if(thread) {
-			assert(!"Use blockCurrent()/unblockOther() instead");
-/*			ScheduleGuard schedule_guard(scheduleLock.get());
-			enqueueInSchedule(schedule_guard, thread);
-			schedule_guard.unlock();*/
-		}
+		timer.callback();
 	}
 
-	if(!timerQueue->empty()) {
+	if(!timerQueue->empty())
 		hpetBase.store(timerComparator0, timerQueue->front().deadline);
-	}
 }
 
 } // namespace thor

@@ -567,6 +567,10 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helGetClock(&counter);
 		*image.out0() = counter;
 	} break;
+	case kHelCallSubmitAwaitClock: {
+		*image.error() = helSubmitAwaitClock((uint64_t)arg0,
+				(HelQueue *)arg1, (uintptr_t)arg2);
+	} break;
 
 	case kHelCallCreateStream: {
 		HelHandle lane1;
