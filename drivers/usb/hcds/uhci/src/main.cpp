@@ -29,11 +29,8 @@ std::vector<std::shared_ptr<Controller>> globalControllers;
 // Memory management.
 // ----------------------------------------------------------------------------
 
-template<typename T, typename... Args>
-contiguous_ptr<T> make_contiguous(Args &&... args) {
-	// TODO: Delete p on exception.
-	auto p = contiguousAllocator.allocate(sizeof(T));
-	return contiguous_ptr<T>{new (p) QueueHead{std::forward<Args>(args)...}};
+namespace {
+	arch::contiguous_pool schedulePool;
 }
 
 // ----------------------------------------------------------------------------
@@ -280,7 +277,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	// This queue will become the default control pipe of our new device.
-	auto queue = new QueueEntity;
+	auto queue = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 	_linkAsync(queue);
 
 	// Allocate an address for the device.
@@ -401,11 +398,13 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		int pipe = info.endpointNumber.value();
 		if(info.endpointIn.value()) {
 			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].inStates[pipe].queueEntity = new QueueEntity;
+			_activeDevices[address].inStates[pipe].queueEntity
+					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
 		}else{
 			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].outStates[pipe].queueEntity = new QueueEntity;
+			_activeDevices[address].outStates[pipe].queueEntity
+					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
 		}
 	});
@@ -559,10 +558,10 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 
 void Controller::_linkAsync(QueueEntity *entity) {
 	if(_asyncSchedule.empty()) {
-		_asyncQh._linkPointer = QueueHead::LinkPointer::from(entity->head.get());
+		_asyncQh._linkPointer = QueueHead::LinkPointer::from(entity->head.data());
 	}else{
 		_asyncSchedule.back().head->_linkPointer
-				= QueueHead::LinkPointer::from(entity->head.get());
+				= QueueHead::LinkPointer::from(entity->head.data());
 	}
 	_asyncSchedule.push_back(*entity);
 }

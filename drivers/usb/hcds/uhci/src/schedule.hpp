@@ -1,33 +1,12 @@
 
 #include <queue>
+#include <arch/dma_pool.hpp>
 #include <async/doorbell.hpp>
 
 struct DeviceState;
 struct ConfigurationState;
 struct InterfaceState;
 struct EndpointState;
-
-// ----------------------------------------------------------------------------
-// Memory management.
-// ----------------------------------------------------------------------------
-
-template<typename T>
-struct contiguous_delete {
-	void operator() (T *pointer) {
-		contiguousAllocator.free(pointer);
-	}
-};
-
-template<typename T>
-struct contiguous_delete<T[]> {
-	void operator() (T *pointer);
-};
-
-template<typename T>
-using contiguous_ptr = std::unique_ptr<T, contiguous_delete<T>>;
-
-template<typename T, typename... Args>
-contiguous_ptr<T> make_contiguous(Args &&... args);
 
 // ----------------------------------------------------------------
 // Controller.
@@ -82,13 +61,13 @@ private:
 	};
 
 	struct QueueEntity : ScheduleItem {
-		QueueEntity()
-		: head{make_contiguous<QueueHead>()} {
+		QueueEntity(arch::dma_object<QueueHead> the_head)
+		: head{std::move(the_head)} {
 			head->_linkPointer = QueueHead::LinkPointer();
 			head->_elementPointer = QueueHead::ElementPointer();
 		}
 
-		contiguous_ptr<QueueHead> head;
+		arch::dma_object<QueueHead> head;
 		boost::intrusive::list<Transaction> transactions;
 	};
 
