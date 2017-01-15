@@ -1,4 +1,5 @@
 
+#include <frg/pairing_heap.hpp>
 #include <frigg/callback.hpp>
 
 namespace thor {
@@ -91,6 +92,8 @@ struct Timer {
 	uint64_t deadline;
 
 	frigg::CallbackPtr<void()> callback;
+
+	frg::pairing_heap_hook<Timer> hook;
 };
 
 struct SubmitInfo {

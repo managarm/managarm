@@ -1072,36 +1072,38 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t context) {
 	struct Routine {
-		explicit Routine(frigg::SharedPtr<AddressSpace> the_space,
+		explicit Routine(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
 				void *queue, uintptr_t context)
-		: space{frigg::move(the_space)}, queue{queue}, context{context} {
+		: space{frigg::move(the_space)}, queue{queue}, context{context},
+				timer{ticks, CALLBACK_MEMBER(this, &Routine::elapsed)} {
 			handle = space->queueSpace.prepare<frigg::CallbackPtr<void(ForeignSpaceAccessor)>>();
 		}
 
 		void elapsed() {
-			frigg::infoLogger() << "elapsed()" << frigg::endLog;
 			space->queueSpace.submit(frigg::move(handle), space, (uintptr_t)queue,
 					sizeof(HelSimpleResult), context, CALLBACK_MEMBER(this, &Routine::write));
 		}
 
 		void write(ForeignSpaceAccessor accessor) {
-			frigg::infoLogger() << "write()" << frigg::endLog;
 			HelSimpleResult data{translateError(kErrSuccess), 0};
 			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+
+			// TODO: Delete the Routine object.
 		}
 
 		frigg::SharedPtr<AddressSpace> space;
 		void *queue;
 		uintptr_t context;
 		QueueSpace::ElementHandle<frigg::CallbackPtr<void(ForeignSpaceAccessor)>> handle;
+		Timer timer;
 	};
 	
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 
-	auto routine = frigg::construct<Routine>(*kernelAlloc,
-			this_thread->getAddressSpace().toShared(), queue, context);
 	auto ticks = durationToTicks(0, 0, 0, counter);
-	installTimer(Timer{ticks, CALLBACK_MEMBER(routine, &Routine::elapsed)});
+	auto routine = frigg::construct<Routine>(*kernelAlloc, ticks,
+			this_thread->getAddressSpace().toShared(), queue, context);
+	installTimer(&routine->timer);
 
 	return kHelErrNone;
 }

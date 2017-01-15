@@ -28,7 +28,7 @@ $c_CXX = x86_64-managarm-kernel-g++
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include \
-	-I$(TREE_PATH)/libarch/include \
+	-I$(TREE_PATH)/libarch/include -I$(FRIGG)/include \
 	-I$($c_GENDIR) -iquote $($c_SRCDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)

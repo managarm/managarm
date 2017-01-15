@@ -16,7 +16,7 @@ uint64_t durationToTicks(uint64_t seconds, uint64_t millis = 0,
 
 class Timer;
 
-void installTimer(Timer timer);
+void installTimer(Timer *timer);
 
 void timerInterrupt();
 

@@ -1,4 +1,6 @@
 
+#include <frg/intrusive.hpp>
+
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
 #include <arch/mem_space.hpp>
@@ -42,7 +44,22 @@ arch::bit_register<uint8_t> command(67);
 arch::field<uint8_t, int> operatingMode(1, 3);
 arch::field<uint8_t, int> accessMode(4, 2);
 
-typedef frigg::PriorityQueue<Timer, KernelAlloc> TimerQueue;
+struct CompareTimer {
+	bool operator() (const Timer *a, const Timer *b) const {
+		return a->deadline > b->deadline;
+	}
+};
+
+typedef frg::pairing_heap<
+	Timer,
+	frg::locate_member<
+		Timer,
+		frg::pairing_heap_hook<Timer>,
+		&Timer::hook
+	>,
+	CompareTimer
+> TimerQueue;
+
 frigg::LazyInitializer<TimerQueue> timerQueue;
 
 bool haveTimer() {
@@ -85,7 +102,7 @@ void setupHpet(PhysicalAddr address) {
 
 	calibrateApicTimer();
 	
-	timerQueue.initialize(*kernelAlloc);
+	timerQueue.initialize();
 }
 
 void pollSleepNano(uint64_t nanotime) {
@@ -113,24 +130,25 @@ uint64_t durationToTicks(uint64_t seconds,
 			+ (nanos * kFemtosPerNano) / hpetFrequency;
 }
 
-void installTimer(Timer timer) {
+void installTimer(Timer *timer) {
 	// TODO: We have to make this irq- and thread-safe.
-	timerQueue->enqueue(frigg::move(timer));
+	timerQueue->push(timer);
 
-	hpetBase.store(timerComparator0, timerQueue->front().deadline);
+	hpetBase.store(timerComparator0, timerQueue->top()->deadline);
 	// TODO: We might have missed the deadline already if it is short enough.
 	// Read the counter here and dequeue all elapsed timers manually.
 }
 
 void timerInterrupt() {
 	auto current = hpetBase.load(mainCounter);
-	while(!timerQueue->empty() && timerQueue->front().deadline < current) {
-		Timer timer = timerQueue->dequeue();
-		timer.callback();
+	while(!timerQueue->empty() && timerQueue->top()->deadline < current) {
+		auto timer = timerQueue->top();
+		timerQueue->pop();
+		timer->callback();
 	}
 
 	if(!timerQueue->empty())
-		hpetBase.store(timerComparator0, timerQueue->front().deadline);
+		hpetBase.store(timerComparator0, timerQueue->top()->deadline);
 }
 
 } // namespace thor
