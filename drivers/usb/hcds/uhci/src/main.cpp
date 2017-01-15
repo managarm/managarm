@@ -129,8 +129,8 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 // ----------------------------------------------------------------------------
 
 Controller::Controller(uint16_t base, helix::UniqueIrq irq)
-: _base(base), _irq(frigg::move(irq)),
-		_lastFrame(0), _frameCounter(0) {
+: _base(base), _irq(frigg::move(irq)), _lastFrame(0), _frameCounter(0),
+		_periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -154,7 +154,7 @@ void Controller::initialize() {
 	
 	auto list_pointer = (FrameList *)list_mapping;
 	for(int i = 0; i < 1024; i++) {
-		_periodicQh[i]._linkPointer = Pointer::from(&_asyncQh);
+		_periodicQh[i]._linkPointer = Pointer::from(_asyncQh.data());
 		list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
 	}
 
@@ -474,66 +474,60 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		SetupPacket *setup, void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
-	size_t data_packets = (length + max_packet_size - 1) / max_packet_size;
-	size_t desc_size = (data_packets + 2) * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+	size_t num_data = (length + max_packet_size - 1) / max_packet_size;
+	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
-	new (&transfers[0]) TransferDescriptor(td_status::active(true)
-			| td_status::detectShort(true),
-			td_token::pid(Packet::setup) | td_token::address(address) | td_token::pipe(pipe)
-			| td_token::length(sizeof(SetupPacket) - 1),
-			TransferBufferPointer::from(setup));
+	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true));
+	transfers[0].token.store(td_token::pid(Packet::setup) | td_token::address(address)
+			| td_token::pipe(pipe) | td_token::length(sizeof(SetupPacket) - 1));
+	transfers[0]._bufferPointer = TransferBufferPointer::from(setup);
 	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
 
 	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
+	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
 		assert(chunk);
-		new (&transfers[i + 1]) TransferDescriptor(td_status::active(true)
-			| td_status::detectShort(true),
-			td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
-			| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
-			| td_token::length(chunk - 1),
-			TransferBufferPointer::from((char *)buffer + progress));
+		transfers[i + 1].status.store(td_status::active(true) | td_status::detectShort(true));
+		transfers[i + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
+				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
+				| td_token::length(chunk - 1));
+		transfers[i + 1]._bufferPointer = TransferBufferPointer::from((char *)buffer + progress);
 		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
 		progress += chunk;
 	}
 
-	new (&transfers[data_packets + 1]) TransferDescriptor(td_status::active(true)
-			| td_status::completionIrq(true),
-			td_token::pid(dir == kXferToDevice ? Packet::in : Packet::out)
-			| td_token::address(address) | td_token::pipe(pipe)
-			| td_token::length(0x7FF),
-			TransferBufferPointer());
+	transfers[num_data + 1].status.store(td_status::active(true) | td_status::completionIrq(true));
+	transfers[num_data + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::in : Packet::out)
+			| td_token::address(address) | td_token::pipe(pipe) | td_token::length(0x7FF));
 
-	return new Transaction{transfers, data_packets + 2};
+	return new Transaction{std::move(transfers)};
 }
 
 auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
-	size_t data_packets = (length + max_packet_size - 1) / max_packet_size;
-	size_t desc_size = data_packets * sizeof(TransferDescriptor);
-	auto transfers = (TransferDescriptor *)contiguousAllocator.allocate(desc_size);
+	size_t num_data = (length + max_packet_size - 1) / max_packet_size;
+	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
 
 	size_t progress = 0;
-	for(size_t i = 0; i < data_packets; i++) {
+	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(max_packet_size, length - progress);
 		assert(chunk);
-		new (&transfers[i]) TransferDescriptor(td_status::active(true)
-			| td_status::completionIrq(i + 1 == data_packets) | td_status::detectShort(true),
-			td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
-			| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
-			| td_token::length(chunk - 1),
-			TransferBufferPointer::from((char *)buffer + progress));
+		transfers[i].status.store(td_status::active(true)
+				| td_status::completionIrq(i + 1 == num_data)
+				| td_status::detectShort(true));
+		transfers[i].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
+				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
+				| td_token::length(chunk - 1));
+		transfers[i]._bufferPointer = TransferBufferPointer::from((char *)buffer + progress);
 
-		if(i + 1 < data_packets)
+		if(i + 1 < num_data)
 			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
 		progress += chunk;
 	}
 
-	return new Transaction{transfers, data_packets};
+	return new Transaction{std::move(transfers)};
 }
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
@@ -558,7 +552,7 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 
 void Controller::_linkAsync(QueueEntity *entity) {
 	if(_asyncSchedule.empty()) {
-		_asyncQh._linkPointer = QueueHead::LinkPointer::from(entity->head.data());
+		_asyncQh->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
 	}else{
 		_asyncSchedule.back().head->_linkPointer
 				= QueueHead::LinkPointer::from(entity->head.data());
@@ -585,7 +579,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		return;
 
 	auto active = &entity->transactions.front();
-	while(active->numComplete < active->numTransfers) {
+	while(active->numComplete < active->transfers.size()) {
 		auto &transfer = active->transfers[active->numComplete];
 		if((transfer.status.load() & td_status::active)
 				|| (transfer.status.load() & td_status::errorBits))
@@ -594,7 +588,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		active->numComplete++;
 	}
 	
-	if(active->numComplete == active->numTransfers) {
+	if(active->numComplete == active->transfers.size()) {
 		//printf("Transfer complete!\n");
 		active->promise.set_value();
 
@@ -631,7 +625,7 @@ void Controller::_reclaim(ScheduleItem *item) {
 // ----------------------------------------------------------------------------
 
 void Controller::_dump(Transaction *transaction) {
-	for(size_t i = 0; i < transaction->numTransfers; i++) {
+	for(size_t i = 0; i < transaction->transfers.size(); i++) {
 		printf("    TD %lu:", i);
 		transaction->transfers[i].dumpStatus();
 		printf("\n");

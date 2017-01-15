@@ -10,6 +10,8 @@ struct basic_variable {
 	using rep_type = R;
 	using bits_type = B;
 
+	basic_variable() = default;
+
 	explicit constexpr basic_variable(R r)
 	: _embedded{static_cast<B>(r)} { }
 

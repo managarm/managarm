@@ -51,11 +51,10 @@ private:
 	};
 
 	struct Transaction : ScheduleItem {
-		explicit Transaction(TransferDescriptor *transfers, size_t num_transfers)
-		: transfers{transfers}, numTransfers{num_transfers}, numComplete{0} { }
+		explicit Transaction(arch::dma_array<TransferDescriptor> transfers)
+		: transfers{std::move(transfers)}, numComplete{0} { }
 		
-		TransferDescriptor *transfers;
-		size_t numTransfers;
+		arch::dma_array<TransferDescriptor> transfers;
 		size_t numComplete;
 		async::promise<void> promise;
 	};
@@ -134,8 +133,8 @@ private:
 	// being garbage collected.
 	boost::intrusive::list<ScheduleItem> _reclaimQueue;
 
-	QueueHead _periodicQh[1024];
-	QueueHead _asyncQh;
+	arch::dma_array<QueueHead> _periodicQh;
+	arch::dma_object<QueueHead> _asyncQh;
 	
 	// ----------------------------------------------------------------------------
 	// Debugging functions.

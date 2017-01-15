@@ -83,10 +83,6 @@ private:
 struct alignas(16) TransferDescriptor {
 	typedef Pointer LinkPointer;
 
-	TransferDescriptor(arch::bit_value<uint32_t> status,
-			arch::bit_value<uint32_t> token, TransferBufferPointer buffer_pointer)
-	: status{status}, token{token}, _bufferPointer(buffer_pointer) { }
-
 	void dumpStatus() {
 		if(status.load() & td_status::active) printf(" active");
 		if(status.load() & td_status::stalled) printf(" stalled");
