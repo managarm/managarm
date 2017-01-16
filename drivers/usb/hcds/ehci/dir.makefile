@@ -19,9 +19,3 @@ $c_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus_protocol -lusb_protocol \
 $(call make_exec,ehci,main.o)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 
-# compile protobuf files
-gen-$c:
-
-$(call gen_protobuf_cpp,$(TREE_PATH)/protocols/hw,$($c_GENDIR))
-$(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))
-

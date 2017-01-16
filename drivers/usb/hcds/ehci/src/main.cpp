@@ -44,10 +44,10 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			port_space.store(port_regs::sc, portsc::connectChange(true));
 			
 			if(!(port_space.load(port_regs::sc) & portsc::connectStatus))
-				std::runtime_error("EHCI device disconnected");
+				throw std::runtime_error("EHCI device disconnected");
 			
 			if((port_space.load(port_regs::sc) & portsc::lineStatus) == 0x01)
-				std::runtime_error("Device is low-speed");
+				throw std::runtime_error("Device is low-speed");
 
 			port_space.store(port_regs::sc, portsc::portReset(true));	
 			// TODO: do not busy-wait.
@@ -66,7 +66,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			}
 			
 			if(!(port_space.load(port_regs::sc) & portsc::portStatus))
-				std::runtime_error("Device is full-speed");
+				throw std::runtime_error("Device is full-speed");
 
 			std::cout << "High-speed device detected!" << std::endl;
 		}
@@ -97,7 +97,7 @@ void Controller::initialize() {
 }
 
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
 	auto info = COFIBER_AWAIT device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
@@ -114,7 +114,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	globalControllers.push_back(std::move(controller));
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
+COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
@@ -126,7 +126,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
 			std::cout << "ehci: Detected device" << std::endl;
-			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected event type");
 		}
@@ -140,7 +140,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 int main() {
 	printf("Starting EHCI driver\n");
 
-	observeDevices();
+	observeControllers();
 
 	while(true)
 		helix::Dispatcher::global().dispatch();
