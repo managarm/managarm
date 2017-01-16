@@ -58,11 +58,12 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 	size_t length = 52;
 
 	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
-	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
-	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
-	get_descriptor->wValue = (kDescriptorReport << 8) | index;
-	get_descriptor->wIndex = 0;
-	get_descriptor->wLength = length;
+	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_descriptor->request = request_type::getDescriptor;
+	get_descriptor->value = (descriptor_type::report << 8) | index;
+	get_descriptor->index = 0;
+	get_descriptor->length = length;
 
 	arch::dma_buffer buffer{device.bufferPool(), length};
 	COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
@@ -199,14 +200,14 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		printf("type: %i\n", type);
-		if(type == kDescriptorConfig) {
+		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 			
 			auto desc = (ConfigDescriptor *)p;
 			printf("Config Descriptor: \n");
 			printf("    value: %i\n", desc->configValue);
-		}else if(type == kDescriptorInterface) {
+		}else if(type == descriptor_type::interface) {
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
 			
@@ -215,18 +216,18 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 			printf("    class: %i\n", desc->interfaceClass);
 			printf("    sub class: %i\n", desc->interfaceSubClass);
 			printf("    protocoll: %i\n", desc->interfaceProtocoll);
-		}else if(type == kDescriptorHid) {
+		}else if(type == descriptor_type::hid) {
 			auto desc = (HidDescriptor *)p;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 			
 			assert(info.interfaceNumber);
 			
 			for(size_t i = 0; i < desc->numDescriptors; i++) {
-				assert(desc->entries[i].descriptorType == kDescriptorReport);
+				assert(desc->entries[i].descriptorType == descriptor_type::report);
 				assert(!report_desc_index);
 				report_desc_index = 0;
 			}
-		}else if(type == kDescriptorEndpoint) {
+		}else if(type == descriptor_type::endpoint) {
 			assert(!in_endp_number);
 			in_endp_number = info.endpointNumber.value();
 		}else{

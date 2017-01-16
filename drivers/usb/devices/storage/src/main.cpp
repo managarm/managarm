@@ -27,14 +27,14 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
 	std::experimental::optional<int> out_endp_number;
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type == kDescriptorConfig) {
+		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 			
 			auto desc = (ConfigDescriptor *)p;
 			printf("Config Descriptor: \n");
 			printf("    value: %i\n", desc->configValue);
-		}else if(type == kDescriptorInterface) {
+		}else if(type == descriptor_type::interface) {
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
 			
@@ -46,7 +46,7 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
 			
 			assert(desc->interfaceClass == 0x08);
 			assert(desc->interfaceProtocoll == 0x50);
-		}else if(type == kDescriptorEndpoint) {
+		}else if(type == descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
 				in_endp_number = info.endpointNumber.value();
 			}else if(!info.endpointIn.value()) {

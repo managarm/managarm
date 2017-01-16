@@ -5,69 +5,69 @@
 #include <experimental/optional>
 #include <assert.h>
 
-enum DataDirection {
-	kDirToDevice = 0,
-	kDirToHost = 1
-};
+namespace setup_type {
+	enum : uint8_t {
+		// The first 5 bits specify the target of the request.
+		targetMask = 0x1F,
+		targetDevice = 0x00,
+		targetInterface = 0x01,
+		targetEndpoint = 0x02,
+		targetOther = 0x03,
 
-enum ControlRecipient {
-	kDestDevice = 0,
-	kDestInterface = 1,
-	kDestEndpoint = 2,
-	kDestOther = 3
-};
+		// The next 2 bits determine the document that specifies the request.
+		specificationMask = 0x60,
+		byStandard = 0x00,
+		byClass = 0x20,
+		byVendor = 0x40,
 
-enum ControlType {
-	kStandard = 0,
-	kClass = 1,
-	kVendor = 2,
-	kReserved = 3
-};
-
-enum DescriptorType {
-	kDescriptorDevice = 0x01,
-	kDescriptorConfig = 0x02,
-	kDescriptorString = 0x03,
-	kDescriptorInterface = 0x04,
-	kDescriptorEndpoint = 0x05,
-	kDescriptorHid = 0x21,
-	kDescriptorReport = 0x22
-};
+		// The last bit specifies the transfer direction.
+		directionMask = 0x80,
+		toDevice = 0x00,
+		toHost = 0x80
+	};
+}
 
 // Alignment makes sure that a packet doesnt cross a page boundary
 struct alignas(8) SetupPacket {
-	enum Request {
-		kGetStatus = 0x00,
-		kClearFeature = 0x01,
-		kGetReport = 0x01,
-		kSetFeature = 0x03,
-		kSetAddress = 0x05,
-		kGetDescriptor = 0x06,
-		kSetDescriptor = 0x07,
-		kGetConfig = 0x08,
-		kSetConfig = 0x09
-	};
-
-	static constexpr uint8_t RecipientBits = 0;
-	static constexpr uint8_t TypeBits = 5;
-	static constexpr uint8_t DirectionBit = 7;
-
 	SetupPacket() = default;
 
-	SetupPacket(DataDirection data_direction, ControlRecipient recipient, ControlType type,
-			uint8_t breq, uint16_t wval, uint16_t wid, uint16_t wlen)
-	: bmRequestType((uint8_t(recipient) << RecipientBits)
-				| (uint8_t(type) << TypeBits)
-				| (uint8_t(data_direction) << DirectionBit)),
-		bRequest(breq), wValue(wval), wIndex(wid), wLength(wlen) { }
-
-	uint8_t bmRequestType;
-	uint8_t bRequest;
-	uint16_t wValue;
-	uint16_t wIndex;
-	uint16_t wLength;
+	uint8_t type;
+	uint8_t request;
+	uint16_t value;
+	uint16_t index;
+	uint16_t length;
 };
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
+
+namespace request_type {
+	enum : uint8_t {
+		getStatus = 0x00,
+		clearFeature = 0x01,
+		setFeature = 0x03,
+		setAddress = 0x05,
+		getDescriptor = 0x06,
+		setDescriptor = 0x07,
+		getConfig = 0x08,
+		setConfig = 0x09,
+		
+		// TODO: Move non-standard features to some other location.
+		getReport = 0x01
+	};
+}
+
+namespace descriptor_type {
+	enum : uint16_t {
+		device = 0x01,
+		configuration = 0x02,
+		string = 0x03,
+		interface = 0x04,
+		endpoint = 0x05,
+
+		// TODO: Put non-standard descriptors somewhere else.
+		hid = 0x21,
+		report = 0x22
+	};
+}
 
 struct DescriptorBase {
 	uint8_t length;
@@ -133,7 +133,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		auto base = (DescriptorBase *)p;
 		p += base->length;
 		
-		if(base->descriptorType == kDescriptorConfig) {
+		if(base->descriptorType == descriptor_type::configuration) {
 			auto desc = (ConfigDescriptor *)base;
 			assert(desc->length == sizeof(ConfigDescriptor));
 
@@ -142,7 +142,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceAlternative = std::experimental::nullopt;
 			info.endpointNumber = std::experimental::nullopt;
 			info.endpointIn = std::experimental::nullopt;
-		}else if(base->descriptorType == kDescriptorInterface) {
+		}else if(base->descriptorType == descriptor_type::interface) {
 			auto desc = (InterfaceDescriptor *)base;
 			assert(desc->length == sizeof(InterfaceDescriptor));
 
@@ -150,7 +150,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceAlternative = desc->alternateSetting;
 			info.endpointNumber = std::experimental::nullopt;
 			info.endpointIn = std::experimental::nullopt;
-		}else if(base->descriptorType == kDescriptorEndpoint) {
+		}else if(base->descriptorType == descriptor_type::endpoint) {
 			auto desc = (EndpointDescriptor *)base;
 			assert(desc->length == sizeof(EndpointDescriptor));
 		

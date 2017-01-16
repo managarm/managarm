@@ -294,22 +294,24 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	_addressStack.pop();
 
 	arch::dma_object<SetupPacket> set_address{&schedulePool};
-	set_address->bmRequestType = (kDirToDevice << 7) | (kStandard << 4) | kDestDevice;
-	set_address->bRequest = SetupPacket::kSetAddress;
-	set_address->wValue = address;
-	set_address->wIndex = 0;
-	set_address->wLength = 0;
+	set_address->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toDevice;
+	set_address->request = request_type::setAddress;
+	set_address->value = address;
+	set_address->index = 0;
+	set_address->length = 0;
 
 	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
 			set_address, arch::dma_buffer_view{}}, queue, 8);
 
 	// Enquire the maximum packet size of the default control pipe.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
-	get_header->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
-	get_header->bRequest = SetupPacket::kGetDescriptor;
-	get_header->wValue = kDescriptorDevice << 8;
-	get_header->wIndex = 0;
-	get_header->wLength = 8;
+	get_header->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_header->request = request_type::getDescriptor;
+	get_header->value = descriptor_type::device << 8;
+	get_header->index = 0;
+	get_header->length = 8;
 
 	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
 	COFIBER_AWAIT _directTransfer(address, 0, ControlTransfer{kXferToHost,
@@ -320,11 +322,12 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 
 	// Read the rest of the device descriptor.
 	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
-	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
-	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
-	get_descriptor->wValue = kDescriptorDevice << 8;
-	get_descriptor->wIndex = 0;
-	get_descriptor->wLength = sizeof(DeviceDescriptor);
+	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_descriptor->request = request_type::getDescriptor;
+	get_descriptor->value = descriptor_type::device << 8;
+	get_descriptor->index = 0;
+	get_descriptor->length = sizeof(DeviceDescriptor);
 
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
 			get_descriptor, descriptor.view_buffer()});
@@ -383,11 +386,12 @@ COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(
 		([=] {
 	// Read the descriptor header that contains the hierachy size.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
-	get_header->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
-	get_header->bRequest = SetupPacket::kGetDescriptor;
-	get_header->wValue = kDescriptorConfig << 8;
-	get_header->wIndex = 0;
-	get_header->wLength = sizeof(ConfigDescriptor);
+	get_header->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_header->request = request_type::getDescriptor;
+	get_header->value = descriptor_type::configuration << 8;
+	get_header->index = 0;
+	get_header->length = sizeof(ConfigDescriptor);
 
 	arch::dma_object<ConfigDescriptor> header{&schedulePool};
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
@@ -396,11 +400,12 @@ COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(
 
 	// Read the whole descriptor hierachy.
 	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
-	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
-	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
-	get_descriptor->wValue = kDescriptorConfig << 8;
-	get_descriptor->wIndex = 0;
-	get_descriptor->wLength = header->totalLength;
+	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_descriptor->request = request_type::getDescriptor;
+	get_descriptor->value = descriptor_type::configuration << 8;
+	get_descriptor->index = 0;
+	get_descriptor->length = header->totalLength;
 
 	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
@@ -414,11 +419,12 @@ COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(
 COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
 		int configuration), ([=] {
 	arch::dma_object<SetupPacket> set_config{&schedulePool};
-	set_config->bmRequestType = (kDirToDevice << 7) | (kStandard << 4) | kDestDevice;
-	set_config->bRequest = SetupPacket::kSetConfig;
-	set_config->wValue = configuration;
-	set_config->wIndex = 0;
-	set_config->wLength = 0;
+	set_config->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toDevice;
+	set_config->request = request_type::setConfig;
+	set_config->value = configuration;
+	set_config->index = 0;
+	set_config->length = 0;
 
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
 			set_config, arch::dma_buffer_view{}});
@@ -432,7 +438,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
-		if(type != kDescriptorEndpoint)
+		if(type != descriptor_type::endpoint)
 			return;
 		auto desc = (EndpointDescriptor *)p;
 
