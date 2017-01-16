@@ -21,6 +21,9 @@ struct DeviceState : DeviceData {
 	DeviceState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
+	arch::dma_pool *setupPool() override;
+	arch::dma_pool *bufferPool() override;
+
 	async::result<std::string> configurationDescriptor() override;
 	async::result<Configuration> useConfiguration(int number) override;
 	async::result<void> transfer(ControlTransfer info) override;
@@ -61,6 +64,14 @@ struct EndpointState : EndpointData {
 private:
 	helix::UniqueLane _lane;
 };
+
+arch::dma_pool *DeviceState::setupPool() {
+	return nullptr;
+}
+
+arch::dma_pool *DeviceState::bufferPool() {
+	return nullptr;
+}
 
 COFIBER_ROUTINE(async::result<std::string>, DeviceState::configurationDescriptor(),
 		([=] {
@@ -129,6 +140,8 @@ COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info)
 	if(info.flags == kXferToDevice) {
 		throw std::runtime_error("xfer to device not implemented");
 	}else{
+		throw std::runtime_error("xfer to host not implemented");
+/*
 		assert(info.flags == kXferToHost);
 	
 		helix::Offer offer;
@@ -161,6 +174,7 @@ COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info)
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
 		COFIBER_RETURN();
+*/
 	}
 }))
 
@@ -247,14 +261,14 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer i
 
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST);
-		req.set_length(info.length);
+		req.set_length(info.buffer.size());
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&recv_data, info.buffer, info.length));
+				helix::action(&recv_data, info.buffer.data(), info.buffer.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -280,13 +294,13 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE);
-		req.set_length(info.length);
+		req.set_length(info.buffer.size());
 		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, info.buffer, info.length, kHelItemChain),
+				helix::action(&send_data, info.buffer.data(), info.buffer.size(), kHelItemChain),
 				helix::action(&recv_resp));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
@@ -308,14 +322,14 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST);
-		req.set_length(info.length);
+		req.set_length(info.buffer.size());
 		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&recv_data, info.buffer, info.length));
+				helix::action(&recv_data, info.buffer.data(), info.buffer.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());

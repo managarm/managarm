@@ -20,15 +20,22 @@ struct dma_pool {
 // ----------------------------------------------------------------------------
 
 struct dma_buffer_view {
+	dma_buffer_view()
+	: _pool{nullptr}, _data{nullptr}, _size{0} { }
+
 	explicit dma_buffer_view(dma_pool *pool, void *data, size_t size)
 	: _pool{pool}, _data{data}, _size{size} { }
 
-	size_t size() {
+	size_t size() const {
 		return _size;
 	}
 
-	void *data() {
+	void *data() const {
 		return _data;
+	}
+
+	dma_buffer_view subview(size_t offset, size_t chunk) {
+		return dma_buffer_view{_pool, (char *)_data + offset, chunk};
 	}
 
 private:
@@ -39,18 +46,21 @@ private:
 
 template<typename T>
 struct dma_object_view {
+	dma_object_view()
+	: _pool{nullptr}, _data{nullptr} { }
+
 	explicit dma_object_view(dma_pool *pool, T *data)
 	: _pool{pool}, _data{data} { }
 
-	T *data() {
+	T *data() const {
 		return _data;
 	}
 
-	T &operator* () {
+	T &operator* () const {
 		return *_data;
 	}
 
-	T *operator-> () {
+	T *operator-> () const {
 		return _data;
 	}
 
@@ -61,18 +71,21 @@ private:
 
 template<typename T>
 struct dma_array_view {
+	dma_array_view()
+	: _pool{nullptr}, _data{nullptr}, _size{0} { }
+
 	explicit dma_array_view(dma_pool *pool, T *data, size_t size)
 	: _pool{pool}, _data{data}, _size{size} { }
 
-	size_t size() {
+	size_t size() const {
 		return _size;
 	}
 
-	T *data() {
+	T *data() const {
 		return _data;
 	}
 
-	T &operator[] (size_t n) {
+	T &operator[] (size_t n) const {
 		return _data[n];
 	}
 
@@ -134,6 +147,10 @@ struct dma_buffer {
 
 	void *data() {
 		return _data;
+	}
+
+	dma_buffer_view subview(size_t offset, size_t chunk) {
+		return dma_buffer_view{_pool, (char *)_data + offset, chunk};
 	}
 
 private:
@@ -202,6 +219,10 @@ struct dma_object {
 		return _data;
 	}
 
+	dma_buffer_view view_buffer() {
+		return dma_buffer_view{_pool, _data, sizeof(T)};
+	}
+
 private:
 	dma_pool *_pool;
 	T *_data;
@@ -251,6 +272,10 @@ struct dma_small_object {
 
 	T *operator-> () {
 		return _data;
+	}
+
+	dma_buffer_view view_buffer() {
+		return dma_buffer_view{_pool, _data, sizeof(T)};
 	}
 
 private:

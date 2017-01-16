@@ -86,16 +86,20 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
 			cbw.cmdLength = sizeof(scsi::Read6);
 			memcpy(cbw.cmdData, &read, sizeof(scsi::Read6));
 
-			COFIBER_AWAIT endp_out.transfer(BulkTransfer(XferFlags::kXferToDevice, &cbw,
-					sizeof(CommandBlockWrapper)));
+			// TODO: Respect USB device DMA requirements.
 
-			COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost,
-					req->buffer, req->numSectors * 512));
+			COFIBER_AWAIT endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
+					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
+
+			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
+					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}});
 
 			CommandStatusWrapper csw;
-			COFIBER_AWAIT endp_in.transfer(BulkTransfer(XferFlags::kXferToHost,
-					&csw, sizeof(CommandStatusWrapper)));
+			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
+					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
 			assert(csw.signature == Signatures::kSignCsw);
+
+			// TODO: Verify remaining CSW parameters.
 
 			req->promise.set_value();
 			_queue.pop_front();

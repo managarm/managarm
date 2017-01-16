@@ -30,9 +30,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
-			auto data = malloc(req.length());
-			COFIBER_AWAIT endpoint.transfer(InterruptTransfer(XferFlags::kXferToHost, 
-					data, req.length()));
+			// FIXME: Fill in the correct DMA pool.
+			arch::dma_buffer buffer{nullptr, req.length()};
+			COFIBER_AWAIT endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost, buffer});
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -40,21 +40,22 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data, req.length()));
+					helix::action(&send_data, buffer.data(), buffer.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE) {
-			helix::RecvInline recv_buffer;
+			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
 		
+			// FIXME: Fill in the correct DMA pool.
+			arch::dma_buffer buffer{nullptr, req.length()};
 			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&recv_buffer));
+					helix::action(&recv_buffer, buffer.data(), buffer.size()));
 			COFIBER_AWAIT payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 		
-			COFIBER_AWAIT endpoint.transfer(BulkTransfer(XferFlags::kXferToDevice,
-					recv_buffer.data(), recv_buffer.length()));	
+			COFIBER_AWAIT endpoint.transfer(BulkTransfer{XferFlags::kXferToDevice, buffer});	
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -68,9 +69,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
-			auto data = malloc(req.length());
-			COFIBER_AWAIT endpoint.transfer(BulkTransfer(XferFlags::kXferToHost, 
-					data, req.length()));
+			// FIXME: Fill in the correct DMA pool.
+			arch::dma_buffer buffer{nullptr, req.length()};
+			COFIBER_AWAIT endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost, 
+					buffer});
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -78,7 +80,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data, req.length()));
+					helix::action(&send_data, buffer.data(), buffer.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -243,6 +245,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 
+			assert(!"Fix control transfers");
+/*
 			auto data = malloc(req.length());
 			COFIBER_AWAIT device.transfer(ControlTransfer(XferFlags::kXferToHost,
 					static_cast<ControlRecipient>(req.recipient()), 
@@ -259,6 +263,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
+*/
 		}else if(req.req_type() == managarm::usb::CntReqType::USE_CONFIGURATION) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;

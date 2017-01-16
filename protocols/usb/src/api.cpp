@@ -8,6 +8,14 @@
 Device::Device(std::shared_ptr<DeviceData> state)
 : _state(std::move(state)) { }
 
+arch::dma_pool *Device::setupPool() const {
+	return _state->setupPool();
+}
+
+arch::dma_pool *Device::bufferPool() const {
+	return _state->bufferPool();
+}
+
 async::result<std::string> Device::configurationDescriptor() const {
 	return _state->configurationDescriptor();
 }

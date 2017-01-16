@@ -59,6 +59,14 @@ Pointer Pointer::from(QueueHead *item) {
 DeviceState::DeviceState(std::shared_ptr<Controller> controller, int device)
 : _controller{std::move(controller)}, _device(device) { }
 
+arch::dma_pool *DeviceState::setupPool() {
+	return &schedulePool;
+}
+
+arch::dma_pool *DeviceState::bufferPool() {
+	return &schedulePool;
+}
+
 async::result<std::string> DeviceState::configurationDescriptor() {
 	return _controller->configurationDescriptor(_device);
 }
@@ -285,23 +293,41 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	auto address = _addressStack.front();
 	_addressStack.pop();
 
+	arch::dma_object<SetupPacket> set_address{&schedulePool};
+	set_address->bmRequestType = (kDirToDevice << 7) | (kStandard << 4) | kDestDevice;
+	set_address->bRequest = SetupPacket::kSetAddress;
+	set_address->wValue = address;
+	set_address->wIndex = 0;
+	set_address->wLength = 0;
+
 	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetAddress,
-			static_cast<uint16_t>(address), 0, nullptr, 0}, queue, 8);
+			set_address, arch::dma_buffer_view{}}, queue, 8);
 
 	// Enquire the maximum packet size of the default control pipe.
-	auto descriptor = (DeviceDescriptor *)contiguousAllocator.allocate(sizeof(DeviceDescriptor));
+	arch::dma_object<SetupPacket> get_header{&schedulePool};
+	get_header->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
+	get_header->bRequest = SetupPacket::kGetDescriptor;
+	get_header->wValue = kDescriptorDevice << 8;
+	get_header->wIndex = 0;
+	get_header->wLength = 8;
+
+	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
 	COFIBER_AWAIT _directTransfer(address, 0, ControlTransfer{kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, 8}, queue, 8);
+			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
 
-	// Now the device is set up.
+	// Read the rest of the device descriptor.
+	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
+	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
+	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
+	get_descriptor->wValue = kDescriptorDevice << 8;
+	get_descriptor->wIndex = 0;
+	get_descriptor->wLength = sizeof(DeviceDescriptor);
+
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorDevice << 8, 0,
-			descriptor, sizeof(DeviceDescriptor)});
+			get_descriptor, descriptor.view_buffer()});
 	assert(descriptor->length == sizeof(DeviceDescriptor));
 
 	// TODO: Read configuration descriptor from the device.
@@ -355,30 +381,47 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 
 COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(int address),
 		([=] {
-	auto header = (ConfigDescriptor *)contiguousAllocator.allocate(sizeof(ConfigDescriptor));
+	// Read the descriptor header that contains the hierachy size.
+	arch::dma_object<SetupPacket> get_header{&schedulePool};
+	get_header->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
+	get_header->bRequest = SetupPacket::kGetDescriptor;
+	get_header->wValue = kDescriptorConfig << 8;
+	get_header->wIndex = 0;
+	get_header->wLength = sizeof(ConfigDescriptor);
+
+	arch::dma_object<ConfigDescriptor> header{&schedulePool};
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			header, sizeof(ConfigDescriptor)});
+			get_header, header.view_buffer()});
 	assert(header->length == sizeof(ConfigDescriptor));
 
-	//printf("Configuration value: %d\n", config->configValue);
+	// Read the whole descriptor hierachy.
+	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
+	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
+	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
+	get_descriptor->wValue = kDescriptorConfig << 8;
+	get_descriptor->wIndex = 0;
+	get_descriptor->wLength = header->totalLength;
 
-	auto descriptor = (char *)contiguousAllocator.allocate(header->totalLength);
+	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
-			kDestDevice, kStandard, SetupPacket::kGetDescriptor, kDescriptorConfig << 8, 0,
-			descriptor, header->totalLength});
+			get_descriptor, descriptor});
 
-	std::string copy(descriptor, header->totalLength);
-	contiguousAllocator.free(header);
-	contiguousAllocator.free(descriptor);
+	// TODO: This function should return a arch::dma_buffer!
+	std::string copy((char *)descriptor.data(), header->totalLength);
 	COFIBER_RETURN(std::move(copy));
 }))
 
 COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
 		int configuration), ([=] {
+	arch::dma_object<SetupPacket> set_config{&schedulePool};
+	set_config->bmRequestType = (kDirToDevice << 7) | (kStandard << 4) | kDestDevice;
+	set_config->bRequest = SetupPacket::kSetConfig;
+	set_config->wValue = configuration;
+	set_config->wIndex = 0;
+	set_config->wLength = 0;
+
 	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
-			kDestDevice, kStandard, SetupPacket::kSetConfig,
-			static_cast<uint16_t>(configuration), 0, nullptr, 0});
+			set_config, arch::dma_buffer_view{}});
 	
 	COFIBER_RETURN();
 }))
@@ -420,16 +463,8 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto device = &_activeDevices[address];
 	auto endpoint = &device->controlStates[pipe];
 	
-	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
-	// TODO: Pass the setup packet into this function; do not allocate it here.
-	// TODO: Ensure the packet size fits into 16 bits.
-	auto setup = (SetupPacket *)contiguousAllocator.allocate(sizeof(SetupPacket));
-	new (setup) SetupPacket{info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
-			info.recipient, info.type, info.request, info.arg0, info.arg1,
-			static_cast<uint16_t>(info.length)};
-
 	auto transaction = _buildControl(address, pipe, info.flags,
-			setup, info.buffer, info.length, endpoint->maxPacketSize);
+			info.setup, info.buffer,  endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -447,7 +482,7 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, info.length, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -465,33 +500,34 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, info.length, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
 
 auto Controller::_buildControl(int address, int pipe, XferFlags dir,
-		SetupPacket *setup, void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
+		arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
+		size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
-	size_t num_data = (length + max_packet_size - 1) / max_packet_size;
+	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
 	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true));
 	transfers[0].token.store(td_token::pid(Packet::setup) | td_token::address(address)
 			| td_token::pipe(pipe) | td_token::length(sizeof(SetupPacket) - 1));
-	transfers[0]._bufferPointer = TransferBufferPointer::from(setup);
+	transfers[0]._bufferPointer = TransferBufferPointer::from(setup.data());
 	transfers[0]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[1]);
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
-		size_t chunk = std::min(max_packet_size, length - progress);
+		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
 		assert(chunk);
 		transfers[i + 1].status.store(td_status::active(true) | td_status::detectShort(true));
 		transfers[i + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
 				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
 				| td_token::length(chunk - 1));
-		transfers[i + 1]._bufferPointer = TransferBufferPointer::from((char *)buffer + progress);
+		transfers[i + 1]._bufferPointer = TransferBufferPointer::from((char *)buffer.data() + progress);
 		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
 		progress += chunk;
 	}
@@ -504,15 +540,15 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 }
 
 auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-		void *buffer, size_t length, size_t max_packet_size) -> Transaction * {
+		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
-	size_t num_data = (length + max_packet_size - 1) / max_packet_size;
+	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
-		size_t chunk = std::min(max_packet_size, length - progress);
+		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
 		assert(chunk);
 		transfers[i].status.store(td_status::active(true)
 				| td_status::completionIrq(i + 1 == num_data)
@@ -520,7 +556,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		transfers[i].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
 				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
 				| td_token::length(chunk - 1));
-		transfers[i]._bufferPointer = TransferBufferPointer::from((char *)buffer + progress);
+		transfers[i]._bufferPointer = TransferBufferPointer::from((char *)buffer.data() + progress);
 
 		if(i + 1 < num_data)
 			transfers[i]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 1]);
@@ -532,16 +568,8 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
-	assert((info.flags == kXferToDevice) || (info.flags == kXferToHost));
-	// TODO: Pass the setup packet into this function; do not allocate it here.
-	// TODO: Ensure the packet size fits into 16 bits.
-	auto setup = (SetupPacket *)contiguousAllocator.allocate(sizeof(SetupPacket));
-	new (setup) SetupPacket{info.flags == kXferToDevice ? kDirToDevice : kDirToHost,
-			info.recipient, info.type, info.request, info.arg0, info.arg1,
-			static_cast<uint16_t>(info.length)};
-
 	auto transaction = _buildControl(address, pipe, info.flags,
-			setup, info.buffer, info.length, max_packet_size);
+			info.setup, info.buffer, max_packet_size);
 	_linkTransaction(queue, transaction);
 	return transaction->promise.async_get();
 }

@@ -98,9 +98,10 @@ public:
 	// ------------------------------------------------------------------------
 	
 	static Transaction *_buildControl(int address, int pipe, XferFlags dir,
-			SetupPacket *setup, void *buffer, size_t length, size_t max_packet_size);
+			arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
+			size_t max_packet_size);
 	static Transaction *_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-			void *buffer, size_t length, size_t max_packet_size);
+			arch::dma_buffer_view buffer, size_t max_packet_size);
 
 public:
 	async::result<void> transfer(int address, int pipe, ControlTransfer info);
@@ -149,6 +150,9 @@ private:
 
 struct DeviceState : DeviceData {
 	explicit DeviceState(std::shared_ptr<Controller> controller, int device);
+
+	arch::dma_pool *setupPool() override;
+	arch::dma_pool *bufferPool() override;
 
 	async::result<std::string> configurationDescriptor() override;
 	async::result<Configuration> useConfiguration(int number) override;

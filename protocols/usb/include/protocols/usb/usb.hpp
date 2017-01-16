@@ -52,6 +52,8 @@ struct alignas(8) SetupPacket {
 	static constexpr uint8_t TypeBits = 5;
 	static constexpr uint8_t DirectionBit = 7;
 
+	SetupPacket() = default;
+
 	SetupPacket(DataDirection data_direction, ControlRecipient recipient, ControlType type,
 			uint8_t breq, uint16_t wval, uint16_t wid, uint16_t wlen)
 	: bmRequestType((uint8_t(recipient) << RecipientBits)

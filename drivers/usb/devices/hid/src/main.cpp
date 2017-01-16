@@ -52,13 +52,21 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index), [=] () {
+COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index), ([=] {
 	printf("entered parseReportDescriptor\n");
+	// FIXME: Fix this hardcoded length.
 	size_t length = 52;
-	auto buffer = (uint8_t *)contiguousAllocator.allocate(length);
-	COFIBER_AWAIT device.transfer(ControlTransfer(kXferToHost,
-			kDestInterface, kStandard, SetupPacket::kGetDescriptor,
-			(kDescriptorReport << 8) | index, 0, buffer, length));
+
+	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
+	get_descriptor->bmRequestType = (kDirToHost << 7) | (kStandard << 4) | kDestDevice;
+	get_descriptor->bRequest = SetupPacket::kGetDescriptor;
+	get_descriptor->wValue = (kDescriptorReport << 8) | index;
+	get_descriptor->wIndex = 0;
+	get_descriptor->wLength = length;
+
+	arch::dma_buffer buffer{device.bufferPool(), length};
+	COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
+			get_descriptor, buffer});
 
 	int bit_offset = 0;
 
@@ -69,8 +77,8 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 	std::experimental::optional<uint32_t> usage_min;
 	std::experimental::optional<uint32_t> usage_max;
 
-	uint8_t *p = buffer;
-	uint8_t *limit = buffer + length;
+	auto p = reinterpret_cast<uint8_t *>(buffer.data());
+	auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + length;
 	while(p < limit) {
 		uint8_t token = fetch(p, limit);
 		int size = (token & 0x03) == 3 ? 4 : (token & 0x03);
@@ -178,9 +186,9 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 	}
 	
 	COFIBER_RETURN();
-})
+}))
 
-COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
+COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 	printf("entered runHidDevice\n");
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
@@ -234,17 +242,17 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), [=] () {
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	while(true) {
-		auto data = (uint8_t *)contiguousAllocator.allocate(4);
-		COFIBER_AWAIT endp.transfer(InterruptTransfer(XferFlags::kXferToHost, data, 4));
+		arch::dma_buffer report{device.bufferPool(), 4};
+		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
 	
-		auto values = parse(fields, data);
+		auto values = parse(fields, reinterpret_cast<uint8_t *>(report.data()));
 		int counter = 0;
 		for(uint32_t val : values) {
 			printf("value %d: %x\n", counter, val);
 			counter++;
 		}
 	}
-})
+}))
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());

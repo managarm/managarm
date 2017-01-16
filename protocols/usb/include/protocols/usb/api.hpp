@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include <arch/dma_structs.hpp>
 #include <async/result.hpp>
 #include <cofiber.hpp>
 
@@ -15,33 +16,29 @@ enum XferFlags {
 };
 
 struct ControlTransfer {
-	ControlTransfer(XferFlags flags, ControlRecipient recipient, ControlType type, uint8_t request,
-			uint16_t arg0, uint16_t arg1, void *buffer, size_t length);
+	ControlTransfer(XferFlags flags, arch::dma_object_view<SetupPacket> setup,
+			arch::dma_buffer_view buffer)
+	: flags{flags}, setup{setup}, buffer{buffer} { }
 
 	XferFlags flags;
-	ControlRecipient recipient;
-	ControlType type;
-	uint8_t request;
-	uint16_t arg0;
-	uint16_t arg1;
-	void *buffer;
-	size_t length;
+	arch::dma_object_view<SetupPacket> setup;
+	arch::dma_buffer_view buffer;
 };
 
 struct InterruptTransfer {
-	InterruptTransfer(XferFlags flags, void *buffer, size_t length);
+	InterruptTransfer(XferFlags flags, arch::dma_buffer_view buffer)
+	: flags{flags}, buffer{buffer} { }
 
 	XferFlags flags;
-	void *buffer;
-	size_t length;
+	arch::dma_buffer_view buffer;
 };
 
 struct BulkTransfer {
-	BulkTransfer(XferFlags flags, void *buffer, size_t length);
+	BulkTransfer(XferFlags flags, arch::dma_buffer_view buffer)
+	: flags{flags}, buffer{buffer} { }
 
 	XferFlags flags;
-	void *buffer;
-	size_t length;
+	arch::dma_buffer_view buffer;
 };
 
 enum class PipeType {
@@ -110,6 +107,9 @@ private:
 // ----------------------------------------------------------------------------
 
 struct DeviceData {
+	virtual arch::dma_pool *setupPool() = 0;
+	virtual arch::dma_pool *bufferPool() = 0;
+
 	virtual async::result<std::string> configurationDescriptor() = 0;
 	virtual async::result<Configuration> useConfiguration(int number) = 0;
 	virtual async::result<void> transfer(ControlTransfer info) = 0;
@@ -117,6 +117,9 @@ struct DeviceData {
 
 struct Device {
 	Device(std::shared_ptr<DeviceData> state);
+
+	arch::dma_pool *setupPool() const;
+	arch::dma_pool *bufferPool() const;
 
 	async::result<std::string> configurationDescriptor() const;
 	async::result<Configuration> useConfiguration(int number) const;
