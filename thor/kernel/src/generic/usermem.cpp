@@ -3,13 +3,24 @@
 #include "kernel.hpp"
 
 namespace thor {
-	
+
+namespace {
+	frigg::Tuple<uintptr_t, size_t> alignRange(uintptr_t offset, size_t length, size_t align) {
+		auto misalign = offset & (align - 1);
+		return frigg::Tuple<uintptr_t, size_t>{offset - misalign,
+				(misalign + length + (align - 1)) & ~(align - 1)};
+	}
+}
+
 // --------------------------------------------------------
 // Memory
 // --------------------------------------------------------
 
 void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
 		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
+	dest_memory->acquire(dest_offset, length, kGrabFetch | kGrabWrite);
+	src_memory->acquire(src_offset, length, kGrabFetch | kGrabRead);
+
 	size_t progress = 0;
 	while(progress < length) {
 		auto dest_misalign = (dest_offset + progress) % kPageSize;
@@ -17,10 +28,8 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
 				kPageSize - src_misalign), length - progress);
 		
-		PhysicalAddr dest_page = dest_memory->grabPage(kGrabFetch | kGrabWrite,
-				dest_offset + progress - dest_misalign);
-		PhysicalAddr src_page = src_memory->grabPage(kGrabFetch | kGrabRead,
-				src_offset + progress - dest_misalign);
+		PhysicalAddr dest_page = dest_memory->resolve(dest_offset + progress - dest_misalign);
+		PhysicalAddr src_page = src_memory->resolve(src_offset + progress - dest_misalign);
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
 		
@@ -31,6 +40,9 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 		
 		progress += chunk;
 	}
+
+	dest_memory->release(dest_offset, length);
+	src_memory->release(src_offset, length);
 }
 
 size_t Memory::getLength() {
@@ -100,12 +112,13 @@ void Memory::completeLoad(size_t offset, size_t length) {
 }
 
 void Memory::load(size_t offset, void *buffer, size_t length) {
-	size_t progress = 0;
+	acquire(offset, length, kGrabFetch | kGrabRead);
 
+	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabRead, offset - misalign);
+		PhysicalAddr page = resolve(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -115,7 +128,7 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 
 	while(length - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabRead, offset + progress);
+		PhysicalAddr page = resolve(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
@@ -125,21 +138,24 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 
 	if(length - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabRead, offset + progress);
+		PhysicalAddr page = resolve(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
 		memcpy((uint8_t *)buffer + progress, accessor.get(), length - progress);
 	}
+
+	release(offset, length);
 }
 
 void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
-	size_t progress = 0;
+	acquire(offset, length, kGrabFetch | kGrabWrite);
 
+	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabWrite, offset - misalign);
+		PhysicalAddr page = resolve(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -149,7 +165,7 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 
 	while(length - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabWrite, offset + progress);
+		PhysicalAddr page = resolve(offset + progress);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -159,12 +175,14 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 
 	if(length - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = grabPage(kGrabFetch | kGrabWrite, offset + progress);
+		PhysicalAddr page = resolve(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
 		memcpy(accessor.get(), (uint8_t *)buffer + progress, length - progress);
 	}
+
+	release(offset, length);
 }
 
 // --------------------------------------------------------
@@ -179,6 +197,24 @@ HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length)
 
 HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
+}
+
+void HardwareMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+	// Hardware memory is always available.
+	(void)offset;
+	(void)length;
+	(void)intent;
+}
+
+void HardwareMemory::release(uintptr_t offset, size_t length) {
+	// Hardware memory is always available.
+	(void)offset;
+	(void)length;
+}
+
+PhysicalAddr HardwareMemory::resolve(uintptr_t offset) {
+	assert(offset % kPageSize == 0);
+	return _base + offset;
 }
 
 size_t HardwareMemory::getLength() {
@@ -212,6 +248,40 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1))
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
 	}
+}
+
+void AllocatedMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+	// TODO: Mark the pages as locked.
+	// TODO: We only have to do this for kGrabFetch.
+	auto range = alignRange(offset, length, _chunkSize);
+	for(uintptr_t progress = 0; progress < range.get<1>(); progress += _chunkSize) {
+		size_t index = (range.get<0>() + progress) / _chunkSize;
+		assert(index < _physicalChunks.size());
+		if(_physicalChunks[index] != PhysicalAddr(-1))
+			continue;
+
+		auto physical = physicalAllocator->allocate(_chunkSize);
+		assert(physical != PhysicalAddr(-1));
+		assert(!(physical % _chunkAlign));
+
+		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
+			PageAccessor accessor{generalWindow, physical + pg_progress};
+			memset(accessor.get(), 0, kPageSize);
+		}
+		_physicalChunks[index] = physical;
+	}
+}
+
+void AllocatedMemory::release(uintptr_t offset, size_t length) {
+	// TODO: Mark the pages as unlocked.
+}
+
+PhysicalAddr AllocatedMemory::resolve(uintptr_t offset) {
+	assert(offset % kPageSize == 0);
+	size_t index = offset / _chunkSize;
+	assert(index < _physicalChunks.size());
+	assert(_physicalChunks[index] != PhysicalAddr(-1));
+	return _physicalChunks[index];
 }
 
 size_t AllocatedMemory::getLength() {
@@ -301,6 +371,18 @@ bool ManagedSpace::isComplete(frigg::UnsafePtr<InitiateBase> initiate) {
 // BackingMemory
 // --------------------------------------------------------
 
+void BackingMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+	assert(!"Implement this");
+}
+
+void BackingMemory::release(uintptr_t offset, size_t length) {
+	assert(!"Implement this");
+}
+
+PhysicalAddr BackingMemory::resolve(uintptr_t offset) {
+	assert(!"Implement this");
+}
+
 size_t BackingMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
@@ -361,6 +443,18 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 // --------------------------------------------------------
 // FrontalMemory
 // --------------------------------------------------------
+
+void FrontalMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+	assert(!"Implement this");
+}
+
+void FrontalMemory::release(uintptr_t offset, size_t length) {
+	assert(!"Implement this");
+}
+
+PhysicalAddr FrontalMemory::resolve(uintptr_t offset) {
+	assert(!"Implement this");
+}
 
 size_t FrontalMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;

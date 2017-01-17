@@ -87,6 +87,10 @@ struct Memory {
 		return _tag;
 	}
 
+	virtual void acquire(uintptr_t offset, size_t length, GrabIntent intent) = 0;
+	virtual void release(uintptr_t offset, size_t length) = 0;
+	virtual PhysicalAddr resolve(uintptr_t offset) = 0;
+
 	size_t getLength();
 
 	PhysicalAddr grabPage(GrabIntent grab_flags, size_t offset);
@@ -110,6 +114,10 @@ struct HardwareMemory : Memory {
 	HardwareMemory(PhysicalAddr base, size_t length);
 	~HardwareMemory();
 
+	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void release(uintptr_t offset, size_t length) override;
+	PhysicalAddr resolve(uintptr_t offset) override;
+
 	size_t getLength();
 
 	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
@@ -127,6 +135,10 @@ struct AllocatedMemory : Memory {
 	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
 			size_t chunk_align = kPageSize);
 	~AllocatedMemory();
+
+	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void release(uintptr_t offset, size_t length) override;
+	PhysicalAddr resolve(uintptr_t offset) override;
 	
 	size_t getLength();
 
@@ -180,6 +192,10 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
+	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void release(uintptr_t offset, size_t length) override;
+	PhysicalAddr resolve(uintptr_t offset) override;
+
 	size_t getLength();
 
 	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
@@ -199,6 +215,10 @@ public:
 
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
+
+	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void release(uintptr_t offset, size_t length) override;
+	PhysicalAddr resolve(uintptr_t offset) override;
 
 	size_t getLength();
 
