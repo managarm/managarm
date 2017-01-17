@@ -84,6 +84,18 @@ public:
 	tree_struct(const tree_struct &other) = delete;
 
 	tree_struct &operator= (const tree_struct &other) = delete;
+	
+	// ------------------------------------------------------------------------
+	// Traversal functions.
+	// ------------------------------------------------------------------------
+
+	T *first() {
+		T *current = get_root();
+		assert(current);
+		while(get_left(current))
+			current = get_left(current);
+		return current;
+	}
 
 	// ------------------------------------------------------------------------
 	// Insertion functions.

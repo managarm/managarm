@@ -519,8 +519,8 @@ bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
 
 Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 		MappingFlags flags)
-: _owner(owner), _address(base_address), _length(length),
-		largestHole(0), _flags(flags) { }
+: _owner{owner}, _address{base_address}, _length{length},
+		_flags{flags}, largestHole{0} { }
 
 // --------------------------------------------------------
 // HoleMapping
@@ -545,6 +545,12 @@ Mapping *HoleMapping::copyMapping(AddressSpace *dest_space) {
 	__builtin_unreachable();
 }
 
+Mapping *HoleMapping::copyOnWrite(AddressSpace *dest_space) {
+	(void)dest_space;
+	assert(!"Cannot copy-on-write a HoleMapping");
+	__builtin_unreachable();
+}
+
 void HoleMapping::install(bool overwrite) {
 	// We do not need to do anything here.
 	// TODO: Ensure that this is never called?
@@ -559,6 +565,13 @@ void HoleMapping::uninstall(bool clear) {
 PhysicalAddr HoleMapping::grabPhysical(VirtualAddr disp) {
 	(void)disp;
 	assert(!"Cannot grab pages of HoleMapping");
+	__builtin_unreachable();
+}
+
+bool HoleMapping::handleFault(VirtualAddr disp, uint32_t flags) {
+	(void)disp;
+	(void)flags;
+	assert(!"HoleMappings should never fault");
 	__builtin_unreachable();
 }
 
@@ -597,9 +610,16 @@ Mapping *NormalMapping::copyMapping(AddressSpace *dest_space) {
 			address(), length(), flags(), frigg::move(dest_memory), _offset);
 }
 
-void NormalMapping::install(bool overwrite) {
-	assert(!overwrite);
+Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
+	auto chain = frigg::makeShared<CowChain>(*kernelAlloc);
+	chain->memory = _memory;
+	chain->offset = _offset;
+	chain->mask.resize(length() >> kPageShift, true);
+	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
+			address(), length(), flags(), frigg::move(chain));
+}
 
+void NormalMapping::install(bool overwrite) {
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
 		page_flags |= PageSpace::kAccessWrite;
@@ -610,21 +630,26 @@ void NormalMapping::install(bool overwrite) {
 	}
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		VirtualAddr vaddr = address() + progress;
-		assert(!owner()->p_pageSpace.isMapped(vaddr));
-
 		GrabIntent grab_flags = kGrabQuery | kGrabWrite;
 		if(flags() & MappingFlags::dontRequireBacking)
 			grab_flags |= kGrabDontRequireBacking;
 
 		PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + progress);
+
+		VirtualAddr vaddr = address() + progress;
+		if(overwrite && owner()->p_pageSpace.isMapped(vaddr)) {
+			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		}else{
+			assert(!owner()->p_pageSpace.isMapped(vaddr));
+		}
 		if(physical != PhysicalAddr(-1))
 			owner()->p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
 	}
 }
 
 void NormalMapping::uninstall(bool clear) {
-	assert(clear);
+	if(!clear)
+		return;
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
@@ -643,6 +668,116 @@ PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
 	PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + disp);
 	assert(physical != PhysicalAddr(-1));
 	return physical;
+}
+
+bool NormalMapping::handleFault(VirtualAddr disp, uint32_t flags) {
+	(void)disp;
+	(void)flags;
+	assert(!"HoleMappings should never fault");
+	__builtin_unreachable();
+}
+
+// --------------------------------------------------------
+// CowMapping
+// --------------------------------------------------------
+
+CowMapping::CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+		MappingFlags flags, frigg::SharedPtr<CowChain> chain)
+: Mapping{owner, address, length, flags}, _mask{*kernelAlloc}, _chain{frigg::move(chain)} {
+	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, length, kPageSize, kPageSize);
+	_mask.resize(length >> kPageShift, false);
+}
+
+Mapping *CowMapping::shareMapping(AddressSpace *dest_space) {
+	(void)dest_space;
+	assert(!"Fix this");
+	__builtin_unreachable();
+}
+
+Mapping *CowMapping::copyMapping(AddressSpace *dest_space) {
+	(void)dest_space;
+	assert(!"Fix this");
+	__builtin_unreachable();
+}
+
+Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
+	auto sub_chain = frigg::makeShared<CowChain>(*kernelAlloc);
+	sub_chain->memory = _copy;
+	sub_chain->offset = 0;
+	sub_chain->super = _chain;
+	sub_chain->mask.resize(length() >> kPageShift, false);
+	for(size_t i = 0; i < (length() >> kPageShift); ++i)
+		sub_chain->mask[i] = _mask[i]; // TODO: Use a copy constructor.
+	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
+			address(), length(), flags(), frigg::move(sub_chain));
+}
+
+void CowMapping::install(bool overwrite) {
+	assert((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite);
+	
+	// For now we just unmap everything. TODO: Map available pages.
+	for(size_t progress = 0; progress < length(); progress += kPageSize) {
+		VirtualAddr vaddr = address() + progress;
+		if(overwrite && owner()->p_pageSpace.isMapped(vaddr)) {
+			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		}else{
+			assert(!owner()->p_pageSpace.isMapped(vaddr));
+		}
+	}
+}
+
+void CowMapping::uninstall(bool clear) {
+	if(!clear)
+		return;
+
+	for(size_t progress = 0; progress < length(); progress += kPageSize) {
+		VirtualAddr vaddr = address() + progress;
+		if(owner()->p_pageSpace.isMapped(vaddr))
+			owner()->p_pageSpace.unmapSingle4k(vaddr);
+	}
+}
+
+PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
+	return _retrievePage(disp);
+}
+
+bool CowMapping::handleFault(VirtualAddr disp, uint32_t flags) {
+	(void)flags; // TODO: Assert that it is a write-fault.
+	auto page = disp & ~(kPageSize - 1);
+	// TODO: This may actually happen if there are multiple threads
+	// racing for the page.
+	assert(!_mask[page >> kPageShift]);
+	_retrievePage(disp);
+	return true;
+}
+
+PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
+	auto page = disp & ~(kPageSize - 1);
+	if(_mask[page >> kPageShift]) {
+		auto physical = _copy->grabPage(kGrabQuery, page);
+		assert(physical != PhysicalAddr(-1));
+		return physical;
+	}
+
+	for(frigg::UnsafePtr<CowChain> ch = _chain; ch; ch = ch->super) {
+		if(!ch->mask[page >> kPageShift])
+			continue;
+
+		Memory::transfer(_copy, page, ch->memory, ch->offset + page, kPageSize);
+		_mask[page >> kPageShift] = true;
+
+		auto physical = _copy->grabPage(kGrabQuery, page);
+		assert(physical != PhysicalAddr(-1));
+
+		// We have to map there page immediately after copying it.
+		// This ensures that no racing threads still see the original page.
+		owner()->p_pageSpace.mapSingle4k(address() + page, physical,
+				true, PageSpace::kAccessWrite);
+		return physical;
+	}
+
+	assert(!"Fix this");
+	__builtin_unreachable();
 }
 
 // --------------------------------------------------------
@@ -778,45 +913,15 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 }
 
 bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags) {
-	(void)flags;
 	assert(guard.protects(&lock));
 
 	// TODO: It seems that this is not invoked for on-demand allocation
 	// of AllocatedMemory objects!
 
-	assert(!"Put this into a method of Mapping");
-	/*
 	Mapping *mapping = getMapping(address);
 	if(!mapping)
 		return false;
-	if(mapping->type != Mapping::kTypeMemory)
-		return false;
-	
-	VirtualAddr page_vaddr = address - (address % kPageSize);
-	VirtualAddr page_offset = page_vaddr - mapping->address();
-
-	uint32_t page_flags = 0;
-	if(mapping->writePermission)
-		page_flags |= PageSpace::kAccessWrite;
-	if(mapping->executePermission)
-		page_flags |= PageSpace::kAccessExecute;
-	
-	KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-
-	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
-	if(mapping->flags & Mapping::dontRequireBacking)
-		grab_flags |= kGrabDontRequireBacking;
-
-	PhysicalAddr physical = memory->grabPage(grab_flags,
-			mapping->memoryOffset + page_offset);
-	assert(physical != PhysicalAddr(-1));
-
-	if(p_pageSpace.isMapped(page_vaddr))
-		p_pageSpace.unmapSingle4k(page_vaddr);
-	p_pageSpace.mapSingle4k(page_vaddr, physical, true, page_flags);
-	*/
-
-	return true;
+	return mapping->handleFault(address - mapping->address(), flags);
 }
 
 KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
@@ -825,7 +930,7 @@ KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc,
 			kernelSpace->cloneFromKernelSpace());
 
-	cloneRecursive(spaceTree.get_root(), forked.get());
+	cloneRecursive(spaceTree.first(), forked.get());
 
 	return frigg::move(forked);
 }
@@ -919,6 +1024,8 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 }
 
 void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
+	auto successor = SpaceTree::successor(mapping);
+
 	if(mapping->type() == MappingType::hole) {
 		auto dest_mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
 				mapping->address(), mapping->length(), MappingFlags::null);
@@ -934,92 +1041,29 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		dest_space->spaceTree.insert(dest_mapping);
 		dest_mapping->install(false);
 	}else if(mapping->flags() & MappingFlags::copyOnWriteAtFork) {
-		auto dest_mapping = mapping->copyMapping(dest_space);
+		// TODO: Copy-on-write if possible and plain copy otherwise.
+		// TODO: Decide if we want a copy-on-write or a real copy of the mapping.
+		// * Pinned mappings prevent CoW.
+		//     This is necessary because CoW may change mapped pages
+		//     in the original space.
+		// * Futexes attached to the memory object prevent CoW.
+		//     This ensures that processes do not miss wake ups in the original space.
+		auto new_mapping = mapping->copyOnWrite(this);
+		auto dest_mapping = mapping->copyOnWrite(dest_space);
 
+		spaceTree.remove(mapping);
+		spaceTree.insert(new_mapping);
 		dest_space->spaceTree.insert(dest_mapping);
+		mapping->uninstall(false);
+		new_mapping->install(true);
 		dest_mapping->install(false);
-
-		// TODO: Repair the copy-on-write code!
-/*
-		KernelUnsafePtr<Memory> memory = mapping->memoryRegion;
-
-		// don't set the write flag here to enable copy-on-write.
-		uint32_t page_flags = 0;
-		if(mapping->executePermission)
-			page_flags |= PageSpace::kAccessExecute;
-
-		// Decide if we want a copy-on-write or a real copy of the mapping.
-		// * Futexes attached to the memory object prevent copy-on-write.
-		//     This ensures that processes do not miss wake ups that would otherwise
-		//     hit the copy-on-write memory object.
-		KernelSharedPtr<Memory> dest_memory;
-		if(memory->futex.empty()) {
-			// Create a copy-on-write object for the original space.
-			auto src_memory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
-					memory.toShared());
-			{
-				for(size_t page = 0; page < mapping->length; page += kPageSize) {
-					PhysicalAddr physical = src_memory->grabPage(kGrabQuery | kGrabRead,
-							mapping->memoryOffset + page);
-					assert(physical != PhysicalAddr(-1));
-					VirtualAddr vaddr = mapping->address() + page;
-					p_pageSpace.unmapSingle4k(vaddr);
-					p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
-				}
-			}
-			mapping->memoryRegion = frigg::move(src_memory);
-			
-			// Create a copy-on-write region for the forked space
-			dest_memory = frigg::makeShared<CopyOnWriteMemory>(*kernelAlloc,
-					memory.toShared());
-		}else{
-			// We perform an actual copy so we can grant write permission.
-			if(mapping->writePermission)
-				page_flags |= PageSpace::kAccessWrite;
-			
-			// Perform a real copy operation here.
-			auto dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
-					memory->getLength(), kPageSize, kPageSize);
-			for(size_t page = 0; page < memory->getLength(); page += kPageSize) {
-				PhysicalAddr src_physical = memory->grabPage(kGrabQuery | kGrabRead, page);
-				PhysicalAddr dest_physical = dest_memory->grabPage(kGrabFetch | kGrabWrite, page);
-				assert(src_physical != PhysicalAddr(-1));
-				assert(dest_physical != PhysicalAddr(-1));
-		
-				PageAccessor dest_accessor{generalWindow, dest_physical};
-				PageAccessor src_accessor{generalWindow, src_physical};
-				memcpy(dest_accessor.get(), src_accessor.get(), kPageSize);
-			}
-			
-			auto dest_mapping = frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
-					mapping->address(), mapping->length, frigg::move(memory), order);
-			// ------------------------------------------------------
-		}
-
-		// Finally we map the new memory object to the cloned address space.
-		{
-			for(size_t page = 0; page < mapping->length; page += kPageSize) {
-				PhysicalAddr physical = dest_memory->grabPage(kGrabQuery | kGrabRead,
-						mapping->memoryOffset + page);
-				assert(physical != PhysicalAddr(-1));
-				VirtualAddr vaddr = mapping->address() + page;
-				dest_space->p_pageSpace.mapSingle4k(vaddr, physical,
-						true, page_flags);
-			}
-		}
-		dest_mapping->memoryRegion = frigg::move(dest_memory);
-		dest_mapping->writePermission = mapping->writePermission;
-		dest_mapping->executePermission = mapping->executePermission;
-		dest_mapping->memoryOffset = mapping->memoryOffset;
-*/
+		frigg::destruct(*kernelAlloc, mapping);
 	}else{
 		assert(!"Illegal mapping type");
 	}
 
-	if(SpaceTree::get_left(mapping))
-		cloneRecursive(SpaceTree::get_left(mapping), dest_space);
-	if(SpaceTree::get_right(mapping))
-		cloneRecursive(SpaceTree::get_right(mapping), dest_space);
+	if(successor)
+		cloneRecursive(successor, dest_space);
 }
 
 void AddressSpace::splitHole(Mapping *hole, VirtualAddr offset, size_t length) {

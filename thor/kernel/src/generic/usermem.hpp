@@ -248,6 +248,16 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
+struct CowChain {
+	CowChain()
+	: mask(*kernelAlloc) { }
+
+	frigg::SharedPtr<Memory> memory;
+	VirtualAddr offset;
+	frigg::SharedPtr<CowChain> super;
+	frigg::Vector<bool, KernelAlloc> mask;
+};
+
 struct Mapping {
 	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
@@ -270,13 +280,15 @@ struct Mapping {
 		return _flags;
 	}
 
-	virtual Mapping *shareMapping(AddressSpace *space) = 0;
-	virtual Mapping *copyMapping(AddressSpace *space) = 0;
+	virtual Mapping *shareMapping(AddressSpace *dest_space) = 0;
+	virtual Mapping *copyMapping(AddressSpace *dest_space) = 0;
+	virtual Mapping *copyOnWrite(AddressSpace *dest_space) = 0;
 
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
 	
 	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
+	virtual bool handleFault(VirtualAddr disp, uint32_t flags) = 0;
 
 	frigg::rbtree_hook spaceHook;
 
@@ -299,13 +311,15 @@ struct HoleMapping : Mapping {
 		return MappingType::hole;
 	}
 
-	Mapping *shareMapping(AddressSpace *space) override;
-	Mapping *copyMapping(AddressSpace *space) override;
+	Mapping *shareMapping(AddressSpace *dest_space) override;
+	Mapping *copyMapping(AddressSpace *dest_space) override;
+	Mapping *copyOnWrite(AddressSpace *dest_space) override;
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 	
 	PhysicalAddr grabPhysical(VirtualAddr disp) override;
+	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 };
 
 struct NormalMapping : Mapping {
@@ -317,17 +331,46 @@ struct NormalMapping : Mapping {
 		return MappingType::other;
 	}
 
-	Mapping *shareMapping(AddressSpace *space) override;
-	Mapping *copyMapping(AddressSpace *space) override;
+	Mapping *shareMapping(AddressSpace *dest_space) override;
+	Mapping *copyMapping(AddressSpace *dest_space) override;
+	Mapping *copyOnWrite(AddressSpace *dest_space) override;
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
 	PhysicalAddr grabPhysical(VirtualAddr disp) override;
+	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
 	KernelSharedPtr<Memory> _memory;
 	size_t _offset;
+};
+
+struct CowMapping : Mapping {
+	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
+			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
+	~CowMapping();
+
+	MappingType type() override {
+		return MappingType::other;
+	}
+
+	Mapping *shareMapping(AddressSpace *dest_space) override;
+	Mapping *copyMapping(AddressSpace *dest_space) override;
+	Mapping *copyOnWrite(AddressSpace *dest_space) override;
+
+	void install(bool overwrite) override;
+	void uninstall(bool clear) override;
+
+	PhysicalAddr grabPhysical(VirtualAddr disp) override;
+	bool handleFault(VirtualAddr disp, uint32_t flags) override;
+
+private:
+	PhysicalAddr _retrievePage(VirtualAddr disp);
+
+	frigg::SharedPtr<Memory> _copy;
+	frigg::Vector<bool, KernelAlloc> _mask;
+	frigg::SharedPtr<CowChain> _chain;
 };
 
 struct SpaceLess {
