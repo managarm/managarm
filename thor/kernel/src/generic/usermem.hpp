@@ -210,24 +210,6 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
-struct CopyOnWriteMemory : Memory {
-	static bool classOf(const Memory &memory) {
-		return memory.tag() == MemoryTag::copyOnWrite;
-	}
-
-	CopyOnWriteMemory(frigg::SharedPtr<Memory> origin);
-	~CopyOnWriteMemory();
-
-	size_t getLength();
-
-	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
-
-private:
-	frigg::SharedPtr<Memory> _origin;
-
-	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalPages;
-};
-
 enum class MappingType {
 	null, hole, other
 };

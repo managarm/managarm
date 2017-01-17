@@ -39,7 +39,6 @@ size_t Memory::getLength() {
 	case MemoryTag::allocated: return static_cast<AllocatedMemory *>(this)->getLength();
 	case MemoryTag::backing: return static_cast<BackingMemory *>(this)->getLength();
 	case MemoryTag::frontal: return static_cast<FrontalMemory *>(this)->getLength();
-	case MemoryTag::copyOnWrite: return static_cast<CopyOnWriteMemory *>(this)->getLength();
 	default:
 		frigg::panicLogger() << "Memory::getLength(): Unexpected tag" << frigg::endLog;
 		__builtin_unreachable();
@@ -58,8 +57,6 @@ PhysicalAddr Memory::grabPage(GrabIntent grab_flags, size_t offset) {
 		return static_cast<BackingMemory *>(this)->grabPage(grab_flags, offset);
 	case MemoryTag::frontal:
 		return static_cast<FrontalMemory *>(this)->grabPage(grab_flags, offset);
-	case MemoryTag::copyOnWrite:
-		return static_cast<CopyOnWriteMemory *>(this)->grabPage(grab_flags, offset);
 	default:
 		frigg::panicLogger() << "Memory::grabPage(): Unexpected tag" << frigg::endLog;
 		__builtin_unreachable();
@@ -419,47 +416,6 @@ void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) 
 	
 	_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 	_managed->progressLoads();
-}
-
-// --------------------------------------------------------
-// CopyOnWriteMemory
-// --------------------------------------------------------
-
-CopyOnWriteMemory::CopyOnWriteMemory(frigg::SharedPtr<Memory> origin)
-: Memory(MemoryTag::copyOnWrite), _origin(frigg::move(origin)), _physicalPages(*kernelAlloc) {
-	assert(_origin->getLength() % kPageSize == 0);
-	_physicalPages.resize(_origin->getLength() / kPageSize, PhysicalAddr(-1));
-}
-
-CopyOnWriteMemory::~CopyOnWriteMemory() {
-	assert(!"Implement this");
-}
-
-size_t CopyOnWriteMemory::getLength() {
-	return _physicalPages.size() * kPageSize;
-}
-
-PhysicalAddr CopyOnWriteMemory::grabPage(GrabIntent, size_t offset) {
-	assert(offset % kPageSize == 0);
-	
-	size_t index = offset / kPageSize;
-	assert(index < _physicalPages.size());
-
-	// TODO: only copy on write grabs
-
-	if(_physicalPages[index] == PhysicalAddr(-1)) {
-		PhysicalAddr origin_physical = _origin->grabPage(kGrabFetch | kGrabRead, offset);
-		assert(origin_physical != PhysicalAddr(-1));
-
-		PhysicalAddr own_physical = physicalAllocator->allocate(kPageSize);
-		
-		PageAccessor own_accessor{generalWindow, own_physical};
-		PageAccessor origin_accessor{generalWindow, origin_physical};
-		memcpy(own_accessor.get(), origin_accessor.get(), kPageSize);
-		_physicalPages[index] = own_physical;
-	}
-
-	return _physicalPages[index];
 }
 
 // --------------------------------------------------------
