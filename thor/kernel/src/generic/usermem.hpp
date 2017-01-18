@@ -87,14 +87,15 @@ struct Memory {
 		return _tag;
 	}
 
-	virtual void acquire(uintptr_t offset, size_t length, GrabIntent intent) = 0;
+	virtual void acquire(uintptr_t offset, size_t length) = 0;
 	virtual void release(uintptr_t offset, size_t length) = 0;
-	virtual PhysicalAddr resolve(uintptr_t offset) = 0;
+	
+	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
+	// TODO: This should be asynchronous.
+	virtual PhysicalAddr fetchRange(uintptr_t offset) = 0;
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(GrabIntent grab_flags, size_t offset);
-	
 	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
@@ -114,13 +115,13 @@ struct HardwareMemory : Memory {
 	HardwareMemory(PhysicalAddr base, size_t length);
 	~HardwareMemory();
 
-	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void acquire(uintptr_t offset, size_t length) override;
 	void release(uintptr_t offset, size_t length) override;
-	PhysicalAddr resolve(uintptr_t offset) override;
+
+	PhysicalAddr peekRange(uintptr_t offset) override;
+	PhysicalAddr fetchRange(uintptr_t offset) override;
 
 	size_t getLength();
-
-	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
 
 private:
 	PhysicalAddr _base;
@@ -136,17 +137,19 @@ struct AllocatedMemory : Memory {
 			size_t chunk_align = kPageSize);
 	~AllocatedMemory();
 
-	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void acquire(uintptr_t offset, size_t length) override;
 	void release(uintptr_t offset, size_t length) override;
-	PhysicalAddr resolve(uintptr_t offset) override;
+
+	PhysicalAddr peekRange(uintptr_t offset) override;
+	PhysicalAddr fetchRange(uintptr_t offset) override;
 	
 	size_t getLength();
 
 	// TODO: add a method to populate the memory
 	
-	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
-
 private:
+	void _populateRange(uintptr_t offset, size_t length);
+
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	size_t _chunkSize, _chunkAlign;
 };
@@ -192,14 +195,14 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
-	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void acquire(uintptr_t offset, size_t length) override;
 	void release(uintptr_t offset, size_t length) override;
-	PhysicalAddr resolve(uintptr_t offset) override;
+	
+	PhysicalAddr peekRange(uintptr_t offset) override;
+	PhysicalAddr fetchRange(uintptr_t offset) override;
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
-	
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
 
@@ -216,14 +219,14 @@ public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
-	void acquire(uintptr_t offset, size_t length, GrabIntent intent) override;
+	void acquire(uintptr_t offset, size_t length) override;
 	void release(uintptr_t offset, size_t length) override;
-	PhysicalAddr resolve(uintptr_t offset) override;
+	
+	PhysicalAddr peekRange(uintptr_t offset) override;
+	PhysicalAddr fetchRange(uintptr_t offset) override;
 
 	size_t getLength();
 
-	PhysicalAddr grabPage(GrabIntent grab_intent, size_t offset);
-	
 	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
 
 private:
@@ -290,7 +293,7 @@ struct Mapping {
 	virtual void uninstall(bool clear) = 0;
 	
 	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
-	virtual bool handleFault(VirtualAddr disp, uint32_t flags) = 0;
+	virtual bool handleFault(VirtualAddr disp, uint32_t fault_flags) = 0;
 
 	frigg::rbtree_hook spaceHook;
 
@@ -321,7 +324,7 @@ struct HoleMapping : Mapping {
 	void uninstall(bool clear) override;
 	
 	PhysicalAddr grabPhysical(VirtualAddr disp) override;
-	bool handleFault(VirtualAddr disp, uint32_t flags) override;
+	bool handleFault(VirtualAddr disp, uint32_t fault_flags) override;
 };
 
 struct NormalMapping : Mapping {

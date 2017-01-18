@@ -18,8 +18,8 @@ namespace {
 
 void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
 		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
-	dest_memory->acquire(dest_offset, length, kGrabFetch | kGrabWrite);
-	src_memory->acquire(src_offset, length, kGrabFetch | kGrabRead);
+	dest_memory->acquire(dest_offset, length);
+	src_memory->acquire(src_offset, length);
 
 	size_t progress = 0;
 	while(progress < length) {
@@ -28,8 +28,8 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
 				kPageSize - src_misalign), length - progress);
 		
-		PhysicalAddr dest_page = dest_memory->resolve(dest_offset + progress - dest_misalign);
-		PhysicalAddr src_page = src_memory->resolve(src_offset + progress - dest_misalign);
+		PhysicalAddr dest_page = dest_memory->peekRange(dest_offset + progress - dest_misalign);
+		PhysicalAddr src_page = src_memory->peekRange(src_offset + progress - dest_misalign);
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
 		
@@ -53,24 +53,6 @@ size_t Memory::getLength() {
 	case MemoryTag::frontal: return static_cast<FrontalMemory *>(this)->getLength();
 	default:
 		frigg::panicLogger() << "Memory::getLength(): Unexpected tag" << frigg::endLog;
-		__builtin_unreachable();
-	}
-}
-
-PhysicalAddr Memory::grabPage(GrabIntent grab_flags, size_t offset) {
-	assert((grab_flags & kGrabQuery) || (grab_flags & kGrabFetch));
-	assert(!((grab_flags & kGrabQuery) && (grab_flags & kGrabFetch)));
-	switch(tag()) {
-	case MemoryTag::hardware:
-		return static_cast<HardwareMemory *>(this)->grabPage(grab_flags, offset);
-	case MemoryTag::allocated:
-		return static_cast<AllocatedMemory *>(this)->grabPage(grab_flags, offset);
-	case MemoryTag::backing:
-		return static_cast<BackingMemory *>(this)->grabPage(grab_flags, offset);
-	case MemoryTag::frontal:
-		return static_cast<FrontalMemory *>(this)->grabPage(grab_flags, offset);
-	default:
-		frigg::panicLogger() << "Memory::grabPage(): Unexpected tag" << frigg::endLog;
 		__builtin_unreachable();
 	}
 }
@@ -112,13 +94,13 @@ void Memory::completeLoad(size_t offset, size_t length) {
 }
 
 void Memory::load(size_t offset, void *buffer, size_t length) {
-	acquire(offset, length, kGrabFetch | kGrabRead);
+	acquire(offset, length);
 
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = resolve(offset - misalign);
+		PhysicalAddr page = peekRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -128,7 +110,7 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 
 	while(length - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = resolve(offset + progress);
+		PhysicalAddr page = peekRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
@@ -138,7 +120,7 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 
 	if(length - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = resolve(offset + progress);
+		PhysicalAddr page = peekRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
@@ -149,13 +131,13 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 }
 
 void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
-	acquire(offset, length, kGrabFetch | kGrabWrite);
+	acquire(offset, length);
 
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = resolve(offset - misalign);
+		PhysicalAddr page = peekRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -165,7 +147,7 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 
 	while(length - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = resolve(offset + progress);
+		PhysicalAddr page = peekRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
@@ -175,7 +157,7 @@ void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
 
 	if(length - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = resolve(offset + progress);
+		PhysicalAddr page = peekRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
@@ -199,11 +181,10 @@ HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-void HardwareMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+void HardwareMemory::acquire(uintptr_t offset, size_t length) {
 	// Hardware memory is always available.
 	(void)offset;
 	(void)length;
-	(void)intent;
 }
 
 void HardwareMemory::release(uintptr_t offset, size_t length) {
@@ -212,19 +193,18 @@ void HardwareMemory::release(uintptr_t offset, size_t length) {
 	(void)length;
 }
 
-PhysicalAddr HardwareMemory::resolve(uintptr_t offset) {
+PhysicalAddr HardwareMemory::peekRange(uintptr_t offset) {
+	assert(offset % kPageSize == 0);
+	return _base + offset;
+}
+
+PhysicalAddr HardwareMemory::fetchRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 	return _base + offset;
 }
 
 size_t HardwareMemory::getLength() {
 	return _length;
-}
-
-PhysicalAddr HardwareMemory::grabPage(GrabIntent, size_t offset) {
-	assert(offset % kPageSize == 0);
-	assert(offset + kPageSize <= _length);
-	return _base + offset;
 }
 
 // --------------------------------------------------------
@@ -250,9 +230,39 @@ AllocatedMemory::~AllocatedMemory() {
 	}
 }
 
-void AllocatedMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+void AllocatedMemory::acquire(uintptr_t offset, size_t length) {
 	// TODO: Mark the pages as locked.
-	// TODO: We only have to do this for kGrabFetch.
+	_populateRange(offset, length);
+}
+
+void AllocatedMemory::release(uintptr_t offset, size_t length) {
+	// TODO: Mark the pages as unlocked.
+	(void)offset;
+	(void)length;
+}
+
+PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
+	assert(offset % kPageSize == 0);
+	size_t index = offset / _chunkSize;
+	assert(index < _physicalChunks.size());
+	return _physicalChunks[index];
+}
+
+PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
+	assert(offset % kPageSize == 0);
+	_populateRange(offset, kPageSize);
+
+	size_t index = offset / _chunkSize;
+	assert(index < _physicalChunks.size());
+	assert(_physicalChunks[index] != PhysicalAddr(-1));
+	return _physicalChunks[index];
+}
+
+size_t AllocatedMemory::getLength() {
+	return _physicalChunks.size() * _chunkSize;
+}
+
+void AllocatedMemory::_populateRange(uintptr_t offset, size_t length) {
 	auto range = alignRange(offset, length, _chunkSize);
 	for(uintptr_t progress = 0; progress < range.get<1>(); progress += _chunkSize) {
 		size_t index = (range.get<0>() + progress) / _chunkSize;
@@ -270,43 +280,6 @@ void AllocatedMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent
 		}
 		_physicalChunks[index] = physical;
 	}
-}
-
-void AllocatedMemory::release(uintptr_t offset, size_t length) {
-	// TODO: Mark the pages as unlocked.
-}
-
-PhysicalAddr AllocatedMemory::resolve(uintptr_t offset) {
-	assert(offset % kPageSize == 0);
-	size_t index = offset / _chunkSize;
-	assert(index < _physicalChunks.size());
-	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	return _physicalChunks[index];
-}
-
-size_t AllocatedMemory::getLength() {
-	return _physicalChunks.size() * _chunkSize;
-}
-
-PhysicalAddr AllocatedMemory::grabPage(GrabIntent, size_t offset) {
-	assert(offset % kPageSize == 0);
-	
-	size_t index = offset / _chunkSize;
-	size_t disp = offset % _chunkSize;
-	assert(index < _physicalChunks.size());
-
-	if(_physicalChunks[index] == PhysicalAddr(-1)) {
-		PhysicalAddr physical = physicalAllocator->allocate(_chunkSize);
-		assert(physical % _chunkAlign == 0);
-		
-		for(size_t progress = 0; progress < _chunkSize; progress += kPageSize) {
-			PageAccessor accessor{generalWindow, physical + progress};
-			memset(accessor.get(), 0, kPageSize);
-		}
-		_physicalChunks[index] = physical;
-	}
-
-	return _physicalChunks[index] + disp;
 }
 
 // --------------------------------------------------------
@@ -371,22 +344,36 @@ bool ManagedSpace::isComplete(frigg::UnsafePtr<InitiateBase> initiate) {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+void BackingMemory::acquire(uintptr_t offset, size_t length) {
+	(void)offset;
+	(void)length;
 	assert(!"Implement this");
 }
 
 void BackingMemory::release(uintptr_t offset, size_t length) {
+	(void)offset;
+	(void)length;
 	assert(!"Implement this");
 }
 
-PhysicalAddr BackingMemory::resolve(uintptr_t offset) {
+PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
+	(void)offset;
 	assert(!"Implement this");
+	__builtin_unreachable();
+}
+
+PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
+	(void)offset;
+	assert(!"Implement this");
+	__builtin_unreachable();
 }
 
 size_t BackingMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
+// TODO: This has to be integrated into acquire()/fetchRange().
+/*
 PhysicalAddr BackingMemory::grabPage(GrabIntent, size_t offset) {
 	assert(offset % kPageSize == 0);
 	
@@ -403,6 +390,7 @@ PhysicalAddr BackingMemory::grabPage(GrabIntent, size_t offset) {
 
 	return _managed->physicalPages[index];
 }
+*/
 
 void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
 	_managed->handleLoadQueue.addBack(frigg::move(handle));
@@ -444,22 +432,36 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 // FrontalMemory
 // --------------------------------------------------------
 
-void FrontalMemory::acquire(uintptr_t offset, size_t length, GrabIntent intent) {
+void FrontalMemory::acquire(uintptr_t offset, size_t length) {
+	(void)offset;
+	(void)length;
 	assert(!"Implement this");
 }
 
 void FrontalMemory::release(uintptr_t offset, size_t length) {
+	(void)offset;
+	(void)length;
 	assert(!"Implement this");
 }
 
-PhysicalAddr FrontalMemory::resolve(uintptr_t offset) {
+PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
+	(void)offset;
 	assert(!"Implement this");
+	__builtin_unreachable();
+}
+
+PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
+	(void)offset;
+	assert(!"Implement this");
+	__builtin_unreachable();
 }
 
 size_t FrontalMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
+// TODO: This has to be integrated into acquire()/fetchRange().
+/*
 PhysicalAddr FrontalMemory::grabPage(GrabIntent grab_intent, size_t offset) {
 	assert(offset % kPageSize == 0);
 
@@ -501,6 +503,7 @@ PhysicalAddr FrontalMemory::grabPage(GrabIntent grab_intent, size_t offset) {
 		return physical;
 	}
 }
+*/
 
 void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
 	assert(initiate->offset % kPageSize == 0);
@@ -618,9 +621,9 @@ PhysicalAddr HoleMapping::grabPhysical(VirtualAddr disp) {
 	__builtin_unreachable();
 }
 
-bool HoleMapping::handleFault(VirtualAddr disp, uint32_t flags) {
+bool HoleMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	(void)disp;
-	(void)flags;
+	(void)fault_flags;
 	assert(!"HoleMappings should never fault");
 	__builtin_unreachable();
 }
@@ -645,16 +648,7 @@ Mapping *NormalMapping::copyMapping(AddressSpace *dest_space) {
 	// TODO: Call a copy operation of the corresponding memory object here.
 	auto dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 			_memory->getLength(), kPageSize, kPageSize);
-	for(size_t progress = 0; progress < _memory->getLength(); progress += kPageSize) {
-		PhysicalAddr src_physical = _memory->grabPage(kGrabQuery | kGrabRead, progress);
-		PhysicalAddr dest_physical = dest_memory->grabPage(kGrabFetch | kGrabWrite, progress);
-		assert(src_physical != PhysicalAddr(-1));
-		assert(dest_physical != PhysicalAddr(-1));
-
-		PageAccessor dest_accessor{generalWindow, dest_physical};
-		PageAccessor src_accessor{generalWindow, src_physical};
-		memcpy(dest_accessor.get(), src_accessor.get(), kPageSize);
-	}
+	Memory::transfer(dest_memory, 0, _memory, 0, _memory->getLength());
 	
 	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(dest_memory), _offset);
@@ -680,11 +674,11 @@ void NormalMapping::install(bool overwrite) {
 	}
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		GrabIntent grab_flags = kGrabQuery | kGrabWrite;
-		if(flags() & MappingFlags::dontRequireBacking)
-			grab_flags |= kGrabDontRequireBacking;
+		// TODO: Add a don't-require-backing flag to peekRange.
+		//if(flags() & MappingFlags::dontRequireBacking)
+		//	grab_flags |= kGrabDontRequireBacking;
 
-		PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + progress);
+		PhysicalAddr physical = _memory->peekRange(_offset + progress);
 
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->p_pageSpace.isMapped(vaddr)) {
@@ -711,20 +705,32 @@ void NormalMapping::uninstall(bool clear) {
 PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
 	// TODO: Allocate missing pages for OnDemand or CopyOnWrite pages.
 
-	GrabIntent grab_flags = kGrabFetch | kGrabWrite;
-	if(flags() & MappingFlags::dontRequireBacking)
-		grab_flags |= kGrabDontRequireBacking;
+	// TODO: Add a don't-require-backing flag to peekRange.
+	//if(flags() & MappingFlags::dontRequireBacking)
+	//	grab_flags |= kGrabDontRequireBacking;
 
-	PhysicalAddr physical = _memory->grabPage(grab_flags, _offset + disp);
-	assert(physical != PhysicalAddr(-1));
-	return physical;
+	return _memory->fetchRange(_offset + disp);
 }
 
-bool NormalMapping::handleFault(VirtualAddr disp, uint32_t flags) {
-	(void)disp;
-	(void)flags;
-	assert(!"HoleMappings should never fault");
-	__builtin_unreachable();
+bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
+	(void)fault_flags;
+	
+	uint32_t page_flags = 0;
+	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
+		page_flags |= PageSpace::kAccessWrite;
+	}else if((flags() & MappingFlags::permissionMask) == MappingFlags::readExecute) {
+		page_flags |= PageSpace::kAccessExecute;
+	}else{
+		assert((flags() & MappingFlags::permissionMask) == MappingFlags::readOnly);
+	}
+
+	auto page = disp & ~(kPageSize - 1);
+	auto physical = _memory->fetchRange(page);
+	auto vaddr = address() + page;
+	// TODO: This can actually happen!
+	assert(!owner()->p_pageSpace.isMapped(vaddr));
+	owner()->p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+	return true;
 }
 
 // --------------------------------------------------------
@@ -791,8 +797,8 @@ PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
 	return _retrievePage(disp);
 }
 
-bool CowMapping::handleFault(VirtualAddr disp, uint32_t flags) {
-	(void)flags; // TODO: Assert that it is a write-fault.
+bool CowMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
+	(void)fault_flags; // TODO: Assert that it is a write-fault.
 	auto page = disp & ~(kPageSize - 1);
 	// TODO: This may actually happen if there are multiple threads
 	// racing for the page.
@@ -804,7 +810,7 @@ bool CowMapping::handleFault(VirtualAddr disp, uint32_t flags) {
 PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
 	auto page = disp & ~(kPageSize - 1);
 	if(_mask[page >> kPageShift]) {
-		auto physical = _copy->grabPage(kGrabQuery, page);
+		auto physical = _copy->fetchRange(page);
 		assert(physical != PhysicalAddr(-1));
 		return physical;
 	}
@@ -816,10 +822,9 @@ PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
 		Memory::transfer(_copy, page, ch->memory, ch->offset + page, kPageSize);
 		_mask[page >> kPageShift] = true;
 
-		auto physical = _copy->grabPage(kGrabQuery, page);
-		assert(physical != PhysicalAddr(-1));
+		auto physical = _copy->fetchRange(page);
 
-		// We have to map there page immediately after copying it.
+		// We have to map the page immediately after copying it.
 		// This ensures that no racing threads still see the original page.
 		owner()->p_pageSpace.mapSingle4k(address() + page, physical,
 				true, PageSpace::kAccessWrite);
@@ -962,16 +967,16 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	}
 }
 
-bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t flags) {
+bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t fault_flags) {
 	assert(guard.protects(&lock));
 
 	// TODO: It seems that this is not invoked for on-demand allocation
 	// of AllocatedMemory objects!
 
 	Mapping *mapping = getMapping(address);
-	if(!mapping)
+	if(!mapping || mapping->type() == MappingType::hole)
 		return false;
-	return mapping->handleFault(address - mapping->address(), flags);
+	return mapping->handleFault(address - mapping->address(), fault_flags);
 }
 
 KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
