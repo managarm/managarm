@@ -483,13 +483,6 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	for(uint64_t addr = 0; addr < 0x8000000; addr += 0x1000)
 		mapSingle4kPage(addr, addr, kAccessWrite | kAccessExecute);
 
-	// TODO: move to a global configuration file
-	uint64_t physical_window = 0xFFFF800100000000;
-	
-	// map physical memory into kernel virtual memory
-	for(uint64_t addr = 0; addr < 0x100000000; addr += 0x1000)
-		mapSingle4kPage(physical_window + addr, addr, kAccessWrite);
-	
 	assert((mb_info->flags & kMbInfoModules) != 0);
 	assert(mb_info->numModules >= 2);
 	MbModule *kernel_module = &mb_info->modulesPtr[0];

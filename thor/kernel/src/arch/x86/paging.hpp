@@ -6,20 +6,6 @@ enum {
 	kPageShift = 12
 };
 
-void *physicalToVirtual(PhysicalAddr address);
-
-template<typename T>
-T *accessPhysical(PhysicalAddr address) {
-	return (T *)physicalToVirtual(address);
-}
-
-template<typename T>
-T *accessPhysicalN(PhysicalAddr address, int n) {
-	(void)n;
-
-	return (T *)physicalToVirtual(address);
-}
-
 struct PhysicalWindow {
 	constexpr PhysicalWindow(uint64_t *table, void *content);
 

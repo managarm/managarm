@@ -17,10 +17,6 @@ void invlpg(const void *address) {
 	asm volatile ("invlpg %0" : : "m"(*p));
 }
 
-void *physicalToVirtual(PhysicalAddr address) {
-	return (void *)(0xFFFF800100000000 + address);
-}
-
 constexpr PhysicalWindow::PhysicalWindow(uint64_t *table, void *content)
 : _table{table}, _content{content}, _locked{} { }
 

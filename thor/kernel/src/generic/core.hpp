@@ -22,6 +22,23 @@ extern BochsSink infoSink;
 // Memory management
 // --------------------------------------------------------
 
+struct KernelVirtualMemory {
+public:
+	static KernelVirtualMemory &global();
+
+	// TODO: make this private
+	KernelVirtualMemory();
+
+	KernelVirtualMemory(const KernelVirtualMemory &other) = delete;
+	
+	KernelVirtualMemory &operator= (const KernelVirtualMemory &other) = delete;
+
+	void *allocate(size_t length);
+
+private:
+	frigg::BuddyAllocator _buddy;
+};
+
 class KernelVirtualAlloc {
 public:
 	KernelVirtualAlloc();

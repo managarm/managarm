@@ -69,7 +69,11 @@ bool haveTimer() {
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
 	
-	hpetBase = arch::mem_space(accessPhysical<uint64_t>(address));
+	// TODO: We really only need a single page.
+	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
+	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), address,
+			false, PageSpace::kAccessWrite);
+	hpetBase = arch::mem_space(register_ptr);
 
 	auto caps = hpetBase.load(genCapsAndId);
 	if(!(caps & countSizeCap))

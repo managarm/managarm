@@ -377,10 +377,10 @@ int main() {
 			std::cout << "    Local APIC id: "
 					<< (int)entry->localApicId << std::endl;
 
-//	TODO: APs disabled for now
-//			if(seen_bsp)
-//				helControlKernel(kThorSubArch, kThorIfBootSecondary,
-//						&entry->localApicId, nullptr);
+			uint32_t id = entry->localApicId;
+			if(seen_bsp)
+				helControlKernel(kThorSubArch, kThorIfBootSecondary,
+						&id, nullptr);
 			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;

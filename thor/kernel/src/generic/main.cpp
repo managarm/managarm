@@ -237,6 +237,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
 
+	frigg::infoLogger() << "thor: Basic memory management is ready" << frigg::endLog;
+
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 

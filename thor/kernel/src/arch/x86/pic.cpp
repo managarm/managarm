@@ -36,7 +36,7 @@ arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 1);
 arch::field<uint32_t, uint8_t> apicIcrLowDestShortHand(18, 2);
 
 // lApicIcrHigh registers
-arch::field<uint32_t, uint8_t> apicIcrHighDestField(23, 8);
+arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
 
 // lApicLvtTimer registers
 arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
@@ -54,14 +54,20 @@ static int picModel = kModelLegacy;
 // Local PIC management
 // --------------------------------------------------------
 
-uint32_t *localApicRegs;
 uint32_t apicTicksPerMilli;
 
 void initLocalApicOnTheSystem() {
-	uint64_t apic_info = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
-	assert((apic_info & (1 << 11)) != 0); // local APIC is enabled
-	localApicRegs = accessPhysical<uint32_t>(apic_info & 0xFFFFF000);
-	picBase = arch::mem_space(localApicRegs);
+	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
+	assert(msr & (1 << 11)); // local APIC is enabled
+
+	// TODO: We really only need a single page.
+	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
+	// TODO: Intel SDM specifies that we should mask out all
+	// bits > the physical address limit of the msr.
+	// For now we just assume that they are zero.
+	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
+			false, PageSpace::kAccessWrite);
+	picBase = arch::mem_space(register_ptr);
 
 	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
 }
@@ -138,6 +144,7 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 // --------------------------------------------------------
 
 uint32_t *ioApicRegs;
+arch::mem_space ioApicBase;
 
 arch::scalar_register<uint32_t> apicIndex(0x00);
 arch::scalar_register<uint32_t> apicData(0x10);
@@ -149,18 +156,20 @@ enum {
 };
 
 uint32_t readIoApic(uint32_t index) {
-	auto picIoBase = arch::mem_space(ioApicRegs);	
-	picIoBase.store(apicIndex, index);
-	return picIoBase.load(apicData);
+	ioApicBase.store(apicIndex, index);
+	return ioApicBase.load(apicData);
 }
 void writeIoApic(uint32_t index, uint32_t value) {
-	auto picIoBase = arch::mem_space(ioApicRegs);	
-	picIoBase.store(apicIndex, index);
-	picIoBase.store(apicData, value);
+	ioApicBase.store(apicIndex, index);
+	ioApicBase.store(apicData, value);
 }
 
 void setupIoApic(PhysicalAddr address) {
-	ioApicRegs = accessPhysical<uint32_t>(address);
+	// TODO: We really only need a single page.
+	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
+	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), address,
+			false, PageSpace::kAccessWrite);
+	ioApicBase = arch::mem_space(register_ptr);
 	
 	picModel = kModelApic;
 	maskLegacyPic();

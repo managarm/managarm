@@ -427,17 +427,18 @@ extern "C" void thorRtSecondaryEntry() {
 	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
 	initializeThisProcessor();
 
-	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(frigg::move(schedule_guard));
+	while(true) { }
+//	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
+//	ScheduleGuard schedule_guard(scheduleLock.get());
+//	doSchedule(frigg::move(schedule_guard));
 }
 
 void bootSecondary(uint32_t secondary_apic_id) {
 	// copy the trampoline code into low physical memory
 	uintptr_t trampoline_addr = (uintptr_t)trampoline;
 	size_t trampoline_size = (uintptr_t)_trampoline_endLma - (uintptr_t)_trampoline_startLma;
-	assert((trampoline_addr % 0x1000) == 0);
-	assert((trampoline_size % 0x1000) == 0);
+	assert(!(trampoline_addr % 0x1000));
+	assert(trampoline_size == 0x1000);
 	for(size_t progress = 0; progress < trampoline_size; progress += kPageSize) {
 		PageAccessor accessor{generalWindow, trampoline_addr + progress};
 		memcpy(accessor.get(), _trampoline_startLma + progress, kPageSize);
@@ -447,12 +448,21 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	void *trampoline_stack_base = kernelAlloc->allocate(trampoline_stack_size);
 
 	// setup the trampoline data area
-	auto status_ptr = accessPhysical<uint32_t>((PhysicalAddr)&trampolineStatus);
-	auto pml4_ptr = accessPhysical<uint32_t>((PhysicalAddr)&trampolinePml4);
-	auto stack_ptr = accessPhysical<uint64_t>((PhysicalAddr)&trampolineStack);
+	PageAccessor accessor{generalWindow, trampoline_addr};
+	auto base = (char *)accessor.get();
+
+	auto status_ptr = reinterpret_cast<uint32_t *>(base
+			+ ((PhysicalAddr)&trampolineStatus - trampoline_addr));
+	auto pml4_ptr = reinterpret_cast<uint32_t *>(base
+			+ ((PhysicalAddr)&trampolinePml4 - trampoline_addr));
+	auto stack_ptr = reinterpret_cast<uint64_t *>(base
+			+ ((PhysicalAddr)&trampolineStack - trampoline_addr));
 	secondaryBootComplete = false;
 	*pml4_ptr = kernelSpace->getPml4();
 	*stack_ptr = ((uintptr_t)trampoline_stack_base + trampoline_stack_size);
+	
+
+	frigg::infoLogger() << "thor: Booting AP " << secondary_apic_id << frigg::endLog;
 
 	raiseInitAssertIpi(secondary_apic_id);
 	raiseInitDeassertIpi(secondary_apic_id);
