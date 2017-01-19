@@ -220,7 +220,13 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	initializeProcessorEarly();
 	
-	auto info = accessPhysical<EirInfo>(info_paddr);
+	auto info = reinterpret_cast<EirInfo *>(0x40000000);
+	if(info->signature == eirSignatureValue) {
+		frigg::infoLogger() << "thor: Signature matches" << frigg::endLog;
+	}else{
+		frigg::panicLogger() << "thor: Signature mismatch!" << frigg::endLog;
+	}
+
 	physicalAllocator.initialize();
 	physicalAllocator->bootstrap(info->address, info->order, info->numRoots);
 
@@ -241,8 +247,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeThisProcessor();
 	
 	// create a directory and load the memory regions of all modules into it
-	auto modules = accessPhysicalN<EirModule>(info->moduleInfo,
-			info->numModules);
+	auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
 	
 	allModules.initialize(*kernelAlloc);
 	for(size_t i = 0; i < info->numModules; i++) {
@@ -253,12 +258,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 				modules[i].physicalBase, virt_length);
 		
-		auto name_ptr = accessPhysicalN<char>(modules[i].namePtr,
-				modules[i].nameLength);
+		auto name_ptr = reinterpret_cast<char *>(modules[i].namePtr);
 		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
 				<< ", length: " << modules[i].length << frigg::endLog;
 
-		Module module(frigg::StringView(name_ptr, modules[i].nameLength),
+		Module module(frigg::String<KernelAlloc>(*kernelAlloc, name_ptr, modules[i].nameLength),
 				frigg::move(memory));
 		allModules->push(module);
 	}

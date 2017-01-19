@@ -80,9 +80,6 @@ eirRtEnterKernel:
 	mov 16(%esp), %ebx
 	mov 20(%esp), %ecx
 	
-	# edi <- eir information struct pointer
-	mov 24(%esp), %edi
-	
 	# enable paging + WP bit
 	# note: we cannot access the stack after this jump
 	mov %cr0, %esi

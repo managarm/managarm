@@ -4,10 +4,10 @@
 namespace thor {
 
 struct Module {
-	Module(frigg::StringView filename, frigg::SharedPtr<Memory> memory)
+	Module(frigg::String<KernelAlloc> filename, frigg::SharedPtr<Memory> memory)
 	: filename(filename), memory(frigg::move(memory)) { }
 
-	frigg::StringView filename;
+	frigg::String<KernelAlloc> filename;
 	frigg::SharedPtr<Memory> memory;
 };
 

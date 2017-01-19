@@ -261,7 +261,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	
 	// find the pdpt entry; create pdpt if necessary
 	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
-	if((pml4_entry & kPagePresent) == 0) {
+	if(!(pml4_entry & kPagePresent)) {
 		pdpt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pdpt)[i] = 0;
@@ -271,7 +271,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	
 	// find the pd entry; create pd if necessary
 	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
-	if((pdpt_entry & kPagePresent) == 0) {
+	if(!(pdpt_entry & kPagePresent)) {
 		pd = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pd)[i] = 0;
@@ -281,7 +281,7 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	
 	// find the pt entry; create pt if necessary
 	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
-	if((pd_entry & kPagePresent) == 0) {
+	if(!(pd_entry & kPagePresent)) {
 		pt = allocPage();
 		for(int i = 0; i < 512; i++)
 			((uint64_t*)pt)[i] = 0;
@@ -290,19 +290,34 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
 	
 	// setup the new pt entry
-	assert((pt_entry & kPagePresent) == 0);
+	assert(!(pt_entry & kPagePresent));
 	uint64_t new_entry = physical | kPagePresent;
-	if((flags & kAccessWrite) != 0)
+	if(flags & kAccessWrite)
 		new_entry |= kPageWrite;
-	if((flags & kAccessExecute) == 0)
+	if(!(flags & kAccessExecute))
 		new_entry |= kPageXd;
 	((uint64_t*)pt)[pt_index] = new_entry;
 }
 
+// ----------------------------------------------------------------------------
+// Bootstrap information handling.
+// ----------------------------------------------------------------------------
+
+uint64_t bootstrapDataPointer = 0x40000000;
+
+uint64_t mapBootstrapData(void *p) {
+	auto pointer = bootstrapDataPointer;
+	bootstrapDataPointer += kPageSize;
+	mapSingle4kPage(pointer, (uint64_t)p, 0);
+	return pointer;
+}
+
+// ----------------------------------------------------------------------------
+
 extern char eirRtImageCeiling;
 extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
-		uint64_t stack_ptr, EirInfo *info);
+		uint64_t stack_ptr);
 
 void intializeGdt() {
 	uintptr_t gdt_page = allocPage();
@@ -504,11 +519,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	mapPt(0xFFFF'FF80'0040'0000, physical2);
 	
 	// Setup the eir interface struct.
-	auto info = bootAlloc<EirInfo>();
-	info->address = regions[0].address;
-	info->length = regions[0].size;
-	info->order = regions[1].order;
-	info->numRoots = regions[1].numRoots;
+	auto info_ptr = bootAlloc<EirInfo>();
+	auto info_vaddr = mapBootstrapData(info_ptr);
+	assert(info_vaddr == 0x40000000);
+	info_ptr->signature = eirSignatureValue;
+	info_ptr->address = regions[0].address;
+	info_ptr->length = regions[0].size;
+	info_ptr->order = regions[1].order;
+	info_ptr->numRoots = regions[1].numRoots;
 
 	// Setup the module information.
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
@@ -521,14 +539,14 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		size_t name_length = strlen(image_module.string);
 		char *name_ptr = bootAllocN<char>(name_length);
 		memcpy(name_ptr, image_module.string, name_length);
-		modules[i].namePtr = (EirPtr)name_ptr;
+		modules[i].namePtr = mapBootstrapData(name_ptr);
 		modules[i].nameLength = name_length;
 	}
-	info->numModules = mb_info->numModules - 1;
-	info->moduleInfo = (EirPtr)modules;
+	info_ptr->numModules = mb_info->numModules - 1;
+	info_ptr->moduleInfo = mapBootstrapData(modules);
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,
-			0xFFFF'FE80'0001'0000, info);
+			0xFFFF'FE80'0001'0000);
 }
 
