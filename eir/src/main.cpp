@@ -26,8 +26,7 @@ uint64_t bootMemoryLimit;
 enum class RegionType {
 	null,
 	reserved,
-	allocatable,
-	buddy
+	allocatable
 };
 
 struct Region {
@@ -35,15 +34,9 @@ struct Region {
 	uint64_t address;
 	uint64_t size;
 
-	union {
-		struct {
-			int order;
-			uint64_t numRoots;
-		};
-		struct {
-			Region *buddy;
-		};
-	};
+	int order;
+	uint64_t numRoots;
+	uint64_t buddyTree;
 };
 
 static constexpr size_t numRegions = 1024;
@@ -60,7 +53,7 @@ Region *obtainRegion() {
 	frigg::panicLogger() << "Eir: Memory region limit exhausted" << frigg::endLog;
 }
 
-void cutMemoryIntoRegions(uint64_t address, uint64_t size) {
+void createInitialRegion(uint64_t address, uint64_t size) {
 	auto limit = address + size;
 
 	// For now we do not touch memory that is required during boot.
@@ -72,38 +65,59 @@ void cutMemoryIntoRegions(uint64_t address, uint64_t size) {
 
 	if(address >= limit)
 		return;
+
+	// For now we ensure that the kernel has some memory to work with.
 	// TODO: Handle small memory regions.
 	assert(limit - address >= 32 * uint64_t(0x100000));
 
 	assert(!(address % kPageSize));
 	assert(!(limit % kPageSize));
 
-	// Setup a buddy allocator.
-	auto order = frigg::buddy_tools::suitable_order((limit - address) >> kPageShift);
-	auto pre_roots = (limit - address) >> (kPageShift + order);
-	auto overhead = frigg::buddy_tools::determine_size(pre_roots, order);
-	overhead = (overhead + uint64_t(kPageSize - 1)) & ~uint64_t(kPageSize - 1);
-	assert(overhead < limit - address);
+	auto region = obtainRegion();
+	region->regionType = RegionType::allocatable;
+	region->address = address;
+	region->size = limit - address;
+}
 
-	// Setup the memory regions.
-	auto main_region = obtainRegion();
-	auto buddy_region = obtainRegion();
+uint64_t cutFromRegion(size_t size) {
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
 
-	main_region->regionType = RegionType::allocatable;
-	main_region->address = address;
-	main_region->size = limit - address - overhead;
-	main_region->buddy = buddy_region;
+		if(size > regions[i].size)
+			continue;
+
+		regions[i].size -= size;
+		return regions[i].address + regions[i].size;
+	}
 	
-	buddy_region->regionType = RegionType::buddy;
-	buddy_region->address = limit - overhead;
-	buddy_region->size = overhead;
-	buddy_region->order = order;
-	buddy_region->numRoots = (limit - address - overhead) >> (kPageShift + order);
-	assert(buddy_region->numRoots >= 32);
+	frigg::panicLogger() << "Eir: Unable to cut memory from a region" << frigg::endLog;
+}
 
-	// Finally initialize the buddy tree.
-	auto table = reinterpret_cast<int8_t *>(buddy_region->address);
-	frigg::buddy_tools::initialize(table, buddy_region->numRoots, buddy_region->order);
+void setupBuddyTrees() {
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+
+		// Setup a buddy allocator.
+		auto order = frigg::buddy_tools::suitable_order(regions[i].size >> kPageShift);
+		auto pre_roots = regions[i].size >> (kPageShift + order);
+		auto overhead = frigg::buddy_tools::determine_size(pre_roots, order);
+		overhead = (overhead + uint64_t(kPageSize - 1)) & ~uint64_t(kPageSize - 1);
+
+		// Note that cutFromRegion might actually reduce this regions' size.
+		auto table_paddr = cutFromRegion(overhead);
+		auto num_roots = regions[i].size >> (kPageShift + order);
+		assert(num_roots >= 32);
+
+		regions[i].order = order;
+		regions[i].numRoots = num_roots;
+		regions[i].buddyTree = table_paddr;
+
+		// Finally initialize the buddy tree.
+		auto table_ptr = reinterpret_cast<int8_t *>(table_paddr);
+		frigg::buddy_tools::initialize(table_ptr, num_roots, order);
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -152,9 +166,9 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
-		auto table = reinterpret_cast<int8_t *>(regions[i].buddy->address);
+		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
 		auto physical = regions[i].address + (frigg::buddy_tools::allocate(table,
-				regions[i].buddy->numRoots, regions[i].buddy->order, 0) << kPageShift);
+				regions[i].numRoots, regions[i].order, 0) << kPageShift);
 //		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
 		return physical;
 	}
@@ -449,6 +463,10 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	bootMemoryLimit = (bootMemoryLimit + uint64_t(kPageSize - 1))
 			& ~uint64_t(kPageSize - 1);
 
+	// ------------------------------------------------------------------------
+	// Memory region setup.
+	// ------------------------------------------------------------------------
+
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
 	frigg::infoLogger() << "Memory map:" << frigg::endLog;
@@ -461,10 +479,12 @@ extern "C" void eirMain(MbInfo *mb_info) {
 				<< ", length: " << (void *)map->length << frigg::endLog;
 
 		if(map->type == 1)
-			cutMemoryIntoRegions(map->baseAddress, map->length);
+			createInitialRegion(map->baseAddress, map->length);
 
 		offset += map->size + 4;
 	}
+
+	setupBuddyTrees();
 	
 	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
 	for(size_t i = 0; i < numRegions; ++i) {
@@ -473,7 +493,12 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		frigg::infoLogger() << "    Type " << (int)regions[i].regionType << " region."
 				<< " Base: " << (void *)regions[i].address
 				<< ", length: " << (void *)regions[i].size << frigg::endLog;
+		if(regions[i].regionType == RegionType::allocatable)
+			frigg::infoLogger() << "    Buddy tree at " << (void *)regions[i].buddyTree
+					<< frigg::endLog;
 	}
+
+	// ------------------------------------------------------------------------
 
 	intializeGdt();
 	setupPaging();
@@ -496,12 +521,10 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	// Setup the buddy allocator window.
 	assert(regions[0].regionType == RegionType::allocatable);
-	assert(regions[1].regionType == RegionType::buddy);
-	assert(regions[0].buddy == &regions[1]);
-
-	for(size_t page = 0; page < regions[1].size; page += kPageSize)
+	auto overhead = frigg::buddy_tools::determine_size(regions[0].numRoots, regions[0].order);
+	for(size_t page = 0; page < overhead; page += kPageSize)
 		mapSingle4kPage(0xFFFF'FF00'0000'0000 + page,
-				regions[1].address + page, kAccessWrite);
+				regions[0].buddyTree + page, kAccessWrite);
 
 	// finally setup the BSPs physical windows.
 	auto physical1 = allocPt();
@@ -518,8 +541,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info_ptr->signature = eirSignatureValue;
 	info_ptr->address = regions[0].address;
 	info_ptr->length = regions[0].size;
-	info_ptr->order = regions[1].order;
-	info_ptr->numRoots = regions[1].numRoots;
+	info_ptr->order = regions[0].order;
+	info_ptr->numRoots = regions[0].numRoots;
 
 	// Setup the module information.
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);
