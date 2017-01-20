@@ -28,7 +28,6 @@ $(call include_dir,protocols/fs)
 $(call include_dir,protocols/hw)
 $(call include_dir,protocols/mbus)
 $(call include_dir,protocols/usb)
-#$(call include_dir,zisa)
 
 $(call include_dir,tools/frigg_pb)
 $(call include_dir,hel)
