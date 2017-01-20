@@ -26,7 +26,8 @@ uint64_t bootMemoryLimit;
 enum class RegionType {
 	null,
 	reserved,
-	allocatable
+	allocatable,
+	skeletal
 };
 
 struct Region {
@@ -42,6 +43,7 @@ struct Region {
 static constexpr size_t numRegions = 1024;
 
 Region regions[numRegions];
+Region *skeletalRegion;
 
 Region *obtainRegion() {
 	for(size_t i = 0; i < numRegions; ++i) {
@@ -84,7 +86,7 @@ uint64_t cutFromRegion(size_t size) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
-		if(size > regions[i].size)
+		if(regions[i].size < size)
 			continue;
 
 		regions[i].size -= size;
@@ -94,9 +96,36 @@ uint64_t cutFromRegion(size_t size) {
 	frigg::panicLogger() << "Eir: Unable to cut memory from a region" << frigg::endLog;
 }
 
-void setupBuddyTrees() {
+void setupSkeletalRegion() {
+	assert(!skeletalRegion);
+
+	size_t core_size = 0;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
+			continue;
+		core_size += regions[i].size;
+	}
+
+	// We need roughly one page to map 512 other pages.
+	// Thus we reserve 1/512 of all memory for kernel paging structures.
+	// Note that this choice here effectively limits how much of the kernel's
+	// half of the address space can actually be used.
+	// It is a little unfortunate that we fix this at boot time however
+	// being able to directly access kernel paging structures greatly
+	// simplifies kernel TLB shootdown handling and justifies this tradeoff.
+	size_t skeletal_size = core_size >> 9;
+	skeletal_size = (skeletal_size + (kPageSize - 1)) & ~uint64_t(kPageSize - 1);
+
+	skeletalRegion = obtainRegion();
+	skeletalRegion->regionType = RegionType::skeletal;
+	skeletalRegion->address = cutFromRegion(skeletal_size);
+	skeletalRegion->size = skeletal_size;
+}
+
+void setupBuddyTrees() {
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable
+				&& regions[i].regionType != RegionType::skeletal)
 			continue;
 
 		// Setup a buddy allocator.
@@ -190,7 +219,11 @@ T *bootAllocN(int n) {
 }
 
 uintptr_t allocPage() {
-	return (uintptr_t)bootReserve(0x1000, 0x1000);
+	auto table = reinterpret_cast<int8_t *>(skeletalRegion->buddyTree);
+	auto physical = skeletalRegion->address + (frigg::buddy_tools::allocate(table,
+			skeletalRegion->numRoots, skeletalRegion->order, 0) << kPageShift);
+//		frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
+	return physical;
 }
 
 uintptr_t eirPml4Pointer = 0;
@@ -329,18 +362,20 @@ uint64_t mapBootstrapData(void *p) {
 // ----------------------------------------------------------------------------
 
 extern char eirRtImageCeiling;
-extern "C" void eirRtLoadGdt(uintptr_t gdt_page, uint32_t size);
+// TODO: eirRtLoadGdt could be written using inline assembly.
+extern "C" void eirRtLoadGdt(uint32_t *pointer, uint32_t size);
 extern "C" void eirRtEnterKernel(uint32_t pml4, uint64_t entry,
 		uint64_t stack_ptr);
 
+uint32_t gdtEntries[4 * 2];
+
 void intializeGdt() {
-	uintptr_t gdt_page = allocPage();
-	arch::makeGdtNullSegment((uint32_t *)gdt_page, 0);
-	arch::makeGdtFlatCode32SystemSegment((uint32_t *)gdt_page, 1);
-	arch::makeGdtFlatData32SystemSegment((uint32_t *)gdt_page, 2);
-	arch::makeGdtCode64SystemSegment((uint32_t *)gdt_page, 3);
+	arch::makeGdtNullSegment(gdtEntries, 0);
+	arch::makeGdtFlatCode32SystemSegment(gdtEntries, 1);
+	arch::makeGdtFlatData32SystemSegment(gdtEntries, 2);
+	arch::makeGdtCode64SystemSegment(gdtEntries, 3);
 	
-	eirRtLoadGdt(gdt_page, 31); 
+	eirRtLoadGdt(gdtEntries, 4 * 8 - 1); 
 }
 
 // note: we are loading the segments to their p_paddr addresses
@@ -484,6 +519,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		offset += map->size + 4;
 	}
 
+	setupSkeletalRegion();
 	setupBuddyTrees();
 	
 	frigg::infoLogger() << "Kernel memory regions:" << frigg::endLog;
@@ -493,9 +529,10 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		frigg::infoLogger() << "    Type " << (int)regions[i].regionType << " region."
 				<< " Base: " << (void *)regions[i].address
 				<< ", length: " << (void *)regions[i].size << frigg::endLog;
-		if(regions[i].regionType == RegionType::allocatable)
-			frigg::infoLogger() << "    Buddy tree at " << (void *)regions[i].buddyTree
-					<< frigg::endLog;
+		if(regions[i].regionType == RegionType::allocatable
+				|| regions[i].regionType == RegionType::skeletal)
+			frigg::infoLogger() << "        Buddy tree at " << (void *)regions[i].buddyTree
+					<< "." << frigg::endLog;
 	}
 
 	// ------------------------------------------------------------------------
@@ -539,10 +576,10 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
-	info_ptr->address = regions[0].address;
-	info_ptr->length = regions[0].size;
-	info_ptr->order = regions[0].order;
-	info_ptr->numRoots = regions[0].numRoots;
+	info_ptr->coreRegion.address = regions[0].address;
+	info_ptr->coreRegion.length = regions[0].size;
+	info_ptr->coreRegion.order = regions[0].order;
+	info_ptr->coreRegion.numRoots = regions[0].numRoots;
 
 	// Setup the module information.
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);

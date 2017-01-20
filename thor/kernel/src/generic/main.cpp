@@ -222,13 +222,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	if(info->signature == eirSignatureValue) {
-		frigg::infoLogger() << "thor: Signature matches" << frigg::endLog;
+		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
+				<< frigg::endLog;
 	}else{
-		frigg::panicLogger() << "thor: Signature mismatch!" << frigg::endLog;
+		frigg::panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
+				<< frigg::endLog;
 	}
 
 	physicalAllocator.initialize();
-	physicalAllocator->bootstrap(info->address, info->order, info->numRoots);
+	physicalAllocator->bootstrap(info->coreRegion.address, info->coreRegion.order,
+			info->coreRegion.numRoots);
 
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
@@ -237,7 +240,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
 
-	frigg::infoLogger() << "thor: Basic memory management is ready" << frigg::endLog;
+	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
