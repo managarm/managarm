@@ -9,6 +9,7 @@ struct EirRegion {
 	EirSize length;
 	EirSize order; // TODO: This could be an int.
 	EirSize numRoots;
+	EirPtr buddyTree;
 };
 
 struct EirModule {
@@ -20,6 +21,7 @@ struct EirModule {
 
 struct EirInfo {
 	uint64_t signature;
+	EirRegion skeletalRegion;
 	EirRegion coreRegion;
 
 	EirSize numModules;

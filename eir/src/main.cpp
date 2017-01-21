@@ -38,6 +38,7 @@ struct Region {
 	int order;
 	uint64_t numRoots;
 	uint64_t buddyTree;
+	uint64_t buddyMap;
 };
 
 static constexpr size_t numRegions = 1024;
@@ -347,6 +348,25 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 }
 
 // ----------------------------------------------------------------------------
+
+void mapBuddyTrees() {
+	uint64_t mapping = 0xFFFF'FF00'0000'0000;
+	for(size_t i = 0; i < numRegions; ++i) {
+		if(regions[i].regionType != RegionType::allocatable
+				&& regions[i].regionType != RegionType::skeletal)
+			continue;
+
+		regions[i].buddyMap = mapping;
+
+		auto overhead = frigg::buddy_tools::determine_size(regions[i].numRoots, regions[i].order);
+		for(size_t page = 0; page < overhead; page += kPageSize) {
+			mapSingle4kPage(mapping, regions[i].buddyTree + page, kAccessWrite);
+			mapping += kPageSize;
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
 // Bootstrap information handling.
 // ----------------------------------------------------------------------------
 
@@ -483,6 +503,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		frigg::panicLogger() << "Long mode is not supported on this CPU" << frigg::endLog;
 	if((extended[3] & arch::kCpuFlagNx) == 0)
 		frigg::panicLogger() << "NX bit is not supported on this CPU" << frigg::endLog;
+
+	intializeGdt();
 	
 	// Make sure we do not trash ourselfs or our boot modules.
 	bootMemoryLimit = (uintptr_t)&eirRtImageCeiling;
@@ -536,8 +558,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	}
 
 	// ------------------------------------------------------------------------
-
-	intializeGdt();
+	
 	setupPaging();
 
 	// identically map the first 128 mb so that
@@ -557,11 +578,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
 
 	// Setup the buddy allocator window.
-	assert(regions[0].regionType == RegionType::allocatable);
-	auto overhead = frigg::buddy_tools::determine_size(regions[0].numRoots, regions[0].order);
-	for(size_t page = 0; page < overhead; page += kPageSize)
-		mapSingle4kPage(0xFFFF'FF00'0000'0000 + page,
-				regions[0].buddyTree + page, kAccessWrite);
+	mapBuddyTrees();
 
 	// finally setup the BSPs physical windows.
 	auto physical1 = allocPt();
@@ -576,10 +593,16 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
+	info_ptr->skeletalRegion.address = skeletalRegion->address;
+	info_ptr->skeletalRegion.length = skeletalRegion->size;
+	info_ptr->skeletalRegion.order = skeletalRegion->order;
+	info_ptr->skeletalRegion.numRoots = skeletalRegion->numRoots;
+	info_ptr->skeletalRegion.buddyTree = skeletalRegion->buddyMap;
 	info_ptr->coreRegion.address = regions[0].address;
 	info_ptr->coreRegion.length = regions[0].size;
 	info_ptr->coreRegion.order = regions[0].order;
 	info_ptr->coreRegion.numRoots = regions[0].numRoots;
+	info_ptr->coreRegion.buddyTree = regions[0].buddyMap;
 
 	// Setup the module information.
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);

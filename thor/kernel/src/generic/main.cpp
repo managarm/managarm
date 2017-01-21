@@ -228,10 +228,14 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
 				<< frigg::endLog;
 	}
+	
+	SkeletalRegion::initialize(info->skeletalRegion.address,
+			info->skeletalRegion.order, info->skeletalRegion.numRoots,
+			reinterpret_cast<int8_t *>(info->skeletalRegion.buddyTree));
 
 	physicalAllocator.initialize();
 	physicalAllocator->bootstrap(info->coreRegion.address, info->coreRegion.order,
-			info->coreRegion.numRoots);
+			info->coreRegion.numRoots, reinterpret_cast<int8_t *>(info->coreRegion.buddyTree));
 
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );

@@ -68,7 +68,7 @@ void PageSpace::activate() {
 }
 
 PageSpace PageSpace::cloneFromKernelSpace() {
-	PhysicalAddr new_pml4_page = physicalAllocator->allocate(0x1000);
+	PhysicalAddr new_pml4_page = SkeletalRegion::global().allocate();
 
 	PageAccessor this_accessor{generalWindow, p_pml4Address};
 	PageAccessor new_accessor{generalWindow, new_pml4_page};
@@ -148,7 +148,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pml4_initial_entry & kPagePresent) != 0) {
 		pdpt_pointer = (uint64_t *)window3.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pdpt_page = physicalAllocator->allocate(0x1000);
+		PhysicalAddr pdpt_page = SkeletalRegion::global().allocate();
 
 		pdpt_pointer = (uint64_t *)window3.access(pdpt_page);
 		for(int i = 0; i < 512; i++)
@@ -168,7 +168,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pdpt_initial_entry & kPagePresent) != 0) {
 		pd_pointer = (uint64_t *)window2.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pd_page = physicalAllocator->allocate(0x1000);
+		PhysicalAddr pd_page = SkeletalRegion::global().allocate();
 
 		pd_pointer = (uint64_t *)window2.access(pd_page);
 		for(int i = 0; i < 512; i++)
@@ -188,7 +188,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if((pd_initial_entry & kPagePresent) != 0) {
 		pt_pointer = (uint64_t *)window1.access(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pt_page = physicalAllocator->allocate(0x1000);
+		PhysicalAddr pt_page = SkeletalRegion::global().allocate();
 
 		pt_pointer = (uint64_t *)window1.access(pt_page);
 		for(int i = 0; i < 512; i++)

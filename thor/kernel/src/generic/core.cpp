@@ -64,7 +64,7 @@ void *KernelVirtualMemory::allocate(size_t length) {
 
 frigg::LazyInitializer<KernelVirtualMemory> kernelVirtualMemory;
 
-KernelVirtualMemory &KernelVirtualMemory::KernelVirtualMemory::global() {
+KernelVirtualMemory &KernelVirtualMemory::global() {
 	// TODO: This should be initialized at a well-defined stage in the
 	// kernel's boot process.
 	if(!kernelVirtualMemory)

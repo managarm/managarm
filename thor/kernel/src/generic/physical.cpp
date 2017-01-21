@@ -4,17 +4,51 @@
 namespace thor {
 
 // --------------------------------------------------------
+// SkeletalRegion
+// --------------------------------------------------------
+
+frigg::LazyInitializer<SkeletalRegion> skeletalSingleton;
+
+void SkeletalRegion::initialize(PhysicalAddr physical_base,
+		int order, size_t num_roots, int8_t *buddy_tree) {
+	skeletalSingleton.initialize();
+	skeletalSingleton->_physicalBase = physical_base;
+	skeletalSingleton->_order = order;
+	skeletalSingleton->_numRoots = num_roots;
+	skeletalSingleton->_buddyTree = buddy_tree;
+}
+
+SkeletalRegion &SkeletalRegion::global() {
+	return *skeletalSingleton;
+}
+
+PhysicalAddr SkeletalRegion::allocate() {
+	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyTree,
+			_numRoots, _order, 0) << kPageShift);
+	return physical;
+}
+
+void SkeletalRegion::deallocate(PhysicalAddr physical) {
+	assert(!"TODO: Implement this");
+}
+
+void *SkeletalRegion::access(PhysicalAddr physical) {
+	assert(!"TODO: Implement this");
+}
+
+// --------------------------------------------------------
 // PhysicalChunkAllocator
 // --------------------------------------------------------
 
 PhysicalChunkAllocator::PhysicalChunkAllocator() {
-	_buddyPointer = reinterpret_cast<int8_t *>(0xFFFF'FF00'0000'0000);
 }
 
-void PhysicalChunkAllocator::bootstrap(PhysicalAddr address, int order, size_t num_roots) {
+void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
+		int order, size_t num_roots, int8_t *buddy_tree) {
 	_physicalBase = address;
 	_buddyOrder = order;
 	_buddyRoots = num_roots;
+	_buddyPointer = buddy_tree;
 
 	_usedPages = 0;
 	_freePages = _buddyRoots << _buddyOrder;
