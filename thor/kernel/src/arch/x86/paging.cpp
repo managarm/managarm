@@ -144,8 +144,6 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, ui
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
 	pt_pointer[pt_index] = new_entry;
-
-	frigg::barrier();
 }
 
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
@@ -179,47 +177,7 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	// change the pt entry
 	assert((pt_pointer[pt_index] & kPagePresent) != 0);
 	pt_pointer[pt_index] ^= kPagePresent;
-
-	frigg::barrier();
-
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
-}
-
-bool KernelPageSpace::isMapped(VirtualAddr pointer) {
-	assert((pointer % 0x1000) == 0);
-
-	auto &region = SkeletalRegion::global();
-
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
-
-	// check the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
-	uint64_t pml4_entry = pml4_pointer[pml4_index];
-
-	// check the pdpt entry
-	if(!(pml4_entry & kPagePresent))
-		return false;
-	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
-	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
-	
-	// check the pd entry
-	if(!(pdpt_entry & kPagePresent))
-		return false;
-	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
-	uint64_t pd_entry = pd_pointer[pd_index];
-	
-	// check the pt entry
-	if(!(pd_entry & kPagePresent))
-		return false;
-	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
-	
-	// check the pt entry
-	if(!(pt_pointer[pt_index] & kPagePresent))
-		return false;
-	return true;
 }
 
 PhysicalAddr KernelPageSpace::getPml4() {
@@ -272,10 +230,10 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	TableAccessor accessor2{this};
 	TableAccessor accessor1{this};
 
-	int index4 = (int)((pointer >> 39) & 0x1FF);
-	int index3 = (int)((pointer >> 30) & 0x1FF);
-	int index2 = (int)((pointer >> 21) & 0x1FF);
-	int index1 = (int)((pointer >> 12) & 0x1FF);
+	auto index4 = (int)((pointer >> 39) & 0x1FF);
+	auto index3 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index1 = (int)((pointer >> 12) & 0x1FF);
 
 	// The PML4 does always exist.
 	accessor4.aim(_pml4Address);
@@ -351,10 +309,10 @@ PhysicalAddr ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	TableAccessor accessor2{this};
 	TableAccessor accessor1{this};
 
-	int index4 = (int)((pointer >> 39) & 0x1FF);
-	int index3 = (int)((pointer >> 30) & 0x1FF);
-	int index2 = (int)((pointer >> 21) & 0x1FF);
-	int index1 = (int)((pointer >> 12) & 0x1FF);
+	auto index4 = (int)((pointer >> 39) & 0x1FF);
+	auto index3 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index1 = (int)((pointer >> 12) & 0x1FF);
 	
 	// The PML4 is always present.
 	accessor4.aim(_pml4Address);
@@ -384,10 +342,10 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	TableAccessor accessor2{this};
 	TableAccessor accessor1{this};
 
-	int index4 = (int)((pointer >> 39) & 0x1FF);
-	int index3 = (int)((pointer >> 30) & 0x1FF);
-	int index2 = (int)((pointer >> 21) & 0x1FF);
-	int index1 = (int)((pointer >> 12) & 0x1FF);
+	auto index4 = (int)((pointer >> 39) & 0x1FF);
+	auto index3 = (int)((pointer >> 30) & 0x1FF);
+	auto index2 = (int)((pointer >> 21) & 0x1FF);
+	auto index1 = (int)((pointer >> 12) & 0x1FF);
 	
 	// The PML4 is always present.
 	accessor4.aim(_pml4Address);
@@ -408,10 +366,6 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	
 	return accessor1[index1] & kPagePresent;
-}
-
-PhysicalAddr ClientPageSpace::getPml4() {
-	return _pml4Address;
 }
 
 ClientPageSpace::TableAccessor::~TableAccessor() {

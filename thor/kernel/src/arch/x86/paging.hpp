@@ -81,7 +81,6 @@ public:
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
-	bool isMapped(VirtualAddr pointer);
 
 	PhysicalAddr getPml4();
 
@@ -104,8 +103,6 @@ public:
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 	bool isMapped(VirtualAddr pointer);
-
-	PhysicalAddr getPml4();
 
 private:
 	struct TableAccessor {
