@@ -71,8 +71,8 @@ void setupHpet(PhysicalAddr address) {
 	
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
-	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), address,
-			false, PageSpace::kAccessWrite);
+	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
+			page_access::write);
 	hpetBase = arch::mem_space(register_ptr);
 
 	auto caps = hpetBase.load(genCapsAndId);

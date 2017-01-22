@@ -10,8 +10,6 @@ enum {
 
 namespace thor {
 
-frigg::LazyInitializer<PageSpace> kernelSpace;
-
 void invlpg(const void *address) {
 	auto p = reinterpret_cast<const char *>(address);
 	asm volatile ("invlpg %0" : : "m"(*p));
@@ -57,35 +55,212 @@ PhysicalWindow generalWindow{reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000)
 		reinterpret_cast<void *>(0xFFFF'FF80'0040'0000)};
 
 // --------------------------------------------------------
-// PageSpace
+// Kernel paging management.
 // --------------------------------------------------------
 
-PageSpace::PageSpace(PhysicalAddr pml4_address)
-			: p_pml4Address(pml4_address) { }
+frigg::LazyInitializer<KernelPageSpace> kernelSpaceSingleton;
 
-void PageSpace::activate() {
-	asm volatile ( "mov %0, %%cr3" : : "r"( p_pml4Address ) : "memory" );
+void KernelPageSpace::initialize(PhysicalAddr pml4_address) {
+	kernelSpaceSingleton.initialize(pml4_address);
 }
 
-PageSpace PageSpace::cloneFromKernelSpace() {
-	PhysicalAddr new_pml4_page = SkeletalRegion::global().allocate();
+KernelPageSpace &KernelPageSpace::global() {
+	return *kernelSpaceSingleton;
+}
 
-	PageAccessor this_accessor{generalWindow, p_pml4Address};
-	PageAccessor new_accessor{generalWindow, new_pml4_page};
-	uint64_t *this_pml4_pointer = (uint64_t *)this_accessor.get();
-	uint64_t *new_pml4_pointer = (uint64_t *)new_accessor.get();
+KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
+: _pml4Address{pml4_address} { }
 
-	for(int i = 0; i < 256; i++)
-		new_pml4_pointer[i] = 0;
-	for(int i = 256; i < 512; i++) {
-		assert((this_pml4_pointer[i] & kPagePresent) != 0);
-		new_pml4_pointer[i] = this_pml4_pointer[i];
+void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags) {
+	assert((pointer % 0x1000) == 0);
+	assert((physical % 0x1000) == 0);
+	
+	auto &region = SkeletalRegion::global();
+
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
+
+	// the pml4 exists already
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+
+	// make sure there is a pdpt
+	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
+	uint64_t *pdpt_pointer;
+	if((pml4_initial_entry & kPagePresent) != 0) {
+		pdpt_pointer = (uint64_t *)region.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
+	}else{
+		PhysicalAddr pdpt_page = SkeletalRegion::global().allocate();
+
+		pdpt_pointer = (uint64_t *)region.access(pdpt_page);
+		for(int i = 0; i < 512; i++)
+			pdpt_pointer[i] = 0;
+		
+		uint64_t new_entry = pdpt_page | kPagePresent | kPageWrite;
+		pml4_pointer[pml4_index] = new_entry;
 	}
+	assert(!(pml4_pointer[pml4_index] & kPageUser));
+	
+	// make sure there is a pd
+	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
+	uint64_t *pd_pointer;
+	if((pdpt_initial_entry & kPagePresent) != 0) {
+		pd_pointer = (uint64_t *)region.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
+	}else{
+		PhysicalAddr pd_page = SkeletalRegion::global().allocate();
 
-	return PageSpace(new_pml4_page);
+		pd_pointer = (uint64_t *)region.access(pd_page);
+		for(int i = 0; i < 512; i++)
+			pd_pointer[i] = 0;
+		
+		uint64_t new_entry = pd_page | kPagePresent | kPageWrite;
+		pdpt_pointer[pdpt_index] = new_entry;
+	}
+	assert(!(pdpt_pointer[pdpt_index] & kPageUser));
+	
+	// make sure there is a pt
+	uint64_t pd_initial_entry = pd_pointer[pd_index];
+	uint64_t *pt_pointer;
+	if((pd_initial_entry & kPagePresent) != 0) {
+		pt_pointer = (uint64_t *)region.access(pd_initial_entry & 0x000FFFFFFFFFF000);
+	}else{
+		PhysicalAddr pt_page = SkeletalRegion::global().allocate();
+
+		pt_pointer = (uint64_t *)region.access(pt_page);
+		for(int i = 0; i < 512; i++)
+			pt_pointer[i] = 0;
+		
+		uint64_t new_entry = pt_page | kPagePresent | kPageWrite;
+		pd_pointer[pd_index] = new_entry;
+	}
+	assert(!(pd_pointer[pd_index] & kPageUser));
+
+	// setup the new pt entry
+	assert((pt_pointer[pt_index] & kPagePresent) == 0);
+	uint64_t new_entry = physical | kPagePresent;
+	if(flags & page_access::write)
+		new_entry |= kPageWrite;
+	if(!(flags & page_access::execute))
+		new_entry |= kPageXd;
+	pt_pointer[pt_index] = new_entry;
+
+	frigg::barrier();
 }
 
-void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
+	assert((pointer % 0x1000) == 0);
+
+	auto &region = SkeletalRegion::global();
+
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
+	
+	// find the pml4_entry
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+	uint64_t pml4_entry = pml4_pointer[pml4_index];
+
+	// find the pdpt entry
+	assert((pml4_entry & kPagePresent) != 0);
+	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	
+	// find the pd entry
+	assert((pdpt_entry & kPagePresent) != 0);
+	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t pd_entry = pd_pointer[pd_index];
+	
+	// find the pt entry
+	assert((pd_entry & kPagePresent) != 0);
+	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
+	
+	// change the pt entry
+	assert((pt_pointer[pt_index] & kPagePresent) != 0);
+	pt_pointer[pt_index] ^= kPagePresent;
+
+	frigg::barrier();
+
+	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
+}
+
+bool KernelPageSpace::isMapped(VirtualAddr pointer) {
+	assert((pointer % 0x1000) == 0);
+
+	auto &region = SkeletalRegion::global();
+
+	int pml4_index = (int)((pointer >> 39) & 0x1FF);
+	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
+	int pd_index = (int)((pointer >> 21) & 0x1FF);
+	int pt_index = (int)((pointer >> 12) & 0x1FF);
+
+	// check the pml4_entry
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+	uint64_t pml4_entry = pml4_pointer[pml4_index];
+
+	// check the pdpt entry
+	if(!(pml4_entry & kPagePresent))
+		return false;
+	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	
+	// check the pd entry
+	if(!(pdpt_entry & kPagePresent))
+		return false;
+	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t pd_entry = pd_pointer[pd_index];
+	
+	// check the pt entry
+	if(!(pd_entry & kPagePresent))
+		return false;
+	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
+	
+	// check the pt entry
+	if(!(pt_pointer[pt_index] & kPagePresent))
+		return false;
+	return true;
+}
+
+PhysicalAddr KernelPageSpace::getPml4() {
+	return _pml4Address;
+}
+
+
+// --------------------------------------------------------
+// ClientPageSpace
+// --------------------------------------------------------
+
+ClientPageSpace::ClientPageSpace() {
+	//TODO: _pml4Address = physicalAllocator->allocate(kPageSize);
+	_pml4Address = SkeletalRegion::global().allocate();
+
+	// Initialize the bottom half to unmapped memory.
+	PageAccessor accessor{generalWindow, _pml4Address};
+	auto this_table = reinterpret_cast<uint64_t *>(accessor.get());
+	
+	for(int i = 0; i < 256; i++)
+		this_table[i] = 0;
+
+	// Share the top half with the kernel.
+	auto kernel_pml4 = KernelPageSpace::global().getPml4();
+	auto kernel_table = (uint64_t *)SkeletalRegion::global().access(kernel_pml4);
+
+	for(int i = 256; i < 512; i++) {
+		assert(kernel_table[i] & kPagePresent);
+		this_table[i] = kernel_table[i];
+	}
+}
+
+ClientPageSpace::~ClientPageSpace() {
+	assert(!"Implement this");
+}
+
+void ClientPageSpace::activate() {
+	asm volatile ( "mov %0, %%cr3" : : "r"( _pml4Address ) : "memory" );
+}
+
+void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		bool user_page, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
@@ -98,7 +273,7 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 
 	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
 
 	// make sure there is a pdpt
 	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
@@ -165,16 +340,16 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	uint64_t new_entry = physical | kPagePresent;
 	if(user_page)
 		new_entry |= kPageUser;
-	if((flags & kAccessWrite) != 0)
+	if(flags & page_access::write)
 		new_entry |= kPageWrite;
-	if((flags & kAccessExecute) == 0)
+	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
 	pt_pointer[pt_index] = new_entry;
 
 	frigg::barrier();
 }
 
-PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
+PhysicalAddr ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
 	auto &region = SkeletalRegion::global();
@@ -185,7 +360,7 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 	
 	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
@@ -211,7 +386,7 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
 
-bool PageSpace::isMapped(VirtualAddr pointer) {
+bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
 	auto &region = SkeletalRegion::global();
@@ -222,7 +397,7 @@ bool PageSpace::isMapped(VirtualAddr pointer) {
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 
 	// check the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// check the pdpt entry
@@ -248,8 +423,8 @@ bool PageSpace::isMapped(VirtualAddr pointer) {
 	return true;
 }
 
-PhysicalAddr PageSpace::getPml4() {
-	return p_pml4Address;
+PhysicalAddr ClientPageSpace::getPml4() {
+	return _pml4Address;
 }
 
 void thorRtInvalidateSpace() {

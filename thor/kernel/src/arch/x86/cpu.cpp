@@ -458,7 +458,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	auto stack_ptr = reinterpret_cast<uint64_t *>(base
 			+ ((PhysicalAddr)&trampolineStack - trampoline_addr));
 	secondaryBootComplete = false;
-	*pml4_ptr = kernelSpace->getPml4();
+	*pml4_ptr = KernelPageSpace::global().getPml4();
 	*stack_ptr = ((uintptr_t)trampoline_stack_base + trampoline_stack_size);
 	
 

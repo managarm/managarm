@@ -65,8 +65,8 @@ void initLocalApicOnTheSystem() {
 	// TODO: Intel SDM specifies that we should mask out all
 	// bits > the physical address limit of the msr.
 	// For now we just assume that they are zero.
-	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
-			false, PageSpace::kAccessWrite);
+	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
+			page_access::write);
 	picBase = arch::mem_space(register_ptr);
 
 	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
@@ -167,8 +167,8 @@ void writeIoApic(uint32_t index, uint32_t value) {
 void setupIoApic(PhysicalAddr address) {
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
-	kernelSpace->mapSingle4k(VirtualAddr(register_ptr), address,
-			false, PageSpace::kAccessWrite);
+	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
+			page_access::write);
 	ioApicBase = arch::mem_space(register_ptr);
 	
 	picModel = kModelApic;

@@ -666,9 +666,9 @@ Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
 void NormalMapping::install(bool overwrite) {
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
-		page_flags |= PageSpace::kAccessWrite;
+		page_flags |= page_access::write;
 	}else if((flags() & MappingFlags::permissionMask) == MappingFlags::readExecute) {
-		page_flags |= PageSpace::kAccessExecute;
+		page_flags |= page_access::execute;
 	}else{
 		assert((flags() & MappingFlags::permissionMask) == MappingFlags::readOnly);
 	}
@@ -681,13 +681,13 @@ void NormalMapping::install(bool overwrite) {
 		PhysicalAddr physical = _memory->peekRange(_offset + progress);
 
 		VirtualAddr vaddr = address() + progress;
-		if(overwrite && owner()->p_pageSpace.isMapped(vaddr)) {
-			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
+			owner()->_pageSpace.unmapSingle4k(vaddr);
 		}else{
-			assert(!owner()->p_pageSpace.isMapped(vaddr));
+			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
 		if(physical != PhysicalAddr(-1))
-			owner()->p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+			owner()->_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
 	}
 }
 
@@ -697,8 +697,8 @@ void NormalMapping::uninstall(bool clear) {
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
-		if(owner()->p_pageSpace.isMapped(vaddr))
-			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		if(owner()->_pageSpace.isMapped(vaddr))
+			owner()->_pageSpace.unmapSingle4k(vaddr);
 	}
 }
 
@@ -717,9 +717,9 @@ bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
-		page_flags |= PageSpace::kAccessWrite;
+		page_flags |= page_access::write;
 	}else if((flags() & MappingFlags::permissionMask) == MappingFlags::readExecute) {
-		page_flags |= PageSpace::kAccessExecute;
+		page_flags |= page_access::execute;
 	}else{
 		assert((flags() & MappingFlags::permissionMask) == MappingFlags::readOnly);
 	}
@@ -728,8 +728,8 @@ bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	auto physical = _memory->fetchRange(page);
 	auto vaddr = address() + page;
 	// TODO: This can actually happen!
-	assert(!owner()->p_pageSpace.isMapped(vaddr));
-	owner()->p_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+	assert(!owner()->_pageSpace.isMapped(vaddr));
+	owner()->_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
 	return true;
 }
 
@@ -774,10 +774,10 @@ void CowMapping::install(bool overwrite) {
 	// For now we just unmap everything. TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
-		if(overwrite && owner()->p_pageSpace.isMapped(vaddr)) {
-			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
+			owner()->_pageSpace.unmapSingle4k(vaddr);
 		}else{
-			assert(!owner()->p_pageSpace.isMapped(vaddr));
+			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
 	}
 }
@@ -788,8 +788,8 @@ void CowMapping::uninstall(bool clear) {
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
-		if(owner()->p_pageSpace.isMapped(vaddr))
-			owner()->p_pageSpace.unmapSingle4k(vaddr);
+		if(owner()->_pageSpace.isMapped(vaddr))
+			owner()->_pageSpace.unmapSingle4k(vaddr);
 	}
 }
 
@@ -826,8 +826,8 @@ PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
 
 		// We have to map the page immediately after copying it.
 		// This ensures that no racing threads still see the original page.
-		owner()->p_pageSpace.mapSingle4k(address() + page, physical,
-				true, PageSpace::kAccessWrite);
+		owner()->_pageSpace.mapSingle4k(address() + page, physical,
+				true, page_access::write);
 		return physical;
 	}
 
@@ -839,8 +839,7 @@ PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
 // AddressSpace
 // --------------------------------------------------------
 
-AddressSpace::AddressSpace(PageSpace page_space)
-: p_pageSpace(page_space) { }
+AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
 	assert(!"Fix this");
@@ -982,9 +981,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t fault
 KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
-	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
-
+	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	cloneRecursive(spaceTree.first(), forked.get());
 
 	return frigg::move(forked);
@@ -1000,7 +997,7 @@ PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 }
 
 void AddressSpace::activate() {
-	p_pageSpace.activate();
+	_pageSpace.activate();
 }
 
 Mapping *AddressSpace::getMapping(VirtualAddr address) {

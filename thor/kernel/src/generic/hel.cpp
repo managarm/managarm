@@ -531,8 +531,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
+	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	space->setupDefaultMappings();
 	
 	Universe::Guard universe_guard(&universe->lock);

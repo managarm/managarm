@@ -48,8 +48,8 @@ KernelVirtualMemory::KernelVirtualMemory() {
 	{
 		for(size_t offset = 0; offset < overhead; offset += kPageSize) {
 			PhysicalAddr physical = physicalAllocator->allocate(0x1000);
-			kernelSpace->mapSingle4k(original_base + offset, physical, false,
-					PageSpace::kAccessWrite);
+			KernelPageSpace::global().mapSingle4k(original_base + offset, physical,
+					page_access::write);
 		}
 	}
 	asm("" : : : "memory");
@@ -79,8 +79,8 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = physicalAllocator->allocate(0x1000);
-		kernelSpace->mapSingle4k(VirtualAddr(p) + offset, physical, false,
-				PageSpace::kAccessWrite);
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
+				page_access::write);
 	}
 
 	asm("" : : : "memory");
@@ -95,7 +95,7 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 
 	asm("" : : : "memory");
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = kernelSpace->unmapSingle4k(address + offset);
+		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(address + offset);
 		(void)physical;
 //	TODO: reeneable this after fixing physical memory allocator
 //		physicalAllocator->free(physical);

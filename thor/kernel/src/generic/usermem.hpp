@@ -422,7 +422,7 @@ public:
 		kFaultWrite = 0x01
 	};
 
-	AddressSpace(PageSpace page_space);
+	AddressSpace();
 
 	~AddressSpace();
 
@@ -467,7 +467,7 @@ private:
 	SpaceTree spaceTree;
 
 public: // TODO: Make this private.
-	PageSpace p_pageSpace;
+	ClientPageSpace _pageSpace;
 };
 
 } // namespace thor

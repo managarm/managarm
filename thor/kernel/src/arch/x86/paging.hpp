@@ -61,18 +61,45 @@ private:
 
 extern PhysicalWindow generalWindow;
 
-class PageSpace {
-public:
-	enum : uint32_t {
-		kAccessWrite = 1,
-		kAccessExecute = 2
-	};
+namespace page_access {
+	static constexpr uint32_t write = 1;
+	static constexpr uint32_t execute = 2;
+}
 
-	PageSpace(PhysicalAddr pml4_address);
+struct KernelPageSpace {
+public:
+	static void initialize(PhysicalAddr pml4_address);
+
+	static KernelPageSpace &global();
+
+	// TODO: This should be private.
+	explicit KernelPageSpace(PhysicalAddr pml4_address);
+	
+	KernelPageSpace(const KernelPageSpace &) = delete;
+	
+	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
+
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags);
+	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
+	bool isMapped(VirtualAddr pointer);
+
+	PhysicalAddr getPml4();
+
+private:
+	PhysicalAddr _pml4Address;
+};
+
+struct ClientPageSpace {
+public:
+	ClientPageSpace();
+	
+	ClientPageSpace(const ClientPageSpace &) = delete;
+	
+	~ClientPageSpace();
+
+	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
 	
 	void activate();
-
-	PageSpace cloneFromKernelSpace();
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
@@ -81,10 +108,8 @@ public:
 	PhysicalAddr getPml4();
 
 private:
-	PhysicalAddr p_pml4Address;
+	PhysicalAddr _pml4Address;
 };
-
-extern frigg::LazyInitializer<PageSpace> kernelSpace;
 
 extern "C" void thorRtInvalidatePage(void *pointer);
 extern "C" void thorRtInvalidateSpace();

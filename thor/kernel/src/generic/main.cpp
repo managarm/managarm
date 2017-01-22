@@ -116,8 +116,7 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 }
 
 void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) {
-	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc,
-			kernelSpace->cloneFromKernelSpace());
+	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	space->setupDefaultMappings();
 
 	ImageInfo exec_info = loadModuleImage(space, 0, module->memory);
@@ -228,6 +227,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
 				<< frigg::endLog;
 	}
+
+	// TODO: Move this to an architecture specific file.
+	PhysicalAddr pml4_ptr;
+	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
+	KernelPageSpace::initialize(pml4_ptr);
 	
 	SkeletalRegion::initialize(info->skeletalRegion.address,
 			info->skeletalRegion.order, info->skeletalRegion.numRoots,
@@ -236,10 +240,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	physicalAllocator.initialize();
 	physicalAllocator->bootstrap(info->coreRegion.address, info->coreRegion.order,
 			info->coreRegion.numRoots, reinterpret_cast<int8_t *>(info->coreRegion.buddyTree));
-
-	PhysicalAddr pml4_ptr;
-	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
-	kernelSpace.initialize(pml4_ptr);
 	
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
@@ -538,10 +538,8 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
 	case kHelCallSubmitLockMemory: {
-		int64_t async_id;
 		*image.error() = helSubmitLockMemory((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
 				(HelQueue *)arg3, (uintptr_t)arg4);
-		*image.out0() = async_id;
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
