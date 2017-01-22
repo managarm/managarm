@@ -579,13 +579,15 @@ extern "C" void eirMain(MbInfo *mb_info) {
 
 	// Setup the buddy allocator window.
 	mapBuddyTrees();
+	
+	// Map the skeletal region.
+	for(size_t page = 0; page < skeletalRegion->size; page += kPageSize)
+		mapSingle4kPage(0xFFFF'FE00'0000'0000 + page,
+				skeletalRegion->address + page, kAccessWrite);
 
 	// finally setup the BSPs physical windows.
-	auto physical1 = allocPt();
 	auto physical2 = allocPt();
-	mapSingle4kPage(0xFFFF'FF80'0000'1000, physical1, kAccessWrite);
 	mapSingle4kPage(0xFFFF'FF80'0000'2000, physical2, kAccessWrite);
-	mapPt(0xFFFF'FF80'0020'0000, physical1);
 	mapPt(0xFFFF'FF80'0040'0000, physical2);
 	
 	// Setup the eir interface struct.

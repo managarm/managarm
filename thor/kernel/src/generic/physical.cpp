@@ -29,11 +29,15 @@ PhysicalAddr SkeletalRegion::allocate() {
 }
 
 void SkeletalRegion::deallocate(PhysicalAddr physical) {
+	(void)physical;
 	assert(!"TODO: Implement this");
 }
 
 void *SkeletalRegion::access(PhysicalAddr physical) {
-	assert(!"TODO: Implement this");
+	assert(!(physical & (kPageSize - 1)));
+	auto offset = physical - _physicalBase;
+	assert(offset < (_numRoots << (_order + kPageShift)));
+	return reinterpret_cast<void *>(0xFFFF'FE00'0000'0000 + offset);
 }
 
 // --------------------------------------------------------

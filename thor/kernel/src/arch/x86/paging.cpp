@@ -85,72 +85,30 @@ PageSpace PageSpace::cloneFromKernelSpace() {
 	return PageSpace(new_pml4_page);
 }
 
-// provides a window into physical memory.
-// note that this struct is stateless in the sense that
-// calling access() twice may invalidate the pointer returned
-// by the first call!
-struct StatelessWindow {
-	StatelessWindow(VirtualAddr directory, int index, int offset, int size)
-	: _directory(directory), _index(index), _offset(offset),
-			_mask((1 << __builtin_ctz(size)) - 1) {
-		assert(_index);
-		assert(size == (1 << __builtin_ctz(size)));
-	}
-
-	void *access(PhysicalAddr physical) {
-		assert(!(physical % kPageSize));
-
-		// this hash tries to avoid mapping all large pages to the same value.
-		int h = physical >> 12;
-		h ^= physical >> 21;
-		h ^= physical >> 30;
-		h = _offset + (h & _mask);
-
-		auto pt = reinterpret_cast<uint64_t *>(_directory + _index * kPageSize);
-		auto virt = reinterpret_cast<void *>(_directory
-				+ _index * 512 * kPageSize + h * kPageSize);
-		if((pt[h] & kPagePresent) && ((pt[h] & 0x000FFFFFFFFFF000) == physical))
-			return virt;
-
-		pt[h] = physical | kPagePresent | kPageWrite | kPageXd;
-		invlpg(virt);
-		return virt;
-	}
-
-private:
-	VirtualAddr _directory;
-	int _index;
-	int _offset;
-	int _mask;
-};
-
 void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		bool user_page, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
+	
+	auto &region = SkeletalRegion::global();
 
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 
-	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
-	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
-	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
-	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
-
 	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
 
 	// make sure there is a pdpt
 	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
 	uint64_t *pdpt_pointer;
 	if((pml4_initial_entry & kPagePresent) != 0) {
-		pdpt_pointer = (uint64_t *)window3.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
+		pdpt_pointer = (uint64_t *)region.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pdpt_page = SkeletalRegion::global().allocate();
 
-		pdpt_pointer = (uint64_t *)window3.access(pdpt_page);
+		pdpt_pointer = (uint64_t *)region.access(pdpt_page);
 		for(int i = 0; i < 512; i++)
 			pdpt_pointer[i] = 0;
 		
@@ -166,11 +124,11 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
 	uint64_t *pd_pointer;
 	if((pdpt_initial_entry & kPagePresent) != 0) {
-		pd_pointer = (uint64_t *)window2.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
+		pd_pointer = (uint64_t *)region.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pd_page = SkeletalRegion::global().allocate();
 
-		pd_pointer = (uint64_t *)window2.access(pd_page);
+		pd_pointer = (uint64_t *)region.access(pd_page);
 		for(int i = 0; i < 512; i++)
 			pd_pointer[i] = 0;
 		
@@ -186,11 +144,11 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	uint64_t pd_initial_entry = pd_pointer[pd_index];
 	uint64_t *pt_pointer;
 	if((pd_initial_entry & kPagePresent) != 0) {
-		pt_pointer = (uint64_t *)window1.access(pd_initial_entry & 0x000FFFFFFFFFF000);
+		pt_pointer = (uint64_t *)region.access(pd_initial_entry & 0x000FFFFFFFFFF000);
 	}else{
 		PhysicalAddr pt_page = SkeletalRegion::global().allocate();
 
-		pt_pointer = (uint64_t *)window1.access(pt_page);
+		pt_pointer = (uint64_t *)region.access(pt_page);
 		for(int i = 0; i < 512; i++)
 			pt_pointer[i] = 0;
 		
@@ -219,33 +177,30 @@ void PageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
+	auto &region = SkeletalRegion::global();
+
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
-
-	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
-	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
-	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
-	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
 	
 	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
 	assert((pml4_entry & kPagePresent) != 0);
-	uint64_t *pdpt_pointer = (uint64_t *)window3.access(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// find the pd entry
 	assert((pdpt_entry & kPagePresent) != 0);
-	uint64_t *pd_pointer = (uint64_t *)window2.access(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// find the pt entry
 	assert((pd_entry & kPagePresent) != 0);
-	uint64_t *pt_pointer = (uint64_t *)window1.access(pd_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// change the pt entry
 	assert((pt_pointer[pt_index] & kPagePresent) != 0);
@@ -259,36 +214,33 @@ PhysicalAddr PageSpace::unmapSingle4k(VirtualAddr pointer) {
 bool PageSpace::isMapped(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
+	auto &region = SkeletalRegion::global();
+
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
 	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
 	int pd_index = (int)((pointer >> 21) & 0x1FF);
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 
-	StatelessWindow window1(0xFFFF'FF80'0000'0000, 1, 0, 128);
-	StatelessWindow window2(0xFFFF'FF80'0000'0000, 1, 128, 64);
-	StatelessWindow window3(0xFFFF'FF80'0000'0000, 1, 192, 32);
-	StatelessWindow window4(0xFFFF'FF80'0000'0000, 1, 224, 32);
-	
 	// check the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)window4.access(p_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(p_pml4Address);
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// check the pdpt entry
 	if(!(pml4_entry & kPagePresent))
 		return false;
-	uint64_t *pdpt_pointer = (uint64_t *)window3.access(pml4_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
 	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
 	
 	// check the pd entry
 	if(!(pdpt_entry & kPagePresent))
 		return false;
-	uint64_t *pd_pointer = (uint64_t *)window2.access(pdpt_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
 	uint64_t pd_entry = pd_pointer[pd_index];
 	
 	// check the pt entry
 	if(!(pd_entry & kPagePresent))
 		return false;
-	uint64_t *pt_pointer = (uint64_t *)window1.access(pd_entry & 0x000FFFFFFFFFF000);
+	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
 	
 	// check the pt entry
 	if(!(pt_pointer[pt_index] & kPagePresent))
