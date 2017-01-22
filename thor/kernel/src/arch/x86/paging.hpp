@@ -108,7 +108,29 @@ public:
 	PhysicalAddr getPml4();
 
 private:
+	struct TableAccessor {
+		TableAccessor(ClientPageSpace *space)
+		: _space{space}, _tile{-1} { }
+
+		TableAccessor(const TableAccessor &) = delete;
+
+		~TableAccessor();
+
+		TableAccessor &operator= (const TableAccessor &) = delete;
+		
+		void aim(PhysicalAddr address);
+
+		uint64_t &operator[] (size_t n);
+
+	private:
+		ClientPageSpace *_space;
+		ptrdiff_t _tile;
+	};
+
 	PhysicalAddr _pml4Address;
+
+	void *_window;
+	bool _tileLocks[512];
 };
 
 extern "C" void thorRtInvalidatePage(void *pointer);

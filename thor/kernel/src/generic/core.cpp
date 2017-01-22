@@ -26,7 +26,7 @@ KernelVirtualMemory::KernelVirtualMemory() {
 	uintptr_t original_base = 0xFFFF'8000'0000'0000;
 	size_t original_size = 0x4000'0000;
 	
-	size_t fine_shift = kPageShift + 4, coarse_shift = kPageShift + 8;
+	size_t fine_shift = kPageShift + 4, coarse_shift = kPageShift + 9;
 	size_t overhead = frigg::BuddyAllocator::computeOverhead(original_size,
 			fine_shift, coarse_shift);
 	

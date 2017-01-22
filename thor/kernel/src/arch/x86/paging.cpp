@@ -232,23 +232,25 @@ PhysicalAddr KernelPageSpace::getPml4() {
 // --------------------------------------------------------
 
 ClientPageSpace::ClientPageSpace() {
-	//TODO: _pml4Address = physicalAllocator->allocate(kPageSize);
-	_pml4Address = SkeletalRegion::global().allocate();
+	_pml4Address = physicalAllocator->allocate(kPageSize);
+	_window = KernelVirtualMemory::global().allocate(0x200000);
+	for(size_t i = 0; i < 512; i++)
+		_tileLocks[i] = false;
 
 	// Initialize the bottom half to unmapped memory.
-	PageAccessor accessor{generalWindow, _pml4Address};
-	auto this_table = reinterpret_cast<uint64_t *>(accessor.get());
-	
-	for(int i = 0; i < 256; i++)
-		this_table[i] = 0;
+	TableAccessor accessor{this};
+	accessor.aim(_pml4Address);
+
+	for(size_t i = 0; i < 256; i++)
+		accessor[i] = 0;
 
 	// Share the top half with the kernel.
 	auto kernel_pml4 = KernelPageSpace::global().getPml4();
 	auto kernel_table = (uint64_t *)SkeletalRegion::global().access(kernel_pml4);
 
-	for(int i = 256; i < 512; i++) {
+	for(size_t i = 256; i < 512; i++) {
 		assert(kernel_table[i] & kPagePresent);
-		this_table[i] = kernel_table[i];
+		accessor[i] = kernel_table[i];
 	}
 }
 
@@ -265,78 +267,72 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 	
-	auto &region = SkeletalRegion::global();
+	TableAccessor accessor4{this};
+	TableAccessor accessor3{this};
+	TableAccessor accessor2{this};
+	TableAccessor accessor1{this};
 
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
+	int index4 = (int)((pointer >> 39) & 0x1FF);
+	int index3 = (int)((pointer >> 30) & 0x1FF);
+	int index2 = (int)((pointer >> 21) & 0x1FF);
+	int index1 = (int)((pointer >> 12) & 0x1FF);
 
-	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+	// The PML4 does always exist.
+	accessor4.aim(_pml4Address);
 
-	// make sure there is a pdpt
-	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
-	uint64_t *pdpt_pointer;
-	if((pml4_initial_entry & kPagePresent) != 0) {
-		pdpt_pointer = (uint64_t *)region.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
+	// Make sure there is a PDPT.
+	if(accessor4[index4] & kPagePresent) {
+		accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pdpt_page = SkeletalRegion::global().allocate();
-
-		pdpt_pointer = (uint64_t *)region.access(pdpt_page);
+		auto tbl_address = SkeletalRegion::global().allocate();
+		accessor3.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
-			pdpt_pointer[i] = 0;
+			accessor3[i] = 0;
 		
-		uint64_t new_entry = pdpt_page | kPagePresent | kPageWrite;
+		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		pml4_pointer[pml4_index] = new_entry;
+		accessor4[index4] = new_entry;
 	}
-	assert(user_page ? ((pml4_pointer[pml4_index] & kPageUser) != 0)
-			: ((pml4_pointer[pml4_index] & kPageUser) == 0));
+	assert(user_page ? ((accessor4[index4] & kPageUser) != 0)
+			: ((accessor4[index4] & kPageUser) == 0));
 	
-	// make sure there is a pd
-	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
-	uint64_t *pd_pointer;
-	if((pdpt_initial_entry & kPagePresent) != 0) {
-		pd_pointer = (uint64_t *)region.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
+	// Make sure there is a PD.
+	if(accessor3[index3] & kPagePresent) {
+		accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pd_page = SkeletalRegion::global().allocate();
-
-		pd_pointer = (uint64_t *)region.access(pd_page);
+		auto tbl_address = SkeletalRegion::global().allocate();
+		accessor2.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
-			pd_pointer[i] = 0;
+			accessor2[i] = 0;
 		
-		uint64_t new_entry = pd_page | kPagePresent | kPageWrite;
+		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		pdpt_pointer[pdpt_index] = new_entry;
+		accessor3[index3] = new_entry;
 	}
-	assert(user_page ? ((pdpt_pointer[pdpt_index] & kPageUser) != 0)
-			: ((pdpt_pointer[pdpt_index] & kPageUser) == 0));
+	assert(user_page ? ((accessor3[index3] & kPageUser) != 0)
+			: ((accessor3[index3] & kPageUser) == 0));
 	
-	// make sure there is a pt
-	uint64_t pd_initial_entry = pd_pointer[pd_index];
-	uint64_t *pt_pointer;
-	if((pd_initial_entry & kPagePresent) != 0) {
-		pt_pointer = (uint64_t *)region.access(pd_initial_entry & 0x000FFFFFFFFFF000);
+	// Make sure there is a PT.
+	if(accessor2[index2] & kPagePresent) {
+		accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	}else{
-		PhysicalAddr pt_page = SkeletalRegion::global().allocate();
-
-		pt_pointer = (uint64_t *)region.access(pt_page);
+		auto tbl_address = SkeletalRegion::global().allocate();
+		accessor1.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
-			pt_pointer[i] = 0;
+			accessor1[i] = 0;
 		
-		uint64_t new_entry = pt_page | kPagePresent | kPageWrite;
+		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		pd_pointer[pd_index] = new_entry;
+		accessor2[index2] = new_entry;
 	}
-	assert(user_page ? ((pd_pointer[pd_index] & kPageUser) != 0)
-			: ((pd_pointer[pd_index] & kPageUser) == 0));
+	assert(user_page ? ((accessor2[index2] & kPageUser) != 0)
+			: ((accessor2[index2] & kPageUser) == 0));
 
-	// setup the new pt entry
-	assert((pt_pointer[pt_index] & kPagePresent) == 0);
+	// Setup the new PTE.
+	assert(!(accessor1[index1] & kPagePresent));
 	uint64_t new_entry = physical | kPagePresent;
 	if(user_page)
 		new_entry |= kPageUser;
@@ -344,87 +340,110 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
-	pt_pointer[pt_index] = new_entry;
-
-	frigg::barrier();
+	accessor1[index1] = new_entry;
 }
 
 PhysicalAddr ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
-	assert((pointer % 0x1000) == 0);
+	assert(!(pointer & (kPageSize - 1)));
 
-	auto &region = SkeletalRegion::global();
+	TableAccessor accessor4{this};
+	TableAccessor accessor3{this};
+	TableAccessor accessor2{this};
+	TableAccessor accessor1{this};
 
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
+	int index4 = (int)((pointer >> 39) & 0x1FF);
+	int index3 = (int)((pointer >> 30) & 0x1FF);
+	int index2 = (int)((pointer >> 21) & 0x1FF);
+	int index1 = (int)((pointer >> 12) & 0x1FF);
 	
-	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
-	uint64_t pml4_entry = pml4_pointer[pml4_index];
+	// The PML4 is always present.
+	accessor4.aim(_pml4Address);
 
-	// find the pdpt entry
-	assert((pml4_entry & kPagePresent) != 0);
-	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
-	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	// Find the PDPT.
+	assert(accessor4[index4] & kPagePresent);
+	accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
 	
-	// find the pd entry
-	assert((pdpt_entry & kPagePresent) != 0);
-	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
-	uint64_t pd_entry = pd_pointer[pd_index];
+	// Find the PD.
+	assert(accessor3[index3] & kPagePresent);
+	accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
 	
-	// find the pt entry
-	assert((pd_entry & kPagePresent) != 0);
-	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
+	// Find the PT.
+	assert(accessor2[index2] & kPagePresent);
+	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	
-	// change the pt entry
-	assert((pt_pointer[pt_index] & kPagePresent) != 0);
-	pt_pointer[pt_index] ^= kPagePresent;
-
-	frigg::barrier();
-
-	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
+	assert(accessor1[index1] & kPagePresent);
+	accessor1[index1] &= ~uint64_t{kPagePresent};
+	return accessor1[index1] & 0x000FFFFFFFFFF000;
 }
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
-	assert((pointer % 0x1000) == 0);
+	assert(!(pointer & (kPageSize - 1)));
 
-	auto &region = SkeletalRegion::global();
+	TableAccessor accessor4{this};
+	TableAccessor accessor3{this};
+	TableAccessor accessor2{this};
+	TableAccessor accessor1{this};
 
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
-
-	// check the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
-	uint64_t pml4_entry = pml4_pointer[pml4_index];
-
-	// check the pdpt entry
-	if(!(pml4_entry & kPagePresent))
-		return false;
-	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
-	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
+	int index4 = (int)((pointer >> 39) & 0x1FF);
+	int index3 = (int)((pointer >> 30) & 0x1FF);
+	int index2 = (int)((pointer >> 21) & 0x1FF);
+	int index1 = (int)((pointer >> 12) & 0x1FF);
 	
-	// check the pd entry
-	if(!(pdpt_entry & kPagePresent))
+	// The PML4 is always present.
+	accessor4.aim(_pml4Address);
+
+	// Find the PDPT.
+	if(!(accessor4[index4] & kPagePresent))
 		return false;
-	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
-	uint64_t pd_entry = pd_pointer[pd_index];
+	accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
 	
-	// check the pt entry
-	if(!(pd_entry & kPagePresent))
+	// Find the PD.
+	if(!(accessor3[index3] & kPagePresent))
 		return false;
-	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
+	accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
 	
-	// check the pt entry
-	if(!(pt_pointer[pt_index] & kPagePresent))
+	// Find the PT.
+	if(!(accessor2[index2] & kPagePresent))
 		return false;
-	return true;
+	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
+	
+	return accessor1[index1] & kPagePresent;
 }
 
 PhysicalAddr ClientPageSpace::getPml4() {
 	return _pml4Address;
+}
+
+ClientPageSpace::TableAccessor::~TableAccessor() {
+	if(_tile == -1)
+		return;
+	
+	_space->_tileLocks[_tile] = false;
+	// TODO: This is not really necessary; we could do a remap instead.
+	KernelPageSpace::global().unmapSingle4k(reinterpret_cast<VirtualAddr>(_space->_window)
+			+ _tile * kPageSize);
+}
+
+void ClientPageSpace::TableAccessor::aim(PhysicalAddr address) {
+	for(size_t i = 0; i < 512; ++i) {
+		if(_space->_tileLocks[i])
+			continue;
+
+		_tile = i;
+		_space->_tileLocks[_tile] = true;
+		auto ptr = reinterpret_cast<VirtualAddr>(_space->_window) + _tile * kPageSize;
+		KernelPageSpace::global().mapSingle4k(ptr, address, page_access::write);
+		invlpg(reinterpret_cast<void *>(ptr));
+		return;
+	}
+
+	assert(!"Fix this");
+}
+
+uint64_t &ClientPageSpace::TableAccessor::operator[] (size_t n) {
+	assert(_tile != -1);
+	return reinterpret_cast<uint64_t *>(reinterpret_cast<VirtualAddr>(_space->_window)
+			+ _tile * kPageSize)[n];
 }
 
 void thorRtInvalidateSpace() {
