@@ -10,6 +10,7 @@ parser.add_argument('--protoc', required=True)
 parser.add_argument('--host-cxx', required=True)
 parser.add_argument('--host-cppflags', required=True)
 parser.add_argument('--host-ldflags', required=True)
+parser.add_argument('--cxxshim', required=True)
 parser.add_argument('--frigg', required=True)
 parser.add_argument('--acpica', required=True)
 
@@ -24,6 +25,7 @@ make_cfg = {
 	"HOST_CXX": args.host_cxx,
 	"HOST_CPPFLAGS": args.host_cppflags,
 	"HOST_LDFLAGS": args.host_ldflags,
+	"CXXSHIM": args.cxxshim,
 	"FRIGG": args.frigg,
 	"ACPICA": args.acpica
 }

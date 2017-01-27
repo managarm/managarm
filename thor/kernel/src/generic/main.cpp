@@ -244,6 +244,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	kernelVirtualAlloc.initialize();
 	kernelAlloc.initialize(*kernelVirtualAlloc);
 
+	initializePhysicalAccess();
+
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
 	for(int i = 0; i < 16; i++)

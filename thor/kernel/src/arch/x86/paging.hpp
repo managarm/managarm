@@ -1,6 +1,8 @@
 
 namespace thor {
 
+void initializePhysicalAccess();
+
 enum {
 	kPageSize = 0x1000,
 	kPageShift = 12
@@ -61,6 +63,16 @@ private:
 
 extern PhysicalWindow generalWindow;
 
+namespace page_mode {
+	static constexpr uint32_t remap = 1;
+}
+
+enum class PageMode {
+	null,
+	normal,
+	remap
+};
+
 namespace page_access {
 	static constexpr uint32_t write = 1;
 	static constexpr uint32_t execute = 2;
@@ -101,33 +113,11 @@ public:
 	void activate();
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
-	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
+	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
 
 private:
-	struct TableAccessor {
-		TableAccessor(ClientPageSpace *space)
-		: _space{space}, _tile{-1} { }
-
-		TableAccessor(const TableAccessor &) = delete;
-
-		~TableAccessor();
-
-		TableAccessor &operator= (const TableAccessor &) = delete;
-		
-		void aim(PhysicalAddr address);
-
-		uint64_t &operator[] (size_t n);
-
-	private:
-		ClientPageSpace *_space;
-		ptrdiff_t _tile;
-	};
-
 	PhysicalAddr _pml4Address;
-
-	void *_window;
-	bool _tileLocks[512];
 };
 
 extern "C" void thorRtInvalidatePage(void *pointer);

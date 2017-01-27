@@ -1,5 +1,213 @@
 
+#include <frg/list.hpp>
 #include "generic/kernel.hpp"
+
+// --------------------------------------------------------
+// Physical page access.
+// --------------------------------------------------------
+
+namespace thor {
+
+void invlpg(const void *address) {
+	auto p = reinterpret_cast<const char *>(address);
+	asm volatile ("invlpg %0" : : "m"(*p));
+}
+
+struct PWindow {
+private:
+	struct Item {
+		explicit Item(VirtualAddr address)
+		: address{address}, numLocks{0} { }
+
+		Item(const Item &) = delete;
+
+		~Item() = delete; // TODO: This is not really intended.
+
+		Item &operator= (const Item &) = delete;
+
+		// Virtual address of this mapping.
+		const VirtualAddr address;
+
+		// Current physical access.
+		PhysicalAddr physical;
+
+		// Number of locks on this mapping.
+		unsigned int numLocks;
+
+		frg::default_list_hook<Item> queueHook;
+	};
+
+public:
+	struct Handle {
+		friend void swap(Handle &a, Handle &b) {
+			using frigg::swap;
+			swap(a._window, b._window);
+			swap(a._item, b._item);
+		}
+
+		Handle()
+		: _window{nullptr}, _item{nullptr} { }
+
+		explicit Handle(PWindow &window, PhysicalAddr physical)
+		: _window{&window}, _item{nullptr} {
+			_item = _window->_acquire(physical);
+		}
+
+		Handle(const Handle &) = delete;
+
+		Handle(Handle &&other)
+		: Handle{} {
+			swap(*this, other);
+		}
+
+		~Handle() {
+			if(_item)
+				_window->_release(_item);
+		}
+
+		Handle &operator= (Handle other) {
+			swap(*this, other);
+			return *this;
+		}
+
+		void *get() {
+			assert(_item);
+			return reinterpret_cast<void *>(_item->address);
+		}
+
+	private:
+		PWindow *_window;
+		Item *_item;
+	};
+
+	PWindow()
+	: _numItems{0}, _numReclaimable{0}, _activeMap{frigg::DefaultHasher<VirtualAddr>{}, *kernelAlloc} { }
+
+	void attach(VirtualAddr address) {
+		auto item = frigg::construct<Item>(*kernelAlloc, address);
+		_itemPool.push_front(item);
+		_numItems++;
+	}
+
+private:
+	Item *_acquire(PhysicalAddr physical) {
+		auto it = _activeMap.get(physical);
+		if(it) {
+			auto item = *it;
+
+			// Remove the item from the list of reclaimable items.
+			if(item->numLocks++ == 0) {
+				_reclaimQueue.erase(_reclaimQueue.iterator_to(item));
+				_numReclaimable--;
+			}
+
+			return item;
+		}else{
+			assert(!_itemPool.empty());
+
+			auto item = _itemPool.pop_front();
+			item->physical = physical;
+			item->numLocks = 1;
+			_activeMap.insert(physical, item);
+	
+			KernelPageSpace::global().mapSingle4k(item->address, physical, page_access::write);
+			
+			return item;
+		}
+	}
+
+	void _release(Item *item) {
+		assert(item->numLocks);
+
+		// Re-insert the item into the list of reclaimable items.
+		if(--item->numLocks == 0) {
+			_reclaimQueue.push_front(item);
+			_numReclaimable++;
+		}
+
+		_reclaim();
+	}
+
+	void _reclaim() {
+		assert(_numItems);
+		while(2 * _numReclaimable >= _numItems) {
+//			frigg::infoLogger() << "\e[31mReclaiming\e[39m" << frigg::endLog;
+			auto item = _reclaimQueue.pop_back();
+			_numReclaimable--;
+			
+			// Strategy: We have to performs the following actions:
+			// - We deactive the item so that no once will lock it.
+			// - We shoot down the mapping.
+			// - We mark the item as re-usable.
+			assert(!item->numLocks);
+			_activeMap.remove(item->physical);
+
+			KernelPageSpace::global().unmapSingle4k(item->address);
+			invlpg(reinterpret_cast<void *>(item->address));
+
+			_itemPool.push_front(item);
+		}
+	}
+
+	size_t _numItems;
+
+	// Number of items that can be reclaimed (i.e. they are not locked).
+	size_t _numReclaimable;
+
+	// This list stores all mappings that are currently not in use.
+	frg::intrusive_list<
+		Item,
+		frg::locate_member<
+			Item,
+			frg::default_list_hook<Item>,
+			&Item::queueHook
+		>
+	> _itemPool;
+
+	frigg::Hashmap<
+		PhysicalAddr,
+		Item *,
+		frigg::DefaultHasher<PhysicalAddr>,
+		KernelAlloc
+	> _activeMap;
+
+	// Stores a LRU queue of all reclaimable mappings.
+	frg::intrusive_list<
+		Item,
+		frg::locate_member<
+			Item,
+			frg::default_list_hook<Item>,
+			&Item::queueHook
+		>
+	> _reclaimQueue;
+};
+
+frigg::LazyInitializer<PWindow> physicalWindow;
+
+void initializePhysicalAccess() {
+	physicalWindow.initialize();
+
+	for(size_t progress = 0; progress < 0x200000; progress += kPageSize)
+		physicalWindow->attach(0xFFFF'FF80'0060'0000 + progress);
+}
+
+struct PAccessor {
+	PAccessor() = default;
+
+	explicit PAccessor(PhysicalAddr physical)
+	: _handle{*physicalWindow, physical} { }
+
+	void *get() {
+		return _handle.get();
+	}
+
+private:
+	PWindow::Handle _handle;
+};
+
+} // namespace thor
+
+// --------------------------------------------------------
 
 enum {
 	kPagePresent = 0x1,
@@ -9,11 +217,6 @@ enum {
 };
 
 namespace thor {
-
-void invlpg(const void *address) {
-	auto p = reinterpret_cast<const char *>(address);
-	asm volatile ("invlpg %0" : : "m"(*p));
-}
 
 constexpr PhysicalWindow::PhysicalWindow(uint64_t *table, void *content)
 : _table{table}, _content{content}, _locked{} { }
@@ -189,14 +392,30 @@ PhysicalAddr KernelPageSpace::getPml4() {
 // ClientPageSpace
 // --------------------------------------------------------
 
+struct TableAccessor {
+	TableAccessor() = default;
+
+	TableAccessor(const TableAccessor &) = delete;
+
+	TableAccessor &operator= (const TableAccessor &) = delete;
+	
+	void aim(PhysicalAddr address) {
+		_accessor = PAccessor{address};
+	}
+
+	uint64_t &operator[] (size_t n) {
+		return static_cast<uint64_t *>(_accessor.get())[n];
+	}
+
+private:
+	PAccessor _accessor;
+};
+
 ClientPageSpace::ClientPageSpace() {
 	_pml4Address = physicalAllocator->allocate(kPageSize);
-	_window = KernelVirtualMemory::global().allocate(0x200000);
-	for(size_t i = 0; i < 512; i++)
-		_tileLocks[i] = false;
 
 	// Initialize the bottom half to unmapped memory.
-	TableAccessor accessor{this};
+	TableAccessor accessor;
 	accessor.aim(_pml4Address);
 
 	for(size_t i = 0; i < 256; i++)
@@ -225,10 +444,10 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 	
-	TableAccessor accessor4{this};
-	TableAccessor accessor3{this};
-	TableAccessor accessor2{this};
-	TableAccessor accessor1{this};
+	TableAccessor accessor4;
+	TableAccessor accessor3;
+	TableAccessor accessor2;
+	TableAccessor accessor1;
 
 	auto index4 = (int)((pointer >> 39) & 0x1FF);
 	auto index3 = (int)((pointer >> 30) & 0x1FF);
@@ -301,46 +520,56 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	accessor1[index1] = new_entry;
 }
 
-PhysicalAddr ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
+void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode) {
 	assert(!(pointer & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
 
-	TableAccessor accessor4{this};
-	TableAccessor accessor3{this};
-	TableAccessor accessor2{this};
-	TableAccessor accessor1{this};
+	TableAccessor accessor4;
+	TableAccessor accessor3;
+	TableAccessor accessor2;
+	TableAccessor accessor1;
 
-	auto index4 = (int)((pointer >> 39) & 0x1FF);
-	auto index3 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index1 = (int)((pointer >> 12) & 0x1FF);
-	
-	// The PML4 is always present.
-	accessor4.aim(_pml4Address);
+	for(size_t progress = 0; progress < size; progress += kPageSize) {
+		auto index4 = (int)(((pointer + progress) >> 39) & 0x1FF);
+		auto index3 = (int)(((pointer + progress) >> 30) & 0x1FF);
+		auto index2 = (int)(((pointer + progress) >> 21) & 0x1FF);
+		auto index1 = (int)(((pointer + progress) >> 12) & 0x1FF);
+		
+		// The PML4 is always present.
+		accessor4.aim(_pml4Address);
 
-	// Find the PDPT.
-	assert(accessor4[index4] & kPagePresent);
-	accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
-	
-	// Find the PD.
-	assert(accessor3[index3] & kPagePresent);
-	accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
-	
-	// Find the PT.
-	assert(accessor2[index2] & kPagePresent);
-	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
-	
-	assert(accessor1[index1] & kPagePresent);
-	accessor1[index1] &= ~uint64_t{kPagePresent};
-	return accessor1[index1] & 0x000FFFFFFFFFF000;
+		// Find the PDPT.
+		if(mode == PageMode::remap && !(accessor4[index4] & kPagePresent))
+			continue;
+		assert(accessor4[index4] & kPagePresent);
+		accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
+		
+		// Find the PD.
+		if(mode == PageMode::remap && !(accessor3[index3] & kPagePresent))
+			continue;
+		assert(accessor3[index3] & kPagePresent);
+		accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
+		
+		// Find the PT.
+		if(mode == PageMode::remap && !(accessor2[index2] & kPagePresent))
+			continue;
+		assert(accessor2[index2] & kPagePresent);
+		accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
+		
+		if(mode == PageMode::remap && !(accessor1[index1] & kPagePresent))
+			continue;
+		assert(accessor1[index1] & kPagePresent);
+		accessor1[index1] &= ~uint64_t{kPagePresent};
+	}
 }
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	TableAccessor accessor4{this};
-	TableAccessor accessor3{this};
-	TableAccessor accessor2{this};
-	TableAccessor accessor1{this};
+	TableAccessor accessor4;
+	TableAccessor accessor3;
+	TableAccessor accessor2;
+	TableAccessor accessor1;
 
 	auto index4 = (int)((pointer >> 39) & 0x1FF);
 	auto index3 = (int)((pointer >> 30) & 0x1FF);
@@ -366,38 +595,6 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	
 	return accessor1[index1] & kPagePresent;
-}
-
-ClientPageSpace::TableAccessor::~TableAccessor() {
-	if(_tile == -1)
-		return;
-	
-	_space->_tileLocks[_tile] = false;
-	// TODO: This is not really necessary; we could do a remap instead.
-	KernelPageSpace::global().unmapSingle4k(reinterpret_cast<VirtualAddr>(_space->_window)
-			+ _tile * kPageSize);
-}
-
-void ClientPageSpace::TableAccessor::aim(PhysicalAddr address) {
-	for(size_t i = 0; i < 512; ++i) {
-		if(_space->_tileLocks[i])
-			continue;
-
-		_tile = i;
-		_space->_tileLocks[_tile] = true;
-		auto ptr = reinterpret_cast<VirtualAddr>(_space->_window) + _tile * kPageSize;
-		KernelPageSpace::global().mapSingle4k(ptr, address, page_access::write);
-		invlpg(reinterpret_cast<void *>(ptr));
-		return;
-	}
-
-	assert(!"Fix this");
-}
-
-uint64_t &ClientPageSpace::TableAccessor::operator[] (size_t n) {
-	assert(_tile != -1);
-	return reinterpret_cast<uint64_t *>(reinterpret_cast<VirtualAddr>(_space->_window)
-			+ _tile * kPageSize)[n];
 }
 
 void thorRtInvalidateSpace() {

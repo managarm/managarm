@@ -682,7 +682,7 @@ void NormalMapping::install(bool overwrite) {
 
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
-			owner()->_pageSpace.unmapSingle4k(vaddr);
+			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
@@ -695,11 +695,7 @@ void NormalMapping::uninstall(bool clear) {
 	if(!clear)
 		return;
 
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		VirtualAddr vaddr = address() + progress;
-		if(owner()->_pageSpace.isMapped(vaddr))
-			owner()->_pageSpace.unmapSingle4k(vaddr);
-	}
+	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
 PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
@@ -775,7 +771,7 @@ void CowMapping::install(bool overwrite) {
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
-			owner()->_pageSpace.unmapSingle4k(vaddr);
+			owner()->_pageSpace.unmapRange(vaddr, kPageSize, PageMode::normal);
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
@@ -786,11 +782,7 @@ void CowMapping::uninstall(bool clear) {
 	if(!clear)
 		return;
 
-	for(size_t progress = 0; progress < length(); progress += kPageSize) {
-		VirtualAddr vaddr = address() + progress;
-		if(owner()->_pageSpace.isMapped(vaddr))
-			owner()->_pageSpace.unmapSingle4k(vaddr);
-	}
+	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
 PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
