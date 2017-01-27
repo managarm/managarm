@@ -1,4 +1,14 @@
 
+#ifndef EHCI_SPEC_HPP
+#define EHCI_SPEC_HPP
+
+#include <arch/register.hpp>
+#include <arch/variable.hpp>
+
+//-------------------------------------------------
+// registers
+//-------------------------------------------------
+
 namespace op_regs {
 	arch::bit_register<uint32_t> usbcmd(0);
 	arch::bit_register<uint32_t> usbsts(0x04);
@@ -53,22 +63,126 @@ namespace portsc {
 	arch::field<uint32_t, bool> portOwner(13, 1);
 }
 
+//-------------------------------------------------
+// QueueHead
+//-------------------------------------------------
+
+namespace qh_horizontal {
+	arch::field<uint32_t, bool> terminate(0, 1);
+	arch::field<uint32_t, uint8_t> typeSelect(1, 2);
+	arch::field<uint32_t, uint32_t> horizontalPtr(0, 32);
+}
+
+namespace qh_flags {
+	arch::field<uint32_t, uint8_t> deviceAddr(0, 7);
+	arch::field<uint32_t, bool> inactivate(7, 1);
+	arch::field<uint32_t, uint8_t> endpointNumber(8, 4);
+	arch::field<uint32_t, uint8_t> endpointSpeed(12, 2);
+	arch::field<uint32_t, bool> dataToggleCtrl(14, 1);
+	arch::field<uint32_t, bool> reclaimHead(15, 1);
+	arch::field<uint32_t, uint8_t> maxPacketLength(16, 10);
+	arch::field<uint32_t, bool> controlEndpointFlag(27, 1);
+	arch::field<uint32_t, uint8_t> nakReload(28, 4);
+}
+
+namespace qh_mask {
+	arch::field<uint32_t, uint16_t> interruptScheduleMask(0, 8);
+	arch::field<uint32_t, uint16_t> multiplier(30, 2);
+}
+
+namespace qh_curTd {
+	arch::field<uint32_t, uint32_t> curTd(0, 32);
+}
+
+namespace qh_nextTd {
+	arch::field<uint32_t, bool> terminate(0, 1);
+	arch::field<uint32_t, uint32_t> nextTd(0, 32);
+}
+
+namespace qh_altTd {
+	arch::field<uint32_t, bool> terminate(0, 1);
+	arch::field<uint32_t, uint8_t> nakCounter(1, 4);
+	arch::field<uint32_t, uint32_t> altTd(0, 32);
+}
+
+namespace qh_status {
+	arch::field<uint32_t, bool> pingError(0, 1);
+	arch::field<uint32_t, bool> splitXState(1, 1);
+	arch::field<uint32_t, bool> missedFrame(2, 1);
+	arch::field<uint32_t, bool> transactionError(3, 1);
+	arch::field<uint32_t, bool> babbleDetected(4, 1);
+	arch::field<uint32_t, bool> dataBufferError(5, 1);
+	arch::field<uint32_t, bool> halted(6, 1);
+	arch::field<uint32_t, bool> active(7, 1);
+	arch::field<uint32_t, uint8_t> pidCode(8, 2);
+	arch::field<uint32_t, uint8_t> errorCounter(10, 2);
+	arch::field<uint32_t, uint8_t> cPage(12, 3);
+	arch::field<uint32_t, bool> interruptOnComplete(15, 1);
+	arch::field<uint32_t, uint16_t> totalBytes(16, 15);
+	arch::field<uint32_t, bool> dataToggle(31, 1);
+}
+
+namespace qh_buffer {
+	arch::field<uint32_t, uint16_t> curOffset(0, 12);
+	arch::field<uint32_t, uint32_t> bufferPtr(0, 32);
+}
+
 struct QueueHead {
-	uint32_t queueHeadHLPointer;
-	uint8_t deviceAddress;
-	uint8_t endPoint;
-	uint16_t maxPacketLen;
-	uint8_t sMask;
-	uint8_t cMask;
-	uint16_t hubAddr;
-	uint32_t currentTd;
-	uint32_t nextTd;
-	uint32_t alternateNextTd;
-	uint32_t totalBytes;
-	uint32_t bufferPtr0;
-	uint32_t bufferPtr1;
-	uint32_t bufferPtr2;
-	uint32_t bufferPtr3;
-	uint32_t bufferPtr4;
+	arch::bit_variable<uint32_t> horizontalPtr;
+	arch::bit_variable<uint32_t> flags;
+	arch::bit_variable<uint32_t> mask;
+	arch::bit_variable<uint32_t> curTd;
+	arch::bit_variable<uint32_t> nextTd;
+	arch::bit_variable<uint32_t> altTd;
+	arch::bit_variable<uint32_t> status;
+	arch::bit_variable<uint32_t> bufferPtr0;
+	arch::bit_variable<uint32_t> bufferPtr1;
+	arch::bit_variable<uint32_t> bufferPtr2;
+	arch::bit_variable<uint32_t> bufferPtr3;
+	arch::bit_variable<uint32_t> bufferPtr4;
 };
+
+//-------------------------------------------------
+// TransferDescriptor
+//-------------------------------------------------
+
+namespace td_ptr {
+	arch::field<uint32_t, bool> terminate(0, 1);
+	arch::field<uint32_t, uint32_t> ptr(0, 32);
+}
+
+namespace td_status {
+	arch::field<uint32_t, bool> pingError(0, 1);
+	arch::field<uint32_t, bool> splitXState(1, 1);
+	arch::field<uint32_t, bool> missedFrame(2, 1);
+	arch::field<uint32_t, bool> transactionError(3, 1);
+	arch::field<uint32_t, bool> babbleDetected(4, 1);
+	arch::field<uint32_t, bool> dataBufferError(5, 1);
+	arch::field<uint32_t, bool> halted(6, 1);
+	arch::field<uint32_t, bool> active(7, 1);
+	arch::field<uint32_t, uint8_t> pidCode(8, 2);
+	arch::field<uint32_t, uint8_t> errorCounter(10, 2);
+	arch::field<uint32_t, uint8_t> cPage(12, 3);
+	arch::field<uint32_t, bool> interruptOnComplete(15, 1);
+	arch::field<uint32_t, uint16_t> totalBytes(16, 15);
+	arch::field<uint32_t, bool> dataToggle(31, 1);
+}
+
+namespace td_buffer {
+	arch::field<uint32_t, uint16_t> curOffset(0, 12);
+	arch::field<uint32_t, uint32_t> bufferPtr(0, 32);
+}
+
+struct TransferDescriptor {
+	arch::bit_variable<uint32_t> nextTd;
+	arch::bit_variable<uint32_t> altTd;
+	arch::bit_variable<uint32_t> status;
+	arch::bit_variable<uint32_t> bufferPtr0;
+	arch::bit_variable<uint32_t> bufferPtr1;
+	arch::bit_variable<uint32_t> bufferPtr2;
+	arch::bit_variable<uint32_t> bufferPtr3;
+	arch::bit_variable<uint32_t> bufferPtr4;
+};
+
+#endif // EHCI_SPEC_HPP
 
