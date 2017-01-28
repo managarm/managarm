@@ -38,6 +38,7 @@ typedef uint64_t VirtualOffset;
 #include "arch/x86/hpet.hpp"
 #include "arch/x86/system.hpp"
 
+#include "kernel_heap.hpp"
 #include "core.hpp"
 #include "schedule.hpp"
 

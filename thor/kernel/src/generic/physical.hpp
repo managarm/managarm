@@ -53,5 +53,7 @@ private:
 	size_t _freePages;
 };
 
+extern frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
+
 } // namespace thor
 
