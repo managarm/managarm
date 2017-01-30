@@ -3,62 +3,104 @@
 
 namespace thor {
 
-frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
-frigg::LazyInitializer<ScheduleLock> scheduleLock;
+ScheduleEntity::ScheduleEntity()
+: state{ScheduleState::null} { }
+
+ScheduleEntity::~ScheduleEntity() {
+	assert(state == ScheduleState::null);
+}
+
+Scheduler::Scheduler()
+: _current{nullptr} { }
+
+void Scheduler::attach(ScheduleEntity *entity) {
+	assert(entity->state == ScheduleState::null);
+	entity->state = ScheduleState::attached;
+}
+
+void Scheduler::resume(ScheduleEntity *entity) {
+//	frigg::infoLogger() << "resume " << entity << frigg::endLog;
+	assert(entity->state == ScheduleState::attached);
+	entity->state = ScheduleState::active;
+	_waitQueue.push_back(entity);
+}
+
+void Scheduler::suspend(ScheduleEntity *entity) {
+//	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
+	assert(entity->state == ScheduleState::active);
+	if(entity != _current)
+		_waitQueue.erase(_waitQueue.iterator_to(entity));
+	entity->state = ScheduleState::attached;
+}
+
+bool Scheduler::wantSchedule() {
+	assert(!"Implement this");
+}
+
+void Scheduler::reschedule() {
+	if(_current && _current->state == ScheduleState::active) {
+		_waitQueue.push_back(_current);
+		_current = nullptr;
+	}
+
+	assert(!_waitQueue.empty());
+	auto entity = _waitQueue.pop_front();
+	assert(entity->state == ScheduleState::active);
+	_current = entity;
+	entity->invoke();
+
+	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
+	__builtin_unreachable();
+}
+
+frigg::LazyInitializer<Scheduler> schedulerSingleton;
+
+Scheduler &globalScheduler() {
+	if(!schedulerSingleton)
+		schedulerSingleton.initialize();
+	return *schedulerSingleton;
+}
+
+// ----------------------------------------------------------------------------
+
+void WorkQueue::post(Tasklet *tasklet) {
+	if(_queue.empty())
+		globalScheduler().resume(this);
+
+	_queue.push_back(tasklet);
+}
+
+void WorkQueue::invoke() {
+	while(!_queue.empty()) {
+		auto tasklet = _queue.pop_front();
+
+		// We suspend the WorkQueue before invoking the tasklet. This way we do not call
+		// resume() before suspend() if the last tasklet inserts another tasklet to this queue.
+		if(_queue.empty())
+			globalScheduler().suspend(this);
+
+		tasklet->run();
+	}
+
+	// Note that we are currently running in the schedule context. Thus runDetached() trashes
+	// our own stack. We need to be careful not to access it in the callback.
+	runDetached([] {
+		globalScheduler().reschedule();
+	});
+}
+
+frigg::LazyInitializer<WorkQueue> workQueueSingleton;
+
+WorkQueue &globalWorkQueue() {
+	if(!workQueueSingleton) {
+		workQueueSingleton.initialize();
+		globalScheduler().attach(workQueueSingleton.get());
+	}
+	return *workQueueSingleton;
+}
 
 KernelUnsafePtr<Thread> getCurrentThread() {
 	return activeExecutor();
-}
-
-void doSchedule(ScheduleGuard guard) {
-	assert(!intsAreEnabled());
-	assert(guard.protects(scheduleLock.get()));
-
-	// TODO: assert that we are called from a per-cpu stack
-	// and that no executor is currently active.
-
-	// TODO: this should be replaced by a proper "reschedule after IRQ" strategy
-	while(scheduleQueue->empty()) {
-		guard.unlock();
-		enableInts();
-
-		// TODO: we cannot halt() here because if an interrupt we are awaiting
-		// happens before we halt() the halt might never terminate.
-		//halt();
-
-		disableInts();
-		guard.lock();
-	}
-
-	KernelUnsafePtr<Thread> thread = scheduleQueue->removeFront();
-	guard.unlock();
-
-	Thread::activateOther(thread);
-	thread->getAddressSpace()->activate();
-	switchContext(&thread->getContext());
-	switchExecutor(thread);
-	restoreExecutor();
-}
-
-// FIXME: this function should get a parameter of type IrqImagePtr
-extern "C" void onPreemption() {
-	assert(!"Fix preemption");
-/*	acknowledgePreemption();
-	
-	KernelUnsafePtr<Thread> thread = getCurrentThread();
-	resetCurrentThread(state);
-	
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	if((thread->flags & Thread::kFlagNotScheduled) == 0)
-		enqueueInSchedule(schedule_guard, thread);
-	doSchedule(frigg::move(schedule_guard));*/
-}
-
-void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread) {
-	assert(!intsAreEnabled());
-	assert(guard.protects(scheduleLock.get()));
-
-	scheduleQueue->addBack(thread);
 }
 
 } // namespace thor

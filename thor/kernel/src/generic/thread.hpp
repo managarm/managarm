@@ -16,12 +16,17 @@ struct Thread;
 
 KernelUnsafePtr<Thread> getCurrentThread();
 
-struct Thread : public PlatformExecutor {
+struct Thread : PlatformExecutor, ScheduleEntity {
 private:
-	struct ObserveBase {
+	struct ObserveBase : Tasklet {
+		void run() override;
+
+		Error error;
+		Interrupt interrupt;
+
 		virtual void trigger(Error error, Interrupt interrupt) = 0;
 
-		frigg::IntrusiveSharedLinkedItem<ObserveBase> hook;
+		frg::default_list_hook<ObserveBase> hook;
 	};
 
 	template<typename F>
@@ -110,9 +115,14 @@ public:
 
 	template<typename F>
 	void submitObserve(F functor) {
-		auto observe = frigg::makeShared<Observe<F>>(*kernelAlloc, frigg::move(functor));
-		_observeQueue.addBack(frigg::move(observe));
+		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
+		_observeQueue.push_back(observe);
 	}
+
+	[[ noreturn ]] void invoke() override;
+
+	// TODO: Tidy this up.
+	frigg::UnsafePtr<Thread> self;
 
 	uint32_t flags;
 
@@ -168,9 +178,13 @@ private:
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;
 
-	frigg::IntrusiveSharedLinkedList<
+	frg::intrusive_list<
 		ObserveBase,
-		&ObserveBase::hook
+		frg::locate_member<
+			ObserveBase,
+			frg::default_list_hook<ObserveBase>,
+			&ObserveBase::hook
+		>
 	> _observeQueue;
 };
 

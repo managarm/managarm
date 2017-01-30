@@ -1,22 +1,89 @@
 
+#include <frg/list.hpp>
+
 namespace thor {
 
-typedef frigg::TicketLock ScheduleLock;
-typedef frigg::LockGuard<ScheduleLock> ScheduleGuard;
+enum class ScheduleState {
+	null,
+	attached,
+	active
+};
 
-typedef frigg::LinkedList<KernelUnsafePtr<Thread>, KernelAlloc> ScheduleQueue;
-extern frigg::LazyInitializer<ScheduleQueue> scheduleQueue;
+struct ScheduleEntity {
+	ScheduleEntity();
 
-extern frigg::LazyInitializer<ScheduleLock> scheduleLock;
+	ScheduleEntity(const ScheduleEntity &) = delete;
 
-// selects an active thread and enters it on this processor
-// must only be called if enterThread() would also be allowed
-void doSchedule(ScheduleGuard guard) __attribute__ (( noreturn ));
+	~ScheduleEntity();
+	
+	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
 
-void enqueueInSchedule(ScheduleGuard &guard, KernelUnsafePtr<Thread> thread);
+	[[ noreturn ]] virtual void invoke() = 0;
 
-// FIXME: do we still use this?
-void idleRoutine();
+	ScheduleState state;
+
+	frg::default_list_hook<ScheduleEntity> hook;
+};
+
+struct Scheduler {
+	Scheduler();
+
+	Scheduler(const Scheduler &) = delete;
+
+	~Scheduler() = delete;
+	
+	Scheduler &operator= (const Scheduler &) = delete;
+
+	void attach(ScheduleEntity *entity);
+
+	void resume(ScheduleEntity *entity);
+
+	void suspend(ScheduleEntity *entity);
+
+	bool wantSchedule();
+
+	[[ noreturn ]] void reschedule();
+
+private:
+	ScheduleEntity *_current;
+
+	frg::intrusive_list<
+		ScheduleEntity,
+		frg::locate_member<
+			ScheduleEntity,
+			frg::default_list_hook<ScheduleEntity>,
+			&ScheduleEntity::hook
+		>
+	> _waitQueue;
+};
+
+// ----------------------------------------------------------------------------
+
+struct Tasklet {
+	virtual void run();
+
+	frg::default_list_hook<Tasklet> hook;
+};
+
+struct WorkQueue : ScheduleEntity {
+	void post(Tasklet *tasklet);
+
+	void invoke() override;
+
+private:
+	frg::intrusive_list<
+		Tasklet,
+		frg::locate_member<
+			Tasklet,
+			frg::default_list_hook<Tasklet>,
+			&Tasklet::hook
+		>
+	> _queue;
+};
+
+WorkQueue &globalWorkQueue();
+
+Scheduler &globalScheduler();
 
 } // namespace thor
 

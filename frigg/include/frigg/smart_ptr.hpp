@@ -118,6 +118,10 @@ struct SharedControl {
 	SharedControl(SharedCounter *counter)
 	: _counter(counter) { }
 
+	bool operator== (const SharedControl &other) {
+		return _counter == other._counter;
+	}
+
 	explicit operator bool() const {
 		return _counter;
 	}
@@ -363,6 +367,9 @@ class UnsafePtr {
 public:
 	UnsafePtr()
 	: _control(nullptr), _object(nullptr) { }
+
+	UnsafePtr(decltype(nullptr))
+	: UnsafePtr() { }
 	
 	template<typename U, typename = EnableIfT<IsConvertible<U *, T *>::value>>
 	UnsafePtr(const SharedPtr<U, Control> &shared)
@@ -389,6 +396,14 @@ public:
 		assert(_control);
 		_control.incrementWeak();
 		return WeakPtr<T, Control>(_control, _object);
+	}
+
+	bool operator== (UnsafePtr<T, Control> other) {
+		return _control == other._control
+				&& _object == other._object;
+	}
+	bool operator!= (UnsafePtr<T, Control> other) {
+		return !(*this == other);
 	}
 
 	explicit operator bool () {

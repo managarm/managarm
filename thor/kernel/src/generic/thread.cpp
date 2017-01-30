@@ -3,6 +3,10 @@
 
 namespace thor {
 
+void Thread::ObserveBase::run() {
+	trigger(error, interrupt);
+}
+
 // --------------------------------------------------------
 // Thread
 // --------------------------------------------------------
@@ -14,12 +18,9 @@ void Thread::deferCurrent() {
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
-		ScheduleGuard schedule_lock(scheduleLock.get());
-		enqueueInSchedule(schedule_lock, this_thread);
-		
-		runDetached([] (ScheduleGuard schedule_lock) {
-			doSchedule(frigg::move(schedule_lock));
-		}, frigg::move(schedule_lock));
+		runDetached([] {
+			globalScheduler().reschedule();
+		});
 	}
 }
 
@@ -34,14 +35,17 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	saveExecutor(image);
 
 	while(!this_thread->_observeQueue.empty()) {
-		auto observe = this_thread->_observeQueue.removeFront();
+		auto observe = this_thread->_observeQueue.pop_front();
+		observe->error = Error::kErrSuccess;
+		observe->interrupt = interrupt;
 		observe->trigger(Error::kErrSuccess, interrupt);
+		globalWorkQueue().post(observe);
 	}
 
 	assert(!intsAreEnabled());
+	globalScheduler().suspend(this_thread.get());
 	runDetached([] {
-		ScheduleGuard schedule_lock(scheduleLock.get());
-		doSchedule(frigg::move(schedule_lock));
+		globalScheduler().reschedule();
 	});
 }
 
@@ -51,17 +55,17 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_runState = kRunInterrupted;
 	saveExecutor(image);
 
-	// FIXME: Huge hack! This should really be a loop and run more than one callback.
-	if(!this_thread->_observeQueue.empty()) {
-		auto observe = this_thread->_observeQueue.removeFront();
-		assert(this_thread->_observeQueue.empty());
-		observe->trigger(Error::kErrSuccess, interrupt);
+	while(!this_thread->_observeQueue.empty()) {
+		auto observe = this_thread->_observeQueue.pop_front();
+		observe->error = Error::kErrSuccess;
+		observe->interrupt = interrupt;
+		globalWorkQueue().post(observe);
 	}
 
 	assert(!intsAreEnabled());
+	globalScheduler().suspend(this_thread.get());
 	runDetached([] {
-		ScheduleGuard schedule_lock(scheduleLock.get());
-		doSchedule(frigg::move(schedule_lock));
+		globalScheduler().reschedule();
 	});
 }
 
@@ -73,25 +77,23 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_runState = kRunInterrupted;
 		saveExecutor(image);
 
-		// FIXME: Huge hack! This should really be a loop and run more than one callback.
-		if(!this_thread->_observeQueue.empty()) {
-			auto observe = this_thread->_observeQueue.removeFront();
-			assert(this_thread->_observeQueue.empty());
-			observe->trigger(Error::kErrSuccess, kIntrStop);
+		while(!this_thread->_observeQueue.empty()) {
+			auto observe = this_thread->_observeQueue.pop_front();
+			observe->error = Error::kErrSuccess;
+			observe->interrupt = kIntrStop;
+			globalWorkQueue().post(observe);
 		}
 
 		assert(!intsAreEnabled());
+		globalScheduler().suspend(this_thread.get());
 		runDetached([] {
-			ScheduleGuard schedule_lock(scheduleLock.get());
-			doSchedule(frigg::move(schedule_lock));
+			globalScheduler().reschedule();
 		});
 	}
 }
 
 void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
-	assert(other_thread->_runState == kRunSuspended
-			|| other_thread->_runState == kRunDeferred);
-	other_thread->_runState = kRunActive;
+	assert(!"TODO: Remove this");
 }
 
 void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
@@ -100,10 +102,7 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 		return;
 
 	thread->_runState = kRunDeferred;
-	{
-		ScheduleGuard schedule_lock(scheduleLock.get());
-		enqueueInSchedule(schedule_lock, thread);
-	}
+	globalScheduler().resume(thread.get());
 }
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
@@ -111,10 +110,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	assert(thread->_runState == kRunInterrupted);
 
 	thread->_runState = kRunSuspended;
-	{
-		ScheduleGuard schedule_lock(scheduleLock.get());
-		enqueueInSchedule(schedule_lock, thread);
-	}
+	globalScheduler().resume(thread.get());
 }
 
 Thread::Thread(KernelSharedPtr<Universe> universe,
@@ -131,6 +127,7 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 }
 
 Thread::~Thread() {
+	assert(!"Graciously shut down threads");
 	if(!_observeQueue.empty())
 		frigg::infoLogger() << "\e[35mFix thread destructor!\e[39m" << frigg::endLog;
 }
@@ -151,6 +148,16 @@ void Thread::signalStop() {
 	_pendingSignal = kSigStop;
 }
 
+void Thread::invoke() {
+	assert(_runState == kRunSuspended || _runState == kRunDeferred);
+	_runState = kRunActive;
+
+	_addressSpace->activate();
+	switchContext(&_context);
+	switchExecutor(self);
+	restoreExecutor();
+}
+
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 	auto this_thread = getCurrentThread();
 	assert(lock.protects(&this_thread->_mutex));
@@ -159,12 +166,12 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
+		globalScheduler().suspend(this_thread.get());
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			// TODO: exit the current thread.
 			lock.unlock();
 
-			ScheduleGuard schedule_lock(scheduleLock.get());
-			doSchedule(frigg::move(schedule_lock));
+			globalScheduler().reschedule();
 		}, frigg::move(lock));
 	}
 }

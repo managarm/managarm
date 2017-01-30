@@ -892,6 +892,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 
 	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
 			frigg::move(space));
+	new_thread->self = new_thread;
 	if(flags & kHelThreadExclusive)
 		new_thread->flags |= Thread::kFlagExclusive;
 	if(flags & kHelThreadTrapsAreFatal)
@@ -899,6 +900,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	
 	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
 
+	globalScheduler().attach(new_thread.get());
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(new_thread);
 

@@ -197,6 +197,7 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 	// create a thread for the module
 	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
 			frigg::move(space));
+	thread->self = thread;
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
 			stack_base + tail_disp, false);
@@ -208,6 +209,7 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 	thread.control().increment();
 	thread.control().increment();
 
+	globalScheduler().attach(thread.get());
 	Thread::resumeOther(thread);
 }
 
@@ -251,9 +253,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(int i = 0; i < 16; i++)
 		irqRelays[i].initialize();
 
-	scheduleQueue.initialize(*kernelAlloc);
-	scheduleLock.initialize();
-
 	initializeTheSystem();
 	initializeThisProcessor();
 	
@@ -295,8 +294,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
-	ScheduleGuard schedule_guard(scheduleLock.get());
-	doSchedule(frigg::move(schedule_guard));
+	globalScheduler().reschedule();
 }
 
 extern "C" void handleStubInterrupt() {
