@@ -208,5 +208,12 @@ void disableInts() {
 	asm volatile ( "cli" );
 }
 
+extern "C" void enableIntsAndHaltForever();
+
+void suspendSelf() {
+	assert(!intsAreEnabled());
+	enableIntsAndHaltForever();
+}
+
 } // namespace thor
 

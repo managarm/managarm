@@ -24,6 +24,18 @@ void Thread::deferCurrent() {
 	}
 }
 
+void Thread::deferCurrent(IrqImageAccessor image) {
+	auto this_thread = getCurrentThread();
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunDeferred;
+	saveExecutor(image);
+
+	assert(!intsAreEnabled());
+	runDetached([] {
+		globalScheduler().reschedule();
+	});
+}
+
 void Thread::blockCurrent(void *, void (*) (void *)) {
 	assert(!"Use blockCurrentWhile() instead");
 }
@@ -138,7 +150,6 @@ void Thread::destruct() {
 	globalScheduler().detach(this);
 
 	while(!_observeQueue.empty()) {
-		frigg::infoLogger() << "Canceling observe" << frigg::endLog;
 		auto observe = _observeQueue.pop_front();
 		observe->error = Error::kErrThreadExited;
 		observe->interrupt = kIntrNull;
@@ -151,7 +162,6 @@ void Thread::cleanup() {
 }
 
 void Thread::doSubmitObserve(ObserveBase *observe) {
-	frigg::infoLogger() << "Observe" << frigg::endLog;
 	_observeQueue.push_back(observe);
 }
 

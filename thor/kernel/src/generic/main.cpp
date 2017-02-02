@@ -406,7 +406,6 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 }
 
 void handleIrq(IrqImageAccessor image, int number) {
-	(void)image;
 	assert(!intsAreEnabled());
 
 	if(logEveryIrq)
@@ -418,6 +417,9 @@ void handleIrq(IrqImageAccessor image, int number) {
 	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
 	irqRelays[number]->fire(irq_guard);
 	irq_guard.unlock();
+
+	if(image.inThreadDomain() && globalScheduler().wantSchedule())
+		Thread::deferCurrent(image);
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

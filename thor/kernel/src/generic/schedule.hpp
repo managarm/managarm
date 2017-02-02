@@ -47,6 +47,12 @@ struct Scheduler {
 	[[ noreturn ]] void reschedule();
 
 private:
+	// Updates the current value of _scheduleFlag.
+	void _refreshFlag();
+
+	// This value is returned by wantSchedule().
+	bool _scheduleFlag;
+
 	ScheduleEntity *_current;
 
 	frg::intrusive_list<

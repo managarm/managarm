@@ -76,6 +76,7 @@ public:
 
 	// state transitions that apply to the current thread only.
 	static void deferCurrent();
+	static void deferCurrent(IrqImageAccessor image);
 	static void blockCurrent(void *argument, void (*function) (void *));
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);

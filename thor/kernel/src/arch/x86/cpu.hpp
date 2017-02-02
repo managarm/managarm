@@ -106,8 +106,8 @@ private:
 		Word rbx;
 		Word rcx;
 		Word rdx;
-		Word rsi;
 		Word rdi;
+		Word rsi;
 		Word r8;
 		Word r9;
 		Word r10;
@@ -135,9 +135,23 @@ private:
 };
 
 struct IrqImageAccessor {
+	friend void saveExecutor(IrqImageAccessor accessor);
+
 	Word *ip() { return &_frame()->rip; }
 	
+	// TODO: These are only exposed for debugging.
 	Word *cs() { return &_frame()->cs; }
+	Word *rflags() { return &_frame()->rflags; }
+	Word *ss() { return &_frame()->ss; }
+
+	bool inThreadDomain() {
+		// In the current implementation all non-thread domains have IRQs disabled.
+		assert(*cs() == kSelExecutorFaultCode
+				|| *cs() == kSelExecutorSyscallCode
+				|| *cs() == kSelClientUserCompat
+				|| *cs() == kSelClientUserCode);
+		return true;
+	}
 
 private:
 	// note: this struct is accessed from assembly.
@@ -147,8 +161,8 @@ private:
 		Word rbx;
 		Word rcx;
 		Word rdx;
-		Word rsi;
 		Word rdi;
+		Word rsi;
 		Word r8;
 		Word r9;
 		Word r10;
@@ -222,6 +236,7 @@ private:
 
 struct UniqueExecutorImage {
 	friend void saveExecutor(FaultImageAccessor accessor);
+	friend void saveExecutor(IrqImageAccessor accessor);
 	friend void saveExecutor(SyscallImageAccessor accessor);
 	friend void restoreExecutor();
 
@@ -353,6 +368,7 @@ private:
 };
 
 void saveExecutor(FaultImageAccessor accessor);
+void saveExecutor(IrqImageAccessor accessor);
 void saveExecutor(SyscallImageAccessor accessor);
 
 // copies the current state into the executor and continues normal control flow.

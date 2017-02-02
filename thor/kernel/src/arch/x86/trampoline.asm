@@ -23,6 +23,13 @@ thorRtEntry:
 	call thorMain
 	ud2
 
+.global enableIntsAndHaltForever
+enableIntsAndHaltForever:
+	sti
+halt_loop:
+	hlt
+	jmp halt_loop
+
 .section .trampoline, "a"
 .code16
 .global trampoline

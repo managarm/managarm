@@ -11,7 +11,7 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 Scheduler::Scheduler()
-: _current{nullptr} { }
+: _scheduleFlag{false}, _current{nullptr} { }
 
 void Scheduler::attach(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::null);
@@ -28,6 +28,8 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::attached);
 	entity->state = ScheduleState::active;
 	_waitQueue.push_back(entity);
+
+	_refreshFlag();
 }
 
 void Scheduler::suspend(ScheduleEntity *entity) {
@@ -36,10 +38,12 @@ void Scheduler::suspend(ScheduleEntity *entity) {
 	if(entity != _current)
 		_waitQueue.erase(_waitQueue.iterator_to(entity));
 	entity->state = ScheduleState::attached;
+	
+	_refreshFlag();
 }
 
 bool Scheduler::wantSchedule() {
-	assert(!"Implement this");
+	return _scheduleFlag;
 }
 
 void Scheduler::reschedule() {
@@ -48,14 +52,25 @@ void Scheduler::reschedule() {
 		_current = nullptr;
 	}
 
+	if(_waitQueue.empty()) {
+		suspendSelf();
+		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
+	}
+
 	assert(!_waitQueue.empty());
 	auto entity = _waitQueue.pop_front();
 	assert(entity->state == ScheduleState::active);
 	_current = entity;
-	entity->invoke();
 
+	_refreshFlag();
+
+	entity->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
 	__builtin_unreachable();
+}
+
+void Scheduler::_refreshFlag() {
+	_scheduleFlag = !_waitQueue.empty();
 }
 
 frigg::LazyInitializer<Scheduler> schedulerSingleton;

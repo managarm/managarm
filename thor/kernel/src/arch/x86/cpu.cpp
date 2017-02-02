@@ -191,6 +191,37 @@ void saveExecutor(FaultImageAccessor accessor) {
 	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
 }
 
+void saveExecutor(IrqImageAccessor accessor) {
+	UniqueExecutorImage &image = activeExecutor()->image;
+
+	image.general()->rax = accessor._frame()->rax;
+	image.general()->rbx = accessor._frame()->rbx;
+	image.general()->rcx = accessor._frame()->rcx;
+	image.general()->rdx = accessor._frame()->rdx;
+	image.general()->rdi = accessor._frame()->rdi;
+	image.general()->rsi = accessor._frame()->rsi;
+	image.general()->rbp = accessor._frame()->rbp;
+
+	image.general()->r8 = accessor._frame()->r8;
+	image.general()->r9 = accessor._frame()->r9;
+	image.general()->r10 = accessor._frame()->r10;
+	image.general()->r11 = accessor._frame()->r11;
+	image.general()->r12 = accessor._frame()->r12;
+	image.general()->r13 = accessor._frame()->r13;
+	image.general()->r14 = accessor._frame()->r14;
+	image.general()->r15 = accessor._frame()->r15;
+	
+	image.general()->rip = accessor._frame()->rip;
+	image.general()->cs = accessor._frame()->cs;
+	image.general()->rflags = accessor._frame()->rflags;
+	image.general()->rsp = accessor._frame()->rsp;
+	image.general()->ss = accessor._frame()->ss;
+	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	
+	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
+}
+
 void saveExecutor(SyscallImageAccessor accessor) {
 	UniqueExecutorImage &image = activeExecutor()->image;
 
