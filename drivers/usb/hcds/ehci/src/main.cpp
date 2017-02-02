@@ -70,6 +70,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 
 			std::cout << "High-speed device detected!" << std::endl;
 		}
+
+		COFIBER_AWAIT _pollDoorbell.async_wait();
 	}
 }))
 
