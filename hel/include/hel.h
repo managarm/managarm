@@ -167,6 +167,7 @@ enum HelThreadFlags {
 };
 
 enum HelObservation {
+	kHelObserveNull = 0,
 	kHelObserveStop = 4,
 	kHelObservePanic = 3,
 	kHelObserveBreakpoint = 1,

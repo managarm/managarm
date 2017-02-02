@@ -35,6 +35,8 @@ struct Scheduler {
 	Scheduler &operator= (const Scheduler &) = delete;
 
 	void attach(ScheduleEntity *entity);
+	
+	void detach(ScheduleEntity *entity);
 
 	void resume(ScheduleEntity *entity);
 

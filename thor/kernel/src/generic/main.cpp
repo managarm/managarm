@@ -195,8 +195,7 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
-	auto thread = frigg::makeShared<Thread>(*kernelAlloc, *rootUniverse,
-			frigg::move(space));
+	auto thread = Thread::create(*rootUniverse, frigg::move(space));
 	thread->self = thread;
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,

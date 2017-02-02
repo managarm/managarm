@@ -56,6 +56,7 @@ int main() {
 */
 
 	// Spin until /dev/sda0 becomes available.
+/*
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
 		for(int i = 0; i < 100; i++)
@@ -68,11 +69,12 @@ int main() {
 	}else{
 		printf("Mount success!\n");
 	}
-	
+
 	auto vga_terminal = fork();
 	if(!vga_terminal) {
 		execve("/realfs/usr/bin/vga_terminal", args.data(), envp);
 	}else assert(vga_terminal != -1);
+*/
 
 /*	
 	// TODO: this is a very ugly hack to wait until the fs is ready

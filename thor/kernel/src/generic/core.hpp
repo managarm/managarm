@@ -34,8 +34,9 @@ using KernelUnsafePtr = frigg::UnsafePtr<T>;
 enum Error {
 	kErrSuccess,
 	kErrBufferTooSmall,
+	kErrThreadExited,
 	kErrClosedLocally,
-	kErrClosedRemotely
+	kErrClosedRemotely,
 };
 
 typedef int64_t Handle;

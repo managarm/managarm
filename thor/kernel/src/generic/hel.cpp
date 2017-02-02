@@ -890,8 +890,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		}
 	}
 
-	auto new_thread = frigg::makeShared<Thread>(*kernelAlloc, frigg::move(universe),
-			frigg::move(space));
+	auto new_thread = Thread::create(frigg::move(universe), frigg::move(space));
 	new_thread->self = new_thread;
 	if(flags & kHelThreadExclusive)
 		new_thread->flags |= Thread::kFlagExclusive;

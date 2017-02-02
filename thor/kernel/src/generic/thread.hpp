@@ -4,7 +4,7 @@
 namespace thor {
 
 enum Interrupt {
-	kIntrNone,
+	kIntrNull,
 	kIntrStop,
 	kIntrPanic,
 	kIntrBreakpoint,
@@ -14,9 +14,9 @@ enum Interrupt {
 
 struct Thread;
 
-KernelUnsafePtr<Thread> getCurrentThread();
+frigg::UnsafePtr<Thread> getCurrentThread();
 
-struct Thread : PlatformExecutor, ScheduleEntity {
+struct Thread : frigg::SharedCounter, PlatformExecutor, ScheduleEntity {
 private:
 	struct ObserveBase : Tasklet {
 		void run() override;
@@ -43,6 +43,14 @@ private:
 	};
 
 public:
+	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
+			frigg::SharedPtr<AddressSpace> address_space) {
+		auto thread = frigg::construct<Thread>(*kernelAlloc,
+				frigg::move(universe), frigg::move(address_space));
+		return frigg::SharedPtr<Thread>{frigg::adoptShared, thread, 
+				frigg::SharedControl{thread}};
+	}
+
 	// wrapper for the function below
 	template<typename F>
 	static void blockCurrent(F functor) {
@@ -95,13 +103,13 @@ public:
 		kFlagTrapsAreFatal = 2
 	};
 
-	Thread(KernelSharedPtr<Universe> universe,
-			KernelSharedPtr<AddressSpace> address_space);
+	Thread(frigg::SharedPtr<Universe> universe,
+			frigg::SharedPtr<AddressSpace> address_space);
 	~Thread();
 
 	Context &getContext();
-	KernelUnsafePtr<Universe> getUniverse();
-	KernelUnsafePtr<AddressSpace> getAddressSpace();
+	frigg::UnsafePtr<Universe> getUniverse();
+	frigg::UnsafePtr<AddressSpace> getAddressSpace();
 
 	LaneHandle inferiorLane() {
 		return _inferiorLane;
@@ -113,13 +121,20 @@ public:
 
 	void signalStop();
 
+
 	template<typename F>
 	void submitObserve(F functor) {
 		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
-		_observeQueue.push_back(observe);
+		doSubmitObserve(observe);
 	}
 
+	// TODO: Do not expose these functions publically.
+	void destruct() override;
+	void cleanup() override;
+
 	[[ noreturn ]] void invoke() override;
+	
+	void doSubmitObserve(ObserveBase *observe);
 
 	// TODO: Tidy this up.
 	frigg::UnsafePtr<Thread> self;
@@ -172,8 +187,8 @@ private:
 
 	Context _context;
 
-	KernelSharedPtr<Universe> _universe;
-	KernelSharedPtr<AddressSpace> _addressSpace;
+	frigg::SharedPtr<Universe> _universe;
+	frigg::SharedPtr<AddressSpace> _addressSpace;
 
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;

@@ -127,9 +127,32 @@ Thread::Thread(KernelSharedPtr<Universe> universe,
 }
 
 Thread::~Thread() {
-	assert(!"Graciously shut down threads");
-	if(!_observeQueue.empty())
-		frigg::infoLogger() << "\e[35mFix thread destructor!\e[39m" << frigg::endLog;
+	assert(_runState == kRunInterrupted);
+	assert(_observeQueue.empty());
+}
+
+// This function has to initiate the thread's shutdown.
+void Thread::destruct() {
+	frigg::infoLogger() << "\e[31mShutting down thread\e[39m" << frigg::endLog;
+
+	globalScheduler().detach(this);
+
+	while(!_observeQueue.empty()) {
+		frigg::infoLogger() << "Canceling observe" << frigg::endLog;
+		auto observe = _observeQueue.pop_front();
+		observe->error = Error::kErrThreadExited;
+		observe->interrupt = kIntrNull;
+		globalWorkQueue().post(observe);
+	}
+}
+
+void Thread::cleanup() {
+	frigg::destruct(*kernelAlloc, this);
+}
+
+void Thread::doSubmitObserve(ObserveBase *observe) {
+	frigg::infoLogger() << "Observe" << frigg::endLog;
+	_observeQueue.push_back(observe);
 }
 
 Context &Thread::getContext() {

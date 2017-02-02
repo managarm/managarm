@@ -39,15 +39,8 @@ namespace _shared_ptr {
 };
 
 struct SharedCounter {
-	enum Action {
-		kCrtDestruct,
-		kCrtFree
-	};
-
-	typedef void (*ControlFunction) (SharedCounter *, Action);
-
-	SharedCounter(ControlFunction function, int ref_count = 1, int weak_count = 1)
-	: _refCount(ref_count), _weakCount(weak_count), function(function) { }
+	SharedCounter(int ref_count = 1, int weak_count = 1)
+	: _refCount(ref_count), _weakCount(weak_count) { }
 
 	SharedCounter(const SharedCounter &other) = delete;
 
@@ -57,6 +50,15 @@ struct SharedCounter {
 	}
 
 	SharedCounter &operator= (const SharedCounter &other) = delete;
+
+	// Called once the ordinary reference count drops to zero.
+	// This function should usually call the managed object's destructor.
+	virtual void destruct() = 0;
+
+	// Called once the weak reference count drops to zero.
+	// This function should usually free this counter struct itself.
+	// It is explicitly allowed to destruct the 'this' object.
+	virtual void cleanup() = 0;
 
 	// this function does NOT guarantee atomicity!
 	// it is intended to be used during initialization when no
@@ -76,8 +78,8 @@ struct SharedCounter {
 		int previous_ref_count;
 		fetchDec(&_refCount, previous_ref_count);
 		if(previous_ref_count == 1) {
+			destruct();
 			decrementWeak();
-			function(this, kCrtDestruct);
 		}
 	}
 
@@ -93,7 +95,7 @@ struct SharedCounter {
 		fetchDec(&_weakCount, previous_weak_count);
 		assert(previous_weak_count > 0);
 		if(previous_weak_count == 1)
-			function(this, kCrtFree);
+			cleanup();
 	}
 
 	bool tryToIncrement() {
@@ -108,7 +110,6 @@ struct SharedCounter {
 private:
 	int _refCount;
 	int _weakCount;
-	ControlFunction function;
 };
 
 struct SharedControl {
@@ -150,19 +151,17 @@ class UnsafePtr;
 
 template<typename T, typename Allocator>
 struct SharedBlock : public SharedCounter {
-	static void doControl(SharedCounter *counter, SharedCounter::Action action) {
-		auto self = static_cast<SharedBlock *>(counter);
-		if(action == SharedCounter::kCrtDestruct) {
-			self->_storage.destruct();
-		}else{
-			assert(action == SharedCounter::kCrtFree);
-			destruct(self->_allocator, self);
-		}
+	void destruct() override {
+		_storage.destruct();
+	}
+
+	void cleanup() override {
+		frigg::destruct(_allocator, this);
 	}
 
 	template<typename... Args>
 	SharedBlock(Allocator &allocator, Args &&... args)
-	: SharedCounter(&doControl), _allocator(allocator) {
+	: _allocator(allocator) {
 		_storage.construct(forward<Args>(args)...);
 	}
 

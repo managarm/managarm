@@ -18,6 +18,11 @@ void Scheduler::attach(ScheduleEntity *entity) {
 	entity->state = ScheduleState::attached;
 }
 
+void Scheduler::detach(ScheduleEntity *entity) {
+	assert(entity->state == ScheduleState::attached);
+	entity->state = ScheduleState::null;
+}
+
 void Scheduler::resume(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "resume " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::attached);
