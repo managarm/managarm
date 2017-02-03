@@ -66,12 +66,11 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 	_freePages -= size / kPageSize;
 	_usedPages += size / kPageSize;
 
+	// TODO: This could be solved better.
 	int target = 0;
 	while(size > (size_t(kPageSize) << target))
 		target++;
-	if(size != (size_t(kPageSize) << target))
-		frigg::infoLogger() << "\e[31mPhysical allocation of size " << (void *)size
-				<< " rounded up to power of 2\e[39m" << frigg::endLog;
+	assert(size == (size_t(kPageSize) << target));
 
 	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyPointer,
 			_buddyRoots, _buddyOrder, target) << kPageShift);

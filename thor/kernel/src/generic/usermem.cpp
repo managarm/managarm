@@ -211,13 +211,24 @@ size_t HardwareMemory::getLength() {
 // AllocatedMemory
 // --------------------------------------------------------
 
-AllocatedMemory::AllocatedMemory(size_t length, size_t chunk_size, size_t chunk_align)
-: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc),
-		_chunkSize(chunk_size), _chunkAlign(chunk_align) {
+AllocatedMemory::AllocatedMemory(size_t desired_length, size_t desired_chunk_size,
+		size_t chunk_align)
+: Memory(MemoryTag::allocated), _physicalChunks(*kernelAlloc), _chunkAlign(chunk_align) {
+	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
+	_chunkSize = size_t(1) << (64 - __builtin_clzl(desired_chunk_size - 1));
+	if(_chunkSize != desired_chunk_size)
+		frigg::infoLogger() << "\e[31mPhysical allocation of size " << (void *)desired_chunk_size
+				<< " rounded up to power of 2\e[39m" << frigg::endLog;
+
+	size_t length = (desired_length + (_chunkSize - 1)) & ~(_chunkSize - 1);
+	if(length != desired_length)
+		frigg::infoLogger() << "\e[31mMemory length " << (void *)desired_length
+				<< " rounded up to chunk size " << (void *)_chunkSize
+				<< "\e[39m" << frigg::endLog;
+
 	assert(_chunkSize % kPageSize == 0);
 	assert(_chunkAlign % kPageSize == 0);
 	assert(_chunkSize % _chunkAlign == 0);
-	assert(length % _chunkSize == 0);
 	_physicalChunks.resize(length / _chunkSize, PhysicalAddr(-1));
 }
 
@@ -263,6 +274,9 @@ size_t AllocatedMemory::getLength() {
 }
 
 void AllocatedMemory::_populateRange(uintptr_t offset, size_t length) {
+//	frigg::infoLogger() << "Populating " << (void *)offset << ", length: " << (void *)length
+//			<< ", #chunks: " << _physicalChunks.size()
+//			<< " of size " << (void *)_chunkSize << frigg::endLog;
 	auto range = alignRange(offset, length, _chunkSize);
 	for(uintptr_t progress = 0; progress < range.get<1>(); progress += _chunkSize) {
 		size_t index = (range.get<0>() + progress) / _chunkSize;
