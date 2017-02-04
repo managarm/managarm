@@ -5,6 +5,7 @@
 #include <arch/io_space.hpp>
 
 #include "generic/kernel.hpp"
+#include "generic/irq.hpp"
 
 namespace thor {
 
@@ -143,6 +144,10 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 // I/O APIC management
 // --------------------------------------------------------
 
+void ApicPin::sendEoi() {
+	acknowledgeIrq(0);
+}
+
 uint32_t *ioApicRegs;
 arch::mem_space ioApicBase;
 
@@ -257,6 +262,7 @@ void maskLegacyPic() {
 // General functions
 // --------------------------------------------------------
 
+// TODO: Split this function in two: One for the legacy PIC and one for APIC.
 void acknowledgeIrq(int irq) {
 	if(picModel == kModelApic) {
 		picBase.store(lApicEoi, 0);

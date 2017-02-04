@@ -1,3 +1,5 @@
+#ifndef THOR_GENERIC_KERNEL_HPP
+#define THOR_GENERIC_KERNEL_HPP
 
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
@@ -51,3 +53,4 @@ void main();
 
 } } // namespace thor::k_init
 
+#endif // THOR_GENERIC_KERNEL_HPP

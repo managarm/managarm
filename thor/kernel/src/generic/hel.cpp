@@ -1,5 +1,6 @@
 
 #include "kernel.hpp"
+#include "irq.hpp"
 
 using namespace thor;
 
@@ -1270,56 +1271,33 @@ HelError helFutexWake(int *pointer) {
 	return kHelErrNone;
 }
 
+// TODO: Move the system call functions to thor.
+namespace thor {
+	extern frigg::LazyInitializer<ApicPin> globalSystemIrqs[16];
+}
 
 HelError helAccessIrq(int number, HelHandle *handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	auto irq_line = frigg::makeShared<IrqLine>(*kernelAlloc, number);
-	
-	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
-	irqRelays[number]->addLine(irq_guard, frigg::WeakPtr<IrqLine>(irq_line));
-	irq_guard.unlock();
+	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc);
+	attachIrq(globalSystemIrqs[number].get(), irq.get());
 
 	Universe::Guard universe_guard(&universe->lock);
 	*handle = universe->attachDescriptor(universe_guard,
-			IrqDescriptor(frigg::move(irq_line)));
+			IrqDescriptor(frigg::move(irq)));
 	universe_guard.unlock();
 
 	return kHelErrNone;
 }
 HelError helSetupIrq(HelHandle handle, uint32_t flags) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
-	
-	frigg::SharedPtr<IrqLine> irq_line;
-	{
-		Universe::Guard universe_guard(&universe->lock);
-		auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
-		if(!irq_wrapper)
-			return kHelErrNoDescriptor;
-		if(!irq_wrapper->is<IrqDescriptor>())
-			return kHelErrBadDescriptor;
-		irq_line = irq_wrapper->get<IrqDescriptor>().irqLine;
-	}
-
-	uint32_t relay_flags = 0;
-	if(flags & kHelIrqManualAcknowledge)
-		relay_flags |= IrqRelay::kFlagManualAcknowledge;
-	
-	int number = irq_line->getNumber();
-
-	IrqRelay::Guard relay_guard(&irqRelays[number]->lock);
-	irqRelays[number]->setup(relay_guard, relay_flags);
-	relay_guard.unlock();
-
-	return kHelErrNone;
+	assert(!"helSetupIrq is broken and should be removed");
 }
 HelError helAcknowledgeIrq(HelHandle handle) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<IrqLine> irq_line;
+	frigg::SharedPtr<IrqObject> irq;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 		auto irq_wrapper = universe->getDescriptor(universe_guard, handle);
@@ -1327,14 +1305,10 @@ HelError helAcknowledgeIrq(HelHandle handle) {
 			return kHelErrNoDescriptor;
 		if(!irq_wrapper->is<IrqDescriptor>())
 			return kHelErrBadDescriptor;
-		irq_line = irq_wrapper->get<IrqDescriptor>().irqLine;
+		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	int number = irq_line->getNumber();
-	
-	IrqRelay::Guard relay_guard(&irqRelays[number]->lock);
-	irqRelays[number]->manualAcknowledge(relay_guard);
-	relay_guard.unlock();
+	irq->acknowledge();
 
 	return kHelErrNone;
 }
@@ -1343,7 +1317,7 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<IrqLine> line;
+	frigg::SharedPtr<IrqObject> irq;
 	{
 		Universe::Guard universe_guard(&universe->lock);
 
@@ -1352,15 +1326,14 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 			return kHelErrNoDescriptor;
 		if(!irq_wrapper->is<IrqDescriptor>())
 			return kHelErrBadDescriptor;
-		line = irq_wrapper->get<IrqDescriptor>().irqLine;
+		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
 	PostEvent<AwaitIrqWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
 	auto wait = frigg::makeShared<AwaitIrq<PostEvent<AwaitIrqWriter>>>(*kernelAlloc,
 			frigg::move(functor));
 	{
-		IrqLine::Guard guard(&line->lock);
-		line->submitWait(guard, frigg::move(wait));
+		irq->submitAwait(frigg::move(wait));
 	}
 	
 	return kHelErrNone;

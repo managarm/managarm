@@ -27,7 +27,8 @@ enum {
 	kGdtIndexExecutorKernelData = 7,
 	kGdtIndexClientUserCompat = 8,
 	kGdtIndexClientUserData = 9,
-	kGdtIndexClientUserCode = 10
+	kGdtIndexClientUserCode = 10,
+	kGdtIndexSystemIdleCode = 11
 };
 
 constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
@@ -45,7 +46,8 @@ enum {
 	kSelExecutorKernelData = selectorFor(kGdtIndexExecutorKernelData, 0),
 	kSelClientUserCompat = selectorFor(kGdtIndexClientUserCompat, 3),
 	kSelClientUserData = selectorFor(kGdtIndexClientUserData, 3),
-	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3)
+	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3),
+	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0)
 };
 
 struct UniqueKernelStack {
@@ -143,14 +145,30 @@ struct IrqImageAccessor {
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
 	Word *ss() { return &_frame()->ss; }
-
-	bool inThreadDomain() {
-		// In the current implementation all non-thread domains have IRQs disabled.
-		assert(*cs() == kSelExecutorFaultCode
+	
+	bool inPreemptibleDomain() {
+		assert(*cs() == kSelSystemIdleCode
+				|| *cs() == kSelExecutorFaultCode
 				|| *cs() == kSelExecutorSyscallCode
 				|| *cs() == kSelClientUserCompat
 				|| *cs() == kSelClientUserCode);
 		return true;
+	}
+
+	bool inThreadDomain() {
+		if(*cs() == kSelExecutorFaultCode
+				|| *cs() == kSelExecutorSyscallCode
+				|| *cs() == kSelClientUserCompat
+				|| *cs() == kSelClientUserCode) {
+			return true;
+		}else{
+			assert(*cs() == kSelSystemIdleCode);
+			return false;
+		}
+	}
+
+	bool inIdleDomain() {
+		return *cs() == kSelSystemIdleCode;
 	}
 
 private:
@@ -424,7 +442,7 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
-	uint32_t gdt[11 * 2];
+	uint32_t gdt[12 * 2];
 	uint32_t idt[256 * 4];
 	UniqueKernelStack irqStack;
 	UniqueKernelStack detachedStack;

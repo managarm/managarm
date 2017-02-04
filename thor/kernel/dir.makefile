@@ -13,7 +13,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/core.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
-	generic/thread.o generic/io.o
+	generic/thread.o generic/irq.o generic/io.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_HEADERS := thor.h

@@ -47,10 +47,9 @@ bool Scheduler::wantSchedule() {
 }
 
 void Scheduler::reschedule() {
-	if(_current && _current->state == ScheduleState::active) {
+	if(_current && _current->state == ScheduleState::active)
 		_waitQueue.push_back(_current);
-		_current = nullptr;
-	}
+	_current = nullptr;
 
 	if(_waitQueue.empty()) {
 		suspendSelf();

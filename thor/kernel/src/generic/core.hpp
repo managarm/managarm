@@ -1,3 +1,5 @@
+#ifndef THOR_GENERIC_CORE_HPP
+#define THOR_GENERIC_CORE_HPP
 
 #include <frg/pairing_heap.hpp>
 #include <frigg/callback.hpp>
@@ -47,7 +49,6 @@ class AddressSpace;
 class Thread;
 class Stream;
 class LaneControl;
-class IrqLine;
 class IoSpace;
 
 struct Context : public PlatformContext {
@@ -176,3 +177,4 @@ private:
 
 } // namespace thor
 
+#endif // THOR_GENERIC_CORE_HPP

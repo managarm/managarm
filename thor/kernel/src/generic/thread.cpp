@@ -3,6 +3,10 @@
 
 namespace thor {
 
+namespace {
+	constexpr bool logRunStates = false;
+};
+
 void Thread::ObserveBase::run() {
 	trigger(error, interrupt);
 }
@@ -15,6 +19,9 @@ void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is deferred" << frigg::endLog;
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {
@@ -28,6 +35,9 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is deferred" << frigg::endLog;
 	saveExecutor(image);
 
 	assert(!intsAreEnabled());
@@ -42,7 +52,12 @@ void Thread::blockCurrent(void *, void (*) (void *)) {
 
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	frigg::infoLogger() << "interrupt " << (void *)this_thread.get()
+			<< ", reason: " << (uint64_t)interrupt << frigg::endLog;
 	assert(this_thread->_runState == kRunActive);
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is interrupted" << frigg::endLog;
 	this_thread->_runState = kRunInterrupted;
 	saveExecutor(image);
 
@@ -65,6 +80,9 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunInterrupted;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is interrupted" << frigg::endLog;
 	saveExecutor(image);
 
 	while(!this_thread->_observeQueue.empty()) {
@@ -87,6 +105,9 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	
 	if(this_thread->_pendingSignal == kSigStop) {
 		this_thread->_runState = kRunInterrupted;
+		if(logRunStates)
+			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " is interrupted" << frigg::endLog;
 		saveExecutor(image);
 
 		while(!this_thread->_observeQueue.empty()) {
@@ -114,6 +135,9 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 		return;
 
 	thread->_runState = kRunDeferred;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)thread.get()
+				<< " is deferred (via unblock)" << frigg::endLog;
 	globalScheduler().resume(thread.get());
 }
 
@@ -122,6 +146,9 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	assert(thread->_runState == kRunInterrupted);
 
 	thread->_runState = kRunSuspended;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)thread.get()
+				<< " is suspended (via resume)" << frigg::endLog;
 	globalScheduler().resume(thread.get());
 }
 
@@ -184,6 +211,8 @@ void Thread::signalStop() {
 void Thread::invoke() {
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
 	_runState = kRunActive;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this << " is activated" << frigg::endLog;
 
 	_addressSpace->activate();
 	switchContext(&_context);
@@ -196,6 +225,9 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 	assert(lock.protects(&this_thread->_mutex));
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunBlocked;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is blocked" << frigg::endLog;
 
 	assert(!intsAreEnabled());
 	if(forkExecutor()) {

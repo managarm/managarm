@@ -1,6 +1,7 @@
 
 #include "kernel.hpp"
 #include "module.hpp"
+#include "irq.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 
@@ -13,6 +14,9 @@ static constexpr bool logEverySyscall = false;
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
+
+frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
+frigg::LazyInitializer<ApicPin> globalSystemIrqs[16];
 
 // TODO: move this declaration to a header file
 void runService(frigg::SharedPtr<Thread> thread);
@@ -249,8 +253,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
-	for(int i = 0; i < 16; i++)
-		irqRelays[i].initialize();
+	for(int i = 0; i < 16; i++) {
+		globalIrqSlots[i].initialize();
+		globalSystemIrqs[i].initialize();
+
+		globalIrqSlots[i]->link(globalSystemIrqs[i].get());
+	}
 
 	initializeTheSystem();
 	initializeThisProcessor();
@@ -358,7 +366,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(handled)
 		return;
 	
-	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
+	if(!(*image.code() & kPfUser)
+			|| this_thread->flags & Thread::kFlagTrapsAreFatal) {
 		auto msg = frigg::panicLogger();
 		msg << "Page fault"
 				<< " at " << (void *)address
@@ -413,13 +422,18 @@ void handleIrq(IrqImageAccessor image, int number) {
 	
 	if(number == 2)
 		timerInterrupt();
-	
-	IrqRelay::Guard irq_guard(&irqRelays[number]->lock);
-	irqRelays[number]->fire(irq_guard);
-	irq_guard.unlock();
 
-	if(image.inThreadDomain() && globalScheduler().wantSchedule())
-		Thread::deferCurrent(image);
+	globalIrqSlots[number]->raise();
+
+	if(image.inPreemptibleDomain() && globalScheduler().wantSchedule()) {
+		if(image.inThreadDomain()) {
+			Thread::deferCurrent(image);
+		}else{
+			runDetached([] {
+				globalScheduler().reschedule();
+			});
+		}
+	}
 }
 
 extern "C" void thorImplementNoThreadIrqs() {

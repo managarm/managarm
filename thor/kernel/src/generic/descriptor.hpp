@@ -104,11 +104,13 @@ struct LaneDescriptor {
 // IO related descriptors
 // --------------------------------------------------------
 
+struct IrqObject;
+
 struct IrqDescriptor {
-	IrqDescriptor(frigg::SharedPtr<IrqLine> irq_line)
-	: irqLine(frigg::move(irq_line)) { }
+	IrqDescriptor(frigg::SharedPtr<IrqObject> irq)
+	: irq{frigg::move(irq)} { }
 	
-	frigg::SharedPtr<IrqLine> irqLine;
+	frigg::SharedPtr<IrqObject> irq;
 };
 
 struct IoDescriptor {

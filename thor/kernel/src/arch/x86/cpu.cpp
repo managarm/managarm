@@ -340,6 +340,7 @@ PlatformCpuData::PlatformCpuData() {
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexClientUserCompat);
 	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
 	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
 }
 
 // --------------------------------------------------------
@@ -383,7 +384,7 @@ void initializeThisProcessor() {
 			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 11 * 8;
+	gdtr.limit = 12 * 8;
 	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
