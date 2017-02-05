@@ -45,15 +45,29 @@ void attachIrq(IrqPin *pin, IrqSink *sink) {
 // IrqObject
 // --------------------------------------------------------
 
+IrqObject::IrqObject()
+: _latched{false} { }
+
 void IrqObject::raise() {
-	if(!_waitQueue.empty()) {
-		auto wait = _waitQueue.removeFront();
-		wait->complete(kErrSuccess);
+	if(_waitQueue.empty()) {
+		_latched = true;
+	}else{
+		assert(!_latched);
+
+		while(!_waitQueue.empty()) {
+			auto wait = _waitQueue.removeFront();
+			wait->complete(kErrSuccess);
+		}
 	}
 }
 
 void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqBase> wait) {
-	_waitQueue.addBack(frigg::move(wait));
+	if(_latched) {
+		wait->complete(kErrSuccess);
+		_latched = false;
+	}else{
+		_waitQueue.addBack(frigg::move(wait));
+	}
 }
 
 void IrqObject::acknowledge() {

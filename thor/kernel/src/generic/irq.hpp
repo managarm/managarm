@@ -101,6 +101,8 @@ void attachIrq(IrqPin *pin, IrqSink *sink);
 
 // This class implements the user-visible part of IRQ handling.
 struct IrqObject : IrqSink {
+	IrqObject();
+
 	void raise() override;
 
 	void submitAwait(frigg::SharedPtr<AwaitIrqBase> wait);
@@ -108,7 +110,7 @@ struct IrqObject : IrqSink {
 	void acknowledge();
 	
 private:
-	uint64_t _currentSequence;
+	bool _latched;
 
 	frigg::IntrusiveSharedLinkedList<
 		AwaitIrqBase,
