@@ -16,9 +16,9 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	
 	void initialize();
 	async::result<void> pollDevices();	
+	async::result<void> probeDevice();
 	cofiber::no_future handleIrqs();
-
-
+	
 	// ------------------------------------------------------------------------
 	// Schedule classes.
 	// ------------------------------------------------------------------------
@@ -45,8 +45,30 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 
 	// ------------------------------------------------------------------------
+	// Device management.
+	// ------------------------------------------------------------------------
+
+	struct EndpointSlot {
+		size_t maxPacketSize;
+		QueueEntity *queueEntity;
+	};
+
+	struct DeviceSlot {
+		EndpointSlot controlStates[16];
+		EndpointSlot outStates[16];
+		EndpointSlot inStates[16];
+	};
+
+	std::queue<int> _addressStack;
+	DeviceSlot _activeDevices[128];
+
+
+	// ------------------------------------------------------------------------
 	// Transfer functions.
 	// ------------------------------------------------------------------------
+
+public:
+	async::result<void> transfer(int address, int pipe, ControlTransfer info);
 
 private:
 	static Transaction *_buildControl(int address, int pipe, XferFlags dir,

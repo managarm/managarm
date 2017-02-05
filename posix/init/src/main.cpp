@@ -38,12 +38,10 @@ int main() {
 	}else assert(uhci != -1);
 */
 
-/*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
-*/
 
 /*
 	auto storage = fork();
@@ -51,11 +49,13 @@ int main() {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 */
-	
+
+/*
 	auto gfx_intel = fork();
 	if(!gfx_intel) {
 		execve("/initrd/gfx_intel", args.data(), envp);
 	}else assert(gfx_intel != -1);
+*/
 
 /*
 	auto virtio = fork();
