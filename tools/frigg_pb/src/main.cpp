@@ -236,7 +236,7 @@ void printStringMember(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 // --------------------------------------------------------
 
 void printEmbeddedInitialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
-	if(field->is_repeated()) {
+	if(field->is_optional() || field->is_repeated()) {
 		printer.Print("m_$name$(allocator)",
 				"name", field->name());
 	}else{
@@ -251,7 +251,16 @@ void printEmbeddedAccessors(pb::io::Printer &printer, const pb::FieldDescriptor 
 	while(std::getline(stream, part, '.'))
 		qualified += "::" + part;
 
-	if(field->is_repeated()) {
+	if(field->is_optional()) {
+		printer.Print("inline const $msg_type$<Allocator> &$name$() const {\n"
+				"  return m_$name$;\n"
+				"}\n",
+				"name", field->name(), "msg_type", qualified);
+		printer.Print("inline $msg_type$<Allocator> &mutable_$name$() {\n"
+				"  return m_$name$;\n"
+				"}\n",
+				"name", field->name(), "msg_type", qualified);
+	}else if(field->is_repeated()) {
 		printer.Print("inline void add_$name$(const $msg_type$<Allocator> &message) {\n"
 				"  m_$name$.push(message);\n"
 				"}\n",
@@ -270,7 +279,13 @@ void printEmbeddedAccessors(pb::io::Printer &printer, const pb::FieldDescriptor 
 }
 
 void printEmbeddedSize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
-	if(field->is_repeated()) {
+	if(field->is_optional()) {
+		printer.Print("p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
+				"size_t $name$_length = m_$name$.ByteSize();\n"
+				"p_cachedSize += frigg::protobuf::varintSize($name$_length);\n"
+				"p_cachedSize += $name$_length;\n",
+				"number", std::to_string(field->number()), "name", field->name());
+	}else if(field->is_repeated()) {
 		printer.Print("p_cachedSize += m_$name$.size()"
 					" * frigg::protobuf::varintSize($number$ << 3);\n"
 				"for(size_t i = 0; i < m_$name$.size(); i++) {\n"
@@ -285,7 +300,15 @@ void printEmbeddedSize(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 }
 
 void printEmbeddedSerialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
-	if(field->is_repeated()) {
+	if(field->is_optional()) {
+		printer.Print("pokeHeader(writer, frigg::protobuf::Header($number$,"
+					" frigg::protobuf::kWireDelimited));\n"
+				"pokeVarint(writer, m_$name$.GetCachedSize());\n"
+				"m_$name$.SerializeWithCachedSizesToArray((uint8_t *)array"
+						" + writer.offset(), m_$name$.GetCachedSize());\n"
+				"writer.advance(m_$name$.GetCachedSize());\n",
+				"number", std::to_string(field->number()), "name", field->name());
+	}else if(field->is_repeated()) {
 		printer.Print("for(size_t i = 0; i < m_$name$.size(); i++) {\n"
 				"  pokeHeader(writer, frigg::protobuf::Header($number$,"
 					" frigg::protobuf::kWireDelimited));\n"
@@ -307,7 +330,17 @@ void printEmbeddedParse(pb::io::Printer &printer, const pb::FieldDescriptor *fie
 	while(std::getline(stream, part, '.'))
 		qualified += "::" + part;
 	
-	if(field->is_repeated()) {
+	if(field->is_optional()) {
+		printer.Print("case $number$: {\n", "number", std::to_string(field->number()));
+		printer.Indent();
+		printer.Print("assert(header.wire == frigg::protobuf::kWireDelimited);\n"
+				"size_t $name$_length = peekVarint(reader);\n"
+				"m_$name$.ParseFromArray((uint8_t *)array + reader.offset(), $name$_length);\n"
+				"reader.advance($name$_length);\n",
+				"msg_type", qualified, "name", field->name());
+		printer.Outdent();
+		printer.Print("} break;\n");
+	}else if(field->is_repeated()) {
 		printer.Print("case $number$: {\n", "number", std::to_string(field->number()));
 		printer.Indent();
 		printer.Print("assert(header.wire == frigg::protobuf::kWireDelimited);\n"
@@ -331,7 +364,10 @@ void printEmbeddedMember(pb::io::Printer &printer, const pb::FieldDescriptor *fi
 	while(std::getline(stream, part, '.'))
 		qualified += "::" + part;
 	
-	if(field->is_repeated()) {
+	if(field->is_optional()) {
+		printer.Print("$msg_type$<Allocator> m_$name$;\n",
+				"msg_type", qualified, "name", field->name());
+	}else if(field->is_repeated()) {
 		printer.Print("Vector<$msg_type$<Allocator>> m_$name$;\n",
 				"msg_type", qualified, "name", field->name());
 	}else{
@@ -631,6 +667,14 @@ bool FriggGenerator::Generate(const pb::FileDescriptor *file, const std::string 
 			printer.Print("namespace $pkg_part$ {\n", "pkg_part", pkg_part);
 			pkg_full += (num_namespaces == 0 ? "" : "::") + pkg_part;
 			num_namespaces++;
+		}
+
+		// Generate message forward declarations.
+		for(int i = 0; i < file->message_type_count(); i++) {
+			printer.Print("\n");
+			printer.Print("template<typename Allocator>\n"
+					"class $msg_type$;\n",
+					"msg_type", file->message_type(i)->name());
 		}
 		
 		// generate all enums

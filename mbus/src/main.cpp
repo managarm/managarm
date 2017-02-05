@@ -293,7 +293,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 
 			std::unordered_map<std::string, std::string> properties;
 			for(auto &kv : req.properties())
-				properties.insert({ kv.first, kv.second });
+				properties.insert({ kv.name(), kv.value() });
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

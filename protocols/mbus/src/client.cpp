@@ -100,8 +100,11 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 	managarm::mbus::CntRequest req;
 	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 	req.set_parent_id(_id);
-	for(auto kv : properties)
-		req.mutable_properties()->insert({ kv.first, kv.second });
+	for(auto kv : properties) {
+		auto entry = req.add_properties();
+		entry->set_name(kv.first);
+		entry->set_value(kv.second);
+	}
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];

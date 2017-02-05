@@ -5,6 +5,7 @@
 #include "fiber.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
+#include <mbus.frigg_pb.hpp>
 
 namespace thor {
 
@@ -303,11 +304,13 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	executeModule(acpi_module, LaneHandle{}, mbus_stream.get<1>());
 	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
 
+	/*
 	KernelFiber::run([] {
 		frigg::infoLogger() << "Hello world!" << frigg::endLog;
 		frigg::infoLogger() << (int)intsAreEnabled() << frigg::endLog;
 		while(true) { }
 	});
+	*/
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	globalScheduler().reschedule();
