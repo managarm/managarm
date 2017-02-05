@@ -276,8 +276,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				modules[i].physicalBase, virt_length);
 		
 		auto name_ptr = reinterpret_cast<char *>(modules[i].namePtr);
-		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
-				<< ", length: " << modules[i].length << frigg::endLog;
+//		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
+//				<< ", length: " << modules[i].length << frigg::endLog;
 
 		Module module(frigg::String<KernelAlloc>(*kernelAlloc, name_ptr, modules[i].nameLength),
 				frigg::move(memory));

@@ -346,10 +346,12 @@ namespace initrd {
 				_buffer(*kernelAlloc) { }
 
 		void operator() () {
-			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
+//			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			// TODO: Actually handle the file-not-found case.	
 			Module *module = getModule(_req.path());
-			assert(module);
+			if(!module)
+				frigg::panicLogger() << "initrd: Module '" << _req.path()
+						<< "' not found" << frigg::endLog;
 			
 			auto stream = createStream();
 			auto file = frigg::construct<ModuleFile>(*kernelAlloc, module);
