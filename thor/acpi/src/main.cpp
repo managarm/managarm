@@ -41,6 +41,18 @@ struct MadtIoEntry {
 	uint32_t systemIntBase;
 };
 
+enum OverrideFlags {
+	polarityMask = 0x03,
+	polarityDefault = 0x00,
+	polarityHigh = 0x01,
+	polarityLow = 0x03,
+
+	triggerMask = 0x0C,
+	triggerDefault = 0x00,
+	triggerEdge = 0x04,
+	triggerLevel = 0x0C
+};
+
 struct MadtIntOverrideEntry {
 	MadtGenericEntry generic;
 	uint8_t bus;
@@ -392,9 +404,38 @@ int main() {
 			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
-			std::cout << "    Int override: bus " << (int)entry->bus
-					<< ", irq " << (int)entry->sourceIrq << " -> " << (int)entry->systemInt
-					<< std::endl;
+			
+			const char *bus, *polarity, *trigger;
+			if(entry->bus == 0) {
+				bus = "ISA";
+			}else{
+				throw std::runtime_error("Unexpected bus in MADT interrupt override");
+			}
+
+			if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
+				polarity = "default";
+			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityHigh) {
+				polarity = "high";
+			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
+				polarity = "low";
+			}else{
+				throw std::runtime_error("Unexpected polarity in MADT interrupt override");
+			}
+
+			if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
+				trigger = "default";
+			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerEdge) {
+				trigger = "edge";
+			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
+				trigger = "level";
+			}else{
+				throw std::runtime_error("Unexpected trigger mode in MADT interrupt override");
+			}
+
+			std::cout << "    Int override: " << bus << " IRQ " << (int)entry->sourceIrq
+					<< " is mapped to GSI " << entry->systemInt
+					<< " (Polarity: " << polarity << ", trigger mode: " << trigger
+					<< ")" << std::endl;
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
 			std::cout << "    Local APIC NMI: processor " << (int)entry->processorId
