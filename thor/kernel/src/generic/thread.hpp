@@ -1,5 +1,10 @@
+#ifndef THOR_GENERIC_THREAD_HPP
+#define THOR_GENERIC_THREAD_HPP
 
 #include <atomic>
+#include "core.hpp"
+#include "error.hpp"
+#include "schedule.hpp"
 
 namespace thor {
 
@@ -212,3 +217,4 @@ private:
 
 } // namespace thor
 
+#endif // THOR_GENERIC_THREAD_HPP

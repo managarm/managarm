@@ -1,8 +1,11 @@
 #ifndef THOR_GENERIC_CORE_HPP
 #define THOR_GENERIC_CORE_HPP
 
-#include <frg/pairing_heap.hpp>
 #include <frigg/callback.hpp>
+#include <frigg/variant.hpp>
+#include <frg/pairing_heap.hpp>
+#include "error.hpp"
+#include "../arch/x86/cpu.hpp"
 
 namespace thor {
 
@@ -20,26 +23,9 @@ public:
 
 extern BochsSink infoSink;
 
-template<typename T>
-using KernelSharedPtr = frigg::SharedPtr<T>;
-
-template<typename T>
-using KernelWeakPtr = frigg::WeakPtr<T>;
-
-template<typename T>
-using KernelUnsafePtr = frigg::UnsafePtr<T>;
-
 // --------------------------------------------------------
 // Kernel data types
 // --------------------------------------------------------
-
-enum Error {
-	kErrSuccess,
-	kErrBufferTooSmall,
-	kErrThreadExited,
-	kErrClosedLocally,
-	kErrClosedRemotely,
-};
 
 typedef int64_t Handle;
 

@@ -1,3 +1,9 @@
+#ifndef THOR_GENERIC_IO_HPP
+#define THOR_GENERIC_IO_HPP
+
+#include <frigg/smart_ptr.hpp>
+#include <frigg/vector.hpp>
+#include "thread.hpp"
 
 namespace thor {
 
@@ -11,7 +17,7 @@ public:
 
 	void addPort(uintptr_t port);
 
-	void enableInThread(KernelUnsafePtr<Thread> thread);
+	void enableInThread(frigg::UnsafePtr<Thread> thread);
 
 private:
 	frigg::Vector<uintptr_t, KernelAlloc> p_ports;
@@ -19,3 +25,4 @@ private:
 
 } // namespace thor
 
+#endif // THOR_GENERIC_IO_HPP

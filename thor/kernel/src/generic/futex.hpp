@@ -1,4 +1,8 @@
 
+#include <frigg/linked.hpp>
+#include <frigg/hashmap.hpp>
+#include "kernel_heap.hpp"
+
 namespace thor {
 
 struct Futex {

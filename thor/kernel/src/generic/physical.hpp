@@ -1,4 +1,6 @@
 
+#include "types.hpp"
+
 namespace thor {
 
 struct SkeletalRegion {

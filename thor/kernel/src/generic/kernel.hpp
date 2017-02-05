@@ -26,12 +26,6 @@
 
 #include "../../hel/include/hel.h"
 
-typedef uint64_t Word;
-
-typedef uint64_t PhysicalAddr;
-typedef uint64_t VirtualAddr;
-typedef uint64_t VirtualOffset;
-
 #include "physical.hpp"
 #include "arch/x86/cpu.hpp"
 #include "arch/x86/ints.hpp"

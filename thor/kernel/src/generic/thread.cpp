@@ -156,8 +156,8 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	globalScheduler().resume(thread.get());
 }
 
-Thread::Thread(KernelSharedPtr<Universe> universe,
-		KernelSharedPtr<AddressSpace> address_space, AbiParameters abi)
+Thread::Thread(frigg::SharedPtr<Universe> universe,
+		frigg::SharedPtr<AddressSpace> address_space, AbiParameters abi)
 : flags(0), _runState(kRunInterrupted),
 		_numTicks(0), _activationTick(0),
 		_pendingSignal(kSigNone), _runCount(1),
@@ -200,10 +200,10 @@ UserContext &Thread::getContext() {
 	return _context;
 }
 
-KernelUnsafePtr<Universe> Thread::getUniverse() {
+frigg::UnsafePtr<Universe> Thread::getUniverse() {
 	return _universe;
 }
-KernelUnsafePtr<AddressSpace> Thread::getAddressSpace() {
+frigg::UnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return _addressSpace;
 }
 

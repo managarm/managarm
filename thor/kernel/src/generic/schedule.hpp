@@ -1,3 +1,5 @@
+#ifndef THOR_GENERIC_SCHEDULE_HPP
+#define THOR_GENERIC_SCHEDULE_HPP
 
 #include <frg/list.hpp>
 
@@ -95,3 +97,4 @@ Scheduler &globalScheduler();
 
 } // namespace thor
 
+#endif // THOR_GENERIC_SCHEDULE_HPP

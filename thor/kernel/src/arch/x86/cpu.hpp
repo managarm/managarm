@@ -1,7 +1,11 @@
+#ifndef THOR_ARCH_X86_CPU_HPP
+#define THOR_ARCH_X86_CPU_HPP
 
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
+#include <frigg/tuple.hpp>
+#include "../../generic/types.hpp"
 
 namespace thor {
 
@@ -482,3 +486,4 @@ void bootSecondary(uint32_t secondary_apic_id);
 
 } // namespace thor
 
+#endif // THOR_ARCH_X86_CPU_HPP

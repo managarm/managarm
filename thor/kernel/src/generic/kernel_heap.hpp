@@ -1,6 +1,9 @@
 #ifndef THOR_GENERIC_KERNEL_HEAP_HPP
 #define THOR_GENERIC_KERNEL_HEAP_HPP
 
+#include <frigg/physical_buddy.hpp>
+#include <frigg/initializer.hpp>
+
 namespace thor {
 
 struct KernelVirtualMemory {

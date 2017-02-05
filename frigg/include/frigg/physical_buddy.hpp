@@ -1,3 +1,5 @@
+#ifndef FRIGG_PHYSICAL_BUDDY_HPP
+#define FRIGG_PHYSICAL_BUDDY_HPP
 
 #include <limits.h>
 
@@ -380,3 +382,4 @@ public:
 
 } // namespace frigg
 
+#endif // FRIGG_PHYSICAL_BUDDY_HPP

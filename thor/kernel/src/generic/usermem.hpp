@@ -347,7 +347,7 @@ struct NormalMapping : Mapping {
 	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
-	KernelSharedPtr<Memory> _memory;
+	frigg::SharedPtr<Memory> _memory;
 	size_t _offset;
 };
 
@@ -428,7 +428,7 @@ public:
 
 	void setupDefaultMappings();
 
-	void map(Guard &guard, KernelUnsafePtr<Memory> memory,
+	void map(Guard &guard, frigg::UnsafePtr<Memory> memory,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	
@@ -436,7 +436,7 @@ public:
 
 	bool handleFault(Guard &guard, VirtualAddr address, uint32_t flags);
 	
-	KernelSharedPtr<AddressSpace> fork(Guard &guard);
+	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
 	
 	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
 

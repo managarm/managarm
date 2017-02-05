@@ -1,3 +1,5 @@
+#ifndef FRIGG_LINKED_HPP
+#define FRIGG_LINKED_HPP
 
 #include <frigg/macros.hpp>
 #include <frigg/smart_ptr.hpp>
@@ -221,3 +223,4 @@ private:
 
 } // namespace frigg
 
+#endif // FRIGG_LINKED_HPP

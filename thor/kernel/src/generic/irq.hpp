@@ -1,7 +1,10 @@
 #ifndef THOR_GENERIC_IRQ_HPP
 #define THOR_GENERIC_IRQ_HPP
 
-#include "kernel.hpp"
+#include <frigg/debug.hpp>
+#include <frigg/linked.hpp>
+#include <frg/list.hpp>
+#include "error.hpp"
 
 namespace thor {
 

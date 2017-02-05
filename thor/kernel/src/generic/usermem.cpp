@@ -1,6 +1,7 @@
 
 #include <type_traits>
 #include "kernel.hpp"
+#include "types.hpp"
 
 namespace thor {
 
@@ -863,7 +864,7 @@ void AddressSpace::setupDefaultMappings() {
 }
 
 void AddressSpace::map(Guard &guard,
-		KernelUnsafePtr<Memory> memory, VirtualAddr address,
+		frigg::UnsafePtr<Memory> memory, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
 	assert(length);
@@ -988,7 +989,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t fault
 	return mapping->handleFault(address - mapping->address(), fault_flags);
 }
 
-KernelSharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
+frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
 	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc);

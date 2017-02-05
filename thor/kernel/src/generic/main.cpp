@@ -357,8 +357,8 @@ extern "C" void handleProtectionFault(FaultImageAccessor image) {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
-	KernelUnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+	frigg::UnsafePtr<AddressSpace> address_space = this_thread->getAddressSpace();
 
 	const Word kPfAccess = 1;
 	const Word kPfWrite = 2;
@@ -453,7 +453,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 }
 
 extern "C" void handleSyscall(SyscallImageAccessor image) {
-	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
+	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		frigg::infoLogger() << this_thread.get()
 				<< " syscall #" << *image.number() << frigg::endLog;

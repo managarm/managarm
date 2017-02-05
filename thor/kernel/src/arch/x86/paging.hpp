@@ -1,3 +1,5 @@
+#ifndef THOR_ARCH_X86_PAGING_HPP
+#define THOR_ARCH_X86_PAGING_HPP
 
 namespace thor {
 
@@ -125,3 +127,4 @@ extern "C" void thorRtInvalidateSpace();
 
 } // namespace thor
 
+#endif // THOR_ARCH_X86_PAGING_HPP

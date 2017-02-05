@@ -1,5 +1,5 @@
 
-#include "kernel.hpp"
+#include "io.hpp"
 
 namespace thor {
 
@@ -13,7 +13,7 @@ void IoSpace::addPort(uintptr_t port) {
 	p_ports.push(port);
 }
 
-void IoSpace::enableInThread(KernelUnsafePtr<Thread> thread) {
+void IoSpace::enableInThread(frigg::UnsafePtr<Thread> thread) {
 	for(size_t i = 0; i < p_ports.size(); i++)
 		thread->getContext().enableIoPort(p_ports[i]);
 }

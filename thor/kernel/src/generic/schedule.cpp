@@ -118,7 +118,7 @@ WorkQueue &globalWorkQueue() {
 	return *workQueueSingleton;
 }
 
-KernelUnsafePtr<Thread> getCurrentThread() {
+frigg::UnsafePtr<Thread> getCurrentThread() {
 	return activeExecutor();
 }
 

@@ -1,4 +1,6 @@
 
+#include "../arch/x86/paging.hpp"
+
 namespace thor {
 
 struct ForeignSpaceAccessor {
