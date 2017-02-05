@@ -280,6 +280,17 @@ struct UserContext {
 	frigg::arch_x86::Tss64 tss;
 };
 
+struct FiberContext {
+	FiberContext();
+
+	FiberContext(const FiberContext &other) = delete;
+
+	FiberContext &operator= (const FiberContext &other) = delete;
+
+	// TODO: This should be private.
+	UniqueKernelStack stack;
+};
+
 struct Executor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
@@ -291,6 +302,7 @@ struct Executor {
 	Executor();
 	
 	explicit Executor(UserContext *context, AbiParameters abi);
+	explicit Executor(FiberContext *context, AbiParameters abi);
 
 	Executor(const Executor &other) = delete;
 

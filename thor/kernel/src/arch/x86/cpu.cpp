@@ -113,6 +113,16 @@ void BochsSink::print(const char *str) {
 }
 
 // --------------------------------------------------------
+
+namespace {
+	void activateTss(frigg::arch_x86::Tss64 *tss) {
+		frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
+				tss, sizeof(frigg::arch_x86::Tss64));
+		asm volatile ("ltr %w0" : : "r"(kSelTask));
+	}
+}
+
+// --------------------------------------------------------
 // UniqueKernelStack
 // --------------------------------------------------------
 
@@ -149,6 +159,18 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 
 	_tss = &context->tss;
 	_syscallStack = context->kernelStack.base();
+}
+
+Executor::Executor(FiberContext *context, AbiParameters abi)
+: _syscallStack{nullptr}, _tss{nullptr} {
+	_pointer = (char *)kernelAlloc->allocate(getStateSize());
+	memset(_pointer, 0, getStateSize());
+
+	general()->rip = abi.ip;
+	general()->rflags = 0x200;
+	general()->rsp = (uintptr_t)context->stack.base();
+	general()->cs = kSelExecutorSyscallCode;
+	general()->ss = kSelExecutorKernelData;
 }
 
 Executor::~Executor() {
@@ -242,15 +264,38 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 }
 
+void switchExecutor(frigg::UnsafePtr<Thread> executor) {
+	assert(!intsAreEnabled());
+	getCpuData()->activeExecutor = executor;
+}
+
+extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
+
+[[ gnu::section(".text.stubs") ]] void restoreExecutor(Executor *executor) {
+	if(executor->_tss) {
+		activateTss(executor->_tss);
+	}else{
+		activateTss(&getCpuData()->tss);
+	}
+
+	getCpuData()->syscallStack = executor->_syscallStack;
+
+	// TODO: use wr{fs,gs}base if it is available
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->general()->clientFs);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
+
+	uint16_t cs = executor->general()->cs;
+	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelClientUserCode);
+	if(cs == kSelClientUserCode)
+		asm volatile ( "swapgs" : : : "memory" );
+
+	_restoreExecutorRegisters(executor->general());
+}
+
 // --------------------------------------------------------
 // UserContext
 // --------------------------------------------------------
-
-void activateTss(frigg::arch_x86::Tss64 *tss) {
-	frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
-			tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ("ltr %w0" : : "r"(kSelTask));
-}
 
 UserContext::UserContext()
 : kernelStack{UniqueKernelStack::make()} {
@@ -272,29 +317,12 @@ frigg::UnsafePtr<Thread> activeExecutor() {
 	return getCpuData()->activeExecutor;
 }
 
-void switchExecutor(frigg::UnsafePtr<Thread> executor) {
-	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = executor;
-}
+// --------------------------------------------------------
+// FiberContext
+// --------------------------------------------------------
 
-extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
-
-[[ gnu::section(".text.stubs") ]] void restoreExecutor(Executor *executor) {
-	activateTss(executor->_tss);
-	getCpuData()->syscallStack = executor->_syscallStack;
-
-	// TODO: use wr{fs,gs}base if it is available
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->general()->clientFs);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
-
-	uint16_t cs = executor->general()->cs;
-	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelClientUserCode);
-	if(cs == kSelClientUserCode)
-		asm volatile ( "swapgs" : : : "memory" );
-
-	_restoreExecutorRegisters(executor->general());
-}
+FiberContext::FiberContext()
+: stack{UniqueKernelStack::make()} { }
 
 // --------------------------------------------------------
 // PlatformCpuData

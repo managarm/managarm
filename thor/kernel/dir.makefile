@@ -11,7 +11,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch/x86/ints.o arch/x86/pic.o arch/x86/system.o arch/x86/paging.o \
 	arch/x86/hpet.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
-	generic/core.o generic/usermem.o generic/schedule.o \
+	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
 	generic/thread.o generic/irq.o generic/io.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
