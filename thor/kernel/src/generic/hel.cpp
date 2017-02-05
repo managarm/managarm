@@ -1013,12 +1013,17 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	return kHelErrNone;
 }
 
+#include "../arch/x86/debug.hpp"
+
 HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	KernelUnsafePtr<Thread> this_thread = getCurrentThread();
 	KernelUnsafePtr<Universe> universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Thread> thread;
-	{
+	if(handle == kHelThisThread) {
+		// FIXME: Properly handle this below.
+		thread = this_thread.toShared();
+	}else{
 		Universe::Guard universe_guard(&universe->lock);
 
 		auto thread_wrapper = universe->getDescriptor(universe_guard, handle);
@@ -1029,6 +1034,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 	
+	// FIXME: We need to lock the thread and ensure it is in the interrupted state.
 	if(set == kHelRegsProgram) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
 		*thread->image.ip() = accessor[0];
@@ -1054,6 +1060,10 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
 		thread->image.general()->clientFs = accessor[0];
 		thread->image.general()->clientGs = accessor[1];
+	}else if(set == kHelRegsDebug) {
+		// FIXME: Make those registers thread-specific.
+		auto accessor = reinterpret_cast<const uintptr_t *>(image);
+		breakOnWrite(reinterpret_cast<uint32_t *>(*accessor));
 	}else{
 		return kHelErrIllegalArgs;
 	}

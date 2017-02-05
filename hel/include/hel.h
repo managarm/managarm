@@ -178,7 +178,8 @@ enum HelObservation {
 enum HelRegisterSets {
 	kHelRegsProgram = 1,
 	kHelRegsGeneral = 2,
-	kHelRegsThread = 3
+	kHelRegsThread = 3,
+	kHelRegsDebug = 4
 };
 
 enum HelMessageFlags {

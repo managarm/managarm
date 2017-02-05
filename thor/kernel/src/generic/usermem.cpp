@@ -254,19 +254,23 @@ void AllocatedMemory::release(uintptr_t offset, size_t length) {
 
 PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
-	size_t index = offset / _chunkSize;
+	auto index = offset / _chunkSize;
+	auto misalign = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
-	return _physicalChunks[index];
+	if(_physicalChunks[index] == PhysicalAddr(-1))
+		return PhysicalAddr(-1);
+	return _physicalChunks[index] + misalign;
 }
 
 PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 	_populateRange(offset, kPageSize);
 
-	size_t index = offset / _chunkSize;
+	auto index = offset / _chunkSize;
+	auto misalign = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	return _physicalChunks[index];
+	return _physicalChunks[index] + misalign;
 }
 
 size_t AllocatedMemory::getLength() {

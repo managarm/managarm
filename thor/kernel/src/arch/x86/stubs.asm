@@ -115,8 +115,6 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 .section .text.stubs
 .global \name
 \name:
-	# we're pushing 15 registers here.
-	# adjust the rsp offsets below if you change those pushs.
 	push %rbp
 	push %r15
 	push %r14

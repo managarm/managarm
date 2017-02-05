@@ -19,6 +19,13 @@ struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 1>> {
 };
 
 template<typename T>
+struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 4>> {
+	static void invoke(const T *p) {
+		installBreak(p, Condition::write, Size::size4);
+	}
+};
+
+template<typename T>
 struct BreakOnWrite<T, frigg::EnableIfT<sizeof(T) == 8>> {
 	static void invoke(const T *p) {
 		installBreak(p, Condition::write, Size::size8);
