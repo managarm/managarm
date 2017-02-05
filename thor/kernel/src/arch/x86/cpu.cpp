@@ -127,207 +127,183 @@ UniqueKernelStack::~UniqueKernelStack() {
 }
 
 // --------------------------------------------------------
-// UniqueExecutorImage
+// Executor
 // --------------------------------------------------------
 
-size_t UniqueExecutorImage::determineSize() {
+size_t Executor::determineSize() {
 	return sizeof(General) + sizeof(FxState);
 }
 
-UniqueExecutorImage UniqueExecutorImage::make() {
-	auto pointer = (char *)kernelAlloc->allocate(getStateSize());
-	memset(pointer, 0, getStateSize());
-	return UniqueExecutorImage(pointer);
+Executor::Executor()
+: _pointer{nullptr}, _syscallStack{nullptr}, _tss{nullptr} { }
+
+Executor::Executor(UserContext *context, AbiParameters abi) {
+	_pointer = (char *)kernelAlloc->allocate(getStateSize());
+	memset(_pointer, 0, getStateSize());
+
+	general()->rip = abi.ip;
+	general()->rflags = 0x200;
+	general()->rsp = abi.sp;
+	general()->cs = kSelClientUserCode;
+	general()->ss = kSelClientUserData;
+
+	_tss = &context->tss;
+	_syscallStack = context->kernelStack.base();
 }
 
-UniqueExecutorImage::~UniqueExecutorImage() {
+Executor::~Executor() {
 	kernelAlloc->free(_pointer);
 }
 
-void UniqueExecutorImage::initSystemVAbi(Word ip, Word sp, bool supervisor) {
-	memset(_pointer, 0, getStateSize());
+void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
+	executor->general()->rax = accessor._frame()->rax;
+	executor->general()->rbx = accessor._frame()->rbx;
+	executor->general()->rcx = accessor._frame()->rcx;
+	executor->general()->rdx = accessor._frame()->rdx;
+	executor->general()->rdi = accessor._frame()->rdi;
+	executor->general()->rsi = accessor._frame()->rsi;
+	executor->general()->rbp = accessor._frame()->rbp;
 
-	general()->rip = ip;
-	general()->rflags = 0x200;
-	general()->rsp = sp;
-
-	if(supervisor) {
-		general()->cs = kSelExecutorSyscallCode;
-		general()->ss = kSelExecutorKernelData;
-	}else{
-		general()->cs = kSelClientUserCode;
-		general()->ss = kSelClientUserData;
-	}
+	executor->general()->r8 = accessor._frame()->r8;
+	executor->general()->r9 = accessor._frame()->r9;
+	executor->general()->r10 = accessor._frame()->r10;
+	executor->general()->r11 = accessor._frame()->r11;
+	executor->general()->r12 = accessor._frame()->r12;
+	executor->general()->r13 = accessor._frame()->r13;
+	executor->general()->r14 = accessor._frame()->r14;
+	executor->general()->r15 = accessor._frame()->r15;
+	
+	executor->general()->rip = accessor._frame()->rip;
+	executor->general()->cs = accessor._frame()->cs;
+	executor->general()->rflags = accessor._frame()->rflags;
+	executor->general()->rsp = accessor._frame()->rsp;
+	executor->general()->ss = accessor._frame()->ss;
+	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	
+	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 }
 
-void saveExecutor(FaultImageAccessor accessor) {
-	UniqueExecutorImage &image = activeExecutor()->image;
+void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
+	executor->general()->rax = accessor._frame()->rax;
+	executor->general()->rbx = accessor._frame()->rbx;
+	executor->general()->rcx = accessor._frame()->rcx;
+	executor->general()->rdx = accessor._frame()->rdx;
+	executor->general()->rdi = accessor._frame()->rdi;
+	executor->general()->rsi = accessor._frame()->rsi;
+	executor->general()->rbp = accessor._frame()->rbp;
 
-	image.general()->rax = accessor._frame()->rax;
-	image.general()->rbx = accessor._frame()->rbx;
-	image.general()->rcx = accessor._frame()->rcx;
-	image.general()->rdx = accessor._frame()->rdx;
-	image.general()->rdi = accessor._frame()->rdi;
-	image.general()->rsi = accessor._frame()->rsi;
-	image.general()->rbp = accessor._frame()->rbp;
-
-	image.general()->r8 = accessor._frame()->r8;
-	image.general()->r9 = accessor._frame()->r9;
-	image.general()->r10 = accessor._frame()->r10;
-	image.general()->r11 = accessor._frame()->r11;
-	image.general()->r12 = accessor._frame()->r12;
-	image.general()->r13 = accessor._frame()->r13;
-	image.general()->r14 = accessor._frame()->r14;
-	image.general()->r15 = accessor._frame()->r15;
+	executor->general()->r8 = accessor._frame()->r8;
+	executor->general()->r9 = accessor._frame()->r9;
+	executor->general()->r10 = accessor._frame()->r10;
+	executor->general()->r11 = accessor._frame()->r11;
+	executor->general()->r12 = accessor._frame()->r12;
+	executor->general()->r13 = accessor._frame()->r13;
+	executor->general()->r14 = accessor._frame()->r14;
+	executor->general()->r15 = accessor._frame()->r15;
 	
-	image.general()->rip = accessor._frame()->rip;
-	image.general()->cs = accessor._frame()->cs;
-	image.general()->rflags = accessor._frame()->rflags;
-	image.general()->rsp = accessor._frame()->rsp;
-	image.general()->ss = accessor._frame()->ss;
-	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	executor->general()->rip = accessor._frame()->rip;
+	executor->general()->cs = accessor._frame()->cs;
+	executor->general()->rflags = accessor._frame()->rflags;
+	executor->general()->rsp = accessor._frame()->rsp;
+	executor->general()->ss = accessor._frame()->ss;
+	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	
-	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
+	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 }
 
-void saveExecutor(IrqImageAccessor accessor) {
-	UniqueExecutorImage &image = activeExecutor()->image;
-
-	image.general()->rax = accessor._frame()->rax;
-	image.general()->rbx = accessor._frame()->rbx;
-	image.general()->rcx = accessor._frame()->rcx;
-	image.general()->rdx = accessor._frame()->rdx;
-	image.general()->rdi = accessor._frame()->rdi;
-	image.general()->rsi = accessor._frame()->rsi;
-	image.general()->rbp = accessor._frame()->rbp;
-
-	image.general()->r8 = accessor._frame()->r8;
-	image.general()->r9 = accessor._frame()->r9;
-	image.general()->r10 = accessor._frame()->r10;
-	image.general()->r11 = accessor._frame()->r11;
-	image.general()->r12 = accessor._frame()->r12;
-	image.general()->r13 = accessor._frame()->r13;
-	image.general()->r14 = accessor._frame()->r14;
-	image.general()->r15 = accessor._frame()->r15;
-	
-	image.general()->rip = accessor._frame()->rip;
-	image.general()->cs = accessor._frame()->cs;
-	image.general()->rflags = accessor._frame()->rflags;
-	image.general()->rsp = accessor._frame()->rsp;
-	image.general()->ss = accessor._frame()->ss;
-	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
-	
-	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
-}
-
-void saveExecutor(SyscallImageAccessor accessor) {
-	UniqueExecutorImage &image = activeExecutor()->image;
-
+void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	// Note that rbx, rcx and r11 are used internally by the syscall mechanism.
-	image.general()->rax = accessor._frame()->rax;
-	image.general()->rdx = accessor._frame()->rdx;
-	image.general()->rdi = accessor._frame()->rdi;
-	image.general()->rsi = accessor._frame()->rsi;
-	image.general()->rbp = accessor._frame()->rbp;
+	executor->general()->rax = accessor._frame()->rax;
+	executor->general()->rdx = accessor._frame()->rdx;
+	executor->general()->rdi = accessor._frame()->rdi;
+	executor->general()->rsi = accessor._frame()->rsi;
+	executor->general()->rbp = accessor._frame()->rbp;
 
-	image.general()->r8 = accessor._frame()->r8;
-	image.general()->r9 = accessor._frame()->r9;
-	image.general()->r10 = accessor._frame()->r10;
-	image.general()->r12 = accessor._frame()->r12;
-	image.general()->r13 = accessor._frame()->r13;
-	image.general()->r14 = accessor._frame()->r14;
-	image.general()->r15 = accessor._frame()->r15;
+	executor->general()->r8 = accessor._frame()->r8;
+	executor->general()->r9 = accessor._frame()->r9;
+	executor->general()->r10 = accessor._frame()->r10;
+	executor->general()->r12 = accessor._frame()->r12;
+	executor->general()->r13 = accessor._frame()->r13;
+	executor->general()->r14 = accessor._frame()->r14;
+	executor->general()->r15 = accessor._frame()->r15;
 
 	// Note that we do not save cs and ss on syscall.
 	// We just assume that these registers have their usual values.
-	image.general()->rip = accessor._frame()->rip;
-	image.general()->cs = kSelClientUserCode;
-	image.general()->rflags = accessor._frame()->rflags;
-	image.general()->rsp = accessor._frame()->rsp;
-	image.general()->ss = kSelClientUserData;
-	image.general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
-	image.general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
+	executor->general()->rip = accessor._frame()->rip;
+	executor->general()->cs = kSelClientUserCode;
+	executor->general()->rflags = accessor._frame()->rflags;
+	executor->general()->rsp = accessor._frame()->rsp;
+	executor->general()->ss = kSelClientUserData;
+	executor->general()->clientFs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexFsBase);
+	executor->general()->clientGs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexKernelGsBase);
 	
-	asm volatile ("fxsaveq %0" : : "m" (*image._fxState()));
+	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 }
 
 // --------------------------------------------------------
-// PlatformContext
+// UserContext
 // --------------------------------------------------------
 
-PlatformContext::PlatformContext(void *kernel_stack_base) {
+void activateTss(frigg::arch_x86::Tss64 *tss) {
+	frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
+			tss, sizeof(frigg::arch_x86::Tss64));
+	asm volatile ("ltr %w0" : : "r"(kSelTask));
+}
+
+UserContext::UserContext()
+: kernelStack{UniqueKernelStack::make()} {
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&tss);
-	tss.rsp0 = (Word)kernel_stack_base;
+	tss.rsp0 = (Word)kernelStack.base();
 }
 
-void PlatformContext::enableIoPort(uintptr_t port) {
+void UserContext::enableIoPort(uintptr_t port) {
 	tss.ioBitmap[port / 8] &= ~(1 << (port % 8));
 }
 
-void switchContext(Context *context) {
+void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
-	CpuData *cpu_data = getCpuData();
-	
-//	context->getAddressSpace()->activate();
-
-	// setup the thread's tss segment
-	context->tss.ist1 = (Word)cpu_data->irqStack.base();
-	
-	frigg::arch_x86::makeGdtTss64Descriptor(cpu_data->gdt, kGdtIndexTask,
-			&context->tss, sizeof(frigg::arch_x86::Tss64));
-	asm volatile ( "ltr %w0" : : "r" (kSelTask) );
-}
-
-// --------------------------------------------------------
-// PlatformExecutor
-// --------------------------------------------------------
-
-PlatformExecutor::PlatformExecutor()
-: AssemblyExecutor(UniqueExecutorImage::make(), UniqueKernelStack::make()) {
+	tss.ist1 = (Word)cpu_data->irqStack.base();
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
-	return frigg::staticPtrCast<Thread>(getCpuData()->activeExecutor);
+	return getCpuData()->activeExecutor;
 }
 
 void switchExecutor(frigg::UnsafePtr<Thread> executor) {
 	assert(!intsAreEnabled());
-	CpuData *cpu_data = getCpuData();
-	
-	// finally update the active executor register.
-	// we do this after setting up the address space and TSS
-	// so that these structures are always valid.
-	cpu_data->activeExecutor = executor;
+	getCpuData()->activeExecutor = executor;
 }
 
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
-[[ gnu::section(".text.stubs") ]] void restoreExecutor() {
-	UniqueExecutorImage &image = activeExecutor()->image;
+[[ gnu::section(".text.stubs") ]] void restoreExecutor(Executor *executor) {
+	activateTss(executor->_tss);
+	getCpuData()->syscallStack = executor->_syscallStack;
 
 	// TODO: use wr{fs,gs}base if it is available
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, image.general()->clientFs);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, image.general()->clientGs);
-	
-	uint16_t cs = image.general()->cs;
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexFsBase, executor->general()->clientFs);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexKernelGsBase, executor->general()->clientGs);
+
+	uint16_t cs = executor->general()->cs;
 	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
 			|| cs == kSelClientUserCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
-	_restoreExecutorRegisters(image._pointer);
+	_restoreExecutorRegisters(executor->general());
 }
 
 // --------------------------------------------------------
 // PlatformCpuData
 // --------------------------------------------------------
 
-PlatformCpuData::PlatformCpuData() {
-	// setup the gdt
-	// note: the tss requires two slots in the gdt
+PlatformCpuData::PlatformCpuData()
+: irqStack{UniqueKernelStack::make()}, detachedStack{UniqueKernelStack::make()} {
+	// Setup the GDT.
+	// Note: the TSS requires two slots in the GDT.
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexInitialCode);
 
@@ -341,6 +317,11 @@ PlatformCpuData::PlatformCpuData() {
 	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
 	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
+	
+	// Setup the per-CPU TSS. This TSS is used by system code.
+	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
+	frigg::arch_x86::initializeTss64(&tss);
+	tss.ist1 = (uintptr_t)irqStack.base();
 }
 
 // --------------------------------------------------------
@@ -348,7 +329,7 @@ PlatformCpuData::PlatformCpuData() {
 // --------------------------------------------------------
 
 size_t getStateSize() {
-	return UniqueExecutorImage::determineSize();
+	return Executor::determineSize();
 }
 
 CpuData *getCpuData() {
@@ -373,9 +354,7 @@ extern "C" void syscallStub();
 
 void initializeThisProcessor() {
 	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
-	cpu_data->irqStack = UniqueKernelStack::make();
-	cpu_data->detachedStack = UniqueKernelStack::make();
-
+	
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
 
@@ -393,9 +372,8 @@ void initializeThisProcessor() {
 			"\rlretq\n"
 			".L_reloadCs:" : : "i" (kSelInitialCode) );
 
-	// we enter the idle thread before setting up the IDT.
-	// this gives us a valid TSS segment in case an NMI or fault happens here.
-	switchContext(&cpu_data->context);
+	// We need a valid TSS in case an NMI or fault happens here.
+	activateTss(&cpu_data->tss);
 	
 	// setup the idt
 	for(int i = 0; i < 256; i++)

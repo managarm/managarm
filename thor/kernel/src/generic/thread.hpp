@@ -16,7 +16,7 @@ struct Thread;
 
 frigg::UnsafePtr<Thread> getCurrentThread();
 
-struct Thread : frigg::SharedCounter, PlatformExecutor, ScheduleEntity {
+struct Thread : frigg::SharedCounter, ScheduleEntity {
 private:
 	struct ObserveBase : Tasklet {
 		void run() override;
@@ -44,9 +44,10 @@ private:
 
 public:
 	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
-			frigg::SharedPtr<AddressSpace> address_space) {
+			frigg::SharedPtr<AddressSpace> address_space,
+			AbiParameters abi) {
 		auto thread = frigg::construct<Thread>(*kernelAlloc,
-				frigg::move(universe), frigg::move(address_space));
+				frigg::move(universe), frigg::move(address_space), abi);
 		return frigg::SharedPtr<Thread>{frigg::adoptShared, thread, 
 				frigg::SharedControl{thread}};
 	}
@@ -105,10 +106,11 @@ public:
 	};
 
 	Thread(frigg::SharedPtr<Universe> universe,
-			frigg::SharedPtr<AddressSpace> address_space);
+			frigg::SharedPtr<AddressSpace> address_space,
+			AbiParameters abi);
 	~Thread();
 
-	Context &getContext();
+	UserContext &getContext();
 	frigg::UnsafePtr<Universe> getUniverse();
 	frigg::UnsafePtr<AddressSpace> getAddressSpace();
 
@@ -186,7 +188,11 @@ private:
 	// The thread is killed when this counter reaches zero.
 	std::atomic<int> _runCount;
 
-	Context _context;
+	UserContext _context;
+public:
+	// TODO: This should be private.
+	Executor _executor;
+private:
 
 	frigg::SharedPtr<Universe> _universe;
 	frigg::SharedPtr<AddressSpace> _addressSpace;

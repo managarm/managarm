@@ -51,19 +51,8 @@ class Stream;
 class LaneControl;
 class IoSpace;
 
-struct Context : public PlatformContext {
-	Context(void *kernel_stack_base)
-	: PlatformContext(kernel_stack_base) { };
-
-	Context(const Context &other) = delete;
-	Context(Context &&other) = delete;
-	Context &operator= (Context context) = delete;
-};
-
 struct CpuData : public PlatformCpuData {
-	CpuData();
 
-	Context context;
 };
 
 struct Timer {

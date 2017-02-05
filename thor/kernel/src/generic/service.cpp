@@ -469,8 +469,8 @@ namespace initrd {
 			assert(error == kErrSuccess);
 			
 			if(interrupt == kIntrSuperCall + 1) {
-				_thread->image.general()->rdi = kHelErrNone;
-				_thread->image.general()->rsi = (Word)_process->clientFileTable;
+				_thread->_executor.general()->rdi = kHelErrNone;
+				_thread->_executor.general()->rsi = (Word)_process->clientFileTable;
 				Thread::resumeOther(_thread);
 			}else{
 				frigg::panicLogger() << "Unexpected observation" << frigg::endLog;

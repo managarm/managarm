@@ -199,11 +199,13 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
-	auto thread = Thread::create(*rootUniverse, frigg::move(space));
+	AbiParameters params;
+	params.ip = (uintptr_t)interp_info.entryIp;
+	params.sp = stack_base + tail_disp;
+
+	auto thread = Thread::create(*rootUniverse, frigg::move(space), params);
 	thread->self = thread;
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
-	thread->image.initSystemVAbi((uintptr_t)interp_info.entryIp,
-			stack_base + tail_disp, false);
 	
 	// listen to POSIX calls from the thread.
 	runService(thread);

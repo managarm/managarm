@@ -4,8 +4,9 @@
 namespace thor {
 
 namespace {
+	constexpr bool logTransitions = false;
 	constexpr bool logRunStates = false;
-};
+}
 
 void Thread::ObserveBase::run() {
 	trigger(error, interrupt);
@@ -24,7 +25,7 @@ void Thread::deferCurrent() {
 				<< " is deferred" << frigg::endLog;
 
 	assert(!intsAreEnabled());
-	if(forkExecutor()) {
+	if(forkExecutor(&this_thread->_executor)) {
 		runDetached([] {
 			globalScheduler().reschedule();
 		});
@@ -38,7 +39,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
-	saveExecutor(image);
+	saveExecutor(&this_thread->_executor, image);
 
 	assert(!intsAreEnabled());
 	runDetached([] {
@@ -59,7 +60,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is interrupted" << frigg::endLog;
 	this_thread->_runState = kRunInterrupted;
-	saveExecutor(image);
+	saveExecutor(&this_thread->_executor, image);
 
 	while(!this_thread->_observeQueue.empty()) {
 		auto observe = this_thread->_observeQueue.pop_front();
@@ -83,7 +84,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is interrupted" << frigg::endLog;
-	saveExecutor(image);
+	saveExecutor(&this_thread->_executor, image);
 
 	while(!this_thread->_observeQueue.empty()) {
 		auto observe = this_thread->_observeQueue.pop_front();
@@ -101,6 +102,9 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	if(logTransitions)
+		frigg::infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
+				<< frigg::endLog;
 	assert(this_thread->_runState == kRunActive);
 	
 	if(this_thread->_pendingSignal == kSigStop) {
@@ -108,7 +112,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " is interrupted" << frigg::endLog;
-		saveExecutor(image);
+		saveExecutor(&this_thread->_executor, image);
 
 		while(!this_thread->_observeQueue.empty()) {
 			auto observe = this_thread->_observeQueue.pop_front();
@@ -153,11 +157,11 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 }
 
 Thread::Thread(KernelSharedPtr<Universe> universe,
-		KernelSharedPtr<AddressSpace> address_space)
+		KernelSharedPtr<AddressSpace> address_space, AbiParameters abi)
 : flags(0), _runState(kRunInterrupted),
 		_numTicks(0), _activationTick(0),
 		_pendingSignal(kSigNone), _runCount(1),
-		_context(kernelStack.base()),
+		_executor{&_context, abi},
 		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
 //	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
 	auto stream = createStream();
@@ -192,7 +196,7 @@ void Thread::doSubmitObserve(ObserveBase *observe) {
 	_observeQueue.push_back(observe);
 }
 
-Context &Thread::getContext() {
+UserContext &Thread::getContext() {
 	return _context;
 }
 
@@ -214,10 +218,10 @@ void Thread::invoke() {
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this << " is activated" << frigg::endLog;
 
+	_context.migrate(getCpuData());
 	_addressSpace->activate();
-	switchContext(&_context);
 	switchExecutor(self);
-	restoreExecutor();
+	restoreExecutor(&_executor);
 }
 
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
@@ -230,7 +234,7 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 				<< " is blocked" << frigg::endLog;
 
 	assert(!intsAreEnabled());
-	if(forkExecutor()) {
+	if(forkExecutor(&this_thread->_executor)) {
 		globalScheduler().suspend(this_thread.get());
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			// TODO: exit the current thread.

@@ -1,10 +1,10 @@
 
 # kernel gs segment fields
 .set .L_gsActiveExecutor, 0x08
+.set .L_gsSyscallStack, 0x10
 
 # executor struct fields
 .set .L_executorImagePtr, 0x00
-.set .L_executorKernelStack, 0x08
 
 # fields of the state structs
 .set .L_imageRax, 0x0
@@ -181,8 +181,7 @@ syscallStub:
 	# temporarily save it and switch to kernel-stack
 	swapgs
 	mov %rsp, %rbx
-	mov %gs:.L_gsActiveExecutor, %rsp
-	mov .L_executorKernelStack(%rsp), %rsp
+	mov %gs:.L_gsSyscallStack, %rsp
 
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 
@@ -246,8 +245,7 @@ syscallStub:
 .text
 .global forkExecutor
 forkExecutor:
-	mov %gs:.L_gsActiveExecutor, %rsi
-	mov .L_executorImagePtr(%rsi), %rdi
+	mov .L_executorImagePtr(%rdi), %rdi
 	
 	# save the fs segment
 	mov $.L_msrIndexFsBase, %rcx

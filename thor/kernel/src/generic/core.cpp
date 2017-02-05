@@ -109,13 +109,6 @@ frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
-// CpuData class
-// --------------------------------------------------------
-
-CpuData::CpuData()
-: context(nullptr) { }
-
-// --------------------------------------------------------
 // SubmitInfo
 // --------------------------------------------------------
 

@@ -890,15 +890,17 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 			space = space_wrapper->get<AddressSpaceDescriptor>().space;
 		}
 	}
+	
+	AbiParameters params;
+	params.ip = (uintptr_t)ip;
+	params.sp = (uintptr_t)sp;
 
-	auto new_thread = Thread::create(frigg::move(universe), frigg::move(space));
+	auto new_thread = Thread::create(frigg::move(universe), frigg::move(space), params);
 	new_thread->self = new_thread;
 	if(flags & kHelThreadExclusive)
 		new_thread->flags |= Thread::kFlagExclusive;
 	if(flags & kHelThreadTrapsAreFatal)
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
-	
-	new_thread->image.initSystemVAbi((Word)ip, (Word)sp, false);
 
 	globalScheduler().attach(new_thread.get());
 	if(!(flags & kHelThreadStopped))
@@ -983,29 +985,29 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 
 	if(set == kHelRegsProgram) {
 		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = *thread->image.ip();
-		accessor[1] = *thread->image.sp();
+		accessor[0] = *thread->_executor.ip();
+		accessor[1] = *thread->_executor.sp();
 	}else if(set == kHelRegsGeneral) {
 		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = thread->image.general()->rax;
-		accessor[1] = thread->image.general()->rbx;
-		accessor[2] = thread->image.general()->rcx;
-		accessor[3] = thread->image.general()->rdx;
-		accessor[4] = thread->image.general()->rdi;
-		accessor[5] = thread->image.general()->rsi;
-		accessor[6] = thread->image.general()->r8;
-		accessor[7] = thread->image.general()->r9;
-		accessor[8] = thread->image.general()->r10;
-		accessor[9] = thread->image.general()->r11;
-		accessor[10] = thread->image.general()->r12;
-		accessor[11] = thread->image.general()->r13;
-		accessor[12] = thread->image.general()->r14;
-		accessor[13] = thread->image.general()->r15;
-		accessor[14] = thread->image.general()->rbp;
+		accessor[0] = thread->_executor.general()->rax;
+		accessor[1] = thread->_executor.general()->rbx;
+		accessor[2] = thread->_executor.general()->rcx;
+		accessor[3] = thread->_executor.general()->rdx;
+		accessor[4] = thread->_executor.general()->rdi;
+		accessor[5] = thread->_executor.general()->rsi;
+		accessor[6] = thread->_executor.general()->r8;
+		accessor[7] = thread->_executor.general()->r9;
+		accessor[8] = thread->_executor.general()->r10;
+		accessor[9] = thread->_executor.general()->r11;
+		accessor[10] = thread->_executor.general()->r12;
+		accessor[11] = thread->_executor.general()->r13;
+		accessor[12] = thread->_executor.general()->r14;
+		accessor[13] = thread->_executor.general()->r15;
+		accessor[14] = thread->_executor.general()->rbp;
 	}else if(set == kHelRegsThread) {
 		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = thread->image.general()->clientFs;
-		accessor[1] = thread->image.general()->clientGs;
+		accessor[0] = thread->_executor.general()->clientFs;
+		accessor[1] = thread->_executor.general()->clientGs;
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1037,29 +1039,29 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	// FIXME: We need to lock the thread and ensure it is in the interrupted state.
 	if(set == kHelRegsProgram) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		*thread->image.ip() = accessor[0];
-		*thread->image.sp() = accessor[1];
+		*thread->_executor.ip() = accessor[0];
+		*thread->_executor.sp() = accessor[1];
 	}else if(set == kHelRegsGeneral) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		thread->image.general()->rax = accessor[0];
-		thread->image.general()->rbx = accessor[1];
-		thread->image.general()->rcx = accessor[2];
-		thread->image.general()->rdx = accessor[3];
-		thread->image.general()->rdi = accessor[4];
-		thread->image.general()->rsi = accessor[5];
-		thread->image.general()->r8 = accessor[6];
-		thread->image.general()->r9 = accessor[7];
-		thread->image.general()->r10 = accessor[8];
-		thread->image.general()->r11 = accessor[9];
-		thread->image.general()->r12 = accessor[10];
-		thread->image.general()->r13 = accessor[11];
-		thread->image.general()->r14 = accessor[12];
-		thread->image.general()->r15 = accessor[13];
-		thread->image.general()->rbp = accessor[14];
+		thread->_executor.general()->rax = accessor[0];
+		thread->_executor.general()->rbx = accessor[1];
+		thread->_executor.general()->rcx = accessor[2];
+		thread->_executor.general()->rdx = accessor[3];
+		thread->_executor.general()->rdi = accessor[4];
+		thread->_executor.general()->rsi = accessor[5];
+		thread->_executor.general()->r8 = accessor[6];
+		thread->_executor.general()->r9 = accessor[7];
+		thread->_executor.general()->r10 = accessor[8];
+		thread->_executor.general()->r11 = accessor[9];
+		thread->_executor.general()->r12 = accessor[10];
+		thread->_executor.general()->r13 = accessor[11];
+		thread->_executor.general()->r14 = accessor[12];
+		thread->_executor.general()->r15 = accessor[13];
+		thread->_executor.general()->rbp = accessor[14];
 	}else if(set == kHelRegsThread) {
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		thread->image.general()->clientFs = accessor[0];
-		thread->image.general()->clientGs = accessor[1];
+		thread->_executor.general()->clientFs = accessor[0];
+		thread->_executor.general()->clientGs = accessor[1];
 	}else if(set == kHelRegsDebug) {
 		// FIXME: Make those registers thread-specific.
 		auto accessor = reinterpret_cast<const uintptr_t *>(image);

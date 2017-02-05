@@ -92,8 +92,10 @@ private:
 	char *_base;
 };
 
+struct Executor;
+
 struct FaultImageAccessor {
-	friend void saveExecutor(FaultImageAccessor accessor);
+	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
 
@@ -137,7 +139,7 @@ private:
 };
 
 struct IrqImageAccessor {
-	friend void saveExecutor(IrqImageAccessor accessor);
+	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
 	
@@ -207,7 +209,7 @@ private:
 };
 
 struct SyscallImageAccessor {
-	friend void saveExecutor(SyscallImageAccessor accessor);
+	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
 	Word *number() { return &_frame()->rdi; }
 	Word *in0() { return &_frame()->rsi; }
@@ -252,36 +254,49 @@ private:
 	char *_pointer;
 };
 
-struct UniqueExecutorImage {
-	friend void saveExecutor(FaultImageAccessor accessor);
-	friend void saveExecutor(IrqImageAccessor accessor);
-	friend void saveExecutor(SyscallImageAccessor accessor);
-	friend void restoreExecutor();
+// CpuData is some high-level struct that inherits from PlatformCpuData.
+struct CpuData;
+CpuData *getCpuData();
+
+struct AbiParameters {
+	uintptr_t ip;
+	uintptr_t sp;
+};
+
+struct UserContext {
+	UserContext();
+
+	UserContext(const UserContext &other) = delete;
+
+	UserContext &operator= (const UserContext &other) = delete;
+
+	void enableIoPort(uintptr_t port);
+
+	// Migrates this UserContext to a different CPU.
+	void migrate(CpuData *cpu_data);
+
+	// TODO: This should be private.
+	UniqueKernelStack kernelStack;
+	frigg::arch_x86::Tss64 tss;
+};
+
+struct Executor {
+	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
+	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
+	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
+	friend void restoreExecutor(Executor *executor);
 
 	static size_t determineSize();
 
-	static UniqueExecutorImage make();
-
-	friend void swap(UniqueExecutorImage &a, UniqueExecutorImage &b) {
-		frigg::swap(a._pointer, b._pointer);
-	}
-
-	UniqueExecutorImage()
-	: _pointer(nullptr) { }
-
-	UniqueExecutorImage(const UniqueExecutorImage &other) = delete;
+	Executor();
 	
-	UniqueExecutorImage(UniqueExecutorImage &&other)
-	: UniqueExecutorImage() {
-		swap(*this, other);
-	}
+	explicit Executor(UserContext *context, AbiParameters abi);
 
-	~UniqueExecutorImage();
+	Executor(const Executor &other) = delete;
 
-	UniqueExecutorImage &operator= (UniqueExecutorImage other) {
-		swap(*this, other);
-		return *this;
-	}
+	~Executor();
+
+	Executor &operator= (const Executor &other) = delete;
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
@@ -289,8 +304,6 @@ struct UniqueExecutorImage {
 
 	Word *ip() { return &general()->rip; }
 	Word *sp() { return &general()->rsp; }
-
-	void initSystemVAbi(Word ip, Word sp, bool supervisor);
 
 private:
 	// note: this struct is accessed from assembly.
@@ -375,56 +388,29 @@ public:
 	}
 
 private:
-	explicit UniqueExecutorImage(char *pointer)
-	: _pointer(pointer) { }
 	
 	FxState *_fxState() {
 		return reinterpret_cast<FxState *>(_pointer + sizeof(General));
 	}
 
 	char *_pointer;
+	void *_syscallStack;
+	frigg::arch_x86::Tss64 *_tss;
 };
 
-void saveExecutor(FaultImageAccessor accessor);
-void saveExecutor(IrqImageAccessor accessor);
-void saveExecutor(SyscallImageAccessor accessor);
+void saveExecutor(Executor *executor, FaultImageAccessor accessor);
+void saveExecutor(Executor *executor, IrqImageAccessor accessor);
+void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
 // copies the current state into the executor and continues normal control flow.
 // returns 1 when the state is saved and 0 when it is restored.
-extern "C" [[ gnu::returns_twice ]] int forkExecutor();
+extern "C" [[ gnu::returns_twice ]] int forkExecutor(Executor *executor);
 
 // restores the current executor from its saved image.
 // this is functions does the heavy lifting during task switch.
-[[ noreturn ]] void restoreExecutor();
+[[ noreturn ]] void restoreExecutor(Executor *executor);
 
 size_t getStateSize();
-
-struct PlatformContext {
-	PlatformContext(void *kernel_stack_base);
-
-	void enableIoPort(uintptr_t port);
-
-	frigg::arch_x86::Tss64 tss;
-};
-
-// switches the active context.
-// i.e. install the context's TSS.
-struct Context;
-void switchContext(Context *context);
-
-// note: this struct is accessed from assembly.
-// do not change the field offsets!
-struct AssemblyExecutor {
-	AssemblyExecutor(UniqueExecutorImage image, UniqueKernelStack kernel_stack)
-	: image(frigg::move(image)), kernelStack(frigg::move(kernel_stack)) { }
-
-	UniqueExecutorImage image;
-	UniqueKernelStack kernelStack;
-};
-
-struct PlatformExecutor : public AssemblyExecutor {
-	PlatformExecutor();
-};
 
 // switches the active executor.
 // does NOT restore the executor's state.
@@ -436,7 +422,9 @@ frigg::UnsafePtr<Thread> activeExecutor();
 // note: this struct is accessed from assembly.
 // do not change the field offsets!
 struct AssemblyCpuData {
-	frigg::UnsafePtr<AssemblyExecutor> activeExecutor;
+	// TODO: This is not really arch-specific!
+	frigg::UnsafePtr<Thread> activeExecutor;
+	void *syscallStack;
 };
 
 struct PlatformCpuData : public AssemblyCpuData {
@@ -444,13 +432,12 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	uint32_t gdt[12 * 2];
 	uint32_t idt[256 * 4];
+
 	UniqueKernelStack irqStack;
 	UniqueKernelStack detachedStack;
+	
+	frigg::arch_x86::Tss64 tss;
 };
-
-// CpuData is some high-level struct that inherits from PlatformCpuData
-struct CpuData;
-CpuData *getCpuData();
 
 bool intsAreAllowed();
 void allowInts();
