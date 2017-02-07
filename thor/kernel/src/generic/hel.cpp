@@ -1283,17 +1283,12 @@ HelError helFutexWake(int *pointer) {
 	return kHelErrNone;
 }
 
-// TODO: Move the system call functions to thor.
-namespace thor {
-	extern frigg::LazyInitializer<ApicPin> globalSystemIrqs[16];
-}
-
 HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
 	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc);
-	attachIrq(globalSystemIrqs[number].get(), irq.get());
+	attachIrq(getGlobalSystemIrq(number), irq.get());
 
 	Universe::Guard universe_guard(&this_universe->lock);
 	*handle = this_universe->attachDescriptor(universe_guard,

@@ -1,4 +1,6 @@
 
+#include "../../generic/irq.hpp"
+
 namespace thor {
 
 // --------------------------------------------------------
@@ -43,6 +45,8 @@ void maskLegacyPic();
 // --------------------------------------------------------
 
 void acknowledgeIrq(int irq);
+
+IrqPin *getGlobalSystemIrq(size_t n);
 
 } // namespace thor
 

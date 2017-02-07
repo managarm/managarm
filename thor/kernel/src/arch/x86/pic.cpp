@@ -141,33 +141,108 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 }
 
 // --------------------------------------------------------
+
+IrqPin *globalSystemIrqs[16];
+
+IrqPin *getGlobalSystemIrq(size_t n) {
+	return globalSystemIrqs[n];
+}
+
+// --------------------------------------------------------
 // I/O APIC management
 // --------------------------------------------------------
 
-void ApicPin::sendEoi() {
-	acknowledgeIrq(0);
+// TODO: Replace this by proper IRQ allocation.
+extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
+
+namespace {
+	constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
+	constexpr arch::scalar_register<uint32_t> apicData(0x10);
+
+	enum {
+		kIoApicId = 0,
+		kIoApicVersion = 1,
+		kIoApicInts = 16,
+	};
+
+	struct IoApic {
+	public:
+		struct Pin : IrqPin {
+			void sendEoi() override;
+
+		private:
+			IoApic *_chip;
+		};
+
+		IoApic(arch::mem_space space);
+
+		size_t pinCount();
+
+		IrqPin *accessPin(size_t n);
+
+	private:
+		uint32_t _loadRegister(uint32_t index) {
+			_space.store(apicIndex, index);
+			return _space.load(apicData);
+		}
+
+		void _storeRegister(uint32_t index, uint32_t value) {
+			_space.store(apicIndex, index);
+			_space.store(apicData, value);
+		}
+
+		arch::mem_space _space;
+		size_t _numPins;
+		// TODO: Replace by dyn_array?
+		Pin *_pins;
+	};
+
+	void IoApic::Pin::sendEoi() {
+		acknowledgeIrq(0);
+	}
+
+	IoApic::IoApic(arch::mem_space space)
+	: _space{std::move(space)} {
+		_numPins = ((_loadRegister(kIoApicVersion) >> 16) & 0xFF) + 1;
+		frigg::infoLogger() << "I/O APIC supports " << _numPins << " interrupts" << frigg::endLog;
+
+		_pins = frigg::constructN<Pin>(*kernelAlloc, _numPins);
+		for(size_t i = 0; i < _numPins; i++) {
+			uint32_t vector = 64 + i;
+			_storeRegister(kIoApicInts + i * 2, vector);
+			_storeRegister(kIoApicInts + i * 2 + 1, 0);
+		}
+	}
+
+	size_t IoApic::pinCount() {
+		return _numPins;
+	}
+
+	IrqPin *IoApic::accessPin(size_t n) {
+		return &_pins[n];
+	}
 }
+
+void setupIoApic(PhysicalAddr address) {
+	// TODO: We really only need a single page.
+	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
+	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
+			page_access::write);
+	
+	picModel = kModelApic;
+
+	auto apic = frigg::construct<IoApic>(*kernelAlloc, arch::mem_space{register_ptr});
+	for(size_t i = 0; i < frigg::min(apic->pinCount(), size_t{16}); i++) {
+		auto pin = apic->accessPin(i);
+		globalSystemIrqs[i] = pin;
+		globalIrqSlots[i]->link(pin);
+	}
+}
+
+/*
 
 uint32_t *ioApicRegs;
 arch::mem_space ioApicBase;
-
-arch::scalar_register<uint32_t> apicIndex(0x00);
-arch::scalar_register<uint32_t> apicData(0x10);
-
-enum {
-	kIoApicId = 0,
-	kIoApicVersion = 1,
-	kIoApicInts = 16,
-};
-
-uint32_t readIoApic(uint32_t index) {
-	ioApicBase.store(apicIndex, index);
-	return ioApicBase.load(apicData);
-}
-void writeIoApic(uint32_t index, uint32_t value) {
-	ioApicBase.store(apicIndex, index);
-	ioApicBase.store(apicData, value);
-}
 
 void setupIoApic(PhysicalAddr address) {
 	// TODO: We really only need a single page.
@@ -188,6 +263,7 @@ void setupIoApic(PhysicalAddr address) {
 		writeIoApic(kIoApicInts + i * 2 + 1, 0);
 	}
 }
+*/
 
 // --------------------------------------------------------
 // Legacy PIC management

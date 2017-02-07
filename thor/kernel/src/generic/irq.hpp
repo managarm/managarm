@@ -118,13 +118,6 @@ private:
 	> _waitQueue;
 };
 
-// ----------------------------------------------------------------------------
-
-// TODO: Move this to an arch-specific header.
-struct ApicPin : IrqPin {
-	void sendEoi() override;
-};
-
 } // namespace thor
 
 #endif // THOR_GENERIC_IRQ_HPP
