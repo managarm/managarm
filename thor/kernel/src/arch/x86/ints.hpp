@@ -1,3 +1,5 @@
+#ifndef THOR_ARCH_X86_INTS_HPP
+#define THOR_ARCH_X86_INTS_HPP
 
 namespace thor {
 
@@ -23,4 +25,4 @@ extern "C" void enterUserMode(void *stack_ptr, void *ip) __attribute__ (( noretu
 
 } // namespace thor
 
-
+#endif // THOR_ARCH_X86_INTS_HPP

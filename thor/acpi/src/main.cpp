@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <helix/ipc.hpp>
+#include <protocols/mbus/client.hpp>
 #include <thor.h>
 
 extern "C" {
@@ -339,6 +340,29 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 }*/
 
 // --------------------------------------------------------
+
+COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
+	auto hwctrl = COFIBER_AWAIT entity.bind();
+	std::cout << "ACPI: hwctrl is ready." << std::endl;
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, configureIrqs(), ([=] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("what", "hwctrl")
+	});
+	COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			bindHwctrl(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected event type");
+		}
+	});
+}))
+
+// --------------------------------------------------------
 // main()
 // --------------------------------------------------------
 
@@ -366,7 +390,9 @@ int main() {
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
 	std::cout << "ACPI initialized successfully" << std::endl;
-	
+
+	configureIrqs();
+
 	// initialize the hpet
 	ACPI_TABLE_HEADER *hpet_table;
 	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));

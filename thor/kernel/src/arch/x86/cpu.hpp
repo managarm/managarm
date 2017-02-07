@@ -1,11 +1,16 @@
 #ifndef THOR_ARCH_X86_CPU_HPP
 #define THOR_ARCH_X86_CPU_HPP
 
+#include <stddef.h>
+#include <stdint.h>
+#include <frigg/algorithm.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
 #include <frigg/arch_x86/tss.hpp>
+#include <frigg/smart_ptr.hpp>
 #include <frigg/tuple.hpp>
 #include "../../generic/types.hpp"
+#include "ints.hpp"
 
 namespace thor {
 

@@ -3,6 +3,7 @@
 #define FRIGG_TUPLE_HPP
 
 #include <frigg/macros.hpp> 
+#include <frigg/traits.hpp> 
 
 namespace frigg FRIGG_VISIBILITY {
 

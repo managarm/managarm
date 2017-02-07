@@ -5,7 +5,6 @@
 #include "fiber.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
-#include <mbus.frigg_pb.hpp>
 
 namespace thor {
 
@@ -19,6 +18,8 @@ frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
 
 frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
 frigg::LazyInitializer<ApicPin> globalSystemIrqs[16];
+
+frigg::LazyInitializer<LaneHandle> mbusClient;
 
 // TODO: move this declaration to a header file
 void runService(frigg::SharedPtr<Thread> thread);
@@ -264,7 +265,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		globalIrqSlots[i]->link(globalSystemIrqs[i].get());
 	}
 
-	initializeTheSystem();
+	initializeTheSystemEarly();
 	initializeThisProcessor();
 	
 	// create a directory and load the memory regions of all modules into it
@@ -292,6 +293,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
 	auto mbus_stream = createStream();
+	mbusClient.initialize(mbus_stream.get<1>());
+	
+	// Complete the system initialization.
+	initializeTheSystemLater();
 
 	// finally we lauch the user_boot program
 	auto mbus_module = getModule("mbus");
@@ -303,14 +308,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
 	executeModule(acpi_module, LaneHandle{}, mbus_stream.get<1>());
 	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
-
-	/*
-	KernelFiber::run([] {
-		frigg::infoLogger() << "Hello world!" << frigg::endLog;
-		frigg::infoLogger() << (int)intsAreEnabled() << frigg::endLog;
-		while(true) { }
-	});
-	*/
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
 	globalScheduler().reschedule();

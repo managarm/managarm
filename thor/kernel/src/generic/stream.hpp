@@ -1,5 +1,12 @@
+#ifndef THOR_GENERIC_STREAM_HPP
+#define THOR_GENERIC_STREAM_HPP
 
 #include <atomic>
+#include <frigg/linked.hpp>
+#include <frigg/vector.hpp>
+#include "core.hpp"
+#include "error.hpp"
+#include "kernel_heap.hpp"
 
 namespace thor {
 
@@ -244,3 +251,4 @@ frigg::Tuple<LaneHandle, LaneHandle> createStream();
 
 } // namespace thor
 
+#endif // THOR_GENERIC_STREAM_HPP

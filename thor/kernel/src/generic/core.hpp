@@ -37,8 +37,12 @@ class Stream;
 class LaneControl;
 class IoSpace;
 
-struct CpuData : public PlatformCpuData {
+struct KernelFiber;
 
+struct CpuData : public PlatformCpuData {
+	CpuData();
+
+	KernelFiber *activeFiber;
 };
 
 struct Timer {

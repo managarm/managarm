@@ -109,6 +109,13 @@ frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 
 // --------------------------------------------------------
+// CpuData
+// --------------------------------------------------------
+
+CpuData::CpuData()
+: activeFiber{nullptr} { }
+
+// --------------------------------------------------------
 // SubmitInfo
 // --------------------------------------------------------
 
