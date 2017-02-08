@@ -17,15 +17,21 @@ arch::bit_register<uint64_t> timerConfig0(256);
 arch::scalar_register<uint64_t> timerComparator0(264);
 
 // genCapsAndId register.
-arch::field<uint64_t, bool> countSizeCap(13, 1);
-arch::field<uint64_t, uint32_t> counterClkPeriod(32, 32);
+arch::field<uint64_t, bool> has64BitCounter(13, 1);
+arch::field<uint64_t, uint32_t> counterPeriod(32, 32);
 
 // genConfig register
-arch::field<uint64_t, bool> enableCnf(0, 1);
+arch::field<uint64_t, bool> enableCounter(0, 1);
 
 // timerConfig registers
-arch::field<uint64_t, bool> tnIntEnbCnf(2, 1);
-arch::field<uint64_t, int> tnIntRouteCnf(9, 5);
+namespace timer_bits {
+	arch::field<uint64_t, bool> enableInt(2, 1);
+	arch::field<uint64_t, bool> has64BitComparator(5, 1);
+	arch::field<uint64_t, unsigned int> activeIrq(9, 5);
+	arch::field<uint64_t, bool> fsbEnabled(14, 1);
+	arch::field<uint64_t, bool> fsbCapable(15, 1);
+	arch::field<uint64_t, unsigned int> possibleIrqs(32, 32);
+};
 
 enum : uint64_t {
 	kFemtosPerNano = 1000000,
@@ -75,34 +81,37 @@ void setupHpet(PhysicalAddr address) {
 			page_access::write);
 	hpetBase = arch::mem_space(register_ptr);
 
-	auto caps = hpetBase.load(genCapsAndId);
-	if(!(caps & countSizeCap))
-		frigg::infoLogger() << "HPET only has a 32-bit counter" << frigg::endLog;
+	auto global_caps = hpetBase.load(genCapsAndId);
+	if(!(global_caps & has64BitCounter))
+		frigg::infoLogger() << "    Counter is only 32-bits!" << frigg::endLog;
 
-	hpetFrequency = caps & counterClkPeriod;
-	frigg::infoLogger() << "HPET frequency: " << hpetFrequency << frigg::endLog;
+	hpetFrequency = global_caps & counterPeriod;
+	frigg::infoLogger() << "    Tick period: " << hpetFrequency
+			<< "fs" << frigg::endLog;
 	
-	auto config = hpetBase.load(genConfig);
-	config |= enableCnf(true);
-	hpetBase.store(genConfig, config);
+	// Enable the HPET.
+	hpetBase.store(genConfig, enableCounter(true));
 	
-	frigg::infoLogger() << "Enabled HPET" << frigg::endLog;
+	// Program HPET timer 0 in one-shot mode.
+	auto timer_caps = hpetBase.load(timerConfig0);
+	frigg::infoLogger() << "    Possible IRQ mask: "
+			<< (timer_caps & timer_bits::possibleIrqs) << frigg::endLog;
+	if(timer_caps & timer_bits::fsbCapable)
+		frigg::infoLogger() << "    Timer 0 is capable of FSB interrupts." << frigg::endLog;
+	assert(timer_caps & timer_bits::has64BitComparator);
+	assert(!(timer_caps & timer_bits::fsbEnabled));
+	assert((timer_caps & timer_bits::possibleIrqs) & (1 << 2));
 	
-	// disable the legacy PIT (i.e. program to one-shot mode)
-	arch::global_io.store(command, operatingMode(0) | accessMode(3));
-	arch::global_io.store(channel0, 1);
-	arch::global_io.store(channel0, 0);
-	
-	// program hpet timer 0 in one-shot mode
-	auto timer_config = hpetBase.load(timerConfig0);
-	timer_config &= ~tnIntRouteCnf;
-	timer_config |= tnIntRouteCnf(2);
-	timer_config |= tnIntEnbCnf(true);
-	frigg::infoLogger() << static_cast<uint64_t>(timer_config) << frigg::endLog;
-	hpetBase.store(timerConfig0, timer_config);
+	hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
 	hpetBase.store(timerComparator0, 0);
 
 	hpetAvailable = true;
+	
+	// TODO: Move this somewhere else.
+	// Disable the legacy PIT (i.e. program to one-shot mode).
+	arch::global_io.store(command, operatingMode(0) | accessMode(3));
+	arch::global_io.store(channel0, 1);
+	arch::global_io.store(channel0, 0);
 
 	calibrateApicTimer();
 	
