@@ -304,54 +304,36 @@ void dumpNamespace() {
 void pciDiscover(); // TODO: put this in a header file
 
 // --------------------------------------------------------
-// MbusClosure
-// --------------------------------------------------------
-
-/*struct MbusClosure {
-	void operator() ();
-
-private:
-	void recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	uint8_t buffer[128];
-};
-
-void MbusClosure::operator() () {
-	HEL_CHECK(mbusPipe.recvStringReq(buffer, 128, eventHub, kHelAnyRequest, 0,
-			CALLBACK_MEMBER(this, &MbusClosure::recvdRequest)));
-}
-
-void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_seq,
-		size_t length) {
-	managarm::mbus::SvrRequest<Allocator> request(*allocator);
-	request.ParseFromArray(buffer, length);
-
-	if(request.req_type() == managarm::mbus::SvrReqType::REQUIRE_IF) {
-		helx::Pipe local, remote;
-		helx::Pipe::createFullPipe(local, remote);
-		requireObject(request.object_id(), frigg::move(local));
-		
-		auto action = mbusPipe.sendDescriptorResp(remote.getHandle(), eventHub, msg_request, 1)
-		+ frigg::lift([=] (HelError error) { HEL_CHECK(error); });
-		
-		frigg::run(frigg::move(action), allocator.get());
-	}
-
-	(*this)();
-}*/
-
-// --------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 	auto hwctrl = COFIBER_AWAIT entity.bind();
 
+	ACPI_TABLE_HEADER *madt;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+
+	// Configure all interrupt controllers.
+	// TODO: This should be done during thor's initialization in order to avoid races.
+	std::cout << "ACPI: Configuring I/O APICs." << std::endl;
+	
+	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
+	while(offset < madt->Length) {
+		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+		if(generic->type == 1) { // I/O APIC
+			auto entry = (MadtIoEntry *)generic;
+
+			// TODO: This should be done using the hwctrl protocol.
+			uint64_t address = entry->mmioAddress;
+			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
+		}
+		offset += generic->length;
+	}
+
+	// Determine ISA IRQ override configuration.
 	bool configuration[16];
 	for(unsigned int i = 0; i < 16; i++)
 		configuration[i] = false;
 	
-	ACPI_TABLE_HEADER *madt;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
-	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
+	offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
 	while(offset < madt->Length) {
 		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
 		if(generic->type == 2) { // interrupt source override
@@ -407,9 +389,13 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 	}
 	
 	std::cout << "ACPI: Configuration complete." << std::endl;
+
+	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
+	//dumpNamespace();
+	pciDiscover();
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, configureIrqs(), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, discoverHwctrl(), ([=] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
@@ -429,68 +415,31 @@ COFIBER_ROUTINE(cofiber::no_future, configureIrqs(), ([=] {
 // main()
 // --------------------------------------------------------
 
-int main() {
-	std::cout << "Entering ACPI driver" << std::endl;
-	
-	// connect to mbus
-	/*HelError mbus_recv_error;
-	HelHandle mbus_handle;
-	//FIXME superior.recvDescriptorRespSync(eventHub, 1001, 0, mbus_recv_error, mbus_handle);
-	HEL_CHECK(mbus_recv_error);
+void dumpMadt() {
+	ACPI_TABLE_HEADER *madt;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
 
-	helx::Client mbus_client(mbus_handle);
-	HelError mbus_connect_error;
-	mbus_client.connectSync(eventHub, mbus_connect_error, mbusPipe);
-	
-	frigg::runClosure<MbusClosure>(*allocator);*/
-
-	// initialize the ACPI subsystem
-	HEL_CHECK(helEnableFullIo());
-
-	ACPICA_CHECK(AcpiInitializeSubsystem());
-	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
-	ACPICA_CHECK(AcpiLoadTables());
-	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
-	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	std::cout << "ACPI initialized successfully" << std::endl;
-
-	configureIrqs();
-
-	// initialize the hpet
-	ACPI_TABLE_HEADER *hpet_table;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
-
-	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
-	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
-	helControlKernel(kThorSubArch, kThorIfSetupHpet, &hpet_entry->address.Address, nullptr);
-
-	// boot secondary processors
-	ACPI_TABLE_HEADER *madt_table;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt_table));
-	
-	int seen_bsp = 0;
+	std::cout << "ACPI: Dumping MADT" << std::endl;
 
 	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
-	while(offset < madt_table->Length) {
-		auto generic = (MadtGenericEntry *)((uintptr_t)madt_table + offset);
+	while(offset < madt->Length) {
+		auto generic = (MadtGenericEntry *)((uintptr_t)madt + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			std::cout << "    Local APIC id: "
 					<< (int)entry->localApicId << std::endl;
 
-			uint32_t id = entry->localApicId;
-			if(seen_bsp)
-				helControlKernel(kThorSubArch, kThorIfBootSecondary,
-						&id, nullptr);
-			seen_bsp = 1;
+			// TODO: This has to be refactored.
+//			uint32_t id = entry->localApicId;
+//			if(seen_bsp)
+//				helControlKernel(kThorSubArch, kThorIfBootSecondary,
+//						&id, nullptr);
+//			seen_bsp = 1;
 		}else if(generic->type == 1) { // I/O APIC
 			auto entry = (MadtIoEntry *)generic;
 			std::cout << "    I/O APIC id: " << (int)entry->ioApicId
 					<< ", sytem interrupt base: " << (int)entry->systemIntBase
 					<< std::endl;
-			
-			uint64_t address = entry->mmioAddress;
-			helControlKernel(kThorSubArch, kThorIfSetupIoApic, &address, nullptr);
 		}else if(generic->type == 2) { // interrupt source override
 			auto entry = (MadtIntOverrideEntry *)generic;
 			
@@ -535,11 +484,32 @@ int main() {
 		}
 		offset += generic->length;
 	}
-	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
-	
-	//dumpNamespace();
+}
 
-	pciDiscover();
+int main() {
+	std::cout << "Entering ACPI driver" << std::endl;
+
+	// initialize the ACPI subsystem
+	HEL_CHECK(helEnableFullIo());
+
+	ACPICA_CHECK(AcpiInitializeSubsystem());
+	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
+	ACPICA_CHECK(AcpiLoadTables());
+	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
+	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
+	std::cout << "ACPI initialized successfully" << std::endl;
+
+	// Initialize the HPET.
+	ACPI_TABLE_HEADER *hpet_table;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
+
+	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
+	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
+	helControlKernel(kThorSubArch, kThorIfSetupHpet, &hpet_entry->address.Address, nullptr);
+
+	dumpMadt();
+
+	discoverHwctrl();
 
 	while(true)
 		helix::Dispatcher::global().dispatch();
