@@ -18,10 +18,12 @@ arch::scalar_register<uint64_t> timerComparator0(264);
 
 // genCapsAndId register.
 arch::field<uint64_t, bool> has64BitCounter(13, 1);
+arch::field<uint64_t, bool> supportsLegacyIrqs(15, 1);
 arch::field<uint64_t, uint32_t> counterPeriod(32, 32);
 
 // genConfig register
 arch::field<uint64_t, bool> enableCounter(0, 1);
+arch::field<uint64_t, bool> enableLegacyIrqs(1, 1);
 
 // timerConfig registers
 namespace timer_bits {
@@ -84,26 +86,39 @@ void setupHpet(PhysicalAddr address) {
 	auto global_caps = hpetBase.load(genCapsAndId);
 	if(!(global_caps & has64BitCounter))
 		frigg::infoLogger() << "    Counter is only 32-bits!" << frigg::endLog;
+	if(global_caps & supportsLegacyIrqs)
+		frigg::infoLogger() << "    Supports legacy replacement." << frigg::endLog;
 
 	hpetFrequency = global_caps & counterPeriod;
 	frigg::infoLogger() << "    Tick period: " << hpetFrequency
 			<< "fs" << frigg::endLog;
 	
-	// Enable the HPET.
-	hpetBase.store(genConfig, enableCounter(true));
-	
-	// Program HPET timer 0 in one-shot mode.
 	auto timer_caps = hpetBase.load(timerConfig0);
 	frigg::infoLogger() << "    Possible IRQ mask: "
 			<< (timer_caps & timer_bits::possibleIrqs) << frigg::endLog;
 	if(timer_caps & timer_bits::fsbCapable)
 		frigg::infoLogger() << "    Timer 0 is capable of FSB interrupts." << frigg::endLog;
-	assert(timer_caps & timer_bits::has64BitComparator);
-	assert(!(timer_caps & timer_bits::fsbEnabled));
-	assert((timer_caps & timer_bits::possibleIrqs) & (1 << 2));
 	
-	hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
-	hpetBase.store(timerComparator0, 0);
+	// TODO: Disable all timers before programming the first one.
+
+	assert(timer_caps & timer_bits::has64BitComparator);
+	if(global_caps & supportsLegacyIrqs) {
+		// Enable the HPET.
+		hpetBase.store(genConfig, enableCounter(true) | enableLegacyIrqs(true));
+		
+		// Program HPET timer 0 in one-shot mode.
+		hpetBase.store(timerConfig0, timer_bits::enableInt(true));
+		hpetBase.store(timerComparator0, 0);
+	}else{
+		assert((timer_caps & timer_bits::possibleIrqs) & (1 << 2));
+
+		// Enable the HPET.
+		hpetBase.store(genConfig, enableCounter(true));
+		
+		// Program HPET timer 0 in one-shot mode.
+		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
+		hpetBase.store(timerComparator0, 0);
+	}
 
 	hpetAvailable = true;
 	
