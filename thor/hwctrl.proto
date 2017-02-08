@@ -1,0 +1,23 @@
+
+syntax = "proto2";
+option optimize_for = LITE_RUNTIME;
+
+package managarm.hwctrl;
+
+enum Error {
+	SUCCESS = 0;
+}
+
+enum CntReqType {
+	CONFIGURE_IRQ = 1;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+	optional int64 number = 2;
+}
+
+message SvrResponse {
+	optional int32 error = 1;
+}
+

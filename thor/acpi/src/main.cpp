@@ -10,6 +10,7 @@
 #include <helix/ipc.hpp>
 #include <protocols/mbus/client.hpp>
 #include <thor.h>
+#include <hwctrl.pb.h>
 
 extern "C" {
 #include <acpi.h>
@@ -343,7 +344,34 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 
 COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 	auto hwctrl = COFIBER_AWAIT entity.bind();
-	std::cout << "ACPI: hwctrl is ready." << std::endl;
+
+	// Configure the ISA IRQs.
+	std::cout << "ACPI: Configuring ISA IRQs." << std::endl;
+	for(unsigned int i = 0; i < 16; i++) {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::hwctrl::CntRequest req;
+		req.set_req_type(managarm::hwctrl::CONFIGURE_IRQ);
+		req.set_number(i);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(hwctrl, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::hwctrl::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::hwctrl::Error::SUCCESS);
+	}
+	
+	std::cout << "ACPI: Configuration complete." << std::endl;
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, configureIrqs(), ([=] {

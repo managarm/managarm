@@ -1,9 +1,11 @@
 
 #include <frigg/initializer.hpp>
 #include <mbus.frigg_pb.hpp>
+#include <hwctrl.frigg_pb.hpp>
 #include "../../generic/fiber.hpp"
 #include "../../generic/stream.hpp"
 #include "hwctrl_service.hpp"
+#include "pic.hpp"
 
 namespace thor {
 
@@ -167,6 +169,27 @@ namespace {
 }
 
 namespace {
+	void handleReqs(LaneHandle lane) {
+		while(true) {
+			auto branch = fiberAccept(lane);
+
+			auto buffer = fiberRecv(branch);
+			managarm::hwctrl::CntRequest<KernelAlloc> req(*kernelAlloc);
+			req.ParseFromArray(buffer.data(), buffer.size());
+			assert(req.req_type() == managarm::hwctrl::CntReqType::CONFIGURE_IRQ);
+
+			auto pin = getGlobalSystemIrq(req.number());
+			pin->configure(TriggerMode::edge);
+
+			managarm::hwctrl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hwctrl::Error::SUCCESS);
+
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}
+	}
+
 	LaneHandle createObject(LaneHandle mbus_lane) {
 		auto branch = fiberOffer(mbus_lane);
 		
@@ -210,6 +233,9 @@ namespace {
 
 		auto stream = createStream();
 		fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
+
+		// TODO: Do this in an own fiber.
+		handleReqs(stream.get<0>());
 	}
 }
 

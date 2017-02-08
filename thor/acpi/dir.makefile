@@ -15,7 +15,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LDFLAGS :=
 $c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus_protocol
 
-$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hw.pb.o
+$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hwctrl.pb.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths
@@ -190,8 +190,14 @@ $(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))
 $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 	$($d_CC) -c -o $@ $($d_CFLAGS) -MD -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
+$c_PROTOFLAGS = --proto_path=$(TREE_PATH)/protocols/hw
+
 # generate protobuf
-gen-$c: $($c_GENDIR)/hw.pb.tag
+gen-$c: $($c_GENDIR)/hwctrl.pb.tag $($c_GENDIR)/hw.pb.tag
+
+$($c_GENDIR)/%.pb.tag: $(TREE_PATH)/thor/%.proto | $($c_GENDIR)
+	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/thor $<
+	touch $@
 
 $($c_GENDIR)/%.pb.tag: $(TREE_PATH)/protocols/hw/%.proto | $($c_GENDIR)
 	$(PROTOC) --cpp_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/hw $<

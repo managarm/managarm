@@ -279,7 +279,6 @@ void setupIoApic(PhysicalAddr address) {
 		auto pin = apic->accessPin(i);
 		globalSystemIrqs[i] = pin;
 		globalIrqSlots[i]->link(pin);
-		pin->configure(TriggerMode::edge);
 	}
 }
 
