@@ -21,16 +21,29 @@ void IrqSlot::link(IrqPin *pin) {
 // IrqPin
 // --------------------------------------------------------
 
+IrqPin::IrqPin()
+: _strategy{IrqStrategy::null} { }
+
+void IrqPin::configure(TriggerMode mode) {
+	auto guard = frigg::guard(&_mutex);
+	_strategy = program(mode);
+}
+
 void IrqPin::raise() {
 	auto guard = frigg::guard(&_mutex);
 
-	sendEoi();
+	if(_strategy == IrqStrategy::justEoi) {
+		sendEoi();
 
-	if(_sinkList.empty())
-		frigg::infoLogger() << "\e[35mthor: No sink for IRQ\e[39m" << frigg::endLog;
+		if(_sinkList.empty())
+			frigg::infoLogger() << "\e[35mthor: No sink for IRQ\e[39m" << frigg::endLog;
 
-	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
-		(*it)->raise();
+		for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
+			(*it)->raise();
+	}else{
+		assert(_strategy == IrqStrategy::null);
+		frigg::infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frigg::endLog;
+	}
 }
 
 void attachIrq(IrqPin *pin, IrqSink *sink) {

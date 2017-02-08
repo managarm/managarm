@@ -58,6 +58,17 @@ private:
 	IrqPin *_pin;
 };
 
+enum class IrqStrategy {
+	null,
+	justEoi
+};
+
+enum class TriggerMode {
+	null,
+	edge,
+	level
+};
+
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
 struct IrqPin {
@@ -66,11 +77,13 @@ private:
 	using Mutex = frigg::TicketLock;
 
 public:
-	IrqPin() = default;
+	IrqPin();
 
 	IrqPin(const IrqPin &) = delete;
 	
 	IrqPin &operator= (const IrqPin &) = delete;
+
+	void configure(TriggerMode mode);
 
 	// This function is called from IrqSlot::raise().
 	void raise();
@@ -78,11 +91,15 @@ public:
 	void acknowledge();
 
 protected:
+	virtual IrqStrategy program(TriggerMode mode) = 0;
+
 	// Sends an end-of-interrupt signal to the interrupt controller.
 	virtual void sendEoi() = 0;
 
 private:
 	Mutex _mutex;
+
+	IrqStrategy _strategy;
 
 	// TODO: This list should change rarely. Use a RCU list.
 	frg::intrusive_list<

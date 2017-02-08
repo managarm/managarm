@@ -155,10 +155,25 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 // TODO: Replace this by proper IRQ allocation.
 extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
 
-namespace {
-	constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
-	constexpr arch::scalar_register<uint32_t> apicData(0x10);
+constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
+constexpr arch::scalar_register<uint32_t> apicData(0x10);
 
+namespace pin_word1 {
+	constexpr arch::field<uint32_t, unsigned int> vector(0, 8);
+	constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
+	constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
+	constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
+	constexpr arch::field<uint32_t, bool> invertPolarity(13, 1);
+	constexpr arch::field<uint32_t, bool> remotePending(14, 1);
+	constexpr arch::field<uint32_t, bool> levelSensitive(15, 1);
+	constexpr arch::field<uint32_t, bool> masked(16, 1);
+};
+
+namespace pin_word2 {
+	constexpr arch::field<uint32_t, unsigned int> destination(24, 8);
+};
+
+namespace {
 	enum {
 		kIoApicId = 0,
 		kIoApicVersion = 1,
@@ -168,10 +183,14 @@ namespace {
 	struct IoApic {
 	public:
 		struct Pin : IrqPin {
+			Pin(IoApic *chip, unsigned int index);
+
+			IrqStrategy program(TriggerMode mode) override;
 			void sendEoi() override;
 
 		private:
 			IoApic *_chip;
+			unsigned int _index;
 		};
 
 		IoApic(arch::mem_space space);
@@ -194,8 +213,24 @@ namespace {
 		arch::mem_space _space;
 		size_t _numPins;
 		// TODO: Replace by dyn_array?
-		Pin *_pins;
+		Pin **_pins;
 	};
+
+	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
+	: _chip{chip}, _index{index} { }
+
+	IrqStrategy IoApic::Pin::program(TriggerMode mode) {
+		assert(mode == TriggerMode::edge);
+		
+		auto vector = 64 + _index;
+		_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
+				static_cast<uint32_t>(pin_word2::destination(0)));
+		_chip->_storeRegister(kIoApicInts + _index * 2,
+				static_cast<uint32_t>(pin_word1::vector(vector)
+				| pin_word1::deliveryMode(0)));
+
+		return IrqStrategy::justEoi;
+	}
 
 	void IoApic::Pin::sendEoi() {
 		acknowledgeIrq(0);
@@ -204,13 +239,21 @@ namespace {
 	IoApic::IoApic(arch::mem_space space)
 	: _space{std::move(space)} {
 		_numPins = ((_loadRegister(kIoApicVersion) >> 16) & 0xFF) + 1;
-		frigg::infoLogger() << "I/O APIC supports " << _numPins << " interrupts" << frigg::endLog;
+		frigg::infoLogger() << "thor: I/O APIC supports "
+				<< _numPins << " pins" << frigg::endLog;
 
-		_pins = frigg::constructN<Pin>(*kernelAlloc, _numPins);
+		_pins = frigg::constructN<Pin *>(*kernelAlloc, _numPins);
 		for(size_t i = 0; i < _numPins; i++) {
-			uint32_t vector = 64 + i;
-			_storeRegister(kIoApicInts + i * 2, vector);
-			_storeRegister(kIoApicInts + i * 2 + 1, 0);
+			_pins[i] = frigg::construct<Pin>(*kernelAlloc, this, i);
+
+			// Dump interesting configurations.
+			arch::bit_value<uint32_t> current{_loadRegister(kIoApicInts + i * 2)};
+			if(!(current & pin_word1::masked))
+				frigg::infoLogger() << "    Pin " << i << " was not masked by BIOS."
+						<< frigg::endLog;
+
+			// Mask all interrupts before they are configured.
+			_storeRegister(kIoApicInts + i * 2, static_cast<uint32_t>(pin_word1::masked(true)));
 		}
 	}
 
@@ -219,7 +262,7 @@ namespace {
 	}
 
 	IrqPin *IoApic::accessPin(size_t n) {
-		return &_pins[n];
+		return _pins[n];
 	}
 }
 
@@ -236,6 +279,7 @@ void setupIoApic(PhysicalAddr address) {
 		auto pin = apic->accessPin(i);
 		globalSystemIrqs[i] = pin;
 		globalIrqSlots[i]->link(pin);
+		pin->configure(TriggerMode::edge);
 	}
 }
 
