@@ -349,7 +349,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 				configuration[entry->systemInt] = true;
 			}else{
 				assert(trigger == OverrideFlags::triggerDefault
-					|| trigger == OverrideFlags::triggerEdge);
+						|| trigger == OverrideFlags::triggerEdge);
 				assert(polarity == OverrideFlags::polarityDefault
 						|| polarity == OverrideFlags::polarityHigh);
 			}

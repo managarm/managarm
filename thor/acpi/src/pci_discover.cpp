@@ -175,13 +175,14 @@ COFIBER_ROUTINE(cofiber::no_future, registerDevice(std::shared_ptr<PciDevice> de
 // Discovery functionality
 // --------------------------------------------------------
 
-size_t computeBarLength(uint32_t mask) {
-	static_assert(sizeof(int) == 4, "Need long builtins");
+size_t computeBarLength(uintptr_t mask) {
+	static_assert(sizeof(long) == 8, "Fix builtin usage");
+	static_assert(sizeof(uintptr_t) == 8, "Fix builtin usage");
 	
 	assert(mask);
-	size_t length_bits = __builtin_ctz(mask);
-	size_t decoded_bits = 32 - __builtin_clz(mask);
-	assert(__builtin_popcount(mask) == decoded_bits - length_bits);
+	size_t length_bits = __builtin_ctzl(mask);
+	size_t decoded_bits = 64 - __builtin_clzl(mask);
+	assert(__builtin_popcountl(mask) == decoded_bits - length_bits);
 
 	return size_t(1) << length_bits;
 }
@@ -233,6 +234,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				
 				std::cout << "        Capability 0x"
 						<< std::hex << (int)capability << std::dec << std::endl;
+/*
 				if(capability == 0x09) {
 					uint8_t size = readPciByte(bus, slot, function, offset + 2);
 
@@ -243,6 +245,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 					}
 					std::cout << std::endl;
 				}
+*/
 
 				offset = successor & 0xFC;
 			}
@@ -285,7 +288,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			}else if(((bar >> 1) & 3) == 0) {
 				uint32_t address = bar & 0xFFFFFFF0;
 				
-				// write all 1s to the BAR and read it back to determine this its length
+				// Write all 1s to the BAR and read it back to determine this its length.
 				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
 				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFF0;
 				writePciWord(bus, slot, function, offset, bar);
@@ -306,8 +309,33 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 						<< " at 0x" << std::hex << address << std::dec
 						<< ", length: " << length << " bytes" << std::endl;
 			}else if(((bar >> 1) & 3) == 2) {
-				assert(i < 5); // otherwise there is no next bar.
-				std::cout << "        64-bit memory BAR ignored for now!" << std::endl;
+				assert(i < 5); // Otherwise there is no next bar.
+				auto high = readPciWord(bus, slot, function, offset + 4);;
+				auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
+				
+				// Write all 1s to the BAR and read it back to determine this its length.
+				writePciWord(bus, slot, function, offset, 0xFFFFFFFF);
+				writePciWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
+				uint32_t mask = (uint64_t{readPciWord(bus, slot, function, offset + 4)} << 32)
+						| (readPciWord(bus, slot, function, offset) & 0xFFFFFFF0);
+				writePciWord(bus, slot, function, offset, bar);
+				writePciWord(bus, slot, function, offset + 4, high);
+				auto length = computeBarLength(mask);
+
+				constexpr size_t pageSize = 0x1000;
+				auto offset = address & (pageSize - 1);
+				HEL_CHECK(helAccessPhysical(address & ~(pageSize - 1),
+						(length + offset + (pageSize - 1)) & ~(pageSize - 1),
+						&device->bars[i].handle));
+				
+				device->bars[i].type = PciDevice::kBarMemory;
+				device->bars[i].address = address;
+				device->bars[i].offset = offset;
+				device->bars[i].length = length;
+
+				std::cout << "        64-bit memory BAR #" << i
+						<< " at 0x" << std::hex << address << std::dec
+						<< ", length: " << length << " bytes" << std::endl;
 				i++;
 			}else{
 				assert(!"Unexpected BAR type");
