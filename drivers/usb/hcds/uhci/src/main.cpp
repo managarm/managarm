@@ -199,6 +199,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		if(status & kStatusError)
 			printf("uhci: Error interrupt\n");
 		frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 		
 		//printf("uhci: Processing transfers.\n");
 		_progressSchedule();

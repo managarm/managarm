@@ -21,6 +21,13 @@ void IrqSlot::link(IrqPin *pin) {
 // IrqPin
 // --------------------------------------------------------
 
+IrqSink::IrqSink()
+: _pin{nullptr} { }
+
+IrqPin *IrqSink::getPin() {
+	return _pin;
+}
+
 IrqPin::IrqPin()
 : _strategy{IrqStrategy::null} { }
 
@@ -34,16 +41,33 @@ void IrqPin::raise() {
 
 	if(_strategy == IrqStrategy::justEoi) {
 		sendEoi();
-
-		if(_sinkList.empty())
-			frigg::infoLogger() << "\e[35mthor: No sink for IRQ\e[39m" << frigg::endLog;
-
-		for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
-			(*it)->raise();
+		_callSinks();
+	}else if(_strategy == IrqStrategy::maskThenEoi) {
+		mask();
+		sendEoi();
+		_callSinks();
 	}else{
 		assert(_strategy == IrqStrategy::null);
 		frigg::infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frigg::endLog;
 	}
+}
+
+void IrqPin::acknowledge() {
+	auto guard = frigg::guard(&_mutex);
+
+	if(_strategy == IrqStrategy::maskThenEoi) {
+		unmask();
+	}else{
+		assert(_strategy == IrqStrategy::justEoi);
+	}
+}
+
+void IrqPin::_callSinks() {
+	if(_sinkList.empty())
+		frigg::infoLogger() << "\e[35mthor: No sink for IRQ\e[39m" << frigg::endLog;
+
+	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
+		(*it)->raise();
 }
 
 void attachIrq(IrqPin *pin, IrqSink *sink) {
@@ -84,7 +108,7 @@ void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqBase> wait) {
 }
 
 void IrqObject::acknowledge() {
-	assert(!"Implement this");
+	getPin()->acknowledge();
 }
 
 } // namespace thor

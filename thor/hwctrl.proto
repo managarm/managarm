@@ -12,9 +12,15 @@ enum CntReqType {
 	CONFIGURE_IRQ = 1;
 }
 
+enum TriggerMode {
+	EDGE_TRIGGERED = 1;
+	LEVEL_TRIGGERED = 2;
+}
+
 message CntRequest {
 	optional CntReqType req_type = 1;
 	optional int64 number = 2;
+	optional TriggerMode trigger_mode = 3;
 }
 
 message SvrResponse {

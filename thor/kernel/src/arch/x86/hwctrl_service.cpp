@@ -179,7 +179,11 @@ namespace {
 			assert(req.req_type() == managarm::hwctrl::CntReqType::CONFIGURE_IRQ);
 
 			auto pin = getGlobalSystemIrq(req.number());
-			pin->configure(TriggerMode::edge);
+			if(req.trigger_mode() == managarm::hwctrl::TriggerMode::EDGE_TRIGGERED) {
+				pin->configure(TriggerMode::edge);
+			}else{
+				pin->configure(TriggerMode::level);
+			}
 
 			managarm::hwctrl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hwctrl::Error::SUCCESS);

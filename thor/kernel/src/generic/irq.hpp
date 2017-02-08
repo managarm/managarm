@@ -50,7 +50,12 @@ private:
 struct IrqSink {
 	friend void attachIrq(IrqPin *pin, IrqSink *sink);
 
+	IrqSink();
+
 	virtual void raise() = 0;
+
+	// TODO: This needs to be thread-safe.
+	IrqPin *getPin();
 
 	frg::default_list_hook<IrqSink> hook;
 
@@ -60,7 +65,8 @@ private:
 
 enum class IrqStrategy {
 	null,
-	justEoi
+	justEoi,
+	maskThenEoi
 };
 
 enum class TriggerMode {
@@ -93,10 +99,15 @@ public:
 protected:
 	virtual IrqStrategy program(TriggerMode mode) = 0;
 
+	virtual void mask() = 0;
+	virtual void unmask() = 0;
+
 	// Sends an end-of-interrupt signal to the interrupt controller.
 	virtual void sendEoi() = 0;
 
 private:
+	void _callSinks();
+
 	Mutex _mutex;
 
 	IrqStrategy _strategy;

@@ -345,6 +345,36 @@ void MbusClosure::recvdRequest(HelError error, int64_t msg_request, int64_t msg_
 COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 	auto hwctrl = COFIBER_AWAIT entity.bind();
 
+	bool configuration[16];
+	for(unsigned int i = 0; i < 16; i++)
+		configuration[i] = false;
+	
+	ACPI_TABLE_HEADER *madt;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
+	while(offset < madt->Length) {
+		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+		if(generic->type == 2) { // interrupt source override
+			auto entry = (MadtIntOverrideEntry *)generic;
+			
+			// ACPI defines only ISA IRQ overrides.
+			assert(entry->bus == 0);
+
+			auto trigger = entry->flags & OverrideFlags::triggerMask;
+			auto polarity = entry->flags & OverrideFlags::polarityMask;
+			if(trigger == OverrideFlags::triggerLevel) {
+				assert(polarity == OverrideFlags::polarityHigh);
+				configuration[entry->systemInt] = true;
+			}else{
+				assert(trigger == OverrideFlags::triggerDefault
+					|| trigger == OverrideFlags::triggerEdge);
+				assert(polarity == OverrideFlags::polarityDefault
+						|| polarity == OverrideFlags::polarityHigh);
+			}
+		}
+		offset += generic->length;
+	}
+
 	// Configure the ISA IRQs.
 	std::cout << "ACPI: Configuring ISA IRQs." << std::endl;
 	for(unsigned int i = 0; i < 16; i++) {
@@ -355,6 +385,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 		managarm::hwctrl::CntRequest req;
 		req.set_req_type(managarm::hwctrl::CONFIGURE_IRQ);
 		req.set_number(i);
+		if(configuration[i]) {
+			req.set_trigger_mode(managarm::hwctrl::LEVEL_TRIGGERED);
+		}else{
+			req.set_trigger_mode(managarm::hwctrl::EDGE_TRIGGERED);
+		}
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(hwctrl, helix::Dispatcher::global(),

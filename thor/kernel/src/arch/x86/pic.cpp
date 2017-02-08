@@ -163,9 +163,9 @@ namespace pin_word1 {
 	constexpr arch::field<uint32_t, unsigned int> deliveryMode(8, 3);
 	constexpr arch::field<uint32_t, bool> logicalMode(11, 1);
 	constexpr arch::field<uint32_t, bool> deliveryStatus(12, 1);
-	constexpr arch::field<uint32_t, bool> invertPolarity(13, 1);
+	constexpr arch::field<uint32_t, bool> activeLow(13, 1);
 	constexpr arch::field<uint32_t, bool> remotePending(14, 1);
-	constexpr arch::field<uint32_t, bool> levelSensitive(15, 1);
+	constexpr arch::field<uint32_t, bool> levelTriggered(15, 1);
 	constexpr arch::field<uint32_t, bool> masked(16, 1);
 };
 
@@ -186,11 +186,16 @@ namespace {
 			Pin(IoApic *chip, unsigned int index);
 
 			IrqStrategy program(TriggerMode mode) override;
+			void mask() override;
+			void unmask() override;
 			void sendEoi() override;
 
 		private:
 			IoApic *_chip;
 			unsigned int _index;
+			
+			// The following variables store the current pin configuration.
+			bool _levelTriggered;
 		};
 
 		IoApic(arch::mem_space space);
@@ -220,16 +225,45 @@ namespace {
 	: _chip{chip}, _index{index} { }
 
 	IrqStrategy IoApic::Pin::program(TriggerMode mode) {
-		assert(mode == TriggerMode::edge);
-		
+		if(mode == TriggerMode::edge) {
+			_levelTriggered = false;
+
+			auto vector = 64 + _index;
+			_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
+					static_cast<uint32_t>(pin_word2::destination(0)));
+			_chip->_storeRegister(kIoApicInts + _index * 2,
+					static_cast<uint32_t>(pin_word1::vector(vector)
+					| pin_word1::deliveryMode(0)));
+
+			return IrqStrategy::justEoi;
+		}else{
+			assert(mode == TriggerMode::level);
+			_levelTriggered = true;
+
+			auto vector = 64 + _index;
+			_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
+					static_cast<uint32_t>(pin_word2::destination(0)));
+			_chip->_storeRegister(kIoApicInts + _index * 2,
+					static_cast<uint32_t>(pin_word1::vector(vector)
+					| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(true)));
+
+			return IrqStrategy::maskThenEoi;
+		}
+	}
+	
+	void IoApic::Pin::mask() {
 		auto vector = 64 + _index;
-		_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
-				static_cast<uint32_t>(pin_word2::destination(0)));
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(vector)
-				| pin_word1::deliveryMode(0)));
+				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
+				| pin_word1::masked(true)));
+	}
 
-		return IrqStrategy::justEoi;
+	void IoApic::Pin::unmask() {
+		auto vector = 64 + _index;
+		_chip->_storeRegister(kIoApicInts + _index * 2,
+				static_cast<uint32_t>(pin_word1::vector(vector)
+				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)));
 	}
 
 	void IoApic::Pin::sendEoi() {
