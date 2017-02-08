@@ -45,10 +45,12 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar &msg = *resp.add_bars();
 				if(device->bars[k].type == PciDevice::kBarIo) {
+					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::PORT);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
 				}else if(device->bars[k].type == PciDevice::kBarMemory) {
+					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
@@ -265,11 +267,13 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				std::vector<uintptr_t> ports;
 				for(uintptr_t offset = 0; offset < length; offset++)
 					ports.push_back(address + offset);
+				
+				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
 				device->bars[i].type = PciDevice::kBarIo;
 				device->bars[i].address = address;
+				device->bars[i].offset = 0;
 				device->bars[i].length = length;
-				HEL_CHECK(helAccessIo(ports.data(), ports.size(), &device->bars[i].handle));
 
 				std::cout << "        I/O space BAR #" << i
 						<< " at 0x" << std::hex << address << std::dec
@@ -282,11 +286,17 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 				uint32_t mask = readPciWord(bus, slot, function, offset) & 0xFFFFFFF0;
 				writePciWord(bus, slot, function, offset, bar);
 				auto length = computeBarLength(mask);
+
+				constexpr size_t pageSize = 0x1000;
+				auto offset = address & (pageSize - 1);
+				HEL_CHECK(helAccessPhysical(address & ~(pageSize - 1),
+						(length + offset + (pageSize - 1)) & ~(pageSize - 1),
+						&device->bars[i].handle));
 				
 				device->bars[i].type = PciDevice::kBarMemory;
 				device->bars[i].address = address;
+				device->bars[i].offset = offset;
 				device->bars[i].length = length;
-				HEL_CHECK(helAccessPhysical(address, length, &device->bars[i].handle));
 
 				std::cout << "        32-bit memory BAR #" << i
 						<< " at 0x" << std::hex << address << std::dec
