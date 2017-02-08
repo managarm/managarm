@@ -82,9 +82,9 @@ Vector<T, Allocator>::~Vector() {
 template<typename T, typename Allocator>
 T &Vector<T, Allocator>::push(const T &element) {
 	ensureCapacity(p_size + 1);
-	p_elements[p_size] = element;
+	T *pointer = new (&p_elements[p_size]) T(element);
 	p_size++;
-	return p_elements[p_size - 1];
+	return *pointer;
 }
 
 template<typename T, typename Allocator>

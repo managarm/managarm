@@ -153,7 +153,7 @@ void handleIrq(IrqImageAccessor image, int number);
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 
-	if(logEveryFault || number != 14)
+	if(logEveryFault)
 		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 

@@ -68,6 +68,18 @@ void createInitialRegion(uint64_t address, uint64_t size) {
 
 	if(address >= limit)
 		return;
+	
+	// Trash the initial memory to find bugs in thor.
+	// TODO: This code fails for size > 2^32.
+	/*
+	auto accessor = reinterpret_cast<uint8_t *>(address);
+	uint64_t pattern = 0xB306'94E7'F8D2'78AB;
+	for(ptrdiff_t i = 0; i < limit - address; ++i) {
+		accessor[i] = pattern;
+		pattern = (pattern << 8) | (pattern >> 56);
+	}
+	asm volatile ("" : : : "memory");
+	*/
 
 	// For now we ensure that the kernel has some memory to work with.
 	// TODO: Handle small memory regions.

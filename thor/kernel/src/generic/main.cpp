@@ -8,6 +8,7 @@
 
 namespace thor {
 
+static constexpr bool logInitialization = true;
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
@@ -273,6 +274,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	initializeTheSystemEarly();
 	initializeThisProcessor();
 	
+	if(logInitialization)
+		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
+				<< frigg::endLog;
+
 	// create a directory and load the memory regions of all modules into it
 	auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
 	
@@ -286,13 +291,18 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				modules[i].physicalBase, virt_length);
 		
 		auto name_ptr = reinterpret_cast<char *>(modules[i].namePtr);
-//		frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
-//				<< ", length: " << modules[i].length << frigg::endLog;
+		if(logInitialization)
+			frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
+					<< ", length: " << modules[i].length << frigg::endLog;
 
 		Module module(frigg::String<KernelAlloc>(*kernelAlloc, name_ptr, modules[i].nameLength),
 				frigg::move(memory));
 		allModules->push(module);
 	}
+	
+	if(logInitialization)
+		frigg::infoLogger() << "thor: Modules are set up successfully."
+				<< frigg::endLog;
 	
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
