@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
+#include <queue>
 #include <vector>
 
 #include <async/result.hpp>
@@ -185,6 +186,8 @@ size_t computeBarLength(uint32_t mask) {
 	return size_t(1) << length_bits;
 }
 
+std::queue<unsigned int> enumerationQueue;
+
 void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
@@ -197,6 +200,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
 		std::cout << "    Function " << function
 				<< ": PCI-to-PCI bridge to bus " << (int)secondary << std::endl;
+		enumerationQueue.push(secondary);
 	}else{
 		std::cout << "    Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F) << std::endl;
@@ -235,7 +239,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 					std::cout << "            Bytes: ";
 					for(size_t i = 2; i < size; i++) {
 						uint8_t byte = readPciByte(bus, slot, function, offset + i);
-						std::cout << (i > 2 ? ", " : "") << std::hex << byte << std::dec;
+						std::cout << (i > 2 ? ", " : "") << std::hex << (int)byte << std::dec;
 					}
 					std::cout << std::endl;
 				}
@@ -348,6 +352,11 @@ void pciDiscover() {
 	HEL_CHECK(helAccessIo(ports, 8, &io_handle));
 	HEL_CHECK(helEnableIo(io_handle));
 
-	checkPciBus(0);
+	enumerationQueue.push(0);
+	while(!enumerationQueue.empty()) {
+		auto bus = enumerationQueue.front();
+		enumerationQueue.pop();
+		checkPciBus(bus);
+	}
 }
 
