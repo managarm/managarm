@@ -50,42 +50,48 @@ arch::field<uint8_t, bool> stopBit(2, 1);
 arch::field<uint8_t, int> parityBits(3, 3);
 arch::field<uint8_t, bool> dlab(7, 1);
 
-void setupDebugging() {
-/*	auto base = arch::global_io.subspace(0x3F8);
-	
-	// set the baud rate.
-	base.store(lineControl, dlab(true));
-	base.store(baudLow, 0x0C);
-	base.store(baudHigh, 0x00);
+extern bool debugToBochs;
+extern bool debugToSerial;
 
-	// configure: 8 data bits, 1 stop bit, no parity
-	base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));*/
+void setupDebugging() {
+	if(debugToSerial) {
+		auto base = arch::global_io.subspace(0x3F8);
+		
+		// Set the baud rate.
+		base.store(lineControl, dlab(true));
+		base.store(baudLow, 0x0C);
+		base.store(baudHigh, 0x00);
+
+		// Configure: 8 data bits, 1 stop bit, no parity.
+		base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));
+	}
 }
 
 void BochsSink::print(char c) {
-// --------------------------------------------------------
-// Serial console
-// --------------------------------------------------------
+	// --------------------------------------------------------
+	// Serial console
+	// --------------------------------------------------------
+	if(debugToSerial) {
+		auto base = arch::global_io.subspace(0x3F8);
 
-/*	auto base = arch::global_io.subspace(0x3F8);
+		if(c == '\n') {
+			while(!(base.load(lineStatus) & txReady)) {
+				// do nothing until the UART is ready to transmit.
+			}
+			base.store(data, '\r');
+		}
 
-	if(c == '\n') {
 		while(!(base.load(lineStatus) & txReady)) {
 			// do nothing until the UART is ready to transmit.
 		}
-		base.store(data, '\r');
+		base.store(data, c);
 	}
 
-	while(!(base.load(lineStatus) & txReady)) {
-		// do nothing until the UART is ready to transmit.
-	}
-	base.store(data, c);*/
-
-// --------------------------------------------------------
-// Bochs/Qemu debugging port
-// --------------------------------------------------------
-
-	frigg::arch_x86::ioOutByte(0xE9, c);
+	// --------------------------------------------------------
+	// Bochs/Qemu debugging port
+	// --------------------------------------------------------
+	if(debugToBochs)
+		frigg::arch_x86::ioOutByte(0xE9, c);
 
 // --------------------------------------------------------
 // Text-mode video output

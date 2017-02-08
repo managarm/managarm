@@ -21,6 +21,8 @@ struct EirModule {
 
 struct EirInfo {
 	uint64_t signature;
+	EirPtr commandLine;
+
 	EirRegion skeletalRegion;
 	EirRegion coreRegion;
 

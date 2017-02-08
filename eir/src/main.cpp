@@ -467,7 +467,7 @@ struct MbInfo {
 	uint32_t memLower;
 	uint32_t memUpper;
 	uint32_t bootDevice;
-	void *commandLine;
+	char *commandLine;
 	uint32_t numModules;
 	MbModule *modulesPtr;
 	uint32_t numSymbols;
@@ -605,6 +605,13 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	info_ptr->coreRegion.order = regions[0].order;
 	info_ptr->coreRegion.numRoots = regions[0].numRoots;
 	info_ptr->coreRegion.buddyTree = regions[0].buddyMap;
+
+	assert(mb_info->flags & kMbInfoCommandLine);
+	auto cmd_length = strlen(mb_info->commandLine);
+	assert(cmd_length <= kPageSize);
+	auto cmd_buffer = bootAllocN<char>(cmd_length);
+	memcpy(cmd_buffer, mb_info->commandLine, cmd_length + 1);
+	info_ptr->commandLine = mapBootstrapData(cmd_buffer);
 
 	// Setup the module information.
 	auto modules = bootAllocN<EirModule>(mb_info->numModules - 1);

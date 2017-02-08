@@ -11,6 +11,9 @@ namespace thor {
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
+bool debugToBochs = false;
+bool debugToSerial = false;
+
 // TODO: get rid of the rootUniverse global variable.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
@@ -223,12 +226,19 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 void setupDebugging();
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
+	auto info = reinterpret_cast<EirInfo *>(0x40000000);
+	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
+	if(cmd_line == "serial") {
+		debugToSerial = true;
+	}else{
+		debugToBochs = true;
+	}
 	setupDebugging();
+
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 
 	initializeProcessorEarly();
 	
-	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	if(info->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
 				<< frigg::endLog;
