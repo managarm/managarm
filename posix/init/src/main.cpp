@@ -31,10 +31,12 @@ int main() {
 
 	char *envp[] = { nullptr };
 
+/*
 	auto uhci = fork();
 	if(!uhci) {
 		execve("/initrd/uhci", args.data(), envp);
 	}else assert(uhci != -1);
+*/
 
 /*
 	auto ehci = fork();
@@ -43,10 +45,17 @@ int main() {
 	}else assert(ehci != -1);
 */
 
+/*
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
+*/
+	
+	auto gfx_intel = fork();
+	if(!gfx_intel) {
+		execve("/initrd/gfx_intel", args.data(), envp);
+	}else assert(gfx_intel != -1);
 
 /*
 	auto virtio = fork();
