@@ -305,6 +305,13 @@ void pciDiscover(); // TODO: put this in a header file
 
 // --------------------------------------------------------
 
+uint32_t handleFixedEvents(void *context) {
+	ACPICA_CHECK(AcpiEnterSleepStatePrep(5));
+	ACPICA_CHECK(AcpiEnterSleepState(5));
+
+	return ACPI_INTERRUPT_HANDLED;
+}
+
 COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 	auto hwctrl = COFIBER_AWAIT entity.bind();
 
@@ -387,6 +394,23 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::hwctrl::Error::SUCCESS);
 	}
+
+	// Initialize the HPET.
+	std::cout << "ACPI: Setting up HPET." << std::endl;
+	ACPI_TABLE_HEADER *hpet_table;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
+
+	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
+	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
+	helControlKernel(kThorSubArch, kThorIfSetupHpet, &hpet_entry->address.Address, nullptr);
+	
+	std::cout << "ACPI: Entering ACPI mode." << std::endl;
+	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
+	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
+	ACPICA_CHECK(AcpiEnable());
+
+	ACPICA_CHECK(AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON,
+			&handleFixedEvents, 0));
 	
 	std::cout << "ACPI: Configuration complete." << std::endl;
 
@@ -495,20 +519,8 @@ int main() {
 	ACPICA_CHECK(AcpiInitializeSubsystem());
 	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
 	ACPICA_CHECK(AcpiLoadTables());
-	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
-	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	std::cout << "ACPI initialized successfully" << std::endl;
-
-	// Initialize the HPET.
-	ACPI_TABLE_HEADER *hpet_table;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
-
-	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
-	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
-	helControlKernel(kThorSubArch, kThorIfSetupHpet, &hpet_entry->address.Address, nullptr);
 
 	dumpMadt();
-
 	discoverHwctrl();
 
 	while(true)

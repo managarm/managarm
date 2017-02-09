@@ -70,6 +70,20 @@ typedef frg::pairing_heap<
 
 frigg::LazyInitializer<TimerQueue> timerQueue;
 
+struct HpetDevice : IrqSink {
+	void raise() override {
+		auto current = hpetBase.load(mainCounter);
+		while(!timerQueue->empty() && timerQueue->top()->deadline < current) {
+			auto timer = timerQueue->top();
+			timerQueue->pop();
+			timer->callback();
+		}
+
+		if(!timerQueue->empty())
+			hpetBase.store(timerComparator0, timerQueue->top()->deadline);
+	}
+};
+
 bool haveTimer() {
 	return hpetAvailable;
 }
@@ -120,6 +134,9 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(timerComparator0, 0);
 	}
 
+	auto device = frigg::construct<HpetDevice>(*kernelAlloc);
+	attachIrq(getGlobalSystemIrq(2), device);
+
 	hpetAvailable = true;
 	
 	// TODO: Move this somewhere else.
@@ -165,18 +182,6 @@ void installTimer(Timer *timer) {
 	hpetBase.store(timerComparator0, timerQueue->top()->deadline);
 	// TODO: We might have missed the deadline already if it is short enough.
 	// Read the counter here and dequeue all elapsed timers manually.
-}
-
-void timerInterrupt() {
-	auto current = hpetBase.load(mainCounter);
-	while(!timerQueue->empty() && timerQueue->top()->deadline < current) {
-		auto timer = timerQueue->top();
-		timerQueue->pop();
-		timer->callback();
-	}
-
-	if(!timerQueue->empty())
-		hpetBase.store(timerComparator0, timerQueue->top()->deadline);
 }
 
 } // namespace thor

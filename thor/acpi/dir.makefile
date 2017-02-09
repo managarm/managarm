@@ -83,11 +83,14 @@ $c_ACPICA_OBJECTS := \
 	components/executer/exresolv.o \
 	components/executer/exprep.o \
 	components/hardware/hwacpi.o \
-	components/hardware/hwxface.o \
+	components/hardware/hwesleep.o \
 	components/hardware/hwregs.o \
 	components/hardware/hwvalid.o \
 	components/hardware/hwgpe.o \
 	components/hardware/hwpci.o \
+	components/hardware/hwsleep.o \
+	components/hardware/hwxface.o \
+	components/hardware/hwxfsleep.o \
 	components/namespace/nsalloc.o \
 	components/namespace/nsaccess.o \
 	components/namespace/nsarguments.o \

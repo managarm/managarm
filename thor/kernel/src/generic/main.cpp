@@ -443,9 +443,6 @@ void handleIrq(IrqImageAccessor image, int number) {
 
 	if(logEveryIrq)
 		frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
-	
-	if(number == 2)
-		timerInterrupt();
 
 	globalIrqSlots[number]->raise();
 

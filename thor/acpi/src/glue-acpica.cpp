@@ -10,6 +10,7 @@
 
 #include <hel.h>
 #include <hel-syscalls.h>
+#include <helix/ipc.hpp>
 
 extern "C" {
 #include <acpi.h>
@@ -156,10 +157,28 @@ void AcpiOsFree(void *pointer) {
 // Interrupts
 // --------------------------------------------------------
 
-ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 interrupt,
+COFIBER_ROUTINE(cofiber::no_future, listenForInts(unsigned int number,
+		uint32_t (*handler)(void *), void *context), ([=] {
+	std::cout << "ACPI: Installing handler for IRQ " << number << std::endl;
+
+	HelHandle handle;
+	HEL_CHECK(helAccessIrq(number, &handle));
+	helix::UniqueIrq irq{handle};
+
+	while(true) {
+		helix::AwaitIrq await_irq;
+		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
+		HEL_CHECK(await_irq.error());
+
+		if(handler(context) == ACPI_INTERRUPT_HANDLED)
+			HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
+	}
+}))
+
+ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 number,
 		ACPI_OSD_HANDLER handler, void *context) {
-	std::cout << "ACPICA was to install a handler for interrupt " << interrupt
-			<< ". This is currently a no-op!" << std::endl;
+	listenForInts(number, handler, context);
 	return AE_OK;
 }
 
