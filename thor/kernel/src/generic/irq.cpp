@@ -82,8 +82,11 @@ void attachIrq(IrqPin *pin, IrqSink *sink) {
 // IrqObject
 // --------------------------------------------------------
 
+// We create the IrqObject in latched state in order to ensure that users to not miss IRQs
+// that happened before the object was created.
+// However this can result in spurious raises.
 IrqObject::IrqObject()
-: _latched{false} { }
+: _latched{true} { }
 
 void IrqObject::raise() {
 	if(_waitQueue.empty()) {

@@ -252,6 +252,7 @@ namespace {
 	}
 	
 	void IoApic::Pin::mask() {
+		frigg::infoLogger() << "thor: Masking pin " << _index << frigg::endLog;
 		auto vector = 64 + _index;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(vector)
@@ -260,6 +261,7 @@ namespace {
 	}
 
 	void IoApic::Pin::unmask() {
+		frigg::infoLogger() << "thor: Unmasking pin " << _index << frigg::endLog;
 		auto vector = 64 + _index;
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(vector)

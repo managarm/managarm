@@ -171,6 +171,8 @@ COFIBER_ROUTINE(cofiber::no_future, listenForInts(unsigned int number,
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
 
+		std::cout << "ACPI: Running IRQ handler" << std::endl;
+
 		if(handler(context) == ACPI_INTERRUPT_HANDLED)
 			HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
 	}
