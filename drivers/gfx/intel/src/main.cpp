@@ -19,6 +19,12 @@ namespace regs {
 	static constexpr arch::bit_register<uint32_t> pllControl(0x6014);
 	static constexpr arch::bit_register<uint32_t> pllDivisor1(0x6040);
 	static constexpr arch::bit_register<uint32_t> pllDivisor2(0x6044);
+	
+	static constexpr arch::bit_register<uint32_t> dacPort(0x61100);
+	
+	static constexpr arch::bit_register<uint32_t> pipeConfig(0x70008);
+
+	static constexpr arch::bit_register<uint32_t> planeControl(0x70180);
 }
 
 namespace pll_control {
@@ -33,6 +39,19 @@ namespace pll_divisor {
 	static constexpr arch::field<uint32_t, unsigned int> m2(0, 6);
 	static constexpr arch::field<uint32_t, unsigned int> m1(8, 6);
 	static constexpr arch::field<uint32_t, unsigned int> n(16, 6);
+}
+
+namespace dac_port {
+	static constexpr arch::field<uint32_t, bool> enableDac(31, 1);
+}
+
+namespace pipe_config {
+	static constexpr arch::field<uint32_t, bool> enablePipe(31, 1);
+	static constexpr arch::field<uint32_t, bool> pipeStatus(30, 1);
+}
+
+namespace plane_control {
+	static constexpr arch::field<uint32_t, bool> enablePlane(31, 1);
 }
 
 struct PllLimits {
@@ -137,11 +156,78 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 	throw std::runtime_error("No DPLL parameters for target dot clock");
 }
 
+struct Controller {
+	Controller(arch::mem_space space)
+	: _space{space} { }
 
-void run(arch::mem_space space) {
-	auto control = space.load(regs::vgaPllPost);
-	auto divisor1 = space.load(regs::vgaPllDivisor1);
-	auto divisor2 = space.load(regs::vgaPllDivisor2);
+	void run();
+
+	void disableDac();
+	void enableDac();
+
+	void disablePlane();
+
+	void disablePipe();
+	void enablePipe();
+
+private:
+	arch::mem_space _space;
+};
+
+void Controller::disableDac() {
+	auto bits = _space.load(regs::dacPort);
+	std::cout << "DAC Port: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(bits & dac_port::enableDac);
+	_space.store(regs::dacPort, bits & ~dac_port::enableDac);
+}
+
+void Controller::enableDac() {
+	auto bits = _space.load(regs::dacPort);
+	assert(!(bits & dac_port::enableDac));
+	_space.store(regs::dacPort, bits | dac_port::enableDac(true));
+}
+
+void Controller::disablePlane() {
+	auto bits = _space.load(regs::planeControl);
+	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(bits & plane_control::enablePlane);
+	_space.store(regs::planeControl, bits & ~plane_control::enablePlane);
+}
+
+void Controller::disablePipe() {
+	auto bits = _space.load(regs::pipeConfig);
+	std::cout << "Pipe config: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(bits & pipe_config::enablePipe);
+	assert(bits & pipe_config::pipeStatus);
+	_space.store(regs::pipeConfig, bits & ~pipe_config::enablePipe);
+	
+	std::cout << "After disable: " << (_space.load(regs::pipeConfig)
+			& pipe_config::pipeStatus) << std::endl;
+	while(_space.load(regs::pipeConfig) & pipe_config::pipeStatus) {
+		// Busy wait until the pipe is shut off.
+	}
+
+	std::cout << "Pipe disabled" << std::endl;
+}
+
+void Controller::enablePipe() {
+	auto bits = _space.load(regs::pipeConfig);
+	assert(!(bits & pipe_config::enablePipe));
+	assert(!(bits & pipe_config::pipeStatus));
+	_space.store(regs::pipeConfig, bits | pipe_config::enablePipe(true));
+	
+	while(!(_space.load(regs::pipeConfig) & pipe_config::pipeStatus)) {
+		// Busy wait until the pipe is ready.
+	}
+
+	std::cout << "Pipe enabled" << std::endl;
+}
+
+void Controller::run() {
+/*
+	auto control = _space.load(regs::vgaPllPost);
+	auto divisor1 = _space.load(regs::vgaPllDivisor1);
+	auto divisor2 = _space.load(regs::vgaPllDivisor2);
 	std::cout << static_cast<uint32_t>(control)
 			<< " " << static_cast<uint32_t>(divisor1)
 			<< " " << static_cast<uint32_t>(divisor2) << std::endl;
@@ -174,6 +260,12 @@ void run(arch::mem_space space) {
 	std::cout << "vco: " << params.computeVco(96'000) << std::endl;
 	std::cout << "m: " << params.computeM() << std::endl;
 	std::cout << "p: " << params.computeP() << std::endl;
+*/
+	disableDac();
+	//disablePlane();
+	disablePipe();
+	enablePipe();
+	enableDac();
 }
 
 // ----------------------------------------------------------------
@@ -191,7 +283,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
 			0, 0x80000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
 
-	run(arch::mem_space(actual_pointer));
+	Controller controller{arch::mem_space(actual_pointer)};
+	controller.run();
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
