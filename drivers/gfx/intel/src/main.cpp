@@ -11,155 +11,7 @@
 #include <protocols/mbus/client.hpp>
 
 #include "spec.hpp"
-
-namespace regs {
-	static constexpr arch::bit_register<uint32_t> vgaPllDivisor1(0x6000);
-	static constexpr arch::bit_register<uint32_t> vgaPllDivisor2(0x6004);
-	static constexpr arch::bit_register<uint32_t> vgaPllPost(0x6010);
-	static constexpr arch::bit_register<uint32_t> pllControl(0x6014);
-	static constexpr arch::bit_register<uint32_t> busMultiplier(0x601C);
-	static constexpr arch::bit_register<uint32_t> pllDivisor1(0x6040);
-	static constexpr arch::bit_register<uint32_t> pllDivisor2(0x6044);
-	
-	static constexpr arch::bit_register<uint32_t> htotal(0x60000);
-	static constexpr arch::bit_register<uint32_t> hblank(0x60004);
-	static constexpr arch::bit_register<uint32_t> hsync(0x60008);
-	static constexpr arch::bit_register<uint32_t> vtotal(0x6000C);
-	static constexpr arch::bit_register<uint32_t> vblank(0x60010);
-	static constexpr arch::bit_register<uint32_t> vsync(0x60014);
-	static constexpr arch::bit_register<uint32_t> sourceSize(0x6001C);
-
-	static constexpr arch::bit_register<uint32_t> dacPort(0x61100);
-	
-	static constexpr arch::bit_register<uint32_t> pipeConfig(0x70008);
-
-	static constexpr arch::bit_register<uint32_t> planeControl(0x70180);
-	static constexpr arch::scalar_register<uint32_t> planeOffset(0x70184);
-	static constexpr arch::scalar_register<uint32_t> planeStride(0x70188);
-	static constexpr arch::scalar_register<uint32_t> planeAddress(0x7019C);
-
-	static constexpr arch::bit_register<uint32_t> vgaControl(0x71400);
-}
-
-namespace pll_control {
-	static constexpr arch::field<uint32_t, unsigned int> phase(9, 4);
-	static constexpr arch::field<uint32_t, unsigned int> encodedP1(16, 8);
-	static constexpr arch::field<uint32_t, unsigned int> modeSelect(26, 2);
-	static constexpr arch::field<uint32_t, bool> disableVga(28, 1);
-	static constexpr arch::field<uint32_t, bool> enablePll(31, 1);
-}
-
-namespace bus_multiplier {
-	static constexpr arch::field<uint32_t, unsigned int> vgaMultiplier(0, 6);
-	static constexpr arch::field<uint32_t, unsigned int> dacMultiplier(8, 6);
-}
-
-namespace pll_divisor {
-	static constexpr arch::field<uint32_t, unsigned int> m2(0, 6);
-	static constexpr arch::field<uint32_t, unsigned int> m1(8, 6);
-	static constexpr arch::field<uint32_t, unsigned int> n(16, 6);
-}
-
-namespace hvtotal {
-	static constexpr arch::field<uint32_t, unsigned int> active(0, 12);
-	static constexpr arch::field<uint32_t, unsigned int> total(16, 13);
-}
-
-namespace hvblank {
-	static constexpr arch::field<uint32_t, unsigned int> start(0, 13);
-	static constexpr arch::field<uint32_t, unsigned int> end(16, 13);
-}
-
-namespace hvsync {
-	static constexpr arch::field<uint32_t, unsigned int> start(0, 13);
-	static constexpr arch::field<uint32_t, unsigned int> end(16, 13);
-}
-
-namespace source_size {
-	static constexpr arch::field<uint32_t, unsigned int> horizontal(16, 12);
-	static constexpr arch::field<uint32_t, unsigned int> vertical(0, 12);
-}
-
-namespace dac_port {
-	static constexpr arch::field<uint32_t, bool> enableDac(31, 1);
-}
-
-namespace pipe_config {
-	static constexpr arch::field<uint32_t, bool> pipeStatus(30, 1);
-	static constexpr arch::field<uint32_t, bool> enablePipe(31, 1);
-}
-
-enum class PrimaryFormat : unsigned int {
-	INDEXED = 2,
-	BGRX8888 = 6,
-	RGBX8888 = 14
-};
-
-namespace plane_control {
-	static constexpr arch::field<uint32_t, bool> enablePlane(31, 1);
-	static constexpr arch::field<uint32_t, PrimaryFormat> pixelFormat(26, 4);
-}
-
-namespace vga_control {
-	static constexpr arch::field<uint32_t, bool> disableVga(31, 1);
-	static constexpr arch::field<uint32_t, unsigned int> centeringMode(30, 2);
-}
-
-struct PllLimits {
-	struct {
-		int min, max;
-	} dot, vco, n, m, m1, m2, p, p1;
-
-	struct {
-		int dot_limit;
-		int slow, fast;
-	} p2;
-};
-
-// Note: These limits come from the Linux kernel.
-// Strangly the G45 manual has a different set of limits.
-constexpr PllLimits limitsG45 {
-	{ 25'000, 270'000 },
-	{ 1'750'000, 3'500'000 },
-	{ 1, 4 },
-	{ 104, 138 },
-	{ 17, 23 },
-	{ 5, 11 },
-	{ 10, 30 },
-	{ 1, 3 },
-	{ 270'000, 10, 10 }
-};
-
-struct PllParams {
-	int computeDot(int refclock) {
-		auto p = computeP();
-		return (computeVco(refclock) + p / 2) / p;
-	}
-	
-	int computeVco(int refclock) {
-		auto m = computeM();
-		return (refclock * m + (n + 2) / 2) / (n + 2);
-	}
-
-	int computeM() {
-		return 5 * (m1 + 2) + (m2 + 2);
-	}
-
-	int computeP() {
-		return p1 * p2;
-	}
-
-	void dump(int refclock) {
-		std::cout << "n: " << n << ", m1: " << m1 << ", m2: " << m2
-				<< ", p1: " << p1 << ", p2: " << p2 << std::endl;
-		std::cout << "m: " << computeM()
-				<< ", p: " << computeP() << std::endl;
-		std::cout << "dot: " << computeDot(refclock)
-				<< ", vco: " << computeVco(refclock) << std::endl;
-	}
-	
-	int n, m1, m2, p1, p2;
-};
+#include "intel.hpp"
 
 bool checkParams(PllParams params, int refclock, PllLimits limits) {
 	if(params.n < limits.n.min || params.n > limits.n.max)
@@ -216,138 +68,84 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 	throw std::runtime_error("No DPLL parameters for target dot clock");
 }
 
-struct Timings {
-	int active;
-	int syncStart;
-	int syncEnd;
-	int total;
-
-	int blankingStart() {
-		return active;
-	}
-	int blankingEnd() {
-		return total;
-	}
-
-	void dump() {
-		std::cout << "active: " << active << ", start of sync: " << syncStart
-				<< ", end of sync: " << syncEnd << ", total: " << total << std::endl;
-	}
-};
-
-struct Mode {
-	int dot;
-	Timings horizontal;
-	Timings vertical;
-};
-
 struct Controller {
 	Controller(arch::mem_space ctrl, void *memory)
 	: _ctrl{ctrl}, _memory{memory} { }
 
 	void run();
 
-	void disableDac();
-	void enableDac();
-
-	void disablePlane();
-	void enablePlane();
-
-	void disablePipe();
-	void programPipe(Mode mode);
+private:
+	// ------------------------------------------------------------------------
+	// DPLL programming functions.
+	// ------------------------------------------------------------------------
 
 	void disableDpll();
 	void programDpll(PllParams params);
+	void dumpDpll();
+	
+	// ------------------------------------------------------------------------
+	// Pipe programming functions.
+	// ------------------------------------------------------------------------
+
+	void disablePipe();
+	void programPipe(Mode mode);
+	void dumpPipe();
+	
+	// ------------------------------------------------------------------------
+	// Plane handling functions.
+	// ------------------------------------------------------------------------
+
+	void disablePlane();
+	void enablePlane();
+	
+	// ------------------------------------------------------------------------
+	// Port handling functions.
+	// ------------------------------------------------------------------------
+
+	void disableDac();
+	void enableDac();
+
+	// ------------------------------------------------------------------------
+	// Miscellaneous functions.
+	// ------------------------------------------------------------------------
 
 	void relinquishVga();
-
-	void dumpDpll();
-	void dumpPipe();
 
 private:
 	arch::mem_space _ctrl;
 	void *_memory;
 };
 
-void Controller::disableDac() {
-	auto bits = _ctrl.load(regs::dacPort);
-	std::cout << "DAC Port: " << static_cast<uint32_t>(bits) << std::endl;
-	assert(bits & dac_port::enableDac);
-	_ctrl.store(regs::dacPort, bits & ~dac_port::enableDac);
-}
-
-void Controller::enableDac() {
-	auto bits = _ctrl.load(regs::dacPort);
-	assert(!(bits & dac_port::enableDac));
-	_ctrl.store(regs::dacPort, bits | dac_port::enableDac(true));
-}
-
-void Controller::disablePlane() {
-	auto bits = _ctrl.load(regs::planeControl);
-	assert(bits & plane_control::enablePlane);
-	_ctrl.store(regs::planeControl, bits & ~plane_control::enablePlane);
-}
-
-void Controller::enablePlane() {
-	_ctrl.store(regs::planeOffset, 0);
-	_ctrl.store(regs::planeStride, 640 * 4);
-	_ctrl.store(regs::planeAddress, 0);
-
-	auto bits = _ctrl.load(regs::planeControl);
-	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
-	assert(!(bits & plane_control::enablePlane));
-	_ctrl.store(regs::planeControl, (bits & ~plane_control::pixelFormat)
-			| plane_control::pixelFormat(PrimaryFormat::RGBX8888)
-			| plane_control::enablePlane(true));
-}
-
-void Controller::disablePipe() {
-	auto bits = _ctrl.load(regs::pipeConfig);
-	std::cout << "Pipe config: " << static_cast<uint32_t>(bits) << std::endl;
-	assert(bits & pipe_config::enablePipe);
-	assert(bits & pipe_config::pipeStatus);
-	_ctrl.store(regs::pipeConfig, bits & ~pipe_config::enablePipe);
+void Controller::run() {
+	Mode mode{
+		25175,
+		{ 640, 656, 752, 800 },
+		{ 480, 490, 492, 525 }
+	};
+	auto params = findParams(100800, 96000, limitsG45);
 	
-	std::cout << "After disable: " << (_ctrl.load(regs::pipeConfig)
-			& pipe_config::pipeStatus) << std::endl;
-	while(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus) {
-		// Busy wait until the pipe is shut off.
-	}
+	disableDac();
+	disablePipe();
+	disableDpll();
+	relinquishVga();
 
-	std::cout << "Pipe disabled" << std::endl;
+	programDpll(params);
+	dumpDpll();
+
+	programPipe(mode);
+	dumpPipe();
+	enablePlane();
+	enableDac();
+
+	auto plane = reinterpret_cast<uint32_t *>(_memory);
+	for(size_t x = 0; x < 640; x++)
+		for(size_t y = 0; y < 480; y++)
+			plane[y * 640 + x] = (x / 3) | ((y / 2) << 8);
 }
 
-void Controller::programPipe(Mode mode) {
-	// Program the display timings.
-	_ctrl.store(regs::htotal, hvtotal::active(mode.horizontal.active - 1)
-			| hvtotal::total(mode.horizontal.total - 1));
-	_ctrl.store(regs::hblank, hvblank::start(mode.horizontal.blankingStart() - 1)
-			| hvblank::end(mode.horizontal.blankingEnd() - 1));
-	_ctrl.store(regs::hsync, hvsync::start(mode.horizontal.syncStart - 1)
-			| hvsync::end(mode.horizontal.syncEnd - 1));
-	
-	_ctrl.store(regs::vtotal, hvtotal::active(mode.vertical.active - 1)
-			| hvtotal::total(mode.vertical.total - 1));
-	_ctrl.store(regs::vblank, hvblank::start(mode.vertical.blankingStart() - 1)
-			| hvblank::end(mode.vertical.blankingEnd() - 1));
-	_ctrl.store(regs::vsync, hvsync::start(mode.vertical.syncStart - 1)
-			| hvsync::end(mode.vertical.syncEnd - 1));
-	
-	_ctrl.store(regs::sourceSize, source_size::vertical(mode.vertical.active - 1)
-			| source_size::horizontal(mode.horizontal.active - 1));
-	
-	// Enable the pipe.
-	auto bits = _ctrl.load(regs::pipeConfig);
-	assert(!(bits & pipe_config::enablePipe));
-	assert(!(bits & pipe_config::pipeStatus));
-	_ctrl.store(regs::pipeConfig, bits | pipe_config::enablePipe(true));
-	
-	while(!(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus)) {
-		// Busy wait until the pipe is ready.
-	}
-
-	std::cout << "Pipe enabled" << std::endl;
-}
+// ------------------------------------------------------------------------
+// DPLL programming functions.
+// ------------------------------------------------------------------------
 
 void Controller::disableDpll() {
 	auto bits = _ctrl.load(regs::pllControl);
@@ -418,11 +216,56 @@ void Controller::dumpDpll() {
 	params.dump(96000);
 }
 
-void Controller::relinquishVga() {
-	auto bits = _ctrl.load(regs::vgaControl);
-	assert(!(bits & vga_control::disableVga));
-	_ctrl.store(regs::vgaControl, (bits & ~vga_control::centeringMode)
-			| vga_control::disableVga(true));
+// ------------------------------------------------------------------------
+// Pipe programming functions.
+// ------------------------------------------------------------------------
+
+void Controller::disablePipe() {
+	auto bits = _ctrl.load(regs::pipeConfig);
+	std::cout << "Pipe config: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(bits & pipe_config::enablePipe);
+	assert(bits & pipe_config::pipeStatus);
+	_ctrl.store(regs::pipeConfig, bits & ~pipe_config::enablePipe);
+	
+	std::cout << "After disable: " << (_ctrl.load(regs::pipeConfig)
+			& pipe_config::pipeStatus) << std::endl;
+	while(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus) {
+		// Busy wait until the pipe is shut off.
+	}
+
+	std::cout << "Pipe disabled" << std::endl;
+}
+
+void Controller::programPipe(Mode mode) {
+	// Program the display timings.
+	_ctrl.store(regs::htotal, hvtotal::active(mode.horizontal.active - 1)
+			| hvtotal::total(mode.horizontal.total - 1));
+	_ctrl.store(regs::hblank, hvblank::start(mode.horizontal.blankingStart() - 1)
+			| hvblank::end(mode.horizontal.blankingEnd() - 1));
+	_ctrl.store(regs::hsync, hvsync::start(mode.horizontal.syncStart - 1)
+			| hvsync::end(mode.horizontal.syncEnd - 1));
+	
+	_ctrl.store(regs::vtotal, hvtotal::active(mode.vertical.active - 1)
+			| hvtotal::total(mode.vertical.total - 1));
+	_ctrl.store(regs::vblank, hvblank::start(mode.vertical.blankingStart() - 1)
+			| hvblank::end(mode.vertical.blankingEnd() - 1));
+	_ctrl.store(regs::vsync, hvsync::start(mode.vertical.syncStart - 1)
+			| hvsync::end(mode.vertical.syncEnd - 1));
+	
+	_ctrl.store(regs::sourceSize, source_size::vertical(mode.vertical.active - 1)
+			| source_size::horizontal(mode.horizontal.active - 1));
+	
+	// Enable the pipe.
+	auto bits = _ctrl.load(regs::pipeConfig);
+	assert(!(bits & pipe_config::enablePipe));
+	assert(!(bits & pipe_config::pipeStatus));
+	_ctrl.store(regs::pipeConfig, bits | pipe_config::enablePipe(true));
+	
+	while(!(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus)) {
+		// Busy wait until the pipe is ready.
+	}
+
+	std::cout << "Pipe enabled" << std::endl;
 }
 
 void Controller::dumpPipe() {
@@ -452,31 +295,55 @@ void Controller::dumpPipe() {
 			<< ", " << ((vblank & hvblank::end) + 1) << std::endl;
 }
 
-void Controller::run() {
-	Mode mode{
-		25175,
-		{ 640, 656, 752, 800 },
-		{ 480, 490, 492, 525 }
-	};
-	auto params = findParams(100800, 96000, limitsG45);
-	
-	disableDac();
-	disablePipe();
-	disableDpll();
-	relinquishVga();
+// ------------------------------------------------------------------------
+// Plane handling functions.
+// ------------------------------------------------------------------------
 
-	programDpll(params);
-	dumpDpll();
+void Controller::disablePlane() {
+	auto bits = _ctrl.load(regs::planeControl);
+	assert(bits & plane_control::enablePlane);
+	_ctrl.store(regs::planeControl, bits & ~plane_control::enablePlane);
+}
 
-	programPipe(mode);
-	dumpPipe();
-	enablePlane();
-	enableDac();
+void Controller::enablePlane() {
+	_ctrl.store(regs::planeOffset, 0);
+	_ctrl.store(regs::planeStride, 640 * 4);
+	_ctrl.store(regs::planeAddress, 0);
 
-	auto plane = reinterpret_cast<uint32_t *>(_memory);
-	for(size_t x = 0; x < 640; x++)
-		for(size_t y = 0; y < 480; y++)
-			plane[y * 640 + x] = (x / 3) | ((y / 2) << 8);
+	auto bits = _ctrl.load(regs::planeControl);
+	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(!(bits & plane_control::enablePlane));
+	_ctrl.store(regs::planeControl, (bits & ~plane_control::pixelFormat)
+			| plane_control::pixelFormat(PrimaryFormat::RGBX8888)
+			| plane_control::enablePlane(true));
+}
+
+// ------------------------------------------------------------------------
+// Port handling functions.
+// ------------------------------------------------------------------------
+
+void Controller::disableDac() {
+	auto bits = _ctrl.load(regs::dacPort);
+	std::cout << "DAC Port: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(bits & dac_port::enableDac);
+	_ctrl.store(regs::dacPort, bits & ~dac_port::enableDac);
+}
+
+void Controller::enableDac() {
+	auto bits = _ctrl.load(regs::dacPort);
+	assert(!(bits & dac_port::enableDac));
+	_ctrl.store(regs::dacPort, bits | dac_port::enableDac(true));
+}
+
+// ------------------------------------------------------------------------
+// Miscellanious functions.
+// ------------------------------------------------------------------------
+
+void Controller::relinquishVga() {
+	auto bits = _ctrl.load(regs::vgaControl);
+	assert(!(bits & vga_control::disableVga));
+	_ctrl.store(regs::vgaControl, (bits & ~vga_control::centeringMode)
+			| vga_control::disableVga(true));
 }
 
 // ----------------------------------------------------------------
