@@ -17,22 +17,38 @@ namespace regs {
 	static constexpr arch::bit_register<uint32_t> vgaPllDivisor2(0x6004);
 	static constexpr arch::bit_register<uint32_t> vgaPllPost(0x6010);
 	static constexpr arch::bit_register<uint32_t> pllControl(0x6014);
+	static constexpr arch::bit_register<uint32_t> busMultiplier(0x601C);
 	static constexpr arch::bit_register<uint32_t> pllDivisor1(0x6040);
 	static constexpr arch::bit_register<uint32_t> pllDivisor2(0x6044);
 	
+	static constexpr arch::bit_register<uint32_t> htotal(0x60000);
+	static constexpr arch::bit_register<uint32_t> hblank(0x60004);
+	static constexpr arch::bit_register<uint32_t> hsync(0x60008);
+	static constexpr arch::bit_register<uint32_t> vtotal(0x6000C);
+	static constexpr arch::bit_register<uint32_t> vblank(0x60010);
+	static constexpr arch::bit_register<uint32_t> vsync(0x60014);
+	static constexpr arch::bit_register<uint32_t> sourceSize(0x6001C);
+
 	static constexpr arch::bit_register<uint32_t> dacPort(0x61100);
 	
 	static constexpr arch::bit_register<uint32_t> pipeConfig(0x70008);
 
 	static constexpr arch::bit_register<uint32_t> planeControl(0x70180);
+
+	static constexpr arch::bit_register<uint32_t> vgaControl(0x71400);
 }
 
 namespace pll_control {
 	static constexpr arch::field<uint32_t, unsigned int> phase(9, 4);
 	static constexpr arch::field<uint32_t, unsigned int> encodedP1(16, 8);
-	static constexpr arch::field<uint32_t, unsigned int> modeSelect(27, 2);
+	static constexpr arch::field<uint32_t, unsigned int> modeSelect(26, 2);
 	static constexpr arch::field<uint32_t, bool> disableVga(28, 1);
-	static constexpr arch::field<uint32_t, bool> enableVco(31, 1);
+	static constexpr arch::field<uint32_t, bool> enablePll(31, 1);
+}
+
+namespace bus_multiplier {
+	static constexpr arch::field<uint32_t, unsigned int> vgaMultiplier(0, 6);
+	static constexpr arch::field<uint32_t, unsigned int> dacMultiplier(8, 6);
 }
 
 namespace pll_divisor {
@@ -41,17 +57,43 @@ namespace pll_divisor {
 	static constexpr arch::field<uint32_t, unsigned int> n(16, 6);
 }
 
+namespace hvtotal {
+	static constexpr arch::field<uint32_t, unsigned int> active(0, 12);
+	static constexpr arch::field<uint32_t, unsigned int> total(16, 13);
+}
+
+namespace hvblank {
+	static constexpr arch::field<uint32_t, unsigned int> start(0, 13);
+	static constexpr arch::field<uint32_t, unsigned int> end(16, 13);
+}
+
+namespace hvsync {
+	static constexpr arch::field<uint32_t, unsigned int> start(0, 13);
+	static constexpr arch::field<uint32_t, unsigned int> end(16, 13);
+}
+
+namespace source_size {
+	static constexpr arch::field<uint32_t, unsigned int> horizontal(16, 12);
+	static constexpr arch::field<uint32_t, unsigned int> vertical(0, 12);
+}
+
 namespace dac_port {
 	static constexpr arch::field<uint32_t, bool> enableDac(31, 1);
 }
 
 namespace pipe_config {
-	static constexpr arch::field<uint32_t, bool> enablePipe(31, 1);
 	static constexpr arch::field<uint32_t, bool> pipeStatus(30, 1);
+	static constexpr arch::field<uint32_t, bool> enablePipe(31, 1);
 }
 
 namespace plane_control {
 	static constexpr arch::field<uint32_t, bool> enablePlane(31, 1);
+	static constexpr arch::field<uint32_t, unsigned int> pixelFormat(26, 4);
+}
+
+namespace vga_control {
+	static constexpr arch::field<uint32_t, bool> disableVga(31, 1);
+	static constexpr arch::field<uint32_t, unsigned int> centeringMode(30, 2);
 }
 
 struct PllLimits {
@@ -67,7 +109,7 @@ struct PllLimits {
 
 // Note: These limits come from the Linux kernel.
 // Strangly the G45 manual has a different set of limits.
-constexpr PllLimits limitsG4x {
+constexpr PllLimits limitsG45 {
 	{ 25'000, 270'000 },
 	{ 1'750'000, 3'500'000 },
 	{ 1, 4 },
@@ -96,6 +138,15 @@ struct PllParams {
 
 	int computeP() {
 		return p1 * p2;
+	}
+
+	void dump(int refclock) {
+		std::cout << "n: " << n << ", m1: " << m1 << ", m2: " << m2
+				<< ", p1: " << p1 << ", p2: " << p2 << std::endl;
+		std::cout << "m: " << computeM()
+				<< ", p: " << computeP() << std::endl;
+		std::cout << "dot: " << computeDot(refclock)
+				<< ", vco: " << computeVco(refclock) << std::endl;
 	}
 	
 	int n, m1, m2, p1, p2;
@@ -156,6 +207,31 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 	throw std::runtime_error("No DPLL parameters for target dot clock");
 }
 
+struct Timings {
+	int active;
+	int syncStart;
+	int syncEnd;
+	int total;
+
+	int blankingStart() {
+		return active;
+	}
+	int blankingEnd() {
+		return total;
+	}
+
+	void dump() {
+		std::cout << "active: " << active << ", start of sync: " << syncStart
+				<< ", end of sync: " << syncEnd << ", total: " << total << std::endl;
+	}
+};
+
+struct Mode {
+	int dot;
+	Timings horizontal;
+	Timings vertical;
+};
+
 struct Controller {
 	Controller(arch::mem_space space)
 	: _space{space} { }
@@ -166,9 +242,18 @@ struct Controller {
 	void enableDac();
 
 	void disablePlane();
+	void enablePlane();
 
 	void disablePipe();
-	void enablePipe();
+	void programPipe(Mode mode);
+
+	void disableDpll();
+	void programDpll(PllParams params);
+
+	void relinquishVga();
+
+	void dumpDpll();
+	void dumpPipe();
 
 private:
 	arch::mem_space _space;
@@ -189,9 +274,17 @@ void Controller::enableDac() {
 
 void Controller::disablePlane() {
 	auto bits = _space.load(regs::planeControl);
-	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
 	assert(bits & plane_control::enablePlane);
 	_space.store(regs::planeControl, bits & ~plane_control::enablePlane);
+}
+
+void Controller::enablePlane() {
+	auto bits = _space.load(regs::planeControl);
+	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
+	assert(!(bits & plane_control::enablePlane));
+	_space.store(regs::planeControl, (bits & ~plane_control::pixelFormat)
+			| plane_control::pixelFormat(2)
+			| plane_control::enablePlane(true));
 }
 
 void Controller::disablePipe() {
@@ -210,7 +303,26 @@ void Controller::disablePipe() {
 	std::cout << "Pipe disabled" << std::endl;
 }
 
-void Controller::enablePipe() {
+void Controller::programPipe(Mode mode) {
+	// Program the display timings.
+	_space.store(regs::htotal, hvtotal::active(mode.horizontal.active - 1)
+			| hvtotal::total(mode.horizontal.total - 1));
+	_space.store(regs::hblank, hvblank::start(mode.horizontal.blankingStart() - 1)
+			| hvblank::end(mode.horizontal.blankingEnd() - 1));
+	_space.store(regs::hsync, hvsync::start(mode.horizontal.syncStart - 1)
+			| hvsync::end(mode.horizontal.syncEnd - 1));
+	
+	_space.store(regs::vtotal, hvtotal::active(mode.vertical.active - 1)
+			| hvtotal::total(mode.vertical.total - 1));
+	_space.store(regs::vblank, hvblank::start(mode.vertical.blankingStart() - 1)
+			| hvblank::end(mode.vertical.blankingEnd() - 1));
+	_space.store(regs::vsync, hvsync::start(mode.vertical.syncStart - 1)
+			| hvsync::end(mode.vertical.syncEnd - 1));
+	
+	_space.store(regs::sourceSize, source_size::vertical(mode.vertical.active - 1)
+			| source_size::horizontal(mode.horizontal.active - 1));
+	
+	// Enable the pipe.
 	auto bits = _space.load(regs::pipeConfig);
 	assert(!(bits & pipe_config::enablePipe));
 	assert(!(bits & pipe_config::pipeStatus));
@@ -223,48 +335,128 @@ void Controller::enablePipe() {
 	std::cout << "Pipe enabled" << std::endl;
 }
 
-void Controller::run() {
-/*
-	auto control = _space.load(regs::vgaPllPost);
-	auto divisor1 = _space.load(regs::vgaPllDivisor1);
-	auto divisor2 = _space.load(regs::vgaPllDivisor2);
-	std::cout << static_cast<uint32_t>(control)
-			<< " " << static_cast<uint32_t>(divisor1)
-			<< " " << static_cast<uint32_t>(divisor2) << std::endl;
+void Controller::disableDpll() {
+	auto bits = _space.load(regs::pllControl);
+	assert(bits & pll_control::enablePll);
+	_space.store(regs::pllControl, bits & ~pll_control::enablePll);
+}
+
+void Controller::programDpll(PllParams params) {
+	_space.store(regs::pllDivisor1, pll_divisor::m2(params.m2)
+			| pll_divisor::m1(params.m1) | pll_divisor::n(params.n));
+	_space.store(regs::pllDivisor2, pll_divisor::m2(params.m2)
+			| pll_divisor::m1(params.m1) | pll_divisor::n(params.n));
 	
+	_space.store(regs::pllControl, pll_control::enablePll(false));
+
+	_space.store(regs::pllControl, pll_control::phase(6)
+			| pll_control::encodedP1(1 << (params.p1 - 1))
+			| pll_control::modeSelect(1) | pll_control::disableVga(true)
+			| pll_control::enablePll(true));
+	_space.load(regs::pllControl);
+
+	uint64_t ticks, now;
+	HEL_CHECK(helGetClock(&ticks));
+	do {
+		HEL_CHECK(helGetClock(&now));
+	} while(now - ticks <= 150000);
+	
+	std::cout << "State: " << (_space.load(regs::pllControl) & pll_control::enablePll)
+			<< std::endl;
+
+	_space.store(regs::busMultiplier, bus_multiplier::vgaMultiplier(3)
+			| bus_multiplier::dacMultiplier(3));
+	
+	for(int i = 0; i < 3; i++) {
+		_space.store(regs::pllControl, pll_control::phase(6)
+				| pll_control::encodedP1(1 << (params.p1 - 1))
+				| pll_control::modeSelect(1) | pll_control::disableVga(true)
+				| pll_control::enablePll(true));
+		_space.load(regs::pllControl);
+
+		uint64_t ticks, now;
+		HEL_CHECK(helGetClock(&ticks));
+		do {
+			HEL_CHECK(helGetClock(&now));
+		} while(now - ticks <= 150000);
+	
+		std::cout << "State: " << (_space.load(regs::pllControl) & pll_control::enablePll)
+				<< std::endl;
+	}
+}
+
+void Controller::dumpDpll() {
+	auto control = _space.load(regs::pllControl);
+	auto divisor1 = _space.load(regs::pllDivisor1);
+
+	if(control & pll_control::enablePll) {
+		std::cout << "gfx_intel: DPLL is running." << std::endl;
+	}else{
+		std::cout << "gfx_intel: DPLL is disabled." << std::endl;
+	}
+
 	PllParams params;
 	params.n = divisor1 & pll_divisor::n;
 	params.m1 = divisor1 & pll_divisor::m1;
 	params.m2 = divisor1 & pll_divisor::m2;
 	params.p1 = __builtin_ffs(control & pll_control::encodedP1);
-	params.p2 = 10;
+	params.p2 = 10; // TODO: Actually read this.
+	params.dump(96000);
+}
 
-	std::cout << "valid: " << checkParams(params, 96'000, limitsG4x) << std::endl;
-	std::cout << "n: " << params.n << ", m1: " << params.m1 << ", m2: " << params.m2
-			<< ", p1: " << params.p1 << ", p2: " << params.p2 << std::endl;
-	std::cout << "dot: " << params.computeDot(96'000) << std::endl;
-	std::cout << "vco: " << params.computeVco(96'000) << std::endl;
-	std::cout << "m: " << params.computeM() << std::endl;
-	std::cout << "p: " << params.computeP() << std::endl;
+void Controller::relinquishVga() {
+	auto bits = _space.load(regs::vgaControl);
+	assert(!(bits & vga_control::disableVga));
+	_space.store(regs::vgaControl, (bits & ~vga_control::centeringMode)
+			| vga_control::disableVga(true));
+}
+
+void Controller::dumpPipe() {
+	auto htotal = _space.load(regs::htotal);
+	auto hblank = _space.load(regs::hblank);
+	auto hsync = _space.load(regs::hsync);
+	auto vtotal = _space.load(regs::vtotal);
+	auto vblank = _space.load(regs::vblank);
+	auto vsync = _space.load(regs::vsync);
+
+	Timings horizontal;
+	Timings vertical;
+	horizontal.active = (htotal & hvtotal::active) + 1;
+	horizontal.syncStart = (hsync & hvsync::start) + 1;
+	horizontal.syncEnd = (hsync & hvsync::end) + 1;
+	horizontal.total = (htotal & hvtotal::total) + 1;
+	vertical.active = (vtotal & hvtotal::active) + 1;
+	vertical.syncStart = (vsync & hvsync::start) + 1;
+	vertical.syncEnd = (vsync & hvsync::end) + 1;
+	vertical.total = (vtotal & hvtotal::total) + 1;
+
+	horizontal.dump();
+	std::cout << ((hblank & hvblank::start) + 1)
+			<< ", " << ((hblank & hvblank::end) + 1) << std::endl;
+	vertical.dump();
+	std::cout << ((vblank & hvblank::start) + 1)
+			<< ", " << ((vblank & hvblank::end) + 1) << std::endl;
+}
+
+void Controller::run() {
+	Mode mode{
+		25175,
+		{ 640, 656, 752, 800 },
+		{ 480, 490, 492, 525 }
+	};
+	auto params = findParams(100800, 96000, limitsG45);
 	
-	params.n = divisor2 & pll_divisor::n;
-	params.m1 = divisor2 & pll_divisor::m1;
-	params.m2 = divisor2 & pll_divisor::m2;
-	params.p1 = __builtin_ffs(control & pll_control::encodedP1);
-	params.p2 = 10;
-
-	std::cout << "valid: " << checkParams(params, 96'000, limitsG4x) << std::endl;
-	std::cout << "n: " << params.n << ", m1: " << params.m1 << ", m2: " << params.m2
-			<< ", p1: " << params.p1 << ", p2: " << params.p2 << std::endl;
-	std::cout << "dot: " << params.computeDot(96'000) << std::endl;
-	std::cout << "vco: " << params.computeVco(96'000) << std::endl;
-	std::cout << "m: " << params.computeM() << std::endl;
-	std::cout << "p: " << params.computeP() << std::endl;
-*/
 	disableDac();
-	//disablePlane();
 	disablePipe();
-	enablePipe();
+	disableDpll();
+	relinquishVga();
+
+	programDpll(params);
+	dumpDpll();
+
+	programPipe(mode);
+	dumpPipe();
+	enablePlane();
 	enableDac();
 }
 
