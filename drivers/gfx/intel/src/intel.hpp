@@ -75,8 +75,16 @@ struct Timings {
 };
 
 struct Mode {
+	// Desired pixel clock in kHz.
 	int dot;
+
 	Timings horizontal;
 	Timings vertical;
+};
+
+struct Framebuffer {
+	unsigned int width, height;
+	unsigned int stride;
+	uintptr_t address;
 };
 

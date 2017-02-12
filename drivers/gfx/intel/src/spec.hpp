@@ -2,6 +2,48 @@
 #include <arch/register.hpp>
 
 // ----------------------------------------------------------------------------
+// GMBUS registers.
+// ----------------------------------------------------------------------------
+
+namespace regs {
+	static constexpr arch::bit_register<uint32_t> gmbusSelect(0x5100);
+	static constexpr arch::bit_register<uint32_t> gmbusCommand(0x5104);
+	static constexpr arch::bit_register<uint32_t> gmbusStatus(0x5108);
+	static constexpr arch::scalar_register<uint32_t> gmbusData(0x510C);
+}
+
+enum class PinPair {
+	analog = 2
+};
+
+namespace gmbus_select {
+	static constexpr arch::field<uint32_t, PinPair> pairSelect(0, 3);
+}
+
+enum class BusCycle {
+	null = 0,
+	wait = 1,
+	stop = 4
+};
+
+namespace gmbus_command {
+	static constexpr arch::field<uint32_t, bool> issueRead(0, 1);
+	static constexpr arch::field<uint32_t, unsigned int> address(1, 7);
+	static constexpr arch::field<uint32_t, size_t> byteCount(16, 9);
+	static constexpr arch::field<uint32_t, BusCycle> cycleSelect(25, 3);
+	static constexpr arch::field<uint32_t, bool> enableTimeout(29, 1);
+	static constexpr arch::field<uint32_t, bool> softwareReady(30, 1);
+	static constexpr arch::field<uint32_t, bool> clearError(31, 1);
+}
+
+namespace gmbus_status {
+	static constexpr arch::field<uint32_t, bool> nakIndicator(10, 1);
+	static constexpr arch::field<uint32_t, bool> hardwareReady(11, 1);
+	static constexpr arch::field<uint32_t, bool> slaveStall(13, 1);
+	static constexpr arch::field<uint32_t, bool> waitPhase(14, 1);
+}
+
+// ----------------------------------------------------------------------------
 // Clock (aka DPLL) registers.
 // ----------------------------------------------------------------------------
 

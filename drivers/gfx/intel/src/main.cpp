@@ -13,6 +13,99 @@
 #include "spec.hpp"
 #include "intel.hpp"
 
+struct [[ gnu::packed ]] DisplayData {
+	uint8_t magic[8];
+	uint16_t vendorId;
+	uint16_t productId;
+	uint32_t serialNumber;
+	uint8_t manufactureWeek;
+	uint8_t manufactureYear;
+	uint8_t structVersion;
+	uint8_t structRevision;
+	uint8_t inputParameters;
+	uint8_t screenWidth;
+	uint8_t screenHeight;
+	uint8_t gamma;
+	uint8_t features;
+	uint8_t colorCoordinates[10];
+	uint8_t estTimings1;
+	uint8_t estTimings2;
+	uint8_t vendorTimings;
+	struct {
+		uint8_t resolution;
+		uint8_t frequency;
+	} standardTimings[8];
+	struct {
+		uint16_t pixelClock;
+		uint8_t horzActive;
+		uint8_t horzBlank;
+		uint8_t horzActiveBlankMsb;
+		uint8_t vertActive;
+		uint8_t vertBlank;
+		uint8_t vertActiveBlankMsb;
+		uint8_t horzSyncOffset;
+		uint8_t horzSyncPulse;
+		uint8_t vertSync;
+		uint8_t syncMsb;
+		uint8_t dimensionWidth;
+		uint8_t dimensionHeight;
+		uint8_t dimensionMsb;
+		uint8_t horzBorder;
+		uint8_t vertBorder;
+		uint8_t features;
+	} detailTimings[4];
+	uint8_t numExtensions;
+	uint8_t checksum;
+};
+static_assert(sizeof(DisplayData) == 128, "Bad sizeof(DisplayData)");
+
+Mode edidToMode(DisplayData edid) {
+	Mode mode;
+
+	assert(edid.detailTimings[0].pixelClock);
+	mode.dot = edid.detailTimings[0].pixelClock * 10;
+
+	// For now we do not support borders.
+	assert(!edid.detailTimings[0].horzBorder);
+	assert(!edid.detailTimings[0].vertBorder);
+
+	auto horz_active = edid.detailTimings[0].horzActive
+			| (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb >> 4) << 8);
+	auto horz_blank = edid.detailTimings[0].horzBlank
+			| (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb & 0xF) << 8);
+	auto horz_sync_offset = edid.detailTimings[0].horzSyncOffset
+			| (static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 6) << 8);
+	auto horz_sync_pulse = edid.detailTimings[0].horzSyncPulse
+			| ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 4) & 0x3) << 8);
+
+	std::cout << "horizontal: " << horz_active << ", " << horz_blank
+			<< ", " << horz_sync_offset << ", " << horz_sync_pulse << std::endl;
+	mode.horizontal.active = horz_active;
+	mode.horizontal.syncStart = horz_active + horz_sync_offset;
+	mode.horizontal.syncEnd = horz_active + horz_sync_offset + horz_sync_pulse;
+	mode.horizontal.total = horz_active + horz_blank;
+	mode.horizontal.dump();
+
+	auto vert_active =  edid.detailTimings[0].vertActive
+			| (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb >> 4) << 8);
+	auto vert_blank = edid.detailTimings[0].vertBlank
+			| (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb & 0xF) << 8);
+	auto vert_sync_offset = (edid.detailTimings[0].vertSync >> 4)
+			| ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 2) & 0x3) << 4);
+	auto vert_sync_pulse = (edid.detailTimings[0].vertSync & 0xF)
+			| (static_cast<unsigned int>(edid.detailTimings[0].syncMsb & 0x3) << 4);
+	
+	std::cout << "vertical: " << vert_active << ", " << vert_blank
+			<< ", " << vert_sync_offset << ", " << vert_sync_pulse << std::endl;
+	mode.vertical.active = vert_active;
+	mode.vertical.syncStart = vert_active + vert_sync_offset;
+	mode.vertical.syncEnd = vert_active + vert_sync_offset + vert_sync_pulse;
+	mode.vertical.total = vert_active + vert_blank;
+	mode.vertical.dump();
+
+	return mode;
+}
+
 bool checkParams(PllParams params, int refclock, PllLimits limits) {
 	if(params.n < limits.n.min || params.n > limits.n.max)
 		return false;
@@ -68,6 +161,17 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 	throw std::runtime_error("No DPLL parameters for target dot clock");
 }
 
+int computeSdvoMultiplier(int pixel_clock) {
+	if(pixel_clock >= 100000) {
+		return 1;
+	}else if(pixel_clock >= 50000) {
+		return 2;
+	}else{
+		assert(pixel_clock >= 25000);
+		return 4;
+	}
+}
+
 struct Controller {
 	Controller(arch::mem_space ctrl, void *memory)
 	: _ctrl{ctrl}, _memory{memory} { }
@@ -76,13 +180,22 @@ struct Controller {
 
 private:
 	// ------------------------------------------------------------------------
+	// GMBUS functions.
+	// ------------------------------------------------------------------------
+	void i2cWrite(unsigned int address, const void *buffer, size_t size);
+	void i2cRead(unsigned int address, void *buffer, size_t size);
+
+	void _waitForGmbusProgress();
+	void _waitForGmbusCompletion();
+
+	// ------------------------------------------------------------------------
 	// DPLL programming functions.
 	// ------------------------------------------------------------------------
 
 	void disableDpll();
-	void programDpll(PllParams params);
+	void programDpll(PllParams params, int multiplier);
 	void dumpDpll();
-	
+
 	// ------------------------------------------------------------------------
 	// Pipe programming functions.
 	// ------------------------------------------------------------------------
@@ -96,7 +209,7 @@ private:
 	// ------------------------------------------------------------------------
 
 	void disablePlane();
-	void enablePlane();
+	void enablePlane(Framebuffer *fb);
 	
 	// ------------------------------------------------------------------------
 	// Port handling functions.
@@ -117,30 +230,122 @@ private:
 };
 
 void Controller::run() {
-	Mode mode{
-		25175,
-		{ 640, 656, 752, 800 },
-		{ 480, 490, 492, 525 }
-	};
-	auto params = findParams(100800, 96000, limitsG45);
+	uint8_t offset = 0;
+	DisplayData edid;
+
+	_ctrl.store(regs::gmbusSelect, gmbus_select::pairSelect(PinPair::analog));
+	i2cWrite(0x50, &offset, 1);
+	i2cRead(0x50, &edid, 128);
+
+	auto mode = edidToMode(edid);
+
+	// Set up a nice framebuffer for our mode.
+	Framebuffer fb;
+	fb.width = mode.horizontal.active;
+	fb.height = mode.vertical.active;
+	fb.stride = fb.width * 4;
+	fb.address = 0;
+
+	auto plane = reinterpret_cast<uint32_t *>(_memory);
+	for(size_t x = 0; x < fb.width; x++)
+		for(size_t y = 0; y < fb.height; y++)
+			plane[y * fb.width + x] = (x / 5) | ((y / 4) << 8);
+
+	// Perform the mode setting.
+	auto multiplier = computeSdvoMultiplier(mode.dot);
+	auto params = findParams(mode.dot * multiplier, 96000, limitsG45);
 	
 	disableDac();
 	disablePipe();
 	disableDpll();
 	relinquishVga();
 
-	programDpll(params);
+	programDpll(params, multiplier);
 	dumpDpll();
 
 	programPipe(mode);
 	dumpPipe();
-	enablePlane();
+	enablePlane(&fb);
 	enableDac();
+}
 
-	auto plane = reinterpret_cast<uint32_t *>(_memory);
-	for(size_t x = 0; x < 640; x++)
-		for(size_t y = 0; y < 480; y++)
-			plane[y * 640 + x] = (x / 3) | ((y / 2) << 8);
+// ------------------------------------------------------------------------
+// GMBUS functions.
+// ------------------------------------------------------------------------
+
+void Controller::i2cWrite(unsigned int address, const void *buffer, size_t size) {
+	size_t progress = 0;
+	auto view = reinterpret_cast<const unsigned char *>(buffer);
+	auto stream = [&] {
+		uint32_t data = 0;
+		for(size_t i = 0; i < 4; ++i) {
+			if(progress == size)
+				break;
+			data |= uint32_t{view[progress++]} << (8 * i);
+		}
+		_ctrl.store(regs::gmbusData, data);
+	};
+
+	// Asymmetry to i2cRead(): We fill the data buffer before issuing the cycle.
+	stream();
+	_ctrl.store(regs::gmbusCommand, gmbus_command::address(address)
+			| gmbus_command::byteCount(size) | gmbus_command::cycleSelect(BusCycle::wait)
+			| gmbus_command::softwareReady(true));
+//	std::cout << "gfx_intel i2c: Wait" << std::endl;
+	_waitForGmbusProgress();
+//	std::cout << "gfx_intel i2c: OK" << std::endl;
+
+	while(progress < size) {
+		stream();
+		_waitForGmbusProgress();
+	}
+	
+	_waitForGmbusCompletion();
+}
+
+void Controller::i2cRead(unsigned int address, void *buffer, size_t size) {
+	size_t progress = 0;
+	auto view = reinterpret_cast<unsigned char *>(buffer);
+	auto stream = [&] {
+		uint32_t data = _ctrl.load(regs::gmbusData);
+		for(size_t i = 0; i < 4; ++i) {
+			if(progress == size)
+				break;
+			view[progress++] = data >> (8 * i);
+		}
+	};
+
+	_ctrl.store(regs::gmbusCommand, gmbus_command::issueRead(true)
+			| gmbus_command::address(address)
+			| gmbus_command::byteCount(size) | gmbus_command::cycleSelect(BusCycle::wait)
+			| gmbus_command::softwareReady(true));
+
+	while(progress < size) {
+//		std::cout << "gfx_intel i2c: Wait" << std::endl;
+		_waitForGmbusProgress();
+//		std::cout << "gfx_intel i2c: Done" << std::endl;
+		stream();
+	}
+
+	_waitForGmbusCompletion();
+}
+
+void Controller::_waitForGmbusProgress() {
+	while(true) {
+		auto status = _ctrl.load(regs::gmbusStatus);
+		assert(!(status & gmbus_status::nakIndicator));
+		if(status & gmbus_status::hardwareReady)
+			break;
+	}	
+}
+
+void Controller::_waitForGmbusCompletion() {
+	while(true) {
+		auto status = _ctrl.load(regs::gmbusStatus);
+		assert(!(status & gmbus_status::nakIndicator));
+		if(status & gmbus_status::waitPhase)
+			break;
+	}	
 }
 
 // ------------------------------------------------------------------------
@@ -153,7 +358,7 @@ void Controller::disableDpll() {
 	_ctrl.store(regs::pllControl, bits & ~pll_control::enablePll);
 }
 
-void Controller::programDpll(PllParams params) {
+void Controller::programDpll(PllParams params, int multiplier) {
 	_ctrl.store(regs::pllDivisor1, pll_divisor::m2(params.m2)
 			| pll_divisor::m1(params.m1) | pll_divisor::n(params.n));
 	_ctrl.store(regs::pllDivisor2, pll_divisor::m2(params.m2)
@@ -176,8 +381,8 @@ void Controller::programDpll(PllParams params) {
 	std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll)
 			<< std::endl;
 
-	_ctrl.store(regs::busMultiplier, bus_multiplier::vgaMultiplier(3)
-			| bus_multiplier::dacMultiplier(3));
+	_ctrl.store(regs::busMultiplier, bus_multiplier::vgaMultiplier(multiplier - 1)
+			| bus_multiplier::dacMultiplier(multiplier - 1));
 	
 	for(int i = 0; i < 3; i++) {
 		_ctrl.store(regs::pllControl, pll_control::phase(6)
@@ -305,10 +510,11 @@ void Controller::disablePlane() {
 	_ctrl.store(regs::planeControl, bits & ~plane_control::enablePlane);
 }
 
-void Controller::enablePlane() {
+void Controller::enablePlane(Framebuffer *fb) {
+	assert(!(fb->stride % 64));
 	_ctrl.store(regs::planeOffset, 0);
-	_ctrl.store(regs::planeStride, 640 * 4);
-	_ctrl.store(regs::planeAddress, 0);
+	_ctrl.store(regs::planeStride, fb->stride);
+	_ctrl.store(regs::planeAddress, fb->address);
 
 	auto bits = _ctrl.load(regs::planeControl);
 	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
