@@ -174,7 +174,8 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 		auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 		
 		std::unordered_map<std::string, std::string> descriptor {
-			{ "unix.devtype", "block" }
+			{ "unix.devtype", "block" },
+			{ "unix.devname", "sda0" },
 		};
 		auto object = COFIBER_AWAIT root.createObject("partition", descriptor,
 				[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {

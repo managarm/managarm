@@ -209,6 +209,11 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 		managarm::mbus::SvrRequest req;
 		req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 		req.set_id(entity->getId());
+		for(auto kv : entity->getProperties()) {
+			auto entry = req.add_properties();
+			entry->set_name(kv.first);
+			entry->set_value(kv.second);
+		}
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -227,6 +232,12 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 	managarm::mbus::SvrRequest req;
 	req.set_req_type(managarm::mbus::SvrReqType::ATTACH);
 	req.set_id(entity->getId());
+	req.set_id(entity->getId());
+	for(auto kv : entity->getProperties()) {
+		auto entry = req.add_properties();
+		entry->set_name(kv.first);
+		entry->set_value(kv.second);
+	}
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),

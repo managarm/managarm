@@ -263,8 +263,9 @@ struct ExternDevice : Device {
 		return VfsType::charDevice;
 	}
 
-	static std::string getName(std::shared_ptr<Device>) {
-		return "sda0";
+	static std::string getName(std::shared_ptr<Device> object) {
+		auto self = std::static_pointer_cast<ExternDevice>(object);
+		return self->_name;
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
@@ -305,10 +306,11 @@ struct ExternDevice : Device {
 
 	static const DeviceOperations operations;
 
-	ExternDevice(helix::UniqueLane lane)
-	: Device(&operations), _lane(std::move(lane)) { }
+	ExternDevice(std::string name, helix::UniqueLane lane)
+	: Device{&operations}, _name{std::move(name)}, _lane{std::move(lane)} { }
 
 private:
+	std::string _name;
 	helix::UniqueLane _lane;
 };
 
@@ -319,9 +321,13 @@ const DeviceOperations ExternDevice::operations{
 	&ExternDevice::mount
 };
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device,
+		mbus::Properties properties), ([=] {
+	std::cout << "POSIX: Binding device " << properties.at("unix.devname") << std::endl;
+
 	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
-	auto device = std::make_shared<ExternDevice>(std::move(lane));
+	auto device = std::make_shared<ExternDevice>(properties.at("unix.devname"),
+			std::move(lane));
 	deviceManager.install(device);
 }))
 
@@ -334,8 +340,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "posix: Detected UNIX device" << std::endl;
-			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
+			auto &attach = boost::get<mbus::AttachEvent>(event);
+			bindDevice(attach.getEntity(), attach.getProperties());
 		}else{
 			throw std::runtime_error("Unexpected event type");
 		}

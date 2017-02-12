@@ -143,7 +143,12 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 		managarm::mbus::SvrRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.req_type() == managarm::mbus::SvrReqType::ATTACH) {
-			handler(AttachEvent(Entity(connection, req.id())));
+			Properties properties;
+			for(auto &kv : req.properties())
+				properties.insert({ kv.name(), kv.value() });
+
+			handler(AttachEvent{Entity(connection, req.id()),
+					std::move(properties)});
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}

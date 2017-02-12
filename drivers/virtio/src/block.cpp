@@ -116,6 +116,7 @@ COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
 		HEL_CHECK(await.error());
 
 		readIsr();
+		HEL_CHECK(helAcknowledgeIrq(interrupt.getHandle()));
 		requestQueue.processInterrupt();
 	}
 }))

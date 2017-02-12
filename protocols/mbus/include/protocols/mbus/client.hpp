@@ -132,15 +132,20 @@ namespace _detail {
 	// ------------------------------------------------------------------------
 
 	struct AttachEvent {
-		explicit AttachEvent(Entity entity)
-		: _entity(std::move(entity)) { }
+		explicit AttachEvent(Entity entity, Properties properties)
+		: _entity{std::move(entity)}, _properties{std::move(properties)} { }
 
 		Entity getEntity() {
 			return _entity;
 		}
 
+		const Properties &getProperties() {
+			return _properties;
+		}
+
 	private:
 		Entity _entity;
+		Properties _properties;
 	};
 
 	struct Observer {
