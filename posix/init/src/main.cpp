@@ -43,12 +43,10 @@ int main() {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
 
-/*
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
-*/
 
 /*
 	auto gfx_intel = fork();

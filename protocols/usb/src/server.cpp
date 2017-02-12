@@ -71,7 +71,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 
 			// FIXME: Fill in the correct DMA pool.
 			arch::dma_buffer buffer{nullptr, req.length()};
-			COFIBER_AWAIT endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost, 
+			COFIBER_AWAIT endpoint.transfer(BulkTransfer{XferFlags::kXferToHost, 
 					buffer});
 
 			managarm::usb::SvrResponse resp;

@@ -53,45 +53,85 @@ uint32_t schedulePointer(void *ptr) {
 }
 
 // ----------------------------------------------------------------
-// Freestanding PCI discovery functions.
+// DeviceState
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
-	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
-	auto info = COFIBER_AWAIT device.getPciInfo();
-	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
-	auto bar = COFIBER_AWAIT device.accessBar(0);
-	auto irq = COFIBER_AWAIT device.accessIrq();
-	
-	void *actual_pointer;
-	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
+DeviceState::DeviceState(std::shared_ptr<Controller> controller, int device)
+: _controller{std::move(controller)}, _device(device) { }
 
-	auto controller = std::make_shared<Controller>(actual_pointer, std::move(irq));
-	controller->initialize();
+arch::dma_pool *DeviceState::setupPool() {
+	return &schedulePool;
+}
 
-	globalControllers.push_back(std::move(controller));
+arch::dma_pool *DeviceState::bufferPool() {
+	return &schedulePool;
+}
+
+async::result<std::string> DeviceState::configurationDescriptor() {
+	return _controller->configurationDescriptor(_device);
+}
+
+COFIBER_ROUTINE(async::result<Configuration>, 
+		DeviceState::useConfiguration(int number), ([=] {
+	COFIBER_AWAIT _controller->useConfiguration(_device, number);
+	COFIBER_RETURN(Configuration{std::make_shared<ConfigurationState>(_controller,
+			_device, number)});
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+async::result<void> DeviceState::transfer(ControlTransfer info) {
+	return _controller->transfer(_device, 0, info);
+}
 
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("pci-class", "0c"),
-		mbus::EqualsFilter("pci-subclass", "03"),
-		mbus::EqualsFilter("pci-interface", "20")
-	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "ehci: Detected device" << std::endl;
-			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected event type");
-		}
-	});
+// ----------------------------------------------------------------------------
+// ConfigurationState
+// ----------------------------------------------------------------------------
+
+ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
+		int device, int configuration)
+: _controller{std::move(controller)}, _device(device), _configuration(configuration) { }
+
+COFIBER_ROUTINE(async::result<Interface>, ConfigurationState::useInterface(int number,
+		int alternative), ([=] {
+	COFIBER_AWAIT _controller->useInterface(_device, number, alternative);
+	COFIBER_RETURN(Interface{std::make_shared<InterfaceState>(_controller, _device, number)});
 }))
-	
+
+// ----------------------------------------------------------------------------
+// InterfaceState
+// ----------------------------------------------------------------------------
+
+InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
+		int device, int interface)
+: _controller{std::move(controller)}, _device(device), _interface(interface) { }
+
+COFIBER_ROUTINE(async::result<Endpoint>, InterfaceState::getEndpoint(PipeType type,
+		int number), ([=] {
+	COFIBER_RETURN(Endpoint{std::make_shared<EndpointState>(_controller,
+			_device, type, number)});
+}))
+
+// ----------------------------------------------------------------------------
+// EndpointState
+// ----------------------------------------------------------------------------
+
+EndpointState::EndpointState(std::shared_ptr<Controller> controller,
+		int device, PipeType type, int endpoint)
+: _controller{std::move(controller)}, _device(device), _type(type), _endpoint(endpoint) { }
+
+async::result<void> EndpointState::transfer(ControlTransfer info) {
+	(void)info;
+	assert(!"FIXME: Implement this");
+	__builtin_unreachable();
+}
+
+async::result<void> EndpointState::transfer(InterruptTransfer info) {
+	return _controller->transfer(_device, _type, _endpoint, info);
+}
+
+async::result<void> EndpointState::transfer(BulkTransfer info) {
+	return _controller->transfer(_device, _type, _endpoint, info);
+}
+
 // ----------------------------------------------------------------
 // Controller.
 // ----------------------------------------------------------------
@@ -180,7 +220,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	// This queue will become the default control pipe of our new device.
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
-	auto queue = new QueueEntity{std::move(dma_obj)};
+	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, 64};
 	_linkAsync(queue);
 	
 	// Allocate an address for the device.
@@ -197,8 +237,10 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	set_address->length = 0;
 
 	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
-			set_address, arch::dma_buffer_view{}}, queue, 8);
-	
+			set_address, arch::dma_buffer_view{}}, queue, 0);
+
+	queue->setAddress(set_address->value);
+
 	// Enquire the maximum packet size of the default control pipe.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
 	get_header->type = setup_type::targetDevice | setup_type::byStandard
@@ -257,7 +299,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	sprintf(name, "%.2x", address);
 	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
 			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
-		/*
 		(void)query;
 
 		helix::UniqueLane local_lane, remote_lane;
@@ -268,8 +309,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
-		*/
-		throw std::runtime_error("not yet implemented");
 	});
 	std::cout << "Created object " << name << std::endl;
 
@@ -303,19 +342,104 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 }))
 
 // ------------------------------------------------------------------------
+// Controller: Device management.
+// ------------------------------------------------------------------------
+
+COFIBER_ROUTINE(async::result<std::string>, Controller::configurationDescriptor(int address),
+		([=] {
+	// Read the descriptor header that contains the hierachy size.
+	arch::dma_object<SetupPacket> get_header{&schedulePool};
+	get_header->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_header->request = request_type::getDescriptor;
+	get_header->value = descriptor_type::configuration << 8;
+	get_header->index = 0;
+	get_header->length = sizeof(ConfigDescriptor);
+
+	arch::dma_object<ConfigDescriptor> header{&schedulePool};
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+			get_header, header.view_buffer()});
+	assert(header->length == sizeof(ConfigDescriptor));
+
+	// Read the whole descriptor hierachy.
+	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
+	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toHost;
+	get_descriptor->request = request_type::getDescriptor;
+	get_descriptor->value = descriptor_type::configuration << 8;
+	get_descriptor->index = 0;
+	get_descriptor->length = header->totalLength;
+
+	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToHost,
+			get_descriptor, descriptor});
+
+	// TODO: This function should return a arch::dma_buffer!
+	std::string copy((char *)descriptor.data(), header->totalLength);
+	COFIBER_RETURN(std::move(copy));
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::useConfiguration(int address,
+		int configuration), ([=] {
+	arch::dma_object<SetupPacket> set_config{&schedulePool};
+	set_config->type = setup_type::targetDevice | setup_type::byStandard
+			| setup_type::toDevice;
+	set_config->request = request_type::setConfig;
+	set_config->value = configuration;
+	set_config->index = 0;
+	set_config->length = 0;
+
+	COFIBER_AWAIT transfer(address, 0, ControlTransfer{kXferToDevice,
+			set_config, arch::dma_buffer_view{}});
+	
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
+		int interface, int alternative), ([=] {
+	auto descriptor = COFIBER_AWAIT configurationDescriptor(address);
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		(void)length;
+
+		if(type != descriptor_type::endpoint)
+			return;
+		auto desc = (EndpointDescriptor *)p;
+
+		// TODO: Pay attention to interface/alternative.
+		
+		int pipe = info.endpointNumber.value();
+		if(info.endpointIn.value()) {
+			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
+			_activeDevices[address].inStates[pipe].queueEntity
+					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+							address, pipe, desc->maxPacketSize};
+			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
+		}else{
+			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
+			_activeDevices[address].outStates[pipe].queueEntity
+					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+							address, pipe, desc->maxPacketSize};
+			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
+		}
+	});
+	
+	COFIBER_RETURN();
+}))
+
+// ------------------------------------------------------------------------
 // Schedule classes.
 // ------------------------------------------------------------------------
 
-Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head)
+Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
+		int address, int pipe, size_t packet_size)
 : head(std::move(the_head)) {
 	head->horizontalPtr.store(qh_horizontal::terminate(false)
 			| qh_horizontal::typeSelect(0x01) 
 			| qh_horizontal::horizontalPtr(schedulePointer(head.data())));
-	head->flags.store(qh_flags::reclaimHead(true)
-			| qh_flags::deviceAddr(0x00)
+	head->flags.store(qh_flags::deviceAddr(address)
 			| qh_flags::endpointSpeed(0x02)
-			| qh_flags::endpointNumber(0)
-			| qh_flags::maxPacketLength(64));
+			| qh_flags::endpointNumber(pipe)
+			| qh_flags::maxPacketLength(packet_size));
 	head->mask.store(qh_mask::interruptScheduleMask(0x00)
 			| qh_mask::multiplier(0x01));
 	head->curTd.store(qh_curTd::curTd(0x00));
@@ -328,7 +452,21 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head)
 	head->bufferPtr3.store(qh_buffer::bufferPtr(0x00));
 	head->bufferPtr4.store(qh_buffer::bufferPtr(0x00));
 }
-	
+
+bool Controller::QueueEntity::getReclaim() {
+	return head->flags.load() & qh_flags::reclaimHead;
+}
+
+void Controller::QueueEntity::setReclaim(bool reclaim) {
+	auto flags = head->flags.load();
+	head->flags.store((flags & ~qh_flags::reclaimHead) | qh_flags::reclaimHead(reclaim));
+}
+
+void Controller::QueueEntity::setAddress(int address) {
+	auto flags = head->flags.load();
+	head->flags.store((flags & ~qh_flags::deviceAddr) | qh_flags::deviceAddr(address));
+}
+
 // ------------------------------------------------------------------------
 // Transfer functions.
 // ------------------------------------------------------------------------
@@ -342,6 +480,43 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
+
+async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+		InterruptTransfer info) {
+	// TODO: Ensure pipe type matches transfer direction.
+	auto device = &_activeDevices[address];
+	EndpointSlot *endpoint;
+	if(type == PipeType::in) {
+		endpoint = &device->inStates[pipe];
+	}else{
+		assert(type == PipeType::out);
+		endpoint = &device->outStates[pipe];
+	}
+
+	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+			info.buffer, endpoint->maxPacketSize);
+	_linkTransaction(endpoint->queueEntity, transaction);
+	return transaction->promise.async_get();
+}
+
+async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+		BulkTransfer info) {
+	// TODO: Ensure pipe type matches transfer direction.
+	auto device = &_activeDevices[address];
+	EndpointSlot *endpoint;
+	if(type == PipeType::in) {
+		endpoint = &device->inStates[pipe];
+	}else{
+		assert(type == PipeType::out);
+		endpoint = &device->outStates[pipe];
+	}
+
+	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+			info.buffer, endpoint->maxPacketSize);
+	_linkTransaction(endpoint->queueEntity, transaction);
+	return transaction->promise.async_get();
+}
+
 
 auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
@@ -369,11 +544,10 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
 		assert(chunk);
-		transfers[i + 1].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 2]))
-				| td_ptr::terminate(false));
+		transfers[i + 1].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 2])));
 		transfers[i + 1].altTd.store(td_ptr::terminate(true));
 		transfers[i + 1].status.store(td_status::active(true)
-				| td_status::pidCode(dir == 0 ? 0x00 : 0x01)
+				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
 				| td_status::interruptOnComplete(true)
 				| td_status::totalBytes(chunk));
 		// FIXME: Support larger buffers!
@@ -389,7 +563,7 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	transfers[num_data + 1].nextTd.store(td_ptr::terminate(true));
 	transfers[num_data + 1].altTd.store(td_ptr::terminate(true));
 	transfers[num_data + 1].status.store(td_status::active(true) 
-			| td_status::pidCode(dir == 0 ? 0x01 : 0x00)
+			| td_status::pidCode(dir == kXferToDevice ? 0x01 : 0x00)
 			| td_status::interruptOnComplete(true));
 	transfers[num_data + 1].bufferPtr0.store(td_buffer::curOffset(0));
 	transfers[num_data + 1].bufferPtr1.store(td_buffer::curOffset(0));
@@ -399,6 +573,43 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 
 	return new Transaction{std::move(transfers)};
 }
+
+auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
+		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
+	assert((dir == kXferToDevice) || (dir == kXferToHost));
+
+	size_t num_data = (buffer.size() + 0x3FFF) / 0x4000;
+	assert(num_data <= 1);
+	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
+
+	size_t progress = 0;
+	for(size_t i = 0; i < num_data; i++) {
+		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
+		assert(chunk);
+		if(i + 1 < num_data) {
+			transfers[i].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 1])));
+		}else{
+			transfers[i].nextTd.store(td_ptr::terminate(true));
+		}
+		transfers[i].altTd.store(td_ptr::terminate(true));
+		transfers[i].status.store(td_status::active(true)
+				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
+				| td_status::interruptOnComplete(true)
+				| td_status::totalBytes(chunk));
+		
+		// FIXME: Support larger buffers!
+		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(
+				physicalPointer((char *)buffer.data() + progress)));
+		transfers[i].bufferPtr1.store(td_buffer::curOffset(0));
+		transfers[i].bufferPtr2.store(td_buffer::curOffset(0));
+		transfers[i].bufferPtr3.store(td_buffer::curOffset(0));
+		transfers[i].bufferPtr4.store(td_buffer::curOffset(0));
+		progress += chunk;
+	}
+
+	return new Transaction{std::move(transfers)};
+}
+
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
@@ -413,15 +624,23 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 // ------------------------------------------------------------------------
 
 void Controller::_linkAsync(QueueEntity *entity) {
+	entity->setReclaim(true);
 	if(_asyncSchedule.empty()) {
+		entity->head->horizontalPtr.store(
+				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data()))
+				| qh_horizontal::typeSelect(1));
 		_operational.store(op_regs::asynclistaddr, schedulePointer(entity->head.data()));
 		_operational.store(op_regs::usbcmd, usbcmd::asyncEnable(true) 
 				| usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	}else{
+		entity->head->horizontalPtr.store(
+				qh_horizontal::horizontalPtr(schedulePointer(_asyncSchedule.front().head.data()))
+				| qh_horizontal::typeSelect(1));
 		_asyncSchedule.back().head->horizontalPtr.store(
-				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data())));
-		_asyncSchedule.back().head->nextTd.store(
-				qh_nextTd::nextTd(schedulePointer(entity->head.data())));
+				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data()))
+				| qh_horizontal::typeSelect(1));
+		assert(_asyncSchedule.back().getReclaim());
+		_asyncSchedule.back().setReclaim(false);
 	}
 	_asyncSchedule.push_back(*entity);
 }
@@ -432,7 +651,6 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 				schedulePointer(&transaction->transfers[0]))); 
 		queue->head->altTd.store(qh_nextTd::nextTd(
 				schedulePointer(&transaction->transfers[0])));
-		asm volatile ("" : : : "memory");
 	}
 
 	queue->transactions.push_back(*transaction);
@@ -558,6 +776,46 @@ void Controller::_dump(QueueEntity *entity) {
 				& td_status::dataToggle) << std::endl;
 	}
 }
+
+// ----------------------------------------------------------------
+// Freestanding PCI discovery functions.
+// ----------------------------------------------------------------
+
+COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
+	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
+	auto info = COFIBER_AWAIT device.getPciInfo();
+	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
+	auto bar = COFIBER_AWAIT device.accessBar(0);
+	auto irq = COFIBER_AWAIT device.accessIrq();
+	
+	void *actual_pointer;
+	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
+			0, 0x1000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
+
+	auto controller = std::make_shared<Controller>(actual_pointer, std::move(irq));
+	controller->initialize();
+
+	globalControllers.push_back(std::move(controller));
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("pci-class", "0c"),
+		mbus::EqualsFilter("pci-subclass", "03"),
+		mbus::EqualsFilter("pci-interface", "20")
+	});
+	COFIBER_AWAIT root.linkObserver(std::move(filter),
+			[] (mbus::AnyEvent event) {
+		if(event.type() == typeid(mbus::AttachEvent)) {
+			std::cout << "ehci: Detected device" << std::endl;
+			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
+		}else{
+			throw std::runtime_error("Unexpected event type");
+		}
+	});
+}))
 
 // --------------------------------------------------------
 // main() function
