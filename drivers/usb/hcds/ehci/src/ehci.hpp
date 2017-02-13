@@ -17,9 +17,9 @@ struct EndpointState;
 // ----------------------------------------------------------------
 
 struct Controller : std::enable_shared_from_this<Controller> {
-	Controller(void *address, helix::UniqueIrq irq);
+	Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq);
 	
-	void initialize();
+	cofiber::no_future initialize();
 	async::result<void> pollDevices();	
 	async::result<void> probeDevice();
 	cofiber::no_future handleIrqs();
@@ -119,6 +119,7 @@ private:
 	
 
 private:
+	protocols::hw::Device _hwDevice;
 	arch::mem_space _space; 
 	helix::UniqueIrq _irq;
 	arch::mem_space _operational;

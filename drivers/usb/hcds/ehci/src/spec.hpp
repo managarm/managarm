@@ -14,12 +14,22 @@ namespace op_regs {
 	arch::bit_register<uint32_t> usbsts(0x04);
 	arch::bit_register<uint32_t> usbintr(0x08);
 	arch::scalar_register<uint32_t> asynclistaddr(0x18);
-	arch::bit_register<uint32_t> hcsparams(0x04);
 	arch::scalar_register<uint32_t> configflag(0x40);
 }
 
 namespace cap_regs {
 	arch::scalar_register<uint8_t> caplength(0);
+	arch::bit_register<uint32_t> hcsparams(0x04);
+	arch::bit_register<uint32_t> hccparams(0x08);
+}
+
+namespace hcsparams {
+	arch::field<uint32_t, uint8_t> nPorts(0, 4);
+	arch::field<uint32_t, bool> portPower(4, 1);
+}
+
+namespace hccparams {
+	arch::field<uint32_t, unsigned int> extPointer(8, 8);
 }
 
 namespace port_regs {
@@ -46,11 +56,6 @@ namespace usbintr {
 	arch::field<uint32_t, bool> usbError(1, 1);
 	arch::field<uint32_t, bool> portChange(2, 1);
 	arch::field<uint32_t, bool> hostError(4, 1);
-}
-
-namespace hcsparams {
-	arch::field<uint32_t, uint8_t> nPorts(0, 4);
-	arch::field<uint32_t, bool> portPower(4, 1);
 }
 
 namespace portsc {

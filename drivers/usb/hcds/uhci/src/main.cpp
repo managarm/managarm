@@ -681,7 +681,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 
 	// TODO: Disable the legacy support registers of all UHCI devices
 	// before using one of them!
-	auto legsup = COFIBER_AWAIT device.loadPciSpace(kPciLegacySupport);
+	auto legsup = COFIBER_AWAIT device.loadPciSpace(kPciLegacySupport, 2);
 	std::cout << "UHCI: Legacy support register: " << legsup << std::endl;
 
 	HEL_CHECK(helEnableIo(bar.getHandle()));

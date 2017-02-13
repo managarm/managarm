@@ -136,18 +136,34 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 // Controller.
 // ----------------------------------------------------------------
 
-Controller::Controller(void *address, helix::UniqueIrq irq)
-: _space(address), _irq(frigg::move(irq)) { 
+Controller::Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq)
+: _hwDevice{std::move(hw_device)}, _space{address}, _irq{frigg::move(irq)} { 
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
-	_numPorts = _operational.load(op_regs::hcsparams) & hcsparams::nPorts;
+	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
+	std::cout << "EHCI: " << _numPorts  << " ports" << std::endl;
 	
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
 }
 
-void Controller::initialize() {
+COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
+	auto ext_pointer = _space.load(cap_regs::hccparams) & hccparams::extPointer;
+	if(ext_pointer) {
+		auto header = COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer, 2);
+		std::cout << "EHCI: Extended capability: " << (header & 0xFF) << std::endl;
+
+		assert((header & 0xFF) == 1);
+		assert(!(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 3, 1)));
+		COFIBER_AWAIT _hwDevice.storePciSpace(ext_pointer + 3, 1, 1);
+		while(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)) {
+			// Do nothing while we wait for BIOS to release the EHCI.
+		}
+
+		assert(!(header & 0xFF00));
+	}
+
 	// Halt the controller.
 	_operational.store(op_regs::usbcmd, usbcmd::run(false));
 	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
@@ -169,10 +185,10 @@ void Controller::initialize() {
 
 	pollDevices();
 	handleIrqs();
-}
+}))
 
 COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
-	assert(!(_operational.load(op_regs::hcsparams) & hcsparams::portPower));
+	assert(!(_space.load(cap_regs::hcsparams) & hcsparams::portPower));
 	
 	while(true) {
 		for(int i = 0; i < _numPorts; i++) {
@@ -817,9 +833,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
 			0, 0x1000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
 
-	auto controller = std::make_shared<Controller>(actual_pointer, std::move(irq));
+	auto controller = std::make_shared<Controller>(std::move(device),
+			actual_pointer, std::move(irq));
 	controller->initialize();
-
 	globalControllers.push_back(std::move(controller));
 }))
 

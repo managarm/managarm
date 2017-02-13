@@ -115,7 +115,8 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessIrq(),
 	COFIBER_RETURN(pull_irq.descriptor());
 }))
 
-COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset), ([=] {
+COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset,
+		unsigned int size), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -123,6 +124,7 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset), ([
 	managarm::hw::CntRequest req;
 	req.set_req_type(managarm::hw::CntReqType::LOAD_PCI_SPACE);
 	req.set_offset(offset);
+	req.set_size(size);
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -138,6 +140,34 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset), ([
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	COFIBER_RETURN(resp.word());
+}))
+
+COFIBER_ROUTINE(async::result<void>, Device::storePciSpace(size_t offset,
+		unsigned int size, uint32_t word), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::STORE_PCI_SPACE);
+	req.set_offset(offset);
+	req.set_size(size);
+	req.set_word(word);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	COFIBER_RETURN();
 }))
 
 } } // namespace protocols::hw

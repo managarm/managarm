@@ -55,11 +55,13 @@ int main() {
 	}else assert(gfx_intel != -1);
 */
 
+/*
 	auto virtio = fork();
 	if(!virtio) {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
+*/
 
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {

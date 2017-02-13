@@ -78,4 +78,6 @@ uint8_t readPciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t off
 
 // write to pci configuration space
 void writePciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value);
+void writePciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint16_t value);
+void writePciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint8_t value);
 

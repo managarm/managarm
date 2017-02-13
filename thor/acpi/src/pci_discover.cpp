@@ -104,13 +104,41 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
 			helix::SendBuffer send_resp;
 
-			// TODO: Support other access sizes.
 			// TODO: Perform some sanity checks on the offset.
-			auto word = readPciHalf(device->bus, device->slot, device->function, req.offset());
+			uint32_t word;
+			if(req.size() == 1) {
+				word = readPciByte(device->bus, device->slot, device->function, req.offset());
+			}else if(req.size() == 2) {
+				word = readPciHalf(device->bus, device->slot, device->function, req.offset());
+			}else{
+				assert(req.size() == 4);
+				word = readPciWord(device->bus, device->slot, device->function, req.offset());
+			}
 
 			managarm::hw::SvrResponse resp;
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_word(word);
+		
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::hw::CntReqType::STORE_PCI_SPACE) {
+			helix::SendBuffer send_resp;
+
+			// TODO: Perform some sanity checks on the offset.
+			if(req.size() == 1) {
+				writePciByte(device->bus, device->slot, device->function, req.offset(), req.word());
+			}else if(req.size() == 2) {
+				writePciHalf(device->bus, device->slot, device->function, req.offset(), req.word());
+			}else{
+				assert(req.size() == 4);
+				writePciWord(device->bus, device->slot, device->function, req.offset(), req.word());
+			}
+
+			managarm::hw::SvrResponse resp;
+			resp.set_error(managarm::hw::Errors::SUCCESS);
 		
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
