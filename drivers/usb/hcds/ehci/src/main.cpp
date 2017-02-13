@@ -578,13 +578,28 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
-	size_t num_data = (buffer.size() + 0x3FFF) / 0x4000;
-	assert(num_data <= 1);
+	// Maximum size that can be transferred in a single qTD starting from a certain offset.
+	// Note that we need to make sure that we do not generate short packets.
+	auto td_size = [&] (size_t offset) {
+		auto misalign = ((uintptr_t)buffer.data() + offset) & 0xFFF;
+		auto available = 0x5000 - misalign;
+		return available - available % max_packet_size;
+	};
+
+	// Compute the number of required qTDs.
+	size_t num_data = 1;
+	auto projected = td_size(0);
+	while(projected < buffer.size()) {
+		projected += td_size(projected);
+		num_data++;
+	}
+
+	// Finally construct each qTD.
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
-		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
+		size_t chunk = std::min(td_size(progress), buffer.size() - progress);
 		assert(chunk);
 		if(i + 1 < num_data) {
 			transfers[i].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 1])));
@@ -596,16 +611,26 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
 				| td_status::interruptOnComplete(true)
 				| td_status::totalBytes(chunk));
-		
-		// FIXME: Support larger buffers!
-		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(
-				physicalPointer((char *)buffer.data() + progress)));
-		transfers[i].bufferPtr1.store(td_buffer::curOffset(0));
-		transfers[i].bufferPtr2.store(td_buffer::curOffset(0));
-		transfers[i].bufferPtr3.store(td_buffer::curOffset(0));
-		transfers[i].bufferPtr4.store(td_buffer::curOffset(0));
+
+		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
+				+ progress)));
+
+		auto misalign = ((uintptr_t)buffer.data() + progress) & 0xFFF;
+		if(progress + 0x1000 - misalign < buffer.size())
+			transfers[i].bufferPtr1.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
+					+ progress + 0x1000 - misalign)));
+		if(progress + 0x2000 - misalign < buffer.size())
+			transfers[i].bufferPtr2.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
+					+ progress + 0x2000 - misalign)));
+		if(progress + 0x3000 - misalign < buffer.size())
+			transfers[i].bufferPtr3.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
+					+ progress + 0x3000 - misalign)));
+		if(progress + 0x4000 - misalign < buffer.size())
+			transfers[i].bufferPtr4.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
+					+ progress + 0x4000 - misalign)));
 		progress += chunk;
 	}
+	assert(progress == buffer.size());
 
 	return new Transaction{std::move(transfers)};
 }
