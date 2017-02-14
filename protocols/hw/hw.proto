@@ -37,6 +37,7 @@ message PciBar {
 	optional uint64 address = 3;
 	optional uint64 length = 2;
 	// bool prefetchable = 4;
+	optional uint32 offset = 5;
 }
 
 message SvrResponse {

@@ -51,10 +51,10 @@ COFIBER_ROUTINE(cofiber::no_future, handleDevice(std::shared_ptr<PciDevice> devi
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
 				}else if(device->bars[k].type == PciDevice::kBarMemory) {
-					assert(device->bars[k].offset == 0);
 					msg.set_io_type(managarm::hw::IoType::MEMORY);
 					msg.set_address(device->bars[k].address);
 					msg.set_length(device->bars[k].length);
+					msg.set_offset(device->bars[k].offset);
 				}else{
 					assert(device->bars[k].type == PciDevice::kBarNone);
 					msg.set_io_type(managarm::hw::IoType::NO_BAR);

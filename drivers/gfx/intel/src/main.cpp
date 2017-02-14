@@ -560,6 +560,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	protocols::hw::Device device(COFIBER_AWAIT entity.bind());
 	auto info = COFIBER_AWAIT device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
+	assert(info.barInfo[2].ioType == protocols::hw::IoType::kIoTypeMemory);
+	assert(!info.barInfo[0].offset);
+	assert(!info.barInfo[2].offset);
 	auto ctrl_bar = COFIBER_AWAIT device.accessBar(0);
 	auto memory_bar = COFIBER_AWAIT device.accessBar(2);
 //	auto irq = COFIBER_AWAIT device.accessIrq();

@@ -50,6 +50,7 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 		}
 		info.barInfo[i].address = resp.bars(i).address();
 		info.barInfo[i].length = resp.bars(i).length();
+		info.barInfo[i].offset = resp.bars(i).offset();
 	}
 
 	COFIBER_RETURN(info);

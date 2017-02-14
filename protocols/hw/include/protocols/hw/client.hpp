@@ -18,6 +18,7 @@ struct BarInfo {
 	IoType ioType;
 	uintptr_t address;
 	size_t length;
+	ptrdiff_t offset;
 };
 
 struct PciInfo {

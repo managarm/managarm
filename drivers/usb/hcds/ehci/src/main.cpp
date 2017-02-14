@@ -160,6 +160,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 		while(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)) {
 			// Do nothing while we wait for BIOS to release the EHCI.
 		}
+		std::cout << "EHCI: Acquired OS <-> BIOS semaphore" << std::endl;
 
 		assert(!(header & 0xFF00));
 	}
@@ -169,12 +170,14 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
 		// Wait until the controller has stopped.
 	}
+	std::cout << "EHCI: Controller halted." << std::endl;
 
 	// Reset the controller.
 	_operational.store(op_regs::usbcmd, usbcmd::hcReset(true) | usbcmd::irqThreshold(0x08));
 	while(_operational.load(op_regs::usbcmd) & usbcmd::hcReset) {
 		// Wait until the reset is complete.
 	}
+	std::cout << "EHCI: Controller reset." << std::endl;
 
 	// Initialize controller.
 	_operational.store(op_regs::usbintr, usbintr::transaction(true) 
@@ -834,7 +837,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 			0, 0x1000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
 
 	auto controller = std::make_shared<Controller>(std::move(device),
-			actual_pointer, std::move(irq));
+			(char *)actual_pointer + info.barInfo[0].offset, std::move(irq));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }))
