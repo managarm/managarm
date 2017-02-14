@@ -198,15 +198,20 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			auto offset = _space.load(cap_regs::caplength);
 			auto port_space = _space.subspace(offset + 0x44 + (4 * i));
 
-			if(!(port_space.load(port_regs::sc) & portsc::connectChange))
+			auto sc = port_space.load(port_regs::sc);
+			if(!(sc & portsc::connectChange))
 				continue;
 			port_space.store(port_regs::sc, portsc::connectChange(true));
 			
-			if(!(port_space.load(port_regs::sc) & portsc::connectStatus))
-				throw std::runtime_error("EHCI device disconnected");
+			if(!(sc & portsc::connectStatus)) {
+				std::cout << "EHCI: Device disconnected" << std::endl;
+				continue;
+			}
 			
-			if((port_space.load(port_regs::sc) & portsc::lineStatus) == 0x01)
-				throw std::runtime_error("Device is low-speed");
+			if((sc & portsc::lineStatus) == 0x01) {
+				std::cout << "EHCI: Device is low-speed" << std::endl;
+				continue;
+			}
 
 			port_space.store(port_regs::sc, portsc::portReset(true));	
 			// TODO: do not busy-wait.
@@ -220,12 +225,15 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			}
 			port_space.store(port_regs::sc, portsc::portReset(false));
 
-			while(port_space.load(port_regs::sc) & portsc::portReset) {
+			sc = port_space.load(port_regs::sc);
+			while(sc & portsc::portReset) {
 
 			}
 			
-			if(!(port_space.load(port_regs::sc) & portsc::portStatus))
-				throw std::runtime_error("Device is full-speed");
+			if(!(sc & portsc::portStatus)) {
+				std::cout << "EHCI: Device is full-speed" << std::endl;
+				continue;
+			}
 
 			std::cout << "High-speed device detected!" << std::endl;
 
