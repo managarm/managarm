@@ -165,6 +165,9 @@ COFIBER_ROUTINE(cofiber::no_future, listenForInts(unsigned int number,
 	HEL_CHECK(helAccessIrq(number, &handle));
 	helix::UniqueIrq irq{handle};
 
+	std::cout << "ACPI: Kicking IRQ" << std::endl;
+	HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
+
 	while(true) {
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
