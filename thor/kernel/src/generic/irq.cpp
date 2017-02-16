@@ -31,9 +31,9 @@ IrqPin *IrqSink::getPin() {
 IrqPin::IrqPin()
 : _strategy{IrqStrategy::null} { }
 
-void IrqPin::configure(TriggerMode mode) {
+void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto guard = frigg::guard(&_mutex);
-	_strategy = program(mode);
+	_strategy = program(mode, polarity);
 }
 
 void IrqPin::raise() {

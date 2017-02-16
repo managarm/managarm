@@ -75,6 +75,12 @@ enum class TriggerMode {
 	level
 };
 
+enum class Polarity {
+	null,
+	high,
+	low
+};
+
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
 struct IrqPin {
@@ -89,7 +95,7 @@ public:
 	
 	IrqPin &operator= (const IrqPin &) = delete;
 
-	void configure(TriggerMode mode);
+	void configure(TriggerMode mode, Polarity polarity);
 
 	// This function is called from IrqSlot::raise().
 	void raise();
@@ -97,7 +103,7 @@ public:
 	void acknowledge();
 
 protected:
-	virtual IrqStrategy program(TriggerMode mode) = 0;
+	virtual IrqStrategy program(TriggerMode mode, Polarity polarity) = 0;
 
 	virtual void mask() = 0;
 	virtual void unmask() = 0;

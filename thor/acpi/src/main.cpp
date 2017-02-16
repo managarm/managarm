@@ -1,10 +1,12 @@
 
 #include <assert.h>
+#include <experimental/optional>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 
 #include <helix/ipc.hpp>
@@ -89,19 +91,33 @@ void acpicaCheckFailed(const char *expr, const char *file, int line) {
 
 namespace acpi {
 	struct ScopedBuffer {
+		friend void swap(ScopedBuffer &a, ScopedBuffer &b) {
+			using std::swap;
+			swap(a._object, b._object);
+		}
+
 		ScopedBuffer() {
 			_object.Length = ACPI_ALLOCATE_BUFFER;
 			_object.Pointer = nullptr;
 		}
 
 		ScopedBuffer(const ScopedBuffer &) = delete;
+		
+		ScopedBuffer(ScopedBuffer &&other)
+		: ScopedBuffer() {
+			swap(*this, other);
+		}
+
 
 		~ScopedBuffer() {
 			if(_object.Pointer)
 				AcpiOsFree(_object.Pointer);
 		}
 
-		ScopedBuffer &operator= (const ScopedBuffer &) = delete;
+		ScopedBuffer &operator= (ScopedBuffer other) {
+			swap(*this, other);
+			return *this;
+		}
 
 		size_t size() {
 			assert(_object.Pointer);
@@ -160,6 +176,12 @@ std::vector<ACPI_HANDLE> getChildren(ACPI_HANDLE parent) {
 	return results;
 }
 
+ACPI_HANDLE getChild(ACPI_HANDLE parent, const char *path) {
+	ACPI_HANDLE child;
+	ACPICA_CHECK(AcpiGetHandle(parent, const_cast<char *>(path), &child));
+	return child;
+}
+
 template<typename F>
 void walkResources(ACPI_HANDLE object, const char *method, F functor) {
 	auto fptr = [] (ACPI_RESOURCE *r, void *c) -> ACPI_STATUS {
@@ -167,6 +189,14 @@ void walkResources(ACPI_HANDLE object, const char *method, F functor) {
 		return AE_OK;
 	};
 	ACPICA_CHECK(AcpiWalkResources(object, const_cast<char *>(method), fptr, &functor));
+}
+
+uint64_t evaluate(ACPI_HANDLE handle) {
+	acpi::ScopedBuffer buffer;
+	ACPICA_CHECK(AcpiEvaluateObject(handle, nullptr, nullptr, buffer.get()));
+	auto object = reinterpret_cast<ACPI_OBJECT *>(buffer.data());
+	assert(object->Type == ACPI_TYPE_INTEGER);
+	return object->Integer.Value;
 }
 
 void dumpNamespace(ACPI_HANDLE object, int depth = 0) {
@@ -227,6 +257,16 @@ void dumpNamespace(ACPI_HANDLE object, int depth = 0) {
 		std::cout << " 0x" << std::hex << result.Integer.Value << std::dec;
 	}
 	std::cout << std::endl;
+
+	if(type == ACPI_TYPE_DEVICE) {
+		ACPI_DEVICE_INFO *info;
+		ACPICA_CHECK(AcpiGetObjectInfo(object, &info));
+		if(info->HardwareId.String) {
+			indent();
+			std::cout << "* Hardware ID: " << info->HardwareId.String << std::endl;
+		}
+		ACPI_FREE(info);
+	}
 	
 	if(hasChild(object, "_CRS")) {
 		walkResources(object, "_CRS", [&] (ACPI_RESOURCE *r) {
@@ -237,6 +277,15 @@ void dumpNamespace(ACPI_HANDLE object, int depth = 0) {
 					if(i)
 						std::cout << ", ";
 					std::cout << (int)r->Data.Irq.Interrupts[i];
+				}
+				std::cout << ")" << std::endl;
+			}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
+				indent();
+				std::cout << "* Resource: Irq (";
+				for(uint8_t i = 0; i < r->Data.ExtendedIrq.InterruptCount; i++) {
+					if(i)
+						std::cout << ", ";
+					std::cout << (int)r->Data.ExtendedIrq.Interrupts[i];
 				}
 				std::cout << ")" << std::endl;
 			}else if(r->Type == ACPI_RESOURCE_TYPE_DMA) {
@@ -305,6 +354,252 @@ void pciDiscover(); // TODO: put this in a header file
 
 // --------------------------------------------------------
 
+std::string getHardwareId(ACPI_HANDLE handle) {
+	std::string string;
+
+	ACPI_DEVICE_INFO *info;
+	ACPICA_CHECK(AcpiGetObjectInfo(handle, &info));
+	if(info->HardwareId.Length)
+		string = std::string{info->HardwareId.String, info->HardwareId.Length - 1};
+	ACPI_FREE(info);
+
+	return string;
+}
+
+// --------------------------------------------------------
+
+enum class TriggerMode {
+	null,
+	edge,
+	level
+};
+
+enum class Polarity {
+	null,
+	high,
+	low
+};
+
+struct IrqConfiguration {
+	bool specified() {
+		return trigger != TriggerMode::null
+				&& polarity != Polarity::null;
+	}
+
+	bool compatible(IrqConfiguration other) {
+		assert(specified());
+		return trigger == other.trigger
+				&& polarity == other.polarity;
+	}
+
+	TriggerMode trigger;
+	Polarity polarity;
+};
+
+struct IrqLine {
+	unsigned int gsi;
+	IrqConfiguration configuration;
+};
+
+IrqLine defaultIrq(unsigned int irq) {
+	return IrqLine{irq, IrqConfiguration{TriggerMode::edge, Polarity::high}};
+}
+
+std::experimental::optional<IrqLine> irqOverrides[16];
+
+IrqLine resolveIrq(unsigned int irq) {
+	assert(irq < 16);
+	if(irqOverrides[irq])
+		return irqOverrides[irq].value();
+	return defaultIrq(irq);
+}
+
+IrqLine overrideIrq(unsigned int irq, IrqConfiguration desired) {
+	assert(irq < 16);
+	if(irqOverrides[irq]) {
+		assert(desired.compatible(irqOverrides[irq].value().configuration));
+		return irqOverrides[irq].value();
+	}
+	return IrqLine{irq, desired};
+}
+
+// --------------------------------------------------------
+
+helix::UniqueLane hwctrl;
+
+COFIBER_ROUTINE(async::result<void>, commitIrq(IrqLine line), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hwctrl::CntRequest req;
+	req.set_req_type(managarm::hwctrl::CONFIGURE_IRQ);
+	req.set_number(line.gsi);
+	if(line.configuration.trigger == TriggerMode::edge) {
+		req.set_trigger_mode(managarm::hwctrl::EDGE_TRIGGERED);
+	}else{
+		assert(line.configuration.trigger == TriggerMode::level);
+		req.set_trigger_mode(managarm::hwctrl::LEVEL_TRIGGERED);
+	}
+	if(line.configuration.polarity == Polarity::high) {
+		req.set_polarity(managarm::hwctrl::HIGH);
+	}else{
+		assert(line.configuration.polarity == Polarity::low);
+		req.set_polarity(managarm::hwctrl::LOW);
+	}
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(hwctrl, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hwctrl::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hwctrl::Error::SUCCESS);
+	COFIBER_RETURN();
+}))
+
+// --------------------------------------------------------
+
+std::unordered_set<std::string> links;
+
+void prepareSystemBusses() {
+	auto sb = getChild(ACPI_ROOT_OBJECT, "_SB_");
+	for(auto child : getChildren(sb)) {
+		auto id = getHardwareId(child);
+		if(id != "PNP0A03" && id != "PNP0A08")
+			continue;
+		
+		std::cout << "ACPI: Found PCI host bridge" << std::endl;
+
+		acpi::ScopedBuffer buffer;
+		ACPICA_CHECK(AcpiGetIrqRoutingTable(child, buffer.get()));
+
+		size_t offset = 0;
+		while(true) {
+			auto route = (ACPI_PCI_ROUTING_TABLE *)((char *)buffer.data() + offset);
+			if(!route->Length)
+				break;
+			
+			auto slot = route->Address >> 16;
+			auto function = route->Address & 0xFFFF;
+			assert(function = 0xFFFF);
+			std::cout << "    Route for slot " << slot
+					<< ", pin " << route->Pin << ": " << std::string{route->Source}
+					<< "[" << route->SourceIndex << "]" << std::endl;
+
+			links.insert(std::string{route->Source});
+
+			offset += route->Length;
+		}
+	}
+}
+
+struct IrqResource {
+	unsigned int irq;
+	IrqConfiguration configuration;
+};
+
+COFIBER_ROUTINE(async::result<void>, configureIrqs(), ([=] {
+	auto decodeTrigger = [] (unsigned int trigger) {
+		switch(trigger) {
+		case ACPI_LEVEL_SENSITIVE: return TriggerMode::level;
+		case ACPI_EDGE_SENSITIVE: return TriggerMode::edge;
+		default: throw std::runtime_error("Bad ACPI IRQ trigger mode");
+		}
+	};
+	auto decodePolarity = [] (unsigned int polarity) {
+		switch(polarity) {
+		case ACPI_ACTIVE_HIGH: return Polarity::high;
+		case ACPI_ACTIVE_LOW: return Polarity::low;
+		default: throw std::runtime_error("Bad ACPI IRQ polarity");
+		}
+	};
+	
+	std::vector<IrqResource> irqs;
+
+	for(auto link : links) {
+		std::cout << "Configurating link device " << link << "." << std::endl;
+		auto handle = getChild(ACPI_ROOT_OBJECT, link.data());
+
+		if(hasChild(handle, "_STA")) {
+			auto status = evaluate(getChild(handle, "_STA"));
+			if(!(status & 1)) {
+				std::cout << "    Device is not present." << std::endl;
+				continue;
+			}else if(!(status & 2)) {
+				std::cout << "    Device is not enabled." << std::endl;
+				continue;
+			}
+		}
+
+		walkResources(handle, "_CRS", [&] (ACPI_RESOURCE *r) {
+			if(r->Type == ACPI_RESOURCE_TYPE_IRQ) {
+				for(uint8_t i = 0; i < r->Data.Irq.InterruptCount; i++) {
+					std::cout << "    Resource: Irq "
+							<< (int)r->Data.Irq.Interrupts[i] << std::endl;
+					IrqResource res{r->Data.Irq.Interrupts[i], IrqConfiguration{
+							decodeTrigger(r->Data.Irq.Triggering),
+							decodePolarity(r->Data.Irq.Polarity)}};
+					
+					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+						if(res.irq != ref.irq)
+							return false;
+						return !res.configuration.compatible(ref.configuration);
+					}) != irqs.end();
+					assert(!mismatch);
+
+					auto duplicate = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+						return res.irq == ref.irq;
+					}) != irqs.end();
+					if(!duplicate)
+						irqs.push_back(res);
+				}
+			}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
+				for(uint8_t i = 0; i < r->Data.ExtendedIrq.InterruptCount; i++) {
+					std::cout << "    Resource: Extended Irq "
+							<< (int)r->Data.ExtendedIrq.Interrupts[i] << std::endl;
+					IrqResource res{r->Data.ExtendedIrq.Interrupts[i], IrqConfiguration{
+							decodeTrigger(r->Data.ExtendedIrq.Triggering),
+							decodePolarity(r->Data.ExtendedIrq.Polarity)}};
+					
+					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+						if(res.irq != ref.irq)
+							return false;
+						return !res.configuration.compatible(ref.configuration);
+					}) != irqs.end();
+					assert(!mismatch);
+
+					auto duplicate = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+						return res.irq == ref.irq;
+					}) != irqs.end();
+					if(!duplicate)
+						irqs.push_back(res);
+				}
+			}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
+				std::cout << "    Resource: [Type 0x"
+						<< std::hex << r->Type << std::dec << "]" << std::endl;
+			}
+		});
+	}
+
+	for(auto res : irqs) {
+/*		std::cout << "PCI IRQ: " << res.irq
+				<< ", levelTriggered: " << res.levelTriggered
+				<< ", activeLow: " << res.activeLow << std::endl;*/
+		COFIBER_AWAIT commitIrq(overrideIrq(res.irq, res.configuration));
+	}
+
+	COFIBER_RETURN();
+}))
+
+// --------------------------------------------------------
+
 uint32_t handleFixedEvents(void *context) {
 	ACPICA_CHECK(AcpiEnterSleepStatePrep(5));
 	ACPICA_CHECK(AcpiEnterSleepState(5));
@@ -313,7 +608,7 @@ uint32_t handleFixedEvents(void *context) {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
-	auto hwctrl = COFIBER_AWAIT entity.bind();
+	hwctrl = COFIBER_AWAIT entity.bind();
 
 	ACPI_TABLE_HEADER *madt;
 	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
@@ -335,11 +630,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 		offset += generic->length;
 	}
 
-	// Determine ISA IRQ override configuration.
-	bool configuration[16];
-	for(unsigned int i = 0; i < 16; i++)
-		configuration[i] = false;
-	
+	// Determine IRQ override configuration.
 	offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
 	while(offset < madt->Length) {
 		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
@@ -348,52 +639,52 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 			
 			// ACPI defines only ISA IRQ overrides.
 			assert(entry->bus == 0);
+			assert(entry->sourceIrq < 16);
+
+			IrqLine line;
+			line.gsi = entry->systemInt;
 
 			auto trigger = entry->flags & OverrideFlags::triggerMask;
 			auto polarity = entry->flags & OverrideFlags::polarityMask;
-			if(trigger == OverrideFlags::triggerLevel) {
-				assert(polarity == OverrideFlags::polarityHigh);
-				configuration[entry->systemInt] = true;
+			if(trigger == OverrideFlags::triggerDefault
+					&& polarity == OverrideFlags::polarityDefault) {
+				line.configuration.trigger = TriggerMode::edge;
+				line.configuration.polarity = Polarity::high;
 			}else{
-				assert(trigger == OverrideFlags::triggerDefault
-						|| trigger == OverrideFlags::triggerEdge);
-				assert(polarity == OverrideFlags::polarityDefault
-						|| polarity == OverrideFlags::polarityHigh);
+				assert(trigger != OverrideFlags::triggerDefault);
+				assert(polarity != OverrideFlags::polarityDefault);
+				
+				switch(trigger) {
+				case OverrideFlags::triggerEdge:
+					line.configuration.trigger = TriggerMode::edge; break;
+				case OverrideFlags::triggerLevel:
+					line.configuration.trigger = TriggerMode::level; break;
+				default:
+					throw std::runtime_error("Illegal IRQ trigger mode in MADT");
+				}
+				
+				switch(polarity) {
+				case OverrideFlags::polarityHigh:
+					line.configuration.polarity = Polarity::high; break;
+				case OverrideFlags::polarityLow:
+					line.configuration.polarity = Polarity::low; break;
+				default:
+					throw std::runtime_error("Illegal IRQ polarity in MADT");
+				}
 			}
+
+			assert(!irqOverrides[entry->sourceIrq]);
+			irqOverrides[entry->sourceIrq] = line;
 		}
 		offset += generic->length;
 	}
 
 	// Configure the ISA IRQs.
+	// TODO: This is a hack. We assume that HPET will use legacy replacement
+	// and that SCI is routed to IRQ 9.
 	std::cout << "ACPI: Configuring ISA IRQs." << std::endl;
-	for(unsigned int i = 0; i < 16; i++) {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
-		managarm::hwctrl::CntRequest req;
-		req.set_req_type(managarm::hwctrl::CONFIGURE_IRQ);
-		req.set_number(i);
-		if(configuration[i]) {
-			req.set_trigger_mode(managarm::hwctrl::LEVEL_TRIGGERED);
-		}else{
-			req.set_trigger_mode(managarm::hwctrl::EDGE_TRIGGERED);
-		}
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(hwctrl, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-
-		managarm::hwctrl::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::hwctrl::Error::SUCCESS);
-	}
+	COFIBER_AWAIT commitIrq(resolveIrq(0));
+	COFIBER_AWAIT commitIrq(resolveIrq(9));
 
 	// Initialize the HPET.
 	std::cout << "ACPI: Setting up HPET." << std::endl;
@@ -411,6 +702,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 
 	ACPICA_CHECK(AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON,
 			&handleFixedEvents, 0));
+	
+	prepareSystemBusses();
+	COFIBER_AWAIT configureIrqs();
 	
 	std::cout << "ACPI: Configuration complete." << std::endl;
 

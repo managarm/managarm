@@ -178,12 +178,23 @@ namespace {
 			req.ParseFromArray(buffer.data(), buffer.size());
 			assert(req.req_type() == managarm::hwctrl::CntReqType::CONFIGURE_IRQ);
 
-			auto pin = getGlobalSystemIrq(req.number());
+			TriggerMode trigger;
+			Polarity polarity;
 			if(req.trigger_mode() == managarm::hwctrl::TriggerMode::EDGE_TRIGGERED) {
-				pin->configure(TriggerMode::edge);
+				trigger = TriggerMode::edge;
 			}else{
-				pin->configure(TriggerMode::level);
+				assert(req.trigger_mode() == managarm::hwctrl::TriggerMode::LEVEL_TRIGGERED);
+				trigger = TriggerMode::level;
 			}
+			if(req.polarity() == managarm::hwctrl::Polarity::HIGH) {
+				polarity = Polarity::high;
+			}else{
+				assert(req.polarity() == managarm::hwctrl::Polarity::LOW);
+				polarity = Polarity::low;
+			}
+			
+			auto pin = getGlobalSystemIrq(req.number());
+			pin->configure(trigger, polarity);
 
 			managarm::hwctrl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hwctrl::Error::SUCCESS);

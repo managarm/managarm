@@ -17,10 +17,16 @@ enum TriggerMode {
 	LEVEL_TRIGGERED = 2;
 }
 
+enum Polarity {
+	HIGH = 1;
+	LOW = 2;
+}
+
 message CntRequest {
 	optional CntReqType req_type = 1;
 	optional int64 number = 2;
 	optional TriggerMode trigger_mode = 3;
+	optional Polarity polarity = 4;
 }
 
 message SvrResponse {

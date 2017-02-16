@@ -11,6 +11,7 @@
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
+#include "pci.hpp"
 
 extern "C" {
 #include <acpi.h>
@@ -292,12 +293,30 @@ ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width)
 	return AE_OK;
 }
 
-ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID *pci_id, UINT32 register_num,
+ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
 		UINT64 *value, UINT32 width) {
-	NOT_IMPLEMENTED();
+/*	std::cout << "segment: " << target->Segment
+			<< ", bus: " << target->Bus
+			<< ", slot: " << target->Device
+			<< ", function: " << target->Function << std::endl;*/
+	assert(!target->Segment);
+	switch(width) {
+	case 8:
+		*value = readPciByte(target->Bus, target->Device, target->Function, offset);
+		break;
+	case 16:
+		*value = readPciHalf(target->Bus, target->Device, target->Function, offset);
+		break;
+	case 32:
+		*value = readPciWord(target->Bus, target->Device, target->Function, offset);
+		break;
+	default:
+		throw std::runtime_error("Unexpected PCI access width");
+	}
+	return AE_OK;
 }
 
-ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *pci_id, UINT32 register_num,
+ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
 		UINT64 value, UINT32 width) {
 	NOT_IMPLEMENTED();
 }
