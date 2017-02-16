@@ -250,19 +250,18 @@ namespace {
 		fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
 
 		// TODO: Do this in an own fiber.
-		handleReqs(stream.get<0>());
+		KernelFiber::run([lane = stream.get<0>()] () {
+			while(true)
+				handleReqs(std::move(lane));
+		});
 	}
 }
 
 void runHwctrlService() {
 	KernelFiber::run([] {
-		// TODO: This should not be necessary!
-		disableInts();
-
 		auto object_lane = createObject(*mbusClient);
-		while(true) {
+		while(true)
 			handleBind(object_lane);
-		}
 	});
 }
 

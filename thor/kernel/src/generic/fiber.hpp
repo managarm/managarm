@@ -10,9 +10,27 @@ namespace thor {
 struct KernelFiber : ScheduleEntity {
 	static void blockCurrent(frigg::CallbackPtr<bool()> predicate);
 
-	static void run(void (*function)());
+	static void exitCurrent();
 
-	explicit KernelFiber(AbiParameters abi);
+	template<typename F>
+	static void run(F functor) {
+		auto frame = [] (void *argument) {
+			// TODO: This should not be necessary!
+			// Handle this in the blockCurrent() function!
+			disableInts();
+
+			auto object = reinterpret_cast<F *>(argument);
+			(*object)();
+			exitCurrent();
+		};
+		auto stack = UniqueKernelStack::make();
+		auto target = stack.embed<F>(functor);
+		run(std::move(stack), frame, target);
+	}
+
+	static void run(UniqueKernelStack stack, void (*function)(void *), void *argument);
+
+	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
 
 	[[ noreturn ]] void invoke() override;
 

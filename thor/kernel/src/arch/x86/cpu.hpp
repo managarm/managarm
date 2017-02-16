@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <utility>
 #include <frigg/algorithm.hpp>
 #include <frigg/arch_x86/gdt.hpp>
 #include <frigg/arch_x86/idt.hpp>
@@ -87,6 +88,13 @@ struct UniqueKernelStack {
 
 	void *base() {
 		return _base;
+	}
+	
+	template<typename T, typename... Args>
+	T *embed(Args &&... args) {
+		// TODO: Do not use a magic number as stack alignment here.
+		_base -= (sizeof(T) + 15) & 15;
+		return new (_base) T{frigg::forward<Args>(args)...};
 	}
 
 	bool contains(void *sp) {
@@ -270,6 +278,7 @@ CpuData *getCpuData();
 struct AbiParameters {
 	uintptr_t ip;
 	uintptr_t sp;
+	uintptr_t argument;
 };
 
 struct UserContext {
@@ -290,7 +299,7 @@ struct UserContext {
 };
 
 struct FiberContext {
-	FiberContext();
+	FiberContext(UniqueKernelStack stack);
 
 	FiberContext(const FiberContext &other) = delete;
 

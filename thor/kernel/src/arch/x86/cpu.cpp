@@ -175,6 +175,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
 	general()->rsp = (uintptr_t)context->stack.base();
+	general()->rdi = abi.argument;
 	general()->cs = kSelExecutorSyscallCode;
 	general()->ss = kSelExecutorKernelData;
 }
@@ -327,8 +328,8 @@ frigg::UnsafePtr<Thread> activeExecutor() {
 // FiberContext
 // --------------------------------------------------------
 
-FiberContext::FiberContext()
-: stack{UniqueKernelStack::make()} { }
+FiberContext::FiberContext(UniqueKernelStack stack)
+: stack{std::move(stack)} { }
 
 // --------------------------------------------------------
 // PlatformCpuData

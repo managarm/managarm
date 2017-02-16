@@ -20,17 +20,22 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	}
 }
 
-void KernelFiber::run(void (*function)()) {
+void KernelFiber::exitCurrent() {
+	frigg::panicLogger() << "Fiber exited" << frigg::endLog;
+}
+
+void KernelFiber::run(UniqueKernelStack stack, void (*function)(void *), void *argument) {
 	AbiParameters params;
 	params.ip = (uintptr_t)function;
+	params.argument = (uintptr_t)argument;
 
-	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, params);
+	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	globalScheduler().attach(fiber);
 	globalScheduler().resume(fiber);
 }
 
-KernelFiber::KernelFiber(AbiParameters abi)
-: _blocked{false}, _executor{&_context, abi} { }
+KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
+: _blocked{false}, _context{std::move(stack)}, _executor{&_context, abi} { }
 
 void KernelFiber::invoke() {
 	getCpuData()->activeFiber = this;
