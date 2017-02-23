@@ -1,6 +1,7 @@
 
 $(call standard_dirs)
 $(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch/x86)
+$(call define_objdir,PCI_OBJ,$($c_OBJDIR)/system/pci)
 $(call define_objdir,GENERIC_OBJ,$($c_OBJDIR)/generic)
 $(call decl_targets,install-$c-headers)
 
@@ -13,7 +14,8 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
-	generic/thread.o generic/irq.o generic/io.o
+	generic/thread.o generic/irq.o generic/io.o generic/service_helpers.o \
+	system/pci/pci_io.o system/pci/pci_discover.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 $c_HEADERS := thor.h
@@ -32,7 +34,7 @@ $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$($c_GENDIR) -iquote $($c_SRCDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++1y -Wall -Wextra -O2
+$c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
@@ -66,7 +68,8 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm | $($c_ARCH_OBJDIR)
 
 # generate protobuf
 gen-$c: $($c_GENDIR)/hwctrl.frigg_pb.hpp $($c_GENDIR)/posix.frigg_pb.hpp \
-	$($c_GENDIR)/fs.frigg_pb.hpp $($c_GENDIR)/mbus.frigg_pb.hpp
+	$($c_GENDIR)/fs.frigg_pb.hpp $($c_GENDIR)/mbus.frigg_pb.hpp \
+	$($c_GENDIR)/hw.frigg_pb.hpp
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
@@ -75,4 +78,8 @@ $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/thor/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/thor $<
+
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/hw/%.proto | $($c_GENDIR)
+	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/hw $<
 

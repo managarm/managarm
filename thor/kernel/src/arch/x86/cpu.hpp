@@ -93,7 +93,7 @@ struct UniqueKernelStack {
 	template<typename T, typename... Args>
 	T *embed(Args &&... args) {
 		// TODO: Do not use a magic number as stack alignment here.
-		_base -= (sizeof(T) + 15) & 15;
+		_base -= (sizeof(T) + 15) & ~size_t{15};
 		return new (_base) T{frigg::forward<Args>(args)...};
 	}
 

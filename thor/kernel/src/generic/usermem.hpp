@@ -1,5 +1,10 @@
+#ifndef THOR_GENERIC_USERMEM_HPP
+#define THOR_GENERIC_USERMEM_HPP
 
 #include <frigg/rbtree.hpp>
+#include <frigg/vector.hpp>
+#include "error.hpp"
+#include "types.hpp"
 #include "futex.hpp"
 
 namespace thor {
@@ -472,3 +477,4 @@ public: // TODO: Make this private.
 
 } // namespace thor
 
+#endif // THOR_GENERIC_USERMEM_HPP

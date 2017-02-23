@@ -278,6 +278,57 @@ struct Print<P, StringView> {
 	}
 };
 
+// ----------------------------------------------------------------------------
+
+template<typename T>
+constexpr size_t num_digits(T v, int radix) {
+	size_t n = 0;
+	while(v) {
+		v /= radix;
+		n++;
+	}
+	return n;
+}
+
+template<typename T>
+constexpr size_t num_digits(int radix) {
+	return 33;
+	//TODO: This is actually something like: max(num_digits(std::numeric_limits<T>::max(), radix),
+	//		num_digits(std::numeric_limits<T>::min(), radix) + 1);
+}
+
+template<typename T>
+constexpr size_t num_digits() {
+	return num_digits<T>(2);
+}
+
+constexpr auto small_digits = "0123456789abcdef";
+
+template<typename T, typename Pool>
+String<Pool> to_string(Pool &pool, T v, int radix = 10, size_t precision = 1,
+		const char *digits = small_digits) {
+	constexpr auto m = num_digits<T>();
+	assert(v >= 0);
+
+	char buffer[m];
+	size_t n = 0;
+	while(v) {
+		assert(n < m);
+		buffer[n++] = digits[v % radix];
+		v /= radix;
+	}
+
+	String<Pool> result(pool);
+	auto len = max(precision, n);
+	result.resize(max(precision, n));
+
+	for(size_t i = 0; i < len - n; i++)
+		result[i] = '0';
+	for(size_t i = 0; i < n; i++)
+		result[len - n + i] = buffer[n - (i + 1)];
+	return result;
+}
+
 } // namespace frigg
 
 #endif // FRIGG_STRING_HPP

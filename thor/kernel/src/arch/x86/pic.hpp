@@ -1,5 +1,6 @@
 
 #include "../../generic/irq.hpp"
+#include "../../generic/types.hpp"
 
 namespace thor {
 

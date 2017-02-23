@@ -1,7 +1,11 @@
+#ifndef THOR_GENERIC_ACCESSOR_HPP
+#define THOR_GENERIC_ACCESSOR_HPP
 
 #include "../arch/x86/paging.hpp"
 
 namespace thor {
+
+struct AddressSpace;
 
 struct ForeignSpaceAccessor {
 	// TODO: Use the constructor instead.
@@ -191,3 +195,4 @@ private:
 
 } // namespace thor
 
+#endif // THOR_GENERIC_ACCESSOR_HPP

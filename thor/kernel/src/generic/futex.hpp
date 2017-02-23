@@ -1,6 +1,7 @@
 
 #include <frigg/linked.hpp>
 #include <frigg/hashmap.hpp>
+#include "accessors.hpp"
 #include "kernel_heap.hpp"
 
 namespace thor {

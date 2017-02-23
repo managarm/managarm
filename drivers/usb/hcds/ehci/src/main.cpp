@@ -204,15 +204,17 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			port_space.store(port_regs::sc, portsc::connectChange(true));
 			
 			if(!(sc & portsc::connectStatus)) {
-				std::cout << "EHCI: Device disconnected" << std::endl;
+				std::cout << "EHCI: Device disconnected from port " << i << std::endl;
 				continue;
 			}
+			std::cout << "EHCI: Device connected on port " << i << std::endl;
 			
 			if((sc & portsc::lineStatus) == 0x01) {
 				std::cout << "EHCI: Device is low-speed" << std::endl;
 				continue;
 			}
 
+			std::cout << "EHCI: Port reset." << std::endl;
 			port_space.store(port_regs::sc, portsc::portReset(true));	
 			// TODO: do not busy-wait.
 			uint64_t start;
@@ -225,6 +227,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			}
 			port_space.store(port_regs::sc, portsc::portReset(false));
 
+			std::cout << "EHCI: Waiting for reset to complete." << std::endl;
 			sc = port_space.load(port_regs::sc);
 			while(sc & portsc::portReset) {
 
@@ -343,6 +346,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+	std::cout << "EHCI: Handle IRQs." << std::endl;
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
+
 	while(true) {
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());

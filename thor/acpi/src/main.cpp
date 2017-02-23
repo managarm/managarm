@@ -710,7 +710,6 @@ COFIBER_ROUTINE(cofiber::no_future, bindHwctrl(mbus::Entity entity), ([=] {
 
 	helControlKernel(kThorSubArch, kThorIfFinishBoot, nullptr, nullptr);
 	//dumpNamespace();
-	pciDiscover();
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, discoverHwctrl(), ([=] {

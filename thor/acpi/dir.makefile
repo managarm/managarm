@@ -15,7 +15,7 @@ $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 $c_LDFLAGS :=
 $c_LIBS := -lhelix -lprotobuf-lite -lcofiber -lmbus_protocol
 
-$c_OBJECTS := main.o pci_io.o pci_discover.o glue-acpica.o hwctrl.pb.o hw.pb.o
+$c_OBJECTS := main.o glue-acpica.o pci_io.o hwctrl.pb.o hw.pb.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 # configure ACPICA paths

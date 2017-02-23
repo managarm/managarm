@@ -4,6 +4,10 @@
 
 namespace thor {
 
+namespace pci {
+	void pciDiscover();
+}
+
 void initializeTheSystemEarly() {
 	initLocalApicOnTheSystem();
 	// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
@@ -33,7 +37,7 @@ void controlArch(int interface, const void *input, void *output) {
 		bootSecondary(*apic_id);
 	} break;	
 	case kThorIfFinishBoot: {
-		// do nothing for now
+		pci::pciDiscover();
 	} break;
 	default:
 		assert(!"Illegal interface");
