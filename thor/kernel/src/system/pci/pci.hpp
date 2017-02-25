@@ -67,6 +67,7 @@ enum {
 	// general PCI header fields
 	kPciVendor = 0,
 	kPciDevice = 2,
+	kPciCommand = 4,
 	kPciStatus = 6,
 	kPciRevision = 0x08,
 	kPciInterface = 0x09,

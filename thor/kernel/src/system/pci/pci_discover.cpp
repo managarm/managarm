@@ -278,16 +278,25 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	
 	uint8_t header_type = readPciByte(bus, slot, function, kPciHeaderType);
 	if((header_type & 0x7F) == 0) {
-		frigg::infoLogger() << "    Function " << function << ": Device" << frigg::endLog;
+		frigg::infoLogger() << "    Function " << function << ": Device";
 	}else if((header_type & 0x7F) == 1) {
 		uint8_t secondary = readPciByte(bus, slot, function, kPciBridgeSecondary);
 		frigg::infoLogger() << "    Function " << function
-				<< ": PCI-to-PCI bridge to bus " << (int)secondary << frigg::endLog;
+				<< ": PCI-to-PCI bridge to bus " << (int)secondary;
 		//FIXME: enumerationQueue.push(secondary);
 	}else{
 		frigg::infoLogger() << "    Function " << function
-				<< ": Unexpected PCI header type " << (header_type & 0x7F) << frigg::endLog;
+				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
+
+	auto command = readPciHalf(bus, slot, function, kPciCommand);
+	if(command & 0x01)
+		frigg::infoLogger() << " (Decodes IO)";
+	if(command & 0x02)
+		frigg::infoLogger() << " (Decodes Memory)";
+	if(command & 0x04)
+		frigg::infoLogger() << " (Master)";
+	frigg::infoLogger() << frigg::endLog;
 
 	uint16_t device_id = readPciHalf(bus, slot, function, kPciDevice);
 	uint8_t revision = readPciByte(bus, slot, function, kPciRevision);
