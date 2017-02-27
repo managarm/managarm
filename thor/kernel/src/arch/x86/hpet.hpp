@@ -1,4 +1,6 @@
 
+#include "../../generic/types.hpp"
+
 namespace thor {
 
 bool haveTimer();

@@ -176,7 +176,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	general()->rflags = 0x200;
 	general()->rsp = (uintptr_t)context->stack.base();
 	general()->rdi = abi.argument;
-	general()->cs = kSelExecutorSyscallCode;
+	general()->cs = kSelSystemFiberCode;
 	general()->ss = kSelExecutorKernelData;
 }
 
@@ -293,7 +293,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 	uint16_t cs = executor->general()->cs;
 	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelClientUserCode);
+			|| cs == kSelClientUserCode || cs == kSelSystemFiberCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
@@ -352,6 +352,7 @@ PlatformCpuData::PlatformCpuData()
 	frigg::arch_x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
 	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
 	
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
@@ -398,7 +399,7 @@ void initializeThisProcessor() {
 			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 12 * 8;
+	gdtr.limit = 13 * 8;
 	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
@@ -478,6 +479,7 @@ extern "C" void thorRtSecondaryEntry() {
 //	doSchedule(frigg::move(schedule_guard));
 }
 
+/*
 void bootSecondary(uint32_t secondary_apic_id) {
 	// copy the trampoline code into low physical memory
 	uintptr_t trampoline_addr = (uintptr_t)trampoline;
@@ -531,6 +533,7 @@ void bootSecondary(uint32_t secondary_apic_id) {
 	}
 	frigg::infoLogger() << "AP finished booting" << frigg::endLog;
 }
+*/
 
 } // namespace thor
 

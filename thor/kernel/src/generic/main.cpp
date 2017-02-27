@@ -315,13 +315,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	// finally we lauch the user_boot program
 	auto mbus_module = getModule("mbus");
-	auto acpi_module = getModule("acpi");
 	auto posix_module = getModule("posix-subsystem");
 	assert(mbus_module);
-	assert(acpi_module);
 	assert(posix_module);
 	executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
-	executeModule(acpi_module, LaneHandle{}, mbus_stream.get<1>());
 	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
 
 	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
@@ -449,7 +446,10 @@ void handleIrq(IrqImageAccessor image, int number) {
 	if(image.inPreemptibleDomain() && globalScheduler().wantSchedule()) {
 		if(image.inThreadDomain()) {
 			Thread::deferCurrent(image);
+		}else if(image.inFiberDomain()) {
+			// TODO: For now we do not defer kernel fibers.
 		}else{
+			assert(image.inIdleDomain());
 			runDetached([] {
 				globalScheduler().reschedule();
 			});

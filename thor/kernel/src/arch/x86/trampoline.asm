@@ -35,6 +35,7 @@ halt_loop:
 	hlt
 	jmp halt_loop
 
+/*
 .section .trampoline, "a"
 .code16
 .global trampoline
@@ -145,4 +146,5 @@ trampolinePml4:
 .global trampolineStack
 trampolineStack:
 	.quad 0
+*/
 

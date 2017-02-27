@@ -144,6 +144,8 @@ public:
 			p_sink.print(str);
 		}
 
+		void flush() { }
+
 		void finish() {
 			p_sink.print('\n');
 		}
@@ -171,6 +173,7 @@ public:
 		void print(char c);
 		void print(const char *str);
 
+		void flush() { }
 		void finish();
 	};
 
@@ -186,6 +189,7 @@ public:
 		void print(char c);
 		void print(const char *str);
 
+		void flush() { }
 		void finish();
 	};
 

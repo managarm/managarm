@@ -428,7 +428,6 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 				+ i * ehdr->e_phentsize);
 		assert((phdr->p_offset % 0x1000) == 0);
 		assert((phdr->p_paddr % 0x1000) == 0);
-		assert(phdr->p_filesz == phdr->p_memsz);
 		
 		if(phdr->p_type != PT_LOAD)
 			continue;
@@ -445,11 +444,16 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 					<< frigg::endLog;
 		}
 
-		uint32_t page = 0;
-		while(page < (uint32_t)phdr->p_filesz) {
-			mapSingle4kPage(phdr->p_paddr + page,
-					(uintptr_t)image + (uint32_t)phdr->p_offset + page, map_flags);
-			page += 0x1000;
+		uint32_t pg = 0;
+		while(pg < (uint32_t)phdr->p_memsz) {
+			auto backing = allocPage();
+			memset(reinterpret_cast<void *>(backing), 0, kPageSize);
+			if(pg < (uint32_t)phdr->p_filesz)
+				memcpy(reinterpret_cast<void *>(backing),
+						reinterpret_cast<void *>((uintptr_t)image + (uint32_t)phdr->p_offset + pg),
+						frigg::min(kPageSize, (uint32_t)phdr->p_filesz - pg));
+			mapSingle4kPage(phdr->p_paddr + pg, backing, map_flags);
+			pg += kPageSize;
 		}
 	}
 	

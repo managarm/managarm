@@ -1,4 +1,5 @@
 
+extern "C" int isdigit(int ch);
 extern "C" int isspace(int ch);
 extern "C" int isprint(int ch);
 extern "C" int isxdigit(int ch);

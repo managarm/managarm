@@ -38,7 +38,8 @@ enum {
 	kGdtIndexClientUserCompat = 8,
 	kGdtIndexClientUserData = 9,
 	kGdtIndexClientUserCode = 10,
-	kGdtIndexSystemIdleCode = 11
+	kGdtIndexSystemIdleCode = 11,
+	kGdtIndexSystemFiberCode = 12
 };
 
 constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
@@ -57,7 +58,8 @@ enum {
 	kSelClientUserCompat = selectorFor(kGdtIndexClientUserCompat, 3),
 	kSelClientUserData = selectorFor(kGdtIndexClientUserData, 3),
 	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3),
-	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0)
+	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0),
+	kSelSystemFiberCode = selectorFor(kGdtIndexSystemFiberCode, 0)
 };
 
 struct UniqueKernelStack {
@@ -167,6 +169,7 @@ struct IrqImageAccessor {
 	
 	bool inPreemptibleDomain() {
 		assert(*cs() == kSelSystemIdleCode
+				|| *cs() == kSelSystemFiberCode
 				|| *cs() == kSelExecutorFaultCode
 				|| *cs() == kSelExecutorSyscallCode
 				|| *cs() == kSelClientUserCompat
@@ -175,18 +178,24 @@ struct IrqImageAccessor {
 	}
 
 	bool inThreadDomain() {
+		assert(inPreemptibleDomain());
 		if(*cs() == kSelExecutorFaultCode
 				|| *cs() == kSelExecutorSyscallCode
 				|| *cs() == kSelClientUserCompat
 				|| *cs() == kSelClientUserCode) {
 			return true;
 		}else{
-			assert(*cs() == kSelSystemIdleCode);
 			return false;
 		}
 	}
 
+	bool inFiberDomain() {
+		assert(inPreemptibleDomain());
+		return *cs() == kSelSystemFiberCode;
+	}
+
 	bool inIdleDomain() {
+		assert(inPreemptibleDomain());
 		return *cs() == kSelSystemIdleCode;
 	}
 
@@ -460,7 +469,7 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
-	uint32_t gdt[12 * 2];
+	uint32_t gdt[13 * 2];
 	uint32_t idt[256 * 4];
 
 	UniqueKernelStack irqStack;

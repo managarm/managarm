@@ -183,7 +183,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	assert(!inStub(*image.ip()));
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
 			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );

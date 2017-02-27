@@ -201,6 +201,10 @@ public:
 		return true;
 	}
 
+	bool operator!= (const BasicStringView<Char> &other) const {
+		return !(*this == other);
+	}
+
 	operator BasicStringView<Char> () const {
 		return BasicStringView<Char>(p_buffer, p_length);
 	}

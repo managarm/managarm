@@ -1,6 +1,9 @@
 #ifndef THOR_ARCH_X86_PAGING_HPP
 #define THOR_ARCH_X86_PAGING_HPP
 
+#include <frigg/algorithm.hpp>
+#include "../../generic/types.hpp"
+
 namespace thor {
 
 void initializePhysicalAccess();

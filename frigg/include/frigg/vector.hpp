@@ -51,6 +51,14 @@ public:
 	bool empty() const {
 		return size() == 0;
 	}
+
+	T *begin() {
+		return p_elements;
+	}
+
+	T *end() {
+		return p_elements + p_size;
+	}
 	
 	const T &operator[] (size_t index) const {
 		return p_elements[index];
