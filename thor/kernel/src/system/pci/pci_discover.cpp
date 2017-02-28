@@ -298,23 +298,22 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		frigg::infoLogger() << " (Master)";
 	frigg::infoLogger() << frigg::endLog;
 
-	uint16_t device_id = readPciHalf(bus, slot, function, kPciDevice);
-	uint8_t revision = readPciByte(bus, slot, function, kPciRevision);
-	frigg::infoLogger() << "        Vendor: 0x" << frigg::logHex(vendor)
-			<< ", device ID: 0x" << frigg::logHex(device_id)
-			<< ", revision: " << (int)revision << frigg::endLog;
-	
-	uint8_t class_code = readPciByte(bus, slot, function, kPciClassCode);
-	uint8_t sub_class = readPciByte(bus, slot, function, kPciSubClass);
-	uint8_t interface = readPciByte(bus, slot, function, kPciInterface);
-	frigg::infoLogger() << "        Class: " << (int)class_code
-			<< ", subclass: " << (int)sub_class << ", interface: " << (int)interface << frigg::endLog;
+	auto device_id = readPciHalf(bus, slot, function, kPciDevice);
+	auto revision = readPciByte(bus, slot, function, kPciRevision);
+	auto class_code = readPciByte(bus, slot, function, kPciClassCode);
+	auto sub_class = readPciByte(bus, slot, function, kPciSubClass);
+	auto interface = readPciByte(bus, slot, function, kPciInterface);
+	frigg::infoLogger() << "        Vendor/device: " << frigg::logHex(vendor)
+			<< "." << frigg::logHex(device_id) << "." << frigg::logHex(revision)
+			<< ", class: " << frigg::logHex(class_code)
+			<< "." << frigg::logHex(sub_class)
+			<< "." << frigg::logHex(interface) << frigg::endLog;
 	
 	if((header_type & 0x7F) == 0) {
-		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
-		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
-		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
-				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
+//		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
+//		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
+//		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
+//				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
 
 		if(readPciHalf(bus, slot, function, kPciStatus) & 0x10) {
 			// NOTE: the bottom two bits of each capability offset must be masked

@@ -464,9 +464,9 @@ void prepareSystemBusses() {
 			auto slot = route->Address >> 16;
 			auto function = route->Address & 0xFFFF;
 			assert(function = 0xFFFF);
-			frigg::infoLogger() << "    Route for slot " << slot
-					<< ", pin " << route->Pin << ": " << (const char *)route->Source
-					<< "[" << route->SourceIndex << "]" << frigg::endLog;
+//			frigg::infoLogger() << "    Route for slot " << slot
+//					<< ", pin " << route->Pin << ": " << (const char *)route->Source
+//					<< "[" << route->SourceIndex << "]" << frigg::endLog;
 
 			auto source = frigg::String<KernelAlloc>{*kernelAlloc, route->Source};
 			if(std::find(links->begin(), links->end(), source) == links->end())

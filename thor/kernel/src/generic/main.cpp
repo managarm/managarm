@@ -8,7 +8,7 @@
 
 namespace thor {
 
-static constexpr bool logInitialization = true;
+static constexpr bool logInitialization = false;
 static constexpr bool logEveryIrq = true;
 static constexpr bool logEverySyscall = false;
 
