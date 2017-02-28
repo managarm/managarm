@@ -66,8 +66,7 @@ int main() {
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
-		for(int i = 0; i < 100; i++)
-			sched_yield();
+		sleep(1);
 	}
 
 	printf("Mounting /dev/sda0\n");
