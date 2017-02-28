@@ -666,30 +666,6 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helEnableFullIo();
 	} break;
 	
-	case kHelCallControlKernel: {
-		int subsystem = (int)arg0;
-		int interface = (int)arg1;
-		const void *user_input = (const void *)arg2;
-		void *user_output = (void *)arg3;
-
-		if(subsystem == kThorSubArch) {
-			controlArch(interface, user_input, user_output);
-			*image.error() = kHelErrNone;
-		}else if(subsystem == kThorSubDebug) {
-			if(interface == kThorIfDebugMemory) {
-				frigg::infoLogger() << "Memory info:\n"
-						<< "    Physical pages: Used: " << physicalAllocator->numUsedPages()
-						<< ", free: " << physicalAllocator->numFreePages() << "\n"
-						<< "    kernelAlloc: Used " << kernelAlloc->numUsedPages()
-						<< frigg::endLog;
-				*image.error() = kHelErrNone;
-			}else{
-				assert(!"Illegal debug interface");
-			}
-		}else{
-			assert(!"Illegal subsystem");
-		}
-	} break;
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}

@@ -67,8 +67,6 @@ enum {
 	kHelCallEnableIo = 12,
 	kHelCallEnableFullIo = 35,
 	
-	kHelCallControlKernel = 31,
-	
 	kHelCallSuper = 0x80000000
 };
 
@@ -344,9 +342,6 @@ HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
 HEL_C_LINKAGE HelError helEnableFullIo();
-
-HEL_C_LINKAGE HelError helControlKernel(int subsystem, int interface,
-		const void *input, void *output);
 
 extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelError code) {
 	switch(code) {

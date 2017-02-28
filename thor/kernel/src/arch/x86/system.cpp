@@ -21,9 +21,5 @@ void initializeTheSystemLater() {
 	pci::pciDiscover();
 }
 
-void controlArch(int interface, const void *input, void *output) {
-	assert(!"Illegal interface");
-}
-
 } // namespace thor
 
