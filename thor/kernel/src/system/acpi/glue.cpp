@@ -124,7 +124,13 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
 }
 
 void AcpiOsUnmapMemory(void *pointer, ACPI_SIZE length) {
-	frigg::infoLogger() << "thor: Fix AcpiOsUnmapMemory()" << frigg::endLog;
+	auto vaddr = (uintptr_t)pointer & ~(kPageSize - 1);
+	auto vsize = length + ((uintptr_t)pointer & (kPageSize - 1));
+	assert(vsize <= 0x100000);
+
+	for(size_t pg = 0; pg < vsize; pg += kPageSize)
+		KernelPageSpace::global().unmapSingle4k(vaddr + pg);
+//TODO:	KernelVirtualMemory::global().free(pointer);
 }
 
 // --------------------------------------------------------
