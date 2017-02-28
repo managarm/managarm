@@ -1,7 +1,6 @@
 
 #include "generic/kernel.hpp"
 #include "system/acpi/acpi.hpp"
-#include "hwctrl_service.hpp"
 
 namespace thor {
 
@@ -20,7 +19,6 @@ void initializeTheSystemEarly() {
 void initializeTheSystemLater() {
 	acpi::initialize();
 	pci::pciDiscover();
-	arch_x86::runHwctrlService();
 }
 
 void controlArch(int interface, const void *input, void *output) {

@@ -21,7 +21,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch/x86/early_stubs.o arch/x86/stubs.o \
 	arch/x86/cpu.o arch/x86/trampoline.o \
 	arch/x86/ints.o arch/x86/pic.o arch/x86/system.o arch/x86/paging.o \
-	arch/x86/hpet.o arch/x86/hwctrl_service.o \
+	arch/x86/hpet.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
