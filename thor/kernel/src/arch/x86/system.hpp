@@ -2,7 +2,8 @@
 namespace thor {
 
 void initializeTheSystemEarly();
-void initializeTheSystemLater();
+void initializeBasicSystem();
+void initializeExtendedSystem();
 
 } // namespace thor
 

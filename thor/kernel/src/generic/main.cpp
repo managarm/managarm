@@ -309,19 +309,29 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	auto mbus_stream = createStream();
 	mbusClient.initialize(mbus_stream.get<1>());
-	
-	// Complete the system initialization.
-	initializeTheSystemLater();
 
-	// finally we lauch the user_boot program
-	auto mbus_module = getModule("mbus");
-	auto posix_module = getModule("posix-subsystem");
-	assert(mbus_module);
-	assert(posix_module);
-	executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
-	executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
+	// Continue the system initialization.
+	initializeBasicSystem();
 
-	frigg::infoLogger() << "Exiting Thor!" << frigg::endLog;
+	KernelFiber::run([=] () mutable {
+		// Complete the system initialization.
+		initializeExtendedSystem();
+
+		// Launch initial user space programs.
+		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
+		auto mbus_module = getModule("mbus");
+		auto posix_module = getModule("posix-subsystem");
+		assert(mbus_module);
+		assert(posix_module);
+		executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
+		executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
+
+		while(true)
+			KernelFiber::blockCurrent(frigg::CallbackPtr<bool()>{nullptr,
+					[] (void *) { return true; }});
+	});
+
+	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
 	globalScheduler().reschedule();
 }
 

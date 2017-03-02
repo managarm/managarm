@@ -9,6 +9,9 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	if(!predicate())
 		return;
 	
+	assert(intsAreEnabled());
+	disableInts();
+	
 	this_fiber->_blocked = true;
 	getCpuData()->activeFiber = nullptr;
 	globalScheduler().suspend(this_fiber);
@@ -18,6 +21,8 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 			globalScheduler().reschedule();
 		});
 	}
+	
+	enableInts();
 }
 
 void KernelFiber::exitCurrent() {

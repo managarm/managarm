@@ -48,6 +48,7 @@ void ACPI_INTERNAL_VAR_XFACE AcpiOsPrintf(const char *format, ...) {
 
 void AcpiOsVprintf(const char *format, va_list args) {
 	auto printer = frigg::infoLogger();
+//	frigg::infoLogger() << "printf: " << format << frigg::endLog;
 	frigg::printf(printer, format, args);
 //	TODO: Call finish()?
 //	printer.finish();
@@ -149,37 +150,36 @@ void AcpiOsFree(void *pointer) {
 // Interrupts
 // --------------------------------------------------------
 
-/*COFIBER_ROUTINE(cofiber::no_future, listenForInts(unsigned int number,
-		uint32_t (*handler)(void *), void *context), ([=] {
-	HelHandle handle;
-	HEL_CHECK(helAccessIrq(number, &handle));
-	helix::UniqueIrq irq{handle};
-
-	std::cout << "ACPI: Kicking IRQ" << std::endl;
-	HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
-
-	while(true) {
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
-		COFIBER_AWAIT submit.async_wait();
-		HEL_CHECK(await_irq.error());
-
-		std::cout << "ACPI: Running IRQ handler" << std::endl;
-
-		if(handler(context) == ACPI_INTERRUPT_HANDLED)
-			HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
-	}
-}))
-*/
-
 namespace {
 	struct AcpiSink : IrqSink {
 		AcpiSink(ACPI_OSD_HANDLER handler, void *context)
 		: _handler{handler}, _context{context} { }
 
 		void raise() override {
-			if(_handler(_context) == ACPI_INTERRUPT_HANDLED)
+			auto report = [] (unsigned int event, const char *name) {
+				ACPI_EVENT_STATUS status;
+				AcpiGetEventStatus(event, &status);
+				const char *enabled = (status & ACPI_EVENT_FLAG_ENABLED) ? "enabled" : "disabled";
+				const char *set = (status & ACPI_EVENT_FLAG_SET) ? "set" : "clear";
+				frigg::infoLogger() << "    " << name << ": " << enabled
+						<< " " << set << frigg::endLog;
+			};
+
+			frigg::infoLogger() << "thor: Handling ACPI interrupt." << frigg::endLog;
+			report(ACPI_EVENT_PMTIMER, "ACPI timer");
+			report(ACPI_EVENT_GLOBAL, "Global lock");
+			report(ACPI_EVENT_POWER_BUTTON, "Power button");
+			report(ACPI_EVENT_SLEEP_BUTTON, "Sleep button");
+			report(ACPI_EVENT_RTC, "RTC");
+
+			auto result = _handler(_context);
+			if(result == ACPI_INTERRUPT_HANDLED) {
 				getPin()->acknowledge();
+			}else{
+				assert(result == ACPI_INTERRUPT_NOT_HANDLED);
+			}
+//			_handler(_context);
+//			getPin()->acknowledge();
 		}
 
 	private:
@@ -190,7 +190,7 @@ namespace {
 
 ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 number,
 		ACPI_OSD_HANDLER handler, void *context) {
-	frigg::infoLogger() << "ACPI: Installing handler for IRQ " << number << frigg::endLog;
+	frigg::infoLogger() << "thor: Installing handler for ACPI IRQ " << number << frigg::endLog;
 
 	auto sink = frigg::construct<AcpiSink>(*kernelAlloc, handler, context);
 	auto pin = getGlobalSystemIrq(number);

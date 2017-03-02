@@ -408,7 +408,7 @@ void remapLegacyPic(int offset) {
 }
 
 void setupLegacyPic() {
-	remapLegacyPic(64);
+	remapLegacyPic(32);
 }
 
 void maskLegacyPic() {

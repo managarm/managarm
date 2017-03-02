@@ -16,8 +16,12 @@ void initializeTheSystemEarly() {
 	maskLegacyPic();
 }
 
-void initializeTheSystemLater() {
-	acpi::initialize();
+void initializeBasicSystem() {
+	acpi::initializeBasicSystem();
+}
+
+void initializeExtendedSystem() {
+	acpi::initializeExtendedSystem();
 	pci::pciDiscover();
 }
 

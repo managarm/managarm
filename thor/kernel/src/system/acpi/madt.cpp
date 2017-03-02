@@ -410,11 +410,22 @@ void commitIrq(IrqLine line) {
 
 // --------------------------------------------------------
 
-uint32_t handleFixedEvents(void *context) {
+uint32_t handlePowerButton(void *context) {
+	frigg::infoLogger() << "thor: Preparing for shutdown" << frigg::endLog;
+
 	ACPICA_CHECK(AcpiEnterSleepStatePrep(5));
 	ACPICA_CHECK(AcpiEnterSleepState(5));
 
 	return ACPI_INTERRUPT_HANDLED;
+}
+
+void dispatchEvent(uint32_t type, ACPI_HANDLE device, uint32_t number, void *context) {
+	if(type == ACPI_EVENT_TYPE_FIXED) {
+		frigg::infoLogger() << "thor: Fixed ACPI event" << frigg::endLog;
+	}else{
+		assert(type == ACPI_EVENT_TYPE_GPE);
+		frigg::infoLogger() << "thor: ACPI GPE event" << frigg::endLog;
+	}
 }
 
 // --------------------------------------------------------
@@ -463,7 +474,7 @@ void prepareSystemBusses() {
 			
 			auto slot = route->Address >> 16;
 			auto function = route->Address & 0xFFFF;
-			assert(function = 0xFFFF);
+			assert(function == 0xFFFF);
 //			frigg::infoLogger() << "    Route for slot " << slot
 //					<< ", pin " << route->Pin << ": " << (const char *)route->Source
 //					<< "[" << route->SourceIndex << "]" << frigg::endLog;
@@ -658,7 +669,7 @@ void dumpMadt() {
 	}
 }
 
-void initialize() {
+void initializeBasicSystem() {
 	ACPICA_CHECK(AcpiInitializeSubsystem());
 	ACPICA_CHECK(AcpiInitializeTables(nullptr, 16, FALSE));
 	ACPICA_CHECK(AcpiLoadTables());
@@ -736,7 +747,9 @@ void initialize() {
 		}
 		offset += generic->length;
 	}
-	
+}
+
+void initializeExtendedSystem() {
 	// Configure the ISA IRQs.
 	// TODO: This is a hack. We assume that HPET will use legacy replacement
 	// and that SCI is routed to IRQ 9.
@@ -755,11 +768,12 @@ void initialize() {
 
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
-	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
-	ACPICA_CHECK(AcpiEnable());
 
 	ACPICA_CHECK(AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON,
-			&handleFixedEvents, 0));
+			&handlePowerButton, nullptr));
+	ACPICA_CHECK(AcpiInstallGlobalEventHandler(&dispatchEvent, nullptr));
+
+	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
 
 	prepareSystemBusses();
 	configureIrqs();

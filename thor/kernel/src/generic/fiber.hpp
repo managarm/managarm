@@ -15,10 +15,6 @@ struct KernelFiber : ScheduleEntity {
 	template<typename F>
 	static void run(F functor) {
 		auto frame = [] (void *argument) {
-			// TODO: This should not be necessary!
-			// Handle this in the blockCurrent() function!
-			disableInts();
-
 			auto object = reinterpret_cast<F *>(argument);
 			(*object)();
 			exitCurrent();

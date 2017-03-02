@@ -2,7 +2,8 @@
 namespace thor {
 namespace acpi {
 
-void initialize();
+void initializeBasicSystem();
+void initializeExtendedSystem();
 
 } } // namespace thor::acpi
 
