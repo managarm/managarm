@@ -38,15 +38,39 @@ int main() {
 	}else assert(uhci != -1);
 */
 
+/*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
-
+*/
+/*
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
+*/
+
+	auto uart = fork();
+	if(!uart) {
+		execve("/initrd/uart", args.data(), envp);
+	}else assert(uart != -1);
+	
+	// Spin until /dev/ttyS0 becomes available.
+	while(access("/dev/ttyS0", F_OK)) {
+		assert(errno == ENOENT);
+		for(int i = 0; i < 100; i++)
+			sched_yield();
+	}
+	
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
+	int tty = open("/dev/ttyS0", O_WRONLY);
+	dup2(tty, STDOUT_FILENO);
+	dup2(tty, STDERR_FILENO);
+	
+	std::cout << "........." << std::endl;
 
 /*
 	auto gfx_intel = fork();
@@ -62,7 +86,7 @@ int main() {
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
 */
-
+/*	
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
@@ -75,7 +99,7 @@ int main() {
 	}else{
 		printf("Mount success!\n");
 	}
-
+*/
 /*
 	auto vga_terminal = fork();
 	if(!vga_terminal) {

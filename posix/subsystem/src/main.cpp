@@ -269,9 +269,33 @@ struct ExternDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device), ([=] {
-		(void)device;
-		assert(!"Fix this");
+			open(std::shared_ptr<Device> object), ([=] {
+		auto self = std::static_pointer_cast<ExternDevice>(object);
+
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_node;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_node));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_node.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor()));
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,

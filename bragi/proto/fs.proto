@@ -21,6 +21,7 @@ enum CntReqType {
 
 	// Device API.
 	DEV_MOUNT = 11;
+	DEV_OPEN = 14;
 
 	// File node API.
 	NODE_GET_LINK = 12;

@@ -755,6 +755,7 @@ void initializeExtendedSystem() {
 	// and that SCI is routed to IRQ 9.
 	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
 	commitIrq(resolveIrq(0));
+	commitIrq(resolveIrq(4));
 	commitIrq(resolveIrq(9));
 	
 	// Initialize the HPET.

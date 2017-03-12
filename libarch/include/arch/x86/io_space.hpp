@@ -49,6 +49,9 @@ namespace _detail {
 	};
 
 	struct io_space {
+		constexpr io_space()
+		: _base(0) { }
+
 		constexpr io_space(uint16_t base)
 		: _base(base) { }
 

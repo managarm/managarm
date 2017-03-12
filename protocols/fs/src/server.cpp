@@ -60,6 +60,24 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+			helix::RecvInline recv_buffer;
+			auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&recv_buffer));
+			COFIBER_AWAIT buff.async_wait();
+			HEL_CHECK(recv_buffer.error());
+		
+			COFIBER_AWAIT(file_ops->write(file, recv_buffer.data(), recv_buffer.length()));
+			
+			helix::SendBuffer send_resp;
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_memory;

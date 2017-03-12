@@ -298,5 +298,9 @@ std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
 	return createRootLink(std::move(node));
 }
 
+std::shared_ptr<File> createFile(helix::UniqueLane lane) {
+	return std::make_shared<OpenFile>(std::move(lane));
+}
+
 } // namespace extern_fs
 
