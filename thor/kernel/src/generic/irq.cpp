@@ -37,34 +37,61 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto guard = frigg::guard(&_mutex);
 
 	_strategy = program(mode, polarity);
+	_latched = false;
 }
 
 void IrqPin::raise() {
 	IrqLock irq_lock{globalIrqMutex};
 	auto guard = frigg::guard(&_mutex);
 
+	auto status = _callSinks();
+	auto relatch = !(status & irq_status::handled);
+
 	if(_strategy == IrqStrategy::justEoi) {
-		_callSinks();
 		sendEoi();
 	}else if(_strategy == IrqStrategy::maskThenEoi) {
-		if(!(_callSinks() & irq_status::handled))
+		assert(!_latched);
+		if(relatch)
 			mask();
 		sendEoi();
 	}else{
 		assert(_strategy == IrqStrategy::null);
 		frigg::infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frigg::endLog;
 	}
+
+	_latched = relatch;
 }
 
-void IrqPin::acknowledge() {
+void IrqPin::kick() {
 	IrqLock irq_lock{globalIrqMutex};
 	auto guard = frigg::guard(&_mutex);
+
+	if(!_latched)
+		return;
 
 	if(_strategy == IrqStrategy::maskThenEoi) {
 		unmask();
 	}else{
 		assert(_strategy == IrqStrategy::justEoi);
 	}
+
+	_latched = false;
+}
+
+void IrqPin::acknowledge() {
+	IrqLock irq_lock{globalIrqMutex};
+	auto guard = frigg::guard(&_mutex);
+
+	if(!_latched)
+		return;
+
+	if(_strategy == IrqStrategy::maskThenEoi) {
+		unmask();
+	}else{
+		assert(_strategy == IrqStrategy::justEoi);
+	}
+
+	_latched = false;
 }
 
 IrqStatus IrqPin::_callSinks() {

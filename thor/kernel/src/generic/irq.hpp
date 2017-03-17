@@ -109,6 +109,8 @@ public:
 	// This function is called from IrqSlot::raise().
 	void raise();
 
+	void kick();
+
 	void acknowledge();
 
 protected:
@@ -126,6 +128,7 @@ private:
 	Mutex _mutex;
 
 	IrqStrategy _strategy;
+	bool _latched;
 
 	// TODO: This list should change rarely. Use a RCU list.
 	frg::intrusive_list<

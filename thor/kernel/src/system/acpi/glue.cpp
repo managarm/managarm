@@ -195,6 +195,12 @@ ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 number,
 	auto sink = frigg::construct<AcpiSink>(*kernelAlloc, handler, context);
 	auto pin = getGlobalSystemIrq(number);
 	attachIrq(pin, sink);
+	
+	// There are mainboards that raise the SCI before we actually enable it.
+	// This is a problem if the SCI is level-triggered and we mask it because
+	// there is no handler attached. Kick the IRQ so that it gets unmasked again.
+	pin->kick();
+
 	return AE_OK;
 }
 
