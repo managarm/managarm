@@ -47,12 +47,21 @@ private:
 
 // ----------------------------------------------------------------------------
 
+using IrqStatus = unsigned int;
+
+namespace irq_status {
+	static constexpr IrqStatus null = 0;
+
+	// The IRQ has been handled by the sink's raise() method.
+	static constexpr IrqStatus handled = 0;
+}
+
 struct IrqSink {
 	friend void attachIrq(IrqPin *pin, IrqSink *sink);
 
 	IrqSink();
 
-	virtual void raise() = 0;
+	virtual IrqStatus raise() = 0;
 
 	// TODO: This needs to be thread-safe.
 	IrqPin *getPin();
@@ -112,7 +121,7 @@ protected:
 	virtual void sendEoi() = 0;
 
 private:
-	void _callSinks();
+	IrqStatus _callSinks();
 
 	Mutex _mutex;
 
@@ -137,7 +146,7 @@ void attachIrq(IrqPin *pin, IrqSink *sink);
 struct IrqObject : IrqSink {
 	IrqObject();
 
-	void raise() override;
+	IrqStatus raise() override;
 
 	void submitAwait(frigg::SharedPtr<AwaitIrqBase> wait);
 	

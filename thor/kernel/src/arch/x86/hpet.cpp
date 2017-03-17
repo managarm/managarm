@@ -71,7 +71,7 @@ typedef frg::pairing_heap<
 frigg::LazyInitializer<TimerQueue> timerQueue;
 
 struct HpetDevice : IrqSink {
-	void raise() override {
+	IrqStatus raise() override {
 		auto current = hpetBase.load(mainCounter);
 		while(!timerQueue->empty() && timerQueue->top()->deadline < current) {
 			auto timer = timerQueue->top();
@@ -81,6 +81,10 @@ struct HpetDevice : IrqSink {
 
 		if(!timerQueue->empty())
 			hpetBase.store(timerComparator0, timerQueue->top()->deadline);
+
+		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
+		// For level-triggered mode we need to inspect the ISR.
+		return irq_status::handled;
 	}
 };
 
@@ -136,6 +140,7 @@ void setupHpet(PhysicalAddr address) {
 
 	auto device = frigg::construct<HpetDevice>(*kernelAlloc);
 	attachIrq(getGlobalSystemIrq(2), device);
+	frigg::infoLogger() << "HPET IrqSink attached" << frigg::endLog;
 
 	hpetAvailable = true;
 	

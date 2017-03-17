@@ -23,6 +23,31 @@ void suspendSelf();
 // we do not need it inside other threads
 extern "C" void enterUserMode(void *stack_ptr, void *ip) __attribute__ (( noreturn ));
 
+struct GlobalIrqMutex { };
+static constexpr GlobalIrqMutex globalIrqMutex;
+
+struct IrqLock {
+	IrqLock(GlobalIrqMutex)
+	: _locked{true} {
+		_enable = intsAreEnabled();
+		if(_enable)
+			disableInts();
+	}
+
+	IrqLock(const IrqLock &) = delete;
+
+	~IrqLock() {
+		if(_enable)
+			enableInts();
+	}
+
+	IrqLock &operator= (const IrqLock &) = delete;
+
+private:
+	bool _locked;
+	bool _enable;
+};
+
 } // namespace thor
 
 #endif // THOR_ARCH_X86_INTS_HPP

@@ -155,7 +155,7 @@ namespace {
 		AcpiSink(ACPI_OSD_HANDLER handler, void *context)
 		: _handler{handler}, _context{context} { }
 
-		void raise() override {
+		IrqStatus raise() override {
 			auto report = [] (unsigned int event, const char *name) {
 				ACPI_EVENT_STATUS status;
 				AcpiGetEventStatus(event, &status);
@@ -175,11 +175,11 @@ namespace {
 			auto result = _handler(_context);
 			if(result == ACPI_INTERRUPT_HANDLED) {
 				getPin()->acknowledge();
+				return irq_status::handled;
 			}else{
 				assert(result == ACPI_INTERRUPT_NOT_HANDLED);
+				return irq_status::null;
 			}
-//			_handler(_context);
-//			getPin()->acknowledge();
 		}
 
 	private:
