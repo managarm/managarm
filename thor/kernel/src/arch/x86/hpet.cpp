@@ -43,7 +43,7 @@ enum : uint64_t {
 };
 
 arch::mem_space hpetBase;
-uint64_t hpetFrequency;
+uint64_t hpetPeriod;
 bool hpetAvailable;
 
 arch::scalar_register<uint8_t> channel0(64);
@@ -96,6 +96,7 @@ void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
 	
 	timerQueue.initialize();
+	auto device = frigg::construct<HpetDevice>(*kernelAlloc);
 	
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
@@ -105,12 +106,13 @@ void setupHpet(PhysicalAddr address) {
 
 	auto global_caps = hpetBase.load(genCapsAndId);
 	if(!(global_caps & has64BitCounter))
-		frigg::infoLogger() << "    Counter is only 32-bits!" << frigg::endLog;
+		frigg::panicLogger() << "    Counter is only 32-bits!" << frigg::endLog;
+	
 	if(global_caps & supportsLegacyIrqs)
 		frigg::infoLogger() << "    Supports legacy replacement." << frigg::endLog;
 
-	hpetFrequency = global_caps & counterPeriod;
-	frigg::infoLogger() << "    Tick period: " << hpetFrequency
+	hpetPeriod = global_caps & counterPeriod;
+	frigg::infoLogger() << "    Tick period: " << hpetPeriod
 			<< "fs" << frigg::endLog;
 	
 	auto timer_caps = hpetBase.load(timerConfig0);
@@ -120,44 +122,44 @@ void setupHpet(PhysicalAddr address) {
 		frigg::infoLogger() << "    Timer 0 is capable of FSB interrupts." << frigg::endLog;
 	
 	// TODO: Disable all timers before programming the first one.
+	hpetBase.store(timerConfig0, timer_bits::enableInt(false));
 
+	// Enable the HPET counter.
 	assert(timer_caps & timer_bits::has64BitComparator);
 	if(global_caps & supportsLegacyIrqs) {
-		// Enable the HPET.
 		hpetBase.store(genConfig, enableCounter(true) | enableLegacyIrqs(true));
-		
-		// Program HPET timer 0 in one-shot mode.
-		hpetBase.store(timerConfig0, timer_bits::enableInt(true));
+	}else{
+		hpetBase.store(genConfig, enableCounter(true));
+	}
+	
+	attachIrq(getGlobalSystemIrq(2), device);
+
+	// Program HPET timer 0 in one-shot mode.
+	if(global_caps & supportsLegacyIrqs) {
+		hpetBase.store(timerConfig0, timer_bits::enableInt(false));
 		hpetBase.store(timerComparator0, 0);
+		hpetBase.store(timerConfig0, timer_bits::enableInt(true));
 	}else{
 		assert((timer_caps & timer_bits::possibleIrqs) & (1 << 2));
-
-		// Enable the HPET.
-		hpetBase.store(genConfig, enableCounter(true));
-		
-		// Program HPET timer 0 in one-shot mode.
-		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
+		hpetBase.store(timerConfig0, timer_bits::enableInt(false) | timer_bits::activeIrq(2));
 		hpetBase.store(timerComparator0, 0);
+		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
 	}
-
-	auto device = frigg::construct<HpetDevice>(*kernelAlloc);
-	attachIrq(getGlobalSystemIrq(2), device);
-	frigg::infoLogger() << "HPET IrqSink attached" << frigg::endLog;
 
 	hpetAvailable = true;
 	
 	// TODO: Move this somewhere else.
 	// Disable the legacy PIT (i.e. program to one-shot mode).
-	arch::global_io.store(command, operatingMode(0) | accessMode(3));
-	arch::global_io.store(channel0, 1);
-	arch::global_io.store(channel0, 0);
+	//arch::global_io.store(command, operatingMode(0) | accessMode(3));
+	//arch::global_io.store(channel0, 1);
+	//arch::global_io.store(channel0, 0);
 
 	calibrateApicTimer();
 }
 
 void pollSleepNano(uint64_t nanotime) {
 	uint64_t counter = hpetBase.load(mainCounter);
-	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetFrequency;
+	uint64_t goal = counter + nanotime * kFemtosPerNano / hpetPeriod;
 	while(hpetBase.load(mainCounter) < goal) {
 		frigg::pause();
 	}
@@ -168,16 +170,16 @@ uint64_t currentTicks() {
 }
 
 uint64_t currentNanos() {
-	assert(hpetFrequency > kFemtosPerNano);
-	return currentTicks() * (hpetFrequency / kFemtosPerNano);
+	assert(hpetPeriod > kFemtosPerNano);
+	return currentTicks() * (hpetPeriod / kFemtosPerNano);
 }
 
 uint64_t durationToTicks(uint64_t seconds,
 		uint64_t millis, uint64_t micros, uint64_t nanos) {
-	return (seconds * kFemtosPerSecond) / hpetFrequency
-			+ (millis * kFemtosPerMilli) / hpetFrequency
-			+ (micros * kFemtosPerMicro) / hpetFrequency
-			+ (nanos * kFemtosPerNano) / hpetFrequency;
+	return (seconds * kFemtosPerSecond) / hpetPeriod
+			+ (millis * kFemtosPerMilli) / hpetPeriod
+			+ (micros * kFemtosPerMicro) / hpetPeriod
+			+ (nanos * kFemtosPerNano) / hpetPeriod;
 }
 
 void installTimer(Timer *timer) {
