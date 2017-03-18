@@ -1,5 +1,6 @@
 
 $(call standard_dirs)
+$c_EXTRA_SRCDIR := $(TREE_PATH)/$c/extra-src
 $c_ACPICA_SRCDIR := $(ACPICA)/source
 $(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch/x86)
 $(call define_objdir,PCI_OBJ,$($c_OBJDIR)/system/pci)
@@ -19,9 +20,10 @@ $($c_ACPICA_SUBDIR_PATHS):
 $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	frigg-arch-gdt.o frigg-arch-idt.o frigg-arch-tss.o \
 	arch/x86/early_stubs.o arch/x86/stubs.o \
-	arch/x86/cpu.o arch/x86/trampoline.o \
+	arch/x86/cpu.o arch/x86/entry.o \
 	arch/x86/ints.o arch/x86/pic.o arch/x86/system.o arch/x86/paging.o \
 	arch/x86/hpet.o \
+	arch/x86/embed_trampoline.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
@@ -214,6 +216,8 @@ $c_ASFLAGS :=
 $c_LD := x86_64-managarm-kernel-ld
 $c_LDFLAGS := -nostdlib -z max-page-size=0x1000 -T $($c_SRCDIR)/arch/x86/link.x
 
+$c_OBJCOPY := x86_64-managarm-kernel-objcopy
+
 $($c_BINDIR)/thor: $($c_OBJECT_PATHS) $($c_ACPICA_OBJECT_PATHS)
 $($c_BINDIR)/thor: $($c_SRCDIR)/arch/x86/link.x | $($c_BINDIR)
 	$($d_LD) $($d_LDFLAGS) -o $@ $($d_OBJECT_PATHS) $($d_ACPICA_OBJECT_PATHS)
@@ -234,6 +238,16 @@ $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cpp | $($c_OBJDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.asm | $($c_ARCH_OBJDIR)
 	$($d_AS) -o $@ $($d_ASFLAGS) $<
+
+# Compile the x86 AP trampoline code. 
+$($c_ARCH_OBJDIR)/trampoline.o: $($c_EXTRA_SRCDIR)/trampoline.asm | $($c_ARCH_OBJDIR)
+	$($d_AS) -o $@ $($d_ASFLAGS) $<
+
+$($c_ARCH_OBJDIR)/trampoline.bin: $($c_ARCH_OBJDIR)/trampoline.o
+	$($d_LD) -o $@ -Ttext 0 --oformat binary $<
+
+$($c_ARCH_OBJDIR)/embed_trampoline.o: $($c_ARCH_OBJDIR)/trampoline.bin
+	$($d_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 $< $@
 
 # Compile ACPICA.
 $(call decl_targets,$c_ACPICA_OBJDIR/%)

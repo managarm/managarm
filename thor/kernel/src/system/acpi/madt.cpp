@@ -5,6 +5,7 @@
 #include <frigg/optional.hpp>
 #include <frigg/string.hpp>
 #include <frigg/vector.hpp>
+#include "../../arch/x86/cpu.hpp"
 #include "../../arch/x86/hpet.hpp"
 #include "../../arch/x86/pic.hpp"
 #include "../../generic/kernel_heap.hpp"
@@ -595,6 +596,27 @@ void configureIrqs() {
 
 // --------------------------------------------------------
 
+void bootOtherProcessors() {
+	ACPI_TABLE_HEADER *madt;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
+
+	frigg::infoLogger() << "thor: Booting APs." << frigg::endLog;
+	
+	size_t offset = sizeof(ACPI_TABLE_HEADER) + sizeof(MadtHeader);
+	while(offset < madt->Length) {
+		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
+		if(generic->type == 0) { // local APIC
+			auto entry = (MadtLocalEntry *)generic;
+			// TODO: Support BSPs with APIC ID != 0.
+			if(entry->localApicId) // We ignore the BSP here.
+				bootSecondary(entry->localApicId);
+		}
+		offset += generic->length;
+	}
+}
+
+// --------------------------------------------------------
+
 void dumpMadt() {
 	ACPI_TABLE_HEADER *madt;
 	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("APIC"), 0, &madt));
@@ -778,6 +800,7 @@ void initializeExtendedSystem() {
 
 	prepareSystemBusses();
 	configureIrqs();
+	bootOtherProcessors();
 	
 	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;
 }

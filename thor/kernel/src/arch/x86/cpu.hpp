@@ -505,7 +505,7 @@ void doRunDetached(void (*function) (void *), void *argument);
 
 void initializeThisProcessor();
 
-void bootSecondary(uint32_t secondary_apic_id);
+void bootSecondary(unsigned int apic_id);
 
 } // namespace thor
 
