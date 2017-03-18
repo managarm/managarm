@@ -747,6 +747,15 @@ void initializeBasicSystem() {
 		}
 		offset += generic->length;
 	}
+	
+	// Initialize the HPET.
+	frigg::infoLogger() << "thor: Setting up HPET." << frigg::endLog;
+	ACPI_TABLE_HEADER *hpet_table;
+	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
+
+	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
+	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
+	setupHpet(hpet_entry->address.Address);
 }
 
 void initializeExtendedSystem() {
@@ -758,15 +767,6 @@ void initializeExtendedSystem() {
 	commitIrq(resolveIrq(4));
 	commitIrq(resolveIrq(9));
 	
-	// Initialize the HPET.
-	frigg::infoLogger() << "thor: Setting up HPET." << frigg::endLog;
-	ACPI_TABLE_HEADER *hpet_table;
-	ACPICA_CHECK(AcpiGetTable(const_cast<char *>("HPET"), 0, &hpet_table));
-
-	auto hpet_entry = (HpetEntry *)((uintptr_t)hpet_table + sizeof(ACPI_TABLE_HEADER));
-	assert(hpet_entry->address.SpaceId == ACPI_ADR_SPACE_SYSTEM_MEMORY);
-	setupHpet(hpet_entry->address.Address);
-
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
 
