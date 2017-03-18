@@ -95,6 +95,8 @@ bool haveTimer() {
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
 	
+	timerQueue.initialize();
+	
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
@@ -151,8 +153,6 @@ void setupHpet(PhysicalAddr address) {
 	arch::global_io.store(channel0, 0);
 
 	calibrateApicTimer();
-	
-	timerQueue.initialize();
 }
 
 void pollSleepNano(uint64_t nanotime) {
