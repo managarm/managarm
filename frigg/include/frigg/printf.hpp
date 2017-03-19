@@ -59,10 +59,16 @@ void printf(P &printer, const char *format, va_list args) {
 		assert(!alt_conversion);
 
 		int minimum_width = 0;
-		while(*format >= '0' && *format <= '9') {
-			minimum_width = minimum_width * 10 + (*format - '0');
+		if(*format == '*') {
 			++format;
 			assert(*format);
+			minimum_width = va_arg(args, int);
+		}else{
+			while(*format >= '0' && *format <= '9') {
+				minimum_width = minimum_width * 10 + (*format - '0');
+				++format;
+				assert(*format);
+			}
 		}
 
 		Optional<int> precision;
@@ -117,12 +123,12 @@ void printf(P &printer, const char *format, va_list args) {
 				length = *precision;
 
 			if(left_justify) {
-				for(int i = 0; i < *precision && s[i]; i++)
+				for(int i = 0; i < length && s[i]; i++)
 					printer.print(s[i]);
 				for(int i = length; i < minimum_width; i++)
 					printer.print(' ');
 			}else{
-				for(int i = 0; i < *precision && s[i]; i++)
+				for(int i = 0; i < length && s[i]; i++)
 					printer.print(s[i]);
 				for(int i = length; i < minimum_width; i++)
 					printer.print(' ');
