@@ -53,18 +53,30 @@ enum class IrqCtrl {
 	enable = 1	
 };
 
+enum class IrqIds {
+	lineStatus = 3,
+	dataAvailable = 2,
+	charTimeout = 6,
+	txEmpty = 1,
+	modem = 0
+};
+
 namespace uart_register {
 	arch::scalar_register<uint8_t> data(0);
-	arch::bit_register<uint8_t> irq(1);
+	arch::bit_register<uint8_t> irqEnable(1);
 	arch::scalar_register<uint8_t> baudLow(0);
 	arch::scalar_register<uint8_t> baudHigh(1);
+	arch::bit_register<uint8_t> irqIdentification(2);
 	arch::bit_register<uint8_t> fifoControl(2);
 	arch::bit_register<uint8_t> lineControl(3);
 	arch::bit_register<uint8_t> lineStatus(5);
 }
 
-namespace irq_control {
-	arch::field<uint8_t, IrqCtrl> irqEnable(0, 1); 
+namespace irq_enable {
+	arch::field<uint8_t, IrqCtrl> dataAvailable(0, 1);
+	arch::field<uint8_t, IrqCtrl> txEmpty(1, 1);
+	arch::field<uint8_t, IrqCtrl> lineStatus(2, 1);
+	arch::field<uint8_t, IrqCtrl> modem(3, 1);
 }
 
 namespace fifo_control {
@@ -82,6 +94,11 @@ namespace line_control {
 namespace line_status {
 	arch::field<uint8_t, bool> dataReady(0, 1);
 	arch::field<uint8_t, bool> txReady(5, 1);
+}
+
+namespace irq_ident_register {
+	arch::field<uint8_t, bool> pending(0, 1);
+	arch::field<uint8_t, IrqIds> id(1, 3);
 }
 
 #endif // UART_SPEC_HPP

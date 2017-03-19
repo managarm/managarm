@@ -32,7 +32,6 @@ struct ReadRequest {
 	async::promise<size_t> promise;
 	boost::intrusive::list_member_hook<> hook;
 };
-
 boost::intrusive::list<
 	ReadRequest,
 	boost::intrusive::member_hook<
@@ -41,9 +40,8 @@ boost::intrusive::list<
 		&ReadRequest::hook
 	>
 > recvRequests;
-
 std::deque<uint8_t> recvBuffer;
-			
+
 void processRecv() {
 	while(!recvRequests.empty() && !recvBuffer.empty()) {
 		auto req = &recvRequests.front();
@@ -60,30 +58,66 @@ void processRecv() {
 	}
 }
 
+struct WriteRequest {
+	WriteRequest(const void *buffer, size_t length)
+	: buffer(buffer), length(length) { }
 
-void send(char c) {
-	while(!(base.load(uart_register::lineStatus) & line_status::txReady)) {
-		// do nothing until the UART is ready to transmit.
+	const void *buffer;
+	size_t length;
+	size_t progress;
+	async::promise<void> promise;
+	boost::intrusive::list_member_hook<> hook;
+};
+boost::intrusive::list<
+	WriteRequest,
+	boost::intrusive::member_hook<
+		WriteRequest,
+		boost::intrusive::list_member_hook<>,
+		&WriteRequest::hook
+	>
+> sendRequests;
+
+void sendBurst() {
+	if(sendRequests.empty())
+		return;
+	
+	auto req = &sendRequests.front();
+	size_t send_size = std::min(req->length - req->progress, (size_t)16);
+	for(size_t i = 0; i < send_size; i++) {
+		base.store(uart_register::data, reinterpret_cast<const char*>(req->buffer)[req->progress + i]);
 	}
-	base.store(uart_register::data, c);
+	req->progress += send_size;
+	
+	if(req->progress >= req->length) {
+		req->promise.set_value();
+		sendRequests.pop_front();
+		delete req;
+	}
 }
 
-void sendString(const char *str) {
-	while(*str != 0)
-		send(*str++);
-}
-
-COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {	
 	while(true) {
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
 		
-		while(base.load(uart_register::lineStatus) & line_status::dataReady) {
-			auto c = base.load(uart_register::data);
-			recvBuffer.push_back(c);
-			processRecv();
+		auto identification = base.load(uart_register::irqIdentification);
+		if(!(identification & irq_ident_register::pending)) {
+			if((identification & irq_ident_register::id) == IrqIds::lineStatus) {
+				printf("Overrun, Parity, Framing or Break Error!\n");
+			}else if((identification & irq_ident_register::id) == IrqIds::dataAvailable
+					|| (identification & irq_ident_register::id) == IrqIds::charTimeout) {
+				while(base.load(uart_register::lineStatus) & line_status::dataReady) {
+					auto c = base.load(uart_register::data);
+					recvBuffer.push_back(c);
+				}
+				processRecv();
+			}else if((identification & irq_ident_register::id) == IrqIds::txEmpty) {
+				sendBurst();
+			}else if((identification & irq_ident_register::id) == IrqIds::modem) {
+				printf("Modem detected!\n");
+			}
 		}
 	}
 }))
@@ -100,11 +134,15 @@ async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t le
 	return value;
 }
 
-COFIBER_ROUTINE(async::result<void>, write(std::shared_ptr<void> object,
-		const void *buffer, size_t length), ([=] {
-	sendString(reinterpret_cast<const char *>(buffer));	
-	COFIBER_RETURN();
-}))
+async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+	auto req = new WriteRequest(buffer, length);
+	sendRequests.push_back(*req);
+	auto value = req->promise.async_get();
+	if(base.load(uart_register::lineStatus) & line_status::txReady) {
+		sendBurst();
+	}
+	return value;
+}
 
 async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object) {
 	throw std::runtime_error("accessMemory not yet implemented");
@@ -209,7 +247,9 @@ int main() {
 	base.store(uart_register::fifoControl, fifo_control::fifoEnable(FifoCtrl::enable)
 			| fifo_control::fifoIrqLvl(FifoCtrl::triggerLvl14));
 	
-	base.store(uart_register::irq, irq_control::irqEnable(IrqCtrl::enable));
+	base.store(uart_register::irqEnable, irq_enable::dataAvailable(IrqCtrl::enable)
+			| irq_enable::txEmpty(IrqCtrl::enable)
+			| irq_enable::lineStatus(IrqCtrl::enable));
 
 	runTerminal();
 
