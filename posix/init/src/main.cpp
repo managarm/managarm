@@ -72,6 +72,13 @@ int main() {
 	
 	std::cout << "........." << std::endl;
 
+	while(true) {
+		char buffer[1];
+		auto read_sz = read(STDOUT_FILENO, buffer, 1);
+		assert(read_sz > 0);
+		std::cout << buffer[0] << std::endl;
+	}
+
 /*
 	auto gfx_intel = fork();
 	if(!gfx_intel) {

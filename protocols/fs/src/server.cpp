@@ -48,15 +48,15 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 			
 			std::string data;
 			data.resize(req.size());
-			COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
-
+			auto size = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
+			
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data.data(), data.size()));
+					helix::action(&send_data, data.data(), size));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());

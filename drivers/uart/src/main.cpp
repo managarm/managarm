@@ -1,4 +1,6 @@
 
+#include <algorithm>
+#include <deque>
 #include <iostream>
 
 #include <stdio.h>
@@ -8,6 +10,7 @@
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
+#include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
@@ -19,6 +22,44 @@
 
 arch::io_space base;
 helix::UniqueIrq irq;
+
+struct ReadRequest {
+	ReadRequest(void *buffer, size_t maxLength)
+	: buffer(buffer), maxLength(maxLength) { }
+
+	void *buffer;
+	size_t maxLength;
+	async::promise<size_t> promise;
+	boost::intrusive::list_member_hook<> hook;
+};
+
+boost::intrusive::list<
+	ReadRequest,
+	boost::intrusive::member_hook<
+		ReadRequest,
+		boost::intrusive::list_member_hook<>,
+		&ReadRequest::hook
+	>
+> recvRequests;
+
+std::deque<uint8_t> recvBuffer;
+			
+void processRecv() {
+	while(!recvRequests.empty() && !recvBuffer.empty()) {
+		auto req = &recvRequests.front();
+	
+		size_t read_size = std::min(req->maxLength, recvBuffer.size());
+		for(size_t i = 0; i < read_size; i++) {
+			reinterpret_cast<uint8_t*>(req->buffer)[i] = recvBuffer[0];
+			recvBuffer.pop_front();
+		}
+
+		req->promise.set_value(read_size);
+		recvRequests.pop_front();
+		delete req;
+	}
+}
+
 
 void send(char c) {
 	while(!(base.load(uart_register::lineStatus) & line_status::txReady)) {
@@ -41,7 +82,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 		
 		while(base.load(uart_register::lineStatus) & line_status::dataReady) {
 			auto c = base.load(uart_register::data);
-			printf("%c\n", c);
+			recvBuffer.push_back(c);
+			processRecv();
 		}
 	}
 }))
@@ -50,8 +92,12 @@ async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
 	throw std::runtime_error("seek not yet implemented");
 }
 
-async::result<void> read(std::shared_ptr<void> object, void *buffer, size_t length) {
-	throw std::runtime_error("read not yet implemented");
+async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
+	auto req = new ReadRequest(buffer, length);
+	recvRequests.push_back(*req);
+	auto value = req->promise.async_get();
+	processRecv();
+	return value;
 }
 
 COFIBER_ROUTINE(async::result<void>, write(std::shared_ptr<void> object,
