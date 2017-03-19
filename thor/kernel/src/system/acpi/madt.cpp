@@ -213,6 +213,10 @@ struct MadtLocalEntry {
 	uint32_t flags;
 };
 
+namespace local_flags {
+	static constexpr uint32_t enabled = 1;
+};
+
 struct MadtIoEntry {
 	MadtGenericEntry generic;
 	uint8_t ioApicId;
@@ -606,9 +610,10 @@ void bootOtherProcessors() {
 	while(offset < madt->Length) {
 		auto generic = (MadtGenericEntry *)((uint8_t *)madt + offset);
 		if(generic->type == 0) { // local APIC
-			auto entry = (MadtLocalEntry *)generic;
+			auto entry = (MadtLocalEntry *)generic;	
 			// TODO: Support BSPs with APIC ID != 0.
-			if(entry->localApicId) // We ignore the BSP here.
+			if((entry->flags & local_flags::enabled)
+					&& entry->localApicId) // We ignore the BSP here.
 				bootSecondary(entry->localApicId);
 		}
 		offset += generic->length;
@@ -629,7 +634,9 @@ void dumpMadt() {
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			frigg::infoLogger() << "    Local APIC id: "
-					<< (int)entry->localApicId << frigg::endLog;
+					<< (int)entry->localApicId
+					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
+					<< frigg::endLog;
 
 			// TODO: This has to be refactored.
 //			uint32_t id = entry->localApicId;

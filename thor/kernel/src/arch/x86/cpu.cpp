@@ -508,8 +508,11 @@ void bootSecondary(unsigned int apic_id) {
 	// Send the IPI sequence that starts up the AP.
 	frigg::infoLogger() << "thor: Booting AP " << apic_id << "." << frigg::endLog;
 	raiseInitAssertIpi(apic_id);
+	pollSleepNano(10000000); // Wait for 10ms.
 	raiseStartupIpi(apic_id, pma);
-	//raiseStartupIpi(apic_id, pma);
+	pollSleepNano(200000); // Wait for 200us.
+	raiseStartupIpi(apic_id, pma);
+	pollSleepNano(200000); // Wait for 200us.
 	
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&status_block->stage, __ATOMIC_ACQUIRE) < 1) {
