@@ -28,7 +28,7 @@ COFIBER_ROUTINE(async::result<void>, seek(std::shared_ptr<void> object,
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(async::result<void>, read(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<size_t>, read(std::shared_ptr<void> object,
 		void *buffer, size_t length), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
@@ -56,7 +56,7 @@ COFIBER_ROUTINE(async::result<void>, read(std::shared_ptr<void> object,
 			nullptr, map_offset, map_size, kHelMapReadOnly | kHelMapDontRequireBacking, &window));
 
 	memcpy(buffer, (char *)window + (chunk_offset - map_offset), chunk_size);
-	COFIBER_RETURN();
+	COFIBER_RETURN(chunk_size);
 }))
 
 async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
