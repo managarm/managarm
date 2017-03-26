@@ -7,10 +7,12 @@
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-.set statusStage, 0x1000
-.set statusPml4, 0x1004
-.set statusStack, 0x1008
-.set statusMain, 0x1010
+.set statusBlock, 0xFE0
+.set statusTargetStage, 0xFE0
+.set statusInitiatorStage, 0xFE4
+.set statusPml4, 0xFE8
+.set statusStack, 0xFF0
+.set statusMain, 0xFF8
 
 .code16
 .global trampoline
@@ -25,11 +27,11 @@ trampoline:
 	shl $4, %ebx
 
 	# Inform the BSP that we're awake.
-	movl $1, statusStage
+	movl $1, statusTargetStage
 	
 	# Wait until BSP code allows us to proceed.
 .L_spin:
-	cmp $2, statusStage
+	cmp $1, statusInitiatorStage
 	jne .L_spin
 
 	# Now we can initialize the processor and jump into kernel code.
@@ -103,7 +105,7 @@ trampoline:
 	mov %rax, %cr4
 
 	mov statusStack(%rbx), %rsp
-	lea statusStage(%rbx), %rdi
+	lea statusBlock(%rbx), %rdi
 	call *statusMain(%rbx)
 	ud2
 
