@@ -5,6 +5,8 @@
 
 namespace thor {
 
+void fiberSleep(uint64_t nanos);
+
 LaneHandle fiberOffer(LaneHandle lane);
 LaneHandle fiberAccept(LaneHandle lane);
 

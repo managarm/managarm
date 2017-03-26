@@ -1,6 +1,7 @@
 
 #include "service_helpers.hpp"
 #include "fiber.hpp"
+#include "../arch/x86/hpet.hpp"
 
 namespace thor {
 
@@ -18,6 +19,27 @@ namespace {
 	template<typename S, typename F>
 	frigg::CallbackPtr<S> wrap(F &functor) {
 		return frigg::CallbackPtr<S>(&functor, &LambdaInvoker<S, F>::invoke);
+	}
+}
+
+void fiberSleep(uint64_t nanos) {
+	auto this_fiber = thisFiber();
+	std::atomic<bool> complete{false};
+
+	auto callback = [&] () {
+		complete.store(true, std::memory_order_release);
+		this_fiber->unblock();
+	};
+
+	Timer timer{currentTicks() + durationToTicks(0, 0, 0, nanos),
+			wrap<void()>(callback)};
+	installTimer(&timer);
+
+	while(!complete.load(std::memory_order_acquire)) {
+		auto check = [&] {
+			return !complete.load(std::memory_order_relaxed);
+		};
+		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
 }
 

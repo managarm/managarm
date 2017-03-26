@@ -1,6 +1,7 @@
 
 #include "irq.hpp"
 #include "../arch/x86/ints.hpp"
+#include "../arch/x86/hpet.hpp"
 
 namespace thor {
 
@@ -60,6 +61,10 @@ void IrqPin::raise() {
 	}
 
 	_latched = relatch;
+	if(relatch) {
+		_raiseClock = currentNanos();
+		_warnedAfterPending = false;
+	}
 }
 
 void IrqPin::kick() {
@@ -92,6 +97,17 @@ void IrqPin::acknowledge() {
 	}
 
 	_latched = false;
+}
+
+void IrqPin::warnIfPending() {
+	IrqLock irq_lock{globalIrqMutex};
+	auto guard = frigg::guard(&_mutex);
+
+	if(_latched && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
+		frigg::infoLogger() << "\e[35mthor: Pending IRQ has not been acked"
+				" for more than one second.\e[39m" << frigg::endLog;
+		_warnedAfterPending = true;
+	}
 }
 
 IrqStatus IrqPin::_callSinks() {

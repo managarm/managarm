@@ -4,8 +4,10 @@
 #include <arch/mem_space.hpp>
 #include <arch/io_space.hpp>
 
+#include "generic/fiber.hpp"
 #include "generic/kernel.hpp"
 #include "generic/irq.hpp"
+#include "generic/service_helpers.hpp"
 
 namespace thor {
 
@@ -319,6 +321,15 @@ void setupIoApic(PhysicalAddr address) {
 		globalSystemIrqs[i] = pin;
 		globalIrqSlots[i]->link(pin);
 	}
+
+	KernelFiber::run([=] {
+		while(true) {
+			for(size_t i = 0; i < apic->pinCount(); ++i)
+				apic->accessPin(i)->warnIfPending();
+
+			fiberSleep(500000000);
+		}
+	});
 }
 
 /*

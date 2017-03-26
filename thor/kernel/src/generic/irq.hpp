@@ -113,6 +113,8 @@ public:
 
 	void acknowledge();
 
+	void warnIfPending();
+
 protected:
 	virtual IrqStrategy program(TriggerMode mode, Polarity polarity) = 0;
 
@@ -129,6 +131,11 @@ private:
 
 	IrqStrategy _strategy;
 	bool _latched;
+	bool _warnedAfterPending;
+
+	// Timestamp of the last acknowledge() operation.
+	// Relative to currentNanos().
+	uint64_t _raiseClock;
 
 	// TODO: This list should change rarely. Use a RCU list.
 	frg::intrusive_list<
