@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <linux/input.h>
 #include <netinet/in.h> // FIXME: for testing
 #include <sched.h>
 #include <stdio.h>
@@ -50,7 +51,33 @@ int main() {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 */
+	auto kbd = fork();
+	if(!kbd) {
+		execve("/initrd/kbd", args.data(), envp);
+	}else assert(kbd != -1);
 
+	// Spin until /dev/event0 becomes available.
+	while(access("/dev/event0", F_OK)) {
+		assert(errno == ENOENT);
+		for(int i = 0; i < 100; i++)
+			sched_yield();
+	}
+
+	// dump input events
+	const char *path = "/dev/event0";
+	int file = open(path, 0);
+	assert(!(file == -1));
+
+	while(true) {
+		input_event event;
+		size_t read_bytes = read(file, &event, sizeof(input_event));
+		assert(!(read_bytes == -1));
+		
+		printf("code: %i\n", event.code);
+		printf("val: %i\n", event.value);
+	}
+
+	// UART
 	auto uart = fork();
 	if(!uart) {
 		execve("/initrd/uart", args.data(), envp);

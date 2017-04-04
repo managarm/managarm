@@ -793,8 +793,10 @@ void initializeExtendedSystem() {
 	// and that SCI is routed to IRQ 9.
 	frigg::infoLogger() << "thor: Configuring ISA IRQs." << frigg::endLog;
 	commitIrq(resolveIrq(0));
+	commitIrq(resolveIrq(1));
 	commitIrq(resolveIrq(4));
 	commitIrq(resolveIrq(9));
+	commitIrq(resolveIrq(12));
 	
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));

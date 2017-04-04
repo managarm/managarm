@@ -1,27 +1,84 @@
 
+#include <algorithm>
+#include <deque>
+#include <iostream>
+
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <unistd.h>
+#include <linux/input.h>
 
-#include <string>
-#include <vector>
+#include <arch/bits.hpp>
+#include <arch/register.hpp>
+#include <arch/io_space.hpp>
+#include <async/result.hpp>
+#include <boost/intrusive/list.hpp>
+#include <cofiber.hpp>
+#include <helix/ipc.hpp>
+#include <helix/await.hpp>
+#include <protocols/fs/server.hpp>
+#include <protocols/mbus/client.hpp>
 
-#include <helx.hpp>
+#include "spec.hpp"
+#include "fs.pb.h"
 
-#include <frigg/arch_x86/machine.hpp>
-#include <bragi/mbus.hpp>
-#include <input.pb.h>
-#include <libchain/all.hpp>
+arch::io_space base;
 
-helx::EventHub eventHub = helx::EventHub::create();
-bragi_mbus::Connection mbusConnection(eventHub);
-helx::Irq kbdIrq, mouseIrq;
+// --------------------------------------------
+// Keyboard
+// --------------------------------------------
 
-// --------------------------------------------------------
+helix::UniqueIrq kbdIrq;
+
+enum KeyboardStatus {
+	kStatusNormal = 1,
+	kStatusE0 = 2,
+	kStatusE1First = 3,
+	kStatusE1Second = 4
+};
+
+KeyboardStatus escapeStatus = kStatusNormal;
+uint8_t e1Buffer;
+
+struct Event {
+	Event(int code, bool pressed)
+	: code(code), pressed(pressed) { }
+
+	int code;
+	bool pressed;
+	boost::intrusive::list_member_hook<> hook;
+};
+boost::intrusive::list<
+	Event,
+	boost::intrusive::member_hook<
+		Event,
+		boost::intrusive::list_member_hook<>,
+		&Event::hook
+	>
+> events;
+
+struct ReadRequest {
+	ReadRequest(void *buffer, size_t maxLength)
+	: buffer(buffer), maxLength(maxLength) { }
+
+	void *buffer;
+	size_t maxLength;
+	async::promise<size_t> promise;
+	boost::intrusive::list_member_hook<> hook;
+};
+boost::intrusive::list<
+	ReadRequest,
+	boost::intrusive::member_hook<
+		ReadRequest,
+		boost::intrusive::list_member_hook<>,
+		&ReadRequest::hook
+	>
+> requests;
+
+// --------------------------------------------
 // Mouse
-// --------------------------------------------------------
+// --------------------------------------------
+
+helix::UniqueIrq mouseIrq;
 
 enum MouseState {
 	kMouseData,
@@ -36,298 +93,182 @@ enum MouseByte {
 
 MouseState mouseState = kMouseData;
 MouseByte mouseByte = kMouseByte0;
-uint8_t byte0 = 0;
-uint8_t byte1 = 0;
 
-std::vector<helx::Pipe> mouseServerPipes;
+// --------------------------------------------
+// Functions
+// --------------------------------------------
 
-void handleMouseData(uint8_t data) {
-	if(mouseState == kMouseWaitForAck) {
-		assert(data == 0xFA);
-		mouseState = kMouseData;
-	}else{
-		assert(mouseState == kMouseData);
-
-		if(mouseByte == kMouseByte0) {
-			if(data == 0xFA) { // acknowledge
-				// do nothing for now
-			}else{
-				byte0 = data;
-				assert(byte0 & 8);
-				mouseByte = kMouseByte1;
-			}
-		}else if(mouseByte == kMouseByte1) {
-			byte1 = data;
-			mouseByte = kMouseByte2;
-		}else{
-			assert(mouseByte == kMouseByte2);
-			uint8_t byte2 = data;
-			if(byte0 & 4) {
-				printf("MMB\n");
-			}
-			if(byte0 & 2) {
-				printf("RMB\n");
-			}
-			if(byte0 & 1) {
-				printf("LMB\n");
-			}
-			
-			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
-			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
-			
-			for(unsigned int i = 0; i < mouseServerPipes.size(); i++) {
-				managarm::input::ServerRequest request;
-				request.set_request_type(managarm::input::RequestType::MOVE);
-				request.set_x(movement_x);
-				request.set_y(movement_y);
-
-				std::string serialized;
-				request.SerializeToString(&serialized);
-
-				printf("[drivers/kbd/src/main] handleMouseData sendStringReq\n");
-				auto action = mouseServerPipes[i].sendStringReq(serialized.data(), serialized.size(),
-					eventHub, 0, 0)
-				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
-				libchain::run(frigg::move(action)); 
-			}
-			
-			mouseByte = kMouseByte0;
-		}
-	}
+void sendByte(uint8_t data) {
+	//base.store(kbd_register::command, write2ndNextByte);
+	base.store(kbd_register::command, 0xD4);
+	while(base.load(kbd_register::status) & status_bits::inBufferStatus) { };
+	base.store(kbd_register::data, data);
 }
 
-// --------------------------------------------------------
-// Keyboard
-// --------------------------------------------------------
-
-enum KeyboardStatus {
-	kStatusNormal,
-	kStatusE0,
-	kStatusE1First,
-	kStatusE1Second
-};
-
-KeyboardStatus escapeStatus = kStatusNormal;
-uint8_t e1Buffer;
-
-// numlock and capslock state
-bool numState, capsState;
-
-std::vector<helx::Pipe> kbdServerPipes;
-
-void updateLed() {
-	uint8_t led = 0;
-	if(numState)
-		led |= 1;
-	if(capsState)
-		led |= 2;
-
-	frigg::arch_x86::ioOutByte(0x60, 0xED);
-	while(!(frigg::arch_x86::ioInByte(0x60) == 0xFA)) {	};
-	frigg::arch_x86::ioOutByte(0x60, led);
-}
-
-std::string scanNormal(uint8_t data) {
+int scanNormal(uint8_t data) {
 	switch(data) {
-		case 0x01: return "Escape";
-		case 0x02: return "Digit1";
-		case 0x03: return "Digit2";
-		case 0x04: return "Digit3";
-		case 0x05: return "Digit4";
-		case 0x06: return "Digit5";
-		case 0x07: return "Digit6";
-		case 0x08: return "Digit7";
-		case 0x09: return "Digit8";
-		case 0x0A: return "Digit9";
-		case 0x0B: return "Digit0";
-		case 0x0C: return "Minus";
-		case 0x0D: return "Equal";
-		case 0x0E: return "Backspace";
-		case 0x0F: return "Tab";
-		case 0x10: return "KeyQ";
-		case 0x11: return "KeyW";
-		case 0x12: return "KeyE";
-		case 0x13: return "KeyR";
-		case 0x14: return "KeyT";
-		case 0x15: return "KeyY";
-		case 0x16: return "KeyU";
-		case 0x17: return "KeyI";
-		case 0x18: return "KeyO";
-		case 0x19: return "KeyP";
-		case 0x1A: return "BracketLeft";
-		case 0x1B: return "BracketRight";
-		case 0x1C: return "Enter";
-		case 0x1D: return "ControlLeft";
-		case 0x1E: return "KeyA";
-		case 0x1F: return "KeyS";
-		case 0x20: return "KeyD";
-		case 0x21: return "KeyF";
-		case 0x22: return "KeyG";
-		case 0x23: return "KeyH";
-		case 0x24: return "KeyJ";
-		case 0x25: return "KeyK";
-		case 0x26: return "KeyL";
-		case 0x27: return "Semicolon";
-		case 0x28: return "Quote";
-		case 0x29: return "Backquote";
-		case 0x2A: return "ShiftLeft";
-		case 0x2B: return "IntlHash";
-		case 0x2C: return "KeyZ";
-		case 0x2D: return "KeyX";
-		case 0x2E: return "KeyC";
-		case 0x2F: return "KeyV";
-		case 0x30: return "KeyB";
-		case 0x31: return "KeyN";
-		case 0x32: return "KeyM";
-		case 0x33: return "Comma";
-		case 0x34: return "Period";
-		case 0x35: return "Slash";
-		case 0x36: return "ShiftRight";
-		case 0x37: return "NumpadMultiply";
-		case 0x38: return "AltLeft";
-		case 0x39: return "Space";
-		case 0x3A: return "CapsLock";
-		case 0x3B: return "F1";
-		case 0x3C: return "F2";
-		case 0x3D: return "F3";
-		case 0x3E: return "F4";
-		case 0x3F: return "F5";
-		case 0x40: return "F6";
-		case 0x41: return "F7";
-		case 0x42: return "F8";
-		case 0x43: return "F9";
-		case 0x44: return "F10";
-		case 0x45: return "NumLock";
-		case 0x46: return "ScrollLock";
-		case 0x47: return "Numpad7";
-		case 0x48: return "Numpad8";
-		case 0x49: return "Numpad9";
-		case 0x4A: return "NumpadSubtract";
-		case 0x4B: return "Numpad4";
-		case 0x4C: return "Numpad5";
-		case 0x4D: return "Numpad6";
-		case 0x4E: return "NumpadAdd";
-		case 0x4F: return "Numpad1";
-		case 0x50: return "Numpad2";
-		case 0x51: return "Numpad3";
-		case 0x52: return "Numpad0";
-		case 0x53: return "NumpadDecimal";
-		case 0x56: return "IntlBackslash";
-		case 0x57: return "F11";
-		case 0x58: return "F12";
-		default: return "Unknown";
+		case 0x01: return KEY_ESC;
+		case 0x02: return KEY_1;
+		case 0x03: return KEY_2;
+		case 0x04: return KEY_3;
+		case 0x05: return KEY_4;
+		case 0x06: return KEY_5;
+		case 0x07: return KEY_6;
+		case 0x08: return KEY_7;
+		case 0x09: return KEY_8;
+		case 0x0A: return KEY_9;
+		case 0x0B: return KEY_0;
+		case 0x0C: return KEY_MINUS;
+		case 0x0D: return KEY_EQUAL;
+		case 0x0E: return KEY_BACKSPACE;
+		case 0x0F: return KEY_TAB;
+		case 0x10: return KEY_Q;
+		case 0x11: return KEY_W;
+		case 0x12: return KEY_E;
+		case 0x13: return KEY_R;
+		case 0x14: return KEY_T;
+		case 0x15: return KEY_Y;
+		case 0x16: return KEY_U;
+		case 0x17: return KEY_I;
+		case 0x18: return KEY_O;
+		case 0x19: return KEY_P;
+		case 0x1A: return KEY_LEFTBRACE;
+		case 0x1B: return KEY_RIGHTBRACE;
+		case 0x1C: return KEY_ENTER;
+		case 0x1D: return KEY_LEFTCTRL;
+		case 0x1E: return KEY_A;
+		case 0x1F: return KEY_S;
+		case 0x20: return KEY_D;
+		case 0x21: return KEY_F;
+		case 0x22: return KEY_G;
+		case 0x23: return KEY_H;
+		case 0x24: return KEY_J;
+		case 0x25: return KEY_K;
+		case 0x26: return KEY_L;
+		case 0x27: return KEY_SEMICOLON;
+		case 0x28: return KEY_APOSTROPHE;
+		case 0x29: return KEY_GRAVE;
+		case 0x2A: return KEY_LEFTSHIFT;
+		case 0x2B: return KEY_BACKSLASH;
+		case 0x2C: return KEY_Z;
+		case 0x2D: return KEY_X;
+		case 0x2E: return KEY_C;
+		case 0x2F: return KEY_V;
+		case 0x30: return KEY_B;
+		case 0x31: return KEY_N;
+		case 0x32: return KEY_M;
+		case 0x33: return KEY_COMMA;
+		case 0x34: return KEY_DOT;
+		case 0x35: return KEY_SLASH;
+		case 0x36: return KEY_RIGHTSHIFT;
+		case 0x37: return KEY_KPASTERISK;
+		case 0x38: return KEY_LEFTALT;
+		case 0x39: return KEY_SPACE;
+		case 0x3A: return KEY_CAPSLOCK;
+		case 0x3B: return KEY_F1;
+		case 0x3C: return KEY_F2;
+		case 0x3D: return KEY_F3;
+		case 0x3E: return KEY_F4;
+		case 0x3F: return KEY_F5;
+		case 0x40: return KEY_F6;
+		case 0x41: return KEY_F7;
+		case 0x42: return KEY_F8;
+		case 0x43: return KEY_F9;
+		case 0x44: return KEY_F10;
+		case 0x45: return KEY_NUMLOCK;
+		case 0x46: return KEY_SCROLLLOCK;
+		case 0x47: return KEY_KP7;
+		case 0x48: return KEY_KP8;
+		case 0x49: return KEY_KP9;
+		case 0x4A: return KEY_KPMINUS;
+		case 0x4B: return KEY_KP4;
+		case 0x4C: return KEY_KP5;
+		case 0x4D: return KEY_KP6;
+		case 0x4E: return KEY_KPPLUS;
+		case 0x4F: return KEY_KP1;
+		case 0x50: return KEY_KP2;
+		case 0x51: return KEY_KP3;
+		case 0x52: return KEY_KP0;
+		case 0x53: return KEY_KPDOT;
+		case 0x57: return KEY_F11;
+		case 0x58: return KEY_F12;
+		default: return KEY_RESERVED;
 	}
 }
 
-std::string scanE0(uint8_t data) {
+int scanE0(uint8_t data) {
 	switch(data) {
-	case 0x1C: return "NumpadEnter";
-	case 0x1D: return "ControlRight";
-	case 0x35: return "NumpadDivide";
-	case 0x37: return "PrintScreen";
-	case 0x38: return "AltRight";
-	case 0x47: return "Home";
-	case 0x48: return "ArrowUp";
-	case 0x49: return "PageUp";
-	case 0x4B: return "ArrowLeft";
-	case 0x4D: return "ArrowRight";
-	case 0x4F: return "End";
-	case 0x50: return "ArrowDown";
-	case 0x51: return "PageDown";
-	case 0x52: return "Insert";
-	case 0x53: return "Delete";
-	case 0x5B: return "OSLeft";
-	case 0x5C: return "OSRight";
-	case 0x5D: return "ContextMenu";
-	default: return "Unknown";
+		case 0x1C: return KEY_KPENTER;
+		case 0x1D: return KEY_RIGHTCTRL;
+		case 0x35: return KEY_KPSLASH;
+		case 0x37: return KEY_SYSRQ;
+		case 0x38: return KEY_RIGHTALT;
+		case 0x47: return KEY_HOME;
+		case 0x48: return KEY_UP;
+		case 0x49: return KEY_PAGEUP;
+		case 0x4B: return KEY_LEFT;
+		case 0x4D: return KEY_RIGHT;
+		case 0x4F: return KEY_END;
+		case 0x50: return KEY_DOWN;
+		case 0x51: return KEY_PAGEDOWN;
+		case 0x52: return KEY_INSERT;
+		case 0x53: return KEY_DELETE;
+		case 0x5B: return KEY_LEFTMETA;
+		case 0x5C: return KEY_RIGHTMETA;
+		case 0x5D: return KEY_COMPOSE;
+		default: return KEY_RESERVED;
 	}
 }
 
-std::string scanE1(uint8_t data1, uint8_t data2) {
+int scanE1(uint8_t data1, uint8_t data2) {
 	if((data1 & 0x7F) == 0x1D && (data2 & 0X7F) == 0x45){
-		return "Pause";
+		return KEY_PAUSE;
 	}else{
-		return "Unknown";
+		return KEY_RESERVED;
 	}
 }
 
-void keyAction(std::string code, bool pressed) {
-	if(pressed && code == "NumLock") {
-		numState = !numState;
-
-		for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-			auto action = libchain::compose([=] (std::string *serialized) {
-				managarm::input::ServerRequest request;
-				request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
-				request.set_state(numState);
-				request.set_code(code);
-			
-				request.SerializeToString(serialized);
-
-				printf("[drivers/kbd/src/main] keyAction sendStringReq1\n");
-				return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
-						eventHub, 0, 0)
-				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
-			}, std::string());
-			libchain::run(frigg::move(action));
-		}
-	}else if(pressed && code == "CapsLock") {
-		capsState = !capsState;
-
-		for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-			auto action = libchain::compose([=] (std::string *serialized) {
-				managarm::input::ServerRequest request;
-				request.set_request_type(managarm::input::RequestType::CHANGE_STATE);
-				request.set_state(capsState);
-				request.set_code(code);
-			
-				request.SerializeToString(serialized);
-				
-				printf("[drivers/kbd/src/main] keyAction sendStringReq2\n");
-				return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
-						eventHub, 0, 0)
-				+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
-			}, std::string());
-			libchain::run(frigg::move(action));
-		}
-	}
+void processEvents() {
+	while(!requests.empty() && !events.empty()) {
+		auto req = &requests.front();
+		auto event = &events.front();
 	
-	for(unsigned int i = 0; i < kbdServerPipes.size(); i++) {
-		auto action = libchain::compose([=] (std::string *serialized) {
-			managarm::input::ServerRequest request;
-			
-			if(pressed) {
-				request.set_request_type(managarm::input::RequestType::DOWN);
-			}else{	
-				request.set_request_type(managarm::input::RequestType::UP);
-			}
-			request.set_code(code);
-			
-			request.SerializeToString(serialized);
-			
-			return kbdServerPipes[i].sendStringReq(serialized->data(), serialized->size(),
-					eventHub, 0, 0)
-			+ libchain::lift([=] (HelError error) { HEL_CHECK(error); });
-		}, std::string());
-		libchain::run(frigg::move(action));
+		// TODO: fill in timeval 
+		input_event data;
+		data.type = EV_KEY;
+		data.code = event->code;
+		if(event->pressed) {
+			data.value = 1;
+		}else{
+			data.value = 0;
+		}
+		assert(req->maxLength == sizeof(input_event));
+		memcpy(req->buffer, &data, sizeof(input_event));	
+		req->promise.set_value(sizeof(input_event));
+		
+		requests.pop_front();
+		events.pop_front();
+		delete req;
+		delete event;
 	}
-
-	//updateLed();
 }
 
 void handleKeyboardData(uint8_t data) {
-	std::string code;
 	if(escapeStatus == kStatusE1First) {
 		e1Buffer = data;
 
 		escapeStatus = kStatusE1Second;
 	}else if(escapeStatus == kStatusE1Second) {
 		assert((e1Buffer & 0x80) == (data & 0x80));
-		keyAction(scanE1(e1Buffer & 0x7F, data & 0x7F), !(data & 0x80));
+		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
+		events.push_back(*event);
+		processEvents();
 
 		escapeStatus = kStatusNormal;
 	}else if(escapeStatus == kStatusE0) {
-		keyAction(scanE0(data & 0x7F), !(data & 0x80));
+		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
+		events.push_back(*event);
+		processEvents();
 
 		escapeStatus = kStatusNormal;
 	}else{
@@ -341,167 +282,176 @@ void handleKeyboardData(uint8_t data) {
 			return;
 		}
 		
-		keyAction(scanNormal(data & 0x7F), !(data & 0x80));
+		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
+		events.push_back(*event);
+		processEvents();
 	}
-	
-}
-
-// --------------------------------------------------------
-// Controller
-// --------------------------------------------------------
-
-void sendByte(uint8_t data) {
-	frigg::arch_x86::ioOutByte(0x64, 0xD4);
-	while(frigg::arch_x86::ioInByte(0x64) & 0x02) { };
-	frigg::arch_x86::ioOutByte(0x60, data);
 }
 
 void readDeviceData() {
-	uint8_t status = frigg::arch_x86::ioInByte(0x64);
+	uint8_t status = base.load(kbd_register::command);
 	if(!(status & 0x01))
 		return;
 	
-	uint8_t data = frigg::arch_x86::ioInByte(0x60);
-	if(status & 0x20) {
+	uint8_t data = base.load(kbd_register::data);
+	/*if(status & 0x20) {
 		handleMouseData(data);
-	}else{
-		handleKeyboardData(data);
+	}else{*/
+	handleKeyboardData(data);
+	/*}*/
+}
+
+COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {	
+	while(true) {
+		helix::AwaitIrq await_irq;
+		auto &&submit = helix::submitAwaitIrq(kbdIrq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
+		HEL_CHECK(await_irq.error());
+		
+		readDeviceData();
 	}
+}))
+
+async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
+	throw std::runtime_error("seek not yet implemented");
 }
 
-void onMouseInterrupt(void * object, HelError error) {
-	HEL_CHECK(error);
-
-	readDeviceData();
-
-//	HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle()));
-	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
+async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
+	auto req = new ReadRequest(buffer, length);
+	requests.push_back(*req);
+	auto value = req->promise.async_get();
+	processEvents();
+	return value;
 }
 
-void onKbdInterrupt(void * object, HelError error) {
-	HEL_CHECK(error);
-
-	readDeviceData();
-
-//	HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle()));
-	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
+async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+	throw std::runtime_error("write not yet implemented");
 }
 
-// --------------------------------------------------------
-// ObjectHandler
-// --------------------------------------------------------
+async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object) {
+	throw std::runtime_error("accessMemory not yet implemented");
+}
 
-bragi_mbus::ObjectId kbdObjectId;
-bragi_mbus::ObjectId mouseObjectId;
-
-struct ObjectHandler : public bragi_mbus::ObjectHandler {
-	// inherited from bragi_mbus::ObjectHandler
-	void requireIf(bragi_mbus::ObjectId object_id,
-			frigg::CallbackPtr<void(HelHandle)> callback);
+constexpr protocols::fs::FileOperations fileOperations {
+	&seek,
+	&read,
+	&write,
+	&accessMemory
 };
 
-void ObjectHandler::requireIf(bragi_mbus::ObjectId object_id,
-		frigg::CallbackPtr<void(HelHandle)> callback) {
-	helx::Pipe server_side, client_side;
-	helx::Pipe::createFullPipe(server_side, client_side);
-	callback(client_side.getHandle());
-	client_side.reset();
+COFIBER_ROUTINE(cofiber::no_future, serveKbd(helix::UniqueLane p),
+		([lane = std::move(p)] {
+	std::cout << "unix device: Connection" << std::endl;
 
-	if(object_id == kbdObjectId) {
-		kbdServerPipes.push_back(std::move(server_side));
-	}else{
-		assert(object_id == mouseObjectId);
-		mouseServerPipes.push_back(std::move(server_side));
-		printf("mouse client connected\n");
+	while(true) {
+		helix::Accept accept;
+		helix::RecvInline recv_req;
+
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
+		COFIBER_AWAIT header.async_wait();
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+		
+		auto conversation = accept.descriptor();
+		
+		managarm::fs::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
+			
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			protocols::fs::servePassthrough(std::move(local_lane), nullptr,
+					&fileOperations);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_node, remote_lane));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		}else{
+			throw std::runtime_error("Invalid serveTerminal request!");
+		}
 	}
-}
+}))
 
-ObjectHandler objectHandler;
+COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
+	// Create an mbus object for the partition.
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	std::unordered_map<std::string, std::string> descriptor {
+		{ "unix.devtype", "block" },
+		{ "unix.devname", "event0" },
+	};
+	auto object = COFIBER_AWAIT root.createObject("kbd", descriptor,
+			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		serveKbd(std::move(local_lane));
 
-// --------------------------------------------------------
-// InitClosure
-// --------------------------------------------------------
-
-struct InitClosure : public frigg::BaseClosure<InitClosure> {
-	void operator() ();
-
-private:
-	void connected();
-	void registeredKbd(bragi_mbus::ObjectId object_id);
-	void registeredMouse(bragi_mbus::ObjectId object_id);
-};
-
-void InitClosure::operator() () {
-	mbusConnection.connect(CALLBACK_MEMBER(this, &InitClosure::connected));
-}
-
-void InitClosure::connected() {
-	mbusConnection.registerObject("keyboard",
-			CALLBACK_MEMBER(this, &InitClosure::registeredKbd));
-	mbusConnection.registerObject("mouse",
-			CALLBACK_MEMBER(this, &InitClosure::registeredMouse));
-}
-
-void InitClosure::registeredKbd(bragi_mbus::ObjectId object_id) {
-	kbdObjectId = object_id;
-}
-
-void InitClosure::registeredMouse(bragi_mbus::ObjectId object_id) {
-	mouseObjectId = object_id;
-}
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+}))
 
 int main() {
 	printf("Starting ps/2\n");
-	kbdIrq = helx::Irq::access(1);
-	mouseIrq = helx::Irq::access(12);
-
-//	HEL_CHECK(helSetupIrq(kbdIrq.getHandle(), kHelIrqExclusive | kHelIrqManualAcknowledge));
-//	HEL_CHECK(helSetupIrq(mouseIrq.getHandle(), kHelIrqExclusive | kHelIrqManualAcknowledge));
 	
-	uintptr_t ports[] = { 0x60, 0x64 };
+	HelHandle kbd_handle;
+	HEL_CHECK(helAccessIrq(1, &kbd_handle));
+	kbdIrq = helix::UniqueIrq(kbd_handle);
+	
+	HelHandle mouse_handle;
+	HEL_CHECK(helAccessIrq(12, &mouse_handle));
+	mouseIrq = helix::UniqueIrq(mouse_handle);
+	
+	uintptr_t ports[] = { DATA, STATUS };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 2, &handle));
 	HEL_CHECK(helEnableIo(handle));
 
-	kbdIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onKbdInterrupt));
-	mouseIrq.wait(eventHub, CALLBACK_STATIC(nullptr, &onMouseInterrupt));
+	base = arch::global_io.subspace(DATA);
 
 	// disable both devices
-	frigg::arch_x86::ioOutByte(0x64, 0xAD);
-	frigg::arch_x86::ioOutByte(0x64, 0xA7);
+	base.store(kbd_register::command, disable1stPort);
+	base.store(kbd_register::command, disable2ndPort);
 
 	// flush the output buffer
-	while(frigg::arch_x86::ioInByte(0x64) & 0x01)
-		frigg::arch_x86::ioInByte(0x60);
+	while(base.load(kbd_register::status) & status_bits::outBufferStatus)
+		base.load(kbd_register::data);
 
 	// enable interrupt for second device
-	frigg::arch_x86::ioOutByte(0x64, 0x20);
-	uint8_t configuration = frigg::arch_x86::ioInByte(0x60);
+	base.store(kbd_register::command, readByte0);
+	uint8_t configuration = base.load(kbd_register::data);
 	configuration |= 0x02;
-	frigg::arch_x86::ioOutByte(0x64, 0x60);
-	frigg::arch_x86::ioOutByte(0x60, configuration);
+	base.store(kbd_register::command, writeByte0);
+	base.store(kbd_register::data, configuration);
 
 	// enable both devices
-	frigg::arch_x86::ioOutByte(0x64, 0xAE);
-	frigg::arch_x86::ioOutByte(0x64, 0xA8);
+	base.store(kbd_register::command, enable1stPort);
+	base.store(kbd_register::command, enable2ndPort);
 
 	// enables mouse response
 	sendByte(0xF4);
 	mouseState = kMouseWaitForAck;
 
-	mbusConnection.setObjectHandler(&objectHandler);
-	auto closure = new InitClosure();
-	(*closure)();
-	
-	pid_t child = fork();
-	assert(child != -1);
-	if(!child) {
-//		execve("/usr/bin/bochs_vga", nullptr, nullptr);
-		execve("/usr/bin/vga_terminal", nullptr, nullptr);
-	}
+	runKbd();
+
+	handleIrqs();
 	
 	while(true) {
-		eventHub.defaultProcessEvents();
+		helix::Dispatcher::global().dispatch();
 	}
+
+	return 0;
 }
 
