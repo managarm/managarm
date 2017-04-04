@@ -4,6 +4,7 @@
 #include <arch/io_space.hpp>
 
 #include "generic/kernel.hpp"
+#include "generic/service_helpers.hpp"
 
 namespace thor {
 
@@ -508,14 +509,14 @@ void bootSecondary(unsigned int apic_id) {
 	// The BIOS is not involved in this process at all.
 	frigg::infoLogger() << "thor: Booting AP " << apic_id << "." << frigg::endLog;
 	raiseInitAssertIpi(apic_id);
-	pollSleepNano(10000000); // Wait for 10ms.
+	fiberSleep(10000000); // Wait for 10ms.
 
 	// SIPI causes the processor to resume execution and resets CS:IP.
 	// Intel suggets to send two SIPIs (probably for redundancy reasons).
 	raiseStartupIpi(apic_id, pma);
-	pollSleepNano(200000); // Wait for 200us.
+	fiberSleep(200000); // Wait for 200us.
 	raiseStartupIpi(apic_id, pma);
-	pollSleepNano(200000); // Wait for 200us.
+	fiberSleep(200000); // Wait for 200us.
 	
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&status_block->targetStage, __ATOMIC_ACQUIRE) < 1) {
