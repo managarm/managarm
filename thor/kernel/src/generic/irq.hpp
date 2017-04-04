@@ -3,8 +3,10 @@
 
 #include <frigg/debug.hpp>
 #include <frigg/linked.hpp>
+#include <frigg/string.hpp>
 #include <frg/list.hpp>
 #include "error.hpp"
+#include "kernel_heap.hpp"
 
 namespace thor {
 
@@ -98,7 +100,7 @@ private:
 	using Mutex = frigg::TicketLock;
 
 public:
-	IrqPin();
+	IrqPin(frigg::String<KernelAlloc> name);
 
 	IrqPin(const IrqPin &) = delete;
 	
@@ -126,6 +128,8 @@ protected:
 
 private:
 	IrqStatus _callSinks();
+
+	frigg::String<KernelAlloc> _name;
 
 	Mutex _mutex;
 

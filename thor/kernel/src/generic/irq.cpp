@@ -30,8 +30,8 @@ IrqPin *IrqSink::getPin() {
 	return _pin;
 }
 
-IrqPin::IrqPin()
-: _strategy{IrqStrategy::null} { }
+IrqPin::IrqPin(frigg::String<KernelAlloc> name)
+: _name{std::move(name)}, _strategy{IrqStrategy::null} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	IrqLock irq_lock{globalIrqMutex};
@@ -104,7 +104,7 @@ void IrqPin::warnIfPending() {
 	auto guard = frigg::guard(&_mutex);
 
 	if(_latched && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
-		frigg::infoLogger() << "\e[35mthor: Pending IRQ has not been acked"
+		frigg::infoLogger() << "\e[35mthor: Pending IRQ " << _name << " has not been acked"
 				" for more than one second.\e[39m" << frigg::endLog;
 		_warnedAfterPending = true;
 	}
@@ -112,7 +112,8 @@ void IrqPin::warnIfPending() {
 
 IrqStatus IrqPin::_callSinks() {
 	if(_sinkList.empty())
-		frigg::infoLogger() << "\e[35mthor: No sink for IRQ\e[39m" << frigg::endLog;
+		frigg::infoLogger() << "\e[35mthor: No sink for IRQ "
+				<< _name << "\e[39m" << frigg::endLog;
 
 	auto status = irq_status::null;
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)

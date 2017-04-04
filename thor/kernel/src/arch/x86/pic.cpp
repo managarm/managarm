@@ -224,8 +224,13 @@ namespace {
 		Pin **_pins;
 	};
 
+	static frigg::String<KernelAlloc> buildName(unsigned int index) {
+		return frigg::String<KernelAlloc>{*kernelAlloc, "io-apic."}
+				+ frigg::to_string(*kernelAlloc, index);
+	}
+
 	IoApic::Pin::Pin(IoApic *chip, unsigned int index)
-	: _chip{chip}, _index{index} { }
+	: IrqPin{buildName(index)}, _chip{chip}, _index{index} { }
 
 	IrqStrategy IoApic::Pin::program(TriggerMode mode, Polarity polarity) {
 		IrqStrategy strategy;
