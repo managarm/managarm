@@ -64,7 +64,7 @@ int main() {
 	}
 
 	// dump input events
-	const char *path = "/dev/event0";
+	const char *path = "/dev/event1";
 	int file = open(path, 0);
 	assert(!(file == -1));
 
@@ -73,8 +73,10 @@ int main() {
 		size_t read_bytes = read(file, &event, sizeof(input_event));
 		assert(!(read_bytes == -1));
 		
+		printf("type: %i\n", event.type);
 		printf("code: %i\n", event.code);
 		printf("val: %i\n", event.value);
+		printf("-----------\n");
 	}
 
 	// UART

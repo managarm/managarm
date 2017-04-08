@@ -24,6 +24,151 @@
 arch::io_space base;
 
 // --------------------------------------------
+// Keyboard & Mouse
+// --------------------------------------------
+
+struct Event {
+	Event(int type, int code, int value)
+	: type(type), code(code), value(value) { }
+
+	int type;
+	int code;
+	int value;
+	boost::intrusive::list_member_hook<> hook;
+};
+
+struct ReadRequest {
+	ReadRequest(void *buffer, size_t maxLength)
+	: buffer(buffer), maxLength(maxLength) { }
+
+	void *buffer;
+	size_t maxLength;
+	async::promise<size_t> promise;
+	boost::intrusive::list_member_hook<> hook;
+};
+
+struct EventDevice {
+	void processEvents();
+
+	boost::intrusive::list<
+		Event,
+		boost::intrusive::member_hook<
+			Event,
+			boost::intrusive::list_member_hook<>,
+			&Event::hook
+		>
+	> events;
+
+	boost::intrusive::list<
+		ReadRequest,
+		boost::intrusive::member_hook<
+			ReadRequest,
+			boost::intrusive::list_member_hook<>,
+			&ReadRequest::hook
+		>
+	> requests;
+};
+
+std::shared_ptr<EventDevice> kbdEvntDev = std::make_shared<EventDevice>();
+std::shared_ptr<EventDevice> mouseEvntDev = std::make_shared<EventDevice>();
+
+
+async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
+	throw std::runtime_error("seek not yet implemented");
+}
+
+async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
+	std::shared_ptr<EventDevice> device = std::static_pointer_cast<EventDevice>(object);
+	
+	auto req = new ReadRequest(buffer, length);
+	device->requests.push_back(*req);
+	auto value = req->promise.async_get();
+	device->processEvents();
+	return value;
+}
+
+async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+	throw std::runtime_error("write not yet implemented");
+}
+
+async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object) {
+	throw std::runtime_error("accessMemory not yet implemented");
+}
+
+constexpr protocols::fs::FileOperations fileOperations {
+	&seek,
+	&read,
+	&write,
+	&accessMemory
+};
+
+COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
+		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		helix::Accept accept;
+		helix::RecvInline recv_req;
+
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
+		COFIBER_AWAIT header.async_wait();
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+		
+		auto conversation = accept.descriptor();
+		
+		managarm::fs::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
+			
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			protocols::fs::servePassthrough(std::move(local_lane), device,
+					&fileOperations);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_node, remote_lane));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		}else{
+			throw std::runtime_error("Invalid serveDevice request!");
+		}
+	}
+}))
+
+void EventDevice::processEvents() {
+	while(!requests.empty() && !events.empty()) {
+		auto req = &requests.front();
+		auto event = &events.front();
+	
+		// TODO: fill in timeval 
+		input_event data;
+		data.type = event->type;	
+		data.code = event->code;
+		data.value = event->value;
+
+		assert(req->maxLength == sizeof(input_event));
+		memcpy(req->buffer, &data, sizeof(input_event));	
+		req->promise.set_value(sizeof(input_event));
+		
+		requests.pop_front();
+		events.pop_front();
+		delete req;
+		delete event;
+	}
+}
+	
+// --------------------------------------------
 // Keyboard
 // --------------------------------------------
 
@@ -38,41 +183,6 @@ enum KeyboardStatus {
 
 KeyboardStatus escapeStatus = kStatusNormal;
 uint8_t e1Buffer;
-
-struct Event {
-	Event(int code, bool pressed)
-	: code(code), pressed(pressed) { }
-
-	int code;
-	bool pressed;
-	boost::intrusive::list_member_hook<> hook;
-};
-boost::intrusive::list<
-	Event,
-	boost::intrusive::member_hook<
-		Event,
-		boost::intrusive::list_member_hook<>,
-		&Event::hook
-	>
-> events;
-
-struct ReadRequest {
-	ReadRequest(void *buffer, size_t maxLength)
-	: buffer(buffer), maxLength(maxLength) { }
-
-	void *buffer;
-	size_t maxLength;
-	async::promise<size_t> promise;
-	boost::intrusive::list_member_hook<> hook;
-};
-boost::intrusive::list<
-	ReadRequest,
-	boost::intrusive::member_hook<
-		ReadRequest,
-		boost::intrusive::list_member_hook<>,
-		&ReadRequest::hook
-	>
-> requests;
 
 // --------------------------------------------
 // Mouse
@@ -93,6 +203,55 @@ enum MouseByte {
 
 MouseState mouseState = kMouseData;
 MouseByte mouseByte = kMouseByte0;
+uint8_t byte0 = 0;
+uint8_t byte1 = 0;
+
+void handleMouseData(uint8_t data) {
+	if(mouseState == kMouseWaitForAck) {
+		assert(data == 0xFA);
+		mouseState = kMouseData;
+	}else{
+		assert(mouseState == kMouseData);
+
+		if(mouseByte == kMouseByte0) {
+			if(data == 0xFA) { // acknowledge
+				// do nothing for now
+			}else{
+				byte0 = data;
+				assert(byte0 & 8);
+				mouseByte = kMouseByte1;
+			}
+		}else if(mouseByte == kMouseByte1) {
+			byte1 = data;
+			mouseByte = kMouseByte2;
+		}else{
+			assert(mouseByte == kMouseByte2);
+			uint8_t byte2 = data;
+			if(byte0 & 4) {
+				printf("MMB\n");
+			}
+			if(byte0 & 2) {
+				printf("RMB\n");
+			}
+			if(byte0 & 1) {
+				printf("LMB\n");
+			}
+			
+			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
+			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
+		
+			auto event_x = new Event(EV_REL, REL_X, movement_x);
+			mouseEvntDev->events.push_back(*event_x);
+			mouseEvntDev->processEvents();
+			
+			auto event_y = new Event(EV_REL, REL_Y, movement_y);
+			mouseEvntDev->events.push_back(*event_y);
+			mouseEvntDev->processEvents();
+			
+			mouseByte = kMouseByte0;
+		}
+	}
+}
 
 // --------------------------------------------
 // Functions
@@ -228,47 +387,23 @@ int scanE1(uint8_t data1, uint8_t data2) {
 	}
 }
 
-void processEvents() {
-	while(!requests.empty() && !events.empty()) {
-		auto req = &requests.front();
-		auto event = &events.front();
-	
-		// TODO: fill in timeval 
-		input_event data;
-		data.type = EV_KEY;
-		data.code = event->code;
-		if(event->pressed) {
-			data.value = 1;
-		}else{
-			data.value = 0;
-		}
-		assert(req->maxLength == sizeof(input_event));
-		memcpy(req->buffer, &data, sizeof(input_event));	
-		req->promise.set_value(sizeof(input_event));
-		
-		requests.pop_front();
-		events.pop_front();
-		delete req;
-		delete event;
-	}
-}
-
 void handleKeyboardData(uint8_t data) {
+	bool pressed = !(data & 0x80);
 	if(escapeStatus == kStatusE1First) {
 		e1Buffer = data;
 
 		escapeStatus = kStatusE1Second;
 	}else if(escapeStatus == kStatusE1Second) {
 		assert((e1Buffer & 0x80) == (data & 0x80));
-		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
-		events.push_back(*event);
-		processEvents();
+		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->events.push_back(*event);
+		kbdEvntDev->processEvents();
 
 		escapeStatus = kStatusNormal;
 	}else if(escapeStatus == kStatusE0) {
-		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
-		events.push_back(*event);
-		processEvents();
+		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->events.push_back(*event);
+		kbdEvntDev->processEvents();
 
 		escapeStatus = kStatusNormal;
 	}else{
@@ -282,9 +417,9 @@ void handleKeyboardData(uint8_t data) {
 			return;
 		}
 		
-		auto event = new Event(scanNormal(data & 0x7F), !(data & 0x80));
-		events.push_back(*event);
-		processEvents();
+		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->events.push_back(*event);
+		kbdEvntDev->processEvents();
 	}
 }
 
@@ -294,14 +429,14 @@ void readDeviceData() {
 		return;
 	
 	uint8_t data = base.load(kbd_register::data);
-	/*if(status & 0x20) {
+	if(status & 0x20) {
 		handleMouseData(data);
-	}else{*/
-	handleKeyboardData(data);
-	/*}*/
+	}else{
+		handleKeyboardData(data);
+	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {	
+COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {	
 	while(true) {
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(kbdIrq, &await_irq, helix::Dispatcher::global());
@@ -312,74 +447,14 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 	}
 }))
 
-async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
-	throw std::runtime_error("seek not yet implemented");
-}
-
-async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
-	auto req = new ReadRequest(buffer, length);
-	requests.push_back(*req);
-	auto value = req->promise.async_get();
-	processEvents();
-	return value;
-}
-
-async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
-	throw std::runtime_error("write not yet implemented");
-}
-
-async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object) {
-	throw std::runtime_error("accessMemory not yet implemented");
-}
-
-constexpr protocols::fs::FileOperations fileOperations {
-	&seek,
-	&read,
-	&write,
-	&accessMemory
-};
-
-COFIBER_ROUTINE(cofiber::no_future, serveKbd(helix::UniqueLane p),
-		([lane = std::move(p)] {
-	std::cout << "unix device: Connection" << std::endl;
-
+COFIBER_ROUTINE(cofiber::no_future, handleMouseIrqs(), ([=] {	
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
+		helix::AwaitIrq await_irq;
+		auto &&submit = helix::submitAwaitIrq(mouseIrq, &await_irq, helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
+		HEL_CHECK(await_irq.error());
 		
-		auto conversation = accept.descriptor();
-		
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-			
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::servePassthrough(std::move(local_lane), nullptr,
-					&fileOperations);
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
-		}else{
-			throw std::runtime_error("Invalid serveTerminal request!");
-		}
+		readDeviceData();
 	}
 }))
 
@@ -395,7 +470,27 @@ COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
 			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveKbd(std::move(local_lane));
+		serveDevice(kbdEvntDev, std::move(local_lane));
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
+	// Create an mbus object for the partition.
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	std::unordered_map<std::string, std::string> descriptor {
+		{ "unix.devtype", "block" },
+		{ "unix.devname", "event1" },
+	};
+	auto object = COFIBER_AWAIT root.createObject("mouse", descriptor,
+			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		serveDevice(mouseEvntDev, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
@@ -445,8 +540,10 @@ int main() {
 	mouseState = kMouseWaitForAck;
 
 	runKbd();
+	runMouse();
 
-	handleIrqs();
+	handleKbdIrqs();
+	handleMouseIrqs();
 	
 	while(true) {
 		helix::Dispatcher::global().dispatch();
