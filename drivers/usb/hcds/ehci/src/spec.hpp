@@ -30,6 +30,7 @@ namespace hcsparams {
 
 namespace hccparams {
 	arch::field<uint32_t, unsigned int> extPointer(8, 8);
+	arch::field<uint32_t, bool> extendedStructs(0, 1);
 }
 
 namespace port_regs {
@@ -132,7 +133,8 @@ namespace qh_buffer {
 	arch::field<uint32_t, uint32_t> bufferPtr(0, 32);
 }
 
-struct QueueHead {
+// The alignment ensures that the struct does not cross a page boundary.
+struct alignas(128) QueueHead {
 	arch::bit_variable<uint32_t> horizontalPtr;
 	arch::bit_variable<uint32_t> flags;
 	arch::bit_variable<uint32_t> mask;
@@ -145,6 +147,11 @@ struct QueueHead {
 	arch::bit_variable<uint32_t> bufferPtr2;
 	arch::bit_variable<uint32_t> bufferPtr3;
 	arch::bit_variable<uint32_t> bufferPtr4;
+	arch::scalar_variable<uint32_t> extendedPtr0;
+	arch::scalar_variable<uint32_t> extendedPtr1;
+	arch::scalar_variable<uint32_t> extendedPtr2;
+	arch::scalar_variable<uint32_t> extendedPtr3;
+	arch::scalar_variable<uint32_t> extendedPtr4;
 };
 
 //-------------------------------------------------
@@ -178,7 +185,8 @@ namespace td_buffer {
 	arch::field<uint32_t, uint32_t> bufferPtr(0, 32);
 }
 
-struct TransferDescriptor {
+// The alignment ensures that the struct does not cross a page boundary.
+struct alignas(64) TransferDescriptor {
 	arch::bit_variable<uint32_t> nextTd;
 	arch::bit_variable<uint32_t> altTd;
 	arch::bit_variable<uint32_t> status;
@@ -187,6 +195,11 @@ struct TransferDescriptor {
 	arch::bit_variable<uint32_t> bufferPtr2;
 	arch::bit_variable<uint32_t> bufferPtr3;
 	arch::bit_variable<uint32_t> bufferPtr4;
+	arch::scalar_variable<uint32_t> extendedPtr0;
+	arch::scalar_variable<uint32_t> extendedPtr1;
+	arch::scalar_variable<uint32_t> extendedPtr2;
+	arch::scalar_variable<uint32_t> extendedPtr3;
+	arch::scalar_variable<uint32_t> extendedPtr4;
 };
 
 #endif // EHCI_SPEC_HPP

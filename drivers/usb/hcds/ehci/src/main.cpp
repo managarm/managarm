@@ -143,6 +143,9 @@ Controller::Controller(protocols::hw::Device hw_device, void *address, helix::Un
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
 	std::cout << "EHCI: " << _numPorts  << " ports" << std::endl;
 	
+	if(_space.load(cap_regs::hccparams) & hccparams::extendedStructs)
+		std::cout << "ehci: Controller uses 64-bit pointers" << std::endl;
+	
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -152,32 +155,40 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	auto ext_pointer = _space.load(cap_regs::hccparams) & hccparams::extPointer;
 	if(ext_pointer) {
 		auto header = COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer, 2);
-		std::cout << "EHCI: Extended capability: " << (header & 0xFF) << std::endl;
+		std::cout << "ehci: Extended capability: " << (header & 0xFF) << std::endl;
 
 		assert((header & 0xFF) == 1);
+		if(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1))
+			std::cout << "ehci: Controller is owned by the BIOS" << std::endl;
+
 		assert(!(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 3, 1)));
 		COFIBER_AWAIT _hwDevice.storePciSpace(ext_pointer + 3, 1, 1);
 		while(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)) {
 			// Do nothing while we wait for BIOS to release the EHCI.
 		}
-		std::cout << "EHCI: Acquired OS <-> BIOS semaphore" << std::endl;
+		std::cout << "ehci: Acquired OS <-> BIOS semaphore" << std::endl;
 
 		assert(!(header & 0xFF00));
 	}
 
 	// Halt the controller.
-	_operational.store(op_regs::usbcmd, usbcmd::run(false));
-	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
-		// Wait until the controller has stopped.
+	if(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
+		std::cout << "ehci: Taking over running controller" << std::endl;
+		auto command = _operational.load(op_regs::usbcmd);
+		_operational.store(op_regs::usbcmd, usbcmd::run(false)
+				| usbcmd::irqThreshold(command & usbcmd::irqThreshold));
 	}
-	std::cout << "EHCI: Controller halted." << std::endl;
+	
+	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)) {
+		// Wait until the controller halts.
+	}
 
 	// Reset the controller.
 	_operational.store(op_regs::usbcmd, usbcmd::hcReset(true) | usbcmd::irqThreshold(0x08));
 	while(_operational.load(op_regs::usbcmd) & usbcmd::hcReset) {
 		// Wait until the reset is complete.
 	}
-	std::cout << "EHCI: Controller reset." << std::endl;
+	std::cout << "ehci: Controller reset." << std::endl;
 
 	// Initialize controller.
 	_operational.store(op_regs::usbintr, usbintr::transaction(true) 
@@ -204,17 +215,17 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			port_space.store(port_regs::sc, portsc::connectChange(true));
 			
 			if(!(sc & portsc::connectStatus)) {
-				std::cout << "EHCI: Device disconnected from port " << i << std::endl;
+				std::cout << "ehci: Device disconnected from port " << i << std::endl;
 				continue;
 			}
-			std::cout << "EHCI: Device connected on port " << i << std::endl;
+			std::cout << "ehci: Device connected on port " << i << std::endl;
 			
 			if((sc & portsc::lineStatus) == 0x01) {
-				std::cout << "EHCI: Device is low-speed" << std::endl;
+				std::cout << "ehci: Device is low-speed" << std::endl;
 				continue;
 			}
 
-			std::cout << "EHCI: Port reset." << std::endl;
+			std::cout << "ehci: Port reset." << std::endl;
 			port_space.store(port_regs::sc, portsc::portReset(true));	
 			// TODO: do not busy-wait.
 			uint64_t start;
@@ -227,18 +238,18 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			}
 			port_space.store(port_regs::sc, portsc::portReset(false));
 
-			std::cout << "EHCI: Waiting for reset to complete." << std::endl;
+			std::cout << "ehci: Waiting for reset to complete." << std::endl;
 			sc = port_space.load(port_regs::sc);
 			while(sc & portsc::portReset) {
 
 			}
 			
 			if(!(sc & portsc::portStatus)) {
-				std::cout << "EHCI: Device is full-speed" << std::endl;
+				std::cout << "ehci: Device is full-speed" << std::endl;
 				continue;
 			}
 
-			std::cout << "High-speed device detected!" << std::endl;
+			std::cout << "ehci: High-speed device detected!" << std::endl;
 
 			COFIBER_AWAIT probeDevice();
 		}
@@ -252,7 +263,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
 	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, 64};
 	_linkAsync(queue);
-	
+
 	// Allocate an address for the device.
 	assert(!_addressStack.empty());
 	auto address = _addressStack.front();
@@ -268,7 +279,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 
 	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
 			set_address, arch::dma_buffer_view{}}, queue, 0);
-
+	
 	queue->setAddress(set_address->value);
 
 	// Enquire the maximum packet size of the default control pipe.
@@ -350,15 +361,17 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 
 	while(true) {
+		printf("ehci: Awaiting IRQ.\n");
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
-//		printf("ehci: IRQ fired.\n");
+		printf("ehci: IRQ fired.\n");
 
 		// _updateFrame();
 
 		auto status = _operational.load(op_regs::usbsts);
+		std::cout << "ehci: Status register = " << static_cast<uint32_t>(status) << std::endl;
 		assert(!(status & usbsts::hostError));
 		if(!(status & usbsts::transactionIrq) && !(status & usbsts::errorIrq)
 			 	&& !(status & usbsts::portChange))
@@ -366,8 +379,14 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 		if(status & usbsts::errorIrq)
 			printf("ehci: Error interrupt\n");
-		_operational.store(op_regs::usbsts, usbsts::transactionIrq(true) | usbsts::errorIrq(true)
-				| usbsts::portChange(true));
+		arch::bit_value<uint32_t> clear{0};
+		if(status & usbsts::transactionIrq)
+			clear |= usbsts::transactionIrq(true);
+		if(status & usbsts::errorIrq)
+			clear |= usbsts::errorIrq(true);
+		if(status & usbsts::portChange)
+			clear |= usbsts::portChange(true);
+		_operational.store(op_regs::usbsts, clear);
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 		
 		printf("ehci: Processing transfers.\n");
@@ -480,11 +499,6 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 	head->nextTd.store(qh_nextTd::terminate(true));
 	head->altTd.store(qh_altTd::terminate(true));
 	head->status.store(qh_status::active(false));
-	head->bufferPtr0.store(qh_buffer::bufferPtr(0x00));
-	head->bufferPtr1.store(qh_buffer::bufferPtr(0x00));
-	head->bufferPtr2.store(qh_buffer::bufferPtr(0x00));
-	head->bufferPtr3.store(qh_buffer::bufferPtr(0x00));
-	head->bufferPtr4.store(qh_buffer::bufferPtr(0x00));
 }
 
 bool Controller::QueueEntity::getReclaim() {
@@ -561,7 +575,7 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	assert(num_data <= 1);
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
-	transfers[0].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[1]))
+	transfers[0].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[1]))
 			| td_ptr::terminate(false));
 	transfers[0].altTd.store(td_ptr::terminate(true));
 	transfers[0].status.store(td_status::active(true) | td_status::pidCode(0x02)
@@ -569,16 +583,13 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 			| td_status::totalBytes(sizeof(SetupPacket))
 			| td_status::dataToggle(false));
 	transfers[0].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer(setup.data())));
-	transfers[0].bufferPtr1.store(td_buffer::curOffset(0));
-	transfers[0].bufferPtr2.store(td_buffer::curOffset(0));
-	transfers[0].bufferPtr3.store(td_buffer::curOffset(0));
-	transfers[0].bufferPtr4.store(td_buffer::curOffset(0));
+	transfers[0].extendedPtr0.store(0);
 	
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
 		assert(chunk);
-		transfers[i + 1].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 2])));
+		transfers[i + 1].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[i + 2])));
 		transfers[i + 1].altTd.store(td_ptr::terminate(true));
 		transfers[i + 1].status.store(td_status::active(true)
 				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
@@ -587,10 +598,7 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		// FIXME: Support larger buffers!
 		transfers[i + 1].bufferPtr0.store(td_buffer::bufferPtr(
 				physicalPointer((char *)buffer.data() + progress)));
-		transfers[i + 1].bufferPtr1.store(td_buffer::curOffset(0));
-		transfers[i + 1].bufferPtr2.store(td_buffer::curOffset(0));
-		transfers[i + 1].bufferPtr3.store(td_buffer::curOffset(0));
-		transfers[i + 1].bufferPtr4.store(td_buffer::curOffset(0));
+		transfers[i + 1].extendedPtr0.store(0);
 		progress += chunk;
 	}
 
@@ -599,11 +607,6 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	transfers[num_data + 1].status.store(td_status::active(true) 
 			| td_status::pidCode(dir == kXferToDevice ? 0x01 : 0x00)
 			| td_status::interruptOnComplete(true));
-	transfers[num_data + 1].bufferPtr0.store(td_buffer::curOffset(0));
-	transfers[num_data + 1].bufferPtr1.store(td_buffer::curOffset(0));
-	transfers[num_data + 1].bufferPtr2.store(td_buffer::curOffset(0));
-	transfers[num_data + 1].bufferPtr3.store(td_buffer::curOffset(0));
-	transfers[num_data + 1].bufferPtr4.store(td_buffer::curOffset(0));
 
 	return new Transaction{std::move(transfers)};
 }
@@ -636,7 +639,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		size_t chunk = std::min(td_size(progress), buffer.size() - progress);
 		assert(chunk);
 		if(i + 1 < num_data) {
-			transfers[i].nextTd.store(td_ptr::ptr(physicalPointer(&transfers[i + 1])));
+			transfers[i].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[i + 1])));
 		}else{
 			transfers[i].nextTd.store(td_ptr::terminate(true));
 		}
@@ -648,20 +651,29 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 
 		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
 				+ progress)));
+		transfers[i].extendedPtr0.store(0);
 
 		auto misalign = ((uintptr_t)buffer.data() + progress) & 0xFFF;
-		if(progress + 0x1000 - misalign < buffer.size())
+		if(progress + 0x1000 - misalign < buffer.size()) {
 			transfers[i].bufferPtr1.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
 					+ progress + 0x1000 - misalign)));
-		if(progress + 0x2000 - misalign < buffer.size())
+			transfers[i].extendedPtr1.store(0);
+		}
+		if(progress + 0x2000 - misalign < buffer.size()) {
 			transfers[i].bufferPtr2.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
 					+ progress + 0x2000 - misalign)));
-		if(progress + 0x3000 - misalign < buffer.size())
+			transfers[i].extendedPtr2.store(0);
+		}
+		if(progress + 0x3000 - misalign < buffer.size()) {
 			transfers[i].bufferPtr3.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
 					+ progress + 0x3000 - misalign)));
-		if(progress + 0x4000 - misalign < buffer.size())
+			transfers[i].extendedPtr3.store(0);
+		}
+		if(progress + 0x4000 - misalign < buffer.size()) {
 			transfers[i].bufferPtr4.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
 					+ progress + 0x4000 - misalign)));
+			transfers[i].extendedPtr4.store(0);
+		}
 		progress += chunk;
 	}
 	assert(progress == buffer.size());
@@ -881,7 +893,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting EHCI driver\n");
+	printf("ehci: Starting driver\n");
 
 	observeControllers();
 
