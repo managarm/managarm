@@ -35,7 +35,7 @@ IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&_mutex);
+	auto lock = frigg::guard(&_mutex);
 
 	_strategy = program(mode, polarity);
 	_latched = false;
@@ -43,33 +43,39 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 
 void IrqPin::raise() {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&_mutex);
-
-	auto status = _callSinks();
-	auto relatch = !(status & irq_status::handled);
-
-	if(_strategy == IrqStrategy::justEoi) {
-		sendEoi();
-	}else if(_strategy == IrqStrategy::maskThenEoi) {
-		assert(!_latched);
-		if(relatch)
-			mask();
-		sendEoi();
-	}else{
-		assert(_strategy == IrqStrategy::null);
+	auto lock = frigg::guard(&_mutex);
+	
+	if(_strategy == IrqStrategy::null) {
 		frigg::infoLogger() << "\e[35mthor: Unconfigured IRQ was raised\e[39m" << frigg::endLog;
+	}else{
+		assert(_strategy == IrqStrategy::justEoi
+				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
-	_latched = relatch;
-	if(relatch) {
-		_raiseClock = currentNanos();
-		_warnedAfterPending = false;
+	if(!_latched) {
+		auto status = _callSinks();
+
+		// Latch this IRQ.
+		if(!(status & irq_status::handled)) {
+			_latched = true;
+			_raiseClock = currentNanos();
+			_warnedAfterPending = false;
+
+			if(_strategy == IrqStrategy::maskThenEoi)
+				mask();
+		}
+	}else{
+		// TODO: If the IRQ is edge-triggered we lose an edge here!
+		frigg::infoLogger() << "\e[35mthor: Ignoring already latched IRQ " << _name
+				<< "\e[39m" << frigg::endLog;
 	}
+
+	sendEoi();
 }
 
 void IrqPin::kick() {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&_mutex);
+	auto lock = frigg::guard(&_mutex);
 
 	if(!_latched)
 		return;
@@ -85,7 +91,7 @@ void IrqPin::kick() {
 
 void IrqPin::acknowledge() {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&_mutex);
+	auto lock = frigg::guard(&_mutex);
 
 	if(!_latched)
 		return;
@@ -101,7 +107,7 @@ void IrqPin::acknowledge() {
 
 void IrqPin::warnIfPending() {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&_mutex);
+	auto lock = frigg::guard(&_mutex);
 
 	if(_latched && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
 		frigg::infoLogger() << "\e[35mthor: Pending IRQ " << _name << " has not been acked"
@@ -123,7 +129,7 @@ IrqStatus IrqPin::_callSinks() {
 
 void attachIrq(IrqPin *pin, IrqSink *sink) {
 	IrqLock irq_lock{globalIrqMutex};
-	auto guard = frigg::guard(&pin->_mutex);
+	auto lock = frigg::guard(&pin->_mutex);
 
 	assert(!sink->_pin);
 	pin->_sinkList.push_back(sink);

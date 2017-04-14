@@ -354,6 +354,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+//		printf("ehci: IRQ fired.\n");
 
 		// _updateFrame();
 

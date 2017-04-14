@@ -55,7 +55,7 @@ namespace irq_status {
 	static constexpr IrqStatus null = 0;
 
 	// The IRQ has been handled by the sink's raise() method.
-	static constexpr IrqStatus handled = 0;
+	static constexpr IrqStatus handled = 1;
 }
 
 struct IrqSink {

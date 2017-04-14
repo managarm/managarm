@@ -1,7 +1,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
-#include <linux/input.h>
+//#include <linux/input.h>
 #include <netinet/in.h> // FIXME: for testing
 #include <sched.h>
 #include <stdio.h>
@@ -39,18 +39,17 @@ int main() {
 	}else assert(uhci != -1);
 */
 
-/*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
-*/
 /*
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 */
+/*
 	auto kbd = fork();
 	if(!kbd) {
 		execve("/initrd/kbd", args.data(), envp);
@@ -78,7 +77,8 @@ int main() {
 		printf("val: %i\n", event.value);
 		printf("-----------\n");
 	}
-
+*/
+/*
 	// UART
 	auto uart = fork();
 	if(!uart) {
@@ -107,7 +107,7 @@ int main() {
 		assert(read_sz > 0);
 		std::cout << buffer[0] << std::endl;
 	}
-
+*/
 /*
 	auto gfx_intel = fork();
 	if(!gfx_intel) {
