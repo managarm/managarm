@@ -308,14 +308,19 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			<< ", class: " << frigg::logHex(class_code)
 			<< "." << frigg::logHex(sub_class)
 			<< "." << frigg::logHex(interface) << frigg::endLog;
-	
+
 	if((header_type & 0x7F) == 0) {
 //		uint16_t subsystem_vendor = readPciHalf(bus, slot, function, kPciRegularSubsystemVendor);
 //		uint16_t subsystem_device = readPciHalf(bus, slot, function, kPciRegularSubsystemDevice);
 //		frigg::infoLogger() << "        Subsystem vendor: 0x" << frigg::logHex(subsystem_vendor)
 //				<< ", device: 0x" << frigg::logHex(subsystem_device) << frigg::endLog;
 
-		if(readPciHalf(bus, slot, function, kPciStatus) & 0x10) {
+		auto status = readPciHalf(bus, slot, function, kPciStatus);
+
+		if(status & 0x08)
+			frigg::infoLogger() << "\e[35m            IRQ is asserted!\e[39m" << frigg::endLog;
+
+		if(status & 0x10) {
 			// NOTE: the bottom two bits of each capability offset must be masked
 			uint8_t offset = readPciByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
 			while(offset != 0) {

@@ -480,9 +480,9 @@ void prepareSystemBusses() {
 			auto slot = route->Address >> 16;
 			auto function = route->Address & 0xFFFF;
 			assert(function == 0xFFFF);
-//			frigg::infoLogger() << "    Route for slot " << slot
-//					<< ", pin " << route->Pin << ": " << (const char *)route->Source
-//					<< "[" << route->SourceIndex << "]" << frigg::endLog;
+			frigg::infoLogger() << "    Route for slot " << slot
+					<< ", pin " << route->Pin << ": " << (const char *)route->Source
+					<< "[" << route->SourceIndex << "]" << frigg::endLog;
 
 			auto source = frigg::String<KernelAlloc>{*kernelAlloc, route->Source};
 			if(std::find(links->begin(), links->end(), source) == links->end())
@@ -543,11 +543,15 @@ void configureIrqs() {
 		walkResources(handle, "_CRS", [&] (ACPI_RESOURCE *r) {
 			if(r->Type == ACPI_RESOURCE_TYPE_IRQ) {
 				for(uint8_t i = 0; i < r->Data.Irq.InterruptCount; i++) {
+					auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
+					auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
 					frigg::infoLogger() << "    Resource: Irq "
-							<< (int)r->Data.Irq.Interrupts[i] << frigg::endLog;
-					IrqResource res{r->Data.Irq.Interrupts[i], IrqConfiguration{
-							decodeTrigger(r->Data.Irq.Triggering),
-							decodePolarity(r->Data.Irq.Polarity)}};
+							<< (int)r->Data.Irq.Interrupts[i]
+							<< ", trigger mode: " << static_cast<int>(trigger)
+							<< ", polarity: " << static_cast<int>(polarity)
+							<< frigg::endLog;
+					IrqResource res{r->Data.Irq.Interrupts[i],
+							IrqConfiguration{trigger, polarity}};
 					
 					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
 						if(res.irq != ref.irq)
@@ -564,11 +568,15 @@ void configureIrqs() {
 				}
 			}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
 				for(uint8_t i = 0; i < r->Data.ExtendedIrq.InterruptCount; i++) {
+					auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
+					auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
 					frigg::infoLogger() << "    Resource: Extended Irq "
-							<< (int)r->Data.ExtendedIrq.Interrupts[i] << frigg::endLog;
-					IrqResource res{r->Data.ExtendedIrq.Interrupts[i], IrqConfiguration{
-							decodeTrigger(r->Data.ExtendedIrq.Triggering),
-							decodePolarity(r->Data.ExtendedIrq.Polarity)}};
+							<< (int)r->Data.ExtendedIrq.Interrupts[i]
+							<< ", trigger mode: " << static_cast<int>(trigger)
+							<< ", polarity: " << static_cast<int>(polarity)
+							<< frigg::endLog;
+					IrqResource res{r->Data.ExtendedIrq.Interrupts[i],
+							IrqConfiguration{trigger, polarity}};
 					
 					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
 						if(res.irq != ref.irq)

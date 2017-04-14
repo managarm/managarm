@@ -37,6 +37,10 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	IrqLock irq_lock{globalIrqMutex};
 	auto lock = frigg::guard(&_mutex);
 
+	frigg::infoLogger() << "thor: Configuring IRQ " << _name
+			<< " to trigger mode: " << static_cast<int>(mode)
+			<< ", polarity: " << static_cast<int>(polarity) << frigg::endLog;
+
 	_strategy = program(mode, polarity);
 	_latched = false;
 }
