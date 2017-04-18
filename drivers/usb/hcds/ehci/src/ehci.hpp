@@ -43,7 +43,7 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 	struct QueueEntity : AsyncItem {
 		QueueEntity(arch::dma_object<QueueHead> the_head, int address,
-				int pipe, size_t packet_size);
+				int pipe, PipeType type, size_t packet_size);
 
 		bool getReclaim();
 		void setReclaim(bool reclaim);
@@ -80,10 +80,10 @@ public:
 	// Transfer functions.
 	// ------------------------------------------------------------------------
 	
-	static Transaction *_buildControl(int address, int pipe, XferFlags dir,
+	static Transaction *_buildControl(XferFlags dir,
 			arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
 			size_t max_packet_size);
-	static Transaction *_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
+	static Transaction *_buildInterruptOrBulk(XferFlags dir,
 			arch::dma_buffer_view buffer, size_t max_packet_size);
 
 
@@ -92,7 +92,7 @@ public:
 	async::result<void> transfer(int address, PipeType type, int pipe, BulkTransfer info);
 
 private:
-	async::result<void> _directTransfer(int address, int pipe, ControlTransfer info,
+	async::result<void> _directTransfer(ControlTransfer info,
 			QueueEntity *queue, size_t max_packet_size);
 	
 

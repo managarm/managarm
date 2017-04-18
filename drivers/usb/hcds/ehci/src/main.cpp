@@ -141,7 +141,7 @@ Controller::Controller(protocols::hw::Device hw_device, void *address, helix::Un
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
-	std::cout << "EHCI: " << _numPorts  << " ports" << std::endl;
+	std::cout << "ehci: " << _numPorts  << " ports" << std::endl;
 	
 	if(_space.load(cap_regs::hccparams) & hccparams::extendedStructs)
 		std::cout << "ehci: Controller uses 64-bit pointers" << std::endl;
@@ -261,7 +261,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	// This queue will become the default control pipe of our new device.
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
-	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, 64};
+	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, PipeType::control, 64};
 	_linkAsync(queue);
 
 	// Allocate an address for the device.
@@ -277,10 +277,10 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	set_address->index = 0;
 	set_address->length = 0;
 
-	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
+	COFIBER_AWAIT _directTransfer(ControlTransfer{kXferToDevice,
 			set_address, arch::dma_buffer_view{}}, queue, 0);
 	
-	queue->setAddress(set_address->value);
+	queue->setAddress(address);
 
 	// Enquire the maximum packet size of the default control pipe.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
@@ -292,7 +292,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	get_header->length = 8;
 
 	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};	
-	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToHost,
+	COFIBER_AWAIT _directTransfer(ControlTransfer{kXferToHost,
 			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
@@ -357,7 +357,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
-	std::cout << "EHCI: Handle IRQs." << std::endl;
+	std::cout << "ehci: Handle IRQs." << std::endl;
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 
 	while(true) {
@@ -373,24 +373,24 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		auto status = _operational.load(op_regs::usbsts);
 		std::cout << "ehci: Status register = " << static_cast<uint32_t>(status) << std::endl;
 		assert(!(status & usbsts::hostError));
-		if(!(status & usbsts::transactionIrq) && !(status & usbsts::errorIrq)
+		if(!(status & usbsts::transactionIrq)
+				&& !(status & usbsts::errorIrq)
 			 	&& !(status & usbsts::portChange))
 			continue;
 
 		if(status & usbsts::errorIrq)
 			printf("ehci: Error interrupt\n");
-		arch::bit_value<uint32_t> clear{0};
-		if(status & usbsts::transactionIrq)
-			clear |= usbsts::transactionIrq(true);
-		if(status & usbsts::errorIrq)
-			clear |= usbsts::errorIrq(true);
-		if(status & usbsts::portChange)
-			clear |= usbsts::portChange(true);
-		_operational.store(op_regs::usbsts, clear);
+		_operational.store(op_regs::usbsts,
+				usbsts::transactionIrq(status & usbsts::transactionIrq)
+				| usbsts::errorIrq(status & usbsts::errorIrq)
+				| usbsts::portChange(status & usbsts::portChange));
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 		
-		printf("ehci: Processing transfers.\n");
-		_progressSchedule();
+		if((status & usbsts::transactionIrq)
+				|| (status & usbsts::errorIrq)) {
+			std::cout << "ehci: Processing transfers." << std::endl;
+			_progressSchedule();
+		}
 	}
 }))
 
@@ -465,13 +465,13 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].inStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
-							address, pipe, desc->maxPacketSize};
+							address, pipe, PipeType::in, desc->maxPacketSize};
 			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
 		}else{
 			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].outStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
-							address, pipe, desc->maxPacketSize};
+							address, pipe, PipeType::out, desc->maxPacketSize};
 			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
 		}
 	});
@@ -484,14 +484,15 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 // ------------------------------------------------------------------------
 
 Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
-		int address, int pipe, size_t packet_size)
+		int address, int pipe, PipeType type, size_t packet_size)
 : head(std::move(the_head)) {
 	head->horizontalPtr.store(qh_horizontal::terminate(false)
 			| qh_horizontal::typeSelect(0x01) 
 			| qh_horizontal::horizontalPtr(schedulePointer(head.data())));
 	head->flags.store(qh_flags::deviceAddr(address)
-			| qh_flags::endpointSpeed(0x02)
 			| qh_flags::endpointNumber(pipe)
+			| qh_flags::endpointSpeed(0x02)
+			| qh_flags::dataToggleCtrl(type == PipeType::control)
 			| qh_flags::maxPacketLength(packet_size));
 	head->mask.store(qh_mask::interruptScheduleMask(0x00)
 			| qh_mask::multiplier(0x01));
@@ -523,7 +524,7 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto device = &_activeDevices[address];
 	auto endpoint = &device->controlStates[pipe];
 	
-	auto transaction = _buildControl(address, pipe, info.flags,
+	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer,  endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
@@ -541,7 +542,7 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+	auto transaction = _buildInterruptOrBulk(info.flags,
 			info.buffer, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
@@ -559,14 +560,14 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
+	auto transaction = _buildInterruptOrBulk(info.flags,
 			info.buffer, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
 
 
-auto Controller::_buildControl(int address, int pipe, XferFlags dir,
+auto Controller::_buildControl(XferFlags dir,
 		arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
 		size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
@@ -575,13 +576,16 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	assert(num_data <= 1);
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
+	// TODO: This code is horribly broken if the setup packet or
+	// one of the data packets crosses a page boundary.
+
 	transfers[0].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[1]))
 			| td_ptr::terminate(false));
 	transfers[0].altTd.store(td_ptr::terminate(true));
-	transfers[0].status.store(td_status::active(true) | td_status::pidCode(0x02)
+	transfers[0].status.store(td_status::active(true)
+			| td_status::pidCode(2)
 			| td_status::interruptOnComplete(true) 
-			| td_status::totalBytes(sizeof(SetupPacket))
-			| td_status::dataToggle(false));
+			| td_status::totalBytes(sizeof(SetupPacket)));
 	transfers[0].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer(setup.data())));
 	transfers[0].extendedPtr0.store(0);
 	
@@ -591,10 +595,12 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		assert(chunk);
 		transfers[i + 1].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[i + 2])));
 		transfers[i + 1].altTd.store(td_ptr::terminate(true));
+		// TODO: If there is more than one TD we need to compute the correct data toggle.
 		transfers[i + 1].status.store(td_status::active(true)
-				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
+				| td_status::pidCode(dir == kXferToDevice ? 0 : 1)
 				| td_status::interruptOnComplete(true)
-				| td_status::totalBytes(chunk));
+				| td_status::totalBytes(chunk)
+				| td_status::dataToggle(true));
 		// FIXME: Support larger buffers!
 		transfers[i + 1].bufferPtr0.store(td_buffer::bufferPtr(
 				physicalPointer((char *)buffer.data() + progress)));
@@ -602,16 +608,18 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		progress += chunk;
 	}
 
+	// The status stage always sends a DATA1 token.
 	transfers[num_data + 1].nextTd.store(td_ptr::terminate(true));
 	transfers[num_data + 1].altTd.store(td_ptr::terminate(true));
 	transfers[num_data + 1].status.store(td_status::active(true) 
-			| td_status::pidCode(dir == kXferToDevice ? 0x01 : 0x00)
-			| td_status::interruptOnComplete(true));
+			| td_status::pidCode(dir == kXferToDevice ? 1 : 0)
+			| td_status::interruptOnComplete(true)
+			| td_status::dataToggle(true));
 
 	return new Transaction{std::move(transfers)};
 }
 
-auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
+auto Controller::_buildInterruptOrBulk(XferFlags dir,
 		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
@@ -682,9 +690,9 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 }
 
 
-async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
+async::result<void> Controller::_directTransfer(ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
-	auto transaction = _buildControl(address, pipe, info.flags,
+	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer, max_packet_size);
 	_linkTransaction(queue, transaction);
 	return transaction->promise.async_get();
@@ -718,10 +726,10 @@ void Controller::_linkAsync(QueueEntity *entity) {
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
 	if(queue->transactions.empty()) {
+		std::cout << "ehci: Linking in _linkTransaction" << std::endl;
+		assert(queue->head->nextTd.load() & td_ptr::terminate);
 		queue->head->nextTd.store(qh_nextTd::nextTd(
 				schedulePointer(&transaction->transfers[0]))); 
-		queue->head->altTd.store(qh_nextTd::nextTd(
-				schedulePointer(&transaction->transfers[0])));
 	}
 
 	queue->transactions.push_back(*transaction);
@@ -743,16 +751,17 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	while(active->numComplete < active->transfers.size()) {
 		auto &transfer = active->transfers[active->numComplete];
 		if((transfer.status.load() & td_status::active)
+				|| (transfer.status.load() & td_status::halted)
 				|| (transfer.status.load() & td_status::transactionError)
 				|| (transfer.status.load() & td_status::babbleDetected)
-				|| (transfer.status.load() & td_status::halted)
 				|| (transfer.status.load() & td_status::dataBufferError))
 			break;
 
 		active->numComplete++;
 	}
-	
-	if(active->numComplete == active->transfers.size()) {
+
+	auto current = active->numComplete;
+	if(current == active->transfers.size()) {
 		printf("Transfer complete!\n");
 		active->promise.set_value();
 
@@ -762,15 +771,15 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		
 		// Schedule the next transaction.
 		assert(entity->head->nextTd.load() & td_ptr::terminate);
-
 		if(!entity->transactions.empty()) {
+			std::cout << "ehci: Linking in _progressQueue" << std::endl;
 			auto front = &entity->transactions.front();
 			entity->head->nextTd.store(qh_nextTd::nextTd(schedulePointer(&front->transfers[0])));
 		}
-	}else if((active->transfers[active->numComplete].status.load() & td_status::transactionError)
-			|| (active->transfers[active->numComplete].status.load() & td_status::babbleDetected)
-			|| (active->transfers[active->numComplete].status.load() & td_status::halted)
-			|| (active->transfers[active->numComplete].status.load() & td_status::dataBufferError)) {
+	}else if((active->transfers[current].status.load() & td_status::halted)
+			|| (active->transfers[current].status.load() & td_status::transactionError)
+			|| (active->transfers[current].status.load() & td_status::babbleDetected)
+			|| (active->transfers[current].status.load() & td_status::dataBufferError)) {
 		printf("Transfer error!\n");
 		
 		_dump(entity);
@@ -779,7 +788,6 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		entity->transactions.pop_front();
 		// TODO: _reclaim(active);
 	}
-	
 }
 
 // ----------------------------------------------------------------------------
