@@ -62,8 +62,8 @@ namespace usbintr {
 namespace portsc {
 	arch::field<uint32_t, bool> connectStatus(0, 1);
 	arch::field<uint32_t, bool> connectChange(1, 1);
-	arch::field<uint32_t, bool> portStatus(2, 1);
-	arch::field<uint32_t, bool> portChange(3, 1);
+	arch::field<uint32_t, bool> enableStatus(2, 1);
+	arch::field<uint32_t, bool> enableChange(3, 1);
 	arch::field<uint32_t, bool> portReset(8, 1);
 	arch::field<uint32_t, uint8_t> lineStatus(10, 2);
 	arch::field<uint32_t, bool> portOwner(13, 1);

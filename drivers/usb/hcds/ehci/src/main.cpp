@@ -28,6 +28,37 @@
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 // ----------------------------------------------------------------------------
+// Enumerator.
+// ----------------------------------------------------------------------------
+
+Enumerator::Enumerator(Controller *controller)
+: _controller{controller} { }
+
+void Enumerator::connectPort(int port) {
+	assert(_state == State::null);
+	_state = State::resetting;
+	_activePort = port;
+	_reset();
+}
+
+void Enumerator::enablePort(int port) {
+	assert(_state == State::resetting);
+	assert(_activePort == port);
+	_state = State::probing;
+	_probe();
+}
+
+COFIBER_ROUTINE(cofiber::no_future, Enumerator::_reset(), ([=] {
+	COFIBER_AWAIT _addressMutex.async_lock();
+	_controller->resetPort(_activePort);
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, Enumerator::_probe(), ([=] {
+	COFIBER_AWAIT _controller->probeDevice();
+	_addressMutex.unlock();
+}))
+
+// ----------------------------------------------------------------------------
 // Memory management.
 // ----------------------------------------------------------------------------
 
@@ -137,7 +168,8 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 // ----------------------------------------------------------------
 
 Controller::Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq)
-: _hwDevice{std::move(hw_device)}, _space{address}, _irq{frigg::move(irq)} { 
+: _hwDevice{std::move(hw_device)}, _space{address}, _irq{frigg::move(irq)},
+		_enumerator{this} { 
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
@@ -197,66 +229,42 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	_operational.store(op_regs::usbcmd, usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	_operational.store(op_regs::configflag, 0x01);
 
-	pollDevices();
 	handleIrqs();
 }))
 
-COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
+void Controller::_checkPorts() {
 	assert(!(_space.load(cap_regs::hcsparams) & hcsparams::portPower));
 	
-	while(true) {
-		for(int i = 0; i < _numPorts; i++) {
-			auto offset = _space.load(cap_regs::caplength);
-			auto port_space = _space.subspace(offset + 0x44 + (4 * i));
+	for(int i = 0; i < _numPorts; i++) {
+		auto offset = _space.load(cap_regs::caplength);
+		auto port_space = _space.subspace(offset + 0x44 + (4 * i));
+		auto sc = port_space.load(port_regs::sc);
+//		std::cout << "port " << i << " sc: " << static_cast<unsigned int>(sc) << std::endl;
 
-			auto sc = port_space.load(port_regs::sc);
-			if(!(sc & portsc::connectChange))
-				continue;
-			port_space.store(port_regs::sc, portsc::connectChange(true));
-			
-			if(!(sc & portsc::connectStatus)) {
-				std::cout << "ehci: Device disconnected from port " << i << std::endl;
-				continue;
-			}
-			std::cout << "ehci: Device connected on port " << i << std::endl;
-			
-			if((sc & portsc::lineStatus) == 0x01) {
-				std::cout << "ehci: Device is low-speed" << std::endl;
-				continue;
-			}
-
-			std::cout << "ehci: Port reset." << std::endl;
-			port_space.store(port_regs::sc, portsc::portReset(true));	
-			// TODO: do not busy-wait.
-			uint64_t start;
-			HEL_CHECK(helGetClock(&start));
-			while(true) {
-				uint64_t ticks;
-				HEL_CHECK(helGetClock(&ticks));
-				if(ticks - start >= 50000000)
-					break;
-			}
-			port_space.store(port_regs::sc, portsc::portReset(false));
-
-			std::cout << "ehci: Waiting for reset to complete." << std::endl;
-			sc = port_space.load(port_regs::sc);
-			while(sc & portsc::portReset) {
-
-			}
-			
-			if(!(sc & portsc::portStatus)) {
-				std::cout << "ehci: Device is full-speed" << std::endl;
-				continue;
-			}
-
-			std::cout << "ehci: High-speed device detected!" << std::endl;
-
-			COFIBER_AWAIT probeDevice();
+		if(sc & portsc::enableChange) {
+			// EHCI specifies that enableChange is only set on port error.
+			assert(!(sc & portsc::enableStatus));
+			port_space.store(port_regs::sc, portsc::enableChange(true));
+			std::cout << "ehci: Port " << i << " disabled due to error." << std::endl;
 		}
-
-		COFIBER_AWAIT _pollDoorbell.async_wait();
+		
+		if(sc & portsc::connectChange) {
+			// TODO: Be careful to set the correct bits (e.g. suspend once we support it).
+			port_space.store(port_regs::sc, portsc::connectChange(true));
+			if(sc & portsc::connectStatus) {
+				if((sc & portsc::lineStatus) == 1) {
+					std::cout << "ehci: Device on port " << i << " is low-speed" << std::endl;
+					port_space.store(port_regs::sc, portsc::portOwner(true));
+				}else{
+					std::cout << "ehci: Connect on port " << i << std::endl;
+					_enumerator.connectPort(i);
+				}
+			}else{
+				std::cout << "ehci: Disconnect on port " << i << std::endl;
+			}
+		}
 	}
-}))
+}
 
 COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	// This queue will become the default control pipe of our new device.
@@ -390,6 +398,11 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 				|| (status & usbsts::errorIrq)) {
 			std::cout << "ehci: Processing transfers." << std::endl;
 			_progressSchedule();
+		}
+		
+		if(status & usbsts::portChange) {
+			std::cout << "ehci: Checking ports." << std::endl;
+			_checkPorts();
 		}
 	}
 }))
@@ -791,6 +804,44 @@ void Controller::_progressQueue(QueueEntity *entity) {
 }
 
 // ----------------------------------------------------------------------------
+// Port management.
+// ----------------------------------------------------------------------------
+
+// TODO: This should be async.
+void Controller::resetPort(int number) {
+	auto offset = _space.load(cap_regs::caplength);
+	auto port_space = _space.subspace(offset + 0x44 + (4 * number));
+	
+//	std::cout << "ehci: Port reset." << std::endl;
+	port_space.store(port_regs::sc, portsc::portReset(true));	
+
+	// TODO: Do not busy-wait.
+	uint64_t start;
+	HEL_CHECK(helGetClock(&start));
+	while(true) {
+		uint64_t ticks;
+		HEL_CHECK(helGetClock(&ticks));
+		if(ticks - start >= 50000000)
+			break;
+	}
+	port_space.store(port_regs::sc, portsc::portReset(false));
+
+//	std::cout << "ehci: Waiting for reset to complete." << std::endl;
+	arch::bit_value<uint32_t> sc{0};
+	do {
+		sc = port_space.load(port_regs::sc);
+	} while(sc & portsc::portReset);
+	
+	if(sc & portsc::enableStatus) {
+		assert(!(sc & portsc::enableChange)); // See handleIrqs().
+		std::cout << "ehci: Port " << number << " was enabled." << std::endl;
+		_enumerator.enablePort(number);
+	}else{
+		std::cout << "ehci: Port " << number << " disabled after reset." << std::endl;
+	}
+}
+
+// ----------------------------------------------------------------------------
 // Debugging functions.
 // ----------------------------------------------------------------------------
 
@@ -901,7 +952,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("ehci: Starting driver\n");
+	std::cout << "ehci: Starting driver";
+	std::cout << " (compiled on " __DATE__ " " __TIME__ ")" << std::endl;
 
 	observeControllers();
 

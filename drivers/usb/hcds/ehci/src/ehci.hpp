@@ -2,15 +2,41 @@
 #include <queue>
 
 #include <arch/mem_space.hpp>
-#include <async/result.hpp>
 #include <async/doorbell.hpp>
+#include <async/mutex.hpp>
+#include <async/result.hpp>
 
 #include "spec.hpp"
 
+struct Controller;
 struct DeviceState;
 struct ConfigurationState;
 struct InterfaceState;
 struct EndpointState;
+
+// TODO: This could be moved to a "USB core" driver.
+struct Enumerator {
+	Enumerator(Controller *controller);
+
+	// Called by the USB hub driver once a device connects to a port.
+	void connectPort(int port);
+
+	// Called by the USB hub driver once a device completes reset.
+	void enablePort(int port);
+
+private:
+	enum class State {
+		null, resetting, probing
+	};
+
+	cofiber::no_future _reset();
+	cofiber::no_future _probe();
+
+	Controller *_controller;
+	State _state;
+	int _activePort;
+	async::mutex _addressMutex;
+};
 
 // ----------------------------------------------------------------
 // Controller.
@@ -20,7 +46,6 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq);
 	
 	cofiber::no_future initialize();
-	async::result<void> pollDevices();	
 	async::result<void> probeDevice();
 	cofiber::no_future handleIrqs();
 	
@@ -109,11 +134,19 @@ private:
 	boost::intrusive::list<QueueEntity> _asyncSchedule;
 	arch::dma_object<QueueHead> _asyncQh;
 	
+	// ----------------------------------------------------------------------------
+	// Port management.
+	// ----------------------------------------------------------------------------
+
+	void _checkPorts();	
+
+public:
+	void resetPort(int number);
 
 	// ----------------------------------------------------------------------------
 	// Debugging functions.
 	// ----------------------------------------------------------------------------
-	
+private:
 	void _dump(Transaction *transaction);
 	void _dump(QueueEntity *entity);
 	
@@ -125,7 +158,7 @@ private:
 	arch::mem_space _operational;
 
 	int _numPorts;
-	async::doorbell _pollDoorbell;
+	Enumerator _enumerator;
 };
 
 // ----------------------------------------------------------------------------
