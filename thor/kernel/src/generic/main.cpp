@@ -20,7 +20,7 @@ frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
 frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
 
-frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
+frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
 
 frigg::LazyInitializer<LaneHandle> mbusClient;
 
@@ -268,7 +268,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
-	for(int i = 0; i < 16; i++)
+	for(int i = 0; i < 24; i++)
 		globalIrqSlots[i].initialize();
 
 	initializeTheSystemEarly();

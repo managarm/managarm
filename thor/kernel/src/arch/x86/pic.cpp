@@ -144,9 +144,10 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 
 // --------------------------------------------------------
 
-IrqPin *globalSystemIrqs[16];
+IrqPin *globalSystemIrqs[24];
 
 IrqPin *getGlobalSystemIrq(size_t n) {
+	assert(n <= 24);
 	return globalSystemIrqs[n];
 }
 
@@ -155,7 +156,7 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 // --------------------------------------------------------
 
 // TODO: Replace this by proper IRQ allocation.
-extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[16];
+extern frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
 
 constexpr arch::scalar_register<uint32_t> apicIndex(0x00);
 constexpr arch::scalar_register<uint32_t> apicData(0x10);
@@ -321,7 +322,7 @@ void setupIoApic(PhysicalAddr address) {
 	picModel = kModelApic;
 
 	auto apic = frigg::construct<IoApic>(*kernelAlloc, arch::mem_space{register_ptr});
-	for(size_t i = 0; i < frigg::min(apic->pinCount(), size_t{16}); i++) {
+	for(size_t i = 0; i < frigg::min(apic->pinCount(), size_t{24}); i++) {
 		auto pin = apic->accessPin(i);
 		globalSystemIrqs[i] = pin;
 		globalIrqSlots[i]->link(pin);

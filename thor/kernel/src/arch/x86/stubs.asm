@@ -169,6 +169,14 @@ MAKE_IRQ_STUB thorRtIsrIrq12, 12
 MAKE_IRQ_STUB thorRtIsrIrq13, 13
 MAKE_IRQ_STUB thorRtIsrIrq14, 14
 MAKE_IRQ_STUB thorRtIsrIrq15, 15
+MAKE_IRQ_STUB thorRtIsrIrq16, 16
+MAKE_IRQ_STUB thorRtIsrIrq17, 17
+MAKE_IRQ_STUB thorRtIsrIrq18, 18
+MAKE_IRQ_STUB thorRtIsrIrq19, 19
+MAKE_IRQ_STUB thorRtIsrIrq20, 20
+MAKE_IRQ_STUB thorRtIsrIrq21, 21
+MAKE_IRQ_STUB thorRtIsrIrq22, 22
+MAKE_IRQ_STUB thorRtIsrIrq23, 23
 
 # ---------------------------------------------------------
 # Syscall stubs

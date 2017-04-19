@@ -34,6 +34,14 @@ extern "C" void thorRtIsrIrq12();
 extern "C" void thorRtIsrIrq13();
 extern "C" void thorRtIsrIrq14();
 extern "C" void thorRtIsrIrq15();
+extern "C" void thorRtIsrIrq16();
+extern "C" void thorRtIsrIrq17();
+extern "C" void thorRtIsrIrq18();
+extern "C" void thorRtIsrIrq19();
+extern "C" void thorRtIsrIrq20();
+extern "C" void thorRtIsrIrq21();
+extern "C" void thorRtIsrIrq22();
+extern "C" void thorRtIsrIrq23();
 
 extern "C" void thorRtIsrPreempted();
 
@@ -136,6 +144,14 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 77, irq_selector, (void *)&thorRtIsrIrq13, 1);
 	makeIdt64IntSystemGate(table, 78, irq_selector, (void *)&thorRtIsrIrq14, 1);
 	makeIdt64IntSystemGate(table, 79, irq_selector, (void *)&thorRtIsrIrq15, 1);
+	makeIdt64IntSystemGate(table, 80, irq_selector, (void *)&thorRtIsrIrq16, 1);
+	makeIdt64IntSystemGate(table, 81, irq_selector, (void *)&thorRtIsrIrq17, 1);
+	makeIdt64IntSystemGate(table, 82, irq_selector, (void *)&thorRtIsrIrq18, 1);
+	makeIdt64IntSystemGate(table, 83, irq_selector, (void *)&thorRtIsrIrq19, 1);
+	makeIdt64IntSystemGate(table, 84, irq_selector, (void *)&thorRtIsrIrq20, 1);
+	makeIdt64IntSystemGate(table, 85, irq_selector, (void *)&thorRtIsrIrq21, 1);
+	makeIdt64IntSystemGate(table, 86, irq_selector, (void *)&thorRtIsrIrq22, 1);
+	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 1);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,

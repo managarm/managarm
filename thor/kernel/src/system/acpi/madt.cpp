@@ -352,6 +352,18 @@ uint64_t evaluate(ACPI_HANDLE handle) {
 	return object->Integer.Value;
 }
 
+void evaluateWith1(ACPI_HANDLE handle) {
+	ACPI_OBJECT args[1];
+	args[0].Integer.Type = ACPI_TYPE_INTEGER;
+	args[0].Integer.Value = 1;
+
+	ACPI_OBJECT_LIST list;
+	list.Count = 1;
+	list.Pointer = args;
+
+	ACPICA_CHECK(AcpiEvaluateObject(handle, nullptr, &list, nullptr));
+}
+
 template<typename F>
 void walkResources(ACPI_HANDLE object, const char *method, F functor) {
 	auto fptr = [] (ACPI_RESOURCE *r, void *c) -> ACPI_STATUS {
@@ -398,8 +410,7 @@ IrqLine resolveIrq(unsigned int irq) {
 }
 
 IrqLine overrideIrq(unsigned int irq, IrqConfiguration desired) {
-	assert(irq < 16);
-	if(*irqOverrides[irq]) {
+	if(irq < 16 && *irqOverrides[irq]) {
 		assert(desired.compatible((*irqOverrides[irq])->configuration));
 		return *(*irqOverrides[irq]);
 	}
@@ -450,15 +461,25 @@ frigg::String<KernelAlloc> getHardwareId(ACPI_HANDLE handle) {
 
 // --------------------------------------------------------
 
+struct IrqResource {
+	unsigned int irq;
+	IrqConfiguration configuration;
+};
+
 frigg::LazyInitializer<
 	frigg::Vector<
 		frigg::String<KernelAlloc>,
 		KernelAlloc
 	>
-> links;
+> irqLinks;
+
+frigg::LazyInitializer<
+	frigg::Vector<IrqResource, KernelAlloc>
+> irqConfigs;
 
 void prepareSystemBusses() {
-	links.initialize(*kernelAlloc);
+	irqLinks.initialize(*kernelAlloc);
+	irqConfigs.initialize(*kernelAlloc);
 
 	auto sb = getChild(ACPI_ROOT_OBJECT, "_SB_");
 	for(auto child : getChildren(sb)) {
@@ -480,13 +501,24 @@ void prepareSystemBusses() {
 			auto slot = route->Address >> 16;
 			auto function = route->Address & 0xFFFF;
 			assert(function == 0xFFFF);
-			frigg::infoLogger() << "    Route for slot " << slot
-					<< ", pin " << route->Pin << ": " << (const char *)route->Source
-					<< "[" << route->SourceIndex << "]" << frigg::endLog;
+			if(!*route->Source) {
+				frigg::infoLogger() << "    Route for slot " << slot
+						<< ", pin " << route->Pin << ": "
+						<< "GSI " << route->SourceIndex << frigg::endLog;
 
-			auto source = frigg::String<KernelAlloc>{*kernelAlloc, route->Source};
-			if(std::find(links->begin(), links->end(), source) == links->end())
-				links->push(source);
+				auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
+						[&] (const auto &ref) { return ref.irq == route->SourceIndex; });
+				if(duplicate == irqConfigs->end())
+					irqConfigs->push({route->SourceIndex, {TriggerMode::level, Polarity::low}});
+			}else{
+				frigg::infoLogger() << "    Route for slot " << slot
+						<< ", pin " << route->Pin << ": " << (const char *)route->Source
+						<< "[" << route->SourceIndex << "]" << frigg::endLog;
+
+				auto source = frigg::String<KernelAlloc>{*kernelAlloc, route->Source};
+				if(std::find(irqLinks->begin(), irqLinks->end(), source) == irqLinks->end())
+					irqLinks->push(source);
+			}
 
 			offset += route->Length;
 		}
@@ -496,11 +528,6 @@ void prepareSystemBusses() {
 // --------------------------------------------------------
 
 void configureIrqs() {
-	struct IrqResource {
-		unsigned int irq;
-		IrqConfiguration configuration;
-	};
-
 	auto decodeTrigger = [] (unsigned int trigger) {
 		switch(trigger) {
 		case ACPI_LEVEL_SENSITIVE: return TriggerMode::level;
@@ -516,10 +543,8 @@ void configureIrqs() {
 		}
 	};
 	
-	frigg::Vector<IrqResource, KernelAlloc> irqs{*kernelAlloc};
-
-	for(auto link : *links) {
-		frigg::infoLogger() << "Configurating link device " << link << "." << frigg::endLog;
+	for(auto link : *irqLinks) {
+		frigg::infoLogger() << "Configuring link device " << link << "." << frigg::endLog;
 
 		// TODO: Hack to null-terminate the string.
 		char name[32];
@@ -553,18 +578,20 @@ void configureIrqs() {
 					IrqResource res{r->Data.Irq.Interrupts[i],
 							IrqConfiguration{trigger, polarity}};
 					
-					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+					auto mismatch = std::find_if(irqConfigs->begin(), irqConfigs->end(),
+							[&] (const auto &ref) {
 						if(res.irq != ref.irq)
 							return false;
 						return !res.configuration.compatible(ref.configuration);
-					}) != irqs.end();
+					}) != irqConfigs->end();
 					assert(!mismatch);
 
-					auto duplicate = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+					auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
+							[&] (const auto &ref) {
 						return res.irq == ref.irq;
-					}) != irqs.end();
+					}) != irqConfigs->end();
 					if(!duplicate)
-						irqs.push(res);
+						irqConfigs->push(res);
 				}
 			}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
 				for(uint8_t i = 0; i < r->Data.ExtendedIrq.InterruptCount; i++) {
@@ -578,18 +605,20 @@ void configureIrqs() {
 					IrqResource res{r->Data.ExtendedIrq.Interrupts[i],
 							IrqConfiguration{trigger, polarity}};
 					
-					auto mismatch = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+					auto mismatch = std::find_if(irqConfigs->begin(), irqConfigs->end(),
+							[&] (const auto &ref) {
 						if(res.irq != ref.irq)
 							return false;
 						return !res.configuration.compatible(ref.configuration);
-					}) != irqs.end();
+					}) != irqConfigs->end();
 					assert(!mismatch);
 
-					auto duplicate = std::find_if(irqs.begin(), irqs.end(), [&] (auto ref) {
+					auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
+							[&] (const auto &ref) {
 						return res.irq == ref.irq;
-					}) != irqs.end();
+					}) != irqConfigs->end();
 					if(!duplicate)
-						irqs.push(res);
+						irqConfigs->push(res);
 				}
 			}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
 				frigg::infoLogger() << "    Resource: [Type "
@@ -598,7 +627,7 @@ void configureIrqs() {
 		});
 	}
 
-	for(auto res : irqs) {
+	for(auto res : *irqConfigs) {
 //		frigg::infoLogger() << "PCI IRQ: " << res.irq
 //				<< ", levelTriggered: " << res.levelTriggered
 //				<< ", activeLow: " << res.activeLow << frigg::endLog;
@@ -814,6 +843,11 @@ void initializeExtendedSystem() {
 	ACPICA_CHECK(AcpiInstallGlobalEventHandler(&dispatchEvent, nullptr));
 
 	ACPICA_CHECK(AcpiInitializeObjects(ACPI_FULL_INITIALIZATION));
+	
+	if(hasChild(ACPI_ROOT_OBJECT, "_PIC")) {
+		frigg::infoLogger() << "thor: Invoking \\_PIC method" << frigg::endLog;
+		evaluateWith1(getChild(ACPI_ROOT_OBJECT, "_PIC"));
+	}
 
 	prepareSystemBusses();
 	configureIrqs();
