@@ -295,7 +295,9 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	if(command & 0x02)
 		frigg::infoLogger() << " (Decodes Memory)";
 	if(command & 0x04)
-		frigg::infoLogger() << " (Master)";
+		frigg::infoLogger() << " (Busmaster)";
+	if(command & 0x400)
+		frigg::infoLogger() << " (IRQs masked)";
 	frigg::infoLogger() << frigg::endLog;
 
 	auto device_id = readPciHalf(bus, slot, function, kPciDevice);
@@ -318,7 +320,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 		auto status = readPciHalf(bus, slot, function, kPciStatus);
 
 		if(status & 0x08)
-			frigg::infoLogger() << "\e[35m            IRQ is asserted!\e[39m" << frigg::endLog;
+			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
 
 		if(status & 0x10) {
 			// NOTE: the bottom two bits of each capability offset must be masked
@@ -442,6 +444,13 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 
 		registerDevice(device);
 		//allDevices.push_back(device);
+	}
+
+	// TODO: This should probably be moved somewhere else.
+	if(class_code == 0x0C && sub_class == 0x03 && interface == 0x00) {
+		frigg::infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m"
+				<< frigg::endLog;
+		writePciHalf(bus, slot, function, 0xC0, 0x2000);
 	}
 }
 

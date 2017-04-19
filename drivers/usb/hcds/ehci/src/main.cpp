@@ -229,7 +229,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	_operational.store(op_regs::usbcmd, usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	_operational.store(op_regs::configflag, 0x01);
 
-	handleIrqs();
+//	handleIrqs();
 }))
 
 void Controller::_checkPorts() {
