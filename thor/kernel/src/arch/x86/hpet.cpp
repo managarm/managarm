@@ -58,35 +58,70 @@ struct CompareTimer {
 	}
 };
 
-typedef frg::pairing_heap<
-	Timer,
-	frg::locate_member<
-		Timer,
-		frg::pairing_heap_hook<Timer>,
-		&Timer::hook
-	>,
-	CompareTimer
-> TimerQueue;
-
-frigg::LazyInitializer<TimerQueue> timerQueue;
-
 struct HpetDevice : IrqSink {
-	IrqStatus raise() override {
-		auto current = hpetBase.load(mainCounter);
-		while(!timerQueue->empty() && timerQueue->top()->deadline < current) {
-			auto timer = timerQueue->top();
-			timerQueue->pop();
-			timer->callback();
-		}
+private:
+	using Mutex = frigg::TicketLock;
 
-		if(!timerQueue->empty())
-			hpetBase.store(timerComparator0, timerQueue->top()->deadline);
+public:
+	void installTimer(Timer *timer) {
+		IrqLock irq_lock{globalIrqMutex};
+		auto lock = frigg::guard(&_mutex);
+
+		_timerQueue.push(timer);
+		_progress();
+	}
+
+	IrqStatus raise() override {
+		IrqLock irq_lock{globalIrqMutex};
+		auto lock = frigg::guard(&_mutex);
+
+		_progress();
 
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
 		return irq_status::handled;
 	}
+
+private:
+	// This function is somewhat complicated because we have to avoid a race between
+	// the comparator setup and the main counter.
+	void _progress() {
+		auto current = hpetBase.load(mainCounter);
+		do {
+			// Process all timers that elapsed in the past.
+			while(true) {
+				if(_timerQueue.empty())
+					return;
+
+				if(_timerQueue.top()->deadline > current)
+					break;
+
+				auto timer = _timerQueue.top();
+				_timerQueue.pop();
+				timer->callback();
+			}
+
+			// Setup the comparator and iterate if there was a race.
+			assert(!_timerQueue.empty());
+			hpetBase.store(timerComparator0, _timerQueue.top()->deadline);
+			current = hpetBase.load(mainCounter);
+		} while(_timerQueue.top()->deadline <= current);
+	}
+
+	Mutex _mutex;
+
+	frg::pairing_heap<
+		Timer,
+		frg::locate_member<
+			Timer,
+			frg::pairing_heap_hook<Timer>,
+			&Timer::hook
+		>,
+		CompareTimer
+	> _timerQueue;
 };
+
+frigg::LazyInitializer<HpetDevice> hpetDevice;
 
 bool haveTimer() {
 	return hpetAvailable;
@@ -95,8 +130,7 @@ bool haveTimer() {
 void setupHpet(PhysicalAddr address) {
 	frigg::infoLogger() << "HPET at " << (void *)address << frigg::endLog;
 	
-	timerQueue.initialize();
-	auto device = frigg::construct<HpetDevice>(*kernelAlloc);
+	hpetDevice.initialize();
 	
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
@@ -132,7 +166,7 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(genConfig, enableCounter(true));
 	}
 	
-	attachIrq(getGlobalSystemIrq(2), device);
+	attachIrq(getGlobalSystemIrq(2), hpetDevice.get());
 
 	// Program HPET timer 0 in one-shot mode.
 	if(global_caps & supportsLegacyIrqs) {
@@ -183,12 +217,7 @@ uint64_t durationToTicks(uint64_t seconds,
 }
 
 void installTimer(Timer *timer) {
-	// TODO: We have to make this irq- and thread-safe.
-	timerQueue->push(timer);
-
-	hpetBase.store(timerComparator0, timerQueue->top()->deadline);
-	// TODO: We might have missed the deadline already if it is short enough.
-	// Read the counter here and dequeue all elapsed timers manually.
+	hpetDevice->installTimer(timer);
 }
 
 } // namespace thor
