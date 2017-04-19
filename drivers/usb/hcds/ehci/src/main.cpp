@@ -808,22 +808,22 @@ void Controller::_progressQueue(QueueEntity *entity) {
 // ----------------------------------------------------------------------------
 
 // TODO: This should be async.
-void Controller::resetPort(int number) {
+COFIBER_ROUTINE(cofiber::no_future, Controller::resetPort(int number), ([=] {
 	auto offset = _space.load(cap_regs::caplength);
 	auto port_space = _space.subspace(offset + 0x44 + (4 * number));
 	
 //	std::cout << "ehci: Port reset." << std::endl;
 	port_space.store(port_regs::sc, portsc::portReset(true));	
 
-	// TODO: Do not busy-wait.
-	uint64_t start;
-	HEL_CHECK(helGetClock(&start));
-	while(true) {
-		uint64_t ticks;
-		HEL_CHECK(helGetClock(&ticks));
-		if(ticks - start >= 50000000)
-			break;
-	}
+	uint64_t tick;
+	HEL_CHECK(helGetClock(&tick));
+
+	helix::AwaitClock await_clock;
+	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
+			helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(await_clock.error());
+
 	port_space.store(port_regs::sc, portsc::portReset(false));
 
 //	std::cout << "ehci: Waiting for reset to complete." << std::endl;
@@ -837,9 +837,10 @@ void Controller::resetPort(int number) {
 		std::cout << "ehci: Port " << number << " was enabled." << std::endl;
 		_enumerator.enablePort(number);
 	}else{
+		// TODO: We should grant the port to the companion controller here.
 		std::cout << "ehci: Port " << number << " disabled after reset." << std::endl;
 	}
-}
+}))
 
 // ----------------------------------------------------------------------------
 // Debugging functions.

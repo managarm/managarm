@@ -141,7 +141,7 @@ private:
 	void _checkPorts();	
 
 public:
-	void resetPort(int number);
+	cofiber::no_future resetPort(int number);
 
 	// ----------------------------------------------------------------------------
 	// Debugging functions.
