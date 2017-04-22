@@ -1,7 +1,10 @@
+#ifndef THOR_SYSTEM_PCI_PCI_HPP
+#define THOR_SYSTEM_PCI_PCI_HPP
 
 #include <stddef.h>
 #include <stdint.h>
 #include <frigg/smart_ptr.hpp>
+#include <frigg/vector.hpp>
 #include "../../generic/irq.hpp"
 
 namespace thor {
@@ -10,6 +13,29 @@ struct Memory;
 struct IoSpace;
 
 namespace pci {
+
+enum class IrqIndex {
+	null, inta, intb, intc, intd
+};
+
+inline const char *nameOf(IrqIndex index) {
+	switch(index) {
+	case IrqIndex::inta: return "INTA";
+	case IrqIndex::intb: return "INTB";
+	case IrqIndex::intc: return "INTC";
+	case IrqIndex::intd: return "INTD";
+	default:
+		assert(!"Illegal PCI interrupt pin for nameOf(IrqIndex)");
+	}
+}
+
+struct RoutingEntry {
+	unsigned int slot;
+	IrqIndex index;
+	IrqPin *pin;
+};
+
+using RoutingInfo = frigg::Vector<RoutingEntry, KernelAlloc>;
 
 struct PciDevice {
 	enum BarType {
@@ -81,10 +107,13 @@ enum {
 	kPciRegularSubsystemDevice = 0x2E,
 	kPciRegularCapabilities = 0x34,
 	kPciRegularInterruptLine = 0x3C,
+	kPciRegularInterruptPin = 0x3D,
 
 	// PCI-to-PCI bridge header fields
 	kPciBridgeSecondary = 0x19
 };
+
+void pciDiscover(const RoutingInfo &routing);
 
 } } // namespace thor::pci
 
@@ -98,3 +127,4 @@ void writePciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offse
 void writePciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint16_t value);
 void writePciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint8_t value);
 
+#endif // THOR_SYSTEM_PCI_PCI_HPP

@@ -106,6 +106,10 @@ public:
 	
 	IrqPin &operator= (const IrqPin &) = delete;
 
+	const frigg::String<KernelAlloc> &name() {
+		return _name;
+	}
+
 	void configure(TriggerMode mode, Polarity polarity);
 
 	// This function is called from IrqSlot::raise().

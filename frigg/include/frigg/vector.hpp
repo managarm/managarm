@@ -56,7 +56,15 @@ public:
 		return p_elements;
 	}
 
+	const T *begin() const {
+		return p_elements;
+	}
+
 	T *end() {
+		return p_elements + p_size;
+	}
+
+	const T *end() const {
 		return p_elements + p_size;
 	}
 	

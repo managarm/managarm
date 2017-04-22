@@ -4,10 +4,6 @@
 
 namespace thor {
 
-namespace pci {
-	void pciDiscover();
-}
-
 void initializeTheSystemEarly() {
 	initLocalApicOnTheSystem();
 	// TODO: managarm crashes on bochs if we do not remap the legacy PIC.
@@ -22,7 +18,6 @@ void initializeBasicSystem() {
 
 void initializeExtendedSystem() {
 	acpi::initializeExtendedSystem();
-	pci::pciDiscover();
 }
 
 } // namespace thor

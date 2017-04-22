@@ -9,6 +9,7 @@
 #include "../../arch/x86/hpet.hpp"
 #include "../../arch/x86/pic.hpp"
 #include "../../generic/kernel_heap.hpp"
+#include "../../system/pci/pci.hpp"
 
 extern "C" {
 #include <acpi.h>
@@ -461,73 +462,21 @@ frigg::String<KernelAlloc> getHardwareId(ACPI_HANDLE handle) {
 
 // --------------------------------------------------------
 
-struct IrqResource {
-	unsigned int irq;
-	IrqConfiguration configuration;
-};
+IrqConfiguration irqConfig[24];
 
-frigg::LazyInitializer<
-	frigg::Vector<
-		frigg::String<KernelAlloc>,
-		KernelAlloc
-	>
-> irqLinks;
-
-frigg::LazyInitializer<
-	frigg::Vector<IrqResource, KernelAlloc>
-> irqConfigs;
-
-void prepareSystemBusses() {
-	irqLinks.initialize(*kernelAlloc);
-	irqConfigs.initialize(*kernelAlloc);
-
-	auto sb = getChild(ACPI_ROOT_OBJECT, "_SB_");
-	for(auto child : getChildren(sb)) {
-		auto id = getHardwareId(child);
-		if(id != "PNP0A03" && id != "PNP0A08")
-			continue;
-		
-		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
-
-		acpi::ScopedBuffer buffer;
-		ACPICA_CHECK(AcpiGetIrqRoutingTable(child, buffer.get()));
-
-		size_t offset = 0;
-		while(true) {
-			auto route = (ACPI_PCI_ROUTING_TABLE *)((char *)buffer.data() + offset);
-			if(!route->Length)
-				break;
-			
-			auto slot = route->Address >> 16;
-			auto function = route->Address & 0xFFFF;
-			assert(function == 0xFFFF);
-			if(!*route->Source) {
-				frigg::infoLogger() << "    Route for slot " << slot
-						<< ", pin " << route->Pin << ": "
-						<< "GSI " << route->SourceIndex << frigg::endLog;
-
-				auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
-						[&] (const auto &ref) { return ref.irq == route->SourceIndex; });
-				if(duplicate == irqConfigs->end())
-					irqConfigs->push({route->SourceIndex, {TriggerMode::level, Polarity::low}});
-			}else{
-				frigg::infoLogger() << "    Route for slot " << slot
-						<< ", pin " << route->Pin << ": " << (const char *)route->Source
-						<< "[" << route->SourceIndex << "]" << frigg::endLog;
-
-				auto source = frigg::String<KernelAlloc>{*kernelAlloc, route->Source};
-				if(std::find(irqLinks->begin(), irqLinks->end(), source) == irqLinks->end())
-					irqLinks->push(source);
-			}
-
-			offset += route->Length;
-		}
+void configureIrq(unsigned int gsi, IrqConfiguration desired) {
+	assert(gsi < 24);
+	assert(desired.specified());
+	if(!irqConfig[gsi].specified()) {
+		auto pin = getGlobalSystemIrq(gsi);
+		pin->configure(desired.trigger, desired.polarity);
+		irqConfig[gsi] = desired;
+	}else{
+		assert(irqConfig[gsi].compatible(desired));
 	}
 }
 
-// --------------------------------------------------------
-
-void configureIrqs() {
+IrqPin *configureRoute(const char *link_path) {
 	auto decodeTrigger = [] (unsigned int trigger) {
 		switch(trigger) {
 		case ACPI_LEVEL_SENSITIVE: return TriggerMode::level;
@@ -543,95 +492,102 @@ void configureIrqs() {
 		}
 	};
 	
-	for(auto link : *irqLinks) {
-		frigg::infoLogger() << "Configuring link device " << link << "." << frigg::endLog;
+	// TODO: Hack to null-terminate the string.
+	auto handle = getChild(ACPI_ROOT_OBJECT, link_path);
 
-		// TODO: Hack to null-terminate the string.
-		char name[32];
-		assert(link.size() < 32);
-		memset(name, 0, 32);
-		memcpy(name, link.data(), link.size());
-
-		auto handle = getChild(ACPI_ROOT_OBJECT, name);
-
-		if(hasChild(handle, "_STA")) {
-			auto status = evaluate(getChild(handle, "_STA"));
-			if(!(status & 1)) {
-				frigg::infoLogger() << "    Device is not present." << frigg::endLog;
-				continue;
-			}else if(!(status & 2)) {
-				frigg::infoLogger() << "    Device is not enabled." << frigg::endLog;
-				continue;
-			}
+	if(hasChild(handle, "_STA")) {
+		auto status = evaluate(getChild(handle, "_STA"));
+		if(!(status & 1)) {
+			frigg::infoLogger() << "    Link device is not present." << frigg::endLog;
+			return nullptr;
+		}else if(!(status & 2)) {
+			frigg::infoLogger() << "    Link device is not enabled." << frigg::endLog;
+			return nullptr;
 		}
-
-		walkResources(handle, "_CRS", [&] (ACPI_RESOURCE *r) {
-			if(r->Type == ACPI_RESOURCE_TYPE_IRQ) {
-				for(uint8_t i = 0; i < r->Data.Irq.InterruptCount; i++) {
-					auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
-					auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
-					frigg::infoLogger() << "    Resource: Irq "
-							<< (int)r->Data.Irq.Interrupts[i]
-							<< ", trigger mode: " << static_cast<int>(trigger)
-							<< ", polarity: " << static_cast<int>(polarity)
-							<< frigg::endLog;
-					IrqResource res{r->Data.Irq.Interrupts[i],
-							IrqConfiguration{trigger, polarity}};
-					
-					auto mismatch = std::find_if(irqConfigs->begin(), irqConfigs->end(),
-							[&] (const auto &ref) {
-						if(res.irq != ref.irq)
-							return false;
-						return !res.configuration.compatible(ref.configuration);
-					}) != irqConfigs->end();
-					assert(!mismatch);
-
-					auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
-							[&] (const auto &ref) {
-						return res.irq == ref.irq;
-					}) != irqConfigs->end();
-					if(!duplicate)
-						irqConfigs->push(res);
-				}
-			}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
-				for(uint8_t i = 0; i < r->Data.ExtendedIrq.InterruptCount; i++) {
-					auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
-					auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
-					frigg::infoLogger() << "    Resource: Extended Irq "
-							<< (int)r->Data.ExtendedIrq.Interrupts[i]
-							<< ", trigger mode: " << static_cast<int>(trigger)
-							<< ", polarity: " << static_cast<int>(polarity)
-							<< frigg::endLog;
-					IrqResource res{r->Data.ExtendedIrq.Interrupts[i],
-							IrqConfiguration{trigger, polarity}};
-					
-					auto mismatch = std::find_if(irqConfigs->begin(), irqConfigs->end(),
-							[&] (const auto &ref) {
-						if(res.irq != ref.irq)
-							return false;
-						return !res.configuration.compatible(ref.configuration);
-					}) != irqConfigs->end();
-					assert(!mismatch);
-
-					auto duplicate = std::find_if(irqConfigs->begin(), irqConfigs->end(),
-							[&] (const auto &ref) {
-						return res.irq == ref.irq;
-					}) != irqConfigs->end();
-					if(!duplicate)
-						irqConfigs->push(res);
-				}
-			}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
-				frigg::infoLogger() << "    Resource: [Type "
-						<< r->Type << "]" << frigg::endLog;
-			}
-		});
 	}
 
-	for(auto res : *irqConfigs) {
-//		frigg::infoLogger() << "PCI IRQ: " << res.irq
-//				<< ", levelTriggered: " << res.levelTriggered
-//				<< ", activeLow: " << res.activeLow << frigg::endLog;
-		commitIrq(overrideIrq(res.irq, res.configuration));
+	IrqPin *pin = nullptr;
+	walkResources(handle, "_CRS", [&] (ACPI_RESOURCE *r) {
+		if(r->Type == ACPI_RESOURCE_TYPE_IRQ) {
+			assert(r->Data.Irq.InterruptCount == 1);
+			auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
+			auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
+			frigg::infoLogger() << "    Resource: Irq "
+					<< (int)r->Data.Irq.Interrupts[0]
+					<< ", trigger mode: " << static_cast<int>(trigger)
+					<< ", polarity: " << static_cast<int>(polarity)
+					<< frigg::endLog;
+			assert(!pin);
+			configureIrq(r->Data.Irq.Interrupts[0], {trigger, polarity});
+			pin = getGlobalSystemIrq(r->Data.Irq.Interrupts[0]);
+		}else if(r->Type == ACPI_RESOURCE_TYPE_EXTENDED_IRQ) {
+			assert(r->Data.ExtendedIrq.InterruptCount == 1);
+			auto trigger = decodeTrigger(r->Data.ExtendedIrq.Triggering);
+			auto polarity = decodePolarity(r->Data.ExtendedIrq.Polarity);
+			frigg::infoLogger() << "    Resource: Extended Irq "
+					<< (int)r->Data.ExtendedIrq.Interrupts[0]
+					<< ", trigger mode: " << static_cast<int>(trigger)
+					<< ", polarity: " << static_cast<int>(polarity)
+					<< frigg::endLog;
+			assert(!pin);
+			configureIrq(r->Data.ExtendedIrq.Interrupts[0], {trigger, polarity});
+			pin = getGlobalSystemIrq(r->Data.ExtendedIrq.Interrupts[0]);
+		}else if(r->Type != ACPI_RESOURCE_TYPE_END_TAG) {
+			frigg::infoLogger() << "    Resource: [Type "
+					<< r->Type << "]" << frigg::endLog;
+		}
+	});
+
+	assert(pin);
+	return pin;
+}
+
+void enumerateSystemBusses() {
+	auto sb = getChild(ACPI_ROOT_OBJECT, "_SB_");
+	for(auto child : getChildren(sb)) {
+		auto id = getHardwareId(child);
+		if(id != "PNP0A03" && id != "PNP0A08")
+			continue;
+		
+		frigg::infoLogger() << "thor: Found PCI host bridge" << frigg::endLog;
+
+		pci::RoutingInfo routing{*kernelAlloc};
+
+		acpi::ScopedBuffer buffer;
+		ACPICA_CHECK(AcpiGetIrqRoutingTable(child, buffer.get()));
+
+		size_t offset = 0;
+		while(true) {
+			auto route = (ACPI_PCI_ROUTING_TABLE *)((char *)buffer.data() + offset);
+			if(!route->Length)
+				break;
+			
+			auto slot = route->Address >> 16;
+			auto function = route->Address & 0xFFFF;
+			assert(function == 0xFFFF);
+			auto index = static_cast<pci::IrqIndex>(route->Pin + 1);
+			if(!*route->Source) {
+				frigg::infoLogger() << "    Route for slot " << slot
+						<< ", " << nameOf(index) << ": "
+						<< "GSI " << route->SourceIndex << frigg::endLog;
+
+				configureIrq(route->SourceIndex, {TriggerMode::level, Polarity::low});
+				auto pin = getGlobalSystemIrq(route->SourceIndex);
+				routing.push({slot, index, pin});
+			}else{
+				frigg::infoLogger() << "    Route for slot " << slot
+						<< ", " << nameOf(index) << ": " << (const char *)route->Source
+						<< "[" << route->SourceIndex << "]" << frigg::endLog;
+
+				assert(!route->SourceIndex);
+				auto pin = configureRoute(const_cast<const char *>(route->Source));
+				routing.push({slot, index, pin});
+			}
+
+			offset += route->Length;
+		}
+
+		pci::pciDiscover(routing);
 	}
 }
 
@@ -849,9 +805,8 @@ void initializeExtendedSystem() {
 		evaluateWith1(getChild(ACPI_ROOT_OBJECT, "_PIC"));
 	}
 
-	prepareSystemBusses();
-	configureIrqs();
 	bootOtherProcessors();
+	enumerateSystemBusses();
 	
 	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;
 }

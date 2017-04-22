@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include <frigg/debug.hpp>
 #include <hw.frigg_pb.hpp>
 #include <mbus.frigg_pb.hpp>
@@ -271,7 +272,17 @@ size_t computeBarLength(uintptr_t mask) {
 
 //FIXME: std::queue<unsigned int> enumerationQueue;
 
-void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
+IrqPin *resolveRoute(const RoutingInfo &info, unsigned int slot, IrqIndex index) {
+	auto entry = std::find_if(info.begin(), info.end(), [&] (const auto &ref) {
+		return ref.slot == slot && ref.index == index;
+	});
+	assert(entry != info.end());
+	assert(entry->pin);
+	return entry->pin;
+}
+
+void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
+		const RoutingInfo &routing) {
 	uint16_t vendor = readPciHalf(bus, slot, function, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
@@ -433,13 +444,14 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 			}
 		}
 
-		// determine the interrupt line
-		uint8_t line_number = readPciByte(bus, slot, function, kPciRegularInterruptLine);
-		if(line_number) {
-			// TODO: Translate ISA IRQs.
-			frigg::infoLogger() << "            Interrupt line: "
-					<< (int)line_number << frigg::endLog;
-			device->interrupt = getGlobalSystemIrq(line_number);
+		auto irq_index = static_cast<IrqIndex>(readPciByte(bus, slot, function,
+				kPciRegularInterruptPin));
+		if(irq_index != IrqIndex::null) {
+			auto irq_pin = resolveRoute(routing, slot, irq_index);
+			frigg::infoLogger() << "            Interrupt: "
+					<< nameOf(irq_index)
+					<< " (routed to " << irq_pin->name() << ")" << frigg::endLog;
+			device->interrupt = irq_pin;
 		}
 
 		registerDevice(device);
@@ -454,9 +466,11 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function) {
 	}
 }
 
-void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function);
+void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
+		const RoutingInfo &routing);
 
-void checkPciDevice(uint32_t bus, uint32_t slot) {
+void checkPciDevice(uint32_t bus, uint32_t slot,
+		const RoutingInfo &routing) {
 	uint16_t vendor = readPciHalf(bus, slot, 0, kPciVendor);
 	if(vendor == 0xFFFF)
 		return;
@@ -466,20 +480,20 @@ void checkPciDevice(uint32_t bus, uint32_t slot) {
 	uint8_t header_type = readPciByte(bus, slot, 0, kPciHeaderType);
 	if((header_type & 0x80) != 0) {
 		for(uint32_t function = 0; function < 8; function++)
-			checkPciFunction(bus, slot, function);
+			checkPciFunction(bus, slot, function, routing);
 	}else{
-		checkPciFunction(bus, slot, 0);
+		checkPciFunction(bus, slot, 0, routing);
 	}
 }
 
-void checkPciBus(uint32_t bus) {
+void checkPciBus(uint32_t bus, const RoutingInfo &routing) {
 	for(uint32_t slot = 0; slot < 32; slot++)
-		checkPciDevice(bus, slot);
+		checkPciDevice(bus, slot, routing);
 }
 
-void pciDiscover() {
+void pciDiscover(const RoutingInfo &routing) {
 	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
-	checkPciBus(0);
+	checkPciBus(0, routing);
 /*	enumerationQueue.push(0);
 	while(!enumerationQueue.empty()) {
 		auto bus = enumerationQueue.front();
