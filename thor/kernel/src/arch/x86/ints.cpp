@@ -174,7 +174,11 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
 	assert(!inStub(*image.ip()));
-	assert(cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+	if(cs != kSelClientUserCode && cs != kSelExecutorSyscallCode)
+		frigg::panicLogger() << "Fault #" << number
+				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
@@ -188,7 +192,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handlePageFault(image, address);
 	} break;
 	default:
-		frigg::panicLogger() << "Unexpected fault number " << number << frigg::endLog;
+		frigg::panicLogger() << "Unexpected fault number " << number
+				<< ", from cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 	}
 	
 	if(cs == kSelClientUserCode)

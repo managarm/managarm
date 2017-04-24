@@ -18,7 +18,6 @@
 #include "storage.hpp"
 
 COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
-	printf("entered StorageDevice.run()\n");
 	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
 
 	std::experimental::optional<int> config_number;
@@ -30,20 +29,11 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
-			
-			auto desc = (ConfigDescriptor *)p;
-			printf("Config Descriptor: \n");
-			printf("    value: %i\n", desc->configValue);
 		}else if(type == descriptor_type::interface) {
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
 			
 			auto desc = (InterfaceDescriptor *)p;
-			printf("Interface Descriptor: \n");
-			printf("    class: %i\n", desc->interfaceClass);
-			printf("    sub class: %i\n", desc->interfaceSubClass);
-			printf("    protocoll: %i\n", desc->interfaceProtocoll);
-			
 			assert(desc->interfaceClass == 0x08);
 			assert(desc->interfaceProtocoll == 0x50);
 		}else if(type == descriptor_type::endpoint) {
@@ -140,7 +130,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "uhci: Detected storage-device" << std::endl;
+			std::cout << "storage: Detected USB device" << std::endl;
 			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected device class");
@@ -153,7 +143,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting storage (usb-)driver\n");
+	std::cout << "storage: Starting USB driver" << std::endl;
 
 	observeDevices();
 

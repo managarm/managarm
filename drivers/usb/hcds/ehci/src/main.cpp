@@ -25,6 +25,9 @@
 #include "spec.hpp"
 #include "ehci.hpp"
 
+static const bool logIrqs = false;
+static const bool logSubmits = false;
+
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 // ----------------------------------------------------------------------------
@@ -229,7 +232,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	_operational.store(op_regs::usbcmd, usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	_operational.store(op_regs::configflag, 0x01);
 
-//	handleIrqs();
+	handleIrqs();
 }))
 
 void Controller::_checkPorts() {
@@ -340,8 +343,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		{ "usb.release", release }
 	};
 	
-	std::cout << "class_code: " << class_code << std::endl;
-
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	char name[3];
@@ -359,27 +360,26 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
-	std::cout << "Created object " << name << std::endl;
 
 	COFIBER_RETURN();
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
-	std::cout << "ehci: Handle IRQs." << std::endl;
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 
 	while(true) {
-		printf("ehci: Awaiting IRQ.\n");
+		if(logIrqs)
+			std::cout << "ehci: Awaiting IRQ." << std::endl;
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
-		printf("ehci: IRQ fired.\n");
+		if(logIrqs)
+			std::cout << "ehci: IRQ fired." << std::endl;
 
 		// _updateFrame();
 
 		auto status = _operational.load(op_regs::usbsts);
-		std::cout << "ehci: Status register = " << static_cast<uint32_t>(status) << std::endl;
 		assert(!(status & usbsts::hostError));
 		if(!(status & usbsts::transactionIrq)
 				&& !(status & usbsts::errorIrq)
@@ -396,12 +396,14 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {
-			std::cout << "ehci: Processing transfers." << std::endl;
+			if(logIrqs)
+				std::cout << "ehci: Processing transfers." << std::endl;
 			_progressSchedule();
 		}
 		
 		if(status & usbsts::portChange) {
-			std::cout << "ehci: Checking ports." << std::endl;
+			if(logIrqs)
+				std::cout << "ehci: Checking ports." << std::endl;
 			_checkPorts();
 		}
 	}
@@ -739,7 +741,8 @@ void Controller::_linkAsync(QueueEntity *entity) {
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
 	if(queue->transactions.empty()) {
-		std::cout << "ehci: Linking in _linkTransaction" << std::endl;
+		if(logSubmits)
+			std::cout << "ehci: Linking in _linkTransaction" << std::endl;
 		assert(queue->head->nextTd.load() & td_ptr::terminate);
 		queue->head->nextTd.store(qh_nextTd::nextTd(
 				schedulePointer(&transaction->transfers[0]))); 
@@ -775,7 +778,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 	auto current = active->numComplete;
 	if(current == active->transfers.size()) {
-		printf("Transfer complete!\n");
+		if(logSubmits)
+			std::cout << "Transfer complete!" << std::endl;
 		active->promise.set_value();
 
 		// Clean up the Queue.
@@ -785,7 +789,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		// Schedule the next transaction.
 		assert(entity->head->nextTd.load() & td_ptr::terminate);
 		if(!entity->transactions.empty()) {
-			std::cout << "ehci: Linking in _progressQueue" << std::endl;
+			if(logSubmits)
+				std::cout << "ehci: Linking in _progressQueue" << std::endl;
 			auto front = &entity->transactions.front();
 			entity->head->nextTd.store(qh_nextTd::nextTd(schedulePointer(&front->transfers[0])));
 		}
