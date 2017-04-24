@@ -24,7 +24,7 @@
 arch::io_space base;
 
 // --------------------------------------------
-// Keyboard & Mouse
+// EventDevice
 // --------------------------------------------
 
 struct Event {
@@ -68,10 +68,6 @@ struct EventDevice {
 		>
 	> requests;
 };
-
-std::shared_ptr<EventDevice> kbdEvntDev = std::make_shared<EventDevice>();
-std::shared_ptr<EventDevice> mouseEvntDev = std::make_shared<EventDevice>();
-
 
 async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
 	throw std::runtime_error("seek not yet implemented");
@@ -118,7 +114,6 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		HEL_CHECK(recv_req.error());
 		
 		auto conversation = accept.descriptor();
-		
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
@@ -172,6 +167,7 @@ void EventDevice::processEvents() {
 // Keyboard
 // --------------------------------------------
 
+std::shared_ptr<EventDevice> kbdEvntDev = std::make_shared<EventDevice>();
 helix::UniqueIrq kbdIrq;
 
 enum KeyboardStatus {
@@ -183,86 +179,6 @@ enum KeyboardStatus {
 
 KeyboardStatus escapeStatus = kStatusNormal;
 uint8_t e1Buffer;
-
-// --------------------------------------------
-// Mouse
-// --------------------------------------------
-
-helix::UniqueIrq mouseIrq;
-
-enum MouseState {
-	kMouseData,
-	kMouseWaitForAck
-};
-
-enum MouseByte {
-	kMouseByte0,
-	kMouseByte1,
-	kMouseByte2
-};
-
-MouseState mouseState = kMouseData;
-MouseByte mouseByte = kMouseByte0;
-uint8_t byte0 = 0;
-uint8_t byte1 = 0;
-
-void handleMouseData(uint8_t data) {
-	if(mouseState == kMouseWaitForAck) {
-		assert(data == 0xFA);
-		mouseState = kMouseData;
-	}else{
-		assert(mouseState == kMouseData);
-
-		if(mouseByte == kMouseByte0) {
-			if(data == 0xFA) { // acknowledge
-				// do nothing for now
-			}else{
-				byte0 = data;
-				assert(byte0 & 8);
-				mouseByte = kMouseByte1;
-			}
-		}else if(mouseByte == kMouseByte1) {
-			byte1 = data;
-			mouseByte = kMouseByte2;
-		}else{
-			assert(mouseByte == kMouseByte2);
-			uint8_t byte2 = data;
-			if(byte0 & 4) {
-				printf("MMB\n");
-			}
-			if(byte0 & 2) {
-				printf("RMB\n");
-			}
-			if(byte0 & 1) {
-				printf("LMB\n");
-			}
-			
-			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
-			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
-		
-			auto event_x = new Event(EV_REL, REL_X, movement_x);
-			mouseEvntDev->events.push_back(*event_x);
-			mouseEvntDev->processEvents();
-			
-			auto event_y = new Event(EV_REL, REL_Y, movement_y);
-			mouseEvntDev->events.push_back(*event_y);
-			mouseEvntDev->processEvents();
-			
-			mouseByte = kMouseByte0;
-		}
-	}
-}
-
-// --------------------------------------------
-// Functions
-// --------------------------------------------
-
-void sendByte(uint8_t data) {
-	//base.store(kbd_register::command, write2ndNextByte);
-	base.store(kbd_register::command, 0xD4);
-	while(base.load(kbd_register::status) & status_bits::inBufferStatus) { };
-	base.store(kbd_register::data, data);
-}
 
 int scanNormal(uint8_t data) {
 	switch(data) {
@@ -421,6 +337,87 @@ void handleKeyboardData(uint8_t data) {
 		kbdEvntDev->events.push_back(*event);
 		kbdEvntDev->processEvents();
 	}
+}
+
+// --------------------------------------------
+// Mouse
+// --------------------------------------------
+
+std::shared_ptr<EventDevice> mouseEvntDev = std::make_shared<EventDevice>();
+helix::UniqueIrq mouseIrq;
+
+enum MouseState {
+	kMouseData,
+	kMouseWaitForAck
+};
+
+enum MouseByte {
+	kMouseByte0,
+	kMouseByte1,
+	kMouseByte2
+};
+
+MouseState mouseState = kMouseData;
+MouseByte mouseByte = kMouseByte0;
+uint8_t byte0 = 0;
+uint8_t byte1 = 0;
+
+void handleMouseData(uint8_t data) {
+	if(mouseState == kMouseWaitForAck) {
+		assert(data == 0xFA);
+		mouseState = kMouseData;
+	}else{
+		assert(mouseState == kMouseData);
+
+		if(mouseByte == kMouseByte0) {
+			if(data == 0xFA) { // acknowledge
+				// do nothing for now
+			}else{
+				byte0 = data;
+				assert(byte0 & 8);
+				mouseByte = kMouseByte1;
+			}
+		}else if(mouseByte == kMouseByte1) {
+			byte1 = data;
+			mouseByte = kMouseByte2;
+		}else{
+			assert(mouseByte == kMouseByte2);
+			uint8_t byte2 = data;
+			if(byte0 & 4) {
+				printf("MMB\n");
+			}
+			if(byte0 & 2) {
+				printf("RMB\n");
+			}
+			if(byte0 & 1) {
+				printf("LMB\n");
+			}
+			
+			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
+			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
+		
+			auto event_x = new Event(EV_REL, REL_X, movement_x);
+			mouseEvntDev->events.push_back(*event_x);
+			mouseEvntDev->processEvents();
+			
+			auto event_y = new Event(EV_REL, REL_Y, movement_y);
+			mouseEvntDev->events.push_back(*event_y);
+			mouseEvntDev->processEvents();
+			
+			mouseByte = kMouseByte0;
+		}
+	}
+}
+
+// --------------------------------------------
+// Functions
+// --------------------------------------------
+
+void sendByte(uint8_t data) {
+	//base.store(kbd_register::command, write2ndNextByte);
+	base.store(kbd_register::command, 0xD4);
+	while(base.load(kbd_register::status) & status_bits::inBufferStatus) { };
+	base.store(kbd_register::data, data);
 }
 
 void readDeviceData() {
