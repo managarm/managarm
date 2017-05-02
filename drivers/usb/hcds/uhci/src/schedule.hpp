@@ -1,6 +1,7 @@
 
 #include <queue>
 #include <arch/dma_pool.hpp>
+#include <arch/io_space.hpp>
 #include <async/doorbell.hpp>
 
 struct DeviceState;
@@ -15,7 +16,7 @@ struct EndpointState;
 struct Controller : std::enable_shared_from_this<Controller> {
 	friend struct ConfigurationState;
 
-	Controller(uint16_t base, helix::UniqueIrq irq);
+	Controller(arch::io_space base, helix::UniqueIrq irq);
 
 	void initialize();
 	async::result<void> pollDevices();
@@ -23,7 +24,7 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	cofiber::no_future handleIrqs();
 
 private:
-	uint16_t _base;
+	arch::io_space _base;
 	helix::UniqueIrq _irq;
 
 	uint16_t _lastFrame;

@@ -143,27 +143,3 @@ enum {
 	kPciLegacySupport = 0xC0
 };
 
-enum RegisterOffset {
-	kRegCommand = 0x00,
-	kRegStatus = 0x02,
-	kRegInterruptEnable = 0x04,
-	kRegFrameNumber = 0x06,
-	kRegFrameListBaseAddr = 0x08,
-	kRegStartFrameModify = 0x0C,
-	kRegPort1StatusControl = 0x10,
-	kRegPort2StatusControl = 0x12,
-};
-
-enum {
-	kStatusInterrupt = 0x01,
-	kStatusError = 0x02
-};
-
-enum {
-	kRootConnected = 0x0001,
-	kRootConnectChange = 0x0002,
-	kRootEnabled = 0x0004,
-	kRootEnableChange = 0x0008,
-	kRootReset = 0x0200
-};
-	

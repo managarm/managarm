@@ -7,6 +7,9 @@
 #include <iostream>
 #include <memory>
 
+#include <arch/bits.hpp>
+#include <arch/register.hpp>
+#include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
@@ -22,6 +25,7 @@
 #include <protocols/usb/server.hpp>
 
 #include "uhci.hpp"
+#include "spec.hpp"
 #include "schedule.hpp"
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
@@ -137,7 +141,7 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 // Controller.
 // ----------------------------------------------------------------------------
 
-Controller::Controller(uint16_t base, helix::UniqueIrq irq)
+Controller::Controller(arch::io_space base, helix::UniqueIrq irq)
 : _base(base), _irq(frigg::move(irq)), _lastFrame(0), _frameCounter(0),
 		_periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
 	for(int i = 1; i < 128; i++) {
@@ -146,13 +150,13 @@ Controller::Controller(uint16_t base, helix::UniqueIrq irq)
 }
 
 void Controller::initialize() {
-	auto initial_status = frigg::readIo<uint16_t>(_base + kRegStatus);
-	assert(!(initial_status & kStatusInterrupt));
-	assert(!(initial_status & kStatusError));
+	auto initial_status = _base.load(op_regs::status);
+	assert(!(initial_status & status::transactionIrq));
+	assert(!(initial_status & status::errorIrq));
 	
 	// host controller reset.
-	frigg::writeIo<uint16_t>(_base + kRegCommand, 0x02);
-	while((frigg::readIo<uint16_t>(_base + kRegCommand) & 0x02) != 0) { }
+	_base.store(op_regs::command, command::hostReset(true));
+	while((_base.load(op_regs::command) & command::hostReset) != 0) { }
 
 	// setup the frame list.
 	HelHandle list_handle;
@@ -171,11 +175,12 @@ void Controller::initialize() {
 	uintptr_t list_physical;
 	HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
 	assert((list_physical % 0x1000) == 0);
-	frigg::writeIo<uint32_t>(_base + kRegFrameListBaseAddr, list_physical);
-	frigg::writeIo<uint16_t>(_base + kRegCommand, 0x01);
+	_base.store(op_regs::frameListBase, list_physical);
+	_base.store(op_regs::command, command::runStop(true));
 	
 	// enable interrupts.
-	frigg::writeIo<uint16_t>(_base + kRegInterruptEnable, 0x0F);
+	_base.store(op_regs::irqEnable, irq::timeout(true) | irq::resume(true)
+			| irq::transaction(true) | irq::shortPacket(true));
 
 	pollDevices();
 	handleIrqs();
@@ -190,15 +195,16 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 		_updateFrame();
 
-		auto status = frigg::readIo<uint16_t>(_base + kRegStatus);
-		assert(!(status & 0x10));
-		assert(!(status & 0x08));
-		if(!(status & (kStatusInterrupt | kStatusError)))
+		auto stat = _base.load(op_regs::status);
+		assert(!(stat & status::hostProcessError));
+		assert(!(stat & status::hostSystemError));
+		if(!(stat & status::transactionIrq) && !(stat & status::errorIrq))
 			continue;
 
-		if(status & kStatusError)
+		if(stat & status::errorIrq)
 			printf("uhci: Error interrupt\n");
-		frigg::writeIo<uint16_t>(_base + kRegStatus, kStatusInterrupt | kStatusError);
+		_base.store(op_regs::status, status::transactionIrq(true) 
+				| status::errorIrq(true));
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 		
 		//printf("uhci: Processing transfers.\n");
@@ -207,7 +213,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 }))
 
 void Controller::_updateFrame() {
-	auto frame = frigg::readIo<uint16_t>(_base + kRegFrameNumber);
+	auto frame = _base.load(op_regs::frameNumber);
 	auto counter = (frame > _lastFrame) ? (_frameCounter + frame - _lastFrame)
 			: (_frameCounter + 2048 - _lastFrame + frame);
 
@@ -234,25 +240,25 @@ void Controller::_updateFrame() {
 COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 	while(true) {
 		for(int i = 0; i < 2; i++) {
-			auto port_register = kRegPort1StatusControl + 2 * i;
+			auto port_space = _base.subspace(0x10 + (2 * i));
 
 			// poll for connect status change and immediately reset that bit.
-			if(!(frigg::readIo<uint16_t>(_base + port_register) & kRootConnectChange))
+			if(!(port_space.load(port_regs::statusCtrl) & port_status_ctrl::connectChange))
 				continue;
-			frigg::writeIo<uint16_t>(_base + port_register, kRootConnectChange);
+			port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(true));
 
 			// TODO: delete current device.
 			
 			// check if a new device was attached to the port.
-			auto port_status = frigg::readIo<uint16_t>(_base + port_register);
-			assert(!(port_status & kRootEnabled));
-			if(!(port_status & kRootConnected))
+			auto port_status = port_space.load(port_regs::statusCtrl);
+			assert(!(port_status & port_status_ctrl::enableStatus));
+			if(!(port_status & port_status_ctrl::connectStatus))
 				continue;
 
 			std::cout << "uhci: USB device connected" << std::endl;
 
 			// reset the port for 50ms.
-			frigg::writeIo<uint16_t>(_base + port_register, kRootReset);
+			port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
 		
 			uint64_t tick;
 			HEL_CHECK(helGetClock(&tick));
@@ -264,17 +270,17 @@ COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
 			HEL_CHECK(await_clock.error());
 
 			// enable the port and wait until it is available.
-			frigg::writeIo<uint16_t>(_base + port_register, kRootEnabled);
+			port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
 			while(true) {
-				port_status = frigg::readIo<uint16_t>(_base + port_register);
-				if((port_status & kRootEnabled))
+				port_status = port_space.load(port_regs::statusCtrl);
+				if((port_status & port_status_ctrl::enableStatus))
 					break;
 			}
 
 			// disable the port if there was a concurrent disconnect.
-			if(port_status & kRootConnectChange) {
+			if(port_status & port_status_ctrl::connectChange) {
 				std::cout << "uhci: Disconnect during device enumeration." << std::endl;
-				frigg::writeIo<uint16_t>(_base + port_register, 0);
+				port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(0));
 				continue;
 			}
 		
@@ -356,8 +362,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		{ "usb.release", release }
 	};
 	
-	std::cout << "class_code: " << class_code << std::endl;
-
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	char name[3];
@@ -375,7 +379,6 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
-	std::cout << "Created object " << name << std::endl;
 
 	COFIBER_RETURN();
 }))
@@ -685,8 +688,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	std::cout << "UHCI: Legacy support register: " << legsup << std::endl;
 
 	HEL_CHECK(helEnableIo(bar.getHandle()));
-
-	auto controller = std::make_shared<Controller>(info.barInfo[4].address, std::move(irq));
+	
+	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
+	auto controller = std::make_shared<Controller>(base, std::move(irq));
 	controller->initialize();
 
 	globalControllers.push_back(std::move(controller));
@@ -717,7 +721,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 
 int main() {
 	printf("Starting UHCI driver\n");
-
+	
 	observeControllers();
 
 	while(true)
