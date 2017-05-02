@@ -226,6 +226,10 @@ void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) 
 
 void setupDebugging();
 
+extern "C" void frg_panic(const char *cstring) {
+	frigg::panicLogger() << "frg: Panic! " << cstring << frigg::endLog;
+}
+
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};

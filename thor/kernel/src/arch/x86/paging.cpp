@@ -461,7 +461,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if(accessor4[index4] & kPagePresent) {
 		accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
 	}else{
-		auto tbl_address = SkeletalRegion::global().allocate();
+		auto tbl_address = physicalAllocator->allocate(kPageSize);
 		accessor3.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
 			accessor3[i] = 0;
@@ -478,7 +478,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if(accessor3[index3] & kPagePresent) {
 		accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
 	}else{
-		auto tbl_address = SkeletalRegion::global().allocate();
+		auto tbl_address = physicalAllocator->allocate(kPageSize);
 		accessor2.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
 			accessor2[i] = 0;
@@ -495,7 +495,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	if(accessor2[index2] & kPagePresent) {
 		accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	}else{
-		auto tbl_address = SkeletalRegion::global().allocate();
+		auto tbl_address = physicalAllocator->allocate(kPageSize);
 		accessor1.aim(tbl_address);
 		for(int i = 0; i < 512; i++)
 			accessor1[i] = 0;

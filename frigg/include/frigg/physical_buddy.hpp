@@ -283,6 +283,7 @@ private:
 			if(slice[base + i] >= target)
 				return base + i;
 		}
+		assert(!"No item available at target order");
 		__builtin_trap();
 	}
 

@@ -3,6 +3,9 @@
 
 namespace thor {
 
+static bool logSkeletalAllocs = false;
+static bool logPhysicalAllocs = false;
+
 // --------------------------------------------------------
 // SkeletalRegion
 // --------------------------------------------------------
@@ -23,6 +26,8 @@ SkeletalRegion &SkeletalRegion::global() {
 }
 
 PhysicalAddr SkeletalRegion::allocate() {
+	if(logSkeletalAllocs)
+		frigg::infoLogger() << "thor: Allocating skeletal memory" << frigg::endLog;
 	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyTree,
 			_numRoots, _order, 0) << kPageShift);
 	return physical;
@@ -72,6 +77,9 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 		target++;
 	assert(size == (size_t(kPageSize) << target));
 
+	if(logPhysicalAllocs)
+		frigg::infoLogger() << "thor: Allocating physical memory of order "
+					<< (target + kPageShift) << frigg::endLog;
 	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyPointer,
 			_buddyRoots, _buddyOrder, target) << kPageShift);
 //	frigg::infoLogger() << "Allocate " << (void *)physical << frigg::endLog;
