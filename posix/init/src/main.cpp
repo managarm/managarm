@@ -138,7 +138,7 @@ int main() {
 
 	auto hid = fork();
 	if(!hid) {
-		execve("/realfs/usr/hid", args.data(), envp);
+		execve("/realfs/usr/bin/hid", args.data(), envp);
 	}else assert(hid != -1);
 
 /*

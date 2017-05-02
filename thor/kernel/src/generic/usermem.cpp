@@ -376,29 +376,18 @@ void BackingMemory::release(uintptr_t offset, size_t length) {
 }
 
 PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
-	(void)offset;
-	assert(!"Implement this");
-	__builtin_unreachable();
+	assert(!(offset % kPageSize));
+
+	auto index = offset / kPageSize;
+	assert(index < _managed->physicalPages.size());
+	return _managed->physicalPages[index];
 }
 
 PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
-	(void)offset;
-	assert(!"Implement this");
-	__builtin_unreachable();
-}
-
-size_t BackingMemory::getLength() {
-	return _managed->physicalPages.size() * kPageSize;
-}
-
-// TODO: This has to be integrated into acquire()/fetchRange().
-/*
-PhysicalAddr BackingMemory::grabPage(GrabIntent, size_t offset) {
-	assert(offset % kPageSize == 0);
+	assert(!(offset % kPageSize));
 	
-	size_t index = offset / kPageSize;
+	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
-
 	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		
@@ -409,7 +398,10 @@ PhysicalAddr BackingMemory::grabPage(GrabIntent, size_t offset) {
 
 	return _managed->physicalPages[index];
 }
-*/
+
+size_t BackingMemory::getLength() {
+	return _managed->physicalPages.size() * kPageSize;
+}
 
 void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
 	_managed->handleLoadQueue.addBack(frigg::move(handle));
@@ -464,65 +456,50 @@ void FrontalMemory::release(uintptr_t offset, size_t length) {
 }
 
 PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
-	(void)offset;
-	assert(!"Implement this");
-	__builtin_unreachable();
+	assert(!(offset % kPageSize));
+
+	auto index = offset / kPageSize;
+	assert(index < _managed->physicalPages.size());
+	if(_managed->loadState[index] != ManagedSpace::kStateLoaded)
+		return PhysicalAddr(-1);
+	return _managed->physicalPages[index];
 }
 
 PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
-	(void)offset;
-	assert(!"Implement this");
-	__builtin_unreachable();
+	assert(!(offset % kPageSize));
+
+	auto index = offset / kPageSize;
+	assert(index < _managed->physicalPages.size());
+	if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
+		auto this_thread = getCurrentThread();
+
+		std::atomic<bool> complete(false);
+		auto functor = [&] (Error error) {
+			assert(error == kErrSuccess);
+			complete.store(true, std::memory_order_release);
+			Thread::unblockOther(this_thread);
+		};
+
+		// TODO: Store the initiation object on the stack.
+		// This ensures that we can not run out of kernel heap memory here.
+		auto initiate = frigg::makeShared<Initiate<decltype(functor)>>(*kernelAlloc,
+				offset, kPageSize, frigg::move(functor));
+		_managed->initiateLoadQueue.addBack(frigg::move(initiate));
+		_managed->progressLoads();
+
+		Thread::blockCurrentWhile([&] {
+			return !complete.load(std::memory_order_acquire);
+		});
+	}
+
+	auto physical = _managed->physicalPages[index];
+	assert(physical != PhysicalAddr(-1));
+	return physical;
 }
 
 size_t FrontalMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
-
-// TODO: This has to be integrated into acquire()/fetchRange().
-/*
-PhysicalAddr FrontalMemory::grabPage(GrabIntent grab_intent, size_t offset) {
-	assert(offset % kPageSize == 0);
-
-	size_t index = offset / kPageSize;
-	assert(index < _managed->physicalPages.size());
-
-	if(grab_intent & kGrabQuery) {
-		if(_managed->loadState[index] != ManagedSpace::kStateLoaded)
-			return PhysicalAddr(-1);
-		return _managed->physicalPages[index];
-	}else{
-		assert(grab_intent & kGrabFetch);
-
-		if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
-			assert(!(grab_intent & kGrabDontRequireBacking));
-			auto this_thread = getCurrentThread();
-
-			std::atomic<bool> complete(false);
-			auto functor = [&] (Error error) {
-				assert(error == kErrSuccess);
-				complete.store(true, std::memory_order_release);
-				Thread::unblockOther(this_thread);
-			};
-
-			// TODO: Store the initiation object on the stack.
-			// This ensures that we can not run out of kernel heap memory here.
-			auto initiate = frigg::makeShared<Initiate<decltype(functor)>>(*kernelAlloc,
-					offset, kPageSize, frigg::move(functor));
-			_managed->initiateLoadQueue.addBack(frigg::move(initiate));
-			_managed->progressLoads();
-
-			Thread::blockCurrentWhile([&] {
-				return !complete.load(std::memory_order_acquire);
-			});
-		}
-
-		PhysicalAddr physical = _managed->physicalPages[index];
-		assert(physical != PhysicalAddr(-1));
-		return physical;
-	}
-}
-*/
 
 void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
 	assert(initiate->offset % kPageSize == 0);
