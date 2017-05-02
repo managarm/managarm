@@ -26,6 +26,8 @@
 #define HIDDEN  __attribute__ ((visibility ("hidden")))
 #define EXPORT  __attribute__ ((visibility ("default")))
 
+static constexpr bool logEntryExit = false;
+
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
@@ -80,7 +82,8 @@ T loadItem(char *&sp) {
 }
 
 extern "C" void *interpreterMain(char *sp) {
-	frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
+	if(logEntryExit)
+		frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
 	auxiliaryPtr = sp;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
@@ -195,7 +198,8 @@ extern "C" void *interpreterMain(char *sp) {
 	allocateTcb();
 	globalLoader->initObjects();
 
-	frigg::infoLogger() << "Leaving ld-init" << frigg::endLog;
+	if(logEntryExit)
+		frigg::infoLogger() << "Leaving ld-init" << frigg::endLog;
 	return executable->entry;
 }
 
