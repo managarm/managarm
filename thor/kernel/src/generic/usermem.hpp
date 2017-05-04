@@ -92,10 +92,18 @@ struct Memory {
 		return _tag;
 	}
 
+	// Prevents eviction of a range of memory.
+	// Does NOT ensure that this range is present before the call returns.
 	virtual void acquire(uintptr_t offset, size_t length) = 0;
 	virtual void release(uintptr_t offset, size_t length) = 0;
 	
+	// Optimistically returns the physical memory that backs a range of memory.
+	// Result stays valid until the range is evicted.
 	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
+
+	// Returns the physical memory that backs a range of memory.
+	// Ensures that the range is present before returning.
+	// Result stays valid until the range is evicted.
 	// TODO: This should be asynchronous.
 	virtual PhysicalAddr fetchRange(uintptr_t offset) = 0;
 
@@ -150,11 +158,7 @@ struct AllocatedMemory : Memory {
 	
 	size_t getLength();
 
-	// TODO: add a method to populate the memory
-	
 private:
-	void _populateRange(uintptr_t offset, size_t length);
-
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	size_t _chunkSize, _chunkAlign;
 };
