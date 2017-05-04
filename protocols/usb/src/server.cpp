@@ -242,16 +242,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
 		}else if(req.req_type() == managarm::usb::CntReqType::TRANSFER_TO_HOST) {
+			helix::RecvBuffer recv_buffer;
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
-
-			assert(!"Fix control transfers");
-/*
-			auto data = malloc(req.length());
-			COFIBER_AWAIT device.transfer(ControlTransfer(XferFlags::kXferToHost,
-					static_cast<ControlRecipient>(req.recipient()), 
-					static_cast<ControlType>(req.type()), req.request(), req.arg0(),
-					req.arg1(), data, req.length()));
+			
+			arch::dma_object<SetupPacket> setup(nullptr);
+			auto &&payload = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&recv_buffer, setup.data(), sizeof(SetupPacket)));
+			COFIBER_AWAIT payload.async_wait();
+			HEL_CHECK(recv_buffer.error());
+			arch::dma_buffer buffer{nullptr, req.length()};
+			COFIBER_AWAIT device.transfer(ControlTransfer{XferFlags::kXferToHost, setup, buffer});	
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -259,11 +260,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(Device device, helix::UniqueLane p),
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data, req.length()));
+					helix::action(&send_data, buffer.data(), buffer.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-*/
 		}else if(req.req_type() == managarm::usb::CntReqType::USE_CONFIGURATION) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor send_lane;

@@ -140,33 +140,29 @@ COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info)
 	if(info.flags == kXferToDevice) {
 		throw std::runtime_error("xfer to device not implemented");
 	}else{
-		throw std::runtime_error("xfer to host not implemented");
-/*
 		assert(info.flags == kXferToHost);
 	
 		helix::Offer offer;
 		helix::SendBuffer send_req;
+		helix::SendBuffer send_setup;
 		helix::RecvInline recv_resp;
 		helix::RecvBuffer recv_data;
 
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::TRANSFER_TO_HOST);
-		req.set_recipient(info.recipient);
-		req.set_type(info.type);
-		req.set_request(info.request);
-		req.set_arg0(info.arg0);
-		req.set_arg1(info.arg1);
-		req.set_length(info.length);
-
+		req.set_length(info.buffer.size());
+		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_setup, info.setup.data(), sizeof(SetupPacket), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&recv_data, info.buffer, info.length));
+				helix::action(&recv_data, info.buffer.data(), info.buffer.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_setup.error());
 		HEL_CHECK(recv_resp.error());
 		HEL_CHECK(recv_data.error());
 
@@ -174,7 +170,6 @@ COFIBER_ROUTINE(async::result<void>, DeviceState::transfer(ControlTransfer info)
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
 		COFIBER_RETURN();
-*/
 	}
 }))
 
