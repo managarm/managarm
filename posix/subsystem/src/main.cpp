@@ -85,7 +85,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
 		}else if(observe.observation() == kHelObserveSuperCall + 3) {
-			std::cout << "execve supercall" << std::endl;
+//			std::cout << "execve supercall" << std::endl;
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 

@@ -685,7 +685,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	// TODO: Disable the legacy support registers of all UHCI devices
 	// before using one of them!
 	auto legsup = COFIBER_AWAIT device.loadPciSpace(kPciLegacySupport, 2);
-	std::cout << "UHCI: Legacy support register: " << legsup << std::endl;
+	std::cout << "uhci: Legacy support register: " << legsup << std::endl;
 
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 	
@@ -707,7 +707,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 	COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "uhci: Detected device" << std::endl;
+			std::cout << "uhci: Detected controller" << std::endl;
 			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected event type");
@@ -720,7 +720,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting UHCI driver\n");
+	printf("uhci: Starting driver\n");
 	
 	observeControllers();
 

@@ -32,7 +32,6 @@ int main() {
 
 	char *envp[] = { nullptr };
 
-
 	auto uhci = fork();
 	if(!uhci) {
 		execve("/initrd/uhci", args.data(), envp);

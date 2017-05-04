@@ -945,7 +945,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 	COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "ehci: Detected device" << std::endl;
+			std::cout << "ehci: Detected controller" << std::endl;
 			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected event type");
