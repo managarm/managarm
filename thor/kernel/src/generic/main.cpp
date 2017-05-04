@@ -12,8 +12,9 @@ static constexpr bool logInitialization = false;
 static constexpr bool logEveryIrq = false;
 static constexpr bool logEverySyscall = false;
 
-bool debugToBochs = false;
+bool debugToVga = false;
 bool debugToSerial = false;
+bool debugToBochs = false;
 
 // TODO: get rid of the rootUniverse global variable.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
@@ -233,9 +234,11 @@ extern "C" void frg_panic(const char *cstring) {
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
-	if(cmd_line == "serial") {
+	if(cmd_line == "vga") {
+		debugToVga = true;
+	}else if(cmd_line == "serial") {
 		debugToSerial = true;
-	}else{
+	}else if(cmd_line == "bochs") {
 		debugToBochs = true;
 	}
 	setupDebugging();

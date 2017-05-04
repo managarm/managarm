@@ -49,6 +49,20 @@ int main() {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 */
+
+	// Spin until /dev/sda0 becomes available.
+	while(access("/dev/sda0", F_OK)) {
+		assert(errno == ENOENT);
+		sleep(1);
+	}
+
+	printf("init: Mounting /dev/sda0\n");
+	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {
+		printf("init: Mount failed!\n");
+	}else{
+		printf("init: Mount success!\n");
+	}
+
 /*
 	auto kbd = fork();
 	if(!kbd) {
@@ -78,7 +92,7 @@ int main() {
 		printf("-----------\n");
 	}
 */
-/*
+
 	// UART
 	auto uart = fork();
 	if(!uart) {
@@ -88,8 +102,7 @@ int main() {
 	// Spin until /dev/ttyS0 becomes available.
 	while(access("/dev/ttyS0", F_OK)) {
 		assert(errno == ENOENT);
-		for(int i = 0; i < 100; i++)
-			sched_yield();
+		sleep(1);
 	}
 	
 	close(STDIN_FILENO);
@@ -99,8 +112,14 @@ int main() {
 	dup2(tty, STDOUT_FILENO);
 	dup2(tty, STDERR_FILENO);
 	
-	std::cout << "........." << std::endl;
+	std::cout << "init: On serial console" << std::endl;
 
+	auto hid = fork();
+	if(!hid) {
+		execve("/realfs/usr/bin/hid", args.data(), envp);
+	}else assert(hid != -1);
+
+/*
 	while(true) {
 		char buffer[1];
 		auto read_sz = read(STDOUT_FILENO, buffer, 1);
@@ -121,20 +140,6 @@ int main() {
 //		execve("/initrd/ata", args.data(), envp);
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
-*/
-/*
-	// Spin until /dev/sda0 becomes available.
-	while(access("/dev/sda0", F_OK)) {
-		assert(errno == ENOENT);
-		sleep(1);
-	}
-
-	printf("Mounting /dev/sda0\n");
-	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {
-		printf("Mount failed!\n");
-	}else{
-		printf("Mount success!\n");
-	}
 */
 
 	auto hid = fork();

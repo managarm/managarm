@@ -19,8 +19,8 @@ void advanceY() {
 	y++;
 	x = 0;
 	if(y >= 25) {
-		if(haveTimer())
-			pollSleepNano(100000000);
+//		if(haveTimer())
+//			pollSleepNano(100000000);
 
 		PageAccessor accessor{generalWindow, 0xB8000};
 		auto base = (volatile char *)accessor.get();
@@ -51,8 +51,9 @@ arch::field<uint8_t, bool> stopBit(2, 1);
 arch::field<uint8_t, int> parityBits(3, 3);
 arch::field<uint8_t, bool> dlab(7, 1);
 
-extern bool debugToBochs;
+extern bool debugToVga;
 extern bool debugToSerial;
+extern bool debugToBochs;
 
 void setupDebugging() {
 	if(debugToSerial) {
@@ -69,6 +70,26 @@ void setupDebugging() {
 }
 
 void BochsSink::print(char c) {
+// --------------------------------------------------------
+// Text-mode video output
+// --------------------------------------------------------
+	if(debugToVga) {
+		if(c == '\n') {
+			advanceY();
+		}else{
+			PageAccessor accessor{generalWindow, 0xB8000};
+			auto base = (volatile char *)accessor.get();
+
+			base[(80 * y + x) * 2] = c;
+			base[(80 * y + x) * 2 + 1] = 0x0F;
+
+			x++;
+			if(x >= 80) {
+				advanceY();
+			}
+		}
+	}
+
 	// --------------------------------------------------------
 	// Serial console
 	// --------------------------------------------------------
@@ -93,27 +114,8 @@ void BochsSink::print(char c) {
 	// --------------------------------------------------------
 	if(debugToBochs)
 		frigg::arch_x86::ioOutByte(0xE9, c);
-
-// --------------------------------------------------------
-// Text-mode video output
-// --------------------------------------------------------
-/*
-	if(c == '\n') {
-		advanceY();
-	}else{
-		PageAccessor accessor{generalWindow, 0xB8000};
-		auto base = (volatile char *)accessor.get();
-
-		base[(80 * y + x) * 2] = c;
-		base[(80 * y + x) * 2 + 1] = 0x0F;
-
-		x++;
-		if(x >= 80) {
-			advanceY();
-		}
-	}
-*/
 }
+
 void BochsSink::print(const char *str) {
 	while(*str != 0)
 		print(*str++);

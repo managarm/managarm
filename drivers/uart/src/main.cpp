@@ -60,7 +60,7 @@ void processRecv() {
 
 struct WriteRequest {
 	WriteRequest(const void *buffer, size_t length)
-	: buffer(buffer), length(length) { }
+	: buffer(buffer), length(length), progress(0) { }
 
 	const void *buffer;
 	size_t length;
@@ -84,7 +84,8 @@ void sendBurst() {
 	auto req = &sendRequests.front();
 	size_t send_size = std::min(req->length - req->progress, (size_t)16);
 	for(size_t i = 0; i < send_size; i++) {
-		base.store(uart_register::data, reinterpret_cast<const char*>(req->buffer)[req->progress + i]);
+		base.store(uart_register::data, reinterpret_cast<const char *>(req->buffer)
+				[req->progress + i]);
 	}
 	req->progress += send_size;
 	
@@ -97,27 +98,31 @@ void sendBurst() {
 
 COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {	
 	while(true) {
+		std::cout << "uart: Awaiting IRQ." << std::endl;
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		std::cout << "uart: IRQ fired." << std::endl;
 		
-		auto identification = base.load(uart_register::irqIdentification);
-		if(!(identification & irq_ident_register::pending)) {
-			if((identification & irq_ident_register::id) == IrqIds::lineStatus) {
-				printf("Overrun, Parity, Framing or Break Error!\n");
-			}else if((identification & irq_ident_register::id) == IrqIds::dataAvailable
-					|| (identification & irq_ident_register::id) == IrqIds::charTimeout) {
-				while(base.load(uart_register::lineStatus) & line_status::dataReady) {
-					auto c = base.load(uart_register::data);
-					recvBuffer.push_back(c);
-				}
-				processRecv();
-			}else if((identification & irq_ident_register::id) == IrqIds::txEmpty) {
-				sendBurst();
-			}else if((identification & irq_ident_register::id) == IrqIds::modem) {
-				printf("Modem detected!\n");
+		auto reason = base.load(uart_register::irqIdentification);
+		if(reason & irq_ident_register::ignore)
+			continue;
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
+
+		if((reason & irq_ident_register::id) == IrqIds::lineStatus) {
+			printf("Overrun, Parity, Framing or Break Error!\n");
+		}else if((reason & irq_ident_register::id) == IrqIds::dataAvailable
+				|| (reason & irq_ident_register::id) == IrqIds::charTimeout) {
+			while(base.load(uart_register::lineStatus) & line_status::dataReady) {
+				auto c = base.load(uart_register::data);
+				recvBuffer.push_back(c);
 			}
+			processRecv();
+		}else if((reason & irq_ident_register::id) == IrqIds::txEmpty) {
+			sendBurst();
+		}else if((reason & irq_ident_register::id) == IrqIds::modem) {
+			printf("Modem detected!\n");
 		}
 	}
 }))
@@ -138,9 +143,8 @@ async::result<void> write(std::shared_ptr<void> object, const void *buffer, size
 	auto req = new WriteRequest(buffer, length);
 	sendRequests.push_back(*req);
 	auto value = req->promise.async_get();
-	if(base.load(uart_register::lineStatus) & line_status::txReady) {
+	if(base.load(uart_register::lineStatus) & line_status::txReady)
 		sendBurst();
-	}
 	return value;
 }
 

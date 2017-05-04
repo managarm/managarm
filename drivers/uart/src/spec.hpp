@@ -97,7 +97,7 @@ namespace line_status {
 }
 
 namespace irq_ident_register {
-	arch::field<uint8_t, bool> pending(0, 1);
+	arch::field<uint8_t, bool> ignore(0, 1);
 	arch::field<uint8_t, IrqIds> id(1, 3);
 }
 
