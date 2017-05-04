@@ -52,17 +52,14 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index), ([=] {
-	printf("entered parseReportDescriptor\n");
-	// FIXME: Fix this hardcoded length.
-	size_t length = 52;
-
+COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index,
+		int length, int intf_number), ([=] {
 	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
-	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
+	get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
 			| setup_type::toHost;
 	get_descriptor->request = request_type::getDescriptor;
 	get_descriptor->value = (descriptor_type::report << 8) | index;
-	get_descriptor->index = 0;
+	get_descriptor->index = intf_number;
 	get_descriptor->length = length;
 
 	arch::dma_buffer buffer{device.bufferPool(), length};
@@ -99,6 +96,46 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 
 		case 0x80:
 			printf("Input: 0x%x\n", data);
+			if(!report_size || !report_count)
+				throw std::runtime_error("Missing Report Size/Count");
+				
+			if(!usage_min != !usage_max)
+				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
+			
+			if(!usage.empty() && (usage_min || usage_max))
+				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
+
+			if(usage.empty() && !usage_min && !usage_max) {
+				// this field is just padding
+				bit_offset += (*report_size) * (*report_count);
+			}else{
+				for(auto i = 0; i < *report_count; i++) {
+					uint16_t actual_id;
+					if(!usage.empty()) {
+						actual_id = usage.front();
+						usage.pop_front();
+					}else{
+						actual_id = *usage_min + i;
+					}
+
+					Field field;
+					field.bitOffset = bit_offset;
+					field.bitSize = *report_size;
+					field.usagePage = *usage_page;
+					field.usageId = actual_id;
+					fields.push_back(field);
+					
+					bit_offset += *report_size;
+				}
+
+				usage.clear();
+				usage_min = std::experimental::nullopt;
+				usage_max = std::experimental::nullopt;
+			}
+			break;
+		
+		case 0x90:
+			printf("Output: 0x%x\n", data);
 			if(!report_size || !report_count)
 				throw std::runtime_error("Missing Report Size/Count");
 				
@@ -190,32 +227,26 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
-	printf("entered runHidDevice\n");
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> report_desc_index;
+	std::experimental::optional<int> report_desc_length;
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		printf("type: %i\n", type);
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 			
 			auto desc = (ConfigDescriptor *)p;
-			printf("Config Descriptor: \n");
-			printf("    value: %i\n", desc->configValue);
 		}else if(type == descriptor_type::interface) {
 			assert(!intf_number);
 			intf_number = info.interfaceNumber.value();
 			
 			auto desc = (InterfaceDescriptor *)p;
-			printf("Interface Descriptor: \n");
-			printf("    class: %i\n", desc->interfaceClass);
-			printf("    sub class: %i\n", desc->interfaceSubClass);
-			printf("    protocoll: %i\n", desc->interfaceProtocoll);
+			assert(desc->interfaceClass == 3);
 		}else if(type == descriptor_type::hid) {
 			auto desc = (HidDescriptor *)p;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
@@ -226,6 +257,8 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 				assert(desc->entries[i].descriptorType == descriptor_type::report);
 				assert(!report_desc_index);
 				report_desc_index = 0;
+				report_desc_length = desc->entries[i].descriptorLength;
+
 			}
 		}else if(type == descriptor_type::endpoint) {
 			assert(!in_endp_number);
@@ -235,8 +268,8 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 		}
 	});
 
-	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value());
-	printf("exit parseReportDescriptor\n");
+	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value(),
+			report_desc_length.value(), intf_number.value());
 	
 	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);

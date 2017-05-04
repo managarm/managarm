@@ -32,25 +32,24 @@ int main() {
 
 	char *envp[] = { nullptr };
 
-/*
+
 	auto uhci = fork();
 	if(!uhci) {
 		execve("/initrd/uhci", args.data(), envp);
 	}else assert(uhci != -1);
-*/
 
+/*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
-
-
+*/
+/*
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
-
-
+*/
 /*
 	auto kbd = fork();
 	if(!kbd) {
@@ -124,7 +123,7 @@ int main() {
 		execve("/initrd/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
 */
-
+/*
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
@@ -137,10 +136,11 @@ int main() {
 	}else{
 		printf("Mount success!\n");
 	}
+*/
 
 	auto hid = fork();
 	if(!hid) {
-		execve("/realfs/usr/bin/hid", args.data(), envp);
+		execve("/initrd/hid", args.data(), envp);
 	}else assert(hid != -1);
 
 /*
