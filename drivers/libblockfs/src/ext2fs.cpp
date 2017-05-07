@@ -244,14 +244,26 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 	while(progress < num_blocks) {
 //		printf("Reading block %lu of inode %u\n", index, inode->number);
 		BlockCache::Ref s_cache;
+		BlockCache::Ref d_cache;
 
 		// Block number and block count of the readSectors() command that we will issue here.
 		std::pair<size_t, size_t> issue;
 
 		auto index = offset + progress;
 		assert(index < d_range);
-		if(index >= s_range) {
-			assert(!"Fix double indirect blocks");
+		if(index >= d_range) {
+			assert(!"Fix tripple indirect blocks");
+		}else if(index >= s_range) {
+			d_cache = blockCache.lock(inode->fileData.blocks.doubleIndirect);
+			COFIBER_AWAIT d_cache->waitUntilReady();
+
+			// TODO: Use shift/and instead of div/mod.
+			auto d_element = (index - s_range) / per_single;
+			auto s_element = (index - s_range) % per_single;
+			s_cache = blockCache.lock(((uint32_t *)d_cache->buffer)[d_element]);
+			COFIBER_AWAIT s_cache->waitUntilReady();
+			issue = fuse(s_element, num_blocks - progress,
+					(uint32_t *)s_cache->buffer, per_indirect);
 		}else if(index >= i_range) {
 			s_cache = blockCache.lock(inode->fileData.blocks.singleIndirect);
 			COFIBER_AWAIT s_cache->waitUntilReady();
