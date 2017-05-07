@@ -25,6 +25,11 @@ void serviceRecv(LaneHandle handle, void *buffer, size_t max_length,
 			KernelAccessor::acquire(buffer, max_length), callback);
 }
 
+void serviceRecvInline(LaneHandle handle,
+		frigg::CallbackPtr<void(Error, frigg::UniqueMemory<KernelAlloc>)> callback) {
+	handle.getStream()->submitRecvInline(handle.getLane(), callback);
+}
+
 void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 		frigg::CallbackPtr<void(Error)> callback) {
 	frigg::UniqueMemory<KernelAlloc> kernel_buffer(*kernelAlloc, length);
@@ -46,15 +51,14 @@ namespace stdio {
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
 
 		void operator() () {
-			serviceRecv(_lane, _data, 128,
-					CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
+			serviceRecvInline(_lane, CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
 		}
 
 	private:
-		void onRecvData(Error error, size_t length) {
+		void onRecvData(Error error, frigg::UniqueMemory<KernelAlloc> data) {
 			assert(error == kErrSuccess);
 			
-			helLog(_data, length);
+			helLog(reinterpret_cast<char *>(data.data()), data.size());
 
 			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -71,7 +75,6 @@ namespace stdio {
 		LaneHandle _lane;
 		fs::CntRequest<KernelAlloc> _req;
 
-		char _data[128];
 		frigg::String<KernelAlloc> _buffer;
 	};
 

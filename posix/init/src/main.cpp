@@ -114,10 +114,16 @@ int main() {
 	
 	std::cout << "init: On serial console" << std::endl;
 
+/*
 	auto hid = fork();
 	if(!hid) {
 		execve("/realfs/usr/bin/hid", args.data(), envp);
 	}else assert(hid != -1);
+*/
+	auto bash = fork();
+	if(!bash) {
+		execve("/realfs/usr/bin/bash", args.data(), envp);
+	}else assert(bash != -1);
 
 /*
 	while(true) {
