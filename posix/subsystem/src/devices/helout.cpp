@@ -40,8 +40,8 @@ private:
 	static const FileOperations operations;
 
 public:
-	HeloutFile()
-	: File(&operations) { }
+	HeloutFile(std::shared_ptr<Node> node)
+	: File{std::move(node), &operations} { }
 };
 	
 const FileOperations HeloutFile::operations{
@@ -61,9 +61,9 @@ struct HeloutDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device), ([=] {
+			open(std::shared_ptr<Device> device, std::shared_ptr<Node> node), ([=] {
 		(void)device;
-		COFIBER_RETURN(std::make_shared<HeloutFile>());
+		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(node)));
 	}))
 
 	static const DeviceOperations operations;

@@ -46,8 +46,8 @@ private:
 	static const FileOperations operations;
 
 public:
-	OpenFile(helix::UniqueLane lane)
-	: File(&operations), _file(std::move(lane)) { }
+	OpenFile(helix::UniqueLane lane, std::shared_ptr<Node> node)
+	: File{std::move(node), &operations}, _file{std::move(lane)} { }
 
 private:
 	protocols::fs::File _file;
@@ -62,6 +62,10 @@ const FileOperations OpenFile::operations{
 
 struct Regular : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		assert(!"Fix this");
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
 		auto self = std::static_pointer_cast<Regular>(object);
@@ -89,7 +93,7 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor()));
+		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor(), self));
 	}))
 
 	static const NodeOperations operations;
@@ -104,6 +108,7 @@ private:
 
 const NodeOperations Regular::operations{
 	&getRegularType,
+	&Regular::getStats,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -115,6 +120,10 @@ const NodeOperations Regular::operations{
 
 struct Directory : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		assert(!"Fix this");
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
 		(void)object;
@@ -194,6 +203,7 @@ private:
 
 const NodeOperations Directory::operations{
 	&getDirectoryType,
+	&Directory::getStats,
 	&Directory::getLink,
 	&Directory::mkdir,
 	&Directory::symlink,
@@ -205,11 +215,15 @@ const NodeOperations Directory::operations{
 
 struct FakeRegular : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		assert(!"Fix this");
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<Node> object), ([=] {
 		auto derived = std::static_pointer_cast<FakeRegular>(object);
 		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(derived->_fd));
-		COFIBER_RETURN(std::make_shared<OpenFile>(std::move(passthrough)));
+		COFIBER_RETURN(std::make_shared<OpenFile>(std::move(passthrough), derived));
 	}))
 
 	static const NodeOperations operations;
@@ -224,6 +238,7 @@ private:
 
 const NodeOperations FakeRegular::operations{
 	&getRegularType,
+	&FakeRegular::getStats,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -235,6 +250,10 @@ const NodeOperations FakeRegular::operations{
 
 struct FakeDirectory : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		assert(!"Fix this");
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
 		(void)object;
@@ -277,6 +296,7 @@ public:
 
 const NodeOperations FakeDirectory::operations{
 	&getDirectoryType,
+	&FakeDirectory::getStats,
 	&FakeDirectory::getLink,
 	&FakeDirectory::mkdir,
 	&FakeDirectory::symlink,
@@ -298,8 +318,8 @@ std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
 	return createRootLink(std::move(node));
 }
 
-std::shared_ptr<File> createFile(helix::UniqueLane lane) {
-	return std::make_shared<OpenFile>(std::move(lane));
+std::shared_ptr<File> createFile(helix::UniqueLane lane, std::shared_ptr<Node> node) {
+	return std::make_shared<OpenFile>(std::move(lane), std::move(node));
 }
 
 } // namespace extern_fs

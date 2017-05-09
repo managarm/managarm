@@ -62,14 +62,19 @@ using _vfs_view::SharedView;
 // ----------------------------------------------------------------------------
 
 struct File {
-	File(const FileOperations *operations)
-	: _operations(operations) { }
+	File(std::shared_ptr<Node> node, const FileOperations *operations)
+	: _node{std::move(node)}, _operations{operations} { }
+
+	std::shared_ptr<Node> node() {
+		return _node;
+	}
 
 	const FileOperations *operations() {
 		return _operations;
 	}
 
 private:
+	const std::shared_ptr<Node> _node;
 	const FileOperations *_operations;
 };
 
@@ -135,6 +140,9 @@ private:
 struct NodeOperations {
 	VfsType (*getType)(std::shared_ptr<Node> node);
 
+	// TODO: This should be async.
+	FileStats (*getStats)(std::shared_ptr<Node> node);
+
 	//! Resolves a file in a directory (directories only).
 	FutureMaybe<std::shared_ptr<Link>> (*getLink)(std::shared_ptr<Node> node, std::string name);
 
@@ -160,6 +168,8 @@ struct NodeOperations {
 };
 
 VfsType getType(std::shared_ptr<Node> node);
+
+FileStats getStats(std::shared_ptr<Node> node);
 
 FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name);
 

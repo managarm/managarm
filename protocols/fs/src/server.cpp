@@ -42,6 +42,10 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+			throw std::runtime_error("SEEK_REL is not implemented yet");
+		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+			throw std::runtime_error("SEEK_EOF is not implemented yet");
 		}else if(req.req_type() == managarm::fs::CntReqType::READ) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;

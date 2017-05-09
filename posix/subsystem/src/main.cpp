@@ -140,7 +140,20 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
-		if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
+		if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
+			helix::SendBuffer send_resp;
+
+			std::cout << "\e[31mposix: Fix GET_PID\e[39m" << std::endl;
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(1);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			helix::SendBuffer send_resp;
 
 			auto source = COFIBER_AWAIT resolve(req.path());
@@ -166,6 +179,43 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(path.second) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
+		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {
+			helix::SendBuffer send_resp;
+
+			auto path = COFIBER_AWAIT resolve(req.path());
+			if(path.second) {
+				auto stats = getStats(getTarget(path.second));
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_inode_num(stats.inodeNumber);
+				resp.set_mode(stats.mode);
+				resp.set_num_links(stats.numLinks);
+				resp.set_uid(stats.uid);
+				resp.set_gid(stats.gid);
+				resp.set_file_size(stats.fileSize);
+				resp.set_atime_secs(stats.atimeSecs);
+				resp.set_atime_nanos(stats.atimeNanos);
+				resp.set_mtime_secs(stats.mtimeSecs);
+				resp.set_mtime_nanos(stats.mtimeNanos);
+				resp.set_ctime_secs(stats.ctimeSecs);
+				resp.set_ctime_nanos(stats.ctimeNanos);
 
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -238,6 +288,57 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
+			auto file = self->fileContext()->getFile(req.fd());
+			auto stats = getStats(file->node());
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_inode_num(stats.inodeNumber);
+			resp.set_mode(stats.mode);
+			resp.set_num_links(stats.numLinks);
+			resp.set_uid(stats.uid);
+			resp.set_gid(stats.gid);
+			resp.set_file_size(stats.fileSize);
+			resp.set_atime_secs(stats.atimeSecs);
+			resp.set_atime_nanos(stats.atimeNanos);
+			resp.set_mtime_secs(stats.mtimeSecs);
+			resp.set_mtime_nanos(stats.mtimeNanos);
+			resp.set_ctime_secs(stats.ctimeSecs);
+			resp.set_ctime_nanos(stats.ctimeNanos);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
+			helix::SendBuffer send_resp;
+
+			std::cout << "\e[31mposix: Fix IS_TTY\e[39m" << std::endl;
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
+			helix::SendBuffer send_resp;
+
+			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
+			managarm::posix::SvrResponse resp;
+			resp.set_path("/dev/ttyS0");
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
@@ -269,7 +370,7 @@ struct ExternDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> object), ([=] {
+			open(std::shared_ptr<Device> object, std::shared_ptr<Node> node), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
 		helix::Offer offer;
@@ -295,7 +396,8 @@ struct ExternDevice : Device {
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor()));
+		COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor(),
+				std::move(node)));
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,

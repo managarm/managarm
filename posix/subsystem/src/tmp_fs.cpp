@@ -11,6 +11,11 @@ namespace {
 
 struct Symlink : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		std::cout << "\e[31mposix: Fix tmpfs Symlink::getStats()\e[39m" << std::endl;
+		return FileStats{};
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::string>,
 			readSymlink(std::shared_ptr<Node> object), ([=] {
 		auto derived = std::static_pointer_cast<Symlink>(object);
@@ -29,6 +34,7 @@ private:
 
 const NodeOperations Symlink::operations{
 	&getSymlinkType,
+	&Symlink::getStats,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -43,6 +49,11 @@ private:
 	static VfsType getType(std::shared_ptr<Node> object) {
 		auto derived = std::static_pointer_cast<DeviceFile>(object);
 		return derived->_type;
+	}
+	
+	static FileStats getStats(std::shared_ptr<Node>) {
+		std::cout << "\e[31mposix: Fix tmpfs DeviceFile::getStats()\e[39m" << std::endl;
+		return FileStats{};
 	}
 
 	static DeviceId readDevice(std::shared_ptr<Node> object) {
@@ -65,6 +76,7 @@ private:
 
 const NodeOperations DeviceFile::operations{
 	&DeviceFile::getType,
+	&DeviceFile::getStats,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -76,6 +88,11 @@ const NodeOperations DeviceFile::operations{
 
 struct Directory : Node {
 private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		std::cout << "\e[31mposix: Fix tmpfs Directory::getStats()\e[39m" << std::endl;
+		return FileStats{};
+	}
+
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
 		auto derived = std::static_pointer_cast<Directory>(object);
@@ -171,6 +188,7 @@ private:
 
 const NodeOperations Directory::operations{
 	&getDirectoryType,
+	&Directory::getStats,
 	&Directory::getLink,
 	&Directory::mkdir,
 	&Directory::symlink,

@@ -106,6 +106,11 @@ VfsType getType(std::shared_ptr<Node> node) {
 	return node->operations()->getType(node);
 }
 
+FileStats getStats(std::shared_ptr<Node> node) {
+	assert(node);
+	return node->operations()->getStats(node);
+}
+
 FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name) {
 	assert(node);
 	return node->operations()->getLink(node, std::move(name));
@@ -341,7 +346,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(std::string name), ([=]
 		assert(getType(getTarget(current.second)) == VfsType::charDevice);
 		auto id = readDevice(getTarget(current.second));
 		auto device = deviceManager.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT open(device));
+		COFIBER_RETURN(COFIBER_AWAIT open(device, getTarget(current.second)));
 	}
 }))
 

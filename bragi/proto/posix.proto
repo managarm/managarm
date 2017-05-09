@@ -23,6 +23,7 @@ enum CntReqType {
 	EXEC = 1;
 	MOUNT = 21;
 	ACCESS = 20;
+	STAT = 23;
 	FSTAT = 12;
 	OPEN = 2;
 	CONNECT = 19;
@@ -34,6 +35,7 @@ enum CntReqType {
 	MMAP = 16;
 	CLOSE = 5;
 	DUP2 = 6;
+	IS_TTY = 22;
 	TTY_NAME = 18;
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;

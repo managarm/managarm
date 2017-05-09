@@ -38,11 +38,13 @@ struct DeviceOperations {
 	VfsType (*getType)(std::shared_ptr<Device> object) = 0;
 	std::string (*getName)(std::shared_ptr<Device> object) = 0;
 
-	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object) = 0;
+	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object,
+			std::shared_ptr<Node> node) = 0;
 	FutureMaybe<std::shared_ptr<Link>> (*mount)(std::shared_ptr<Device> object) = 0;
 };
 
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> object);
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> object,
+		std::shared_ptr<Node> node);
 
 // --------------------------------------------------------
 // DeviceManager

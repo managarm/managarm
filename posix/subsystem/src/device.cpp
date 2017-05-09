@@ -18,8 +18,9 @@ std::string Device::getName(std::shared_ptr<Device> object) {
 	return object->operations()->getName(object);
 }
 
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device) {
-	return device->operations()->open(device);
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device,
+		std::shared_ptr<Node> node) {
+	return device->operations()->open(device, std::move(node));
 }
 FutureMaybe<std::shared_ptr<Link>> Device::mount(std::shared_ptr<Device> object) {
 	return object->operations()->mount(object);
