@@ -1,13 +1,32 @@
 
-struct HidDescriptor : public DescriptorBase {
-	struct [[ gnu::packed ]] Entry {
-		uint8_t descriptorType;
-		uint16_t descriptorLength;
-	};
+#ifndef HID_HID_HPP
+#define HID_HID_HPP
 
-	uint16_t hidClass;
-	uint8_t countryCode;
-	uint8_t numDescriptors;
-	Entry entries[];
+#include <async/result.hpp>
+#include <cofiber.hpp>
+#include <helix/await.hpp>
+
+// -----------------------------------------------------
+// Fields.
+// -----------------------------------------------------
+
+struct Field {
+	int bitOffset;
+	int bitSize;
+	uint16_t usagePage;
+	uint16_t usageId;
 };
+
+// -----------------------------------------------------
+// HidDevice.
+// -----------------------------------------------------
+
+struct HidDevice {
+	async::result<void> parseReportDescriptor(Device device, int index, int length, int intf_number);
+	cofiber::no_future runHidDevice(Device device);
+
+	std::vector<Field> fields;
+};
+
+#endif // HID_HID_HPP
 

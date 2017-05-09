@@ -15,19 +15,8 @@
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>
 
+#include "spec.hpp"
 #include "hid.hpp"
-
-
-// -----------------------------------------------------
-// Fields.
-// -----------------------------------------------------
-
-struct Field {
-	int bitOffset;
-	int bitSize;
-	uint16_t usagePage;
-	uint16_t usageId;
-};
 
 std::vector<uint32_t> parse(std::vector<Field> fields, uint8_t *report) {
 	std::vector<uint32_t> values;
@@ -41,8 +30,6 @@ std::vector<uint32_t> parse(std::vector<Field> fields, uint8_t *report) {
 	return values;
 }
 
-std::vector<Field> fields;
-
 uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	uint32_t x = 0;
 	for(int i = 0; i < n; i++) {
@@ -52,7 +39,7 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int index,
+COFIBER_ROUTINE(async::result<void>, HidDevice::parseReportDescriptor(Device device, int index,
 		int length, int intf_number), ([=] {
 	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
 	get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
@@ -226,7 +213,7 @@ COFIBER_ROUTINE(async::result<void>, parseReportDescriptor(Device device, int in
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=] {
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
 	std::experimental::optional<int> config_number;
@@ -291,7 +278,8 @@ COFIBER_ROUTINE(cofiber::no_future, runHidDevice(Device device), ([=] {
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
-	runHidDevice(device);
+	HidDevice* hid_device = new HidDevice();
+	hid_device->runHidDevice(device);
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
