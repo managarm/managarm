@@ -18,16 +18,32 @@
 #include "spec.hpp"
 #include "hid.hpp"
 
-std::vector<uint32_t> parse(std::vector<Field> fields, uint8_t *report) {
-	std::vector<uint32_t> values;
+void interpret(std::vector<Field> fields, uint8_t *report) {
+	unsigned int bit_offset = 0;
 	for(Field &f : fields) {
-		int b = f.bitOffset / 8;
+		int b = bit_offset / 8;
 		uint32_t raw = uint32_t(report[b]) | (uint32_t(report[b + 1]) << 8)
 				| (uint32_t(report[b + 2]) << 16) | (uint32_t(report[b + 3]) << 24);
 		uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
-		values.push_back((raw >> (f.bitOffset % 8)) & mask);
+		uint32_t data = (raw >> (bit_offset % 8)) & mask;
+		
+		uint32_t usage;
+		uint32_t value;
+		if(f.type == FieldType::array) {
+			usage = f.usageId + data;
+			value = 1;
+		}else{
+			usage = f.usageId;
+			value = data;
+		}
+		
+		if(data >= f.logicalMin && data <= f.logicalMax && f.type != FieldType::padding) {
+			std::cout << "usagePage: " << f.usagePage << ", usageId: " << usage
+					<< ", value: " << value << ", offset:" << bit_offset << std::endl;
+		}
+		bit_offset += f.bitSize;
 	}
-	return values;
+	std::cout << std::endl;
 }
 
 uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
@@ -39,31 +55,81 @@ uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
 	return x;
 }
 
-COFIBER_ROUTINE(async::result<void>, HidDevice::parseReportDescriptor(Device device, int index,
-		int length, int intf_number), ([=] {
-	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
-	get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
-			| setup_type::toHost;
-	get_descriptor->request = request_type::getDescriptor;
-	get_descriptor->value = (descriptor_type::report << 8) | index;
-	get_descriptor->index = intf_number;
-	get_descriptor->length = length;
+struct LocalState {
+	std::vector<uint32_t> usage;
+	std::experimental::optional<uint32_t> usageMin;
+	std::experimental::optional<uint32_t> usageMax;
+};
 
-	arch::dma_buffer buffer{device.bufferPool(), length};
-	COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
-			get_descriptor, buffer});
+struct GlobalState {
+	std::experimental::optional<uint16_t> usagePage;
+	std::experimental::optional<int> logicalMin;
+	std::experimental::optional<int> logicalMax;
+	std::experimental::optional<int> reportSize;
+	std::experimental::optional<int> reportCount;
+	std::experimental::optional<int> physicalMin;
+	std::experimental::optional<int> physicalMax;
+};
 
-	int bit_offset = 0;
+void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit) {
+	LocalState local;
+	GlobalState global;
+	
+	auto generateFields = [&] (bool array) {
+		if(!global.reportSize || !global.reportCount)
+			throw std::runtime_error("Missing Report Size/Count");
+			
+		if(!local.usageMin != !local.usageMax)
+			throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
+		
+		if(!local.usage.empty() && (local.usageMin || local.usageMax))
+			throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
+			
+		for(int i = 0; i < global.reportCount.value(); i++) {
+			if(local.usage.empty() && !local.usageMin && !local.usageMax) {
+				Field field;
+				field.type == FieldType::padding;
+				field.bitSize = global.reportSize.value();
+				fields.push_back(field);
+			}else if(!array) {
+				uint16_t actual_id;
+				if(local.usage.empty()) {
+					actual_id = local.usageMin.value() + i;
+				}else{
+					assert(local.usage.size() == global.reportCount.value());
+					actual_id = local.usage[i];
+				}
+				
+				if(!global.logicalMin || !global.logicalMax)
+					throw std::runtime_error("logicalMin or logicalMax not set");
+				
+				Field field;
+				field.type = FieldType::variable;
+				field.bitSize = global.reportSize.value();
+				field.usagePage = global.usagePage.value();
+				field.logicalMin = global.logicalMin.value();
+				field.logicalMax = global.logicalMax.value();
+				field.usageId = actual_id;
+				fields.push_back(field);
+			}else{
+				if(!global.logicalMin || !global.logicalMax)
+					throw std::runtime_error("logicalMin or logicalMax not set");
+				
+				if(!local.usageMin)
+					throw std::runtime_error("usageMin not set");
 
-	std::experimental::optional<int> report_count;
-	std::experimental::optional<int> report_size;
-	std::experimental::optional<uint16_t> usage_page;
-	std::deque<uint32_t> usage;
-	std::experimental::optional<uint32_t> usage_min;
-	std::experimental::optional<uint32_t> usage_max;
+				Field field;
+				field.type = FieldType::array;
+				field.bitSize = global.reportSize.value();
+				field.usagePage = global.usagePage.value();
+				field.logicalMin = global.logicalMin.value();
+				field.logicalMax = global.logicalMax.value();
+				field.usageId = local.usageMin.value();
+				fields.push_back(field);
+			}
+		}
+	};
 
-	auto p = reinterpret_cast<uint8_t *>(buffer.data());
-	auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + length;
 	while(p < limit) {
 		uint8_t token = fetch(p, limit);
 		int size = (token & 0x03) == 3 ? 4 : (token & 0x03);
@@ -76,132 +142,82 @@ COFIBER_ROUTINE(async::result<void>, HidDevice::parseReportDescriptor(Device dev
 
 		case 0xA0:
 			printf("Collection: 0x%x\n", data);
-			usage.clear();
-			usage_min = std::experimental::nullopt;
-			usage_max = std::experimental::nullopt;
+			local = LocalState();
 			break;
 
 		case 0x80:
 			printf("Input: 0x%x\n", data);
-			if(!report_size || !report_count)
-				throw std::runtime_error("Missing Report Size/Count");
-				
-			if(!usage_min != !usage_max)
-				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
-			
-			if(!usage.empty() && (usage_min || usage_max))
-				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
-
-			if(usage.empty() && !usage_min && !usage_max) {
-				// this field is just padding
-				bit_offset += (*report_size) * (*report_count);
-			}else{
-				for(auto i = 0; i < *report_count; i++) {
-					uint16_t actual_id;
-					if(!usage.empty()) {
-						actual_id = usage.front();
-						usage.pop_front();
-					}else{
-						actual_id = *usage_min + i;
-					}
-
-					Field field;
-					field.bitOffset = bit_offset;
-					field.bitSize = *report_size;
-					field.usagePage = *usage_page;
-					field.usageId = actual_id;
-					fields.push_back(field);
-					
-					bit_offset += *report_size;
-				}
-
-				usage.clear();
-				usage_min = std::experimental::nullopt;
-				usage_max = std::experimental::nullopt;
-			}
+			generateFields(!data & item::variable);
+			local = LocalState();
 			break;
-		
+
 		case 0x90:
 			printf("Output: 0x%x\n", data);
-			if(!report_size || !report_count)
+			if(!global.reportSize || !global.reportCount)
 				throw std::runtime_error("Missing Report Size/Count");
 				
-			if(!usage_min != !usage_max)
+			if(!local.usageMin != !local.usageMax)
 				throw std::runtime_error("Usage Minimum without Usage Maximum or visa versa");
 			
-			if(!usage.empty() && (usage_min || usage_max))
+			if(!local.usage.empty() && (local.usageMin || local.usageMax))
 				throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
-
-			if(usage.empty() && !usage_min && !usage_max) {
-				// this field is just padding
-				bit_offset += (*report_size) * (*report_count);
-			}else{
-				for(auto i = 0; i < *report_count; i++) {
-					uint16_t actual_id;
-					if(!usage.empty()) {
-						actual_id = usage.front();
-						usage.pop_front();
-					}else{
-						actual_id = *usage_min + i;
-					}
-
-					Field field;
-					field.bitOffset = bit_offset;
-					field.bitSize = *report_size;
-					field.usagePage = *usage_page;
-					field.usageId = actual_id;
-					fields.push_back(field);
-					
-					bit_offset += *report_size;
-				}
-
-				usage.clear();
-				usage_min = std::experimental::nullopt;
-				usage_max = std::experimental::nullopt;
-			}
+			
+			local = LocalState();
 			break;
 
 		// Global items
 		case 0x94:
 			printf("Report Count: 0x%x\n", data);
-			report_count = data;
+			global.reportCount = data;
 			break;
 		
 		case 0x74:
 			printf("Report Size: 0x%x\n", data);
-			report_size = data;
+			global.reportSize = data;
 			break;
 		
+		case 0x44:
+			printf("Physical Maximum; 0x%x\n", data);
+			global.physicalMax = data;
+			break;
+	
+		case 0x34:
+			printf("Physical Minimum; 0x%x\n", data);
+			global.physicalMin = data;
+			break;
+
 		case 0x24:
 			printf("Logical Maximum: 0x%x\n", data);
+			global.logicalMax = data;
 			break;
 		
 		case 0x14:
 			printf("Logical Minimum: 0x%x\n", data);
+			global.logicalMin = data;
 			break;
 		
 		case 0x04:
 			printf("Usage Page: 0x%x\n", data);
-			usage_page = data;
+			global.usagePage = data;
 			break;
 
 		// Local items
 		case 0x28:
 			printf("Usage Maximum: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
-			usage_max = data;
+			local.usageMax = data;
 			break;
 		
 		case 0x18:
 			printf("Usage Minimum: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
-			usage_min = data;
+			local.usageMin = data;
 			break;
 			
 		case 0x08:
 			printf("Usage: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
-			usage.push_back(data);
+			local.usage.push_back(data);
 			break;
 
 		default:
@@ -209,9 +225,7 @@ COFIBER_ROUTINE(async::result<void>, HidDevice::parseReportDescriptor(Device dev
 			abort();
 		}
 	}
-	
-	COFIBER_RETURN();
-}))
+}
 
 COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=] {
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
@@ -254,9 +268,24 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 			printf("Unexpected descriptor type: %d!\n", type);
 		}
 	});
+	
+	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
+	get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
+			| setup_type::toHost;
+	get_descriptor->request = request_type::getDescriptor;
+	get_descriptor->value = (descriptor_type::report << 8) | report_desc_index.value();
+	get_descriptor->index = intf_number.value();
+	get_descriptor->length = report_desc_length.value();
 
-	COFIBER_AWAIT parseReportDescriptor(device, report_desc_index.value(),
-			report_desc_length.value(), intf_number.value());
+	arch::dma_buffer buffer{device.bufferPool(), report_desc_length.value()};
+
+	COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
+			get_descriptor, buffer});
+	
+	auto p = reinterpret_cast<uint8_t *>(buffer.data());
+	auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_desc_length.value();
+
+	parseReportDescriptor(device, p, limit);
 	
 	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
@@ -265,13 +294,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 	while(true) {
 		arch::dma_buffer report{device.bufferPool(), 4};
 		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
-	
-		auto values = parse(fields, reinterpret_cast<uint8_t *>(report.data()));
-		int counter = 0;
-		for(uint32_t val : values) {
-			printf("value %d: %x\n", counter, val);
-			counter++;
-		}
+		interpret(fields, reinterpret_cast<uint8_t *>(report.data()));
 	}
 }))
 

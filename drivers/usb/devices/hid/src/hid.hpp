@@ -10,11 +10,23 @@
 // Fields.
 // -----------------------------------------------------
 
+enum class FieldType {
+	null,
+	padding,
+	variable,
+	array
+};
+
 struct Field {
+	FieldType type;
 	int bitOffset;
 	int bitSize;
 	uint16_t usagePage;
 	uint16_t usageId;
+	int logicalMin;
+	int logicalMax;
+	int usageMin;
+	int usageMax;
 };
 
 // -----------------------------------------------------
@@ -22,7 +34,7 @@ struct Field {
 // -----------------------------------------------------
 
 struct HidDevice {
-	async::result<void> parseReportDescriptor(Device device, int index, int length, int intf_number);
+	void parseReportDescriptor(Device device, uint8_t* p, uint8_t* limit);
 	cofiber::no_future runHidDevice(Device device);
 
 	std::vector<Field> fields;
