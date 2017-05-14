@@ -127,8 +127,11 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 	}
 }))
 	
-async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
-	throw std::runtime_error("seek not yet implemented");
+async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset) {
+	printf("\e[31muart: Fix seek()\e[39m\n");
+	async::promise<int64_t> p;
+	p.set_value(0);
+	return p.async_get();
 }
 
 async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
@@ -153,6 +156,8 @@ async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> obje
 }
 
 constexpr protocols::fs::FileOperations fileOperations {
+	&seek,
+	&seek,
 	&seek,
 	&read,
 	&write,

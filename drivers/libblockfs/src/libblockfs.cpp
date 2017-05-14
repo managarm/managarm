@@ -21,11 +21,11 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-COFIBER_ROUTINE(async::result<void>, seek(std::shared_ptr<void> object,
-		uintptr_t offset), ([=] {
+COFIBER_ROUTINE(async::result<int64_t>, seekAbs(std::shared_ptr<void> object,
+		int64_t offset), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	self->offset = offset;
-	COFIBER_RETURN();
+	COFIBER_RETURN(self->offset);
 }))
 
 COFIBER_ROUTINE(async::result<size_t>, read(std::shared_ptr<void> object,
@@ -71,7 +71,9 @@ COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>,
 }))
 
 constexpr protocols::fs::FileOperations fileOperations{
-	&seek,
+	&seekAbs,
+	nullptr,
+	nullptr,
 	&read,
 	&write,
 	&accessMemory

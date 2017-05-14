@@ -32,10 +32,11 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 		if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 			helix::SendBuffer send_resp;
 			
-			COFIBER_AWAIT(file_ops->seek(file, req.rel_offset()));
+			auto offset = COFIBER_AWAIT(file_ops->seekAbs(file, req.rel_offset()));
 			
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(offset);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -43,9 +44,33 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-			throw std::runtime_error("SEEK_REL is not implemented yet");
+			helix::SendBuffer send_resp;
+			
+			auto offset = COFIBER_AWAIT(file_ops->seekRel(file, req.rel_offset()));
+			
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(offset);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-			throw std::runtime_error("SEEK_EOF is not implemented yet");
+			helix::SendBuffer send_resp;
+			
+			auto offset = COFIBER_AWAIT(file_ops->seekEof(file, req.rel_offset()));
+			
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(offset);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::READ) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
