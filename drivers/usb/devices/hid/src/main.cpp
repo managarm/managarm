@@ -18,6 +18,12 @@
 #include "spec.hpp"
 #include "hid.hpp"
 
+int32_t signExtend(uint32_t x, int bits) {
+	assert(bits > 0);
+	auto m = uint32_t(1) << (bits - 1);
+	return (x ^ m) - m;
+}
+
 void interpret(std::vector<Field> fields, uint8_t *report) {
 	unsigned int bit_offset = 0;
 	for(Field &f : fields) {
@@ -26,22 +32,36 @@ void interpret(std::vector<Field> fields, uint8_t *report) {
 				| (uint32_t(report[b + 2]) << 16) | (uint32_t(report[b + 3]) << 24);
 		uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
 		uint32_t data = (raw >> (bit_offset % 8)) & mask;
-		
+		bit_offset += f.bitSize;
+
+		if(f.type == FieldType::padding)
+			continue;
+
 		uint32_t usage;
-		uint32_t value;
+		int32_t value;
+		assert(f.bitSize <= 31);
+		
 		if(f.type == FieldType::array) {
+			assert(!f.isSigned);
+			if(!(data >= f.logicalMin && data <= f.logicalMax))
+				continue;
 			usage = f.usageId + data;
 			value = 1;
 		}else{
-			usage = f.usageId;
-			value = data;
+			assert(f.type == FieldType::variable);
+			if(f.isSigned) {
+				usage = f.usageId;
+				value = signExtend(data, f.bitSize);
+			}else{
+				usage = f.usageId;
+				value = data;
+			}
+			if(!(value >= f.logicalMin && value <= f.logicalMax))
+				continue;
 		}
 		
-		if(data >= f.logicalMin && data <= f.logicalMax && f.type != FieldType::padding) {
-			std::cout << "usagePage: " << f.usagePage << ", usageId: " << usage
-					<< ", value: " << value << ", offset:" << bit_offset << std::endl;
-		}
-		bit_offset += f.bitSize;
+		std::cout << "usagePage: " << f.usagePage << ", usageId: 0x" << std::hex
+				<< usage << std::dec << ", value: " << value << std::endl;
 	}
 	std::cout << std::endl;
 }
@@ -88,7 +108,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 		for(int i = 0; i < global.reportCount.value(); i++) {
 			if(local.usage.empty() && !local.usageMin && !local.usageMax) {
 				Field field;
-				field.type == FieldType::padding;
+				field.type = FieldType::padding;
 				field.bitSize = global.reportSize.value();
 				fields.push_back(field);
 			}else if(!array) {
@@ -110,6 +130,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				field.logicalMin = global.logicalMin.value();
 				field.logicalMax = global.logicalMax.value();
 				field.usageId = actual_id;
+				field.isSigned = global.logicalMin.value() < 0;
+				
 				fields.push_back(field);
 			}else{
 				if(!global.logicalMin || !global.logicalMax)
@@ -125,6 +147,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				field.logicalMin = global.logicalMin.value();
 				field.logicalMax = global.logicalMax.value();
 				field.usageId = local.usageMin.value();
+				field.isSigned = global.logicalMin.value() < 0;
+
 				fields.push_back(field);
 			}
 		}
@@ -147,7 +171,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 
 		case 0x80:
 			printf("Input: 0x%x\n", data);
-			generateFields(!data & item::variable);
+			generateFields(!(data & item::variable));
 			local = LocalState();
 			break;
 
@@ -177,23 +201,25 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			break;
 		
 		case 0x44:
-			printf("Physical Maximum; 0x%x\n", data);
+			printf("Physical Maximum: 0x%x\n", data);
 			global.physicalMax = data;
 			break;
 	
 		case 0x34:
-			printf("Physical Minimum; 0x%x\n", data);
+			printf("Physical Minimum: 0x%x\n", data);
 			global.physicalMin = data;
 			break;
 
 		case 0x24:
-			printf("Logical Maximum: 0x%x\n", data);
-			global.logicalMax = data;
+			assert(size > 0);
+			global.logicalMax = signExtend(data, size * 8);
+			printf("Logical Maximum: %d\n", global.logicalMax.value());
 			break;
 		
 		case 0x14:
-			printf("Logical Minimum: 0x%x\n", data);
-			global.logicalMin = data;
+			assert(size > 0);
+			global.logicalMin = signExtend(data, size * 8);
+			printf("Logical Minimum: %d\n", global.logicalMin.value());
 			break;
 		
 		case 0x04:

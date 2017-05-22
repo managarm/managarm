@@ -27,6 +27,7 @@ struct Field {
 	int logicalMax;
 	int usageMin;
 	int usageMax;
+	bool isSigned;
 };
 
 // -----------------------------------------------------
