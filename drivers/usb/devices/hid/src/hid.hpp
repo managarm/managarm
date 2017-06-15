@@ -28,6 +28,7 @@ struct Field {
 	int usageMin;
 	int usageMax;
 	bool isSigned;
+	int arraySize;
 };
 
 // -----------------------------------------------------
