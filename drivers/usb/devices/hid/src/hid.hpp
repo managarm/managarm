@@ -23,10 +23,8 @@ struct Field {
 	int bitSize;
 	uint16_t usagePage;
 	uint16_t usageId;
-	int logicalMin;
-	int logicalMax;
-	int usageMin;
-	int usageMax;
+	int dataMin;
+	int dataMax;
 	bool isSigned;
 	int arraySize;
 };

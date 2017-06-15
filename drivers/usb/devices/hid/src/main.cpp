@@ -49,18 +49,18 @@ void interpret(std::vector<Field> fields, uint8_t *report) {
 		if(f.type == FieldType::array) {
 			assert(!f.isSigned);
 			std::vector<int> values;
-			values.resize(f.logicalMax - f.logicalMin + 1, 0);
+			values.resize(f.dataMax - f.dataMin + 1, 0);
 			
 			for(int i = 0; i < f.arraySize; i++) {
 				auto data = fetch();
-				if(!(data >= f.logicalMin && data <= f.logicalMax))
+				if(!(data >= f.dataMin && data <= f.dataMax))
 					continue;
 
-				values[data - f.logicalMin] = 1;
+				values[data - f.dataMin] = 1;
 			}
 			for(int i = 0; i < values.size(); i++) {
 				std::cout << "usagePage: " << f.usagePage << ", usageId: 0x" << std::hex
-						<< (f.usageId + f.logicalMin + i) << std::dec << ", value: " << values[i] << std::endl;
+						<< (f.usageId + f.dataMin + i) << std::dec << ", value: " << values[i] << std::endl;
 			}
 		}else{
 			uint32_t usage;
@@ -74,7 +74,7 @@ void interpret(std::vector<Field> fields, uint8_t *report) {
 				usage = f.usageId;
 				value = data;
 			}
-			if(!(value >= f.logicalMin && value <= f.logicalMax))
+			if(!(value >= f.dataMin && value <= f.dataMax))
 				continue;
 
 			std::cout << "usagePage: " << f.usagePage << ", usageId: 0x" << std::hex
@@ -101,8 +101,8 @@ struct LocalState {
 
 struct GlobalState {
 	std::experimental::optional<uint16_t> usagePage;
-	std::experimental::optional<int> logicalMin;
-	std::experimental::optional<int> logicalMax;
+	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMin;
+	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMax;
 	std::experimental::optional<int> reportSize;
 	std::experimental::optional<int> reportCount;
 	std::experimental::optional<int> physicalMin;
@@ -146,17 +146,30 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				field.type = FieldType::variable;
 				field.bitSize = global.reportSize.value();
 				field.usagePage = global.usagePage.value();
-				field.logicalMin = global.logicalMin.value();
-				field.logicalMax = global.logicalMax.value();
 				field.usageId = actual_id;
-				field.isSigned = global.logicalMin.value() < 0;
-				
+				if(global.logicalMin.value().first < 0) {
+					field.isSigned = true;
+					field.dataMin = global.logicalMin.value().first;
+					field.dataMax = global.logicalMax.value().first;
+				}else {
+					field.isSigned = false;
+					field.dataMin = global.logicalMin.value().second;
+					field.dataMax = global.logicalMax.value().second;
+				}
 				fields.push_back(field);
 			}
 		}else{
 			if(!global.logicalMin || !global.logicalMax)
 				throw std::runtime_error("logicalMin or logicalMax not set");
 			
+			if(global.logicalMin.value().first < 0) {
+				if(global.logicalMin.value().first > global.logicalMax.value().first)
+					throw std::runtime_error("signed: logicalMin > logicalMax");
+			}else{
+				if(global.logicalMin.value().second > global.logicalMax.value().second)
+					throw std::runtime_error("unsigned: logicalMin > logicalMax");
+			}
+
 			if(!local.usageMin)
 				throw std::runtime_error("usageMin not set");
 
@@ -164,10 +177,16 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			field.type = FieldType::array;
 			field.bitSize = global.reportSize.value();
 			field.usagePage = global.usagePage.value();
-			field.logicalMin = global.logicalMin.value();
-			field.logicalMax = global.logicalMax.value();
 			field.usageId = local.usageMin.value();
-			field.isSigned = global.logicalMin.value() < 0;
+			if(global.logicalMin.value().first < 0) {
+				field.isSigned = true;
+				field.dataMin = global.logicalMin.value().first;
+				field.dataMax = global.logicalMax.value().first;
+			}else {
+				field.isSigned = false;
+				field.dataMin = global.logicalMin.value().second;
+				field.dataMax = global.logicalMax.value().second;
+			}
 			field.arraySize = global.reportCount.value();
 
 			fields.push_back(field);
@@ -232,16 +251,16 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 
 		case 0x24:
 			assert(size > 0);
-			//global.logicalMax = signExtend(data, size * 8);
-			global.logicalMax = data;
-			printf("Logical Maximum: %d\n", global.logicalMax.value());
+			global.logicalMax = std::make_pair(signExtend(data, size * 8), data);
+			printf("Logical Maximum: signed: %d, unsigned: %d\n", global.logicalMax.value().first,
+					global.logicalMax.value().second);
 			break;
 		
 		case 0x14:
 			assert(size > 0);
-			//global.logicalMin = signExtend(data, size * 8);
-			global.logicalMin = data;
-			printf("Logical Minimum: %d\n", global.logicalMin.value());
+			global.logicalMin = std::make_pair(signExtend(data, size * 8), data);
+			printf("Logical Minimum: signed: %d, unsigned: %d\n", global.logicalMin.value().first,
+					global.logicalMin.value().second);
 			break;
 		
 		case 0x04:
