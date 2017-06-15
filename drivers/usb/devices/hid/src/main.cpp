@@ -24,10 +24,10 @@ int32_t signExtend(uint32_t x, int bits) {
 	return (x ^ m) - m;
 }
 
-void interpret(std::vector<Field> fields, uint8_t *report) {
+void interpret(std::vector<Field> fields, uint8_t *report, std::vector<int> &values) {
+	int k = 0;
 	unsigned int bit_offset = 0;
 	for(Field &f : fields) {
-
 		auto fetch = [&] () {
 			int b = bit_offset / 8;
 			uint32_t raw = uint32_t(report[b]) | (uint32_t(report[b + 1]) << 8)
@@ -48,40 +48,28 @@ void interpret(std::vector<Field> fields, uint8_t *report) {
 
 		if(f.type == FieldType::array) {
 			assert(!f.isSigned);
-			std::vector<int> values;
-			values.resize(f.dataMax - f.dataMin + 1, 0);
+			for(int i = 0; i < f.dataMax - f.dataMin + 1; i++)
+				values[k + i] = 0;
 			
 			for(int i = 0; i < f.arraySize; i++) {
 				auto data = fetch();
 				if(!(data >= f.dataMin && data <= f.dataMax))
 					continue;
 
-				values[data - f.dataMin] = 1;
+				values[k + data - f.dataMin] = 1;
 			}
-			for(int i = 0; i < values.size(); i++) {
-				std::cout << "usagePage: " << f.usagePage << ", usageId: 0x" << std::hex
-						<< (f.usageId + f.dataMin + i) << std::dec << ", value: " << values[i] << std::endl;
-			}
+			k += f.dataMax - f.dataMin + 1;
 		}else{
-			uint32_t usage;
-			int32_t value;
 			assert(f.type == FieldType::variable);
 			auto data = fetch();
 			if(f.isSigned) {
-				usage = f.usageId;
-				value = signExtend(data, f.bitSize);
+				values[k] = signExtend(data, f.bitSize);
 			}else{
-				usage = f.usageId;
-				value = data;
+				values[k] = data;
 			}
-			if(!(value >= f.dataMin && value <= f.dataMax))
-				continue;
-
-			std::cout << "usagePage: " << f.usagePage << ", usageId: 0x" << std::hex
-					<< usage << std::dec << ", value: " << value << std::endl;
+			k++;
 		}
 	}
-	std::cout << std::endl;
 }
 
 uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
@@ -145,8 +133,6 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				Field field;
 				field.type = FieldType::variable;
 				field.bitSize = global.reportSize.value();
-				field.usagePage = global.usagePage.value();
-				field.usageId = actual_id;
 				if(global.logicalMin.value().first < 0) {
 					field.isSigned = true;
 					field.dataMin = global.logicalMin.value().first;
@@ -157,6 +143,12 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 					field.dataMax = global.logicalMax.value().second;
 				}
 				fields.push_back(field);
+
+				Element element;
+				element.usageId = actual_id;
+				element.usagePage = global.usagePage.value();
+				//element.isAbsolute = true;
+				elements.push_back(element);
 			}
 		}else{
 			if(!global.logicalMin || !global.logicalMax)
@@ -176,8 +168,6 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			Field field;
 			field.type = FieldType::array;
 			field.bitSize = global.reportSize.value();
-			field.usagePage = global.usagePage.value();
-			field.usageId = local.usageMin.value();
 			if(global.logicalMin.value().first < 0) {
 				field.isSigned = true;
 				field.dataMin = global.logicalMin.value().first;
@@ -188,8 +178,15 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				field.dataMax = global.logicalMax.value().second;
 			}
 			field.arraySize = global.reportCount.value();
-
 			fields.push_back(field);
+
+			for(int i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
+				Element element;
+				element.usageId = local.usageMin.value() + i;
+				element.usagePage = global.usagePage.value();
+				//element.isAbsolute = true;
+				elements.push_back(element);
+			}
 		}
 	};
 
@@ -358,10 +355,18 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
+	std::vector<int> values;
+	values.resize(elements.size());
 	while(true) {
 		arch::dma_buffer report{device.bufferPool(), 4};
 		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
-		interpret(fields, reinterpret_cast<uint8_t *>(report.data()));
+		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), values);
+
+		for(int i = 0; i < values.size(); i++) {
+			std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
+					<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
+		}
+		std::cout << std::endl;
 	}
 }))
 

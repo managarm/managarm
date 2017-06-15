@@ -19,16 +19,23 @@ enum class FieldType {
 
 struct Field {
 	FieldType type;
-	int bitOffset;
 	int bitSize;
-	uint16_t usagePage;
-	uint16_t usageId;
 	int dataMin;
 	int dataMax;
 	bool isSigned;
 	int arraySize;
 };
 
+// -----------------------------------------------------
+// Elements.
+// -----------------------------------------------------
+
+struct Element {
+	uint32_t usageId;
+	uint16_t usagePage;
+	bool isAbsolute;
+};
+	
 // -----------------------------------------------------
 // HidDevice.
 // -----------------------------------------------------
@@ -38,6 +45,7 @@ struct HidDevice {
 	cofiber::no_future runHidDevice(Device device);
 
 	std::vector<Field> fields;
+	std::vector<Element> elements;
 };
 
 #endif // HID_HID_HPP
