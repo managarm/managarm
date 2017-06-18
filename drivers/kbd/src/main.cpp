@@ -48,7 +48,15 @@ struct ReadRequest {
 };
 
 struct EventDevice {
-	void processEvents();
+	static async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset);
+	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
+	static async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length);
+	static async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object);
+
+	void emitEvent(int type, int code, int value);
+
+private:
+	void _processEvents();
 
 	boost::intrusive::list<
 		Event,
@@ -57,7 +65,7 @@ struct EventDevice {
 			boost::intrusive::list_member_hook<>,
 			&Event::hook
 		>
-	> events;
+	> _events;
 
 	boost::intrusive::list<
 		ReadRequest,
@@ -66,36 +74,36 @@ struct EventDevice {
 			boost::intrusive::list_member_hook<>,
 			&ReadRequest::hook
 		>
-	> requests;
+	> _requests;
 };
 
-async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset) {
+async::result<void> EventDevice::seek(std::shared_ptr<void> object, uintptr_t offset) {
 	throw std::runtime_error("seek not yet implemented");
 }
 
-async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
+async::result<size_t> EventDevice::read(std::shared_ptr<void> object, void *buffer, size_t length) {
 	std::shared_ptr<EventDevice> device = std::static_pointer_cast<EventDevice>(object);
 	
 	auto req = new ReadRequest(buffer, length);
-	device->requests.push_back(*req);
+	device->_requests.push_back(*req);
 	auto value = req->promise.async_get();
-	device->processEvents();
+	device->_processEvents();
 	return value;
 }
 
-async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> EventDevice::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
 	throw std::runtime_error("write not yet implemented");
 }
 
-async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object) {
+async::result<helix::BorrowedDescriptor> EventDevice::accessMemory(std::shared_ptr<void> object) {
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 
 constexpr protocols::fs::FileOperations fileOperations {
-	&seek,
-	&read,
-	&write,
-	&accessMemory
+	&EventDevice::seek,
+	&EventDevice::read,
+	&EventDevice::write,
+	&EventDevice::accessMemory
 };
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
@@ -140,11 +148,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		}
 	}
 }))
-
-void EventDevice::processEvents() {
-	while(!requests.empty() && !events.empty()) {
-		auto req = &requests.front();
-		auto event = &events.front();
+		
+void EventDevice::_processEvents() {
+	while(!_requests.empty() && !_events.empty()) {
+		auto req = &_requests.front();
+		auto event = &_events.front();
 	
 		// TODO: fill in timeval 
 		input_event data;
@@ -156,11 +164,17 @@ void EventDevice::processEvents() {
 		memcpy(req->buffer, &data, sizeof(input_event));	
 		req->promise.set_value(sizeof(input_event));
 		
-		requests.pop_front();
-		events.pop_front();
+		_requests.pop_front();
+		_events.pop_front();
 		delete req;
 		delete event;
 	}
+}
+
+void EventDevice::emitEvent(int type, int code, int value) {
+	auto event = new Event(type, code, value);
+	_events.push_back(*event);
+	_processEvents();
 }
 	
 // --------------------------------------------
@@ -311,16 +325,10 @@ void handleKeyboardData(uint8_t data) {
 		escapeStatus = kStatusE1Second;
 	}else if(escapeStatus == kStatusE1Second) {
 		assert((e1Buffer & 0x80) == (data & 0x80));
-		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->events.push_back(*event);
-		kbdEvntDev->processEvents();
-
+		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
 		escapeStatus = kStatusNormal;
 	}else if(escapeStatus == kStatusE0) {
-		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->events.push_back(*event);
-		kbdEvntDev->processEvents();
-
+		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
 		escapeStatus = kStatusNormal;
 	}else{
 		assert(escapeStatus == kStatusNormal);
@@ -333,9 +341,7 @@ void handleKeyboardData(uint8_t data) {
 			return;
 		}
 		
-		auto event = new Event(EV_KEY, scanNormal(data & 0x7F), pressed);
-		kbdEvntDev->events.push_back(*event);
-		kbdEvntDev->processEvents();
+		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
 	}
 }
 
@@ -396,14 +402,8 @@ void handleMouseData(uint8_t data) {
 			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
 			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
 		
-			auto event_x = new Event(EV_REL, REL_X, movement_x);
-			mouseEvntDev->events.push_back(*event_x);
-			mouseEvntDev->processEvents();
-			
-			auto event_y = new Event(EV_REL, REL_Y, movement_y);
-			mouseEvntDev->events.push_back(*event_y);
-			mouseEvntDev->processEvents();
-			
+			mouseEvntDev->emitEvent(EV_REL, REL_X, movement_x);
+			mouseEvntDev->emitEvent(EV_REL, REL_Y, movement_y);
 			mouseByte = kMouseByte0;
 		}
 	}
