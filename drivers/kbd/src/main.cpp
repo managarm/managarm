@@ -15,6 +15,7 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <libevbackend.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -22,166 +23,12 @@
 #include "fs.pb.h"
 
 arch::io_space base;
-
-// --------------------------------------------
-// EventDevice
-// --------------------------------------------
-
-struct Event {
-	Event(int type, int code, int value)
-	: type(type), code(code), value(value) { }
-
-	int type;
-	int code;
-	int value;
-	boost::intrusive::list_member_hook<> hook;
-};
-
-struct ReadRequest {
-	ReadRequest(void *buffer, size_t maxLength)
-	: buffer(buffer), maxLength(maxLength) { }
-
-	void *buffer;
-	size_t maxLength;
-	async::promise<size_t> promise;
-	boost::intrusive::list_member_hook<> hook;
-};
-
-struct EventDevice {
-	static async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset);
-	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
-	static async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length);
-	static async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object);
-
-	void emitEvent(int type, int code, int value);
-
-private:
-	void _processEvents();
-
-	boost::intrusive::list<
-		Event,
-		boost::intrusive::member_hook<
-			Event,
-			boost::intrusive::list_member_hook<>,
-			&Event::hook
-		>
-	> _events;
-
-	boost::intrusive::list<
-		ReadRequest,
-		boost::intrusive::member_hook<
-			ReadRequest,
-			boost::intrusive::list_member_hook<>,
-			&ReadRequest::hook
-		>
-	> _requests;
-};
-
-async::result<void> EventDevice::seek(std::shared_ptr<void> object, uintptr_t offset) {
-	throw std::runtime_error("seek not yet implemented");
-}
-
-async::result<size_t> EventDevice::read(std::shared_ptr<void> object, void *buffer, size_t length) {
-	std::shared_ptr<EventDevice> device = std::static_pointer_cast<EventDevice>(object);
-	
-	auto req = new ReadRequest(buffer, length);
-	device->_requests.push_back(*req);
-	auto value = req->promise.async_get();
-	device->_processEvents();
-	return value;
-}
-
-async::result<void> EventDevice::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
-	throw std::runtime_error("write not yet implemented");
-}
-
-async::result<helix::BorrowedDescriptor> EventDevice::accessMemory(std::shared_ptr<void> object) {
-	throw std::runtime_error("accessMemory not yet implemented");
-}
-
-constexpr protocols::fs::FileOperations fileOperations {
-	&EventDevice::seek,
-	&EventDevice::read,
-	&EventDevice::write,
-	&EventDevice::accessMemory
-};
-
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
-		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
-
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
-		auto conversation = accept.descriptor();
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
-			
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::servePassthrough(std::move(local_lane), device,
-					&fileOperations);
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
-		}else{
-			throw std::runtime_error("Invalid serveDevice request!");
-		}
-	}
-}))
-		
-void EventDevice::_processEvents() {
-	while(!_requests.empty() && !_events.empty()) {
-		auto req = &_requests.front();
-		auto event = &_events.front();
-	
-		// TODO: fill in timeval 
-		input_event data;
-		data.type = event->type;	
-		data.code = event->code;
-		data.value = event->value;
-
-		assert(req->maxLength == sizeof(input_event));
-		memcpy(req->buffer, &data, sizeof(input_event));	
-		req->promise.set_value(sizeof(input_event));
-		
-		_requests.pop_front();
-		_events.pop_front();
-		delete req;
-		delete event;
-	}
-}
-
-void EventDevice::emitEvent(int type, int code, int value) {
-	auto event = new Event(type, code, value);
-	_events.push_back(*event);
-	_processEvents();
-}
 	
 // --------------------------------------------
 // Keyboard
 // --------------------------------------------
 
-std::shared_ptr<EventDevice> kbdEvntDev = std::make_shared<EventDevice>();
+std::shared_ptr<libevbackend::EventDevice> kbdEvntDev = std::make_shared<libevbackend::EventDevice>();
 helix::UniqueIrq kbdIrq;
 
 enum KeyboardStatus {
@@ -349,7 +196,7 @@ void handleKeyboardData(uint8_t data) {
 // Mouse
 // --------------------------------------------
 
-std::shared_ptr<EventDevice> mouseEvntDev = std::make_shared<EventDevice>();
+std::shared_ptr<libevbackend::EventDevice> mouseEvntDev = std::make_shared<libevbackend::EventDevice>();
 helix::UniqueIrq mouseIrq;
 
 enum MouseState {
@@ -467,7 +314,7 @@ COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
 			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveDevice(kbdEvntDev, std::move(local_lane));
+		libevbackend::serveDevice(kbdEvntDev, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
@@ -487,7 +334,7 @@ COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
 			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
-		serveDevice(mouseEvntDev, std::move(local_lane));
+		libevbackend::serveDevice(mouseEvntDev, std::move(local_lane));
 
 		async::promise<helix::UniqueDescriptor> promise;
 		promise.set_value(std::move(remote_lane));
