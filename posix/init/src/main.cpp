@@ -1,7 +1,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
-//#include <linux/input.h>
+#include <linux/input.h>
 #include <netinet/in.h> // FIXME: for testing
 #include <sched.h>
 #include <stdio.h>
@@ -43,12 +43,11 @@ int main() {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
 */
-/*
+
 	auto storage = fork();
 	if(!storage) {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
-*/
 
 	// Spin until /dev/sda0 becomes available.
 	while(access("/dev/sda0", F_OK)) {
@@ -68,29 +67,6 @@ int main() {
 	if(!kbd) {
 		execve("/initrd/kbd", args.data(), envp);
 	}else assert(kbd != -1);
-
-	// Spin until /dev/event0 becomes available.
-	while(access("/dev/event0", F_OK)) {
-		assert(errno == ENOENT);
-		for(int i = 0; i < 100; i++)
-			sched_yield();
-	}
-
-	// dump input events
-	const char *path = "/dev/event1";
-	int file = open(path, 0);
-	assert(!(file == -1));
-
-	while(true) {
-		input_event event;
-		size_t read_bytes = read(file, &event, sizeof(input_event));
-		assert(!(read_bytes == -1));
-		
-		printf("type: %i\n", event.type);
-		printf("code: %i\n", event.code);
-		printf("val: %i\n", event.value);
-		printf("-----------\n");
-	}
 */
 
 	// UART
@@ -120,11 +96,12 @@ int main() {
 		execve("/realfs/usr/bin/hid", args.data(), envp);
 	}else assert(hid != -1);
 */
+/*
 	auto bash = fork();
 	if(!bash) {
 		execve("/realfs/usr/bin/bash", args.data(), envp);
 	}else assert(bash != -1);
-
+*/
 /*
 	while(true) {
 		char buffer[1];
@@ -152,6 +129,29 @@ int main() {
 	if(!hid) {
 		execve("/initrd/hid", args.data(), envp);
 	}else assert(hid != -1);
+
+	// Spin until /dev/event0 becomes available.
+	while(access("/dev/event0", F_OK)) {
+		assert(errno == ENOENT);
+		for(int i = 0; i < 100; i++)
+			sched_yield();
+	}
+
+	// dump input events
+	const char *path = "/dev/event1";
+	int file = open(path, 0);
+	assert(!(file == -1));
+
+	while(true) {
+		input_event event;
+		size_t read_bytes = read(file, &event, sizeof(input_event));
+		assert(!(read_bytes == -1));
+		
+		printf("type: %i\n", event.type);
+		printf("code: %i\n", event.code);
+		printf("val: %i\n", event.value);
+		printf("-----------\n");
+	}
 
 /*
 	auto vga_terminal = fork();

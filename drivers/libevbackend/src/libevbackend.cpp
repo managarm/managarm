@@ -24,7 +24,7 @@
 
 namespace libevbackend {
 
-async::result<void> EventDevice::seek(std::shared_ptr<void> object, uintptr_t offset) {
+async::result<int64_t> EventDevice::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek not yet implemented");
 }
 
@@ -45,6 +45,15 @@ async::result<void> EventDevice::write(std::shared_ptr<void> object, const void 
 async::result<helix::BorrowedDescriptor> EventDevice::accessMemory(std::shared_ptr<void> object) {
 	throw std::runtime_error("accessMemory not yet implemented");
 }
+
+constexpr protocols::fs::FileOperations fileOperations {
+	&EventDevice::seek,
+	&EventDevice::seek,
+	&EventDevice::seek,
+	&EventDevice::read,
+	&EventDevice::write,
+	&EventDevice::accessMemory
+};
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {

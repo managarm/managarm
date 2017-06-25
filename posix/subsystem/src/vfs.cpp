@@ -213,6 +213,7 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	COFIBER_AWAIT symlink(getTarget(tree), "libmbus_protocol.so", "initrd/libmbus_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libusb_protocol.so", "initrd/libusb_protocol.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libblockfs.so", "initrd/libblockfs.so");
+	COFIBER_AWAIT symlink(getTarget(tree), "libevbackend.so", "initrd/libevbackend.so");
 
 	COFIBER_RETURN(std::move(view));
 }))

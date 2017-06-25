@@ -45,7 +45,7 @@ struct ReadRequest {
 // --------------------------------------------
 
 struct EventDevice {
-	static async::result<void> seek(std::shared_ptr<void> object, uintptr_t offset);
+	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
 	static async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length);
 	static async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object);
@@ -72,13 +72,6 @@ private:
 			&ReadRequest::hook
 		>
 	> _requests;
-};
-
-constexpr protocols::fs::FileOperations fileOperations {
-	&EventDevice::seek,
-	&EventDevice::read,
-	&EventDevice::write,
-	&EventDevice::accessMemory
 };
 
 // --------------------------------------------

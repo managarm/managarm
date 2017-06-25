@@ -3,13 +3,16 @@
 #include <experimental/optional>
 #include <iostream>
 
-#include <stdlib.h>
 #include <assert.h>
+#include <linux/input.h>
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <async/result.hpp>
 #include <cofiber.hpp>
 #include <helix/await.hpp>
+#include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
@@ -96,6 +99,53 @@ struct GlobalState {
 	std::experimental::optional<int> physicalMin;
 	std::experimental::optional<int> physicalMax;
 };
+
+HidDevice::HidDevice() {
+	_eventDev = std::make_shared<libevbackend::EventDevice>();
+}
+
+void HidDevice::translateToLinux(int page, int id, int value) {
+	if(page == pages::keyboard) {
+		switch(id) {
+			case 0x04: _eventDev->emitEvent(EV_KEY, KEY_A, value); break;
+			case 0x05: _eventDev->emitEvent(EV_KEY, KEY_B, value); break;
+			case 0x06: _eventDev->emitEvent(EV_KEY, KEY_C, value); break;
+			case 0x07: _eventDev->emitEvent(EV_KEY, KEY_D, value); break;
+			case 0x08: _eventDev->emitEvent(EV_KEY, KEY_E, value); break;
+			case 0x09: _eventDev->emitEvent(EV_KEY, KEY_F, value); break;
+			case 0x0A: _eventDev->emitEvent(EV_KEY, KEY_G, value); break;
+			case 0x0B: _eventDev->emitEvent(EV_KEY, KEY_H, value); break;
+			case 0x0C: _eventDev->emitEvent(EV_KEY, KEY_I, value); break;
+			case 0x0D: _eventDev->emitEvent(EV_KEY, KEY_J, value); break;
+			case 0x0E: _eventDev->emitEvent(EV_KEY, KEY_K, value); break;
+			case 0x0F: _eventDev->emitEvent(EV_KEY, KEY_L, value); break;
+			case 0x10: _eventDev->emitEvent(EV_KEY, KEY_M, value); break;
+			case 0x11: _eventDev->emitEvent(EV_KEY, KEY_N, value); break;
+			case 0x12: _eventDev->emitEvent(EV_KEY, KEY_O, value); break;
+			case 0x13: _eventDev->emitEvent(EV_KEY, KEY_P, value); break;
+			case 0x14: _eventDev->emitEvent(EV_KEY, KEY_Q, value); break;
+			case 0x15: _eventDev->emitEvent(EV_KEY, KEY_R, value); break;
+			case 0x16: _eventDev->emitEvent(EV_KEY, KEY_S, value); break;
+			case 0x17: _eventDev->emitEvent(EV_KEY, KEY_T, value); break;
+			case 0x18: _eventDev->emitEvent(EV_KEY, KEY_U, value); break;
+			case 0x19: _eventDev->emitEvent(EV_KEY, KEY_V, value); break;
+			case 0x1A: _eventDev->emitEvent(EV_KEY, KEY_W, value); break;
+			case 0x1B: _eventDev->emitEvent(EV_KEY, KEY_X, value); break;
+			case 0x1C: _eventDev->emitEvent(EV_KEY, KEY_Y, value); break;
+			case 0x1D: _eventDev->emitEvent(EV_KEY, KEY_Z, value); break;
+			case 0x1E: _eventDev->emitEvent(EV_KEY, KEY_1, value); break;
+			case 0x1F: _eventDev->emitEvent(EV_KEY, KEY_2, value); break;
+			case 0x20: _eventDev->emitEvent(EV_KEY, KEY_3, value); break;
+			case 0x21: _eventDev->emitEvent(EV_KEY, KEY_4, value); break;
+			case 0x22: _eventDev->emitEvent(EV_KEY, KEY_5, value); break;
+			case 0x23: _eventDev->emitEvent(EV_KEY, KEY_6, value); break;
+			case 0x24: _eventDev->emitEvent(EV_KEY, KEY_7, value); break;
+			case 0x25: _eventDev->emitEvent(EV_KEY, KEY_8, value); break;
+			case 0x26: _eventDev->emitEvent(EV_KEY, KEY_9, value); break;
+			case 0x27: _eventDev->emitEvent(EV_KEY, KEY_0, value); break;
+		}
+	}
+}
 
 void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
@@ -323,7 +373,6 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 				assert(!report_desc_index);
 				report_desc_index = 0;
 				report_desc_length = desc->entries[i].descriptorLength;
-
 			}
 		}else if(type == descriptor_type::endpoint) {
 			assert(!in_endp_number);
@@ -363,8 +412,11 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), values);
 
 		for(int i = 0; i < values.size(); i++) {
+			/*
 			std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
 					<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
+			*/
+			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
 		}
 		std::cout << std::endl;
 	}
