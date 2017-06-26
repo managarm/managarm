@@ -138,12 +138,27 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 }
 
 // ----------------------------------------------------------------------------
+// Various stuff that needs to be moved to some USB core library.
+// ----------------------------------------------------------------------------
+
+COFIBER_ROUTINE(cofiber::no_future, Enumerator::observeHub(std::shared_ptr<Hub> hub), ([=] {
+	for(auto port : COFIBER_AWAIT hub->pollPortsWithChanges()) {
+		auto s = COFIBER_AWAIT hub->fetchPortState(port);
+		if((s.changes & hub_status::connect) && (s.status & hub_status::connect)) {
+			COFIBER_AWAIT hub->resetAndEnablePort(port);
+			std::cout << "uhci: USB device connected" << std::endl;
+			COFIBER_AWAIT _controller->enumerateDevice();
+		}
+	}
+}))
+
+// ----------------------------------------------------------------------------
 // Controller.
 // ----------------------------------------------------------------------------
 
 Controller::Controller(arch::io_space base, helix::UniqueIrq irq)
 : _base(base), _irq(frigg::move(irq)), _lastFrame(0), _frameCounter(0),
-		_periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
+		_enumerator{this}, _periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -182,7 +197,7 @@ void Controller::initialize() {
 	_base.store(op_regs::irqEnable, irq::timeout(true) | irq::resume(true)
 			| irq::transaction(true) | irq::shortPacket(true));
 
-	pollDevices();
+	_enumerator.observeHub(std::make_shared<RootHub>(this));
 	handleIrqs();
 }
 
@@ -237,61 +252,78 @@ void Controller::_updateFrame() {
 // Controller: USB device discovery methods.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<void>, Controller::pollDevices(), ([=] {
+COFIBER_ROUTINE(async::result<std::vector<int>>, Controller::RootHub::pollPortsWithChanges(),
+		([=] {
+	std::vector<int> ports;
 	while(true) {
-		for(int i = 0; i < 2; i++) {
-			auto port_space = _base.subspace(0x10 + (2 * i));
+		for(int port = 0; port < 2; port++) {
+			auto port_space = _controller->_base.subspace(0x10 + (2 * port));
+			auto sc = port_space.load(port_regs::statusCtrl);
 
-			// poll for connect status change and immediately reset that bit.
-			if(!(port_space.load(port_regs::statusCtrl) & port_status_ctrl::connectChange))
-				continue;
-			port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(true));
-
-			// TODO: delete current device.
-			
-			// check if a new device was attached to the port.
-			auto port_status = port_space.load(port_regs::statusCtrl);
-			assert(!(port_status & port_status_ctrl::enableStatus));
-			if(!(port_status & port_status_ctrl::connectStatus))
-				continue;
-
-			std::cout << "uhci: USB device connected" << std::endl;
-
-			// reset the port for 50ms.
-			port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
-		
-			uint64_t tick;
-			HEL_CHECK(helGetClock(&tick));
-
-			helix::AwaitClock await_clock;
-			auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
-					helix::Dispatcher::global());
-			COFIBER_AWAIT submit.async_wait();
-			HEL_CHECK(await_clock.error());
-
-			// enable the port and wait until it is available.
-			port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
-			while(true) {
-				port_status = port_space.load(port_regs::statusCtrl);
-				if((port_status & port_status_ctrl::enableStatus))
-					break;
-			}
-
-			// disable the port if there was a concurrent disconnect.
-			if(port_status & port_status_ctrl::connectChange) {
-				std::cout << "uhci: Disconnect during device enumeration." << std::endl;
-				port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(0));
-				continue;
-			}
-		
-			COFIBER_AWAIT probeDevice();
+			if(sc & port_status_ctrl::connectChange)
+				ports.push_back(port);
 		}
 
-		COFIBER_AWAIT _pollDoorbell.async_wait();
+		if(!ports.empty())
+			COFIBER_RETURN(ports);
+
+		COFIBER_AWAIT _controller->_pollDoorbell.async_wait();
 	}
 }))
 
-COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
+COFIBER_ROUTINE(async::result<Hub::State>, Controller::RootHub::fetchPortState(int port), ([=] {
+	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
+	auto sc = port_space.load(port_regs::statusCtrl);
+
+	State state;
+	if(sc & port_status_ctrl::connectStatus)
+		state.status |= hub_status::connect;
+
+	if(sc & port_status_ctrl::connectChange)
+		state.changes |= hub_status::connect;
+
+	// Write-back clears the change bits.
+	port_space.store(port_regs::statusCtrl, sc);
+
+	COFIBER_RETURN(state);
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::RootHub::resetAndEnablePort(int port), ([=] {
+	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
+	auto port_status = port_space.load(port_regs::statusCtrl);
+	assert(!(port_status & port_status_ctrl::connectChange));
+
+	// Reset the port for 50 ms.
+	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
+
+	uint64_t tick;
+	HEL_CHECK(helGetClock(&tick));
+
+	helix::AwaitClock await_clock;
+	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
+			helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(await_clock.error());
+
+	// Enable the port and wait until it is available.
+	port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
+
+	while(true) {
+		port_status = port_space.load(port_regs::statusCtrl);
+		if((port_status & port_status_ctrl::enableStatus))
+			break;
+	}
+
+	// Disable the port if there was a concurrent disconnect.
+	if(port_status & port_status_ctrl::connectChange) {
+		std::cout << "uhci: Disconnect during device enumeration." << std::endl;
+		port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(0));
+	}
+
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
 	// This queue will become the default control pipe of our new device.
 	auto queue = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 	_linkAsync(queue);
@@ -351,6 +383,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	sprintf(vendor, "%.4x", descriptor->idVendor);
 	sprintf(product, "%.4x", descriptor->idProduct);
 	sprintf(release, "%.4x", descriptor->bcdDevice);
+
+	std::cout << "uhci: Enumerating device of class: 0x" << class_code
+			<< ", sub class: 0x" << sub_class << ", protocol: 0x" << protocol << std::endl;
 
 	std::unordered_map<std::string, std::string> mbus_desc {
 		{ "usb.type", "device" },

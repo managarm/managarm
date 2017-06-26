@@ -9,19 +9,65 @@ struct ConfigurationState;
 struct InterfaceState;
 struct EndpointState;
 
+// ----------------------------------------------------------------------------
+// Various stuff that needs to be moved to some USB core library.
+// ----------------------------------------------------------------------------
+
+struct BaseController {
+	virtual async::result<void> enumerateDevice() = 0;
+};
+
+namespace hub_status {
+	static constexpr uint32_t connect = 0x01;
+	static constexpr uint32_t enable = 0x02;
+}
+
+struct Hub {
+	struct State {
+		uint32_t status;
+		uint32_t changes;
+	};
+
+	virtual async::result<std::vector<int>> pollPortsWithChanges() = 0;
+	virtual async::result<State> fetchPortState(int port) = 0;
+	virtual async::result<void> resetAndEnablePort(int port) = 0;
+};
+
+struct Enumerator {
+	Enumerator(BaseController *controller)
+	: _controller{controller} { }
+
+	cofiber::no_future observeHub(std::shared_ptr<Hub> hub);
+
+private:
+	BaseController *_controller;
+};
+
 // ----------------------------------------------------------------
 // Controller.
 // ----------------------------------------------------------------
 
-struct Controller : std::enable_shared_from_this<Controller> {
+struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 	friend struct ConfigurationState;
+
+	struct RootHub : Hub {
+		RootHub(Controller *controller)
+		: _controller{controller} { }
+
+		async::result<std::vector<int>> pollPortsWithChanges() override;
+		async::result<State> fetchPortState(int port) override;
+		async::result<void> resetAndEnablePort(int port) override;
+
+	private:
+		Controller *_controller;
+	};
 
 	Controller(arch::io_space base, helix::UniqueIrq irq);
 
 	void initialize();
-	async::result<void> pollDevices();
-	async::result<void> probeDevice();
 	cofiber::no_future handleIrqs();
+	
+	async::result<void> enumerateDevice() override;
 
 private:
 	arch::io_space _base;
@@ -86,6 +132,7 @@ private:
 		EndpointSlot inStates[16];
 	};
 
+	Enumerator _enumerator;
 	std::queue<int> _addressStack;
 	DeviceSlot _activeDevices[128];
 
