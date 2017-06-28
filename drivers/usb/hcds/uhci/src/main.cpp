@@ -141,16 +141,265 @@ async::result<void> EndpointState::transfer(BulkTransfer info) {
 // Various stuff that needs to be moved to some USB core library.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(cofiber::no_future, Enumerator::observeHub(std::shared_ptr<Hub> hub), ([=] {
-	for(auto port : COFIBER_AWAIT hub->pollPortsWithChanges()) {
-		auto s = COFIBER_AWAIT hub->fetchPortState(port);
-		if((s.changes & hub_status::connect) && (s.status & hub_status::connect)) {
-			COFIBER_AWAIT hub->resetAndEnablePort(port);
-			std::cout << "uhci: USB device connected" << std::endl;
-			COFIBER_AWAIT _controller->enumerateDevice();
+void Enumerator::observeHub(std::shared_ptr<Hub> hub) {
+	for(size_t port = 0; port < hub->numPorts(); port++)
+		_observePort(hub, port);
+}
+
+COFIBER_ROUTINE(cofiber::no_future, Enumerator::_observePort(std::shared_ptr<Hub> hub,
+		int port), ([=] {
+	std::unique_lock<async::mutex> enumerate_lock;
+
+	while(true) {
+		auto s = COFIBER_AWAIT hub->pollState(port);
+
+		if(!(s.status & hub_status::connect))
+			continue;
+
+		COFIBER_AWAIT _enumerateMutex.async_lock();
+		enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
+
+//		std::cout << "usb: Issuing reset on port " << port << std::endl;
+		COFIBER_AWAIT hub->issueReset(port);
+		break;
+	}
+	
+	while(true) {
+		auto s = COFIBER_AWAIT hub->pollState(port);
+
+		if(!(s.status & hub_status::enable))
+			continue;
+
+//		std::cout << "usb: Enumerating device on port " << port << std::endl;
+		COFIBER_AWAIT _controller->enumerateDevice();
+		enumerate_lock.unlock();
+		break;
+	}
+}))
+
+namespace usb {
+namespace standard_hub {
+
+namespace {
+
+namespace class_requests {
+	static constexpr uint8_t getStatus = 0;
+	static constexpr uint8_t clearFeature = 1;
+	static constexpr uint8_t setFeature = 3;
+	static constexpr uint8_t getDescriptor = 6;
+}
+
+namespace port_bits {
+	static constexpr uint16_t connect = 0x01;
+	static constexpr uint16_t enable = 0x02;
+	static constexpr uint16_t reset = 0x10;
+}
+
+namespace port_features {
+	static constexpr uint16_t connect = 0;
+	static constexpr uint16_t enable = 1;
+	static constexpr uint16_t reset = 4;
+	static constexpr uint16_t connectChange = 16;
+	static constexpr uint16_t enableChange = 17;
+	static constexpr uint16_t resetChange = 20;
+}
+
+struct StandardHub : Hub {
+	StandardHub(Device device)
+	: _device{std::move(device)}, _endpoint{nullptr} { }
+
+	async::result<void> initialize();
+
+private:
+	cofiber::no_future _run();
+
+public:
+	size_t numPorts() override;
+	async::result<PortState> pollState(int port) override;
+	async::result<void> issueReset(int port) override;
+
+private:
+	Device _device;
+	Endpoint _endpoint;
+
+	async::doorbell _doorbell;
+	std::vector<PortState> _state;
+};
+
+COFIBER_ROUTINE(async::result<void>, StandardHub::initialize(), ([=] {
+	// Read the generic USB device configuration.
+	std::experimental::optional<int> cfg_number;
+	std::experimental::optional<int> intf_number;
+	std::experimental::optional<int> end_number;
+
+	auto cfg_descriptor = COFIBER_AWAIT _device.configurationDescriptor();
+	walkConfiguration(cfg_descriptor, [&] (int type, size_t, void *, const auto &info) {
+		if(type == descriptor_type::configuration) {
+			assert(!cfg_number);
+			cfg_number = info.configNumber.value();
+		}else if(type == descriptor_type::interface) {
+			assert(!intf_number);
+			intf_number = info.interfaceNumber.value();
+		}else if(type == descriptor_type::endpoint) {
+			assert(!end_number);
+			end_number = info.endpointNumber.value();
+		}
+	});
+
+	auto cfg = COFIBER_AWAIT _device.useConfiguration(cfg_number.value());
+	auto intf = COFIBER_AWAIT cfg.useInterface(intf_number.value(), 0);
+	_endpoint = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, end_number.value()));
+
+	// Read the hub class-specific descriptor.
+	struct HubDescriptor : public DescriptorBase {
+		uint8_t numPorts;
+	};
+
+	arch::dma_object<SetupPacket> get_descriptor{_device.setupPool()};
+	get_descriptor->type = setup_type::targetDevice | setup_type::byClass
+			| setup_type::toHost;
+	get_descriptor->request = class_requests::getDescriptor;
+	get_descriptor->value = 0x29 << 8;
+	get_descriptor->index = intf_number.value();
+	get_descriptor->length = sizeof(HubDescriptor);
+
+	arch::dma_object<HubDescriptor> hub_descriptor{_device.bufferPool()};
+	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+			get_descriptor, hub_descriptor.view_buffer()});
+
+	_state.resize(hub_descriptor->numPorts, PortState{0, 0});
+	_run();
+
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(cofiber::no_future, StandardHub::_run(), ([=] {
+	std::cout << "usb: Serving standard hub with "
+			<< _state.size() << " ports." << std::endl;
+
+	while(true) {
+		arch::dma_array<uint8_t> report{_device.bufferPool(), (_state.size() + 1 + 7) / 8};
+		COFIBER_AWAIT _endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost,
+				report.view_buffer()});
+
+//		std::cout << "usb: Hub report: " << (unsigned int)report[0] << std::endl;
+		for(size_t port = 0; port < _state.size(); port++) {
+			if(!(report[(port + 1) / 8] & (1 << ((port + 1) % 8))))
+				continue;
+
+			// Query issue a GetPortStatus request and inspect the status.
+			arch::dma_object<SetupPacket> status_req{_device.setupPool()};
+			status_req->type = setup_type::targetOther | setup_type::byClass
+					| setup_type::toHost;
+			status_req->request = class_requests::getStatus;
+			status_req->value = 0;
+			status_req->index = port + 1;
+			status_req->length = 4;
+
+			arch::dma_array<uint16_t> result{_device.bufferPool(), 2};
+			COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+					status_req, result.view_buffer()});
+//			std::cout << "usb: Port " << port << " status: "
+//					<< result[0] << ", " << result[1] << std::endl;
+
+			_state[port].status = 0;
+			if(result[0] & port_bits::connect)
+				_state[port].status |= hub_status::connect;
+			if(result[0] & port_bits::enable)
+				_state[port].status |= hub_status::enable;
+			if(result[0] & port_bits::reset)
+				_state[port].status |= hub_status::reset;
+
+			// Inspect the status change bits and reset them.
+			if(result[1] & port_bits::connect) {
+				_state[port].changes |= hub_status::connect;
+				_doorbell.ring();
+
+				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
+				clear_req->type = setup_type::targetOther | setup_type::byClass
+						| setup_type::toDevice;
+				clear_req->request = class_requests::clearFeature;
+				clear_req->value = port_features::connectChange;
+				clear_req->index = port + 1;
+				clear_req->length = 0;
+
+				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+						clear_req, arch::dma_buffer_view{}});
+			}
+
+			if(result[1] & port_bits::enable) {
+				_state[port].changes |= hub_status::enable;
+				_doorbell.ring();
+
+				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
+				clear_req->type = setup_type::targetOther | setup_type::byClass
+						| setup_type::toDevice;
+				clear_req->request = class_requests::clearFeature;
+				clear_req->value = port_features::enableChange;
+				clear_req->index = port + 1;
+				clear_req->length = 0;
+
+				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+						clear_req, arch::dma_buffer_view{}});
+			}
+
+			if(result[1] & port_bits::reset) {
+				_state[port].changes |= hub_status::reset;
+				_doorbell.ring();
+
+				arch::dma_object<SetupPacket> clear_req{_device.setupPool()};
+				clear_req->type = setup_type::targetOther | setup_type::byClass
+						| setup_type::toDevice;
+				clear_req->request = class_requests::clearFeature;
+				clear_req->value = port_features::resetChange;
+				clear_req->index = port + 1;
+				clear_req->length = 0;
+
+				COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+						clear_req, arch::dma_buffer_view{}});
+			}
 		}
 	}
 }))
+
+size_t StandardHub::numPorts() {
+	return _state.size();
+}
+
+COFIBER_ROUTINE(async::result<PortState>, StandardHub::pollState(int port), ([=] {
+	while(true) {
+		auto state = _state[port];
+		if(state.changes) {
+			_state[port].changes = 0;
+			COFIBER_RETURN(state);
+		}
+
+		COFIBER_AWAIT _doorbell.async_wait();
+	}
+}))
+
+COFIBER_ROUTINE(async::result<void>, StandardHub::issueReset(int port), ([=] {
+	// Issue a SetPortFeature request to reset the port.
+	arch::dma_object<SetupPacket> reset_req{_device.setupPool()};
+	reset_req->type = setup_type::targetOther | setup_type::byClass
+			| setup_type::toDevice;
+	reset_req->request = class_requests::setFeature;
+	reset_req->value = port_features::reset;
+	reset_req->index = port + 1;
+	reset_req->length = 0;
+
+	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
+			reset_req, arch::dma_buffer_view{}});
+	COFIBER_RETURN();
+}))
+
+} // anonymous namespace
+
+std::shared_ptr<StandardHub> create(Device device) {
+	return std::make_shared<StandardHub>(std::move(device));
+}
+
+} } // namespace usb::standard_hub
 
 // ----------------------------------------------------------------------------
 // Controller.
@@ -232,8 +481,32 @@ void Controller::_updateFrame() {
 	auto counter = (frame > _lastFrame) ? (_frameCounter + frame - _lastFrame)
 			: (_frameCounter + 2048 - _lastFrame + frame);
 
-	if(counter / 1024 > _frameCounter / 1024)
-		_pollDoorbell.ring();
+	if(counter / 1024 > _frameCounter / 1024) {
+		for(int port = 0; port < 2; port++) {
+			auto port_space = _base.subspace(0x10 + (2 * port));
+			auto sc = port_space.load(port_regs::statusCtrl);
+
+			// Extract the status bits.
+			_portState[port].status = 0;
+			if(sc & port_status_ctrl::connectStatus)
+				_portState[port].status |= hub_status::connect;
+			if(sc & port_status_ctrl::enableStatus)
+				_portState[port].status |= hub_status::enable;
+
+			// Extract the change bits.
+			if(sc & port_status_ctrl::connectChange) {
+				_portState[port].changes |= hub_status::connect;
+				_portDoorbell.ring();
+			}
+			if(sc & port_status_ctrl::enableChange) {
+				_portState[port].changes |= hub_status::enable;
+				_portDoorbell.ring();
+			}
+
+			// Write-back clears the change bits.
+			port_space.store(port_regs::statusCtrl, sc);
+		}
+	}
 
 	_lastFrame = frame;
 	_frameCounter = counter;
@@ -252,46 +525,24 @@ void Controller::_updateFrame() {
 // Controller: USB device discovery methods.
 // ----------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<std::vector<int>>, Controller::RootHub::pollPortsWithChanges(),
-		([=] {
-	std::vector<int> ports;
-	while(true) {
-		for(int port = 0; port < 2; port++) {
-			auto port_space = _controller->_base.subspace(0x10 + (2 * port));
-			auto sc = port_space.load(port_regs::statusCtrl);
+size_t Controller::RootHub::numPorts() {
+	return 2;
+}
 
-			if(sc & port_status_ctrl::connectChange)
-				ports.push_back(port);
+COFIBER_ROUTINE(async::result<PortState>, Controller::RootHub::pollState(int port), ([=] {
+	while(true) {
+		auto state = _controller->_portState[port];
+		if(state.changes) {
+			_controller->_portState[port].changes = 0;
+			COFIBER_RETURN(state);
 		}
 
-		if(!ports.empty())
-			COFIBER_RETURN(ports);
-
-		COFIBER_AWAIT _controller->_pollDoorbell.async_wait();
+		COFIBER_AWAIT _controller->_portDoorbell.async_wait();
 	}
 }))
 
-COFIBER_ROUTINE(async::result<Hub::State>, Controller::RootHub::fetchPortState(int port), ([=] {
+COFIBER_ROUTINE(async::result<void>, Controller::RootHub::issueReset(int port), ([=] {
 	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
-	auto sc = port_space.load(port_regs::statusCtrl);
-
-	State state;
-	if(sc & port_status_ctrl::connectStatus)
-		state.status |= hub_status::connect;
-
-	if(sc & port_status_ctrl::connectChange)
-		state.changes |= hub_status::connect;
-
-	// Write-back clears the change bits.
-	port_space.store(port_regs::statusCtrl, sc);
-
-	COFIBER_RETURN(state);
-}))
-
-COFIBER_ROUTINE(async::result<void>, Controller::RootHub::resetAndEnablePort(int port), ([=] {
-	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
-	auto port_status = port_space.load(port_regs::statusCtrl);
-	assert(!(port_status & port_status_ctrl::connectChange));
 
 	// Reset the port for 50 ms.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
@@ -309,16 +560,15 @@ COFIBER_ROUTINE(async::result<void>, Controller::RootHub::resetAndEnablePort(int
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
 
 	while(true) {
-		port_status = port_space.load(port_regs::statusCtrl);
-		if((port_status & port_status_ctrl::enableStatus))
+		auto sc = port_space.load(port_regs::statusCtrl);
+		if((sc & port_status_ctrl::enableStatus))
 			break;
 	}
 
-	// Disable the port if there was a concurrent disconnect.
-	if(port_status & port_status_ctrl::connectChange) {
-		std::cout << "uhci: Disconnect during device enumeration." << std::endl;
-		port_space.store(port_regs::statusCtrl, port_status_ctrl::connectChange(0));
-	}
+	// Similar to USB standard hubs we do not reset the enable-change bit.
+	_controller->_portState[port].status |= hub_status::enable;
+	_controller->_portState[port].changes |= hub_status::reset;
+	_controller->_portDoorbell.ring();
 
 	COFIBER_RETURN();
 }))
@@ -386,6 +636,14 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
 
 	std::cout << "uhci: Enumerating device of class: 0x" << class_code
 			<< ", sub class: 0x" << sub_class << ", protocol: 0x" << protocol << std::endl;
+
+	if(descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0
+			&& descriptor->deviceProtocol == 0) {
+		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
+		auto hub = usb::standard_hub::create(Device{std::move(state)});
+		COFIBER_AWAIT hub->initialize();
+		_enumerator.observeHub(std::move(hub));
+	}
 
 	std::unordered_map<std::string, std::string> mbus_desc {
 		{ "usb.type", "device" },
@@ -652,23 +910,22 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	if(entity->transactions.empty())
 		return;
 
-	auto active = &entity->transactions.front();
-	while(active->numComplete < active->transfers.size()) {
-		auto &transfer = active->transfers[active->numComplete];
-		if((transfer.status.load() & td_status::active)
-				|| (transfer.status.load() & td_status::errorBits))
+	auto front = &entity->transactions.front();
+	while(front->numComplete < front->transfers.size()) {
+		auto &transfer = front->transfers[front->numComplete];
+		if(transfer.status.load() & td_status::active)
 			break;
 
-		active->numComplete++;
+		front->numComplete++;
 	}
 	
-	if(active->numComplete == active->transfers.size()) {
+	if(front->numComplete == front->transfers.size()) {
 		//printf("Transfer complete!\n");
-		active->promise.set_value();
+		front->promise.set_value();
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();
-		_reclaim(active);
+		_reclaim(front);
 		
 		// Schedule the next transaction.
 		assert(entity->head->_elementPointer.isTerminate());
@@ -676,13 +933,21 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			auto front = &entity->transactions.front();
 			entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
 		}
-	}else if(active->transfers[active->numComplete].status.load() & td_status::errorBits) {
-		printf("Transfer error!\n");
-		_dump(active);
-		
-		// Clean up the Queue.
-		entity->transactions.pop_front();
-		_reclaim(active);
+	}else{
+		auto status = front->transfers[front->numComplete].status.load();
+		if(!(status & td_status::active)) {
+			assert(!(status & td_status::errorBits));
+			printf("Transfer error!\n");
+			_dump(front);
+			
+			// Clean up the Queue.
+			entity->transactions.pop_front();
+			_reclaim(front);
+		}else{
+			// Fatal errors should have retired the TD.
+			assert(!(status & td_status::stalled));
+			assert(!(status & td_status::babbleError));
+		}
 	}
 }
 

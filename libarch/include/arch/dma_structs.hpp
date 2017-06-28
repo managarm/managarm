@@ -347,6 +347,10 @@ struct dma_array {
 	T &operator[] (size_t n) {
 		return _data[n];
 	}
+	
+	dma_buffer_view view_buffer() {
+		return dma_buffer_view{_pool, _data, sizeof(T) * _size};
+	}
 
 private:
 	dma_pool *_pool;

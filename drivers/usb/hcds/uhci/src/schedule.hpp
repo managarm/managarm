@@ -3,6 +3,7 @@
 #include <arch/dma_pool.hpp>
 #include <arch/io_space.hpp>
 #include <async/doorbell.hpp>
+#include <async/mutex.hpp>
 
 struct DeviceState;
 struct ConfigurationState;
@@ -20,27 +21,31 @@ struct BaseController {
 namespace hub_status {
 	static constexpr uint32_t connect = 0x01;
 	static constexpr uint32_t enable = 0x02;
+	static constexpr uint32_t reset = 0x04;
 }
 
-struct Hub {
-	struct State {
-		uint32_t status;
-		uint32_t changes;
-	};
+struct PortState {
+	uint32_t status;
+	uint32_t changes;
+};
 
-	virtual async::result<std::vector<int>> pollPortsWithChanges() = 0;
-	virtual async::result<State> fetchPortState(int port) = 0;
-	virtual async::result<void> resetAndEnablePort(int port) = 0;
+struct Hub {
+	virtual size_t numPorts() = 0;
+	virtual async::result<PortState> pollState(int port) = 0;
+	virtual async::result<void> issueReset(int port) = 0;
 };
 
 struct Enumerator {
 	Enumerator(BaseController *controller)
 	: _controller{controller} { }
 
-	cofiber::no_future observeHub(std::shared_ptr<Hub> hub);
+	void observeHub(std::shared_ptr<Hub> hub);
 
 private:
+	cofiber::no_future _observePort(std::shared_ptr<Hub> hub, int port);
+
 	BaseController *_controller;
+	async::mutex _enumerateMutex;
 };
 
 // ----------------------------------------------------------------
@@ -54,9 +59,9 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 		RootHub(Controller *controller)
 		: _controller{controller} { }
 
-		async::result<std::vector<int>> pollPortsWithChanges() override;
-		async::result<State> fetchPortState(int port) override;
-		async::result<void> resetAndEnablePort(int port) override;
+		size_t numPorts() override;
+		async::result<PortState> pollState(int port) override;
+		async::result<void> issueReset(int port) override;
 
 	private:
 		Controller *_controller;
@@ -75,7 +80,8 @@ private:
 
 	uint16_t _lastFrame;
 	int64_t _frameCounter;
-	async::doorbell _pollDoorbell;
+	PortState _portState[2];
+	async::doorbell _portDoorbell;
 
 	void _updateFrame();
 
