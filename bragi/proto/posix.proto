@@ -59,6 +59,7 @@ message CntRequest {
 
 	// used by MOUNT
 	optional string target_path = 12;
+	optional string fs_type = 13;
 
 	// used by OPEN
 	optional int32 flags = 3;

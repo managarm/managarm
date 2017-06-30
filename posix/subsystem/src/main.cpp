@@ -156,14 +156,18 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			helix::SendBuffer send_resp;
 
-			auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
-			assert(source.second);
 			assert(target.second);
-			auto device = deviceManager.get(readDevice(getTarget(source.second)));
-			auto link = COFIBER_AWAIT Device::mount(device);
-			target.first.mount(target.second, std::move(link));
-			
+			if(req.fs_type() == "devtmpfs") {
+				target.first.mount(target.second, getDevtmpfs());	
+			}else{
+				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+				assert(source.second);
+				auto device = deviceManager.get(readDevice(getTarget(source.second)));
+				auto link = COFIBER_AWAIT Device::mount(device);
+				target.first.mount(target.second, std::move(link));	
+			}
+
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 

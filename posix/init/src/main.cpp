@@ -39,7 +39,6 @@ int main() {
 	}else assert(uhci != -1);
 */
 
-/*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
@@ -57,15 +56,16 @@ int main() {
 	}
 
 	printf("init: Mounting /dev/sda0\n");
-	if(mount("/dev/sda0", "/realfs", "ext2", 0, "")) {
-		printf("init: Mount failed!\n");
-	}else{
-		printf("init: Mount success!\n");
-	}
-*/
+	if(mount("/dev/sda0", "/realfs", "ext2", 0, ""))
+		throw std::runtime_error("mount() failed");
 
-	if(chroot("/initrd"))
+	if(mount("", "/realfs/dev", "devtmpfs", 0, ""))
+		throw std::runtime_error("mount() failed");
+
+	if(chroot("/realfs"))
 		throw std::runtime_error("chroot() failed");
+
+	std::cout << "init: On /realfs" << std::endl;
 
 /*
 	auto kbd = fork();
