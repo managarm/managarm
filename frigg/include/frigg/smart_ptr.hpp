@@ -478,6 +478,10 @@ public:
 			_allocator->free(_pointer);
 	}
 
+	explicit operator bool () {
+		return _pointer;
+	}
+
 	UniqueMemory &operator= (UniqueMemory other) {
 		swap(*this, other);
 		return *this;

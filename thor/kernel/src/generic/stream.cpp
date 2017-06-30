@@ -84,6 +84,31 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 		auto lock = frigg::guard(&stream->_mutex);
 		assert(!stream->_laneBroken[lane]);
 		stream->_laneBroken[lane] = true;
+
+		while(!stream->_processQueue[!lane].empty()) {
+			auto item = stream->_processQueue[!lane].removeFront(); 
+
+			if(OfferBase::classOf(*item)) {
+				static_cast<OfferBase *>(item.get())->complete(kErrClosedRemotely);
+			}else if(AcceptBase::classOf(*item)) {
+				static_cast<AcceptBase *>(item.get())->complete(kErrClosedRemotely,
+						frigg::WeakPtr<Universe>{}, LaneDescriptor{});
+			}else if(SendFromBufferBase::classOf(*item)) {
+				static_cast<SendFromBufferBase *>(item.get())->complete(kErrClosedRemotely);
+			}else if(RecvToBufferBase::classOf(*item)) {
+				static_cast<RecvToBufferBase *>(item.get())->complete(kErrClosedRemotely, 0);
+			}else if(RecvInlineBase::classOf(*item)) {
+				static_cast<RecvInlineBase *>(item.get())->complete(kErrClosedRemotely,
+						frigg::UniqueMemory<KernelAlloc>{});
+			}else if(PushDescriptorBase::classOf(*item)) {
+				static_cast<PushDescriptorBase *>(item.get())->complete(kErrClosedRemotely);
+			}else if(PullDescriptorBase::classOf(*item)) {
+				static_cast<PullDescriptorBase *>(item.get())->complete(kErrClosedRemotely,
+						frigg::WeakPtr<Universe>{}, AnyDescriptor{});
+			}else{
+				assert(!"Unexpected item in stream");
+			}
+		}
 	}
 	return true;
 }

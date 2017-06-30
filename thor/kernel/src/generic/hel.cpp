@@ -9,7 +9,7 @@ HelError translateError(Error error) {
 	switch(error) {
 	case kErrSuccess: return kHelErrNone;
 //		case kErrClosedLocally: return kHelErrClosedLocally;
-//		case kErrClosedRemotely: return kHelErrClosedRemotely;
+	case kErrClosedRemotely: return kHelErrClosedRemotely;
 //		case kErrBufferTooSmall: return kHelErrBufferTooSmall;
 	default:
 		assert(!"Unexpected error");
@@ -115,8 +115,8 @@ struct AcceptWriter {
 	}
 
 	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		Handle handle;
-		{
+		Handle handle = kHelNullHandle;
+		if(_weakUniverse) {
 			auto universe = _weakUniverse.grab();
 			assert(universe);
 			Universe::Guard lock(&universe->lock);
@@ -160,10 +160,15 @@ struct RecvInlineWriter {
 	}
 
 	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		HelInlineResult data{translateError(_error), 0, _buffer.size()};
-		accessor.copyTo(disp, &data, sizeof(HelInlineResult));
-		accessor.copyTo(disp + __builtin_offsetof(HelInlineResult, data),
-				_buffer.data(), _buffer.size());
+		if(_buffer) {
+			HelInlineResult data{translateError(_error), 0, _buffer.size()};
+			accessor.copyTo(disp, &data, sizeof(HelInlineResult));
+			accessor.copyTo(disp + __builtin_offsetof(HelInlineResult, data),
+					_buffer.data(), _buffer.size());
+		}else{
+			HelInlineResult data{translateError(_error), 0, 0};
+			accessor.copyTo(disp, &data, sizeof(HelInlineResult));
+		}
 	}
 
 private:
@@ -215,8 +220,8 @@ struct PullDescriptorWriter {
 	}
 
 	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		Handle handle;
-		{
+		Handle handle = kHelNullHandle;
+		if(_weakUniverse) {
 			auto universe = _weakUniverse.grab();
 			assert(universe);
 			Universe::Guard lock(&universe->lock);
