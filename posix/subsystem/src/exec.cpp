@@ -130,11 +130,11 @@ void *copyArrayToStack(void *window, size_t &d, const T (&value)[N]) {
 	return ptr;
 }
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(std::string path,
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, std::string path,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle), ([=] {
-	auto exec_file = COFIBER_AWAIT open(path);
-	auto interp_file = COFIBER_AWAIT open("ld-init.so");
+	auto exec_file = COFIBER_AWAIT open(root, path);
+	auto interp_file = COFIBER_AWAIT open(root, "ld-init.so");
 	assert(exec_file);
 	assert(interp_file);
 

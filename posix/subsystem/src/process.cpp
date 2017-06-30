@@ -33,6 +33,34 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 // ----------------------------------------------------------------------------
+// FsContext.
+// ----------------------------------------------------------------------------
+
+std::shared_ptr<FsContext> FsContext::create() {
+	auto context = std::make_shared<FsContext>();
+
+	context->_root = rootPath();
+
+	return context;
+}
+
+std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original) {
+	auto context = std::make_shared<FsContext>();
+
+	context->_root = original->_root;
+
+	return context;
+}
+
+ViewPath FsContext::getRoot() {
+	return _root;
+}
+
+void FsContext::changeRoot(ViewPath root) {
+	_root = std::move(root);
+}
+
+// ----------------------------------------------------------------------------
 // FileContext.
 // ----------------------------------------------------------------------------
 
@@ -136,6 +164,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 		([=] {
 	auto process = std::make_shared<Process>();
 	process->_vmContext = VmContext::create();
+	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
 
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
@@ -143,7 +172,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
-	auto thread = COFIBER_AWAIT execute(path, process->_vmContext,
+	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path, process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));
@@ -154,6 +183,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto process = std::make_shared<Process>();
 	process->_vmContext = VmContext::clone(original->_vmContext);
+	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
 
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
@@ -170,7 +200,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto thread = COFIBER_AWAIT execute(path, exec_vm_context,
+	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path, exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));

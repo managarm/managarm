@@ -32,17 +32,18 @@ int main() {
 
 	char *envp[] = { nullptr };
 
+/*
 	auto uhci = fork();
 	if(!uhci) {
 		execve("/initrd/uhci", args.data(), envp);
 	}else assert(uhci != -1);
+*/
 
 /*
 	auto ehci = fork();
 	if(!ehci) {
 		execve("/initrd/ehci", args.data(), envp);
 	}else assert(ehci != -1);
-*/
 
 	auto storage = fork();
 	if(!storage) {
@@ -61,6 +62,10 @@ int main() {
 	}else{
 		printf("init: Mount success!\n");
 	}
+*/
+
+	if(chroot("/initrd"))
+		throw std::runtime_error("chroot() failed");
 
 /*
 	auto kbd = fork();
@@ -72,7 +77,7 @@ int main() {
 	// UART
 	auto uart = fork();
 	if(!uart) {
-		execve("/initrd/uart", args.data(), envp);
+		execve("/uart", args.data(), envp);
 	}else assert(uart != -1);
 	
 	// Spin until /dev/ttyS0 becomes available.

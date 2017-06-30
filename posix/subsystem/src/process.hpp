@@ -24,6 +24,18 @@ private:
 	helix::UniqueDescriptor _space;
 };
 
+struct FsContext {
+	static std::shared_ptr<FsContext> create();
+	static std::shared_ptr<FsContext> clone(std::shared_ptr<FsContext> original);
+
+	ViewPath getRoot();
+
+	void changeRoot(ViewPath root);
+
+private:
+	ViewPath _root;
+};
+
 struct FileContext {
 	static std::shared_ptr<FileContext> create();
 	static std::shared_ptr<FileContext> clone(std::shared_ptr<FileContext> original);
@@ -73,6 +85,10 @@ struct Process {
 		return _vmContext;
 	}
 	
+	std::shared_ptr<FsContext> fsContext() {
+		return _fsContext;
+	}
+	
 	std::shared_ptr<FileContext> fileContext() {
 		return _fileContext;
 	}
@@ -83,6 +99,7 @@ struct Process {
 
 private:
 	std::shared_ptr<VmContext> _vmContext;
+	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;
 
 	void *_clientFileTable;

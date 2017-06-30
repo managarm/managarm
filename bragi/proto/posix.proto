@@ -22,6 +22,7 @@ enum CntReqType {
 	FORK = 8;
 	EXEC = 1;
 	MOUNT = 21;
+	CHROOT = 24;
 	ACCESS = 20;
 	STAT = 23;
 	FSTAT = 12;

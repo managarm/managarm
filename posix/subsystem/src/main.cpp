@@ -156,8 +156,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			helix::SendBuffer send_resp;
 
-			auto source = COFIBER_AWAIT resolve(req.path());
-			auto target = COFIBER_AWAIT resolve(req.target_path());
+			auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
 			assert(source.second);
 			assert(target.second);
 			auto device = deviceManager.get(readDevice(getTarget(source.second)));
@@ -172,10 +172,35 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
+			helix::SendBuffer send_resp;
+
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			if(path.second) {
+				self->fsContext()->changeRoot(path);
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(req.path());
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 			if(path.second) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -198,7 +223,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(req.path());
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 			if(path.second) {
 				auto stats = getStats(getTarget(path.second));
 
@@ -235,7 +260,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			helix::SendBuffer send_resp;
 
-			auto file = COFIBER_AWAIT open(req.path());
+			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path());
 			if(file) {
 				int fd = self->fileContext()->attachFile(file);
 

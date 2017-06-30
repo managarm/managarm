@@ -4,7 +4,7 @@
 
 #include "process.hpp"
 
-async::result<helix::UniqueDescriptor> execute(std::string path,
+async::result<helix::UniqueDescriptor> execute(ViewPath root, std::string path,
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle);
 
