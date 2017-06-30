@@ -171,24 +171,27 @@ private:
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(pull_node.error());
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pull_node.error());
 
-		std::shared_ptr<Node> child;
-		switch(resp.file_type()) {
-		case managarm::fs::FileType::DIRECTORY:
-			child = std::make_shared<Directory>(pull_node.descriptor());
-			break;
-		case managarm::fs::FileType::REGULAR:
-			child = std::make_shared<Regular>(pull_node.descriptor());
-			break;
-		default:
-			throw std::runtime_error("extern_fs: Unexpected file type");
+			std::shared_ptr<Node> child;
+			switch(resp.file_type()) {
+			case managarm::fs::FileType::DIRECTORY:
+				child = std::make_shared<Directory>(pull_node.descriptor());
+				break;
+			case managarm::fs::FileType::REGULAR:
+				child = std::make_shared<Regular>(pull_node.descriptor());
+				break;
+			default:
+				throw std::runtime_error("extern_fs: Unexpected file type");
+			}
+			COFIBER_RETURN(createRootLink(child));
+		}else{
+			COFIBER_RETURN(nullptr);
 		}
-		COFIBER_RETURN(createRootLink(child));
 	}))
 
 	static const NodeOperations operations;

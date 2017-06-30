@@ -77,7 +77,7 @@ int main() {
 	// UART
 	auto uart = fork();
 	if(!uart) {
-		execve("/uart", args.data(), envp);
+		execve("/usr/bin/uart", args.data(), envp);
 	}else assert(uart != -1);
 	
 	// Spin until /dev/ttyS0 becomes available.

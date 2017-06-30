@@ -83,7 +83,8 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 		std::string name), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto entry = COFIBER_AWAIT(self->findEntry(name));
-	assert(entry);
+	if(!entry)
+		COFIBER_RETURN((protocols::fs::GetLinkResult{nullptr, protocols::fs::FileType::unknown}));
 
 	protocols::fs::FileType type;
 	switch(entry->fileType) {

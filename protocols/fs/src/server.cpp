@@ -153,33 +153,42 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			helix::PushDescriptor push_node;
 			
 			auto result = COFIBER_AWAIT node_ops->getLink(node, req.path());
-			assert(std::get<0>(result));
+			if(std::get<0>(result)) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(std::get<0>(result)),
+						node_ops, file_ops);
 
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			serveNode(std::move(local_lane), std::move(std::get<0>(result)),
-					node_ops, file_ops);
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				switch(std::get<1>(result)) {
+				case FileType::directory:
+					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+					break;
+				case FileType::regular:
+					resp.set_file_type(managarm::fs::FileType::REGULAR);
+					break;
+				default:
+					throw std::runtime_error("Unexpected file type");
+				}
 
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			switch(std::get<1>(result)) {
-			case FileType::directory:
-				resp.set_file_type(managarm::fs::FileType::DIRECTORY);
-				break;
-			case FileType::regular:
-				resp.set_file_type(managarm::fs::FileType::REGULAR);
-				break;
-			default:
-				throw std::runtime_error("Unexpected file type");
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&push_node, remote_lane));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(push_node.error());
+			}else{
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
 			}
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
