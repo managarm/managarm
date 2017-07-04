@@ -71,6 +71,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 
 	void initialize();
 	cofiber::no_future _handleIrqs();
+	cofiber::no_future _refreshFrame();
 	
 	async::result<void> enumerateDevice() override;
 
