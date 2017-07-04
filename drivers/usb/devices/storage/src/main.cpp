@@ -17,26 +17,14 @@
 
 #include "storage.hpp"
 
-COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
+COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf_num), ([=] {
 	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
 
-	std::experimental::optional<int> config_number;
-	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> out_endp_number;
-
+	
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type == descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber.value();
-		}else if(type == descriptor_type::interface) {
-			assert(!intf_number);
-			intf_number = info.interfaceNumber.value();
-			
-			auto desc = (InterfaceDescriptor *)p;
-			assert(desc->interfaceClass == 0x08);
-			assert(desc->interfaceProtocoll == 0x50);
-		}else if(type == descriptor_type::endpoint) {
+		if(type == descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
 				in_endp_number = info.endpointNumber.value();
 			}else if(!info.endpointIn.value()) {
@@ -48,9 +36,9 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(), ([=] {
 			printf("Unexpected descriptor type: %d!\n", type);
 		}
 	});
-
-	auto config = COFIBER_AWAIT _usbDevice.useConfiguration(config_number.value());
-	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
+	
+	auto config = COFIBER_AWAIT _usbDevice.useConfiguration(config_num);
+	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 	auto endp_in = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	auto endp_out = COFIBER_AWAIT(intf.getEndpoint(PipeType::out, out_endp_number.value()));
 
@@ -114,9 +102,37 @@ async::result<void> StorageDevice::readSectors(uint64_t sector, void *buffer,
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
+	
+	std::experimental::optional<int> config_number;
+	std::experimental::optional<int> intf_number;
+	std::experimental::optional<int> intf_class;
+	std::experimental::optional<int> intf_protocol;
+
+	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		if(type == descriptor_type::configuration) {
+			assert(!config_number);
+			config_number = info.configNumber.value();
+		}else if(type == descriptor_type::interface) {
+			assert(!intf_number);
+			intf_number = info.interfaceNumber.value();
+			
+			assert(!intf_class);
+			assert(!intf_protocol);
+			auto desc = (InterfaceDescriptor *)p;
+			intf_class = desc->interfaceClass;
+			intf_protocol = desc->interfaceProtocoll;
+		}
+	});
+
+	std::cout << "intf_class: " << intf_class.value() << ", intf_protocol: " << intf_protocol.value() << std::endl;
+	if(intf_class.value() != 0x08 || intf_protocol.value() != 0x50)
+		return;
+
+	std::cout << "storage: Detected USB device" << std::endl;
 
 	auto storage_device = new StorageDevice(device);
-	storage_device->run();
+	storage_device->run(config_number.value(), intf_number.value());
 	blockfs::runDevice(storage_device);
 }))
 
@@ -130,7 +146,6 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	COFIBER_AWAIT root.linkObserver(std::move(filter),
 			[] (mbus::AnyEvent event) {
 		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "storage: Detected USB device" << std::endl;
 			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
 		}else{
 			throw std::runtime_error("Unexpected device class");

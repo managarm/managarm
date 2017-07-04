@@ -341,28 +341,16 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num,
+		int intf_num), ([=] {
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
-	std::experimental::optional<int> config_number;
-	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> in_endp_number;
 	std::experimental::optional<int> report_desc_index;
 	std::experimental::optional<int> report_desc_length;
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type == descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber.value();
-			
-			auto desc = (ConfigDescriptor *)p;
-		}else if(type == descriptor_type::interface) {
-			assert(!intf_number);
-			intf_number = info.interfaceNumber.value();
-			
-			auto desc = (InterfaceDescriptor *)p;
-			assert(desc->interfaceClass == 3);
-		}else if(type == descriptor_type::hid) {
+		if(type == descriptor_type::hid) {
 			auto desc = (HidDescriptor *)p;
 			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 			
@@ -387,7 +375,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 			| setup_type::toHost;
 	get_descriptor->request = request_type::getDescriptor;
 	get_descriptor->value = (descriptor_type::report << 8) | report_desc_index.value();
-	get_descriptor->index = intf_number.value();
+	get_descriptor->index = intf_num;
 	get_descriptor->length = report_desc_length.value();
 
 	arch::dma_buffer buffer{device.bufferPool(), report_desc_length.value()};
@@ -400,8 +388,8 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 
 	parseReportDescriptor(device, p, limit);
 	
-	auto config = COFIBER_AWAIT device.useConfiguration(config_number.value());
-	auto intf = COFIBER_AWAIT config.useInterface(intf_number.value(), 0);
+	auto config = COFIBER_AWAIT device.useConfiguration(config_num);
+	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	std::vector<int> values;
@@ -425,8 +413,30 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::runHidDevice(Device device), ([=]
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 	auto device = protocols::usb::connect(std::move(lane));
+
+	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
+	std::experimental::optional<int> config_number;
+	std::experimental::optional<int> intf_number;
+	std::experimental::optional<int> intf_class;
+	
+	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+		if(type == descriptor_type::configuration) {
+			assert(!config_number);
+			config_number = info.configNumber.value();
+		}else if(type == descriptor_type::interface) {
+			assert(!intf_number);
+			intf_number = info.interfaceNumber.value();
+			
+			auto desc = (InterfaceDescriptor *)p;
+			intf_class = desc->interfaceClass;
+		}
+	});
+	
+	if(intf_class.value() != 3)
+		return;
+
 	HidDevice* hid_device = new HidDevice();
-	hid_device->runHidDevice(device);
+	hid_device->run(device, config_number.value(), intf_number.value());
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

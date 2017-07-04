@@ -45,7 +45,7 @@ struct HidDevice {
 	HidDevice();
 	void parseReportDescriptor(Device device, uint8_t* p, uint8_t* limit);
 	void translateToLinux(int page, int id, int value);
-	cofiber::no_future runHidDevice(Device device);
+	cofiber::no_future run(Device device, int intf_num, int config_num);
 
 	std::vector<Field> fields;
 	std::vector<Element> elements;

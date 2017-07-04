@@ -84,7 +84,7 @@ struct StorageDevice : blockfs::BlockDevice {
 	StorageDevice(Device usb_device) 
 	: blockfs::BlockDevice(512), _usbDevice(std::move(usb_device)) { }
 
-	async::result<void> run();
+	async::result<void> run(int config_num, int intf_num);
 
 	async::result<void> readSectors(uint64_t sector, void *buffer,
 			size_t num_sectors) override;
