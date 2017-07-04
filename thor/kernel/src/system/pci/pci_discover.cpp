@@ -19,8 +19,10 @@ extern frigg::LazyInitializer<LaneHandle> mbusClient;
 namespace pci {
 
 namespace {
-	void handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
+	bool handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
 		auto branch = fiberAccept(lane);
+		if(!branch)
+			return false;
 
 		auto buffer = fiberRecv(branch);
 		managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
@@ -125,6 +127,8 @@ namespace {
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 		}
+
+		return true;
 	}
 
 	// ------------------------------------------------------------------------
@@ -184,6 +188,7 @@ namespace {
 
 	void handleBind(LaneHandle object_lane, frigg::SharedPtr<PciDevice> device) {
 		auto branch = fiberAccept(object_lane);
+		assert(branch);
 
 		auto buffer = fiberRecv(branch);
 		managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
@@ -202,8 +207,10 @@ namespace {
 
 		// TODO: Do this in an own fiber.
 		KernelFiber::run([lane = stream.get<0>(), device] () {
-			while(true)
-				handleReq(lane, device);
+			while(true) {
+				if(!handleReq(lane, device))
+					break;
+			}
 		});
 	}
 }

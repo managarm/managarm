@@ -26,7 +26,17 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 }
 
 void KernelFiber::exitCurrent() {
-	frigg::panicLogger() << "Fiber exited" << frigg::endLog;
+	frigg::infoLogger() << "thor: Fix exiting fibers" << frigg::endLog;
+
+	struct Predicate {
+		bool always() {
+			return true;
+		}
+	} p;
+
+	KernelFiber::blockCurrent(CALLBACK_MEMBER(&p, &Predicate::always));
+
+//	frigg::panicLogger() << "Fiber exited" << frigg::endLog;
 }
 
 void KernelFiber::run(UniqueKernelStack stack, void (*function)(void *), void *argument) {

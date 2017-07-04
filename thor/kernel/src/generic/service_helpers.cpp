@@ -68,9 +68,10 @@ LaneHandle fiberAccept(LaneHandle lane) {
 	auto this_fiber = thisFiber();
 	std::atomic<bool> complete{false};
 
+	Error error;
 	LaneDescriptor handle;
-	auto callback = [&] (Error error, frigg::WeakPtr<Universe>, LaneDescriptor the_handle) {
-		assert(!error);
+	auto callback = [&] (Error the_error, frigg::WeakPtr<Universe>, LaneDescriptor the_handle) {
+		error = the_error;
 		handle = std::move(the_handle);
 		complete.store(true, std::memory_order_release);
 		this_fiber->unblock();
@@ -85,6 +86,10 @@ LaneHandle fiberAccept(LaneHandle lane) {
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
+
+	if(error == kErrClosedRemotely)
+		return LaneHandle{};
+	assert(!error);
 	return handle.handle;
 }
 

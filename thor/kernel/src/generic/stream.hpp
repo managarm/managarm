@@ -227,6 +227,8 @@ struct Stream {
 	}
 
 private:
+	static void _cancelItem(StreamControl *item);
+
 	// submits an operation to the stream.
 	LaneHandle _submitControl(int lane, frigg::SharedPtr<StreamControl> control);
 
