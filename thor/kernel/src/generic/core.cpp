@@ -104,6 +104,17 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	thorRtInvalidateSpace();
 }
 
+void *KernelAlloc::allocate(size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	return _allocator.allocate(size);
+}
+
+void KernelAlloc::free(void *pointer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	_allocator.free(pointer);
+}
+
+
 frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 frigg::LazyInitializer<KernelAlloc> kernelAlloc;
@@ -111,6 +122,10 @@ frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 // --------------------------------------------------------
 // CpuData
 // --------------------------------------------------------
+
+IrqMutex &irqMutex() {
+	return getCpuData()->irqMutex;
+}
 
 CpuData::CpuData()
 : activeFiber{nullptr} { }

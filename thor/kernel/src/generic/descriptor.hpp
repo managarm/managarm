@@ -55,7 +55,9 @@ struct LaneHandle {
 		swap(a._lane, b._lane);
 	}
 
-	LaneHandle() = default;
+	// Initialize _lane so that the compiler does not complain about uninitialized values.
+	LaneHandle()
+	: _lane{-1} { };
 
 	explicit LaneHandle(AdoptLane, frigg::UnsafePtr<Stream> stream, int lane)
 	: _stream(stream), _lane(lane) { }

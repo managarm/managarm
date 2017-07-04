@@ -62,9 +62,13 @@ struct HpetDevice : IrqSink {
 private:
 	using Mutex = frigg::TicketLock;
 
+	static constexpr bool log = false;
+
 public:
 	void installTimer(Timer *timer) {
-		IrqLock irq_lock{globalIrqMutex};
+		if(log)
+			frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline << frigg::endLog;
+		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
 		_timerQueue.push(timer);
@@ -72,13 +76,17 @@ public:
 	}
 
 	IrqStatus raise() override {
-		IrqLock irq_lock{globalIrqMutex};
+		if(log)
+			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
+		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
 		_progress();
 
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
+		if(log)
+			frigg::infoLogger() << "hpet: Handler completed." << frigg::endLog;
 		return irq_status::handled;
 	}
 
@@ -89,6 +97,8 @@ private:
 		auto current = hpetBase.load(mainCounter);
 		do {
 			// Process all timers that elapsed in the past.
+			if(log)
+				frigg::infoLogger() << "hpet: Processing timers until " << current << frigg::endLog;
 			while(true) {
 				if(_timerQueue.empty())
 					return;
@@ -98,6 +108,8 @@ private:
 
 				auto timer = _timerQueue.top();
 				_timerQueue.pop();
+				if(log)
+					frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
 				timer->callback();
 			}
 

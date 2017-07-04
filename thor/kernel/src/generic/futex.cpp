@@ -58,6 +58,7 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	};
 
 	// TODO: do not globally lock the space mutex.
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	
 	unsigned int length = element->getLength();
@@ -80,6 +81,8 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 			// Here we wait on the userState futex until the kQueueHasNext bit is set.
 			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
 			if(!(ue & kQueueHasNext)) {
+				lock.unlock();
+				irq_lock.unlock();
 				waitIf(address + offsetof(QueueStruct, userState), [&] {
 					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
 					return ue == v;

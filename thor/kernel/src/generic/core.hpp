@@ -42,6 +42,7 @@ struct KernelFiber;
 struct CpuData : public PlatformCpuData {
 	CpuData();
 
+	IrqMutex irqMutex;
 	KernelFiber *activeFiber;
 };
 

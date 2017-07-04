@@ -34,7 +34,7 @@ IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	frigg::infoLogger() << "thor: Configuring IRQ " << _name
@@ -46,7 +46,7 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 }
 
 void IrqPin::raise() {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	
 	if(_strategy == IrqStrategy::null) {
@@ -78,7 +78,7 @@ void IrqPin::raise() {
 }
 
 void IrqPin::kick() {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	if(!_latched)
@@ -94,7 +94,7 @@ void IrqPin::kick() {
 }
 
 void IrqPin::acknowledge() {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	if(!_latched)
@@ -110,7 +110,7 @@ void IrqPin::acknowledge() {
 }
 
 void IrqPin::warnIfPending() {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	if(_latched && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
@@ -132,7 +132,7 @@ IrqStatus IrqPin::_callSinks() {
 }
 
 void attachIrq(IrqPin *pin, IrqSink *sink) {
-	IrqLock irq_lock{globalIrqMutex};
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
 
 	assert(!sink->_pin);

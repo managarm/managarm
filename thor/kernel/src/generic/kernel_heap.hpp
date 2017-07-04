@@ -33,7 +33,17 @@ public:
 	void unmap(uintptr_t address, size_t length);
 };
 
-typedef frigg::SlabAllocator<KernelVirtualAlloc, frigg::TicketLock> KernelAlloc;
+struct KernelAlloc {
+	KernelAlloc(KernelVirtualAlloc &policy)
+	: _allocator{policy} { }
+
+	void *allocate(size_t size);
+	void free(void *pointer);
+
+private:
+	frigg::SlabAllocator<KernelVirtualAlloc, frigg::TicketLock> _allocator;
+};
+
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
 extern frigg::LazyInitializer<KernelAlloc> kernelAlloc;
 

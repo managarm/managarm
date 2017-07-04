@@ -18,7 +18,9 @@ struct Futex {
 
 	template<typename C, typename F>
 	void waitIf(Address address, C condition, F functor) {
+		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
+
 		if(!condition()) {
 			functor();
 			return;
@@ -34,6 +36,7 @@ struct Futex {
 	}
 
 	void wake(Address address) {
+		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
 		auto it = _slots.get(address);
