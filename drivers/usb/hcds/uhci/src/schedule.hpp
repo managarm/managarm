@@ -70,7 +70,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 	Controller(arch::io_space base, helix::UniqueIrq irq);
 
 	void initialize();
-	cofiber::no_future handleIrqs();
+	cofiber::no_future _handleIrqs();
 	
 	async::result<void> enumerateDevice() override;
 

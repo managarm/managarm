@@ -159,7 +159,7 @@ COFIBER_ROUTINE(cofiber::no_future, Enumerator::_observePort(std::shared_ptr<Hub
 		COFIBER_AWAIT _enumerateMutex.async_lock();
 		enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
 
-//		std::cout << "usb: Issuing reset on port " << port << std::endl;
+		std::cout << "usb: Issuing reset on port " << port << std::endl;
 		COFIBER_AWAIT hub->issueReset(port);
 		break;
 	}
@@ -170,7 +170,7 @@ COFIBER_ROUTINE(cofiber::no_future, Enumerator::_observePort(std::shared_ptr<Hub
 		if(!(s.status & hub_status::enable))
 			continue;
 
-//		std::cout << "usb: Enumerating device on port " << port << std::endl;
+		std::cout << "usb: Enumerating device on port " << port << std::endl;
 		COFIBER_AWAIT _controller->enumerateDevice();
 		enumerate_lock.unlock();
 		break;
@@ -447,16 +447,18 @@ void Controller::initialize() {
 			| irq::transaction(true) | irq::shortPacket(true));
 
 	_enumerator.observeHub(std::make_shared<RootHub>(this));
-	handleIrqs();
+	_handleIrqs();
 }
 
-COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 	while(true) {
+		std::cout << "uhci: Await" << std::endl;
 		helix::AwaitIrq await_irq;
 		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
 
+		std::cout << "uhci: IRQ" << std::endl;
 		_updateFrame();
 
 		auto stat = _base.load(op_regs::status);
@@ -467,8 +469,8 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 
 		if(stat & status::errorIrq)
 			printf("uhci: Error interrupt\n");
-		_base.store(op_regs::status, status::transactionIrq(true) 
-				| status::errorIrq(true));
+		_base.store(op_regs::status, status::transactionIrq(stat & status::transactionIrq) 
+				| status::errorIrq(stat & status::errorIrq));
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 		
 		//printf("uhci: Processing transfers.\n");
@@ -485,6 +487,8 @@ void Controller::_updateFrame() {
 		for(int port = 0; port < 2; port++) {
 			auto port_space = _base.subspace(0x10 + (2 * port));
 			auto sc = port_space.load(port_regs::statusCtrl);
+			std::cout << "uhci: Port " << port << " status/control: "
+					<< static_cast<uint16_t>(sc) << std::endl;
 
 			// Extract the status bits.
 			_portState[port].status = 0;
@@ -553,10 +557,12 @@ COFIBER_ROUTINE(async::result<void>, Controller::RootHub::issueReset(int port), 
 	helix::AwaitClock await_clock;
 	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
 			helix::Dispatcher::global());
+	std::cout << "uhci: Waiting for timer." << std::endl;
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(await_clock.error());
 
 	// Enable the port and wait until it is available.
+	std::cout << "uhci: Trying to enable port after reset." << std::endl;
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
 
 	while(true) {
@@ -624,6 +630,10 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
 	assert(descriptor->length == sizeof(DeviceDescriptor));
 
 	// TODO: Read configuration descriptor from the device.
+
+	std::cout << "uhci: Device class: " << (int)descriptor->deviceClass << ", sub class: "
+			<< (int)descriptor->deviceSubclass << ", protocol: " 
+			<< (int)descriptor->deviceProtocol << std::endl;
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
