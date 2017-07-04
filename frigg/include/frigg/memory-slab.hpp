@@ -91,6 +91,7 @@ SlabAllocator<VirtualAlloc, Mutex>::SlabAllocator(VirtualAlloc &virt_alloc)
 
 template<typename VirtualAlloc, typename Mutex>
 void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
+//	infoLogger() << "frigg: Allocating " << length << frigg::endLog;
 	LockGuard<Mutex> guard(&p_mutex);
 	
 	if(length == 0)

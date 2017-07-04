@@ -66,24 +66,24 @@ struct Variant {
 	template<typename X, int index = _variant::IndexOf<X, T...>::value>
 	Variant(X object)
 	: Variant() {
-		construct(IntegralConstant<int, index>(), move(object));
+		_construct(IntegralConstant<int, index>(), move(object));
 	};
 
 	Variant(const Variant &other)
 	: Variant() {
 		if(other)
-			copyConstruct(IntegralConstant<int, 0>(), other);
+			_copyConstruct(IntegralConstant<int, 0>(), other);
 	}
 	Variant(Variant &&other)
 	: Variant() {
 		if(other)
-			moveConstruct(IntegralConstant<int, 0>(), move(other));
+			_moveConstruct(IntegralConstant<int, 0>(), move(other));
 			
 	}
 
 	~Variant() {
 		if(*this)
-			destruct(IntegralConstant<int, 0>());
+			_destruct(IntegralConstant<int, 0>());
 	}
 
 	explicit operator bool() const {
@@ -95,12 +95,12 @@ struct Variant {
 		// Instead we perform a destruct-then-move-construct operation on the internal object.
 		// Note that we take the argument by value so there are no self-assignment problems.
 		if(_tag == other._tag) {
-			assign(IntegralConstant<int, 0>(), move(other));
+			_assign(IntegralConstant<int, 0>(), move(other));
 		}else{
 			if(*this)
-				destruct(IntegralConstant<int, 0>());
+				_destruct(IntegralConstant<int, 0>());
 			if(other)
-				moveConstruct(IntegralConstant<int, 0>(), move(other));
+				_moveConstruct(IntegralConstant<int, 0>(), move(other));
 		}
 		return *this;
 	}
@@ -117,109 +117,116 @@ struct Variant {
 	template<typename X, int index = _variant::IndexOf<X, T...>::value>
 	X &get() {
 		assert(_tag == index);
-		return *reinterpret_cast<X *>(&_storage);
+		return *reinterpret_cast<X *>(_access());
 	}
 	template<typename X, int index = _variant::IndexOf<X, T...>::value>
 	const X &get() const {
 		assert(_tag == index);
-		return *reinterpret_cast<const X *>(&_storage);
+		return *reinterpret_cast<const X *>(_access());
 	}
 
 	template<typename F>
 	CommonType<ResultOf<F(T &)>...> apply(F functor) {
-		return apply(IntegralConstant<int, 0>(), move(functor));
+		return _apply(IntegralConstant<int, 0>(), move(functor));
 	}
 
 	template<typename F>
 	CommonType<ResultOf<F(const T &)>...> const_apply(F functor) const {
-		return apply(IntegralConstant<int, 0>(), move(functor));
+		return _apply(IntegralConstant<int, 0>(), move(functor));
 	}
 
 private:
+	void *_access() {
+		return _storage.buffer;
+	}
+	const void *_access() const {
+		return _storage.buffer;
+	}
+
 	// construct the internal object from one of the summed types
 	template<int index, typename X = _variant::Get<index, T...>>
-	void construct(IntegralConstant<int, index>, X object) {
+	void _construct(IntegralConstant<int, index>, X object) {
 		assert(!*this);
-		new (&_storage) X(move(object));
+		new (_access()) X(move(object));
 		_tag = index;
 	}
 
 	// construct the internal object by copying from another variant
 	template<int index, typename X = _variant::Get<index, T...>>
-	void copyConstruct(IntegralConstant<int, index>, const Variant &other) {
+	void _copyConstruct(IntegralConstant<int, index>, const Variant &other) {
 		if(other._tag == index) {
 			assert(!*this);
-			new (&_storage) X(other.get<X>());
+			new (_access()) X(other.get<X>());
 			_tag = index;
 		}else{
-			copyConstruct(IntegralConstant<int, index + 1>(), other);
+			_copyConstruct(IntegralConstant<int, index + 1>(), other);
 		}
 	}
 
-	void copyConstruct(IntegralConstant<int, sizeof...(T)>, const Variant &) {
+	void _copyConstruct(IntegralConstant<int, sizeof...(T)>, const Variant &) {
 		assert(!"Copy-construction from variant with illegal tag");
 	}
 
 	// construct the internal object by moving from another variant
 	template<int index, typename X = _variant::Get<index, T...>>
-	void moveConstruct(IntegralConstant<int, index>, Variant &&other) {
+	void _moveConstruct(IntegralConstant<int, index>, Variant &&other) {
 		if(other._tag == index) {
 			assert(!*this);
-			new (&_storage) X(move(other.get<X>()));
+			new (_access()) X(move(other.get<X>()));
 			_tag = index;
 		}else{
-			moveConstruct(IntegralConstant<int, index + 1>(), move(other));
+			_moveConstruct(IntegralConstant<int, index + 1>(), move(other));
 		}
 	}
 
-	void moveConstruct(IntegralConstant<int, sizeof...(T)>, Variant &&) {
+	void _moveConstruct(IntegralConstant<int, sizeof...(T)>, Variant &&) {
 		assert(!"Move-construction from variant with illegal tag");
 	}
 	
 	// destruct the internal object
 	template<int index, typename X = _variant::Get<index, T...>>
-	void destruct(IntegralConstant<int, index>) {
+	void _destruct(IntegralConstant<int, index>) {
 		if(_tag == index) {
 			get<X>().~X();
 			_tag = -1;
 		}else{
-			destruct(IntegralConstant<int, index + 1>());
+			_destruct(IntegralConstant<int, index + 1>());
 		}
 	}
 	
-	void destruct(IntegralConstant<int, sizeof...(T)>) {
+	void _destruct(IntegralConstant<int, sizeof...(T)>) {
 		assert(!"Destruction of variant with illegal tag");
 	}
 	
 	// assign the internal object
 	template<int index, typename X = _variant::Get<index, T...>>
-	void assign(IntegralConstant<int, index>, Variant other) {
+	void _assign(IntegralConstant<int, index>, Variant other) {
 		if(_tag == index) {
 			get<X>() = move(other.get<X>());
 		}else{
-			assign(IntegralConstant<int, index +1>(), move(other));
+			_assign(IntegralConstant<int, index +1>(), move(other));
 		}
 	}
 
-	void assign(IntegralConstant<int, sizeof...(T)>, Variant) {
+	void _assign(IntegralConstant<int, sizeof...(T)>, Variant) {
 		assert(!"Assignment from variant with illegal tag");
 	}
 	
 	// apply a functor to the internal object
 	template<typename F, int index, typename X = _variant::Get<index, T...>>
 	CommonType<ResultOf<F(T &)>...>
-	apply(IntegralConstant<int, index>, F functor) {
+	_apply(IntegralConstant<int, index>, F functor) {
 		if(_tag == index) {
 			return functor(get<X>());
 		}else{
-			return apply(IntegralConstant<int, index + 1>(), move(functor));
+			return _apply(IntegralConstant<int, index + 1>(), move(functor));
 		}
 	}
 
 	template<typename F>
 	CommonType<ResultOf<F(T &)>...>
-	apply(IntegralConstant<int, sizeof...(T)>, F) {
-		assert(!"apply() on variant with illegal tag");
+	_apply(IntegralConstant<int, sizeof...(T)>, F) {
+		assert(!"_apply() on variant with illegal tag");
 		__builtin_unreachable();
 	}
 
@@ -229,14 +236,14 @@ private:
 		if(_tag == index) {
 			return functor(get<X>());
 		}else{
-			return apply(IntegralConstant<int, index + 1>(), move(functor));
+			return _apply(IntegralConstant<int, index + 1>(), move(functor));
 		}
 	}
 
 	template<typename F>
 	CommonType<ResultOf<F(const T &)>...>
 	const_apply(IntegralConstant<int, sizeof...(T)>, F) const {
-		assert(!"apply() on variant with illegal tag");
+		assert(!"_apply() on variant with illegal tag");
 		__builtin_unreachable();
 	}
 
