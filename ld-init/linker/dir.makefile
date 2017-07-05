@@ -10,7 +10,7 @@ all-$c: $($c_BINDIR)/ld-init.so
 .PHONY: install-$c
 install-$c: c := $c
 install-$c: $($c_BINDIR)
-	install $($c_BINDIR)/ld-init.so $(SYSROOT_PATH)/usr/lib/
+	install $($c_BINDIR)/ld-init.so $(SYSROOT_PATH)/lib/
 
 $c_CXX = x86_64-managarm-g++
 

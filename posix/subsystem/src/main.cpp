@@ -161,6 +161,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(req.fs_type() == "devtmpfs") {
 				target.first.mount(target.second, getDevtmpfs());	
 			}else{
+				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 				assert(source.second);
 				auto device = deviceManager.get(readDevice(getTarget(source.second)));

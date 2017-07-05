@@ -77,12 +77,14 @@ int main() {
 	if(!uart) {
 		execve("/usr/bin/uart", args.data(), envp);
 	}else assert(uart != -1);
-	
+
 	// Spin until /dev/ttyS0 becomes available.
 	while(access("/dev/ttyS0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
 	}
+	
+	std::cout << "init: /dev/ttyS0 is available" << std::endl;
 	
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);

@@ -187,6 +187,8 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	auto view = SharedView::createRoot(tree);
 
 	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
+	
+	auto lib = COFIBER_AWAIT mkdir(getTarget(tree), "lib");
 
 	// create a /dev directory + device files.
 	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
@@ -197,9 +199,9 @@ COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
 	view.mount(std::move(initrd), extern_fs::createRoot());
 
 	// symlink files from / to /initrd.
+	COFIBER_AWAIT symlink(getTarget(lib), "ld-init.so", "/initrd/ld-init.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "posix-init", "initrd/posix-init");
 	COFIBER_AWAIT symlink(getTarget(tree), "uhci", "initrd/uhci");
-	COFIBER_AWAIT symlink(getTarget(tree), "ld-init.so", "initrd/ld-init.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libc.so", "initrd/libc.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libm.so", "initrd/libm.so");
 	COFIBER_AWAIT symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1");
@@ -314,9 +316,10 @@ ViewPath rootPath() {
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name), ([=] {
 	auto path = Path::decompose(std::move(name));
-	std::deque<std::string> components(path.begin(), path.end());
 
 	ViewPath current = root;
+	std::deque<std::string> components(path.begin(), path.end());
+
 	while(!components.empty()) {
 		auto name = components.front();
 		components.pop_front();
@@ -329,6 +332,8 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name),
 
 		if(getType(getTarget(child.second)) == VfsType::symlink) {
 			auto link = Path::decompose(COFIBER_AWAIT readSymlink(getTarget(child.second)));
+			if(!link.isRelative())
+				current = root;
 			components.insert(components.begin(), link.begin(), link.end());
 		}else{
 			current = std::move(child);

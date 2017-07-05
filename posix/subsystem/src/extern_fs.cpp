@@ -14,6 +14,17 @@ namespace extern_fs {
 
 namespace {
 
+struct Context {
+
+	std::shared_ptr<Node> internalizeNode(int64_t id, std::shared_ptr<Node> node);
+	std::shared_ptr<Link> internalizeLink(Node *parent, std::string name,
+			std::shared_ptr<Link> link);
+
+private:
+	std::map<int64_t, std::weak_ptr<Node>> _activeNodes;
+	std::map<std::pair<Node *, std::string>, std::weak_ptr<Link>> _activeLinks;
+};
+
 struct OpenFile : File {
 private:
 	static COFIBER_ROUTINE(FutureMaybe<off_t>, seek(std::shared_ptr<File> object,
@@ -118,6 +129,42 @@ const NodeOperations Regular::operations{
 	nullptr
 };
 
+struct Entry : Link {
+private:
+	static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
+		auto derived = std::static_pointer_cast<Entry>(object);
+		return derived->_owner;
+	}
+
+	static std::string getName(std::shared_ptr<Link> object) {
+		(void)object;
+		assert(!"No associated name");
+	}
+
+	static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
+		auto derived = std::static_pointer_cast<Entry>(object);
+		auto shared = derived->_target.lock();
+		assert(shared);
+		return shared;
+	}
+	
+	static const LinkOperations operations;
+
+public:
+	Entry(std::shared_ptr<Node> owner, std::weak_ptr<Node> target)
+	: Link(&operations), _owner{std::move(owner)}, _target{std::move(target)} { }
+
+private:
+	std::shared_ptr<Node> _owner;
+	std::weak_ptr<Node> _target;
+};
+
+const LinkOperations Entry::operations{
+	&Entry::getOwner,
+	&Entry::getName,
+	&Entry::getTarget
+};
+
 struct Directory : Node {
 private:
 	static FileStats getStats(std::shared_ptr<Node>) {
@@ -151,6 +198,7 @@ private:
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
 			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
 		auto self = std::static_pointer_cast<Directory>(object);
+//		std::cout << "extern_fs: getLink() " << name << std::endl;
 
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -180,7 +228,7 @@ private:
 			std::shared_ptr<Node> child;
 			switch(resp.file_type()) {
 			case managarm::fs::FileType::DIRECTORY:
-				child = std::make_shared<Directory>(pull_node.descriptor());
+				child = std::make_shared<Directory>(self->_context, pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::REGULAR:
 				child = std::make_shared<Regular>(pull_node.descriptor());
@@ -188,7 +236,9 @@ private:
 			default:
 				throw std::runtime_error("extern_fs: Unexpected file type");
 			}
-			COFIBER_RETURN(createRootLink(child));
+			auto intern = self->_context->internalizeNode(resp.id(), child);
+			auto link = std::make_shared<Entry>(self, intern);
+			COFIBER_RETURN(self->_context->internalizeLink(self.get(), name, link));
 		}else{
 			COFIBER_RETURN(nullptr);
 		}
@@ -197,10 +247,11 @@ private:
 	static const NodeOperations operations;
 
 public:
-	Directory(helix::UniqueLane lane)
-	: Node{&operations}, _lane{std::move(lane)} { }
+	Directory(Context *context, helix::UniqueLane lane)
+	: Node{&operations}, _context{context}, _lane{std::move(lane)} { }
 
 private:
+	Context *_context;
 	helix::UniqueLane _lane;
 };
 
@@ -309,6 +360,36 @@ const NodeOperations FakeDirectory::operations{
 	nullptr
 };
 
+std::shared_ptr<Node> Context::internalizeNode(int64_t id, std::shared_ptr<Node> node) {
+	auto it = _activeNodes.find(id);
+	if(it != _activeNodes.end()) {
+		auto intern = it->second.lock();
+		if(intern) {
+			return intern;
+		}else{
+			it->second = node;
+			return node;
+		}
+	}
+	_activeNodes.insert({id, std::weak_ptr<Node>{node}});
+	return node;
+}
+
+std::shared_ptr<Link> Context::internalizeLink(Node *parent, std::string name, std::shared_ptr<Link> link) {
+	auto it = _activeLinks.find({parent, name});
+	if(it != _activeLinks.end()) {
+		auto intern = it->second.lock();
+		if(intern) {
+			return intern;
+		}else{
+			it->second = link;
+			return link;
+		}
+	}
+	_activeLinks.insert({{parent, name}, std::weak_ptr<Link>{link}});
+	return link;
+}
+
 } // anonymous namespace
 
 std::shared_ptr<Link> createRoot() {
@@ -317,7 +398,8 @@ std::shared_ptr<Link> createRoot() {
 }
 
 std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
-	auto node = std::make_shared<Directory>(std::move(lane));
+	auto context = new Context{};
+	auto node = std::make_shared<Directory>(context, std::move(lane));
 	return createRootLink(std::move(node));
 }
 

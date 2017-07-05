@@ -18,7 +18,7 @@ enum class FileType {
 	regular
 };
 
-using GetLinkResult = std::tuple<std::shared_ptr<void>, FileType>;
+using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
 struct FileOperations {
 	async::result<int64_t> (*seekAbs)(std::shared_ptr<void> object, int64_t offset);

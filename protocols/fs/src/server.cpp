@@ -161,7 +161,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				switch(std::get<1>(result)) {
+				resp.set_id(std::get<1>(result));
+				switch(std::get<2>(result)) {
 				case FileType::directory:
 					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
 					break;

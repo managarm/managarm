@@ -65,6 +65,9 @@ message SvrResponse {
 	
 	// returned by FSTAT and OPEN
 	optional FileType file_type = 5;
+	
+	// returned by NODE_GET_LINK
+	optional int64 id = 18;
 
 	// returned by FSTAT
 	optional uint64 file_size = 4;

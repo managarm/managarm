@@ -134,7 +134,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle), ([=] {
 	auto exec_file = COFIBER_AWAIT open(root, path);
-	auto interp_file = COFIBER_AWAIT open(root, "ld-init.so");
+	auto interp_file = COFIBER_AWAIT open(root, "/lib/ld-init.so");
 	assert(exec_file);
 	assert(interp_file);
 
