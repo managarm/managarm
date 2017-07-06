@@ -129,6 +129,64 @@ const NodeOperations Regular::operations{
 	nullptr
 };
 
+struct Symlink : Node {
+private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		throw std::runtime_error("extern_fs: Fix Symlink::getStats()");
+	}
+
+	static COFIBER_ROUTINE(FutureMaybe<std::string>,
+			readSymlink(std::shared_ptr<Node> object), ([=] {
+		auto self = std::static_pointer_cast<Symlink>(object);
+
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::RecvInline recv_target;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_READ_SYMLINK);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&recv_target));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		
+		COFIBER_RETURN((std::string{static_cast<char *>(recv_target.data()), recv_target.length()}));
+	}))
+
+	static const NodeOperations operations;
+
+public:
+	Symlink(helix::UniqueLane lane)
+	: Node{&operations}, _lane{std::move(lane)} { }
+
+private:
+	helix::UniqueLane _lane;
+};
+
+const NodeOperations Symlink::operations{
+	&getSymlinkType,
+	&Symlink::getStats,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	&Symlink::readSymlink,
+	nullptr
+};
+
 struct Entry : Link {
 private:
 	static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
@@ -232,6 +290,9 @@ private:
 				break;
 			case managarm::fs::FileType::REGULAR:
 				child = std::make_shared<Regular>(pull_node.descriptor());
+				break;
+			case managarm::fs::FileType::SYMLINK:
+				child = std::make_shared<Symlink>(pull_node.descriptor());
 				break;
 			default:
 				throw std::runtime_error("extern_fs: Unexpected file type");

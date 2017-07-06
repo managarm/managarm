@@ -169,6 +169,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 				case FileType::regular:
 					resp.set_file_type(managarm::fs::FileType::REGULAR);
 					break;
+				case FileType::symlink:
+					resp.set_file_type(managarm::fs::FileType::SYMLINK);
+					break;
 				default:
 					throw std::runtime_error("Unexpected file type");
 				}
@@ -211,6 +214,22 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
+			helix::SendBuffer send_resp;
+			helix::SendBuffer send_link;
+			
+			auto link = COFIBER_AWAIT node_ops->readSymlink(node);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_link, link.data(), link.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_link.error());
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}

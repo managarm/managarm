@@ -15,7 +15,8 @@ namespace fs {
 enum class FileType {
 	unknown,
 	directory,
-	regular
+	regular,
+	symlink
 };
 
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
@@ -34,6 +35,8 @@ struct NodeOperations {
 			std::string name);
 
 	async::result<std::shared_ptr<void>> (*open)(std::shared_ptr<void> object);
+
+	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 };
 
 cofiber::no_future servePassthrough(helix::UniqueLane lane, std::shared_ptr<void> node,

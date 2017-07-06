@@ -94,6 +94,9 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 	case kTypeRegular:
 		type = protocols::fs::FileType::regular;
 		break;
+	case kTypeSymlink:
+		type = protocols::fs::FileType::symlink;
+		break;
 	default:
 		throw std::runtime_error("Unexpected file type");
 	}
@@ -106,9 +109,19 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<void>>, open(std::shared_ptr<void>
 	COFIBER_RETURN(std::make_shared<ext2fs::OpenFile>(self));
 }))
 
+COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> object), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	COFIBER_AWAIT self->readyJump.async_wait();
+
+	assert(self->fileSize <= 60);
+	std::string link(self->fileData.embedded, self->fileData.embedded + self->fileSize);
+	COFIBER_RETURN(link);
+}))
+
 constexpr protocols::fs::NodeOperations nodeOperations{
 	&getLink,
-	&open
+	&open,
+	&readSymlink
 };
 
 } // anonymous namespace

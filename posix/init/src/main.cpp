@@ -32,6 +32,7 @@ int main() {
 
 	char *envp[] = { nullptr };
 
+	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
 		execve("/initrd/uhci", args.data(), envp);
@@ -47,7 +48,7 @@ int main() {
 		execve("/initrd/storage", args.data(), envp);
 	}else assert(storage != -1);
 
-	// Spin until /dev/sda0 becomes available.
+	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
 	while(access("/dev/sda0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
@@ -64,13 +65,6 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-
-/*
-	auto kbd = fork();
-	if(!kbd) {
-		execve("/initrd/kbd", args.data(), envp);
-	}else assert(kbd != -1);
-*/
 
 	// UART
 	auto uart = fork();

@@ -26,6 +26,7 @@ enum CntReqType {
 	// File node API.
 	NODE_GET_LINK = 12;
 	NODE_OPEN = 13;
+	NODE_READ_SYMLINK = 15;
 
 	// File passthrough API.
 	// TODO: Add a PT_ prefix to those requests.
