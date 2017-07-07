@@ -114,7 +114,7 @@ struct Memory {
 	void completeLoad(size_t offset, size_t length);
 
 	void load(size_t offset, void *pointer, size_t length);
-	void copyFrom(size_t offset, void *pointer, size_t length);
+	void copyFrom(size_t offset, const void *pointer, size_t length);
 
 private:
 	MemoryTag _tag;

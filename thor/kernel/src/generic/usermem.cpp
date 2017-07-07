@@ -131,7 +131,7 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 	release(offset, length);
 }
 
-void Memory::copyFrom(size_t offset, void *buffer, size_t length) {
+void Memory::copyFrom(size_t offset, const void *buffer, size_t length) {
 	acquire(offset, length);
 
 	size_t progress = 0;

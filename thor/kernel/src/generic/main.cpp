@@ -285,28 +285,88 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
 				<< frigg::endLog;
 
-	// create a directory and load the memory regions of all modules into it
+	// Parse the initrd image.
 	auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
+	assert(info->numModules == 1);
 	
 	allModules.initialize(*kernelAlloc);
-	for(size_t i = 0; i < info->numModules; i++) {
-		size_t virt_length = modules[i].length + (kPageSize - (modules[i].length % kPageSize));
-		assert((virt_length % kPageSize) == 0);
 
-		// TODO: free module memory if it is not used anymore
-		auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
-				modules[i].physicalBase, virt_length);
-		
-		auto name_ptr = reinterpret_cast<char *>(modules[i].namePtr);
-		if(logInitialization)
-			frigg::infoLogger() << "Module " << frigg::StringView(name_ptr, modules[i].nameLength)
-					<< ", length: " << modules[i].length << frigg::endLog;
+	{
+		assert(modules[0].physicalBase % kPageSize == 0);
+		assert(modules[0].length <= 0x1000000);
+		auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(0x1000000));
+		for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
+			KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
+					modules[0].physicalBase + pg, 0);
 
-		Module module(frigg::String<KernelAlloc>(*kernelAlloc, name_ptr, modules[i].nameLength),
-				frigg::move(memory));
-		allModules->push(module);
+		struct Header {
+			char magic[6];
+			char inode[8];
+			char mode[8];
+			char uid[8];
+			char gid[8];
+			char numLinks[8];
+			char mtime[8];
+			char fileSize[8];
+			char devMajor[8];
+			char devMinor[8];
+			char rdevMajor[8];
+			char rdevMinor[8];
+			char nameSize[8];
+			char check[8];
+		};
+
+		auto parseHex = [] (const char *c, int n) {
+			uint32_t v = 0;
+			for(int i = 0; i < n; i++) {
+				uint32_t d;
+				if(*c >= 'a' && *c <= 'f') {
+					d = *c++ - 'a' + 10;
+				}else if(*c >= 'A' && *c <= 'F') {
+					d = *c++ - 'A' + 10;
+				}else if(*c >= '0' && *c <= '9') {
+					d = *c++ - '0';
+				}else{
+					frigg::panicLogger() << "Unexpected character 0x" << frigg::logHex(*c)
+							<< " in CPIO header" << frigg::endLog;
+					__builtin_unreachable();
+				}
+				v = (v << 4) | d;
+			}
+			return v;
+		};
+
+		auto p = base;
+		auto limit = base + modules[0].length;
+		while(true) {
+			Header header;
+			assert(p + sizeof(Header) <= limit);
+			memcpy(&header, p, sizeof(Header));
+
+			auto magic = parseHex(header.magic, 6);
+			assert(magic == 0x070701 || magic == 0x070702);
+
+			auto name_size = parseHex(header.nameSize, 8);
+			auto file_size = parseHex(header.fileSize, 8);
+			auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
+			
+			frigg::StringView path{p + sizeof(Header), name_size - 1};
+			if(path == "TRAILER!!!")
+				break;
+			if(logInitialization)
+				frigg::infoLogger() << "thor: Module " << path << frigg::endLog;
+
+			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+					(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+			memory->copyFrom(0, data, file_size);
+			
+			allModules->push(Module{frigg::String<KernelAlloc>{*kernelAlloc, path},
+					frigg::move(memory)});
+
+			p = data + ((file_size + 3) & ~uint32_t{3});
+		}
 	}
-	
+
 	if(logInitialization)
 		frigg::infoLogger() << "thor: Modules are set up successfully."
 				<< frigg::endLog;
