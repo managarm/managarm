@@ -1,15 +1,20 @@
 
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 #include <future>
 
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
 
 #include "common.hpp"
+#include "fs.pb.h"
 #include "vfs.hpp"
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
+
+HelHandle __mlibc_getPassthrough(int fd);
 
 static bool debugResolve = false;
 
@@ -17,8 +22,8 @@ static bool debugResolve = false;
 // File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file, void *data, size_t length),
-		([=] {
+COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file,
+		void *data, size_t length), ([=] {
 	size_t offset = 0;
 	while(offset < length) {
 		auto result = COFIBER_AWAIT readSome(file, (char *)data + offset, length - offset);
@@ -31,21 +36,25 @@ COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file, void 
 
 FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence) {
 	assert(file);
+	assert(file->operations()->seek);
 	return file->operations()->seek(file, offset, whence);
 }
 
 FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length) {
 	assert(file);
+	assert(file->operations()->readSome);
 	return file->operations()->readSome(file, data, max_length);
 }
 
 FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file) {
 	assert(file);
+	assert(file->operations()->accessMemory);
 	return file->operations()->accessMemory(file);
 }
 
 helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
 	assert(file);
+	assert(file->operations()->getPassthroughLane);
 	return file->operations()->getPassthroughLane(file);
 }
 
@@ -94,6 +103,7 @@ std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target) {
 
 std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link) {
 	assert(link);
+	assert(link->operations()->getTarget);
 	return link->operations()->getTarget(link);
 }
 
@@ -108,43 +118,51 @@ VfsType getType(std::shared_ptr<Node> node) {
 
 FileStats getStats(std::shared_ptr<Node> node) {
 	assert(node);
+	assert(node->operations()->getStats);
 	return node->operations()->getStats(node);
 }
 
 FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name) {
 	assert(node);
+	assert(node->operations()->getLink);
 	return node->operations()->getLink(node, std::move(name));
 }
 
 FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name) {
 	assert(node);
+	assert(node->operations()->mkdir);
 	return node->operations()->mkdir(node, std::move(name));
 }
 
 FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
 		std::string name, std::string path) {
 	assert(node);
+	assert(node->operations()->symlink);
 	return node->operations()->symlink(node, std::move(name), std::move(path));
 }
 
 FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node,
 		std::string name, VfsType type, DeviceId id) {
 	assert(node);
+	assert(node->operations()->mkdev);
 	return node->operations()->mkdev(node, std::move(name), type, id);
 }
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node) {
 	assert(node);
+	assert(node->operations()->open);
 	return node->operations()->open(node);
 }
 
 FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node) {
 	assert(node);
+	assert(node->operations()->readSymlink);
 	return node->operations()->readSymlink(node);
 }
 
 DeviceId readDevice(std::shared_ptr<Node> node) {
 	assert(node);
+	assert(node->operations()->readDevice);
 	return node->operations()->readDevice(node);
 }
 // --------------------------------------------------------
@@ -182,47 +200,60 @@ SharedView SharedView::getMount(std::shared_ptr<Link> link) const {
 
 namespace {
 
-COFIBER_ROUTINE(std::future<SharedView>, createRootView(), ([=] {
+SharedView rootView;
+
+} // anonymous namespace
+
+COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
+	// Create a tmpfs instance for the initrd.
 	auto tree = tmp_fs::createRoot();
-	auto view = SharedView::createRoot(tree);
+	rootView = SharedView::createRoot(tree);
 
 	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
 	
 	auto lib = COFIBER_AWAIT mkdir(getTarget(tree), "lib");
-
-	// create a /dev directory + device files.
-	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
-	view.mount(std::move(dev), getDevtmpfs());
-
-	// mount the initrd to /initrd.
-	auto initrd = COFIBER_AWAIT mkdir(getTarget(tree), "initrd");
-	view.mount(std::move(initrd), extern_fs::createRoot());
-
-	// symlink files from / to /initrd.
 	COFIBER_AWAIT symlink(getTarget(lib), "ld-init.so", "/initrd/ld-init.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "posix-init", "initrd/posix-init");
-	COFIBER_AWAIT symlink(getTarget(tree), "uhci", "initrd/uhci");
-	COFIBER_AWAIT symlink(getTarget(tree), "libc.so", "initrd/libc.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libm.so", "initrd/libm.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libgcc_s.so.1", "initrd/libgcc_s.so.1");
-	COFIBER_AWAIT symlink(getTarget(tree), "libstdc++.so.6", "initrd/libstdc++.so.6");
-	COFIBER_AWAIT symlink(getTarget(tree), "libarch.so", "initrd/libarch.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libhelix.so", "initrd/libhelix.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libcofiber.so", "initrd/libcofiber.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libprotobuf-lite.so.11", "initrd/libprotobuf-lite.so.11");
-	COFIBER_AWAIT symlink(getTarget(tree), "libfs_protocol.so", "initrd/libfs_protocol.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libhw_protocol.so", "initrd/libhw_protocol.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libmbus_protocol.so", "initrd/libmbus_protocol.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libusb_protocol.so", "initrd/libusb_protocol.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libblockfs.so", "initrd/libblockfs.so");
-	COFIBER_AWAIT symlink(getTarget(tree), "libevbackend.so", "initrd/libevbackend.so");
 
-	COFIBER_RETURN(std::move(view));
+	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
+	rootView.mount(std::move(dev), getDevtmpfs());
+
+	// Populate the tmpfs from the fs we are running on.
+	auto initrd = COFIBER_AWAIT mkdir(getTarget(tree), "initrd");
+	rootView.mount(std::move(initrd), extern_fs::createRoot());
+
+	auto fd = open("/", O_RDONLY);
+	assert(fd != -1);
+
+	auto lane = helix::BorrowedLane{__mlibc_getPassthrough(fd)};
+	while(true) {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		if(resp.error() == managarm::fs::Errors::END_OF_FILE)
+			break;
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	
+		COFIBER_AWAIT symlink(getTarget(tree), resp.path(), "/initrd/" + resp.path());
+	}
+
+	COFIBER_RETURN();
 }))
-
-SharedView rootView = createRootView().get();
-
-} // anonymous namespace
 
 #include <algorithm>
 

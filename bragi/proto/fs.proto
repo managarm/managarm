@@ -5,6 +5,7 @@ option optimize_for = LITE_RUNTIME;
 
 enum Errors {
 	SUCCESS = 0;
+	ILLEGAL_REQUEST = 3;
 	FILE_NOT_FOUND = 1;
 	END_OF_FILE = 2;
 }
@@ -31,6 +32,8 @@ enum CntReqType {
 	// File passthrough API.
 	// TODO: Add a PT_ prefix to those requests.
 	READ = 2;
+	PT_READ_ENTRIES = 16;
+
 	WRITE = 3;
 	SEEK_ABS = 6;
 	SEEK_REL = 7;
@@ -63,6 +66,9 @@ message CntRequest {
 
 message SvrResponse {
 	optional int32 error = 3;
+	
+	// used by PT_READ_ENTRIES
+	optional string path = 19;
 	
 	// returned by FSTAT and OPEN
 	optional FileType file_type = 5;

@@ -504,13 +504,17 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	});
 }))
 
+COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
+	COFIBER_AWAIT populateRootView();
+	Process::init("posix-init");
+}))
+
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
 	deviceManager.install(createHeloutDevice());
 	observeDevices();
-
-	Process::init("posix-init");
+	runInit();
 
 	while(true)
 		helix::Dispatcher::global().dispatch();

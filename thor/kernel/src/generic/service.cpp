@@ -7,6 +7,8 @@
 #include <posix.frigg_pb.hpp>
 #include <fs.frigg_pb.hpp>
 
+#include "fiber.hpp"
+#include "service_helpers.hpp"
 #include "../arch/x86/debug.hpp"
 
 namespace thor {
@@ -296,6 +298,53 @@ namespace initrd {
 		LaneHandle _requestLane;
 		uint8_t _buffer[128];
 	};
+	
+	struct OpenDirectory : OpenFile {
+		OpenDirectory()
+		: index(0) { }
+
+		size_t index;
+	};
+	
+	bool handleDirectoryReq(LaneHandle lane, OpenDirectory *file) {
+		auto branch = fiberAccept(lane);
+		if(!branch)
+			return false;
+
+		auto buffer = fiberRecv(branch);
+		managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+		req.ParseFromArray(buffer.data(), buffer.size());
+	
+		if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
+			if(file->index < allModules->size()) {
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_path((*allModules)[file->index].filename);
+				
+				file->index++;
+
+				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				fiberSend(branch, ser.data(), ser.size());
+			}else{
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::END_OF_FILE);
+
+				frigg::String<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				fiberSend(branch, ser.data(), ser.size());
+			}
+		}else{
+			managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_REQUEST);
+			
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}
+
+		return true;
+	}
 
 	// ----------------------------------------------------
 	// POSIX server.
@@ -350,29 +399,52 @@ namespace initrd {
 
 		void operator() () {
 //			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
-			// TODO: Actually handle the file-not-found case.	
-			Module *module = getModule(_req.path());
-			if(!module)
-				frigg::panicLogger() << "initrd: Module '" << _req.path()
-						<< "' not found" << frigg::endLog;
-			
-			auto stream = createStream();
-			auto file = frigg::construct<ModuleFile>(*kernelAlloc, module);
-			file->clientLane = frigg::move(stream.get<1>());
+			// TODO: Actually handle the file-not-found case.
+			if(_req.path() == "/") {
+				auto stream = createStream();
+				auto file = frigg::construct<OpenDirectory>(*kernelAlloc);
+				file->clientLane = frigg::move(stream.get<1>());
 
-			auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
-					frigg::move(stream.get<0>()), file);
-			(*closure)();
+				KernelFiber::run([lane = stream.get<0>(), file] () {
+					while(true) {
+						if(!handleDirectoryReq(lane, file))
+							break;
+					}
+				});
+				
+				auto fd = _process->attachFile(file);
 
-			auto fd = _process->attachFile(file);
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd);
 
-			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+				resp.SerializeToString(&_buffer);
+				serviceSend(_lane, _buffer.data(), _buffer.size(),
+						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
+			}else{
+				Module *module = getModule(_req.path());
+				if(!module)
+					frigg::panicLogger() << "initrd: Module '" << _req.path()
+							<< "' not found" << frigg::endLog;
+				
+				auto stream = createStream();
+				auto file = frigg::construct<ModuleFile>(*kernelAlloc, module);
+				file->clientLane = frigg::move(stream.get<1>());
 
-			resp.SerializeToString(&_buffer);
-			serviceSend(_lane, _buffer.data(), _buffer.size(),
-					CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
+				auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
+						frigg::move(stream.get<0>()), file);
+				(*closure)();
+
+				auto fd = _process->attachFile(file);
+
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd);
+
+				resp.SerializeToString(&_buffer);
+				serviceSend(_lane, _buffer.data(), _buffer.size(),
+						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
+			}
 		}
 
 	private:

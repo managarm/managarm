@@ -252,6 +252,8 @@ struct Data {
 
 using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
 
+async::result<void> populateRootView();
+
 ViewPath rootPath();
 
 FutureMaybe<ViewPath> resolve(ViewPath root, std::string name);
