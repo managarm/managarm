@@ -35,17 +35,17 @@ int main() {
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
-		execve("/initrd/uhci", args.data(), envp);
+		execve("/sbin/uhci", args.data(), envp);
 	}else assert(uhci != -1);
 
 	auto ehci = fork();
 	if(!ehci) {
-		execve("/initrd/ehci", args.data(), envp);
+		execve("/sbin/ehci", args.data(), envp);
 	}else assert(ehci != -1);
 
 	auto storage = fork();
 	if(!storage) {
-		execve("/initrd/storage", args.data(), envp);
+		execve("/sbin/storage", args.data(), envp);
 	}else assert(storage != -1);
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
@@ -112,21 +112,21 @@ int main() {
 /*
 	auto gfx_intel = fork();
 	if(!gfx_intel) {
-		execve("/initrd/gfx_intel", args.data(), envp);
+		execve("/usr/bin/gfx_intel", args.data(), envp);
 	}else assert(gfx_intel != -1);
 */
 
 /*
 	auto virtio = fork();
 	if(!virtio) {
-//		execve("/initrd/ata", args.data(), envp);
-		execve("/initrd/virtio-block", args.data(), envp);
+//		execve("/usr/bin/ata", args.data(), envp);
+		execve("/usr/bin/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
 */
 
 	auto hid = fork();
 	if(!hid) {
-		execve("/initrd/hid", args.data(), envp);
+		execve("/usr/bin/hid", args.data(), envp);
 	}else assert(hid != -1);
 
 	// Spin until /dev/event0 becomes available.

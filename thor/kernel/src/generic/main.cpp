@@ -1,4 +1,6 @@
 
+#include <algorithm>
+
 #include "kernel.hpp"
 #include "module.hpp"
 #include "irq.hpp"
@@ -19,20 +21,57 @@ bool debugToBochs = false;
 // TODO: get rid of the rootUniverse global variable.
 frigg::LazyInitializer<frigg::SharedPtr<Universe>> rootUniverse;
 
-frigg::LazyInitializer<frigg::Vector<Module, KernelAlloc>> allModules;
-
 frigg::LazyInitializer<IrqSlot> globalIrqSlots[24];
 
 frigg::LazyInitializer<LaneHandle> mbusClient;
 
+MfsDirectory *mfsRoot;
+
 // TODO: move this declaration to a header file
 void runService(frigg::SharedPtr<Thread> thread);
 
-Module *getModule(frigg::StringView filename) {
-	for(size_t i = 0; i < allModules->size(); i++)
-		if((*allModules)[i].filename == filename)
-			return &(*allModules)[i];
-	return nullptr;
+MfsNode *resolveModule(frigg::StringView path) {
+	const char *begin = path.data();
+	const char *end = path.data() + path.size();
+	auto it = begin;
+
+	// We have no VFS. Ignore absolute paths.
+	if(it != end && *it == '/')
+		++it;
+
+	// Parse each individual component.
+	MfsNode *node = mfsRoot;
+	while(it != end) {
+		auto slash = std::find(it, end, '/');
+
+		auto component = path.subString(it - begin, slash - it);
+		if(component == "..") {
+			// We resolve double-dots unless they are at the beginning of the path.
+			assert(!"Fix double-dots");
+/*
+			if(components.empty() || components.back() == "..") {
+				components.push_back("..");
+			}else{
+				components.pop_back();
+			}
+*/
+		}else if(component.size() && component != ".") {
+			// We discard multiple slashes and single-dots.
+			assert(node->type == MfsType::directory);
+			auto directory = static_cast<MfsDirectory *>(node);
+			auto target = directory->getTarget(component);
+			if(!target)
+				return nullptr;
+			node = target;
+		}
+
+		// Finally we need to skip the slash we found.
+		it = slash;
+		if(it != end)
+			++it;
+	}
+
+	return node;
 }
 
 struct ImageInfo {
@@ -126,16 +165,17 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(Module *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) {
+void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) {
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	space->setupDefaultMappings();
 
-	ImageInfo exec_info = loadModuleImage(space, 0, module->memory);
+	ImageInfo exec_info = loadModuleImage(space, 0, module->getMemory());
 
 	// FIXME: use actual interpreter name here
-	Module *interp_module = getModule("ld-init.so");
-	assert(interp_module);
-	ImageInfo interp_info = loadModuleImage(space, 0x40000000, interp_module->memory);
+	auto rtdl_module = resolveModule("lib/ld-init.so");
+	assert(rtdl_module && rtdl_module->type == MfsType::regular);
+	ImageInfo interp_info = loadModuleImage(space, 0x40000000,
+			static_cast<MfsRegular *>(rtdl_module)->getMemory());
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
@@ -289,8 +329,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
 	assert(info->numModules == 1);
 	
-	allModules.initialize(*kernelAlloc);
-
+	mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
 	{
 		assert(modules[0].physicalBase % kPageSize == 0);
 		assert(modules[0].length <= 0x1000000);
@@ -315,6 +354,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			char nameSize[8];
 			char check[8];
 		};
+
+		constexpr uint32_t type_mask = 0170000;
+		constexpr uint32_t regular_type = 0100000;
+		constexpr uint32_t directory_type = 0040000;
 
 		auto parseHex = [] (const char *c, int n) {
 			uint32_t v = 0;
@@ -346,6 +389,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			auto magic = parseHex(header.magic, 6);
 			assert(magic == 0x070701 || magic == 0x070702);
 
+			auto mode = parseHex(header.mode, 8);
 			auto name_size = parseHex(header.nameSize, 8);
 			auto file_size = parseHex(header.fileSize, 8);
 			auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
@@ -353,15 +397,36 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			frigg::StringView path{p + sizeof(Header), name_size - 1};
 			if(path == "TRAILER!!!")
 				break;
-			if(logInitialization)
-				frigg::infoLogger() << "thor: Module " << path << frigg::endLog;
 
-			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
-					(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-			memory->copyFrom(0, data, file_size);
-			
-			allModules->push(Module{frigg::String<KernelAlloc>{*kernelAlloc, path},
-					frigg::move(memory)});
+			if((mode & type_mask) == directory_type) {
+				frigg::infoLogger() << "thor: initrd directory " << path << frigg::endLog;
+
+				mfsRoot->link(frigg::String<KernelAlloc>{*kernelAlloc, path},
+						frigg::construct<MfsDirectory>(*kernelAlloc));
+			}else{
+				assert((mode & type_mask) == regular_type);
+//				if(logInitialization)
+					frigg::infoLogger() << "thor: initrd file " << path << frigg::endLog;
+
+				auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+						(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+				memory->copyFrom(0, data, file_size);
+	
+				const char *begin = path.data();
+				const char *end = path.data() + path.size();
+				auto slash = std::find(begin, end, '/');
+				assert(slash != end);
+				assert(std::find(slash + 1, end, '/') == end);
+
+				auto parent = mfsRoot->getTarget(path.subString(0, slash - begin));
+				assert(parent && parent->type == MfsType::directory);
+				auto directory = static_cast<MfsDirectory *>(parent);
+
+				auto name = frigg::String<KernelAlloc>{*kernelAlloc,
+						path.subString((slash - begin) + 1, end - (slash + 1))};
+				directory->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
+						std::move(memory)));
+			}
 
 			p = data + ((file_size + 3) & ~uint32_t{3});
 		}
@@ -386,12 +451,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 		// Launch initial user space programs.
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
-		auto mbus_module = getModule("mbus");
-		auto posix_module = getModule("posix-subsystem");
-		assert(mbus_module);
-		assert(posix_module);
-		executeModule(mbus_module, mbus_stream.get<0>(), LaneHandle{});
-		executeModule(posix_module, LaneHandle{}, mbus_stream.get<1>());
+		auto mbus_module = resolveModule("sbin/mbus");
+		auto posix_module = resolveModule("sbin/posix-subsystem");
+		assert(mbus_module && mbus_module->type == MfsType::regular);
+		assert(posix_module && posix_module->type == MfsType::regular);
+		executeModule(static_cast<MfsRegular *>(mbus_module), mbus_stream.get<0>(), LaneHandle{});
+		executeModule(static_cast<MfsRegular *>(posix_module), LaneHandle{}, mbus_stream.get<1>());
 
 		while(true)
 			KernelFiber::blockCurrent(frigg::CallbackPtr<bool()>{nullptr,

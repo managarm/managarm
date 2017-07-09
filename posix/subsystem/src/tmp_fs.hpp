@@ -6,6 +6,8 @@
 
 namespace tmp_fs {
 
+std::shared_ptr<Node> createMemoryNode(std::string path);
+
 std::shared_ptr<Link> createRoot();
 
 } // namespace tmp_fs

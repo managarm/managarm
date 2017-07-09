@@ -145,6 +145,10 @@ struct NodeOperations {
 
 	//! Resolves a file in a directory (directories only).
 	FutureMaybe<std::shared_ptr<Link>> (*getLink)(std::shared_ptr<Node> node, std::string name);
+	
+	//! Links an existing node to this directory (directories only).
+	FutureMaybe<std::shared_ptr<Link>> (*link)(std::shared_ptr<Node> node, std::string name,
+			std::shared_ptr<Node> target);
 
 	//! Creates a new directory (directories only).
 	FutureMaybe<std::shared_ptr<Link>> (*mkdir)(std::shared_ptr<Node> node, std::string name);
@@ -172,6 +176,9 @@ VfsType getType(std::shared_ptr<Node> node);
 FileStats getStats(std::shared_ptr<Node> node);
 
 FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name);
+
+FutureMaybe<std::shared_ptr<Link>> link(std::shared_ptr<Node> node, std::string name,
+		std::shared_ptr<Node> target);
 
 FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name);
 

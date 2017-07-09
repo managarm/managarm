@@ -610,13 +610,13 @@ void Loader::loadFromFile(SharedObject *object, const char *name) {
 				<< " at " << (void *)object->baseAddress << frigg::endLog;
 	
 	// FIXME: remove this initrd prefix
-	frigg::String<Allocator> initrd_prefix(*allocator, "");
-	frigg::String<Allocator> lib_prefix(*allocator, "/usr/lib/");
+	frigg::String<Allocator> lib_prefix(*allocator, "/lib/");
+	frigg::String<Allocator> usr_prefix(*allocator, "/usr/lib/");
 
 	// open the object file
-	auto file = posixOpen(initrd_prefix + name);
+	auto file = posixOpen(lib_prefix + name);
 	if(file == -1)
-		file = posixOpen(lib_prefix + name);
+		file = posixOpen(usr_prefix + name);
 	if(file == -1)
 		frigg::panicLogger() << "Could not find library " << name << frigg::endLog;
 

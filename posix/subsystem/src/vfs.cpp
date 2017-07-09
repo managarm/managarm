@@ -128,6 +128,13 @@ FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::stri
 	return node->operations()->getLink(node, std::move(name));
 }
 
+FutureMaybe<std::shared_ptr<Link>> link(std::shared_ptr<Node> node, std::string name,
+		std::shared_ptr<Node> target) {
+	assert(node);
+	assert(node->operations()->link);
+	return node->operations()->link(node, std::move(name), std::move(target));
+}
+
 FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name) {
 	assert(node);
 	assert(node->operations()->mkdir);
@@ -211,45 +218,65 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 
 	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
 	
-	auto lib = COFIBER_AWAIT mkdir(getTarget(tree), "lib");
-	COFIBER_AWAIT symlink(getTarget(lib), "ld-init.so", "/initrd/ld-init.so");
-
 	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
 	rootView.mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
-	auto initrd = COFIBER_AWAIT mkdir(getTarget(tree), "initrd");
-	rootView.mount(std::move(initrd), extern_fs::createRoot());
+	std::vector<
+		std::pair<
+			std::shared_ptr<Node>,
+			std::string
+		>
+	> stack;
 
-	auto fd = open("/", O_RDONLY);
-	assert(fd != -1);
-
-	auto lane = helix::BorrowedLane{__mlibc_getPassthrough(fd)};
-	while(true) {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-
-		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		if(resp.error() == managarm::fs::Errors::END_OF_FILE)
-			break;
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	stack.push_back({getTarget(tree), std::string{""}});
 	
-		COFIBER_AWAIT symlink(getTarget(tree), resp.path(), "/initrd/" + resp.path());
+	while(!stack.empty()) {
+		auto item = stack.back();
+		stack.pop_back();
+
+		auto dir_path = "/" + item.second;
+		auto dir_fd = open(dir_path.c_str(), O_RDONLY);
+		assert(dir_fd != -1);
+
+		auto lane = helix::BorrowedLane{__mlibc_getPassthrough(dir_fd)};
+		while(true) {
+			helix::Offer offer;
+			helix::SendBuffer send_req;
+			helix::RecvInline recv_resp;
+
+			managarm::fs::CntRequest req;
+			req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
+
+			auto ser = req.SerializeAsString();
+			auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
+					helix::action(&offer, kHelItemAncillary),
+					helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&recv_resp));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			managarm::fs::SvrResponse resp;
+			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			if(resp.error() == managarm::fs::Errors::END_OF_FILE)
+				break;
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+//			std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
+
+			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
+				auto link = COFIBER_AWAIT mkdir(item.first, resp.path());
+				stack.push_back({getTarget(link), item.second + "/" + resp.path()});
+			}else{
+				assert(resp.file_type() == managarm::fs::FileType::REGULAR);
+
+				auto file_path = "/" + item.second + "/" + resp.path();
+				auto node = tmp_fs::createMemoryNode(std::move(file_path));
+				COFIBER_AWAIT link(item.first, resp.path(), node);
+			}
+		}
 	}
 
 	COFIBER_RETURN();

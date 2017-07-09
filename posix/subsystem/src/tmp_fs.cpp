@@ -1,9 +1,16 @@
 
+#include <fcntl.h>
+#include <unistd.h>
 #include <set>
 
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "tmp_fs.hpp"
+
+// TODO: Remove dependency on those functions.
+#include "extern_fs.hpp"
+HelHandle __mlibc_getPassthrough(int fd);
+HelHandle __raw_map(int fd);
 
 namespace tmp_fs {
 
@@ -35,6 +42,7 @@ private:
 const NodeOperations Symlink::operations{
 	&getSymlinkType,
 	&Symlink::getStats,
+	nullptr,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -83,6 +91,7 @@ const NodeOperations DeviceFile::operations{
 	nullptr,
 	nullptr,
 	nullptr,
+	nullptr,
 	&DeviceFile::readDevice
 };
 
@@ -100,6 +109,15 @@ private:
 		if(it != derived->_entries.end())
 			COFIBER_RETURN(*it);
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
+	}))
+
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, link(std::shared_ptr<Node> object,
+			std::string name, std::shared_ptr<Node> target), ([=] {
+		auto derived = std::static_pointer_cast<Directory>(object);
+		assert(derived->_entries.find(name) == derived->_entries.end());
+		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(target));
+		derived->_entries.insert(link);
+		COFIBER_RETURN(link);
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
@@ -190,6 +208,7 @@ const NodeOperations Directory::operations{
 	&getDirectoryType,
 	&Directory::getStats,
 	&Directory::getLink,
+	&Directory::link,
 	&Directory::mkdir,
 	&Directory::symlink,
 	&Directory::mkdev,
@@ -204,7 +223,51 @@ const LinkOperations Directory::MyLink::operations{
 	&MyLink::getTarget
 };
 
+struct MemoryNode : Node {
+private:
+	static FileStats getStats(std::shared_ptr<Node>) {
+		assert(!"Fix this");
+	}
+
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<Node> object), ([=] {
+		auto self = std::static_pointer_cast<MemoryNode>(object);
+
+		auto fd = ::open(self->_path.c_str(), O_RDONLY);
+		assert(fd != -1);
+
+		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
+		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), self));
+	}))
+
+	static const NodeOperations operations;
+
+public:
+	MemoryNode(std::string path)
+	: Node(&operations), _path{std::move(path)} { }
+
+private:
+	std::string _path;
+};
+
+const NodeOperations MemoryNode::operations{
+	&getRegularType,
+	&MemoryNode::getStats,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	nullptr,
+	&MemoryNode::open,
+	nullptr,
+	nullptr
+};
+
 } // anonymous namespace
+
+std::shared_ptr<Node> createMemoryNode(std::string path) {
+	return std::make_shared<MemoryNode>(std::move(path));
+}
 
 std::shared_ptr<Link> createRoot() {
 	auto node = std::make_shared<Directory>();

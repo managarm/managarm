@@ -134,11 +134,11 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 		std::shared_ptr<VmContext> vm_context, helix::BorrowedDescriptor universe,
 		HelHandle mbus_handle), ([=] {
 	auto exec_file = COFIBER_AWAIT open(root, path);
-	auto interp_file = COFIBER_AWAIT open(root, "/lib/ld-init.so");
 	assert(exec_file);
-	assert(interp_file);
-
 	auto exec_info = COFIBER_AWAIT load(exec_file, vm_context->getSpace(), 0);
+	
+	auto interp_file = COFIBER_AWAIT open(root, "/lib/ld-init.so");
+	assert(interp_file);
 	auto interp_info = COFIBER_AWAIT load(interp_file, vm_context->getSpace(), 0x40000000);
 	
 	constexpr size_t stack_size = 0x10000;

@@ -1,14 +1,8 @@
 
-#include <unistd.h>
-#include <fcntl.h>
-
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
 #include "extern_fs.hpp"
 #include "fs.pb.h"
-
-HelHandle __mlibc_getPassthrough(int fd);
-HelHandle __raw_map(int fd);
 
 namespace extern_fs {
 
@@ -124,6 +118,7 @@ const NodeOperations Regular::operations{
 	nullptr,
 	nullptr,
 	nullptr,
+	nullptr,
 	&Regular::open,
 	nullptr,
 	nullptr
@@ -178,6 +173,7 @@ private:
 const NodeOperations Symlink::operations{
 	&getSymlinkType,
 	&Symlink::getStats,
+	nullptr,
 	nullptr,
 	nullptr,
 	nullptr,
@@ -320,102 +316,10 @@ const NodeOperations Directory::operations{
 	&getDirectoryType,
 	&Directory::getStats,
 	&Directory::getLink,
+	nullptr,
 	&Directory::mkdir,
 	&Directory::symlink,
 	&Directory::mkdev,
-	nullptr,
-	nullptr,
-	nullptr
-};
-
-struct FakeRegular : Node {
-private:
-	static FileStats getStats(std::shared_ptr<Node>) {
-		assert(!"Fix this");
-	}
-
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Node> object), ([=] {
-		auto derived = std::static_pointer_cast<FakeRegular>(object);
-		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(derived->_fd));
-		COFIBER_RETURN(std::make_shared<OpenFile>(std::move(passthrough), derived));
-	}))
-
-	static const NodeOperations operations;
-
-public:
-	FakeRegular(int fd)
-	: Node(&operations), _fd(fd) { }
-
-private:
-	int _fd;
-};
-
-const NodeOperations FakeRegular::operations{
-	&getRegularType,
-	&FakeRegular::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&FakeRegular::open,
-	nullptr,
-	nullptr
-};
-
-struct FakeDirectory : Node {
-private:
-	static FileStats getStats(std::shared_ptr<Node>) {
-		assert(!"Fix this");
-	}
-
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
-		(void)object;
-		(void)name;
-		assert(!"mkdir is not implemented for extern_fs");
-	}))
-	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			symlink(std::shared_ptr<Node> object, std::string name, std::string link), ([=] {
-		(void)object;
-		(void)name;
-		(void)link;
-		assert(!"symlink is not implemented for extern_fs");
-	}))
-	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
-			std::string name, VfsType type, DeviceId id), ([=] {
-		(void)object;
-		(void)name;
-		(void)type;
-		(void)id;
-		assert(!"mkdev is not implemented for extern_fs");
-	}))
-
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
-		(void)object;
-		int fd = open(name.c_str(), O_RDONLY);
-		auto node = std::make_shared<FakeRegular>(fd);
-		// TODO: do not use createRootLink here!
-		COFIBER_RETURN(createRootLink(std::move(node)));
-	}))
-
-	static const NodeOperations operations;
-
-public:
-	FakeDirectory()
-	: Node(&operations) { }
-};
-
-const NodeOperations FakeDirectory::operations{
-	&getDirectoryType,
-	&FakeDirectory::getStats,
-	&FakeDirectory::getLink,
-	&FakeDirectory::mkdir,
-	&FakeDirectory::symlink,
-	&FakeDirectory::mkdev,
 	nullptr,
 	nullptr,
 	nullptr
@@ -452,11 +356,6 @@ std::shared_ptr<Link> Context::internalizeLink(Node *parent, std::string name, s
 }
 
 } // anonymous namespace
-
-std::shared_ptr<Link> createRoot() {
-	auto node = std::make_shared<FakeDirectory>();
-	return createRootLink(std::move(node));
-}
 
 std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};

@@ -506,7 +506,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 	COFIBER_AWAIT populateRootView();
-	Process::init("posix-init");
+	Process::init("sbin/posix-init");
 }))
 
 int main() {

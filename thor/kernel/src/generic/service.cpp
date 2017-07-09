@@ -127,10 +127,10 @@ namespace stdio {
 
 namespace initrd {
 	struct ModuleFile : OpenFile {
-		ModuleFile(Module *module)
+		ModuleFile(MfsRegular *module)
 		: module(module), offset(0) { }
 
-		Module *module;
+		MfsRegular *module;
 		size_t offset;
 	};
 
@@ -173,11 +173,11 @@ namespace initrd {
 				_buffer(*kernelAlloc), _payload(*kernelAlloc) { }
 
 		void operator() () {
-			assert(_file->offset <= _file->module->memory->getLength());
+			assert(_file->offset <= _file->module->getMemory()->getLength());
 			_payload.resize(frigg::min(size_t(_req.size()),
-					_file->module->memory->getLength() - _file->offset));
+					_file->module->getMemory()->getLength() - _file->offset));
 			assert(_payload.size());
-			_file->module->memory->load(_file->offset, _payload.data(), _payload.size());
+			_file->module->getMemory()->load(_file->offset, _payload.data(), _payload.size());
 			_file->offset += _payload.size();
 
 			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
@@ -227,7 +227,7 @@ namespace initrd {
 			assert(error == kErrSuccess);
 
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					MemoryAccessDescriptor(_file->module->memory),
+					MemoryAccessDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		
@@ -300,9 +300,10 @@ namespace initrd {
 	};
 	
 	struct OpenDirectory : OpenFile {
-		OpenDirectory()
-		: index(0) { }
+		OpenDirectory(MfsDirectory *node)
+		: node{node}, index(0) { }
 
+		MfsDirectory *node;
 		size_t index;
 	};
 	
@@ -316,10 +317,18 @@ namespace initrd {
 		req.ParseFromArray(buffer.data(), buffer.size());
 	
 		if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
-			if(file->index < allModules->size()) {
+			if(file->index < file->node->numEntries()) {
+				auto entry = file->node->getEntry(file->index);
+
 				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_path((*allModules)[file->index].filename);
+				resp.set_path(entry.name);
+				if(entry.node->type == MfsType::directory) {
+					resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+				}else{
+					assert(entry.node->type == MfsType::regular);
+					resp.set_file_type(managarm::fs::FileType::REGULAR);
+				}
 				
 				file->index++;
 
@@ -400,9 +409,15 @@ namespace initrd {
 		void operator() () {
 //			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			// TODO: Actually handle the file-not-found case.
-			if(_req.path() == "/") {
+			auto module = resolveModule(_req.path());
+			if(!module)
+				frigg::panicLogger() << "initrd: Module '" << _req.path()
+						<< "' not found" << frigg::endLog;
+
+			if(module->type == MfsType::directory) {
 				auto stream = createStream();
-				auto file = frigg::construct<OpenDirectory>(*kernelAlloc);
+				auto file = frigg::construct<OpenDirectory>(*kernelAlloc,
+						static_cast<MfsDirectory *>(module));
 				file->clientLane = frigg::move(stream.get<1>());
 
 				KernelFiber::run([lane = stream.get<0>(), file] () {
@@ -422,13 +437,11 @@ namespace initrd {
 				serviceSend(_lane, _buffer.data(), _buffer.size(),
 						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
 			}else{
-				Module *module = getModule(_req.path());
-				if(!module)
-					frigg::panicLogger() << "initrd: Module '" << _req.path()
-							<< "' not found" << frigg::endLog;
+				assert(module->type == MfsType::regular);
 				
 				auto stream = createStream();
-				auto file = frigg::construct<ModuleFile>(*kernelAlloc, module);
+				auto file = frigg::construct<ModuleFile>(*kernelAlloc,
+						static_cast<MfsRegular *>(module));
 				file->clientLane = frigg::move(stream.get<1>());
 
 				auto closure = frigg::construct<initrd::FileRequestClosure>(*kernelAlloc,
