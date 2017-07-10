@@ -4,6 +4,8 @@
 
 #include <frigg/macros.hpp>
 #include <frigg/cxx-support.hpp>
+
+#include <frigg/algorithm.hpp>
 #include <frigg/traits.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
