@@ -173,53 +173,49 @@ DeviceId readDevice(std::shared_ptr<Node> node) {
 	return node->operations()->readDevice(node);
 }
 // --------------------------------------------------------
-// SharedView implementation.
+// MountView implementation.
 // --------------------------------------------------------
 
-SharedView SharedView::createRoot(std::shared_ptr<Link> origin) {
-	auto data = std::make_shared<Data>();
-	data->origin = std::move(origin);
-	return SharedView{std:move(data)};
+std::shared_ptr<MountView> MountView::createRoot(std::shared_ptr<Link> origin) {
+	return std::make_shared<MountView>(nullptr, nullptr, std::move(origin));
 }
 
-std::shared_ptr<Link> SharedView::getAnchor() const {
-	return _data->anchor;
+std::shared_ptr<Link> MountView::getAnchor() const {
+	return _anchor;
 }
 
-std::shared_ptr<Link> SharedView::getOrigin() const {
-	return _data->origin;
+std::shared_ptr<Link> MountView::getOrigin() const {
+	return _origin;
 }
 
-void SharedView::mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin) const {
-	auto data = std::make_shared<Data>();
-	data->anchor = std::move(anchor);
-	data->origin = std::move(origin);
-	_data->mounts.insert(SharedView{std::move(data)});
+void MountView::mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin) {
+	_mounts.insert(std::make_shared<MountView>(shared_from_this(),
+			std::move(anchor), std::move(origin)));
 	// TODO: check insert return value
 }
 
-SharedView SharedView::getMount(std::shared_ptr<Link> link) const {
-	auto it = _data->mounts.find(link);
-	if(it == _data->mounts.end())
-		return SharedView{};
+std::shared_ptr<MountView> MountView::getMount(std::shared_ptr<Link> link) const {
+	auto it = _mounts.find(link);
+	if(it == _mounts.end())
+		return nullptr;
 	return *it;
 }
 
 namespace {
 
-SharedView rootView;
+std::shared_ptr<MountView> rootView;
 
 } // anonymous namespace
 
 COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 	// Create a tmpfs instance for the initrd.
 	auto tree = tmp_fs::createRoot();
-	rootView = SharedView::createRoot(tree);
+	rootView = MountView::createRoot(tree);
 
 	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
 	
 	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
-	rootView.mount(std::move(dev), getDevtmpfs());
+	rootView->mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<
@@ -353,11 +349,11 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string
 	if(!child)
 		COFIBER_RETURN((ViewPath{parent.first, nullptr})); // TODO: Return an error code.
 
-	auto mount = parent.first.getMount(child);
+	auto mount = parent.first->getMount(child);
 	if(mount) {
 		if(debugResolve)
 			std::cout << "    It's a mount point" << std::endl;
-		auto origin = mount.getOrigin();
+		auto origin = mount->getOrigin();
 		COFIBER_RETURN((ViewPath{std::move(mount), std::move(origin)}));
 	}else{
 		if(debugResolve)
@@ -369,7 +365,7 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string
 } // anonymous namespace
 
 ViewPath rootPath() {
-	return ViewPath{rootView, rootView.getOrigin()};
+	return ViewPath{rootView, rootView->getOrigin()};
 }
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name), ([=] {

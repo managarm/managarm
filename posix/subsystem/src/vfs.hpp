@@ -52,10 +52,10 @@ struct Node;
 struct NodeOperations;
 
 namespace _vfs_view {
-	struct SharedView;
+	struct MountView;
 };
 
-using _vfs_view::SharedView;
+using _vfs_view::MountView;
 
 // ----------------------------------------------------------------------------
 // File class.
@@ -206,58 +206,48 @@ inline VfsType getSymlinkType(std::shared_ptr<Node>) {
 
 namespace _vfs_view {
 
-struct Data;
-
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
-struct SharedView {
-	static SharedView createRoot(std::shared_ptr<Link> origin);
+struct MountView : std::enable_shared_from_this<MountView> {
+	static std::shared_ptr<MountView> createRoot(std::shared_ptr<Link> origin);
 
-	SharedView() = default;
-
-	explicit operator bool() {
-		return (bool)_data;
-	}
+	// TODO: This is an implementation detail that could be hidden.
+	explicit MountView(std::shared_ptr<MountView> parent, std::shared_ptr<Link> anchor,
+			std::shared_ptr<Link> origin)
+	: _parent{std::move(parent)}, _anchor{std::move(anchor)}, _origin{std::move(origin)} { }
 
 	std::shared_ptr<Link> getAnchor() const;
 	std::shared_ptr<Link> getOrigin() const;
 
-	void mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin) const;
+	void mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin);
 
-	SharedView getMount(std::shared_ptr<Link> link) const;
+	std::shared_ptr<MountView> getMount(std::shared_ptr<Link> link) const;
 
 private:
-	explicit SharedView(std::shared_ptr<Data> data)
-	: _data(std::move(data)) { }
+	struct Compare {
+		struct is_transparent { };
 
-	std::shared_ptr<Data> _data;
-};
+		bool operator() (const std::shared_ptr<MountView> &a, const std::shared_ptr<Link> &b) const {
+			return a->getAnchor() < b;
+		}
+		bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<MountView> &b) const {
+			return a < b->getAnchor();
+		}
 
-struct Compare {
-	struct is_transparent { };
+		bool operator() (const std::shared_ptr<MountView> &a, const std::shared_ptr<MountView> &b) const {
+			return a->getAnchor() < b->getAnchor();
+		}
+	};
 
-	bool operator() (const SharedView &a, const std::shared_ptr<Link> &b) const {
-		return a.getAnchor() < b;
-	}
-	bool operator() (const std::shared_ptr<Link> &a, const SharedView &b) const {
-		return a < b.getAnchor();
-	}
-
-	bool operator() (const SharedView &a, const SharedView &b) const {
-		return a.getAnchor() < b.getAnchor();
-	}
-};
-
-struct Data {
-	SharedView parent;
-	std::shared_ptr<Link> anchor;
-	std::shared_ptr<Link> origin;
-	std::set<SharedView, Compare> mounts;
+	std::shared_ptr<MountView> _parent;
+	std::shared_ptr<Link> _anchor;
+	std::shared_ptr<Link> _origin;
+	std::set<std::shared_ptr<MountView>, Compare> _mounts;
 };
 
 } // namespace _vfs_view
 
-using ViewPath = std::pair<SharedView, std::shared_ptr<Link>>;
+using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<Link>>;
 
 async::result<void> populateRootView();
 

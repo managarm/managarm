@@ -159,14 +159,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
 			assert(target.second);
 			if(req.fs_type() == "devtmpfs") {
-				target.first.mount(target.second, getDevtmpfs());	
+				target.first->mount(target.second, getDevtmpfs());	
 			}else{
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 				assert(source.second);
 				auto device = deviceManager.get(readDevice(getTarget(source.second)));
 				auto link = COFIBER_AWAIT Device::mount(device);
-				target.first.mount(target.second, std::move(link));	
+				target.first->mount(target.second, std::move(link));	
 			}
 
 			managarm::posix::SvrResponse resp;
