@@ -256,7 +256,7 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 	$($d_CC) -c -o $@ $($d_CFLAGS) -MD -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # Generate protobuf files.
-gen-$c: $($c_GENDIR)/hwctrl.frigg_pb.hpp $($c_GENDIR)/posix.frigg_pb.hpp \
+gen-$c: $($c_GENDIR)/posix.frigg_pb.hpp \
 	$($c_GENDIR)/fs.frigg_pb.hpp $($c_GENDIR)/mbus.frigg_pb.hpp \
 	$($c_GENDIR)/hw.frigg_pb.hpp
 
