@@ -243,6 +243,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	copyToStack<uintptr_t>(tail_area, 0);
 
 	uintptr_t tail_disp = data_disp - tail_area.size();
+	assert(!(tail_disp % 16));
 	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
