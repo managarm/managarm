@@ -204,15 +204,15 @@ extern "C" void *interpreterMain(char *sp) {
 }
 
 // the layout of this structure is dictated by the ABI
-struct TlsEntry {
+struct __abi_tls_entry {
 	SharedObject *object;
 	uint64_t offset;
 };
 
-static_assert(sizeof(TlsEntry) == 16, "Bad TlsEntry size");
+static_assert(sizeof(__abi_tls_entry) == 16, "Bad __abi_tls_entry size");
 
 extern "C" __attribute__ (( visibility("default") ))
-void *__tls_get_addr(TlsEntry *entry) {
+void *__rtdl_get_tls(struct __abi_tls_entry *entry) {
 	assert(entry->object->tlsModel == SharedObject::kTlsInitial);
 	
 //	frigg::infoLogger() << "__tls_get_addr(" << entry->object->name
