@@ -360,7 +360,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 				assert(desc->entries[i].descriptorType == descriptor_type::report);
 				assert(!report_desc_index);
 				report_desc_index = 0;
-				report_desc_length = desc->entries[i].descriptorLength;
+				report_desc_length = (int)desc->entries[i].descriptorLength;
 			}
 		}else if(type == descriptor_type::endpoint) {
 			assert(!in_endp_number);
