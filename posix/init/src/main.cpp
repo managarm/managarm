@@ -32,6 +32,12 @@ int main() {
 
 	char *envp[] = { nullptr };
 
+	auto gfx_bochs = fork();
+	if(!gfx_bochs) {
+		execve("/sbin/gfx_bochs", args.data(), envp);
+	}else assert(gfx_bochs != -1);
+
+/*
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
@@ -88,7 +94,7 @@ int main() {
 	dup2(tty, STDERR_FILENO);
 	
 	std::cout << "init: On serial console" << std::endl;
-
+*/
 /*
 	auto hid = fork();
 	if(!hid) {
@@ -123,7 +129,7 @@ int main() {
 		execve("/usr/bin/virtio-block", args.data(), envp);
 	}else assert(virtio != -1);
 */
-
+/*
 	auto hid = fork();
 	if(!hid) {
 		execve("/usr/bin/hid", args.data(), envp);
@@ -151,7 +157,7 @@ int main() {
 		printf("val: %i\n", event.value);
 		printf("-----------\n");
 	}
-
+*/
 /*
 	auto vga_terminal = fork();
 	if(!vga_terminal) {
