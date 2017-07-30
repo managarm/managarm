@@ -18,6 +18,7 @@
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
@@ -25,8 +26,87 @@
 #include <protocols/usb/server.hpp>
 
 #include "bochs.hpp"
+#include <fs.pb.h>
 
-std::vector<std::shared_ptr<GfxDevice>> globalDevices;
+// ----------------------------------------------------------------
+// Stuff that belongs in a DRM library.
+// ----------------------------------------------------------------
+
+async::result<int64_t> DrmDevice::seek(std::shared_ptr<void> object, int64_t offset) {
+	throw std::runtime_error("seek() not implemented");
+}
+
+async::result<size_t> DrmDevice::read(std::shared_ptr<void> object, void *buffer, size_t length) {
+	throw std::runtime_error("read() not implemented");
+}
+
+async::result<void> DrmDevice::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+	throw std::runtime_error("write() not implemented");
+}
+
+async::result<helix::BorrowedDescriptor> DrmDevice::accessMemory(std::shared_ptr<void> object) {
+	throw std::runtime_error("accessMemory() not implemented");
+}
+
+async::result<void> DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation) {
+	assert(!"Implement ioctl() in gfx/bochs");
+}
+
+constexpr protocols::fs::FileOperations fileOperations {
+	&DrmDevice::seek,
+	&DrmDevice::seek,
+	&DrmDevice::seek,
+	&DrmDevice::read,
+	&DrmDevice::write,
+	&DrmDevice::accessMemory,
+	&DrmDevice::ioctl
+};
+
+COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<DrmDevice> device,
+		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		helix::Accept accept;
+		helix::RecvInline recv_req;
+
+		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
+		COFIBER_AWAIT header.async_wait();
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());
+		
+		auto conversation = accept.descriptor();
+		managarm::fs::CntRequest req;
+		req.ParseFromArray(recv_req.data(), recv_req.length());
+		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			helix::SendBuffer send_resp;
+			helix::PushDescriptor push_node;
+			
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			protocols::fs::servePassthrough(std::move(local_lane), device,
+					&fileOperations);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&push_node, remote_lane));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		}else{
+			throw std::runtime_error("Invalid request in serveDevice()");
+		}
+	}
+}))
+
+// ----------------------------------------------------------------
 
 // ----------------------------------------------------------------
 // Helper Funcs.
@@ -109,7 +189,24 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 
 	auto gfx_device = std::make_shared<GfxDevice>(actual_pointer);
 	gfx_device->initialize();
-	globalDevices.push_back(std::move(gfx_device));
+	
+	// Create an mbus object for the device.
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	std::unordered_map<std::string, std::string> descriptor {
+		{ "unix.devtype", "block" },
+		{ "unix.devname", "card0" },
+	};
+	auto object = COFIBER_AWAIT root.createObject("gfx_bochs", descriptor,
+			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		serveDevice(gfx_device, std::move(local_lane));
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {

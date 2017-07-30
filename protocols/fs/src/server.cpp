@@ -123,6 +123,8 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_memory.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
+			COFIBER_AWAIT file_ops->ioctl(file, std::move(req), std::move(conversation));
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected"
 					" request type in servePassthrough()");

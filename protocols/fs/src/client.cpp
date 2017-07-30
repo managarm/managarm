@@ -1,4 +1,5 @@
 
+#include <iostream>
 #include <helix/await.hpp>
 
 #include "fs.pb.h"

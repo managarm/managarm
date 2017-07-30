@@ -17,6 +17,11 @@ enum FileType {
 	SOCKET = 4;
 }
 
+enum Command {
+	TTY_GET_ATTR = 1;
+	TTY_SET_ATTR = 2;
+}
+
 enum CntReqType {
 	NONE = 0;
 
@@ -38,6 +43,8 @@ enum CntReqType {
 	SEEK_ABS = 6;
 	SEEK_REL = 7;
 	SEEK_EOF = 8;
+
+	PT_IOCTL = 17;
 
 	// Legacy API.
 	FSTAT = 5;
@@ -62,6 +69,9 @@ message CntRequest {
 
 	// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional int64 rel_offset = 7;
+
+	// used by PT_IOCTL.
+	optional int64 command = 8;
 }
 
 message SvrResponse {
@@ -105,5 +115,8 @@ message SvrResponse {
 
 	// returned by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional uint64 offset = 6;
+	
+	// returned by PT_IOCTL
+	optional uint64 result = 20;
 }
 

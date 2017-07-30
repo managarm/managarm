@@ -176,7 +176,6 @@ namespace initrd {
 			assert(_file->offset <= _file->module->getMemory()->getLength());
 			_payload.resize(frigg::min(size_t(_req.size()),
 					_file->module->getMemory()->getLength() - _file->offset));
-			assert(_payload.size());
 			_file->module->getMemory()->load(_file->offset, _payload.data(), _payload.size());
 			_file->offset += _payload.size();
 

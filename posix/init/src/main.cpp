@@ -37,6 +37,16 @@ int main() {
 		execve("/sbin/gfx_bochs", args.data(), envp);
 	}else assert(gfx_bochs != -1);
 
+	while(access("/dev/card0", F_OK)) {
+		assert(errno == ENOENT);
+		sleep(1);
+	}
+
+	auto modeset = fork();
+	if(!modeset) {
+		execve("/sbin/modeset", args.data(), envp);
+	}else assert(modeset != -1);
+
 /*
 	// Start essential bus and storage drivers.
 	auto uhci = fork();

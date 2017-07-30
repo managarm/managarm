@@ -5,7 +5,8 @@ $(call define_objdir,DEVICES_OBJ,$($c_OBJDIR)/devices)
 $c_OBJECTS := main.o vfs.o process.o device.o exec.o
 $c_OBJECTS += devices/helout.o
 $c_OBJECTS += tmp_fs.o extern_fs.o
-$c_OBJECTS += posix.pb.o fs.pb.o
+$c_OBJECTS += posix.pb.o
+# fs.pb.o is part of libfs_protocol.
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
 all-$c: $($c_BINDIR)/posix-subsystem

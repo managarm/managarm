@@ -9,6 +9,10 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 
+namespace managarm::fs {
+	struct CntRequest;
+}
+
 namespace protocols {
 namespace fs {
 
@@ -28,6 +32,8 @@ struct FileOperations {
 	async::result<size_t> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
 	async::result<void> (*write)(std::shared_ptr<void> object, const void *buffer, size_t length);
 	async::result<helix::BorrowedDescriptor> (*accessMemory)(std::shared_ptr<void> object);
+	async::result<void> (*ioctl)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+			helix::UniqueLane conversation);
 };
 
 struct NodeOperations {

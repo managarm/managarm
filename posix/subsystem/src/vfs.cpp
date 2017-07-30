@@ -260,7 +260,7 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 				break;
 			assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-//			std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
+			//std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				auto link = COFIBER_AWAIT mkdir(item.first, resp.path());

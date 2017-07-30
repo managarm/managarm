@@ -13,9 +13,15 @@ $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2
 $c_CXXFLAGS += -DFRIGG_HAVE_LIBC
 
-$c_LIBS := -larch -lhelix -lcofiber -lhw_protocol -lmbus_protocol \
+$c_LIBS := -larch -lhelix -lcofiber -lfs_protocol -lhw_protocol -lmbus_protocol \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_exec,gfx_bochs,main.o)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
+
+# Compile protobuf files.
+gen-$c: $($c_GENDIR)/fs.pb.tag
+
+$(call gen_protobuf_cpp,$(TREE_PATH)/bragi/proto,$($c_GENDIR))
+$(call compile_cxx,$($c_GENDIR),$($c_OBJDIR))
 
