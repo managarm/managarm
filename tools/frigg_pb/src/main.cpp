@@ -20,6 +20,9 @@ void printScalarInitialize(pb::io::Printer &printer, const pb::FieldDescriptor *
 	if(field->is_optional() || field->is_required()) {
 		printer.Print("m_$name$(0)",
 				"name", field->name());
+	}else if(field->is_repeated()) {
+		printer.Print("m_$name$(allocator)",
+				"name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
 	}
@@ -51,6 +54,19 @@ void printScalarAccessors(pb::io::Printer &printer, const pb::FieldDescriptor *f
 				"  m_$name$ = value;\n"
 				"}\n",
 				"name", field->name(), "out_type", out_type);
+	}else if(field->is_repeated()) {
+		printer.Print("inline void add_$name$($out_type$ value) {\n"
+				"  m_$name$.push(value);\n"
+				"}\n",
+				"name", field->name(), "out_type", out_type);
+		printer.Print("inline size_t $name$_size() const {\n"
+				"  return m_$name$.size();\n"
+				"}\n",
+				"name", field->name());
+		printer.Print("inline $out_type$ $name$(size_t i) const {\n"
+				"  return m_$name$[i];\n"
+				"}\n",
+				"name", field->name(), "out_type", out_type);
 	}else{
 		assert(!"Unexpected field configuration");
 	}
@@ -60,6 +76,12 @@ void printScalarSize(pb::io::Printer &printer, const pb::FieldDescriptor *field)
 	if(field->is_optional() || field->is_required()) {
 		printer.Print("p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
 				"p_cachedSize += frigg::protobuf::varintSize(m_$name$);\n",
+				"number", std::to_string(field->number()), "name", field->name());
+	}else if(field->is_repeated()) {
+		printer.Print("p_cachedSize += m_$name$.size()"
+					" * frigg::protobuf::varintSize($number$ << 3);\n"
+				"for(size_t i = 0; i < m_$name$.size(); i++)\n"
+				"  p_cachedSize += frigg::protobuf::varintSize(m_$name$[i]);\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -87,6 +109,13 @@ void printScalarSerialize(pb::io::Printer &printer, const pb::FieldDescriptor *f
 		printer.Print("$emit_function$(writer, $number$, m_$name$);\n",
 				"emit_function", emit_function, "number", std::to_string(field->number()),
 				"name", field->name());
+	}else if(field->is_repeated()) {
+		printer.Print("for(size_t i = 0; i < m_$name$.size(); i++)\n", "name", field->name());
+		printer.Indent();
+		printer.Print("$emit_function$(writer, $number$, m_$name$[i]);\n",
+				"emit_function", emit_function, "number", std::to_string(field->number()),
+				"name", field->name());
+		printer.Outdent();
 	}else{
 		assert(!"Unexpected field configuration");
 	}
@@ -127,6 +156,15 @@ void printScalarParse(pb::io::Printer &printer, const pb::FieldDescriptor *field
 		printer.Print("  m_$name$ = $fetch_function$(reader);\n"
 				"  break;\n",
 				"name", field->name(), "fetch_function", fetch_function);
+	}else if(field->is_repeated()) {
+		printer.Print("case $number$:\n", "number", std::to_string(field->number()));
+		printer.Indent();
+		printer.Print("assert(header.wire == $wire_constant$);\n"
+				"m_$name$.push($fetch_function$(reader));\n"
+				"break;\n",
+				"wire_constant", wire_constant, "fetch_function", fetch_function,
+				"name", field->name());
+		printer.Outdent();
 	}else{
 		assert(!"Unexpected field configuration");
 	}
@@ -151,6 +189,9 @@ void printScalarMember(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 
 	if(field->is_optional() || field->is_required()) {
 		printer.Print("$out_type$ m_$name$;\n",
+				"out_type", out_type, "name", field->name());
+	}else if(field->is_repeated()) {
+		printer.Print("Vector<$out_type$> m_$name$;\n",
 				"out_type", out_type, "name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
