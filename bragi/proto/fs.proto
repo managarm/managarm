@@ -8,6 +8,7 @@ enum Errors {
 	ILLEGAL_REQUEST = 3;
 	FILE_NOT_FOUND = 1;
 	END_OF_FILE = 2;
+	ILLEGAL_ARGUMENT = 4;
 }
 
 enum FileType {
@@ -72,6 +73,9 @@ message CntRequest {
 
 	// used by PT_IOCTL.
 	optional int64 command = 8;
+	
+	// drm
+	optional uint64 drm_capability = 18;
 }
 
 message SvrResponse {
@@ -118,5 +122,8 @@ message SvrResponse {
 	
 	// returned by PT_IOCTL
 	optional uint64 result = 20;
+
+	// drm
+	optional uint64 drm_value = 21;
 }
 

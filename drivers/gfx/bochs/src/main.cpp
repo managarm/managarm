@@ -25,6 +25,9 @@
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/server.hpp>
 
+#include <libdrm/drm.h>
+#include <libdrm/drm_mode.h>
+
 #include "bochs.hpp"
 #include <fs.pb.h>
 
@@ -48,10 +51,36 @@ async::result<helix::BorrowedDescriptor> DrmDevice::accessMemory(std::shared_ptr
 	throw std::runtime_error("accessMemory() not implemented");
 }
 
-async::result<void> DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
-		helix::UniqueLane conversation) {
-	assert(!"Implement ioctl() in gfx/bochs");
-}
+COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
+		conversation = std::move(conversation)] {
+	// Hier wird die eigentliche Funktionalität implementiert
+
+	if(req.command() == DRM_IOCTL_GET_CAP) {
+		//Rumpf für jeden ioctl
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		//spez. für jeden ioctl einzeln
+		if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
+			resp.set_drm_value(1);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}else{
+			resp.set_drm_value(0);
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+		
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(true){
+		
+	}else{
+		throw std::runtime_error("Unknown ioctl() with ID" + std::to_string(req.command()));
+	}
+}))
 
 constexpr protocols::fs::FileOperations fileOperations {
 	&DrmDevice::seek,
