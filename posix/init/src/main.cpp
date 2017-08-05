@@ -6,6 +6,7 @@
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <sys/mount.h>
 #include <sys/socket.h> // FIXME: for testing
 #include <sys/stat.h>
@@ -25,6 +26,21 @@ int main() {
 	dup2(fd, STDOUT_FILENO);
 	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");
+	
+	int mfd = open("/sbin/gfx_bochs", O_RDONLY);
+	if(mfd < 0) {
+		printf("open() failed\n");
+		exit(1);
+	}
+
+	auto ptr = reinterpret_cast<char *>(mmap(nullptr, 0x1000, PROT_READ | PROT_WRITE,
+			MAP_SHARED, mfd, 0));
+	if(ptr == MAP_FAILED) {
+		printf("mmap() failed\n");
+		exit(1);
+	}
+
+	printf("Bytes: %x %x %x %x\n", ptr[0], ptr[1], ptr[2], ptr[3]);
 
 	std::vector<char *> args;
 	args.push_back(const_cast<char *>("acpi"));

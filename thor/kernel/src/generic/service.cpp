@@ -112,7 +112,7 @@ namespace stdio {
 				(*closure)();
 			}else{
 				frigg::panicLogger() << "Illegal request type " << req.req_type()
-						<< " kernel provided stdio file" << frigg::endLog;
+						<< " for kernel provided stdio file" << frigg::endLog;
 			}
 
 			(*this)();
