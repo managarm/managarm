@@ -54,14 +54,10 @@ async::result<helix::BorrowedDescriptor> DrmDevice::accessMemory(std::shared_ptr
 COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
 		conversation = std::move(conversation)] {
-	// Hier wird die eigentliche Funktionalität implementiert
-
 	if(req.command() == DRM_IOCTL_GET_CAP) {
-		//Rumpf für jeden ioctl
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		//spez. für jeden ioctl einzeln
 		if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
 			resp.set_drm_value(1);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -75,11 +71,92 @@ COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> obje
 			helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
-	}else if(true){
+	}else if(req.command() == DRM_IOCTL_MODE_GETRESOURCES) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.add_drm_crtc_ids(uint32_t(1));
+		resp.add_drm_connector_ids(uint32_t(2));
+		resp.add_drm_encoder_ids(uint32_t(3));
+		resp.set_drm_min_width(640);
+		resp.set_drm_max_width(1024);
+		resp.set_drm_min_height(480);
+		resp.set_drm_max_height(758);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETCONNECTOR) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
 		
+		resp.add_drm_encoders(3);
+		auto mode = resp.add_drm_modes();
+		mode->set_clock(47185);
+		mode->set_hdisplay(1024);
+		mode->set_hsync_start(1024);
+		mode->set_hsync_end(1024);
+		mode->set_htotal(1024);
+		mode->set_hskew(0);
+		mode->set_vdisplay(768);
+		mode->set_vsync_start(768);
+		mode->set_vsync_end(768);
+		mode->set_vtotal(768);
+		mode->set_vscan(0);
+		mode->set_vrefresh(60);
+		mode->set_flags(0);
+		mode->set_type(0);
+		mode->set_name("1024x768");
+		resp.set_drm_encoder_id(0);
+		resp.set_drm_connector_type(0);
+		resp.set_drm_connector_type_id(0);
+		resp.set_drm_connection(1); // DRM_MODE_CONNECTED
+		resp.set_drm_mm_width(306);
+		resp.set_drm_mm_height(230);
+		resp.set_drm_subpixel(0);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETENCODER) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+	
+		resp.set_drm_encoder_type(0);
+		resp.set_drm_crtc_id(1);
+		resp.set_drm_possible_crtcs(1);
+		resp.set_drm_possible_clones(0);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_CREATE_DUMB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+	
+		resp.set_drm_handle(1);
+		resp.set_drm_pitch(1024 * 4);
+		resp.set_drm_size(1024 * 768 * 4);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID" + std::to_string(req.command()));
 	}
+	COFIBER_RETURN();
 }))
 
 constexpr protocols::fs::FileOperations fileOperations {
