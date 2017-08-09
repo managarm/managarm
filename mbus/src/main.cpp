@@ -10,10 +10,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
+#include <variant>
 #include <vector>
 
 #include <async/result.hpp>
-#include <boost/variant.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
@@ -121,9 +121,9 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Object::bind(), ([=] {
 struct EqualsFilter;
 struct Conjunction;
 
-using AnyFilter = boost::variant<
+using AnyFilter = std::variant<
 	EqualsFilter,
-	boost::recursive_wrapper<Conjunction>
+	Conjunction
 >;
 
 struct EqualsFilter {
@@ -164,18 +164,14 @@ private:
 };
 
 static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
-	if(filter.type() == typeid(EqualsFilter)) {
-		auto &real = boost::get<EqualsFilter>(filter);
-
+	if(auto real = std::get_if<EqualsFilter>(&filter); real) {
 		auto &properties = entity->getProperties();
-		auto it = properties.find(real.getProperty());
+		auto it = properties.find(real->getProperty());
 		if(it == properties.end())
 			return false;
-		return it->second == real.getValue();
-	}else if(filter.type() == typeid(Conjunction)) {
-		auto &real = boost::get<Conjunction>(filter);
-
-		auto &operands = real.getOperands();
+		return it->second == real->getValue();
+	}else if(auto real = std::get_if<Conjunction>(&filter); real) {
+		auto &operands = real->getOperands();
 		return std::all_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
 			return matchesFilter(entity, operand);
 		});
