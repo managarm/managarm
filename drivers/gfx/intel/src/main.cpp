@@ -584,15 +584,14 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		mbus::EqualsFilter("pci-vendor", "8086"),
 		mbus::EqualsFilter("pci-device", "2e32")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "gfx_intel: Detected controller" << std::endl;
-			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected event type");
-		}
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
+		std::cout << "gfx_intel: Detected controller" << std::endl;
+		bindController(std::move(entity));
 	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 // --------------------------------------------------------

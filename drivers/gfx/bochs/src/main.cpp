@@ -303,8 +303,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 		{ "unix.devtype", "block" },
 		{ "unix.devname", "card0" },
 	};
-	auto object = COFIBER_AWAIT root.createObject("gfx_bochs", descriptor,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		serveDevice(gfx_device, std::move(local_lane));
@@ -313,6 +314,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
+
+	COFIBER_AWAIT root.createObject("gfx_bochs", descriptor, std::move(handler));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
@@ -321,15 +324,14 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "1234")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "gfx/bochs: Detected device" << std::endl;
-			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected event type");
-		}
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+		std::cout << "gfx/bochs: Detected device" << std::endl;
+		bindController(std::move(entity));
 	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 int main() {

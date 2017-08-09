@@ -6,52 +6,31 @@
 #include <stdint.h>
 #include <string.h>
 #include <unordered_map>
+#include <variant>
 
 #include <async/result.hpp>
-#include <boost/variant.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
-
-// EVENTUALLY: use std::variant instead of boost::variant!
 
 namespace mbus {
 
 namespace _detail {
 	using EntityId = int64_t;
 
-	struct Observer;
-	struct AttachEvent;
-
-	using AnyEvent = boost::variant<AttachEvent>;
+	// ------------------------------------------------------------------------
+	// Filters.
+	// ------------------------------------------------------------------------
 
 	struct NoFilter;
 	struct EqualsFilter;
 	struct Conjunction;
 
-	using AnyFilter = boost::variant<
+	using AnyFilter = std::variant<
 		NoFilter,
 		EqualsFilter,
-		boost::recursive_wrapper<Conjunction>
+		Conjunction
 	>;
-
-	struct Connection {
-		Connection(helix::Dispatcher *dispatcher, helix::UniqueLane lane)
-		: dispatcher(dispatcher), lane(std::move(lane)) { }
-
-		helix::Dispatcher *dispatcher;
-		helix::UniqueLane lane;
-	};
 	
-	// ------------------------------------------------------------------------
-	// Properties.
-	// ------------------------------------------------------------------------
-
-	using Properties = std::unordered_map<std::string, std::string>;	
-	
-	// ------------------------------------------------------------------------
-	// Filters.
-	// ------------------------------------------------------------------------
-
 	struct NoFilter { };
 
 	struct EqualsFilter {
@@ -75,7 +54,25 @@ namespace _detail {
 	private:
 		std::vector<AnyFilter> _operands;
 	};
+
+	// ------------------------------------------------------------------------
+	// Properties.
+	// ------------------------------------------------------------------------
+
+	using Properties = std::unordered_map<std::string, std::string>;	
 	
+	// ------------------------------------------------------------------------
+	// Private state object.
+	// ------------------------------------------------------------------------
+	
+	struct Connection {
+		Connection(helix::Dispatcher *dispatcher, helix::UniqueLane lane)
+		: dispatcher(dispatcher), lane(std::move(lane)) { }
+
+		helix::Dispatcher *dispatcher;
+		helix::UniqueLane lane;
+	};
+
 	// ------------------------------------------------------------------------
 	// mbus Instance class.
 	// ------------------------------------------------------------------------
@@ -99,10 +96,27 @@ namespace _detail {
 	// Entity related code.
 	// ------------------------------------------------------------------------
 
-	struct BindQuery { };
+	struct Entity;
+	struct Observer;
 
-	using AnyQuery = boost::variant<BindQuery>;
+	struct ObjectHandler {
+		ObjectHandler &withBind(std::function<async::result<helix::UniqueDescriptor>()> f) {
+			bind = std::move(f);
+			return *this;
+		}
 
+		std::function<async::result<helix::UniqueDescriptor>()> bind;
+	};
+
+	struct ObserverHandler {
+		ObserverHandler &withAttach(std::function<void(Entity, Properties)> f) {
+			attach = std::move(f);
+			return *this;
+		}
+
+		std::function<void(Entity, Properties)> attach;
+	};
+	
 	struct Entity {	
 		explicit Entity(std::shared_ptr<Connection> connection, EntityId id)
 		: _connection(std::move(connection)), _id(id) { }
@@ -112,12 +126,11 @@ namespace _detail {
 
 		// creates a child object.
 		async::result<Entity> createObject(std::string name,
-				const Properties &properties,
-				std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler) const;
+				const Properties &properties, ObjectHandler handler) const;
 
 		// links an observer to this group.
 		async::result<Observer> linkObserver(const AnyFilter &filter,
-				std::function<void(AnyEvent)> handler) const;
+				ObserverHandler handler) const;
 
 		// bind to the device.
 		async::result<helix::UniqueDescriptor> bind() const;
@@ -152,19 +165,17 @@ namespace _detail {
 	};
 }
 
-using _detail::Instance;
-using _detail::Properties;
-
-using _detail::BindQuery;
-using _detail::AnyQuery;
-using _detail::Entity;
-
 using _detail::NoFilter;
 using _detail::EqualsFilter;
 using _detail::Conjunction;
 using _detail::AnyFilter;
-using _detail::AttachEvent;
-using _detail::AnyEvent;
+
+using _detail::Properties;
+
+using _detail::ObjectHandler;
+using _detail::ObserverHandler;
+using _detail::Instance;
+using _detail::Entity;
 using _detail::Observer;
 
 } // namespace mbus

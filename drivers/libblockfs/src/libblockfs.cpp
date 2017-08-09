@@ -198,8 +198,9 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 			{ "unix.devtype", "block" },
 			{ "unix.devname", "sda0" },
 		};
-		auto object = COFIBER_AWAIT root.createObject("partition", descriptor,
-				[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+
+		auto handler = mbus::ObjectHandler{}
+		.withBind([] () -> async::result<helix::UniqueDescriptor> {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			servePartition(std::move(local_lane));
@@ -208,6 +209,8 @@ COFIBER_ROUTINE(cofiber::no_future, runDevice(BlockDevice *device), ([=] {
 			promise.set_value(std::move(remote_lane));
 			return promise.async_get();
 		});
+
+		COFIBER_AWAIT root.createObject("partition", descriptor, std::move(handler));
 	}
 }))
 

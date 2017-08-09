@@ -347,10 +347,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	
 	char name[3];
 	sprintf(name, "%.2x", address);
-	auto object = COFIBER_AWAIT root.createObject(name, mbus_desc,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
-		(void)query;
 
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
@@ -361,6 +360,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 		return promise.async_get();
 	});
 
+	COFIBER_AWAIT root.createObject(name, mbus_desc, std::move(handler));
 	COFIBER_RETURN();
 }))
 
@@ -942,15 +942,14 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 		mbus::EqualsFilter("pci-subclass", "03"),
 		mbus::EqualsFilter("pci-interface", "20")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "ehci: Detected controller" << std::endl;
-			bindController(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected event type");
-		}
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
+		std::cout << "ehci: Detected controller" << std::endl;
+		bindController(std::move(entity));
 	});
+	
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 // --------------------------------------------------------

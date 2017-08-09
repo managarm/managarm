@@ -217,8 +217,9 @@ COFIBER_ROUTINE(cofiber::no_future, runTerminal(), ([=] {
 		{ "unix.devtype", "block" },
 		{ "unix.devname", "ttyS0" },
 	};
-	auto object = COFIBER_AWAIT root.createObject("uart0", descriptor,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		serveTerminal(std::move(local_lane));
@@ -227,6 +228,8 @@ COFIBER_ROUTINE(cofiber::no_future, runTerminal(), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
+
+	COFIBER_AWAIT root.createObject("uart0", descriptor, std::move(handler));
 }))
 
 int main() {

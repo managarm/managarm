@@ -42,15 +42,14 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 		mbus::EqualsFilter("pci-vendor", "1af4"),
 		mbus::EqualsFilter("pci-device", "1001")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			std::cout << "virtio: Detected block device" << std::endl;
-			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected device class");
-		}
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
+		std::cout << "virtio: Detected block device" << std::endl;
+		bindDevice(std::move(entity));
 	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 // --------------------------------------------------------

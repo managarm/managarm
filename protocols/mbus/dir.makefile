@@ -11,7 +11,7 @@ $c_INCLUDES := -I$(TREE_PATH)/bragi/include \
 	$(shell $($c_PKGCONF) --cflags protobuf-lite)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++14 -Wall -Wextra -fPIC -O2
+$c_CXXFLAGS += -std=c++17 -Wall -Wextra -fPIC -O2
 
 $c_LIBS := -lhelix -lcofiber \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)

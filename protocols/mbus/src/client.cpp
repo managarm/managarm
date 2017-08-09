@@ -49,8 +49,7 @@ COFIBER_ROUTINE(async::result<Entity>, Instance::getRoot(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> connection,
-		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler,
-		helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
+		ObjectHandler handler, helix::UniqueLane p), ([connection, handler, lane = std::move(p)] {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvBuffer recv_req;
@@ -71,7 +70,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_desc;
 
-			auto descriptor = COFIBER_AWAIT handler(BindQuery());
+			auto descriptor = COFIBER_AWAIT handler.bind();
 			
 			managarm::mbus::SvrResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
@@ -90,8 +89,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObject(std::shared_ptr<Connection> con
 }))
 
 COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
-		const Properties &properties,
-		std::function<async::result<helix::UniqueDescriptor>(AnyQuery)> handler) const, ([=] {
+		const Properties &properties, ObjectHandler handler) const, ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -129,7 +127,7 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> connection,
-		std::function<void(AnyEvent)> handler, helix::UniqueLane p),
+		ObserverHandler handler, helix::UniqueLane p),
 		([connection, handler, lane = std::move(p)] {
 	while(true) {
 		helix::RecvBuffer recv_req;
@@ -147,8 +145,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 			for(auto &kv : req.properties())
 				properties.insert({ kv.name(), kv.value() });
 
-			handler(AttachEvent{Entity(connection, req.id()),
-					std::move(properties)});
+			handler.attach(Entity{connection, req.id()}, std::move(properties));
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
@@ -156,17 +153,13 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 }))
 
 static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any_msg) {
-	if(filter.type() == typeid(EqualsFilter)) {
-		auto &real = boost::get<EqualsFilter>(filter);
-
+	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
 		auto msg = any_msg->mutable_equals_filter();
-		msg->set_path(real.getPath());
-		msg->set_value(real.getValue());
-	}else if(filter.type() == typeid(Conjunction)) {
-		auto &real = boost::get<Conjunction>(filter);
-		
+		msg->set_path(alt->getPath());
+		msg->set_value(alt->getValue());
+	}else if(auto alt = std::get_if<Conjunction>(&filter); alt) {
 		auto msg = any_msg->mutable_conjunction();
-		for(auto &operand : real.getOperands())
+		for(auto &operand : alt->getOperands())
 			encodeFilter(operand, msg->add_operands());
 	}else{
 		throw std::runtime_error("Unexpected filter type");
@@ -174,7 +167,7 @@ static void encodeFilter(const AnyFilter &filter, managarm::mbus::AnyFilter *any
 }
 
 COFIBER_ROUTINE(async::result<Observer>, Entity::linkObserver(const AnyFilter &filter,
-		std::function<void(AnyEvent)> handler) const, ([=] {
+		ObserverHandler handler) const, ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;

@@ -10,7 +10,7 @@ $c_INCLUDES := -iquote$($c_GENDIR) \
 	$(shell $($c_PKGCONF) --cflags protobuf-lite)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++14 -Wall -Wextra -O3
+$c_CXXFLAGS += -std=c++17 -Wall -Wextra -O2
 
 $c_block_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus_protocol -lblockfs \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)

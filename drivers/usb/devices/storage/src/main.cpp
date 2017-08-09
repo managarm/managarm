@@ -143,14 +143,14 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 		mbus::EqualsFilter("usb.type", "device"),
 		mbus::EqualsFilter("usb.class", "00")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			bindDevice(boost::get<mbus::AttachEvent>(event).getEntity());
-		}else{
-			throw std::runtime_error("Unexpected device class");
-		}
+
+
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties) {
+		bindDevice(std::move(entity));
 	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 // --------------------------------------------------------

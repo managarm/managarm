@@ -477,31 +477,24 @@ const DeviceOperations ExternDevice::operations{
 	&ExternDevice::mount
 };
 
-COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity device,
-		mbus::Properties properties), ([=] {
-	std::cout << "POSIX: Binding device " << properties.at("unix.devname") << std::endl;
-
-	auto lane = helix::UniqueLane(COFIBER_AWAIT device.bind());
-	auto device = std::make_shared<ExternDevice>(properties.at("unix.devname"),
-			std::move(lane));
-	deviceManager.install(device);
-}))
-
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("unix.devtype", "block")
 	});
-	COFIBER_AWAIT root.linkObserver(std::move(filter),
-			[] (mbus::AnyEvent event) {
-		if(event.type() == typeid(mbus::AttachEvent)) {
-			auto &attach = boost::get<mbus::AttachEvent>(event);
-			bindDevice(attach.getEntity(), attach.getProperties());
-		}else{
-			throw std::runtime_error("Unexpected event type");
-		}
+	
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+		std::cout << "POSIX: Binding device " << properties.at("unix.devname") << std::endl;
+
+		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		auto device = std::make_shared<ExternDevice>(properties.at("unix.devname"),
+				std::move(lane));
+		deviceManager.install(device);
 	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
