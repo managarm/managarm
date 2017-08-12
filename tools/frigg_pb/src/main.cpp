@@ -18,10 +18,10 @@ namespace pb = google::protobuf;
 
 void printScalarInitialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("m_$name$(0)",
+		printer.Print("m_$name${0}, _present_$name${false}",
 				"name", field->name());
 	}else if(field->is_repeated()) {
-		printer.Print("m_$name$(allocator)",
+		printer.Print("m_$name${allocator}",
 				"name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -52,6 +52,7 @@ void printScalarAccessors(pb::io::Printer &printer, const pb::FieldDescriptor *f
 				"name", field->name(), "out_type", out_type);
 		printer.Print("inline void set_$name$($out_type$ value) {\n"
 				"  m_$name$ = value;\n"
+				"  _present_$name$ = true;\n"
 				"}\n",
 				"name", field->name(), "out_type", out_type);
 	}else if(field->is_repeated()) {
@@ -74,8 +75,10 @@ void printScalarAccessors(pb::io::Printer &printer, const pb::FieldDescriptor *f
 
 void printScalarSize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
-				"p_cachedSize += frigg::protobuf::varintSize(m_$name$);\n",
+		printer.Print("if(_present_$name$) {\n"
+				"  p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
+				"  p_cachedSize += frigg::protobuf::varintSize(m_$name$);\n"
+				"}\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else if(field->is_repeated()) {
 		printer.Print("p_cachedSize += m_$name$.size()"
@@ -106,7 +109,8 @@ void printScalarSerialize(pb::io::Printer &printer, const pb::FieldDescriptor *f
 	}
 
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("$emit_function$(writer, $number$, m_$name$);\n",
+		printer.Print("if(_present_$name$)\n"
+				"  $emit_function$(writer, $number$, m_$name$);\n",
 				"emit_function", emit_function, "number", std::to_string(field->number()),
 				"name", field->name());
 	}else if(field->is_repeated()) {
@@ -154,6 +158,7 @@ void printScalarParse(pb::io::Printer &printer, const pb::FieldDescriptor *field
 				"wire_constant", wire_constant,
 				"number", std::to_string(field->number()));
 		printer.Print("  m_$name$ = $fetch_function$(reader);\n"
+				"  _present_$name$ = true;\n"
 				"  break;\n",
 				"name", field->name(), "fetch_function", fetch_function);
 	}else if(field->is_repeated()) {
@@ -188,7 +193,8 @@ void printScalarMember(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 	}
 
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("$out_type$ m_$name$;\n",
+		printer.Print("$out_type$ m_$name$;\n"
+				"bool _present_$name$;\n",
 				"out_type", out_type, "name", field->name());
 	}else if(field->is_repeated()) {
 		printer.Print("Vector<$out_type$> m_$name$;\n",
@@ -204,7 +210,7 @@ void printScalarMember(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 
 void printStringInitialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("m_$name$(allocator)",
+		printer.Print("m_$name${allocator}, _present_$name${false}",
 				"name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -219,6 +225,7 @@ void printStringAccessors(pb::io::Printer &printer, const pb::FieldDescriptor *f
 				"name", field->name());
 		printer.Print("inline void set_$name$(const String &value) {\n"
 				"  m_$name$ = value;\n"
+				"  _present_$name$ = true;\n"
 				"}\n",
 				"name", field->name());
 	}else{
@@ -228,10 +235,12 @@ void printStringAccessors(pb::io::Printer &printer, const pb::FieldDescriptor *f
 
 void printStringSize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
-				"size_t $name$_length = m_$name$.size();\n"
-				"p_cachedSize += frigg::protobuf::varintSize($name$_length);\n"
-				"p_cachedSize += $name$_length;\n",
+		printer.Print("if(_present_$name$) {\n"
+				"  p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
+				"  size_t $name$_length = m_$name$.size();\n"
+				"  p_cachedSize += frigg::protobuf::varintSize($name$_length);\n"
+				"  p_cachedSize += $name$_length;\n"
+				"}\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -240,8 +249,9 @@ void printStringSize(pb::io::Printer &printer, const pb::FieldDescriptor *field)
 
 void printStringSerialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("frigg::protobuf::emitString(writer, $number$,"
-					" m_$name$.data(), m_$name$.size());\n",
+		printer.Print("if(_present_$name$)\n"
+					"  frigg::protobuf::emitString(writer, $number$,"
+							" m_$name$.data(), m_$name$.size());\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -255,7 +265,8 @@ void printStringParse(pb::io::Printer &printer, const pb::FieldDescriptor *field
 		printer.Print("assert(header.wire == frigg::protobuf::kWireDelimited);\n"
 				"size_t $name$_length = peekVarint(reader);\n"
 				"m_$name$.resize($name$_length);\n"
-				"reader.peek(m_$name$.data(), $name$_length);\n",
+				"reader.peek(m_$name$.data(), $name$_length);\n"
+				"_present_$name$ = true;\n",
 				"name", field->name());
 		printer.Outdent();
 		printer.Print("} break;\n");
@@ -266,7 +277,9 @@ void printStringParse(pb::io::Printer &printer, const pb::FieldDescriptor *field
 
 void printStringMember(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional() || field->is_required()) {
-		printer.Print("String m_$name$;\n", "name", field->name());
+		printer.Print("String m_$name$;\n"
+				"bool _present_$name$;\n",
+				"name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
 	}
@@ -277,8 +290,11 @@ void printStringMember(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 // --------------------------------------------------------
 
 void printEmbeddedInitialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
-	if(field->is_optional() || field->is_repeated()) {
-		printer.Print("m_$name$(allocator)",
+	if(field->is_optional()) {
+		printer.Print("m_$name${allocator}, _present_$name${false}",
+				"name", field->name());
+	}else if(field->is_repeated()) {
+		printer.Print("m_$name${allocator}",
 				"name", field->name());
 	}else{
 		assert(!"Unexpected field configuration");
@@ -298,12 +314,13 @@ void printEmbeddedAccessors(pb::io::Printer &printer, const pb::FieldDescriptor 
 				"}\n",
 				"name", field->name(), "msg_type", qualified);
 		printer.Print("inline $msg_type$<Allocator> &mutable_$name$() {\n"
+				"  _present_$name$ = true;\n"
 				"  return m_$name$;\n"
 				"}\n",
 				"name", field->name(), "msg_type", qualified);
 	}else if(field->is_repeated()) {
-		printer.Print("inline void add_$name$(const $msg_type$<Allocator> &message) {\n"
-				"  m_$name$.push(message);\n"
+		printer.Print("inline void add_$name$($msg_type$<Allocator> message) {\n"
+				"  m_$name$.push(frigg::move(message));\n"
 				"}\n",
 				"name", field->name(), "msg_type", qualified);
 		printer.Print("inline size_t $name$_size() const {\n"
@@ -321,10 +338,12 @@ void printEmbeddedAccessors(pb::io::Printer &printer, const pb::FieldDescriptor 
 
 void printEmbeddedSize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional()) {
-		printer.Print("p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
-				"size_t $name$_length = m_$name$.ByteSize();\n"
-				"p_cachedSize += frigg::protobuf::varintSize($name$_length);\n"
-				"p_cachedSize += $name$_length;\n",
+		printer.Print("if(_present_$name$) {\n"
+				"  p_cachedSize += frigg::protobuf::varintSize($number$ << 3);\n"
+				"  size_t $name$_length = m_$name$.ByteSize();\n"
+				"  p_cachedSize += frigg::protobuf::varintSize($name$_length);\n"
+				"  p_cachedSize += $name$_length;\n"
+				"}\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else if(field->is_repeated()) {
 		printer.Print("p_cachedSize += m_$name$.size()"
@@ -342,12 +361,14 @@ void printEmbeddedSize(pb::io::Printer &printer, const pb::FieldDescriptor *fiel
 
 void printEmbeddedSerialize(pb::io::Printer &printer, const pb::FieldDescriptor *field) {
 	if(field->is_optional()) {
-		printer.Print("pokeHeader(writer, frigg::protobuf::Header($number$,"
+		printer.Print("if(_present_$name$) {\n"
+				"  pokeHeader(writer, frigg::protobuf::Header($number$,"
 					" frigg::protobuf::kWireDelimited));\n"
-				"pokeVarint(writer, m_$name$.GetCachedSize());\n"
-				"m_$name$.SerializeWithCachedSizesToArray((uint8_t *)array"
+				"  pokeVarint(writer, m_$name$.GetCachedSize());\n"
+				"  m_$name$.SerializeWithCachedSizesToArray((uint8_t *)array"
 						" + writer.offset(), m_$name$.GetCachedSize());\n"
-				"writer.advance(m_$name$.GetCachedSize());\n",
+				"  writer.advance(m_$name$.GetCachedSize());\n"
+				"}\n",
 				"number", std::to_string(field->number()), "name", field->name());
 	}else if(field->is_repeated()) {
 		printer.Print("for(size_t i = 0; i < m_$name$.size(); i++) {\n"
@@ -377,7 +398,8 @@ void printEmbeddedParse(pb::io::Printer &printer, const pb::FieldDescriptor *fie
 		printer.Print("assert(header.wire == frigg::protobuf::kWireDelimited);\n"
 				"size_t $name$_length = peekVarint(reader);\n"
 				"m_$name$.ParseFromArray((uint8_t *)array + reader.offset(), $name$_length);\n"
-				"reader.advance($name$_length);\n",
+				"reader.advance($name$_length);\n"
+				"_present_$name$ = true;\n",
 				"msg_type", qualified, "name", field->name());
 		printer.Outdent();
 		printer.Print("} break;\n");
@@ -406,7 +428,8 @@ void printEmbeddedMember(pb::io::Printer &printer, const pb::FieldDescriptor *fi
 		qualified += "::" + part;
 	
 	if(field->is_optional()) {
-		printer.Print("$msg_type$<Allocator> m_$name$;\n",
+		printer.Print("$msg_type$<Allocator> m_$name$;\n"
+				"bool _present_$name$;\n",
 				"msg_type", qualified, "name", field->name());
 	}else if(field->is_repeated()) {
 		printer.Print("Vector<$msg_type$<Allocator>> m_$name$;\n",
@@ -695,6 +718,7 @@ bool FriggGenerator::Generate(const pb::FileDescriptor *file, const std::string 
 				"file", file->name());
 		printer.Print("// Do not try to edit it manually!\n");
 
+		printer.Print("#include <frigg/traits.hpp>\n");
 		printer.Print("#include <frigg/string.hpp>\n");
 		printer.Print("#include <frigg/vector.hpp>\n");
 		printer.Print("#include <frigg/protobuf.hpp>\n");
