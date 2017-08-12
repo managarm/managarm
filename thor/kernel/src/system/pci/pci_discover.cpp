@@ -138,39 +138,45 @@ namespace {
 	LaneHandle createObject(LaneHandle mbus_lane, frigg::SharedPtr<PciDevice> device) {
 		auto branch = fiberOffer(mbus_lane);
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> vendor_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> vendor_prop(*kernelAlloc);
 		vendor_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-vendor"));
-		vendor_prop.set_value(frigg::to_string(*kernelAlloc, device->vendor, 16, 4));
+		auto &vendor_item = vendor_prop.mutable_item().mutable_string_item();
+		vendor_item.set_value(frigg::to_string(*kernelAlloc, device->vendor, 16, 4));
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> dev_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> dev_prop(*kernelAlloc);
 		dev_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-device"));
-		dev_prop.set_value(frigg::to_string(*kernelAlloc, device->deviceId, 16, 4));
+		auto &dev_item = dev_prop.mutable_item().mutable_string_item();
+		dev_item.set_value(frigg::to_string(*kernelAlloc, device->deviceId, 16, 4));
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> rev_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> rev_prop(*kernelAlloc);
 		rev_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-revision"));
-		rev_prop.set_value(frigg::to_string(*kernelAlloc, device->revision, 16, 2));
+		auto &rev_item = rev_prop.mutable_item().mutable_string_item();
+		rev_item.set_value(frigg::to_string(*kernelAlloc, device->revision, 16, 2));
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> class_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> class_prop(*kernelAlloc);
 		class_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-class"));
-		class_prop.set_value(frigg::to_string(*kernelAlloc, device->classCode, 16, 2));
+		auto &class_item = class_prop.mutable_item().mutable_string_item();
+		class_item.set_value(frigg::to_string(*kernelAlloc, device->classCode, 16, 2));
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> subclass_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> subclass_prop(*kernelAlloc);
 		subclass_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-subclass"));
-		subclass_prop.set_value(frigg::to_string(*kernelAlloc, device->subClass, 16, 2));
+		auto &subclass_item = subclass_prop.mutable_item().mutable_string_item();
+		subclass_item.set_value(frigg::to_string(*kernelAlloc, device->subClass, 16, 2));
 		
-		managarm::mbus::PropertyEntry<KernelAlloc> if_prop(*kernelAlloc);
+		managarm::mbus::Property<KernelAlloc> if_prop(*kernelAlloc);
 		if_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "pci-interface"));
-		if_prop.set_value(frigg::to_string(*kernelAlloc, device->interface, 16, 2));
+		auto &if_item = if_prop.mutable_item().mutable_string_item();
+		if_item.set_value(frigg::to_string(*kernelAlloc, device->interface, 16, 2));
 		
 		managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
 		req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
 		req.set_parent_id(1);
-		req.add_properties(vendor_prop);
-		req.add_properties(dev_prop);
-		req.add_properties(rev_prop);
-		req.add_properties(class_prop);
-		req.add_properties(subclass_prop);
-		req.add_properties(if_prop);
+		req.add_properties(std::move(vendor_prop));
+		req.add_properties(std::move(dev_prop));
+		req.add_properties(std::move(rev_prop));
+		req.add_properties(std::move(class_prop));
+		req.add_properties(std::move(subclass_prop));
+		req.add_properties(std::move(if_prop));
 
 		frigg::String<KernelAlloc> ser(*kernelAlloc);
 		req.SerializeToString(&ser);

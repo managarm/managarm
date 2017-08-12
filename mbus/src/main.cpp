@@ -208,7 +208,7 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::traverse(std::shared_ptr<Entity> r
 		for(auto kv : entity->getProperties()) {
 			auto entry = req.add_properties();
 			entry->set_name(kv.first);
-			entry->set_value(kv.second);
+			entry->mutable_item()->mutable_string_item()->set_value(kv.second);
 		}
 
 		auto ser = req.SerializeAsString();
@@ -232,7 +232,7 @@ COFIBER_ROUTINE(cofiber::no_future, Observer::onAttach(std::shared_ptr<Entity> e
 	for(auto kv : entity->getProperties()) {
 		auto entry = req.add_properties();
 		entry->set_name(kv.first);
-		entry->set_value(kv.second);
+		entry->mutable_item()->mutable_string_item()->set_value(kv.second);
 	}
 
 	auto ser = req.SerializeAsString();
@@ -299,8 +299,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(helix::UniqueLane p),
 			auto group = std::static_pointer_cast<Group>(parent);
 
 			std::unordered_map<std::string, std::string> properties;
-			for(auto &kv : req.properties())
-				properties.insert({ kv.name(), kv.value() });
+			for(auto &kv : req.properties()) {
+				assert(kv.has_item() && kv.item().has_string_item());
+				properties.insert({ kv.name(), kv.item().string_item().value() });
+			}
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

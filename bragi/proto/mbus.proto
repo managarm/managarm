@@ -31,16 +31,31 @@ message AnyFilter {
 	}
 }
 
-message PropertyEntry {
+message StringItem {
+	optional string value = 1;
+}
+
+message ListItem {
+	repeated AnyItem elements = 1;
+}
+
+message AnyItem {
+	oneof type {
+		StringItem string_item = 1;
+		ListItem list_item = 2;
+	}
+}
+
+message Property {
 	optional string name = 1;
-	optional string value = 2;
+	optional AnyItem item = 3;
 }
 
 message CntRequest {
 	optional CntReqType req_type = 1;
 	optional int64 id = 3;
 	optional int64 parent_id = 2;
-	repeated PropertyEntry properties = 6;
+	repeated Property properties = 6;
 	optional AnyFilter filter = 5;
 }
 
@@ -58,7 +73,7 @@ message SvrRequest {
 	optional SvrReqType req_type = 1;
 	
 	optional int64 id = 2;
-	repeated PropertyEntry properties = 3;
+	repeated Property properties = 3;
 }
 
 message CntResponse {
