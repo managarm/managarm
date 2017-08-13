@@ -486,10 +486,11 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 	
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		std::cout << "POSIX: Binding device " << properties.at("unix.devname") << std::endl;
+		std::cout << "POSIX: Binding device "
+				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
 
 		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
-		auto device = std::make_shared<ExternDevice>(properties.at("unix.devname"),
+		auto device = std::make_shared<ExternDevice>(std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
 		deviceManager.install(device);
 	});

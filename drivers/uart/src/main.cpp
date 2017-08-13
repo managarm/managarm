@@ -213,9 +213,9 @@ COFIBER_ROUTINE(cofiber::no_future, runTerminal(), ([=] {
 	// Create an mbus object for the partition.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
-	std::unordered_map<std::string, std::string> descriptor {
-		{ "unix.devtype", "block" },
-		{ "unix.devname", "ttyS0" },
+	mbus::Properties descriptor{
+		{"unix.devtype", mbus::StringItem{"block"}},
+		{"unix.devname", mbus::StringItem{"ttyS0"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

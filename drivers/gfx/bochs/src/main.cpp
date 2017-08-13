@@ -299,9 +299,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
-	std::unordered_map<std::string, std::string> descriptor {
-		{ "unix.devtype", "block" },
-		{ "unix.devname", "card0" },
+	mbus::Properties descriptor{
+		{"unix.devtype", mbus::StringItem{"block"}},
+		{"unix.devname", mbus::StringItem{"card0"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

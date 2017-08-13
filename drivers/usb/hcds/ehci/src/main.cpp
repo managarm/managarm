@@ -333,14 +333,14 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	sprintf(product, "%.4x", descriptor->idProduct);
 	sprintf(release, "%.4x", descriptor->bcdDevice);
 
-	std::unordered_map<std::string, std::string> mbus_desc {
-		{ "usb.type", "device" },
-		{ "usb.vendor", vendor },
-		{ "usb.product", product },
-		{ "usb.class", class_code },
-		{ "usb.subclass", sub_class },
-		{ "usb.protocol", protocol },
-		{ "usb.release", release }
+	mbus::Properties mbus_desc{
+		{"usb.type", mbus::StringItem{"device"}},
+		{"usb.vendor", mbus::StringItem{vendor}},
+		{"usb.product", mbus::StringItem{product}},
+		{"usb.class", mbus::StringItem{class_code}},
+		{"usb.subclass", mbus::StringItem{sub_class}},
+		{"usb.protocol", mbus::StringItem{protocol}},
+		{"usb.release", mbus::StringItem{release}}
 	};
 	
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();

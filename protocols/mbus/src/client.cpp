@@ -101,7 +101,7 @@ COFIBER_ROUTINE(async::result<Entity>, Entity::createObject(std::string name,
 	for(auto kv : properties) {
 		auto entry = req.add_properties();
 		entry->set_name(kv.first);
-		entry->mutable_item()->mutable_string_item()->set_value(kv.second);
+		entry->mutable_item()->mutable_string_item()->set_value(std::get<StringItem>(kv.second).value);
 	}
 
 	auto ser = req.SerializeAsString();
@@ -143,7 +143,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleObserver(std::shared_ptr<Connection> c
 		if(req.req_type() == managarm::mbus::SvrReqType::ATTACH) {
 			Properties properties;
 			for(auto &kv : req.properties())
-				properties.insert({ kv.name(), kv.item().string_item().value() });
+				properties.insert({ kv.name(), StringItem{kv.item().string_item().value()} });
 
 			handler.attach(Entity{connection, req.id()}, std::move(properties));
 		}else{

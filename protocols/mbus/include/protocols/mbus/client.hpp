@@ -59,7 +59,23 @@ namespace _detail {
 	// Properties.
 	// ------------------------------------------------------------------------
 
-	using Properties = std::unordered_map<std::string, std::string>;	
+	struct StringItem;
+	struct ListItem;
+
+	using AnyItem = std::variant<
+		StringItem,
+		ListItem
+	>;
+
+	struct StringItem {
+		std::string value;
+	};
+
+	struct ListItem {
+
+	};
+
+	using Properties = std::unordered_map<std::string, AnyItem>;
 	
 	// ------------------------------------------------------------------------
 	// Private state object.
@@ -170,6 +186,8 @@ using _detail::EqualsFilter;
 using _detail::Conjunction;
 using _detail::AnyFilter;
 
+using _detail::StringItem;
+using _detail::ListItem;
 using _detail::Properties;
 
 using _detail::ObjectHandler;
