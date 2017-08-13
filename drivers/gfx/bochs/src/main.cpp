@@ -35,28 +35,29 @@
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 
-async::result<int64_t> DrmDevice::seek(std::shared_ptr<void> object, int64_t offset) {
+async::result<int64_t> drm_backend::Device::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek() not implemented");
 }
 
-async::result<size_t> DrmDevice::read(std::shared_ptr<void> object, void *buffer, size_t length) {
+async::result<size_t> drm_backend::Device::read(std::shared_ptr<void> object, void *buffer, size_t length) {
 	throw std::runtime_error("read() not implemented");
 }
 
-async::result<void> DrmDevice::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> drm_backend::Device::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
 	throw std::runtime_error("write() not implemented");
 }
 
-COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, DrmDevice::accessMemory(std::shared_ptr<void> object),
+COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, drm_backend::Device::accessMemory(std::shared_ptr<void> object),
 		([=] {
 	// FIX ME: this is a hack
 	auto self = static_cast<GfxDevice *>(object.get());
 	COFIBER_RETURN(self->_videoRam);		
 }))
 
-COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
 		conversation = std::move(conversation)] {
+	auto self = std::static_pointer_cast<Device>(object);
 	if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -199,7 +200,12 @@ COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> obje
 	}else if(req.command() == DRM_IOCTL_MODE_SETCRTC) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-		
+	
+		auto config = self->createConfiguration();
+		auto valid = config->capture(1024, 768);
+		assert(valid);
+		config->commit();
+			
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
@@ -214,16 +220,16 @@ COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> obje
 }))
 
 constexpr protocols::fs::FileOperations fileOperations {
-	&DrmDevice::seek,
-	&DrmDevice::seek,
-	&DrmDevice::seek,
-	&DrmDevice::read,
-	&DrmDevice::write,
-	&DrmDevice::accessMemory,
-	&DrmDevice::ioctl
+	&drm_backend::Device::seek,
+	&drm_backend::Device::seek,
+	&drm_backend::Device::seek,
+	&drm_backend::Device::read,
+	&drm_backend::Device::write,
+	&drm_backend::Device::accessMemory,
+	&drm_backend::Device::ioctl
 };
 
-COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<DrmDevice> device,
+COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Device> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
 	std::cout << "unix device: Connection" << std::endl;
 
@@ -267,25 +273,6 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<DrmDevice> devic
 }))
 
 // ----------------------------------------------------------------
-
-// ----------------------------------------------------------------
-// Helper Funcs.
-// ----------------------------------------------------------------
-
-void fillBuffer(void* frame_buffer, int width, int height){
-	char* ptr = (char*)frame_buffer;
-	for(int j = 0; j < height; j++) {
-		for(int i = 0; i < width; i++) {
-			// RGBX
-			ptr[4 * (j * width + i) + 0] = 0xCE;
-			ptr[4 * (j * width + i) + 1] = 0x13;
-			ptr[4 * (j * width + i) + 2] = 0x95;
-			ptr[4 * (j * width + i) + 3] = 0x00;
-		}
-	}
-};
-
-// ----------------------------------------------------------------
 // GfxDevice.
 // ----------------------------------------------------------------
 
@@ -306,32 +293,47 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		std::cout << "gfx/bochs: Device version 0x" << std::hex << version << std::dec
 				<< " may be unsupported!" << std::endl;
 	}
-
-	_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
-	_operational.store(regs::data, enable_bits::noMemClear || enable_bits::lfb);
-	
-	_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
-	_operational.store(regs::data, 1024);
-	_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
-	_operational.store(regs::data, 768);
-	_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
-	_operational.store(regs::data, 32);
-
-	_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
-	_operational.store(regs::data, 1024);
-	_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
-	_operational.store(regs::data, 768);
-	_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
-	_operational.store(regs::data, 0);
-	_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-	_operational.store(regs::data, 0);
-	
-	_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
-	_operational.store(regs::data, enable_bits::enable 
-			|| enable_bits::noMemClear || enable_bits::lfb);
-	
-	fillBuffer(_frameBuffer, 1024, 768);
 }))
+	
+std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
+	return std::make_unique<Configuration>(this);
+}
+
+bool GfxDevice::Configuration::capture(int width, int height) {
+	_width = width;
+	_height = height;
+	
+	return true;
+}
+
+void GfxDevice::Configuration::dispose() {
+	
+}
+
+void GfxDevice::Configuration::commit() {
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
+	_device->_operational.store(regs::data, enable_bits::noMemClear || enable_bits::lfb);
+	
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
+	_device->_operational.store(regs::data, _width);
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
+	_device->_operational.store(regs::data, _height);
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
+	_device->_operational.store(regs::data, 32);
+
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
+	_device->_operational.store(regs::data, _width);
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
+	_device->_operational.store(regs::data, _height);
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
+	_device->_operational.store(regs::data, 0);
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
+	_device->_operational.store(regs::data, 0);
+	
+	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
+	_device->_operational.store(regs::data, enable_bits::enable 
+			|| enable_bits::noMemClear || enable_bits::lfb);
+}
 
 // ----------------------------------------------------------------
 // Freestanding PCI discovery functions.
