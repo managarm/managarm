@@ -25,10 +25,13 @@ struct DrmDevice {
 // ----------------------------------------------------------------
 
 struct GfxDevice : DrmDevice, std::enable_shared_from_this<GfxDevice> {
-	GfxDevice(void* frame_buffer);
+	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
 	cofiber::no_future initialize();
-	
+
+public:
+	// FIX ME: this is a hack	
+	helix::UniqueDescriptor _videoRam;
 private:
 	arch::io_space _operational;
 	void* _frameBuffer;

@@ -47,9 +47,12 @@ async::result<void> DrmDevice::write(std::shared_ptr<void> object, const void *b
 	throw std::runtime_error("write() not implemented");
 }
 
-async::result<helix::BorrowedDescriptor> DrmDevice::accessMemory(std::shared_ptr<void> object) {
-	throw std::runtime_error("accessMemory() not implemented");
-}
+COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, DrmDevice::accessMemory(std::shared_ptr<void> object),
+		([=] {
+	// FIX ME: this is a hack
+	auto self = static_cast<GfxDevice *>(object.get());
+	COFIBER_RETURN(self->_videoRam);		
+}))
 
 COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
@@ -57,7 +60,7 @@ COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> obje
 	if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-
+		
 		if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
 			resp.set_drm_value(1);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -153,6 +156,57 @@ COFIBER_ROUTINE(async::result<void>, DrmDevice::ioctl(std::shared_ptr<void> obje
 			helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_ADDFB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_drm_fb_id(10);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_MAP_DUMB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_drm_offset(0);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_GETCRTC) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		resp.set_drm_fb_id(10);
+		resp.set_drm_x(1024);
+		resp.set_drm_y(768);
+		resp.set_drm_gamma_size(0);
+		resp.set_drm_mode_valid(1);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_SETCRTC) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID" + std::to_string(req.command()));
 	}
@@ -235,8 +289,8 @@ void fillBuffer(void* frame_buffer, int width, int height){
 // GfxDevice.
 // ----------------------------------------------------------------
 
-GfxDevice::GfxDevice(void* frame_buffer)
-: _frameBuffer{frame_buffer} {
+GfxDevice::GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer)
+: _videoRam{std::move(video_ram)}, _frameBuffer{frame_buffer} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -293,7 +347,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
 			0, info.barInfo[0].length, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
 
-	auto gfx_device = std::make_shared<GfxDevice>(actual_pointer);
+	auto gfx_device = std::make_shared<GfxDevice>(std::move(bar), actual_pointer);
 	gfx_device->initialize();
 	
 	// Create an mbus object for the device.

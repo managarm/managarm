@@ -103,6 +103,18 @@ message CntRequest {
 	optional uint32 drm_width = 22;
 	optional uint32 drm_bpp = 23;
 	optional uint32 drm_flags = 24;
+
+	optional uint32 drm_pitch = 25;
+	optional uint32 drm_depth = 26;
+
+	optional uint32 drm_handle = 27;
+
+	optional uint32 drm_crtc_id = 28;
+	
+	repeated uint32 drm_connector_ids = 29;
+	optional uint32 drm_x = 30;
+	optional uint32 drm_y = 31;
+	optional uint32 drm_fb_id = 33;
 }
 
 message SvrResponse {
@@ -180,5 +192,13 @@ message SvrResponse {
 	optional uint32 drm_handle = 43;
 	optional uint32 drm_pitch = 44;
 	optional uint64 drm_size = 45;
-}
 
+	optional uint32 drm_fb_id = 46;
+
+	optional uint32 drm_offset = 47;
+
+	optional uint32 drm_x = 51;
+	optional uint32 drm_y = 52;
+	optional uint32 drm_gamma_size = 53;
+	optional uint32 drm_mode_valid = 54;
+}
