@@ -190,6 +190,23 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<
 		resp.set_drm_y(768);
 		resp.set_drm_gamma_size(0);
 		resp.set_drm_mode_valid(1);
+
+		resp.mutable_drm_mode()->set_clock(47185);
+		resp.mutable_drm_mode()->set_hdisplay(1024);
+		resp.mutable_drm_mode()->set_hsync_start(1024);
+		resp.mutable_drm_mode()->set_hsync_end(1024);
+		resp.mutable_drm_mode()->set_htotal(1024);
+		resp.mutable_drm_mode()->set_hskew(0);
+		resp.mutable_drm_mode()->set_vdisplay(768);
+		resp.mutable_drm_mode()->set_vsync_start(768);
+		resp.mutable_drm_mode()->set_vsync_end(768);
+		resp.mutable_drm_mode()->set_vtotal(768);
+		resp.mutable_drm_mode()->set_vscan(0);
+		resp.mutable_drm_mode()->set_vrefresh(60);
+		resp.mutable_drm_mode()->set_flags(0);
+		resp.mutable_drm_mode()->set_type(0);
+		resp.mutable_drm_mode()->set_name("1024x768");
+		
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -202,7 +219,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<
 		managarm::fs::SvrResponse resp;
 	
 		auto config = self->createConfiguration();
-		auto valid = config->capture(1024, 768);
+		auto valid = config->capture(req.drm_mode().hdisplay(), req.drm_mode().vdisplay());
 		assert(valid);
 		config->commit();
 			
@@ -302,7 +319,9 @@ std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 bool GfxDevice::Configuration::capture(int width, int height) {
 	_width = width;
 	_height = height;
-	
+
+	if(width <= 0 || height <= 0 || width > 1024 || height > 768)
+		return false;
 	return true;
 }
 

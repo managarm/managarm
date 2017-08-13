@@ -115,6 +115,8 @@ message CntRequest {
 	optional uint32 drm_x = 30;
 	optional uint32 drm_y = 31;
 	optional uint32 drm_fb_id = 33;
+
+	optional DrmMode drm_mode = 34;
 }
 
 message SvrResponse {
@@ -197,8 +199,10 @@ message SvrResponse {
 
 	optional uint32 drm_offset = 47;
 
-	optional uint32 drm_x = 51;
-	optional uint32 drm_y = 52;
-	optional uint32 drm_gamma_size = 53;
-	optional uint32 drm_mode_valid = 54;
+	optional uint32 drm_x = 48;
+	optional uint32 drm_y = 49;
+	optional uint32 drm_gamma_size = 50;
+	optional uint32 drm_mode_valid = 51;
+	
+	optional DrmMode drm_mode = 52;
 }
