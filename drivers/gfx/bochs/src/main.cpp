@@ -108,9 +108,12 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		for(int i = 0; i < crtcs.size(); i++) {
 			resp.add_drm_crtc_ids(uint32_t(crtcs[i]->_id));
 		}
-		
-		resp.add_drm_connector_ids(uint32_t(2));
-		
+	
+		auto &connectors = self->_device->getConnectors();
+		for(int i = 0; i < connectors.size(); i++) {
+			resp.add_drm_connector_ids(uint32_t(connectors[i]->_id));
+		}
+			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
 			resp.add_drm_encoder_ids(uint32_t(encoders[i]->_id));
@@ -407,6 +410,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 
 	gfx_device->setupCrtc(std::make_shared<drm_backend::Crtc>());
 	gfx_device->setupEncoder(std::make_shared<drm_backend::Encoder>());
+	gfx_device->attachConnector(std::make_shared<drm_backend::Connector>());
 	
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
