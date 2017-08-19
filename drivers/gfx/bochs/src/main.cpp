@@ -35,29 +35,30 @@
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 
-async::result<int64_t> drm_backend::Device::seek(std::shared_ptr<void> object, int64_t offset) {
+async::result<int64_t> drm_backend::File::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek() not implemented");
 }
 
-async::result<size_t> drm_backend::Device::read(std::shared_ptr<void> object, void *buffer, size_t length) {
+async::result<size_t> drm_backend::File::read(std::shared_ptr<void> object, void *buffer, size_t length) {
 	throw std::runtime_error("read() not implemented");
 }
 
-async::result<void> drm_backend::Device::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> drm_backend::File::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
 	throw std::runtime_error("write() not implemented");
 }
 
-COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, drm_backend::Device::accessMemory(std::shared_ptr<void> object),
+COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, drm_backend::File::accessMemory(std::shared_ptr<void> object),
 		([=] {
 	// FIX ME: this is a hack
-	auto self = static_cast<GfxDevice *>(object.get());
-	COFIBER_RETURN(self->_videoRam);		
+	auto self = static_cast<drm_backend::File *>(object.get());
+	auto gfx = static_cast<GfxDevice *>(self->_device.get());
+	COFIBER_RETURN(gfx->_videoRam);		
 }))
 
-COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
 		conversation = std::move(conversation)] {
-	auto self = std::static_pointer_cast<Device>(object);
+	auto self = std::static_pointer_cast<drm_backend::File>(object);
 	if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -218,7 +219,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 	
-		auto config = self->createConfiguration();
+		auto config = self->_device->createConfiguration();
 		auto valid = config->capture(req.drm_mode().hdisplay(), req.drm_mode().vdisplay());
 		assert(valid);
 		config->commit();
@@ -237,13 +238,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::Device::ioctl(std::shared_ptr<
 }))
 
 constexpr protocols::fs::FileOperations fileOperations {
-	&drm_backend::Device::seek,
-	&drm_backend::Device::seek,
-	&drm_backend::Device::seek,
-	&drm_backend::Device::read,
-	&drm_backend::Device::write,
-	&drm_backend::Device::accessMemory,
-	&drm_backend::Device::ioctl
+	&drm_backend::File::seek,
+	&drm_backend::File::seek,
+	&drm_backend::File::seek,
+	&drm_backend::File::read,
+	&drm_backend::File::write,
+	&drm_backend::File::accessMemory,
+	&drm_backend::File::ioctl
 };
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Device> device,
@@ -270,7 +271,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Dev
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::servePassthrough(std::move(local_lane), device,
+			auto file = std::make_shared<drm_backend::File>(device);
+			protocols::fs::servePassthrough(std::move(local_lane), file,
 					&fileOperations);
 
 			managarm::fs::SvrResponse resp;

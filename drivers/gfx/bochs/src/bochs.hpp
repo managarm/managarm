@@ -19,6 +19,16 @@ struct Connector;
 struct Configuration;
 
 struct Device {
+	void setupCrtc(std::shared_ptr<Crtc>);
+	void setupEncoder(std::shared_ptr<Encoder>);
+	void attachConnector(std::shared_ptr<Connector>);
+
+	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
+};
+
+struct File {
+	File(std::shared_ptr<Device> device)
+		:_device(device) { };
 	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
 	static async::result<void> write(std::shared_ptr<void> object,
@@ -27,11 +37,7 @@ struct Device {
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 
-	void setupCrtc(std::shared_ptr<Crtc>);
-	void setupEncoder(std::shared_ptr<Encoder>);
-	void attachConnector(std::shared_ptr<Connector>);
-
-	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
+	std::shared_ptr<Device> _device;
 };
 
 struct Configuration {
@@ -41,15 +47,12 @@ struct Configuration {
 };
 
 struct Crtc {
-
-};
-
-struct Encoder {
-
 };
 
 struct Connector {
+};
 
+struct Encoder {
 };
 
 }
