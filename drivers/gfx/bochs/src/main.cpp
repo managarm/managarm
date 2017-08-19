@@ -35,6 +35,10 @@
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 
+// ----------------------------------------------------------------
+// Device
+// ----------------------------------------------------------------
+
 void drm_backend::Device::setupCrtc(std::shared_ptr<drm_backend::Crtc> crtc) {
 	_crtcs.push_back(crtc);
 }
@@ -57,6 +61,18 @@ const std::vector<std::shared_ptr<drm_backend::Encoder>> &drm_backend::Device::g
 
 const std::vector<std::shared_ptr<drm_backend::Connector>> &drm_backend::Device::getConnectors() {
 	return _connectors;
+}
+
+// ----------------------------------------------------------------
+// File
+// ----------------------------------------------------------------
+
+void drm_backend::File::attachFrameBuffer(std::shared_ptr<drm_backend::FrameBuffer> frame_buffer) {
+	_frameBuffers.push_back(frame_buffer);
+}
+	
+const std::vector<std::shared_ptr<drm_backend::FrameBuffer>> &drm_backend::File::getFrameBuffers() {
+	return _frameBuffers;
 }
 
 async::result<int64_t> drm_backend::File::seek(std::shared_ptr<void> object, int64_t offset) {
@@ -108,16 +124,22 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		for(int i = 0; i < crtcs.size(); i++) {
 			resp.add_drm_crtc_ids(uint32_t(crtcs[i]->_id));
 		}
-	
-		auto &connectors = self->_device->getConnectors();
-		for(int i = 0; i < connectors.size(); i++) {
-			resp.add_drm_connector_ids(uint32_t(connectors[i]->_id));
-		}
 			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
 			resp.add_drm_encoder_ids(uint32_t(encoders[i]->_id));
 		}
+	
+		auto &connectors = self->_device->getConnectors();
+		for(int i = 0; i < connectors.size(); i++) {
+			resp.add_drm_connector_ids(uint32_t(connectors[i]->_id));
+		}
+		
+		auto &fbs = self->getFrameBuffers();
+		for(int i = 0; i < fbs.size(); i++) {
+			resp.add_drm_fb_ids(uint32_t(fbs[i]->_id));
+		}
+	
 		resp.set_drm_min_width(640);
 		resp.set_drm_max_width(1024);
 		resp.set_drm_min_height(480);
@@ -197,7 +219,10 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		resp.set_drm_fb_id(10);
+		auto fb = std::make_shared<drm_backend::FrameBuffer>();
+		self->attachFrameBuffer(fb);
+		
+		resp.set_drm_fb_id(fb->_id);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();

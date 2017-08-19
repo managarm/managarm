@@ -17,6 +17,7 @@ struct Crtc;
 struct Encoder;
 struct Connector;
 struct Configuration;
+struct FrameBuffer;
 
 struct Device {
 	void setupCrtc(std::shared_ptr<Crtc> crtc);
@@ -45,6 +46,10 @@ struct File {
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 
+	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
+	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
+	
+	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
 	std::shared_ptr<Device> _device;
 };
 
@@ -71,6 +76,13 @@ struct Encoder {
 struct Connector {
 	Connector()
 		:_id(2) { };
+
+	int _id;
+};
+
+struct FrameBuffer {
+	FrameBuffer()
+		:_id(10) { };
 
 	int _id;
 };
