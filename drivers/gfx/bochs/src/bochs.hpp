@@ -19,11 +19,19 @@ struct Connector;
 struct Configuration;
 
 struct Device {
-	void setupCrtc(std::shared_ptr<Crtc>);
-	void setupEncoder(std::shared_ptr<Encoder>);
-	void attachConnector(std::shared_ptr<Connector>);
+	void setupCrtc(std::shared_ptr<Crtc> crtc);
+	void setupEncoder(std::shared_ptr<Encoder> encoder);
+	void attachConnector(std::shared_ptr<Connector> connector);
 
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
+	
+	const std::vector<std::shared_ptr<Crtc>> &getCrtcs();
+	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
+	const std::vector<std::shared_ptr<Connector>> &getConnectors();
+	
+	std::vector<std::shared_ptr<Crtc>> _crtcs;
+	std::vector<std::shared_ptr<Encoder>> _encoders;
+	std::vector<std::shared_ptr<Connector>> _connectors;
 };
 
 struct File {
@@ -47,12 +55,24 @@ struct Configuration {
 };
 
 struct Crtc {
-};
+	Crtc()
+		:_id(1) { };
 
-struct Connector {
+	int _id;
 };
 
 struct Encoder {
+	Encoder()
+		:_id(3) { };
+
+	int _id;
+};
+
+struct Connector {
+	Connector()
+		:_id(2) { };
+
+	int _id;
 };
 
 }

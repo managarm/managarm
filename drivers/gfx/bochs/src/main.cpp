@@ -35,6 +35,30 @@
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 
+void drm_backend::Device::setupCrtc(std::shared_ptr<drm_backend::Crtc> crtc) {
+	_crtcs.push_back(crtc);
+}
+
+void drm_backend::Device::setupEncoder(std::shared_ptr<drm_backend::Encoder> encoder) {
+	_encoders.push_back(encoder);
+}
+
+void drm_backend::Device::attachConnector(std::shared_ptr<drm_backend::Connector> connector) {
+	_connectors.push_back(connector);
+}
+
+const std::vector<std::shared_ptr<drm_backend::Crtc>> &drm_backend::Device::getCrtcs() {
+	return _crtcs;
+}
+
+const std::vector<std::shared_ptr<drm_backend::Encoder>> &drm_backend::Device::getEncoders() {
+	return _encoders;
+}
+
+const std::vector<std::shared_ptr<drm_backend::Connector>> &drm_backend::Device::getConnectors() {
+	return _connectors;
+}
+
 async::result<int64_t> drm_backend::File::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek() not implemented");
 }
@@ -80,9 +104,17 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		resp.add_drm_crtc_ids(uint32_t(1));
+		auto &crtcs = self->_device->getCrtcs();
+		for(int i = 0; i < crtcs.size(); i++) {
+			resp.add_drm_crtc_ids(uint32_t(crtcs[i]->_id));
+		}
+		
 		resp.add_drm_connector_ids(uint32_t(2));
-		resp.add_drm_encoder_ids(uint32_t(3));
+		
+		auto &encoders = self->_device->getEncoders();
+		for(int i = 0; i < encoders.size(); i++) {
+			resp.add_drm_encoder_ids(uint32_t(encoders[i]->_id));
+		}
 		resp.set_drm_min_width(640);
 		resp.set_drm_max_width(1024);
 		resp.set_drm_min_height(480);
@@ -372,6 +404,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(bar), actual_pointer);
 	gfx_device->initialize();
+
+	gfx_device->setupCrtc(std::make_shared<drm_backend::Crtc>());
+	gfx_device->setupEncoder(std::make_shared<drm_backend::Encoder>());
 	
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
