@@ -1,5 +1,6 @@
 
 #include <queue>
+#include <unordered_map>
 
 #include <arch/mem_space.hpp>
 #include <async/doorbell.hpp>
@@ -18,21 +19,25 @@ struct Encoder;
 struct Connector;
 struct Configuration;
 struct FrameBuffer;
+struct Object;
 
 struct Device {
+	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
+	
 	void setupCrtc(std::shared_ptr<Crtc> crtc);
 	void setupEncoder(std::shared_ptr<Encoder> encoder);
 	void attachConnector(std::shared_ptr<Connector> connector);
-
-	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
-	
 	const std::vector<std::shared_ptr<Crtc>> &getCrtcs();
 	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
 	const std::vector<std::shared_ptr<Connector>> &getConnectors();
 	
+	void registerObject(std::shared_ptr<Object> object);
+	Object *findObject(uint32_t);
+	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
 	std::vector<std::shared_ptr<Connector>> _connectors;
+	std::unordered_map<uint32_t, std::shared_ptr<Object>> _objects;
 };
 
 struct File {
@@ -74,10 +79,8 @@ struct Encoder {
 };
 
 struct Connector {
-	Connector()
-		:_id(2) { };
-
-	int _id;
+	virtual const std::vector<Encoder *> &possibleEncoders() = 0;
+	virtual Object *asObject() = 0;
 };
 
 struct FrameBuffer {
@@ -85,6 +88,17 @@ struct FrameBuffer {
 		:_id(10) { };
 
 	int _id;
+};
+
+struct Object {
+	Object(uint32_t id)
+		:_id(id) { };
+	
+	uint32_t id();
+	virtual Encoder *asEncoder();
+	virtual Connector *asConnector();
+	
+	uint32_t _id;
 };
 
 }
@@ -101,15 +115,29 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		void commit() override;
 		
 	private:
-		GfxDevice * _device;
+		GfxDevice *_device;
 		int _width;
 		int _height;
+	};
+
+	struct Connector : drm_backend::Object, drm_backend::Connector {
+		Connector(GfxDevice *device);
+		
+		drm_backend::Connector *asConnector() override;
+		drm_backend::Object *asObject() override;
+		const std::vector<drm_backend::Encoder *> &possibleEncoders() override;
+
+		std::vector<drm_backend::Encoder *> _encoders;
 	};
 
 	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
+
+	std::shared_ptr<drm_backend::Crtc> _theCrtc;
+	std::shared_ptr<drm_backend::Encoder> _theEncoder;
+	std::shared_ptr<Connector> _theConnector;
 
 public:
 	// FIX ME: this is a hack	

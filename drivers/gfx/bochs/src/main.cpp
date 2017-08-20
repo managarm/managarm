@@ -63,6 +63,33 @@ const std::vector<std::shared_ptr<drm_backend::Connector>> &drm_backend::Device:
 	return _connectors;
 }
 
+void drm_backend::Device::registerObject(std::shared_ptr<drm_backend::Object> object) {
+	_objects.insert({object->_id, object});
+}
+
+drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
+	auto it = _objects.find(id);
+	if(it == _objects.end())
+		return nullptr;
+	return it->second.get();
+}
+
+// ----------------------------------------------------------------
+// Object
+// ----------------------------------------------------------------
+
+uint32_t drm_backend::Object::id() {
+	return _id;
+}
+
+drm_backend::Encoder *drm_backend::Object::asEncoder() {
+	return nullptr;
+}
+
+drm_backend::Connector *drm_backend::Object::asConnector() {
+	return nullptr;
+}
+
 // ----------------------------------------------------------------
 // File
 // ----------------------------------------------------------------
@@ -122,22 +149,22 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 
 		auto &crtcs = self->_device->getCrtcs();
 		for(int i = 0; i < crtcs.size(); i++) {
-			resp.add_drm_crtc_ids(uint32_t(crtcs[i]->_id));
+			resp.add_drm_crtc_ids(crtcs[i]->_id);
 		}
 			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
-			resp.add_drm_encoder_ids(uint32_t(encoders[i]->_id));
+			resp.add_drm_encoder_ids(encoders[i]->_id);
 		}
 	
 		auto &connectors = self->_device->getConnectors();
 		for(int i = 0; i < connectors.size(); i++) {
-			resp.add_drm_connector_ids(uint32_t(connectors[i]->_id));
+			resp.add_drm_connector_ids(connectors[i]->asObject()->_id);
 		}
 		
 		auto &fbs = self->getFrameBuffers();
 		for(int i = 0; i < fbs.size(); i++) {
-			resp.add_drm_fb_ids(uint32_t(fbs[i]->_id));
+			resp.add_drm_fb_ids(fbs[i]->_id);
 		}
 	
 		resp.set_drm_min_width(640);
@@ -155,7 +182,16 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		
-		resp.add_drm_encoders(3);
+		auto obj = self->_device->findObject(req.drm_connector_id());
+		assert(obj);
+		auto conn = obj->asConnector();
+		assert(conn);
+		
+		auto psbl_enc = conn->possibleEncoders();
+		for(int i = 0; i < psbl_enc.size(); i++) { 
+			resp.add_drm_encoders(psbl_enc[i]->_id);
+		}
+		
 		auto mode = resp.add_drm_modes();
 		mode->set_clock(47185);
 		mode->set_hdisplay(1024);
@@ -372,11 +408,27 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		std::cout << "gfx/bochs: Device version 0x" << std::hex << version << std::dec
 				<< " may be unsupported!" << std::endl;
 	}
+
+	_theCrtc = std::make_shared<drm_backend::Crtc>();
+	_theEncoder = std::make_shared<drm_backend::Encoder>();
+	_theConnector = std::make_shared<Connector>(this);
+	
+	//registerObject(_theCrtc);
+	//registerObject(_theEncoder);
+	registerObject(_theConnector);
+	
+	setupCrtc(_theCrtc);
+	setupEncoder(_theEncoder);
+	attachConnector(_theConnector);
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
+
+// ----------------------------------------------------------------
+// GfxDevice::Configuration.
+// ----------------------------------------------------------------
 
 bool GfxDevice::Configuration::capture(int width, int height) {
 	_width = width;
@@ -388,7 +440,7 @@ bool GfxDevice::Configuration::capture(int width, int height) {
 }
 
 void GfxDevice::Configuration::dispose() {
-	
+
 }
 
 void GfxDevice::Configuration::commit() {
@@ -417,6 +469,27 @@ void GfxDevice::Configuration::commit() {
 }
 
 // ----------------------------------------------------------------
+// GfxDevice::Connector.
+// ----------------------------------------------------------------
+
+GfxDevice::Connector::Connector(GfxDevice *device)
+	: drm_backend::Object { 2 } {
+	_encoders.push_back(device->_theEncoder.get());
+}
+
+drm_backend::Connector *GfxDevice::Connector::asConnector() {
+	return this;
+}
+
+drm_backend::Object *GfxDevice::Connector::asObject() {
+	return this;
+}
+		
+const std::vector<drm_backend::Encoder *> &GfxDevice::Connector::possibleEncoders() {
+	return _encoders;
+}
+
+// ----------------------------------------------------------------
 // Freestanding PCI discovery functions.
 // ----------------------------------------------------------------
 
@@ -433,10 +506,6 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(bar), actual_pointer);
 	gfx_device->initialize();
 
-	gfx_device->setupCrtc(std::make_shared<drm_backend::Crtc>());
-	gfx_device->setupEncoder(std::make_shared<drm_backend::Encoder>());
-	gfx_device->attachConnector(std::make_shared<drm_backend::Connector>());
-	
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
