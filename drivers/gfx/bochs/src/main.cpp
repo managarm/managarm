@@ -149,7 +149,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 
 		auto &crtcs = self->_device->getCrtcs();
 		for(int i = 0; i < crtcs.size(); i++) {
-			resp.add_drm_crtc_ids(crtcs[i]->_id);
+			resp.add_drm_crtc_ids(crtcs[i]->asObject()->_id);
 		}
 			
 		auto &encoders = self->_device->getEncoders();
@@ -233,7 +233,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		managarm::fs::SvrResponse resp;
 	
 		resp.set_drm_encoder_type(0);
-		resp.set_drm_crtc_id(1);
+		
+		auto obj = self->_device->findObject(req.drm_crtc_id());
+		assert(obj);
+		auto crtc = obj->asCrtc();
+		assert(crtc);		
+		resp.set_drm_crtc_id(crtc->asObject()->_id);
+		
 		resp.set_drm_possible_crtcs(1);
 		resp.set_drm_possible_clones(0);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -415,11 +421,11 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 				<< " may be unsupported!" << std::endl;
 	}
 
-	_theCrtc = std::make_shared<drm_backend::Crtc>();
+	_theCrtc = std::make_shared<Crtc>(this);
 	_theEncoder = std::make_shared<Encoder>(this);
 	_theConnector = std::make_shared<Connector>(this);
 	
-	//registerObject(_theCrtc);
+	registerObject(_theCrtc);
 	registerObject(_theEncoder);
 	registerObject(_theConnector);
 	
@@ -509,6 +515,23 @@ drm_backend::Encoder *GfxDevice::Encoder::asEncoder() {
 }
 
 drm_backend::Object *GfxDevice::Encoder::asObject() {
+	return this;
+}
+
+// ----------------------------------------------------------------
+// GfxDevice::Crtc.
+// ----------------------------------------------------------------
+
+GfxDevice::Crtc::Crtc(GfxDevice *device)
+	:drm_backend::Object { 1 } {
+	
+}
+
+drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
+	return this;
+}
+
+drm_backend::Object *GfxDevice::Crtc::asObject() {
 	return this;
 }
 
