@@ -72,10 +72,7 @@ struct Crtc {
 };
 
 struct Encoder {
-	Encoder()
-		:_id(3) { };
-
-	int _id;
+	virtual Object *asObject() = 0;
 };
 
 struct Connector {
@@ -130,13 +127,20 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		std::vector<drm_backend::Encoder *> _encoders;
 	};
 
+	struct Encoder : drm_backend::Object, drm_backend::Encoder {
+		Encoder(GfxDevice *device);
+		
+		drm_backend::Encoder *asEncoder() override;
+		drm_backend::Object *asObject() override;
+	};
+
 	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
 
 	std::shared_ptr<drm_backend::Crtc> _theCrtc;
-	std::shared_ptr<drm_backend::Encoder> _theEncoder;
+	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
 
 public:

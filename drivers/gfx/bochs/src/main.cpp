@@ -154,7 +154,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
-			resp.add_drm_encoder_ids(encoders[i]->_id);
+			resp.add_drm_encoder_ids(encoders[i]->asObject()->_id);
 		}
 	
 		auto &connectors = self->_device->getConnectors();
@@ -189,7 +189,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		
 		auto psbl_enc = conn->possibleEncoders();
 		for(int i = 0; i < psbl_enc.size(); i++) { 
-			resp.add_drm_encoders(psbl_enc[i]->_id);
+			resp.add_drm_encoders(psbl_enc[i]->asObject()->_id);
 		}
 		
 		auto mode = resp.add_drm_modes();
@@ -208,7 +208,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		mode->set_flags(0);
 		mode->set_type(0);
 		mode->set_name("1024x768");
-		resp.set_drm_encoder_id(0);
+		
+		auto obj2 = self->_device->findObject(req.drm_encoder_id());
+		assert(obj2);
+		auto enc = obj2->asEncoder();
+		assert(enc);		
+
+		resp.set_drm_encoder_id(enc->asObject()->_id);
 		resp.set_drm_connector_type(0);
 		resp.set_drm_connector_type_id(0);
 		resp.set_drm_connection(1); // DRM_MODE_CONNECTED
@@ -410,11 +416,11 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	}
 
 	_theCrtc = std::make_shared<drm_backend::Crtc>();
-	_theEncoder = std::make_shared<drm_backend::Encoder>();
+	_theEncoder = std::make_shared<Encoder>(this);
 	_theConnector = std::make_shared<Connector>(this);
 	
 	//registerObject(_theCrtc);
-	//registerObject(_theEncoder);
+	registerObject(_theEncoder);
 	registerObject(_theConnector);
 	
 	setupCrtc(_theCrtc);
@@ -487,6 +493,23 @@ drm_backend::Object *GfxDevice::Connector::asObject() {
 		
 const std::vector<drm_backend::Encoder *> &GfxDevice::Connector::possibleEncoders() {
 	return _encoders;
+}
+
+// ----------------------------------------------------------------
+// GfxDevice::Encoder.
+// ----------------------------------------------------------------
+
+GfxDevice::Encoder::Encoder(GfxDevice *device)
+	:drm_backend::Object { 0 } {
+	
+}
+
+drm_backend::Encoder *GfxDevice::Encoder::asEncoder() {
+	return this;
+}
+
+drm_backend::Object *GfxDevice::Encoder::asObject() {
+	return this;
 }
 
 // ----------------------------------------------------------------
