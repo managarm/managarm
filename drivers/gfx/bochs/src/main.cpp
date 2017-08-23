@@ -73,6 +73,10 @@ drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
 		return nullptr;
 	return it->second.get();
 }
+	
+std::shared_ptr<drm_backend::FrameBuffer> drm_backend::Device::createFrameBuffer() {
+ 	return std::make_shared<GfxDevice::FrameBuffer>();
+};
 
 // ----------------------------------------------------------------
 // Object
@@ -87,6 +91,14 @@ drm_backend::Encoder *drm_backend::Object::asEncoder() {
 }
 
 drm_backend::Connector *drm_backend::Object::asConnector() {
+	return nullptr;
+}
+
+drm_backend::Crtc *drm_backend::Object::asCrtc() {
+	return nullptr;
+}
+
+drm_backend::FrameBuffer *drm_backend::Object::asFrameBuffer() {
 	return nullptr;
 }
 
@@ -164,7 +176,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		
 		auto &fbs = self->getFrameBuffers();
 		for(int i = 0; i < fbs.size(); i++) {
-			resp.add_drm_fb_ids(fbs[i]->_id);
+			resp.add_drm_fb_ids(fbs[i]->asObject()->_id);
 		}
 	
 		resp.set_drm_min_width(640);
@@ -233,13 +245,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		managarm::fs::SvrResponse resp;
 	
 		resp.set_drm_encoder_type(0);
-		
-		auto obj = self->_device->findObject(req.drm_crtc_id());
-		assert(obj);
-		auto crtc = obj->asCrtc();
-		assert(crtc);		
-		resp.set_drm_crtc_id(crtc->asObject()->_id);
-		
+		resp.set_drm_crtc_id(1);
 		resp.set_drm_possible_crtcs(1);
 		resp.set_drm_possible_clones(0);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -267,10 +273,9 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto fb = std::make_shared<drm_backend::FrameBuffer>();
+		auto fb = self->_device->createFrameBuffer();
 		self->attachFrameBuffer(fb);
-		
-		resp.set_drm_fb_id(fb->_id);
+		resp.set_drm_fb_id(fb->asObject()->_id);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -532,6 +537,23 @@ drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
 }
 
 drm_backend::Object *GfxDevice::Crtc::asObject() {
+	return this;
+}
+
+// ----------------------------------------------------------------
+// GfxDevice::FrameBuffer.
+// ----------------------------------------------------------------
+
+GfxDevice::FrameBuffer::FrameBuffer()
+	:drm_backend::Object { 10 } {
+	
+}
+
+drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
+	return this;
+}
+
+drm_backend::Object *GfxDevice::FrameBuffer::asObject() {
 	return this;
 }
 

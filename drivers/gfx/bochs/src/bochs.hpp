@@ -30,6 +30,7 @@ struct Device {
 	const std::vector<std::shared_ptr<Crtc>> &getCrtcs();
 	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
 	const std::vector<std::shared_ptr<Connector>> &getConnectors();
+	std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer();
 	
 	void registerObject(std::shared_ptr<Object> object);
 	Object *findObject(uint32_t);
@@ -78,10 +79,7 @@ struct Connector {
 };
 
 struct FrameBuffer {
-	FrameBuffer()
-		:_id(10) { };
-
-	int _id;
+	virtual Object *asObject() = 0;
 };
 
 struct Object {
@@ -92,6 +90,7 @@ struct Object {
 	virtual Encoder *asEncoder();
 	virtual Connector *asConnector();
 	virtual Crtc *asCrtc();
+	virtual FrameBuffer *asFrameBuffer();
 	
 	uint32_t _id;
 };
@@ -136,6 +135,13 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		Crtc(GfxDevice *device);
 		
 		drm_backend::Crtc *asCrtc() override;
+		drm_backend::Object *asObject() override;
+	};
+
+	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
+		FrameBuffer();		
+
+		drm_backend::FrameBuffer *asFrameBuffer() override;
 		drm_backend::Object *asObject() override;
 	};
 
