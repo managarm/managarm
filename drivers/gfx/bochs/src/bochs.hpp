@@ -65,7 +65,13 @@ struct Encoder;
 struct Connector;
 struct Configuration;
 struct FrameBuffer;
+struct Plane;
+struct Assignment;
 struct Object;
+
+struct Property {
+
+};
 
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
@@ -89,6 +95,8 @@ private:
 
 public:
 	id_allocator<uint32_t> allocator;
+	Property srcWProperty;
+	Property srcHProperty;
 };
 
 struct File {
@@ -111,13 +119,14 @@ private:
 };
 
 struct Configuration {
-	virtual bool capture(int width, int height) = 0;
+	virtual bool capture(std::vector<Assignment> assignment) = 0;
 	virtual void dispose() = 0;
 	virtual void commit() = 0;
 };
 
 struct Crtc {
 	virtual Object *asObject() = 0;
+	virtual Plane *primaryPlane() = 0;
 };
 
 struct Encoder {
@@ -141,6 +150,16 @@ struct FrameBuffer {
 	virtual Object *asObject() = 0;
 };
 
+struct Plane {
+	virtual Object *asObject() = 0;
+};
+
+struct Assignment {
+	Object *object;
+	Property *property;
+	uint64_t intValue;
+};
+
 struct Object {
 	Object(uint32_t id)
 		:_id(id) { };
@@ -150,6 +169,7 @@ struct Object {
 	virtual Connector *asConnector();
 	virtual Crtc *asCrtc();
 	virtual FrameBuffer *asFrameBuffer();
+	virtual Plane *asPlane();
 	
 private:
 	uint32_t _id;
@@ -164,7 +184,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		Configuration(GfxDevice *device)
 		:_device(device) { };
 		
-		bool capture(int width, int height) override;
+		bool capture(std::vector<drm_backend::Assignment> assignment) override;
 		void dispose() override;
 		void commit() override;
 		
@@ -172,6 +192,13 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		GfxDevice *_device;
 		int _width;
 		int _height;
+	};
+
+	struct Plane : drm_backend::Object, drm_backend::Plane {
+		Plane(GfxDevice *device);
+		
+		drm_backend::Plane *asPlane() override;	
+		drm_backend::Object *asObject() override;
 	};
 
 	struct Connector : drm_backend::Object, drm_backend::Connector {
@@ -197,6 +224,10 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		
 		drm_backend::Crtc *asCrtc() override;
 		drm_backend::Object *asObject() override;
+		drm_backend::Plane *primaryPlane() override;
+	
+	private:	
+		GfxDevice *_device;
 	};
 
 	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
@@ -216,6 +247,7 @@ private:
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
+	std::shared_ptr<Plane> _primaryPlane;
 
 public:
 	// FIX ME: this is a hack	

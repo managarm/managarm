@@ -107,6 +107,10 @@ drm_backend::FrameBuffer *drm_backend::Object::asFrameBuffer() {
 	return nullptr;
 }
 
+drm_backend::Plane *drm_backend::Object::asPlane() {
+	return nullptr;
+}
+
 // ----------------------------------------------------------------
 // File
 // ----------------------------------------------------------------
@@ -339,7 +343,24 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		managarm::fs::SvrResponse resp;
 	
 		auto config = self->_device->createConfiguration();
-		auto valid = config->capture(req.drm_mode().hdisplay(), req.drm_mode().vdisplay());
+	
+		auto obj = self->_device->findObject(req.drm_crtc_id());
+		assert(obj);
+		auto crtc = obj->asCrtc();
+		assert(crtc);
+		std::vector<drm_backend::Assignment> assignments;
+		assignments.push_back(Assignment{ 
+			crtc->primaryPlane()->asObject(),
+			&self->_device->srcWProperty,
+			req.drm_mode().hdisplay() 
+		});
+		assignments.push_back(Assignment{ 
+			crtc->primaryPlane()->asObject(),
+			&self->_device->srcHProperty, 
+			req.drm_mode().vdisplay() 
+		});
+
+		auto valid = config->capture(assignments);
 		assert(valid);
 		config->commit();
 			
@@ -435,10 +456,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	_theCrtc = std::make_shared<Crtc>(this);
 	_theEncoder = std::make_shared<Encoder>(this);
 	_theConnector = std::make_shared<Connector>(this);
+	_primaryPlane = std::make_shared<Plane>(this);
 	
 	registerObject(_theCrtc);
 	registerObject(_theEncoder);
 	registerObject(_theConnector);
+	registerObject(_primaryPlane);
 	
 	setupCrtc(_theCrtc);
 	setupEncoder(_theEncoder);
@@ -459,11 +482,16 @@ std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer() {
 // GfxDevice::Configuration.
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(int width, int height) {
-	_width = width;
-	_height = height;
-
-	if(width <= 0 || height <= 0 || width > 1024 || height > 768)
+bool GfxDevice::Configuration::capture(std::vector<drm_backend::Assignment> assignment) {
+	for(auto &assign: assignment) {
+		if(assign.property == &_device->srcWProperty) {
+			_width = assign.intValue;
+		}else if(assign.property == &_device->srcHProperty) {
+			_height = assign.intValue;
+		}
+	}
+	
+	if(_width <= 0 || _height <= 0 || _width > 1024 || _height > 768)
 		return false;
 	return true;
 }
@@ -540,6 +568,7 @@ drm_backend::Object *GfxDevice::Encoder::asObject() {
 
 GfxDevice::Crtc::Crtc(GfxDevice *device)
 	:drm_backend::Object { device->allocator.allocate() } {
+	_device = device;
 }
 
 drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
@@ -548,6 +577,10 @@ drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
 
 drm_backend::Object *GfxDevice::Crtc::asObject() {
 	return this;
+}
+
+drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
+	return _device->_primaryPlane.get(); 
 }
 
 // ----------------------------------------------------------------
@@ -563,6 +596,22 @@ drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
 }
 
 drm_backend::Object *GfxDevice::FrameBuffer::asObject() {
+	return this;
+}
+
+// ----------------------------------------------------------------
+// GfxDevice: Plane.
+// ----------------------------------------------------------------
+
+GfxDevice::Plane::Plane(GfxDevice *device)
+	:drm_backend::Object { device->allocator.allocate() } {
+}
+
+drm_backend::Plane *GfxDevice::Plane::asPlane() {
+	return this;
+}
+
+drm_backend::Object *GfxDevice::Plane::asObject() {
 	return this;
 }
 
