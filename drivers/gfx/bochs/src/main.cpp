@@ -512,6 +512,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_backend::Assignment> assi
 			_width = assign.intValue;
 		}else if(assign.property == &_device->srcHProperty) {
 			_height = assign.intValue;
+		}else{
+			return false;
 		}
 	}
 	

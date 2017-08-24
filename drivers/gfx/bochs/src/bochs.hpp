@@ -194,7 +194,7 @@ private:
 struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> {
 	struct Configuration : drm_backend::Configuration {
 		Configuration(GfxDevice *device)
-		:_device(device) { };
+		:_device(device), _width(0), _height(0) { };
 		
 		bool capture(std::vector<drm_backend::Assignment> assignment) override;
 		void dispose() override;
