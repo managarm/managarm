@@ -122,6 +122,19 @@ void drm_backend::File::attachFrameBuffer(std::shared_ptr<drm_backend::FrameBuff
 const std::vector<std::shared_ptr<drm_backend::FrameBuffer>> &drm_backend::File::getFrameBuffers() {
 	return _frameBuffers;
 }
+	
+uint32_t drm_backend::File::createHandle(std::shared_ptr<BufferObject> buff) {
+	auto handle = _allocator.allocate();
+	_buffers.insert({handle, buff});
+	return handle;
+}
+	
+drm_backend::BufferObject *drm_backend::File::resolveHandle(uint32_t handle) {
+	auto it = _buffers.find(handle);
+	if(it == _buffers.end())
+		return nullptr;
+	return it->second.get();
+};
 
 async::result<int64_t> drm_backend::File::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek() not implemented");
@@ -268,8 +281,11 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 	}else if(req.command() == DRM_IOCTL_MODE_CREATE_DUMB) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
-		resp.set_drm_handle(1);
+
+		auto buff = self->_device->createDumb();
+		auto handle = self->createHandle(buff);
+		resp.set_drm_handle(handle);
+
 		resp.set_drm_pitch(1024 * 4);
 		resp.set_drm_size(1024 * 768 * 4);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -283,7 +299,11 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto fb = self->_device->createFrameBuffer();
+		auto buff_obj = self->resolveHandle(req.drm_handle());
+		assert(buff_obj);
+		auto buffer = buff_obj->sharedBufferObject();
+		
+		auto fb = self->_device->createFrameBuffer(buffer);
 		self->attachFrameBuffer(fb);
 		resp.set_drm_fb_id(fb->asObject()->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -474,8 +494,12 @@ std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer() {
+std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> buff) {
 	return std::make_shared<FrameBuffer>(this);
+}
+
+std::shared_ptr<drm_backend::BufferObject> GfxDevice::createDumb() {
+	return std::make_shared<BufferObject>();
 }
 
 // ----------------------------------------------------------------
@@ -613,6 +637,14 @@ drm_backend::Plane *GfxDevice::Plane::asPlane() {
 
 drm_backend::Object *GfxDevice::Plane::asObject() {
 	return this;
+}
+
+// ----------------------------------------------------------------
+// GfxDevice: BufferObject.
+// ----------------------------------------------------------------
+
+std::shared_ptr<drm_backend::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
+	return this->shared_from_this();
 }
 
 // ----------------------------------------------------------------

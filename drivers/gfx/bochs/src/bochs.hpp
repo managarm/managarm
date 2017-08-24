@@ -73,9 +73,15 @@ struct Property {
 
 };
 
+struct BufferObject {
+	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
+};
+
+
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
-	virtual std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer() = 0;
+	virtual std::shared_ptr<BufferObject> createDumb() = 0;
+	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff) = 0;
 	
 	void setupCrtc(std::shared_ptr<Crtc> crtc);
 	void setupEncoder(std::shared_ptr<Encoder> encoder);
@@ -113,9 +119,15 @@ struct File {
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
 	
+	uint32_t createHandle(std::shared_ptr<BufferObject> buff);
+	BufferObject *resolveHandle(uint32_t handle);
+
 private:
 	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
 	std::shared_ptr<Device> _device;
+	std::unordered_map<uint32_t, std::shared_ptr<BufferObject>> _buffers;
+	id_allocator<uint32_t> _allocator;
+	
 };
 
 struct Configuration {
@@ -200,6 +212,10 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		drm_backend::Plane *asPlane() override;	
 		drm_backend::Object *asObject() override;
 	};
+	
+	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
+		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
+	};
 
 	struct Connector : drm_backend::Object, drm_backend::Connector {
 		Connector(GfxDevice *device);
@@ -241,7 +257,9 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
-	std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer() override;
+	std::shared_ptr<drm_backend::BufferObject> createDumb() override;
+	std::shared_ptr<drm_backend::FrameBuffer> 
+			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> buff) override;
 
 private:
 	std::shared_ptr<Crtc> _theCrtc;
