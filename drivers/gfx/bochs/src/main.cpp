@@ -73,10 +73,15 @@ drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
 		return nullptr;
 	return it->second.get();
 }
-	
-std::shared_ptr<drm_backend::FrameBuffer> drm_backend::Device::createFrameBuffer() {
- 	return std::make_shared<GfxDevice::FrameBuffer>();
-};
+
+
+drm_backend::Crtc *drm_backend::Encoder::currentCrtc() {
+	return _currentCrtc;
+}
+
+void drm_backend::Encoder::setCurrentCrtc(drm_backend::Crtc *crtc) {
+	_currentCrtc = crtc;
+}
 
 // ----------------------------------------------------------------
 // Object
@@ -193,7 +198,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 	}else if(req.command() == DRM_IOCTL_MODE_GETCONNECTOR) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-		
+	
 		auto obj = self->_device->findObject(req.drm_connector_id());
 		assert(obj);
 		auto conn = obj->asConnector();
@@ -221,12 +226,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		mode->set_type(0);
 		mode->set_name("1024x768");
 		
-		auto obj2 = self->_device->findObject(req.drm_encoder_id());
-		assert(obj2);
-		auto enc = obj2->asEncoder();
-		assert(enc);		
-
-		resp.set_drm_encoder_id(enc->asObject()->_id);
+		resp.set_drm_encoder_id(0);
 		resp.set_drm_connector_type(0);
 		resp.set_drm_connector_type_id(0);
 		resp.set_drm_connection(1); // DRM_MODE_CONNECTED
@@ -245,7 +245,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		managarm::fs::SvrResponse resp;
 	
 		resp.set_drm_encoder_type(0);
-		resp.set_drm_crtc_id(1);
+
+		auto obj = self->_device->findObject(req.drm_encoder_id());
+		assert(obj);
+		auto enc = obj->asEncoder();
+		assert(enc);
+		resp.set_drm_crtc_id(enc->currentCrtc()->asObject()->_id);
+		
 		resp.set_drm_possible_crtcs(1);
 		resp.set_drm_possible_clones(0);
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -437,10 +443,16 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	setupCrtc(_theCrtc);
 	setupEncoder(_theEncoder);
 	attachConnector(_theConnector);
+
+	_theEncoder->setCurrentCrtc(_theCrtc.get());
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
+}
+
+std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer() {
+	return std::make_shared<FrameBuffer>(this);
 }
 
 // ----------------------------------------------------------------
@@ -490,7 +502,7 @@ void GfxDevice::Configuration::commit() {
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *device)
-	: drm_backend::Object { 2 } {
+	: drm_backend::Object { device->allocator.allocate() } {
 	_encoders.push_back(device->_theEncoder.get());
 }
 
@@ -511,8 +523,7 @@ const std::vector<drm_backend::Encoder *> &GfxDevice::Connector::possibleEncoder
 // ----------------------------------------------------------------
 
 GfxDevice::Encoder::Encoder(GfxDevice *device)
-	:drm_backend::Object { 0 } {
-	
+	:drm_backend::Object { device->allocator.allocate() } {
 }
 
 drm_backend::Encoder *GfxDevice::Encoder::asEncoder() {
@@ -528,8 +539,7 @@ drm_backend::Object *GfxDevice::Encoder::asObject() {
 // ----------------------------------------------------------------
 
 GfxDevice::Crtc::Crtc(GfxDevice *device)
-	:drm_backend::Object { 1 } {
-	
+	:drm_backend::Object { device->allocator.allocate() } {
 }
 
 drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
@@ -544,9 +554,8 @@ drm_backend::Object *GfxDevice::Crtc::asObject() {
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer()
-	:drm_backend::Object { 10 } {
-	
+GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device)
+	:drm_backend::Object { device->allocator.allocate() } {
 }
 
 drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {

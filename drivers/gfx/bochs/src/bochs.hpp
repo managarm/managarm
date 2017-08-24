@@ -10,6 +10,52 @@
 #include "spec.hpp"
 
 // ----------------------------------------------------------------
+// Sequential ID allocator
+// ----------------------------------------------------------------
+
+#include <assert.h>
+#include <limits>
+#include <set>
+
+// Allocator for integral IDs. Provides O(log n) allocation and deallocation.
+// Allocation always returns the smallest available ID.
+template<typename T>
+struct id_allocator {
+private:
+	struct node {
+		T lb;
+		T ub;
+
+		friend bool operator< (const node &u, const node &v) {
+			return u.lb < v.lb;
+		}
+	};
+
+public:
+	id_allocator(T lb = 1, T ub = std::numeric_limits<T>::max()) {
+		_nodes.insert(node{lb, ub});
+	}
+
+	T allocate() {
+		assert(!_nodes.empty());
+		auto it = _nodes.begin();
+		auto id = it->lb;
+		if(it->lb < it->ub)
+			_nodes.insert(std::next(it), node{it->lb + 1, it->ub});
+		_nodes.erase(it);
+		return id;
+	}
+
+	void free(T id) {
+		// TODO: We could coalesce multiple adjacent nodes here.
+		_nodes.insert(node{id, id});
+	}
+
+private:
+	std::set<node> _nodes;
+};
+
+// ----------------------------------------------------------------
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 namespace drm_backend {
@@ -23,6 +69,7 @@ struct Object;
 
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
+	virtual std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer() = 0;
 	
 	void setupCrtc(std::shared_ptr<Crtc> crtc);
 	void setupEncoder(std::shared_ptr<Encoder> encoder);
@@ -30,7 +77,6 @@ struct Device {
 	const std::vector<std::shared_ptr<Crtc>> &getCrtcs();
 	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
 	const std::vector<std::shared_ptr<Connector>> &getConnectors();
-	std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer();
 	
 	void registerObject(std::shared_ptr<Object> object);
 	Object *findObject(uint32_t);
@@ -39,6 +85,9 @@ struct Device {
 	std::vector<std::shared_ptr<Encoder>> _encoders;
 	std::vector<std::shared_ptr<Connector>> _connectors;
 	std::unordered_map<uint32_t, std::shared_ptr<Object>> _objects;
+
+public:
+	id_allocator<uint32_t> allocator;
 };
 
 struct File {
@@ -70,7 +119,11 @@ struct Crtc {
 };
 
 struct Encoder {
-	virtual Object *asObject() = 0;
+	virtual Object *asObject() = 0;	
+	drm_backend::Crtc *currentCrtc();
+	void setCurrentCrtc(drm_backend::Crtc *crtc);
+
+	drm_backend::Crtc *_currentCrtc;
 };
 
 struct Connector {
@@ -139,7 +192,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 
 	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
-		FrameBuffer();		
+		FrameBuffer(GfxDevice *device);
 
 		drm_backend::FrameBuffer *asFrameBuffer() override;
 		drm_backend::Object *asObject() override;
@@ -149,6 +202,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
+	std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer() override;
 
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
