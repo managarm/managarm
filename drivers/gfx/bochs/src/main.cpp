@@ -64,7 +64,7 @@ const std::vector<std::shared_ptr<drm_backend::Connector>> &drm_backend::Device:
 }
 
 void drm_backend::Device::registerObject(std::shared_ptr<drm_backend::Object> object) {
-	_objects.insert({object->_id, object});
+	_objects.insert({object->id(), object});
 }
 
 drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
@@ -166,22 +166,22 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 
 		auto &crtcs = self->_device->getCrtcs();
 		for(int i = 0; i < crtcs.size(); i++) {
-			resp.add_drm_crtc_ids(crtcs[i]->asObject()->_id);
+			resp.add_drm_crtc_ids(crtcs[i]->asObject()->id());
 		}
 			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
-			resp.add_drm_encoder_ids(encoders[i]->asObject()->_id);
+			resp.add_drm_encoder_ids(encoders[i]->asObject()->id());
 		}
 	
 		auto &connectors = self->_device->getConnectors();
 		for(int i = 0; i < connectors.size(); i++) {
-			resp.add_drm_connector_ids(connectors[i]->asObject()->_id);
+			resp.add_drm_connector_ids(connectors[i]->asObject()->id());
 		}
 		
 		auto &fbs = self->getFrameBuffers();
 		for(int i = 0; i < fbs.size(); i++) {
-			resp.add_drm_fb_ids(fbs[i]->asObject()->_id);
+			resp.add_drm_fb_ids(fbs[i]->asObject()->id());
 		}
 	
 		resp.set_drm_min_width(640);
@@ -206,7 +206,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		
 		auto psbl_enc = conn->possibleEncoders();
 		for(int i = 0; i < psbl_enc.size(); i++) { 
-			resp.add_drm_encoders(psbl_enc[i]->asObject()->_id);
+			resp.add_drm_encoders(psbl_enc[i]->asObject()->id());
 		}
 		
 		auto mode = resp.add_drm_modes();
@@ -250,7 +250,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assert(obj);
 		auto enc = obj->asEncoder();
 		assert(enc);
-		resp.set_drm_crtc_id(enc->currentCrtc()->asObject()->_id);
+		resp.set_drm_crtc_id(enc->currentCrtc()->asObject()->id());
 		
 		resp.set_drm_possible_crtcs(1);
 		resp.set_drm_possible_clones(0);
@@ -281,7 +281,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 
 		auto fb = self->_device->createFrameBuffer();
 		self->attachFrameBuffer(fb);
-		resp.set_drm_fb_id(fb->asObject()->_id);
+		resp.set_drm_fb_id(fb->asObject()->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();

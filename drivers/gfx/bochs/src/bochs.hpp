@@ -80,7 +80,8 @@ struct Device {
 	
 	void registerObject(std::shared_ptr<Object> object);
 	Object *findObject(uint32_t);
-	
+
+private:	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
 	std::vector<std::shared_ptr<Connector>> _connectors;
@@ -104,6 +105,7 @@ struct File {
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
 	
+private:
 	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
 	std::shared_ptr<Device> _device;
 };
@@ -119,10 +121,14 @@ struct Crtc {
 };
 
 struct Encoder {
+	Encoder()
+		:_currentCrtc(nullptr) {  };
+	
 	virtual Object *asObject() = 0;	
 	drm_backend::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_backend::Crtc *crtc);
 
+private:
 	drm_backend::Crtc *_currentCrtc;
 };
 
@@ -145,6 +151,7 @@ struct Object {
 	virtual Crtc *asCrtc();
 	virtual FrameBuffer *asFrameBuffer();
 	
+private:
 	uint32_t _id;
 };
 
@@ -174,6 +181,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		drm_backend::Object *asObject() override;
 		const std::vector<drm_backend::Encoder *> &possibleEncoders() override;
 
+	private:
 		std::vector<drm_backend::Encoder *> _encoders;
 	};
 
@@ -204,6 +212,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
 	std::shared_ptr<drm_backend::FrameBuffer> createFrameBuffer() override;
 
+private:
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
