@@ -10,45 +10,29 @@ namespace {
 
 struct HeloutFile : File {
 private:
-	static COFIBER_ROUTINE(FutureMaybe<off_t>, seek(std::shared_ptr<File> object,
-			off_t offset, VfsSeek whence), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		(void)offset;
 		(void)whence;
 		assert(!"Not implemented");
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(std::shared_ptr<File> object,
-			void *data, size_t max_length), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		(void)data;
 		(void)max_length;
 		assert(!"Not implemented");
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
-			accessMemory(std::shared_ptr<File> object), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory() override, ([=] {
 		assert(!"Not implemented");
 	}))
 
-	static helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> object) {
-		(void)object;
+	helix::BorrowedDescriptor getPassthroughLane() override {
 		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));
 	}
 
-	static const FileOperations operations;
-
 public:
 	HeloutFile(std::shared_ptr<Node> node)
-	: File{std::move(node), &operations} { }
-};
-	
-const FileOperations HeloutFile::operations{
-	&HeloutFile::seek,
-	&HeloutFile::readSome,
-	&HeloutFile::accessMemory,
-	&HeloutFile::getPassthroughLane
+	: File{std::move(node)} { }
 };
 
 struct HeloutDevice : Device {

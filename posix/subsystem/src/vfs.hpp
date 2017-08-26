@@ -62,147 +62,74 @@ using _vfs_view::MountView;
 // ----------------------------------------------------------------------------
 
 struct File {
-	File(std::shared_ptr<Node> node, const FileOperations *operations)
-	: _node{std::move(node)}, _operations{operations} { }
+	File(std::shared_ptr<Node> node)
+	: _node{std::move(node)} { }
 
 	std::shared_ptr<Node> node() {
 		return _node;
 	}
 
-	const FileOperations *operations() {
-		return _operations;
-	}
+	FutureMaybe<void> readExactly(void *data, size_t length);
+
+	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) = 0;
+	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
+	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory() = 0;
+	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:
 	const std::shared_ptr<Node> _node;
-	const FileOperations *_operations;
 };
-
-struct FileOperations {
-	FutureMaybe<off_t> (*seek)(std::shared_ptr<File> object, off_t offset, VfsSeek whence);
-	FutureMaybe<size_t> (*readSome)(std::shared_ptr<File> object, void *data, size_t max_length);
-	FutureMaybe<helix::UniqueDescriptor> (*accessMemory)(std::shared_ptr<File> object);
-	helix::BorrowedDescriptor (*getPassthroughLane)(std::shared_ptr<File> object);
-};
-
-FutureMaybe<void> readExactly(std::shared_ptr<File> file, void *data, size_t length);
-
-FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence);
-
-FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length);
-
-FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file);
-
-helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file);
 
 // ----------------------------------------------------------------------------
 // Link class.
 // ----------------------------------------------------------------------------
 
 struct Link {
-	Link(const LinkOperations *operations)
-	: _operations(operations) { }
-
-	const LinkOperations *operations() {
-		return _operations;
-	}
-
-private:
-	const LinkOperations *_operations;
-};
-
-struct LinkOperations {
-	std::shared_ptr<Node> (*getOwner)(std::shared_ptr<Link> link);
-	std::string (*getName)(std::shared_ptr<Link> link);
-	std::shared_ptr<Node> (*getTarget)(std::shared_ptr<Link> link);
+	virtual std::shared_ptr<Node> getOwner() = 0;
+	virtual std::string getName() = 0;
+	virtual std::shared_ptr<Node> getTarget() = 0;
 };
 
 std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target);
-
-std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link);
 
 // ----------------------------------------------------------------------------
 // Node class.
 // ----------------------------------------------------------------------------
 
 struct Node {
-	Node(const NodeOperations *operations)
-	: _operations(operations) { }
-
-	const NodeOperations *operations() {
-		return _operations;
-	}
-
-private:
-	const NodeOperations *_operations;
-};
-
-struct NodeOperations {
-	VfsType (*getType)(std::shared_ptr<Node> node);
+	virtual VfsType getType();
 
 	// TODO: This should be async.
-	FileStats (*getStats)(std::shared_ptr<Node> node);
+	virtual FileStats getStats();
 
 	//! Resolves a file in a directory (directories only).
-	FutureMaybe<std::shared_ptr<Link>> (*getLink)(std::shared_ptr<Node> node, std::string name);
+	virtual FutureMaybe<std::shared_ptr<Link>> getLink(std::string name);
 	
 	//! Links an existing node to this directory (directories only).
-	FutureMaybe<std::shared_ptr<Link>> (*link)(std::shared_ptr<Node> node, std::string name,
+	virtual FutureMaybe<std::shared_ptr<Link>> link(std::string name,
 			std::shared_ptr<Node> target);
 
 	//! Creates a new directory (directories only).
-	FutureMaybe<std::shared_ptr<Link>> (*mkdir)(std::shared_ptr<Node> node, std::string name);
+	virtual FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name);
 	
 	//! Creates a new symlink (directories only).
-	FutureMaybe<std::shared_ptr<Link>> (*symlink)(std::shared_ptr<Node> node,
-			std::string name, std::string path);
+	virtual FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path);
 	
 	//! Creates a new device file (directories only).
-	FutureMaybe<std::shared_ptr<Link>> (*mkdev)(std::shared_ptr<Node> node, std::string name,
+	virtual FutureMaybe<std::shared_ptr<Link>> mkdev(std::string name,
 			VfsType type, DeviceId id);
 	
 	//! Opens the file (regular files only).
-	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Node> node);
+	virtual FutureMaybe<std::shared_ptr<File>> open();
 	
 	//! Reads the target of a symlink (symlinks only).
-	FutureMaybe<std::string> (*readSymlink)(std::shared_ptr<Node> node);
+	virtual FutureMaybe<std::string> readSymlink();
 
 	//! Read the major/minor device number (devices only).
-	DeviceId (*readDevice)(std::shared_ptr<Node> node);
+	virtual DeviceId readDevice();
+
+private:
 };
-
-VfsType getType(std::shared_ptr<Node> node);
-
-FileStats getStats(std::shared_ptr<Node> node);
-
-FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name);
-
-FutureMaybe<std::shared_ptr<Link>> link(std::shared_ptr<Node> node, std::string name,
-		std::shared_ptr<Node> target);
-
-FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name);
-
-FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
-		std::string name, std::string path);
-
-FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node, std::string name,
-		VfsType type, DeviceId id);
-
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node);
-
-FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node);
-
-DeviceId readDevice(std::shared_ptr<Node> node);
-
-inline VfsType getDirectoryType(std::shared_ptr<Node>) {
-	return VfsType::directory;
-}
-inline VfsType getRegularType(std::shared_ptr<Node>) {
-	return VfsType::regular;
-}
-inline VfsType getSymlinkType(std::shared_ptr<Node>) {
-	return VfsType::symlink;
-}
 
 namespace _vfs_view {
 

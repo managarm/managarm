@@ -21,60 +21,45 @@ private:
 
 struct OpenFile : File {
 private:
-	static COFIBER_ROUTINE(FutureMaybe<off_t>, seek(std::shared_ptr<File> object,
-			off_t offset, VfsSeek whence), ([=] {
-		auto derived = std::static_pointer_cast<OpenFile>(object);
+	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		assert(whence == VfsSeek::absolute);
-		COFIBER_AWAIT derived->_file.seekAbsolute(offset);
+		COFIBER_AWAIT _file.seekAbsolute(offset);
 		COFIBER_RETURN(offset);
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(std::shared_ptr<File> object,
-			void *data, size_t max_length), ([=] {
-		auto derived = std::static_pointer_cast<OpenFile>(object);
-		size_t length = COFIBER_AWAIT derived->_file.readSome(data, max_length);
+	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
-			accessMemory(std::shared_ptr<File> object), ([=] {
-		auto derived = std::static_pointer_cast<OpenFile>(object);
-		auto memory = COFIBER_AWAIT derived->_file.accessMemory();
+	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory() override, ([=] {
+		auto memory = COFIBER_AWAIT _file.accessMemory();
 		COFIBER_RETURN(std::move(memory));
 	}))
 
-	static helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> object) {
-		auto derived = std::static_pointer_cast<OpenFile>(object);
-		return derived->_file.getLane();
+	helix::BorrowedDescriptor getPassthroughLane() override {
+		return _file.getLane();
 	}
-
-	static const FileOperations operations;
 
 public:
 	OpenFile(helix::UniqueLane lane, std::shared_ptr<Node> node)
-	: File{std::move(node), &operations}, _file{std::move(lane)} { }
+	: File{std::move(node)}, _file{std::move(lane)} { }
 
 private:
 	protocols::fs::File _file;
 };
-	
-const FileOperations OpenFile::operations{
-	&OpenFile::seek,
-	&OpenFile::readSome,
-	&OpenFile::accessMemory,
-	&OpenFile::getPassthroughLane
-};
 
-struct Regular : Node {
+struct Regular : Node, std::enable_shared_from_this<Regular> {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::regular;
+	}
+
+	FileStats getStats() override {
 		assert(!"Fix this");
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Node> object), ([=] {
-		auto self = std::static_pointer_cast<Regular>(object);
-
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open() override, ([=] {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -84,7 +69,7 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -98,42 +83,28 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor(), self));
+		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor(), shared_from_this()));
 	}))
-
-	static const NodeOperations operations;
 
 public:
 	Regular(helix::UniqueLane lane)
-	: Node{&operations}, _lane{std::move(lane)} { }
+	: _lane{std::move(lane)} { }
 
 private:
 	helix::UniqueLane _lane;
 };
 
-const NodeOperations Regular::operations{
-	&getRegularType,
-	&Regular::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&Regular::open,
-	nullptr,
-	nullptr
-};
-
 struct Symlink : Node {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::symlink;
+	}
+
+	FileStats getStats() override {
 		throw std::runtime_error("extern_fs: Fix Symlink::getStats()");
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::string>,
-			readSymlink(std::shared_ptr<Node> object), ([=] {
-		auto self = std::static_pointer_cast<Symlink>(object);
-
+	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink() override, ([=] {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -143,7 +114,7 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_READ_SYMLINK);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -160,98 +131,72 @@ private:
 		COFIBER_RETURN((std::string{static_cast<char *>(recv_target.data()), recv_target.length()}));
 	}))
 
-	static const NodeOperations operations;
-
 public:
 	Symlink(helix::UniqueLane lane)
-	: Node{&operations}, _lane{std::move(lane)} { }
+	: _lane{std::move(lane)} { }
 
 private:
 	helix::UniqueLane _lane;
 };
 
-const NodeOperations Symlink::operations{
-	&getSymlinkType,
-	&Symlink::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&Symlink::readSymlink,
-	nullptr
-};
-
 struct Entry : Link {
 private:
-	static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
-		auto derived = std::static_pointer_cast<Entry>(object);
-		return derived->_owner;
+	std::shared_ptr<Node> getOwner() override {
+		return _owner;
 	}
 
-	static std::string getName(std::shared_ptr<Link> object) {
-		(void)object;
+	std::string getName() override {
 		assert(!"No associated name");
 	}
 
-	static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
-		auto derived = std::static_pointer_cast<Entry>(object);
-		auto shared = derived->_target.lock();
+	std::shared_ptr<Node> getTarget() override {
+		auto shared = _target.lock();
 		assert(shared);
 		return shared;
 	}
-	
-	static const LinkOperations operations;
 
 public:
 	Entry(std::shared_ptr<Node> owner, std::weak_ptr<Node> target)
-	: Link(&operations), _owner{std::move(owner)}, _target{std::move(target)} { }
+	: _owner{std::move(owner)}, _target{std::move(target)} { }
 
 private:
 	std::shared_ptr<Node> _owner;
 	std::weak_ptr<Node> _target;
 };
 
-const LinkOperations Entry::operations{
-	&Entry::getOwner,
-	&Entry::getName,
-	&Entry::getTarget
-};
-
-struct Directory : Node {
+struct Directory : Node, std::enable_shared_from_this<Directory> {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::directory;
+	}
+
+	FileStats getStats() override {
 		assert(!"Fix this");
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mkdir(std::string name) override, ([=] {
 		(void)name;
 		assert(!"mkdir is not implemented for extern_fs");
 	}))
 	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			symlink(std::shared_ptr<Node> object, std::string name, std::string link), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			symlink(std::string name, std::string link) override, ([=] {
 		(void)name;
 		(void)link;
 		assert(!"symlink is not implemented for extern_fs");
 	}))
 	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
-			std::string name, VfsType type, DeviceId id), ([=] {
-		(void)object;
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::string name,
+			VfsType type, DeviceId id) override, ([=] {
 		(void)name;
 		(void)type;
 		(void)id;
 		assert(!"mkdev is not implemented for extern_fs");
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
-		auto self = std::static_pointer_cast<Directory>(object);
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			getLink(std::string name) override, ([=] {
 //		std::cout << "extern_fs: getLink() " << name << std::endl;
 
 		helix::Offer offer;
@@ -264,7 +209,7 @@ private:
 		req.set_path(name);
 
 		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(self->_lane, helix::Dispatcher::global(),
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
@@ -282,7 +227,7 @@ private:
 			std::shared_ptr<Node> child;
 			switch(resp.file_type()) {
 			case managarm::fs::FileType::DIRECTORY:
-				child = std::make_shared<Directory>(self->_context, pull_node.descriptor());
+				child = std::make_shared<Directory>(_context, pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::REGULAR:
 				child = std::make_shared<Regular>(pull_node.descriptor());
@@ -293,36 +238,21 @@ private:
 			default:
 				throw std::runtime_error("extern_fs: Unexpected file type");
 			}
-			auto intern = self->_context->internalizeNode(resp.id(), child);
-			auto link = std::make_shared<Entry>(self, intern);
-			COFIBER_RETURN(self->_context->internalizeLink(self.get(), name, link));
+			auto intern = _context->internalizeNode(resp.id(), child);
+			auto link = std::make_shared<Entry>(shared_from_this(), intern);
+			COFIBER_RETURN(_context->internalizeLink(this, name, link));
 		}else{
 			COFIBER_RETURN(nullptr);
 		}
 	}))
 
-	static const NodeOperations operations;
-
 public:
 	Directory(Context *context, helix::UniqueLane lane)
-	: Node{&operations}, _context{context}, _lane{std::move(lane)} { }
+	: _context{context}, _lane{std::move(lane)} { }
 
 private:
 	Context *_context;
 	helix::UniqueLane _lane;
-};
-
-const NodeOperations Directory::operations{
-	&getDirectoryType,
-	&Directory::getStats,
-	&Directory::getLink,
-	nullptr,
-	&Directory::mkdir,
-	&Directory::symlink,
-	&Directory::mkdev,
-	nullptr,
-	nullptr,
-	nullptr
 };
 
 std::shared_ptr<Node> Context::internalizeNode(int64_t id, std::shared_ptr<Node> node) {

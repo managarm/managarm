@@ -18,62 +18,45 @@ namespace {
 
 struct Symlink : Node {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::symlink;
+	}
+
+	FileStats getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs Symlink::getStats()\e[39m" << std::endl;
 		return FileStats{};
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::string>,
-			readSymlink(std::shared_ptr<Node> object), ([=] {
-		auto derived = std::static_pointer_cast<Symlink>(object);
-		COFIBER_RETURN(derived->_link);
+	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink() override, ([=] {
+		COFIBER_RETURN(_link);
 	}))
-
-	static const NodeOperations operations;
 
 public:
 	Symlink(std::string link)
-	: Node(&operations), _link(std::move(link)) { }
+	: _link(std::move(link)) { }
 
 private:
 	std::string _link;
 };
 
-const NodeOperations Symlink::operations{
-	&getSymlinkType,
-	&Symlink::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&Symlink::readSymlink,
-	nullptr
-};
-
 struct DeviceFile : Node {
 private:
-	static VfsType getType(std::shared_ptr<Node> object) {
-		auto derived = std::static_pointer_cast<DeviceFile>(object);
-		return derived->_type;
+	VfsType getType() override {
+		return _type;
 	}
 	
-	static FileStats getStats(std::shared_ptr<Node>) {
+	FileStats getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs DeviceFile::getStats()\e[39m" << std::endl;
 		return FileStats{};
 	}
 
-	static DeviceId readDevice(std::shared_ptr<Node> object) {
-		auto derived = std::static_pointer_cast<DeviceFile>(object);
-		return derived->_id;
+	DeviceId readDevice() override {
+		return _id;
 	}
-
-	static const NodeOperations operations;
 
 public:
 	DeviceFile(VfsType type, DeviceId id)
-	: Node(&operations), _type(type), _id(id) {
+	: _type(type), _id(id) {
 		assert(type == VfsType::charDevice || type == VfsType::blockDevice);
 	}
 
@@ -82,104 +65,81 @@ private:
 	DeviceId _id;
 };
 
-const NodeOperations DeviceFile::operations{
-	&DeviceFile::getType,
-	&DeviceFile::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&DeviceFile::readDevice
-};
-
-struct Directory : Node {
+struct Directory : Node, std::enable_shared_from_this<Directory> {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::directory;
+	}
+
+	FileStats getStats() override {
 		std::cout << "\e[31mposix: Fix tmpfs Directory::getStats()\e[39m" << std::endl;
 		return FileStats{};
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			getLink(std::shared_ptr<Node> object, std::string name), ([=] {
-		auto derived = std::static_pointer_cast<Directory>(object);
-		auto it = derived->_entries.find(name);
-		if(it != derived->_entries.end())
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			getLink(std::string name) override, ([=] {
+		auto it = _entries.find(name);
+		if(it != _entries.end())
 			COFIBER_RETURN(*it);
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, link(std::shared_ptr<Node> object,
-			std::string name, std::shared_ptr<Node> target), ([=] {
-		auto derived = std::static_pointer_cast<Directory>(object);
-		assert(derived->_entries.find(name) == derived->_entries.end());
-		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(target));
-		derived->_entries.insert(link);
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, link(std::string name,
+			std::shared_ptr<Node> target) override, ([=] {
+		assert(_entries.find(name) == _entries.end());
+		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(target));
+		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			mkdir(std::shared_ptr<Node> object, std::string name), ([=] {
-		auto derived = std::static_pointer_cast<Directory>(object);
-		assert(derived->_entries.find(name) == derived->_entries.end());
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			mkdir(std::string name) override, ([=] {
+		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<Directory>();
-		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
-		derived->_entries.insert(link);
+		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
 	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
-			symlink(std::shared_ptr<Node> object, std::string name, std::string path), ([=] {
-		auto derived = std::static_pointer_cast<Directory>(object);
-		assert(derived->_entries.find(name) == derived->_entries.end());
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+			symlink(std::string name, std::string path), ([=] {
+		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<Symlink>(std::move(path));
-		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
-		derived->_entries.insert(link);
+		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
 	
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::shared_ptr<Node> object,
-			std::string name, VfsType type, DeviceId id), ([=] {
-		auto derived = std::static_pointer_cast<Directory>(object);
-		assert(derived->_entries.find(name) == derived->_entries.end());
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::string name,
+			VfsType type, DeviceId id), ([=] {
+		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<DeviceFile>(type, id);
-		auto link = std::make_shared<MyLink>(object, std::move(name), std::move(node));
-		derived->_entries.insert(link);
+		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
-
-	static const NodeOperations operations;
 
 public:
-	Directory()
-	: Node(&operations) { }
+	Directory() = default;
 
 private:
 	struct MyLink : Link {
 	private:
-		static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
-			auto derived = std::static_pointer_cast<MyLink>(object);
-			return derived->owner;
+		std::shared_ptr<Node> getOwner() override {
+			return owner;
 		}
 
-		static std::string getName(std::shared_ptr<Link> object) {
-			auto derived = std::static_pointer_cast<MyLink>(object);
-			return derived->name;
+		std::string getName() override {
+			return name;
 		}
 
-		static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
-			auto derived = std::static_pointer_cast<MyLink>(object);
-			return derived->target;
+		std::shared_ptr<Node> getTarget() override {
+			return target;
 		}
-
-		static const LinkOperations operations;
 
 	public:
 		explicit MyLink(std::shared_ptr<Node> owner, std::string name, std::shared_ptr<Node> target)
-		: Link(&operations), owner(std::move(owner)),
-				name(std::move(name)), target(std::move(target)) { }
+		: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
 
 		std::shared_ptr<Node> owner;
 		std::string name;
@@ -204,63 +164,30 @@ private:
 	std::set<std::shared_ptr<MyLink>, Compare> _entries;
 };
 
-const NodeOperations Directory::operations{
-	&getDirectoryType,
-	&Directory::getStats,
-	&Directory::getLink,
-	&Directory::link,
-	&Directory::mkdir,
-	&Directory::symlink,
-	&Directory::mkdev,
-	nullptr,
-	nullptr,
-	nullptr
-};
-
-const LinkOperations Directory::MyLink::operations{
-	&MyLink::getOwner,
-	&MyLink::getName,
-	&MyLink::getTarget
-};
-
-struct MemoryNode : Node {
+struct MemoryNode : Node, std::enable_shared_from_this<MemoryNode> {
 private:
-	static FileStats getStats(std::shared_ptr<Node>) {
+	VfsType getType() override {
+		return VfsType::regular;
+	}
+
+	FileStats getStats() override {
 		assert(!"Fix this");
 	}
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Node> object), ([=] {
-		auto self = std::static_pointer_cast<MemoryNode>(object);
-
-		auto fd = ::open(self->_path.c_str(), O_RDONLY);
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open() override, ([=] {
+		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
 		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
-		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), self));
+		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), shared_from_this()));
 	}))
-
-	static const NodeOperations operations;
 
 public:
 	MemoryNode(std::string path)
-	: Node(&operations), _path{std::move(path)} { }
+	: _path{std::move(path)} { }
 
 private:
 	std::string _path;
-};
-
-const NodeOperations MemoryNode::operations{
-	&getRegularType,
-	&MemoryNode::getStats,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	nullptr,
-	&MemoryNode::open,
-	nullptr,
-	nullptr
 };
 
 } // anonymous namespace

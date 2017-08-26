@@ -38,7 +38,7 @@ void DeviceManager::install(std::shared_ptr<Device> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	mkdev(getTarget(getDevtmpfs()), Device::getName(device),
+	getDevtmpfs()->getTarget()->mkdev(Device::getName(device),
 			Device::getType(device), id);
 }
 

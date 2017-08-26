@@ -31,11 +31,11 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 	ImageInfo info;
 
 	// get a handle to the file's memory.
-	auto file_memory = COFIBER_AWAIT accessMemory(file);
+	auto file_memory = COFIBER_AWAIT file->accessMemory();
 
 	// read the elf file header and verify the signature.
 	Elf64_Ehdr ehdr;
-	COFIBER_AWAIT readExactly(file, &ehdr, sizeof(Elf64_Ehdr));
+	COFIBER_AWAIT file->readExactly(&ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -49,8 +49,8 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 
 	// read the elf program headers and load them into the address space.
 	auto phdr_buffer = (char *)malloc(ehdr.e_phnum * ehdr.e_phentsize);
-	COFIBER_AWAIT seek(file, ehdr.e_phoff, VfsSeek::absolute);
-	COFIBER_AWAIT readExactly(file, phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
+	COFIBER_AWAIT file->seek(ehdr.e_phoff, VfsSeek::absolute);
+	COFIBER_AWAIT file->readExactly(phdr_buffer, ehdr.e_phnum * size_t(ehdr.e_phentsize));
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		auto phdr = (Elf64_Phdr *)(phdr_buffer + i * ehdr.e_phentsize);
@@ -102,8 +102,8 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 
 				// read the segment contents from the file.
 				memset(window, 0, map_length);
-				COFIBER_AWAIT seek(file, phdr->p_offset, VfsSeek::absolute);
-				COFIBER_AWAIT readExactly(file, (char *)window + misalign, phdr->p_filesz);
+				COFIBER_AWAIT file->seek(phdr->p_offset, VfsSeek::absolute);
+				COFIBER_AWAIT file->readExactly((char *)window + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, map_length));
 			}
 		}else if(phdr->p_type == PT_PHDR) {

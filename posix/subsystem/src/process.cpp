@@ -119,7 +119,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 
 int FileContext::attachFile(std::shared_ptr<File> file) {	
 	HelHandle handle;
-	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
+	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
 
 	for(int fd = 0; ; fd++) {
@@ -133,7 +133,7 @@ int FileContext::attachFile(std::shared_ptr<File> file) {
 
 void FileContext::attachFile(int fd, std::shared_ptr<File> file) {	
 	HelHandle handle;
-	HEL_CHECK(helTransferDescriptor(getPassthroughLane(file).getHandle(),
+	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
 
 	auto it = _fileTable.find(fd);

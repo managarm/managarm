@@ -164,7 +164,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 				assert(source.second);
-				auto device = deviceManager.get(readDevice(getTarget(source.second)));
+				auto device = deviceManager.get(source.second->getTarget()->readDevice());
 				auto link = COFIBER_AWAIT Device::mount(device);
 				target.first->mount(target.second, std::move(link));	
 			}
@@ -230,7 +230,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 			if(path.second) {
-				auto stats = getStats(getTarget(path.second));
+				auto stats = path.second->getTarget()->getStats();
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -314,13 +314,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_passthrough, getPassthroughLane(file)));
+					helix::action(&push_passthrough, file->getPassthroughLane()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_passthrough.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			auto file = self->fileContext()->getFile(req.fd());
-			auto stats = getStats(file->node());
+			auto stats = file->node()->getStats();
 
 			helix::SendBuffer send_resp;
 

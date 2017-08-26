@@ -22,41 +22,16 @@ static bool debugResolve = false;
 // File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<void>, readExactly(std::shared_ptr<File> file,
-		void *data, size_t length), ([=] {
+COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length), ([=] {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = COFIBER_AWAIT readSome(file, (char *)data + offset, length - offset);
+		auto result = COFIBER_AWAIT readSome((char *)data + offset, length - offset);
 		assert(result > 0);
 		offset += result;
 	}
 
 	COFIBER_RETURN();
 }))
-
-FutureMaybe<off_t> seek(std::shared_ptr<File> file, off_t offset, VfsSeek whence) {
-	assert(file);
-	assert(file->operations()->seek);
-	return file->operations()->seek(file, offset, whence);
-}
-
-FutureMaybe<size_t> readSome(std::shared_ptr<File> file, void *data, size_t max_length) {
-	assert(file);
-	assert(file->operations()->readSome);
-	return file->operations()->readSome(file, data, max_length);
-}
-
-FutureMaybe<helix::UniqueDescriptor> accessMemory(std::shared_ptr<File> file) {
-	assert(file);
-	assert(file->operations()->accessMemory);
-	return file->operations()->accessMemory(file);
-}
-
-helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
-	assert(file);
-	assert(file->operations()->getPassthroughLane);
-	return file->operations()->getPassthroughLane(file);
-}
 
 // --------------------------------------------------------
 // Link implementation.
@@ -65,35 +40,24 @@ helix::BorrowedDescriptor getPassthroughLane(std::shared_ptr<File> file) {
 namespace {
 	struct RootLink : Link {
 	private:
-		static std::shared_ptr<Node> getOwner(std::shared_ptr<Link> object) {
-			(void)object;
+		std::shared_ptr<Node> getOwner() override {
 			return std::shared_ptr<Node>{};
 		}
 
-		static std::string getName(std::shared_ptr<Link> object) {
-			(void)object;
+		std::string getName() override {
 			assert(!"No associated name");
 		}
 
-		static std::shared_ptr<Node> getTarget(std::shared_ptr<Link> object) {
-			auto derived = std::static_pointer_cast<RootLink>(object);
-			return derived->_target;
+		std::shared_ptr<Node> getTarget() override {
+			return _target;
 		}
-
-		static const LinkOperations operations;
 
 	public:
 		RootLink(std::shared_ptr<Node> target)
-		: Link(&operations), _target{std::move(target)} { }
+		: _target{std::move(target)} { }
 
 	private:
 		std::shared_ptr<Node> _target;
-	};
-
-	const LinkOperations RootLink::operations{
-		&RootLink::getOwner,
-		&RootLink::getName,
-		&RootLink::getTarget
 	};
 }
 
@@ -101,77 +65,50 @@ std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target) {
 	return std::make_shared<RootLink>(std::move(target));
 }
 
-std::shared_ptr<Node> getTarget(std::shared_ptr<Link> link) {
-	assert(link);
-	assert(link->operations()->getTarget);
-	return link->operations()->getTarget(link);
-}
-
 // --------------------------------------------------------
 // Node implementation.
 // --------------------------------------------------------
 
-VfsType getType(std::shared_ptr<Node> node) {
-	assert(node);
-	return node->operations()->getType(node);
+VfsType Node::getType() {
+	throw std::runtime_error("Not implemented");
 }
 
-FileStats getStats(std::shared_ptr<Node> node) {
-	assert(node);
-	assert(node->operations()->getStats);
-	return node->operations()->getStats(node);
+FileStats Node::getStats() {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> getLink(std::shared_ptr<Node> node, std::string name) {
-	assert(node);
-	assert(node->operations()->getLink);
-	return node->operations()->getLink(node, std::move(name));
+FutureMaybe<std::shared_ptr<Link>> Node::getLink(std::string) {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> link(std::shared_ptr<Node> node, std::string name,
-		std::shared_ptr<Node> target) {
-	assert(node);
-	assert(node->operations()->link);
-	return node->operations()->link(node, std::move(name), std::move(target));
+FutureMaybe<std::shared_ptr<Link>> Node::link(std::string, std::shared_ptr<Node>) {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> mkdir(std::shared_ptr<Node> node, std::string name) {
-	assert(node);
-	assert(node->operations()->mkdir);
-	return node->operations()->mkdir(node, std::move(name));
+FutureMaybe<std::shared_ptr<Link>> Node::mkdir(std::string) {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> symlink(std::shared_ptr<Node> node,
-		std::string name, std::string path) {
-	assert(node);
-	assert(node->operations()->symlink);
-	return node->operations()->symlink(node, std::move(name), std::move(path));
+FutureMaybe<std::shared_ptr<Link>> Node::symlink(std::string, std::string) {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> mkdev(std::shared_ptr<Node> node,
-		std::string name, VfsType type, DeviceId id) {
-	assert(node);
-	assert(node->operations()->mkdev);
-	return node->operations()->mkdev(node, std::move(name), type, id);
+FutureMaybe<std::shared_ptr<Link>> Node::mkdev(std::string, VfsType, DeviceId) {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Node> node) {
-	assert(node);
-	assert(node->operations()->open);
-	return node->operations()->open(node);
+FutureMaybe<std::shared_ptr<File>> Node::open() {
+	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::string> readSymlink(std::shared_ptr<Node> node) {
-	assert(node);
-	assert(node->operations()->readSymlink);
-	return node->operations()->readSymlink(node);
+FutureMaybe<std::string> Node::readSymlink() {
+	throw std::runtime_error("Not implemented");
 }
 
-DeviceId readDevice(std::shared_ptr<Node> node) {
-	assert(node);
-	assert(node->operations()->readDevice);
-	return node->operations()->readDevice(node);
+DeviceId Node::readDevice() {
+	throw std::runtime_error("Not implemented");
 }
+
 // --------------------------------------------------------
 // MountView implementation.
 // --------------------------------------------------------
@@ -212,9 +149,9 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 	auto tree = tmp_fs::createRoot();
 	rootView = MountView::createRoot(tree);
 
-	COFIBER_AWAIT mkdir(getTarget(tree), "realfs");
+	COFIBER_AWAIT tree->getTarget()->mkdir("realfs");
 	
-	auto dev = COFIBER_AWAIT mkdir(getTarget(tree), "dev");
+	auto dev = COFIBER_AWAIT tree->getTarget()->mkdir("dev");
 	rootView->mount(std::move(dev), getDevtmpfs());
 
 	// Populate the tmpfs from the fs we are running on.
@@ -225,7 +162,7 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 		>
 	> stack;
 
-	stack.push_back({getTarget(tree), std::string{""}});
+	stack.push_back({tree->getTarget(), std::string{""}});
 	
 	while(!stack.empty()) {
 		auto item = stack.back();
@@ -263,14 +200,14 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 			//std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
 
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
-				auto link = COFIBER_AWAIT mkdir(item.first, resp.path());
-				stack.push_back({getTarget(link), item.second + "/" + resp.path()});
+				auto link = COFIBER_AWAIT item.first->mkdir(resp.path());
+				stack.push_back({link->getTarget(), item.second + "/" + resp.path()});
 			}else{
 				assert(resp.file_type() == managarm::fs::FileType::REGULAR);
 
 				auto file_path = "/" + item.second + "/" + resp.path();
 				auto node = tmp_fs::createMemoryNode(std::move(file_path));
-				COFIBER_AWAIT link(item.first, resp.path(), node);
+				COFIBER_AWAIT item.first->link(resp.path(), node);
 			}
 		}
 	}
@@ -345,7 +282,7 @@ private:
 namespace {
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string name), ([=] {
-	auto child = COFIBER_AWAIT getLink(getTarget(parent.second), std::move(name));
+	auto child = COFIBER_AWAIT parent.second->getTarget()->getLink(std::move(name));
 	if(!child)
 		COFIBER_RETURN((ViewPath{parent.first, nullptr})); // TODO: Return an error code.
 
@@ -384,8 +321,8 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name),
 		if(!child.second)
 			COFIBER_RETURN(child); // TODO: Return an error code.
 
-		if(getType(getTarget(child.second)) == VfsType::symlink) {
-			auto link = Path::decompose(COFIBER_AWAIT readSymlink(getTarget(child.second)));
+		if(child.second->getTarget()->getType() == VfsType::symlink) {
+			auto link = Path::decompose(COFIBER_AWAIT child.second->getTarget()->readSymlink());
 			if(!link.isRelative())
 				current = root;
 			components.insert(components.begin(), link.begin(), link.end());
@@ -402,14 +339,14 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::str
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 
-	if(getType(getTarget(current.second)) == VfsType::regular) {
-		auto file = COFIBER_AWAIT open(getTarget(current.second));
+	if(current.second->getTarget()->getType() == VfsType::regular) {
+		auto file = COFIBER_AWAIT current.second->getTarget()->open();
 		COFIBER_RETURN(std::move(file));
 	}else{
-		assert(getType(getTarget(current.second)) == VfsType::charDevice);
-		auto id = readDevice(getTarget(current.second));
+		assert(current.second->getTarget()->getType() == VfsType::charDevice);
+		auto id = current.second->getTarget()->readDevice();
 		auto device = deviceManager.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT open(device, getTarget(current.second)));
+		COFIBER_RETURN(COFIBER_AWAIT open(device, current.second->getTarget()));
 	}
 }))
 
