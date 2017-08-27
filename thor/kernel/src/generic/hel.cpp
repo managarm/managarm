@@ -18,39 +18,29 @@ HelError translateError(Error error) {
 }
 
 template<typename P>
-struct PostEvent {
-private:
-	struct Functor {
-		Functor(P writer)
-		: _writer(frigg::move(writer)) { }
-
-		void operator() (ForeignSpaceAccessor accessor) {
-			_writer.write(frigg::move(accessor));
-		}
-
-	private:
-		P _writer;
-	};
-
+struct PostEvent : QueueElement {
 public:
 	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
-	: _space(frigg::move(space)), _queue(queue), _context(context) {
-		_handle = _space->queueSpace.prepare<Functor>();
+	: _space(frigg::move(space)), _queue(queue) {
+		setupContext(context);
 	}
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
-		auto writer = P(frigg::forward<Args>(args)...);
-		auto size = writer.size();
-		_space->queueSpace.submit(frigg::move(_handle), _space, (uintptr_t)_queue,
-				size, _context, Functor(frigg::move(writer)));
+		_writer = frigg::construct<P>(*kernelAlloc, frigg::forward<Args>(args)...);
+		setupLength(_writer->size());
+		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
+	}
+
+	void emit(ForeignSpaceAccessor accessor) override {
+		_writer->write(frigg::move(accessor));
+		frigg::destruct(*kernelAlloc, _writer);
 	}
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_queue;
-	uintptr_t _context;
-	QueueSpace::ElementHandle<Functor> _handle;
+	P *_writer;
 };
 
 struct ManageMemoryWriter {
@@ -299,27 +289,16 @@ using ItemWriter = frigg::Variant<
 	PullDescriptorWriter
 >;
 
-struct MsgHandler {
+struct MsgHandler : QueueElement {
 	template<typename W>
 	friend struct SetResult;
-private:
-	struct Functor {
-		Functor(MsgHandler *handler)
-		: _handler(handler) { }
-
-		void operator() (ForeignSpaceAccessor accessor) {
-			_handler->write(frigg::move(accessor));
-		}
-
-	private:
-		MsgHandler *_handler;
-	};
 
 public:
 	MsgHandler(size_t num_items, frigg::SharedPtr<AddressSpace> space,
 			void *queue, uintptr_t context)
 	: _results(*kernelAlloc), _numComplete(0),
-			_space(frigg::move(space)), _queue(queue), _context(context) {
+			_space(frigg::move(space)), _queue(queue) {
+		setupContext(context);
 		_results.resize(num_items);
 	}
 
@@ -332,12 +311,11 @@ private:
 			});
 		}
 
-		auto handle = _space->queueSpace.prepare<Functor>();
-		_space->queueSpace.submit(frigg::move(handle), _space, (uintptr_t)_queue,
-				size, _context, Functor{this});
+		setupLength(size);
+		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 	}
 	
-	void write(ForeignSpaceAccessor accessor) {
+	void emit(ForeignSpaceAccessor accessor) override {
 		size_t disp = 0;
 		for(size_t i = 0; i < _results.size(); ++i) {
 			_results[i].apply([&] (auto &writer) {
@@ -353,7 +331,6 @@ private:
 
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_queue;
-	uintptr_t _context;
 };
 
 template<typename W>
@@ -1089,20 +1066,20 @@ HelError helGetClock(uint64_t *counter) {
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t context) {
-	struct Routine {
+	struct Routine : QueueElement {
 		explicit Routine(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
 				void *queue, uintptr_t context)
-		: space{frigg::move(the_space)}, queue{queue}, context{context},
+		: space{frigg::move(the_space)}, queue{queue},
 				timer{ticks, CALLBACK_MEMBER(this, &Routine::elapsed)} {
-			handle = space->queueSpace.prepare<frigg::CallbackPtr<void(ForeignSpaceAccessor)>>();
+			setupContext(context);
+			setupLength(sizeof(HelSimpleResult));
 		}
 
 		void elapsed() {
-			space->queueSpace.submit(frigg::move(handle), space, (uintptr_t)queue,
-					sizeof(HelSimpleResult), context, CALLBACK_MEMBER(this, &Routine::write));
+			space->queueSpace.submit(space, (uintptr_t)queue, this);
 		}
 
-		void write(ForeignSpaceAccessor accessor) {
+		void emit(ForeignSpaceAccessor accessor) override {
 			HelSimpleResult data{translateError(kErrSuccess), 0};
 			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 
@@ -1111,8 +1088,6 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 
 		frigg::SharedPtr<AddressSpace> space;
 		void *queue;
-		uintptr_t context;
-		QueueSpace::ElementHandle<frigg::CallbackPtr<void(ForeignSpaceAccessor)>> handle;
 		Timer timer;
 	};
 	

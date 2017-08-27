@@ -96,60 +96,37 @@ private:
 	> _slots;
 };
 
+struct QueueElement {
+	friend struct QueueSpace;
+
+	QueueElement()
+	: _length{0}, _context{0} { }
+
+	// Users of QueueSpace::submit() have to set this up first.
+	void setupLength(size_t length) {
+		_length = length;
+	}
+	void setupContext(uintptr_t context) {
+		_context = context;
+	}
+	
+	virtual void emit(ForeignSpaceAccessor accessor) = 0;
+
+private:
+	size_t _length;
+	uintptr_t _context;
+
+	frigg::IntrusiveSharedLinkedItem<QueueElement> _hook;
+};
+
 struct QueueSpace {
 	using Address = uintptr_t;
 
-private:
-	struct BaseElement {
-		BaseElement(size_t length, uintptr_t context);
-		
-		size_t getLength();
-
-		uintptr_t getContext();
-
-		virtual void complete(ForeignSpaceAccessor accessor) = 0;
-	
-		frigg::IntrusiveSharedLinkedItem<BaseElement> hook;
-
-	private:
-		size_t _length;
-		uintptr_t _context;
-	};
-
-	template<typename F>
-	struct Element : BaseElement {
-		Element(size_t length, uintptr_t context, F functor)
-		: BaseElement(length, context), _functor(frigg::move(functor)) { }
-
-		void complete(ForeignSpaceAccessor accessor) override {
-			_functor(frigg::move(accessor));
-		}
-
-	private:
-		F _functor;
-	};
-
 public:
-	// TODO: allocate memory on construction.
-	template<typename F>
-	struct ElementHandle {
-	};
-
 	QueueSpace()
 	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
 
-	template<typename F>
-	ElementHandle<F> prepare() {
-		return {};
-	}
-	
-	template<typename F>
-	void submit(ElementHandle<F> handle, frigg::UnsafePtr<AddressSpace> space,
-			Address address, size_t length, uintptr_t context, F functor) {
-		(void)handle;
-		_submitElement(space, address, frigg::makeShared<Element<F>>(*kernelAlloc,
-				length, context, frigg::move(functor)));
-	}
+	void submit(frigg::UnsafePtr<AddressSpace> space, Address address, QueueElement *element);
 
 private:
 	using Mutex = frigg::TicketLock;
@@ -161,13 +138,10 @@ private:
 
 		// TODO: we do not actually need shared pointers here.
 		frigg::IntrusiveSharedLinkedList<
-			BaseElement,
-			&BaseElement::hook
+			QueueElement,
+			&QueueElement::_hook
 		> elements;
 	};
-
-	void _submitElement(frigg::UnsafePtr<AddressSpace> space, Address address,
-			frigg::SharedPtr<BaseElement> element);
 
 	// TODO: use a scalable hash table with fine-grained locks to
 	// improve the scalability of the futex algorithm.

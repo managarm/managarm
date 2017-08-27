@@ -31,22 +31,11 @@ struct ElementStruct {
 
 } // anonymous namespace
 
-QueueSpace::BaseElement::BaseElement(size_t length, uintptr_t context)
-: _length(length), _context(context) { }
-
-size_t QueueSpace::BaseElement::getLength() {
-	return _length;
-}
-
-uintptr_t QueueSpace::BaseElement::getContext() {
-	return _context;
-}
-
 QueueSpace::Queue::Queue()
 : offset(0) { }
 
-void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address address,
-		frigg::SharedPtr<BaseElement> element) {
+void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
+		QueueElement *element) {
 	auto wake = [&] (uintptr_t p) {
 		auto futex = &space->futexSpace;
 		futex->wake(p);
@@ -57,13 +46,11 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 		futex->waitIf(p, frigg::move(c), frigg::move(f));
 	};
 
+	assert(element->_length % 8 == 0);
+
 	// TODO: do not globally lock the space mutex.
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
-	
-	unsigned int length = element->getLength();
-	uintptr_t context = element->getContext();
-	assert(length % 8 == 0);
 	
 	auto pin = ForeignSpaceAccessor{space.toShared(), address, sizeof(QueueStruct)};
 	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
@@ -76,7 +63,7 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	// First we traverse the nextQueue list until we find a queue that
 	// is has enough free space for our element.
 	while((ke & kQueueWantNext)
-			|| (ke & kQueueTail) + sizeof(ElementStruct) + length > *qs.get()) {
+			|| (ke & kQueueTail) + sizeof(ElementStruct) + element->_length > *qs.get()) {
 		if(ke & kQueueWantNext) {
 			// Here we wait on the userState futex until the kQueueHasNext bit is set.
 			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
@@ -86,9 +73,9 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 				waitIf(address + offsetof(QueueStruct, userState), [&] {
 					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
 					return ue == v;
-				}, [this, space, address, element = frigg::move(element)] {
+				}, [this, space, address, element] {
 					// FIXME: this can potentially recurse and overflow the stack!
-					_submitElement(space, address, frigg::move(element));
+					submit(space, address, element);
 				});
 				return;
 			}
@@ -120,13 +107,13 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
 			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
 			sizeof(ElementStruct));
-	ez.copyTo(offsetof(ElementStruct, length), &length, 4);
-	ez.copyTo(offsetof(ElementStruct, context), &context, sizeof(uintptr_t));
+	ez.copyTo(offsetof(ElementStruct, length), &element->_length, 4);
+	ez.copyTo(offsetof(ElementStruct, context), &element->_context, sizeof(uintptr_t));
 
 	auto element_ptr = reinterpret_cast<void *>(address
 			+ sizeof(QueueStruct) + offset + sizeof(ElementStruct));
-	element->complete(ForeignSpaceAccessor::acquire(space.toShared(),
-			element_ptr, length));
+	element->emit(ForeignSpaceAccessor::acquire(space.toShared(),
+			element_ptr, element->_length));
 
 	while(true) {
 		assert(!(ke & kQueueWantNext));
@@ -134,7 +121,7 @@ void QueueSpace::_submitElement(frigg::UnsafePtr<AddressSpace> space, Address ad
 
 		// Try to update the kernel state word here.
 		// This CAS potentially resets the waiters bit.
-		unsigned int d = offset + length + sizeof(ElementStruct);
+		unsigned int d = offset + element->_length + sizeof(ElementStruct);
 		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
 			if(ke & kQueueWaiters)
