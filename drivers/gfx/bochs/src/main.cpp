@@ -136,16 +136,8 @@ drm_backend::BufferObject *drm_backend::File::resolveHandle(uint32_t handle) {
 	return it->second.get();
 };
 
-async::result<int64_t> drm_backend::File::seek(std::shared_ptr<void> object, int64_t offset) {
-	throw std::runtime_error("seek() not implemented");
-}
-
 async::result<size_t> drm_backend::File::read(std::shared_ptr<void> object, void *buffer, size_t length) {
 	throw std::runtime_error("read() not implemented");
-}
-
-async::result<void> drm_backend::File::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
-	throw std::runtime_error("write() not implemented");
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_backend::File::accessMemory(std::shared_ptr<void> object,
@@ -398,15 +390,10 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 	COFIBER_RETURN();
 }))
 
-constexpr protocols::fs::FileOperations fileOperations {
-	&drm_backend::File::seek,
-	&drm_backend::File::seek,
-	&drm_backend::File::seek,
-	&drm_backend::File::read,
-	&drm_backend::File::write,
-	&drm_backend::File::accessMemory,
-	&drm_backend::File::ioctl
-};
+constexpr auto fileOperations = protocols::fs::FileOperations{}
+	.withRead(&drm_backend::File::read)
+	.withAccessMemory(&drm_backend::File::accessMemory)
+	.withIoctl(&drm_backend::File::ioctl);
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Device> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {

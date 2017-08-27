@@ -28,6 +28,41 @@ using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
 
 struct FileOperations {
+	constexpr FileOperations()
+	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
+			read{nullptr}, write{nullptr}, accessMemory{nullptr}, ioctl{nullptr} { }
+
+	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+		seekAbs = f;
+		return *this;
+	}
+	constexpr FileOperations &withSeekRel(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+		seekRel = f;
+		return *this;
+	}
+	constexpr FileOperations &withSeekEof(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+		seekEof = f;
+		return *this;
+	}
+	constexpr FileOperations &withRead(async::result<size_t> (*f)(std::shared_ptr<void> object, void *buffer, size_t length)) {
+		read = f;
+		return *this;
+	}
+	constexpr FileOperations &withWrite(async::result<void> (*f)(std::shared_ptr<void> object, const void *buffer, size_t length)) {
+		write = f;
+		return *this;
+	}
+	constexpr FileOperations &withAccessMemory(async::result<AccessMemoryResult>(*f)(std::shared_ptr<void> object,
+			uint64_t offset, size_t size)) {
+		accessMemory = f;
+		return *this;
+	}
+	constexpr FileOperations &withIoctl(async::result<void> (*f)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+			helix::UniqueLane conversation)) {
+		ioctl = f;
+		return *this;
+	}
+
 	async::result<int64_t> (*seekAbs)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekRel)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekEof)(std::shared_ptr<void> object, int64_t offset);

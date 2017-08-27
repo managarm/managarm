@@ -108,10 +108,7 @@ public:
 struct File {
 	File(std::shared_ptr<Device> device)
 		:_device(device) { };
-	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
-	static async::result<void> write(std::shared_ptr<void> object,
-			const void *buffer, size_t length);
 	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);

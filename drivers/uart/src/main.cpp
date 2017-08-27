@@ -156,14 +156,13 @@ async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<vo
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 
-constexpr protocols::fs::FileOperations fileOperations {
-	&seek,
-	&seek,
-	&seek,
-	&read,
-	&write,
-	&accessMemory
-};
+constexpr auto fileOperations = protocols::fs::FileOperations{}
+	.withSeekAbs(&seek)
+	.withSeekRel(&seek)
+	.withSeekEof(&seek)
+	.withRead(&read)
+	.withWrite(&write)
+	.withAccessMemory(&accessMemory);
 
 COFIBER_ROUTINE(cofiber::no_future, serveTerminal(helix::UniqueLane p),
 		([lane = std::move(p)] {

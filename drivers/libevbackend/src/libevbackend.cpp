@@ -46,14 +46,13 @@ async::result<protocols::fs::AccessMemoryResult> EventDevice::accessMemory(std::
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 
-constexpr protocols::fs::FileOperations fileOperations {
-	&EventDevice::seek,
-	&EventDevice::seek,
-	&EventDevice::seek,
-	&EventDevice::read,
-	&EventDevice::write,
-	&EventDevice::accessMemory
-};
+constexpr auto fileOperations = protocols::fs::FileOperations{}
+	.withSeekAbs(&EventDevice::seek)
+	.withSeekRel(&EventDevice::seek)
+	.withSeekEof(&EventDevice::seek)
+	.withRead(&EventDevice::read)
+	.withWrite(&EventDevice::write)
+	.withAccessMemory(&EventDevice::accessMemory);
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {

@@ -70,14 +70,11 @@ COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
 	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, 0));
 }))
 
-constexpr protocols::fs::FileOperations fileOperations{
-	&seekAbs,
-	nullptr,
-	nullptr,
-	&read,
-	&write,
-	&accessMemory
-};
+constexpr auto fileOperations = protocols::fs::FileOperations{}
+	.withSeekAbs(&seekAbs)
+	.withRead(&read)
+	.withWrite(&write)
+	.withAccessMemory(&accessMemory);
 
 COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,
 		std::string name), ([=] {
