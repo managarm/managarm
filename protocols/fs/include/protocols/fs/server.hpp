@@ -25,13 +25,16 @@ enum class FileType {
 
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
+using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
+
 struct FileOperations {
 	async::result<int64_t> (*seekAbs)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekRel)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekEof)(std::shared_ptr<void> object, int64_t offset);
 	async::result<size_t> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
 	async::result<void> (*write)(std::shared_ptr<void> object, const void *buffer, size_t length);
-	async::result<helix::BorrowedDescriptor> (*accessMemory)(std::shared_ptr<void> object);
+	async::result<AccessMemoryResult>(*accessMemory)(std::shared_ptr<void> object,
+			uint64_t offset, size_t size);
 	async::result<void> (*ioctl)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 };

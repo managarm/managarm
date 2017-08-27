@@ -42,7 +42,7 @@ async::result<void> EventDevice::write(std::shared_ptr<void> object, const void 
 	throw std::runtime_error("write not yet implemented");
 }
 
-async::result<helix::BorrowedDescriptor> EventDevice::accessMemory(std::shared_ptr<void> object) {
+async::result<protocols::fs::AccessMemoryResult> EventDevice::accessMemory(std::shared_ptr<void> object, uint64_t, size_t) {
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 

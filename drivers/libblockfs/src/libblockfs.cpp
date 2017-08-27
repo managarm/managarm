@@ -63,11 +63,11 @@ async::result<void> write(std::shared_ptr<void> object, const void *buffer, size
 	throw std::runtime_error("write not implemented");
 }
 
-COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>,
-		accessMemory(std::shared_ptr<void> object), ([=] {
+COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
+		accessMemory(std::shared_ptr<void> object, uint64_t offset, size_t size), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
-	COFIBER_RETURN(helix::BorrowedDescriptor{self->inode->frontalMemory});
+	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, 0));
 }))
 
 constexpr protocols::fs::FileOperations fileOperations{

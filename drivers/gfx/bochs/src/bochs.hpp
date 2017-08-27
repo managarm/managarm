@@ -112,7 +112,7 @@ struct File {
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
 	static async::result<void> write(std::shared_ptr<void> object,
 			const void *buffer, size_t length);
-	static async::result<helix::BorrowedDescriptor> accessMemory(std::shared_ptr<void> object);
+	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 

@@ -148,12 +148,13 @@ async::result<void> drm_backend::File::write(std::shared_ptr<void> object, const
 	throw std::runtime_error("write() not implemented");
 }
 
-COFIBER_ROUTINE(async::result<helix::BorrowedDescriptor>, drm_backend::File::accessMemory(std::shared_ptr<void> object),
-		([=] {
+COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_backend::File::accessMemory(std::shared_ptr<void> object,
+		uint64_t offset, size_t), ([=] {
+	assert(!offset);
 	// FIX ME: this is a hack
 	auto self = static_cast<drm_backend::File *>(object.get());
 	auto gfx = static_cast<GfxDevice *>(self->_device.get());
-	COFIBER_RETURN(gfx->_videoRam);		
+	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor(gfx->_videoRam), 0));
 }))
 
 COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
