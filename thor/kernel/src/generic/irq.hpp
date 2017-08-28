@@ -10,23 +10,10 @@
 
 namespace thor {
 
-struct AwaitIrqBase {
-	virtual void complete(Error error) = 0;
+struct AwaitIrqNode {
+	virtual void onRaise(Error error) = 0;
 
-	frigg::IntrusiveSharedLinkedItem<AwaitIrqBase> processQueueItem;
-};
-
-template<typename F>
-struct AwaitIrq : AwaitIrqBase {
-	AwaitIrq(F functor)
-	: _functor(frigg::move(functor)) { }
-
-	void complete(Error error) override {
-		_functor(error);
-	}
-
-private:
-	F _functor;
+	frigg::IntrusiveSharedLinkedItem<AwaitIrqNode> processQueueItem;
 };
 
 // ----------------------------------------------------------------------------
@@ -166,7 +153,7 @@ struct IrqObject : IrqSink {
 
 	IrqStatus raise() override;
 
-	void submitAwait(frigg::SharedPtr<AwaitIrqBase> wait);
+	void submitAwait(frigg::SharedPtr<AwaitIrqNode> wait);
 	
 	void acknowledge();
 	
@@ -174,8 +161,8 @@ private:
 	bool _latched;
 
 	frigg::IntrusiveSharedLinkedList<
-		AwaitIrqBase,
-		&AwaitIrqBase::processQueueItem
+		AwaitIrqNode,
+		&AwaitIrqNode::processQueueItem
 	> _waitQueue;
 };
 

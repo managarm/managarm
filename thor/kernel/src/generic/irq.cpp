@@ -158,16 +158,16 @@ IrqStatus IrqObject::raise() {
 
 		while(!_waitQueue.empty()) {
 			auto wait = _waitQueue.removeFront();
-			wait->complete(kErrSuccess);
+			wait->onRaise(kErrSuccess);
 		}
 	}
 
 	return irq_status::null;
 }
 
-void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqBase> wait) {
+void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqNode> wait) {
 	if(_latched) {
-		wait->complete(kErrSuccess);
+		wait->onRaise(kErrSuccess);
 		_latched = false;
 	}else{
 		_waitQueue.addBack(frigg::move(wait));
