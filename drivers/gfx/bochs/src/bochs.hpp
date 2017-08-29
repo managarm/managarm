@@ -75,12 +75,15 @@ struct Property {
 
 struct BufferObject {
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
+	virtual uintptr_t getAddress() = 0;
+	virtual size_t getSize() = 0;
 };
 
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::shared_ptr<BufferObject> createDumb() = 0;
-	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff) = 0;
+	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff,
+			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) = 0;
 	
 	void setupCrtc(std::shared_ptr<Crtc> crtc);
 	void setupEncoder(std::shared_ptr<Encoder> encoder);
@@ -221,6 +224,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 
 		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
 		uintptr_t getAddress();
+		size_t getSize();
 		
 	private:
 		uintptr_t _address;
@@ -257,7 +261,8 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 
 	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
-		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo);
+		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
+				uint32_t pixel_pitch);
 
 		drm_backend::FrameBuffer *asFrameBuffer() override;
 		drm_backend::Object *asObject() override;
@@ -276,7 +281,8 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
 	std::shared_ptr<drm_backend::BufferObject> createDumb() override;
 	std::shared_ptr<drm_backend::FrameBuffer> 
-			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo) override;
+			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo,
+			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
 
 private:
 	std::shared_ptr<Crtc> _theCrtc;

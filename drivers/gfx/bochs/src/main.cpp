@@ -296,7 +296,8 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
 		
-		auto fb = self->_device->createFrameBuffer(buffer);
+		auto fb = self->_device->createFrameBuffer(buffer, req.drm_width(), req.drm_height(),
+				req.drm_bpp(), req.drm_pitch());
 		self->attachFrameBuffer(fb);
 		resp.set_drm_fb_id(fb->asObject()->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -493,9 +494,18 @@ std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo) {
+std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo,
+		uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) {
 	auto buff_obj = std::static_pointer_cast<GfxDevice::BufferObject>(bo);
-	auto fb = std::make_shared<FrameBuffer>(this, buff_obj);
+		
+	assert(pitch % 4 == 0);
+	auto pixel_pitch = pitch / 4;
+	
+	assert(pixel_pitch >= width);
+	assert(bo->getAddress() % pitch == 0);
+	assert(bo->getSize() >= pitch * height);
+
+	auto fb = std::make_shared<FrameBuffer>(this, buff_obj, pixel_pitch);
 	registerObject(fb);
 	return fb;
 }
@@ -624,10 +634,11 @@ drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo)
+GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
+		uint32_t pixel_pitch)
 	:drm_backend::Object { device->allocator.allocate() } {
 	_bo = bo;
-	_pixelPitch = 1024;
+	_pixelPitch = pixel_pitch;
 }
 
 drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
@@ -672,6 +683,10 @@ std::shared_ptr<drm_backend::BufferObject> GfxDevice::BufferObject::sharedBuffer
 		
 uintptr_t GfxDevice::BufferObject::getAddress() {
 	return _address;
+}
+
+size_t GfxDevice::BufferObject::getSize() {
+	return _size;
 }
 
 // ----------------------------------------------------------------
