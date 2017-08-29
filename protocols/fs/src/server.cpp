@@ -112,11 +112,11 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 			helix::PushDescriptor push_memory;
 			
 			// TODO: Fix the size.
-			auto memory = COFIBER_AWAIT(file_ops->accessMemory(file, 0, 0));
-			assert(!memory.second);
-
+			auto memory = COFIBER_AWAIT(file_ops->accessMemory(file, req.rel_offset(), 0));
+			
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(memory.second);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

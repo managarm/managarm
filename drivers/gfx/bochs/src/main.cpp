@@ -142,11 +142,10 @@ async::result<size_t> drm_backend::File::read(std::shared_ptr<void> object, void
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_backend::File::accessMemory(std::shared_ptr<void> object,
 		uint64_t offset, size_t), ([=] {
-	assert(!offset);
 	// FIX ME: this is a hack
 	auto self = static_cast<drm_backend::File *>(object.get());
 	auto gfx = static_cast<GfxDevice *>(self->_device.get());
-	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor(gfx->_videoRam), 0));
+	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor(gfx->_videoRam), offset));
 }))
 
 COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,

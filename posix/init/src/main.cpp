@@ -57,11 +57,17 @@ int main() {
 		assert(errno == ENOENT);
 		sleep(1);
 	}
-
+/*
 	auto modeset = fork();
 	if(!modeset) {
 		execve("/sbin/modeset", args.data(), envp);
 	}else assert(modeset != -1);
+*/
+
+	auto modeset_db = fork();
+	if(!modeset_db) {
+		execve("/sbin/modeset-double-buffered", args.data(), envp);
+	}else assert(modeset_db != -1);
 
 /*
 	// Start essential bus and storage drivers.
