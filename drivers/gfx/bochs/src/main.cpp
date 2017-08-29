@@ -538,9 +538,13 @@ void GfxDevice::Configuration::commit() {
 	_device->_operational.store(regs::data, enable_bits::noMemClear || enable_bits::lfb);
 	
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
-	_device->_operational.store(regs::data, _width);
+	_device->_operational.store(regs::data, _fb->getPixelPitch());
+	
+	/* You don't need to initialize this register.
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
 	_device->_operational.store(regs::data, _height);
+	*/
+	
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
 	_device->_operational.store(regs::data, 32);
 
@@ -551,7 +555,7 @@ void GfxDevice::Configuration::commit() {
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
 	_device->_operational.store(regs::data, 0);
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-	_device->_operational.store(regs::data, 0);
+	_device->_operational.store(regs::data,  _fb->getBufferObject()->getAddress() / (_fb->getPixelPitch() * 4));
 	
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 	_device->_operational.store(regs::data, enable_bits::enable 
@@ -622,7 +626,8 @@ drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
 
 GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo)
 	:drm_backend::Object { device->allocator.allocate() } {
-	_buffObj = bo;
+	_bo = bo;
+	_pixelPitch = 1024;
 }
 
 drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
@@ -631,6 +636,14 @@ drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
 
 drm_backend::Object *GfxDevice::FrameBuffer::asObject() {
 	return this;
+}
+
+GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
+	return _bo.get();
+}
+
+uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
+	return _pixelPitch;
 }
 
 // ----------------------------------------------------------------
@@ -655,6 +668,10 @@ drm_backend::Object *GfxDevice::Plane::asObject() {
 
 std::shared_ptr<drm_backend::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
+}
+		
+uintptr_t GfxDevice::BufferObject::getAddress() {
+	return _address;
 }
 
 // ----------------------------------------------------------------

@@ -77,7 +77,6 @@ struct BufferObject {
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
 };
 
-
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::shared_ptr<BufferObject> createDumb() = 0;
@@ -108,7 +107,8 @@ public:
 
 struct File {
 	File(std::shared_ptr<Device> device)
-		:_device(device) { };
+	: _device(device) { };
+	
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
 	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
@@ -141,7 +141,7 @@ struct Crtc {
 
 struct Encoder {
 	Encoder()
-		:_currentCrtc(nullptr) {  };
+	: _currentCrtc(nullptr) {  };
 	
 	virtual Object *asObject() = 0;	
 	drm_backend::Crtc *currentCrtc();
@@ -173,7 +173,7 @@ struct Assignment {
 
 struct Object {
 	Object(uint32_t id)
-		:_id(id) { };
+	: _id(id) { };
 	
 	uint32_t id();
 	virtual Encoder *asEncoder();
@@ -195,7 +195,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 
 	struct Configuration : drm_backend::Configuration {
 		Configuration(GfxDevice *device)
-		:_device(device), _width(0), _height(0) { };
+		: _device(device), _width(0), _height(0) { };
 		
 		bool capture(std::vector<drm_backend::Assignment> assignment) override;
 		void dispose() override;
@@ -216,7 +216,15 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 	
 	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
+		BufferObject()
+		: _address(0), _size(1024 * 768 * 4) { };
+
 		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
+		uintptr_t getAddress();
+		
+	private:
+		uintptr_t _address;
+		size_t _size;
 	};
 
 	struct Connector : drm_backend::Object, drm_backend::Connector {
@@ -253,9 +261,13 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 
 		drm_backend::FrameBuffer *asFrameBuffer() override;
 		drm_backend::Object *asObject() override;
+		
+		GfxDevice::BufferObject *getBufferObject();
+		uint32_t getPixelPitch();
 
 	private:
-		std::shared_ptr<GfxDevice::BufferObject> _buffObj;
+		std::shared_ptr<GfxDevice::BufferObject> _bo;
+		uint32_t _pixelPitch;
 	};
 
 	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
