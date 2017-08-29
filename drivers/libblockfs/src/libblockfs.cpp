@@ -67,7 +67,8 @@ COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
 		accessMemory(std::shared_ptr<void> object, uint64_t offset, size_t size), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
-	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, 0));
+	assert(offset + size <= self->inode->fileSize);
+	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset));
 }))
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
