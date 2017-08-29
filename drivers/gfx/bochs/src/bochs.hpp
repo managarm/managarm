@@ -56,6 +56,86 @@ private:
 };
 
 // ----------------------------------------------------------------
+// Range allocator.
+// ----------------------------------------------------------------
+
+#include <assert.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <set>
+
+struct range_allocator {
+private:
+	struct node {
+		uint64_t off;
+		unsigned int ord;
+
+		friend bool operator< (const node &u, const node &v) {
+			if(u.ord != v.ord)
+				return u.ord < v.ord;
+			return u.off < v.off;
+		}
+	};
+	
+	static unsigned int clz(unsigned long x) {
+		return __builtin_clzl(x);
+	}
+
+public:
+	static unsigned int round_order(size_t size) {
+		assert(size >= 1);
+		if(size == 1)
+			return 0;
+		return CHAR_BIT * sizeof(size_t) - clz(size - 1);
+	}
+
+	range_allocator(unsigned int order, unsigned int granularity)
+	: _granularity{granularity} {
+		_nodes.insert(node{0, order});
+	}
+
+	uint64_t allocate(size_t size) {
+		return allocate_order(std::max(_granularity, round_order(size)));
+	}
+
+	uint64_t allocate_order(unsigned int order) {
+		assert(order >= _granularity);
+
+		auto it = _nodes.lower_bound(node{0, order});
+		assert(it != _nodes.end());
+
+		auto offset = it->off;
+
+		while(it->ord != order) {
+			assert(it->ord > order);
+			auto high = _nodes.insert(it,
+					node{it->off + (uint64_t(1) << (it->ord - 1)), it->ord - 1});
+			auto low = _nodes.insert(high, node{it->off, it->ord - 1});
+			_nodes.erase(it);
+			it = low;
+		}
+		_nodes.erase(it);
+
+		return offset;
+	}
+
+	void free(uint64_t offset, size_t size) {
+		return free_order(offset, std::max(_granularity, round_order(size)));
+	}
+
+	void free_order(uint64_t offset, unsigned int order) {
+		assert(order >= _granularity);
+
+		_nodes.insert(node{offset, order});
+	}
+
+private:
+	std::set<node> _nodes;
+	unsigned int _granularity;
+};
+
+// ----------------------------------------------------------------
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
 namespace drm_backend {
@@ -81,7 +161,8 @@ struct BufferObject {
 
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
-	virtual std::shared_ptr<BufferObject> createDumb() = 0;
+	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
+			uint32_t height, uint32_t bpp) = 0;
 	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) = 0;
 	
@@ -219,8 +300,8 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 	
 	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject()
-		: _address(0), _size(1024 * 768 * 4) { };
+		BufferObject(uintptr_t address, size_t size )
+		: _address(address), _size(size) { };
 
 		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
 		uintptr_t getAddress();
@@ -279,11 +360,12 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
-	std::shared_ptr<drm_backend::BufferObject> createDumb() override;
+	std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t> createDumb(uint32_t width,
+			uint32_t height, uint32_t bpp) override;
 	std::shared_ptr<drm_backend::FrameBuffer> 
 			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
-
+	
 private:
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
@@ -293,7 +375,9 @@ private:
 public:
 	// FIX ME: this is a hack	
 	helix::UniqueDescriptor _videoRam;
+
 private:
+	range_allocator _vramAllocator;
 	arch::io_space _operational;
 	void* _frameBuffer;
 };

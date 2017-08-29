@@ -275,12 +275,12 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto buff = self->_device->createDumb();
-		auto handle = self->createHandle(buff);
+		auto pair = self->_device->createDumb(req.drm_width(), req.drm_height(), req.drm_bpp());
+		auto handle = self->createHandle(pair.first);
 		resp.set_drm_handle(handle);
 
-		resp.set_drm_pitch(1024 * 4);
-		resp.set_drm_size(1024 * 768 * 4);
+		resp.set_drm_pitch(pair.second);
+		resp.set_drm_size(pair.first->getSize());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -311,7 +311,11 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		resp.set_drm_offset(0);
+		auto bo = self->resolveHandle(req.drm_handle());
+		assert(bo);
+		auto buffer = bo->sharedBufferObject();
+		
+		resp.set_drm_offset(buffer->getAddress());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -456,7 +460,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Dev
 // ----------------------------------------------------------------
 
 GfxDevice::GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer)
-: _videoRam{std::move(video_ram)}, _frameBuffer{frame_buffer} {
+: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -510,8 +514,13 @@ std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shar
 	return fb;
 }
 
-std::shared_ptr<drm_backend::BufferObject> GfxDevice::createDumb() {
-	return std::make_shared<BufferObject>();
+std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t> GfxDevice::createDumb(uint32_t width,
+		uint32_t height, uint32_t bpp) {
+	assert(width <= 1024);
+	auto size = height * 4096;
+	auto address = _vramAllocator.allocate(size);
+	
+	return std::make_pair(std::make_shared<BufferObject>(address, size), 4096);
 }
 
 // ----------------------------------------------------------------
