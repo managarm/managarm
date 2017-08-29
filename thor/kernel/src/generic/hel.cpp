@@ -18,7 +18,7 @@ HelError translateError(Error error) {
 }
 
 template<typename P>
-struct PostEvent : QueueElement {
+struct PostEvent : QueueNode {
 public:
 	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
 	: _space(frigg::move(space)), _queue(queue) {
@@ -289,7 +289,7 @@ using ItemWriter = frigg::Variant<
 	PullDescriptorWriter
 >;
 
-struct MsgHandler : QueueElement {
+struct MsgHandler : QueueNode {
 	template<typename W>
 	friend struct SetResult;
 
@@ -1066,7 +1066,7 @@ HelError helGetClock(uint64_t *counter) {
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t context) {
-	struct Routine : QueueElement {
+	struct Routine : QueueNode {
 		explicit Routine(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
 				void *queue, uintptr_t context)
 		: space{frigg::move(the_space)}, queue{queue},
@@ -1230,21 +1230,34 @@ HelError helFutexWait(int *pointer, int expected) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	std::atomic<bool> complete(false);
-	{
-		// TODO: Support physical (i.e. non-private) futexes.
-		auto futex = &space->futexSpace;
-		futex->waitIf(VirtualAddr(pointer), [&] () -> bool {
-			auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
-			return expected == v;
-		}, [&] {
-			complete.store(true, std::memory_order_release);
-			Thread::unblockOther(this_thread);
-		});
-	}
+	struct Blocker : FutexNode {
+		Blocker(frigg::UnsafePtr<Thread> thread)
+		: _thread{thread}, _complete{false} { }
+
+		void onWake() override {
+			_complete.store(true, std::memory_order_release);
+			Thread::unblockOther(_thread);
+		}
+
+		bool check() {
+			return _complete.load(std::memory_order_acquire);
+		}
+	
+	private:
+		frigg::UnsafePtr<Thread> _thread;
+		std::atomic<bool> _complete;
+	};
+
+	Blocker blocker{this_thread};
+
+	// TODO: Support physical (i.e. non-private) futexes.
+	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
+		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
+		return expected == v;
+	}, &blocker);
 
 	Thread::blockCurrentWhile([&] {
-		return !complete.load(std::memory_order_acquire);
+		return !blocker.check();
 	});
 
 	return kHelErrNone;
@@ -1256,8 +1269,7 @@ HelError helFutexWake(int *pointer) {
 
 	{
 		// TODO: Support physical (i.e. non-private) futexes.
-		auto futex = &space->futexSpace;
-		futex->wake(VirtualAddr(pointer));
+		space->futexSpace.wake(VirtualAddr(pointer));
 	}
 
 	return kHelErrNone;
@@ -1301,7 +1313,7 @@ HelError helAcknowledgeIrq(HelHandle handle) {
 }
 HelError helSubmitWaitForIrq(HelHandle handle,
 		HelQueue *queue, uintptr_t context) {
-	struct Closure : AwaitIrqNode, QueueElement {
+	struct Closure : AwaitIrqNode, QueueNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq,
 				frigg::SharedPtr<AddressSpace> space,
 				void *queue, uintptr_t context) {

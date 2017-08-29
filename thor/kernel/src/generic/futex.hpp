@@ -1,10 +1,20 @@
 
+#include <frg/list.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/hashmap.hpp>
 #include "accessors.hpp"
 #include "kernel_heap.hpp"
 
 namespace thor {
+
+struct FutexNode {
+	friend struct Futex;
+
+	virtual void onWake() = 0;
+
+private:
+	frg::default_list_hook<FutexNode> _queueNode;
+};
 
 struct Futex {
 	using Address = uintptr_t;
@@ -16,13 +26,13 @@ struct Futex {
 		return _slots.empty();
 	}
 
-	template<typename C, typename F>
-	void waitIf(Address address, C condition, F functor) {
+	template<typename C>
+	void submitWait(Address address, C condition, FutexNode *node) {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
 		if(!condition()) {
-			functor();
+			node->onWake();
 			return;
 		}
 
@@ -32,7 +42,7 @@ struct Futex {
 			it = _slots.get(address);
 		}
 		
-		it->queue.addBack(frigg::makeShared<Waiter<F>>(*kernelAlloc, frigg::move(functor)));
+		it->queue.push_back(node);
 	}
 
 	void wake(Address address) {
@@ -48,8 +58,8 @@ struct Futex {
 
 		// TODO: enable users to only wake a certain number of waiters.
 		while(!it->queue.empty()) {
-			auto waiter = it->queue.removeFront();
-			waiter->complete();
+			auto waiter = it->queue.pop_front();
+			waiter->onWake();
 		}
 		_slots.remove(address);
 	}
@@ -57,30 +67,15 @@ struct Futex {
 private:	
 	using Mutex = frigg::TicketLock;
 
-	struct BaseWaiter {
-		virtual void complete() = 0;
-	
-		frigg::IntrusiveSharedLinkedItem<BaseWaiter> hook;
-	};
-
-	template<typename F>
-	struct Waiter : BaseWaiter {
-		Waiter(F functor)
-		: _functor(frigg::move(functor)) { }
-
-		void complete() override {
-			_functor();
-		}
-
-	private:
-		F _functor;
-	};
-
 	struct Slot {
 		// TODO: we do not actually need shared pointers here.
-		frigg::IntrusiveSharedLinkedList<
-			BaseWaiter,
-			&BaseWaiter::hook
+		frg::intrusive_list<
+			FutexNode,
+			frg::locate_member<
+				FutexNode,
+				frg::default_list_hook<FutexNode>,
+				&FutexNode::_queueNode
+			>
 		> queue;
 	};
 
@@ -96,10 +91,10 @@ private:
 	> _slots;
 };
 
-struct QueueElement {
+struct QueueNode {
 	friend struct QueueSpace;
 
-	QueueElement()
+	QueueNode()
 	: _length{0}, _context{0} { }
 
 	// Users of QueueSpace::submit() have to set this up first.
@@ -116,7 +111,7 @@ private:
 	size_t _length;
 	uintptr_t _context;
 
-	frigg::IntrusiveSharedLinkedItem<QueueElement> _hook;
+	frigg::IntrusiveSharedLinkedItem<QueueNode> _hook;
 };
 
 struct QueueSpace {
@@ -126,7 +121,7 @@ public:
 	QueueSpace()
 	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
 
-	void submit(frigg::UnsafePtr<AddressSpace> space, Address address, QueueElement *element);
+	void submit(frigg::UnsafePtr<AddressSpace> space, Address address, QueueNode *element);
 
 private:
 	using Mutex = frigg::TicketLock;
@@ -138,8 +133,8 @@ private:
 
 		// TODO: we do not actually need shared pointers here.
 		frigg::IntrusiveSharedLinkedList<
-			QueueElement,
-			&QueueElement::_hook
+			QueueNode,
+			&QueueNode::_hook
 		> elements;
 	};
 
