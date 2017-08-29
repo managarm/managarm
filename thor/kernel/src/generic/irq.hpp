@@ -122,6 +122,7 @@ private:
 
 	frigg::String<KernelAlloc> _name;
 
+	// Must be protected against IRQs.
 	Mutex _mutex;
 
 	IrqStrategy _strategy;
@@ -149,6 +150,10 @@ void attachIrq(IrqPin *pin, IrqSink *sink);
 
 // This class implements the user-visible part of IRQ handling.
 struct IrqObject : IrqSink {
+private:
+	using Mutex = frigg::TicketLock;
+
+public:
 	IrqObject();
 
 	IrqStatus raise() override;
@@ -158,8 +163,13 @@ struct IrqObject : IrqSink {
 	void acknowledge();
 	
 private:
+	// Must be protected against IRQs.
+	Mutex _mutex;
+
+	// Protected by the mutex.
 	bool _latched;
 
+	// Protected by the mutex.
 	frigg::IntrusiveSharedLinkedList<
 		AwaitIrqNode,
 		&AwaitIrqNode::processQueueItem

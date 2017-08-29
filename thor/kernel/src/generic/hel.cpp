@@ -1302,28 +1302,38 @@ HelError helAcknowledgeIrq(HelHandle handle) {
 HelError helSubmitWaitForIrq(HelHandle handle,
 		HelQueue *queue, uintptr_t context) {
 	struct Closure : AwaitIrqNode, QueueElement {
+		static void issue(frigg::SharedPtr<IrqObject> irq,
+				frigg::SharedPtr<AddressSpace> space,
+				void *queue, uintptr_t context) {
+			auto node = frigg::makeShared<Closure>(*kernelAlloc,
+					frigg::move(space), queue, context);
+			irq->submitAwait(frigg::move(node));
+		}
+
+	public:
 		explicit Closure(frigg::SharedPtr<AddressSpace> space,
 				void *queue, uintptr_t context)
-		: space{frigg::move(space)}, queue{queue} {
+		: _space{frigg::move(space)}, _queue{queue} {
 			setupContext(context);
 			setupLength(sizeof(HelSimpleResult));
 		}
 
-		void onRaise(Error the_error) override {
-			this->error = error;
-			space->queueSpace.submit(space, (uintptr_t)queue, this);
+		void onRaise(Error error) override {
+			_error = error;
+			_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 		}
 
 		void emit(ForeignSpaceAccessor accessor) override {
-			HelSimpleResult data{translateError(error), 0};
+			HelSimpleResult data{translateError(_error), 0};
 			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 
 			// TODO: Delete the Closure object.
 		}
 
-		frigg::SharedPtr<AddressSpace> space;
-		void *queue;
-		Error error;
+	private:
+		frigg::SharedPtr<AddressSpace> _space;
+		void *_queue;
+		Error _error;
 	};
 	
 	auto this_thread = getCurrentThread();
@@ -1341,12 +1351,9 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	auto node = frigg::makeShared<Closure>(*kernelAlloc,
+	Closure::issue(frigg::move(irq),
 			this_thread->getAddressSpace().toShared(), queue, context);
-	{
-		irq->submitAwait(frigg::move(node));
-	}
-	
+
 	return kHelErrNone;
 }
 

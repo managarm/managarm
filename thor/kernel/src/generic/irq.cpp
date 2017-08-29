@@ -151,6 +151,9 @@ IrqObject::IrqObject()
 : _latched{true} { }
 
 IrqStatus IrqObject::raise() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	if(_waitQueue.empty()) {
 		_latched = true;
 	}else{
@@ -166,6 +169,9 @@ IrqStatus IrqObject::raise() {
 }
 
 void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqNode> wait) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	if(_latched) {
 		wait->onRaise(kErrSuccess);
 		_latched = false;
