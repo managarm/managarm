@@ -123,9 +123,9 @@ const std::vector<std::shared_ptr<drm_backend::FrameBuffer>> &drm_backend::File:
 	return _frameBuffers;
 }
 	
-uint32_t drm_backend::File::createHandle(std::shared_ptr<BufferObject> buff) {
+uint32_t drm_backend::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto handle = _allocator.allocate();
-	_buffers.insert({handle, buff});
+	_buffers.insert({handle, bo});
 	return handle;
 }
 	
@@ -292,9 +292,9 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 
-		auto buff_obj = self->resolveHandle(req.drm_handle());
-		assert(buff_obj);
-		auto buffer = buff_obj->sharedBufferObject();
+		auto bo = self->resolveHandle(req.drm_handle());
+		assert(bo);
+		auto buffer = bo->sharedBufferObject();
 		
 		auto fb = self->_device->createFrameBuffer(buffer);
 		self->attachFrameBuffer(fb);
@@ -365,12 +365,23 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assignments.push_back(Assignment{ 
 			crtc->primaryPlane()->asObject(),
 			&self->_device->srcWProperty,
-			req.drm_mode().hdisplay() 
+			req.drm_mode().hdisplay(),
+			nullptr
 		});
 		assignments.push_back(Assignment{ 
 			crtc->primaryPlane()->asObject(),
 			&self->_device->srcHProperty, 
-			req.drm_mode().vdisplay() 
+			req.drm_mode().vdisplay(),
+			nullptr
+		});
+			
+		auto fb = self->_device->findObject(req.drm_fb_id());
+		assert(fb);
+		assignments.push_back(Assignment{ 
+			crtc->primaryPlane()->asObject(),
+			&self->_device->fbIdProperty, 
+			0,
+			fb
 		});
 
 		auto valid = config->capture(assignments);
@@ -482,8 +493,11 @@ std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> buff) {
-	return std::make_shared<FrameBuffer>(this);
+std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo) {
+	auto buff_obj = std::static_pointer_cast<GfxDevice::BufferObject>(bo);
+	auto fb = std::make_shared<FrameBuffer>(this, buff_obj);
+	registerObject(fb);
+	return fb;
 }
 
 std::shared_ptr<drm_backend::BufferObject> GfxDevice::createDumb() {
@@ -500,6 +514,11 @@ bool GfxDevice::Configuration::capture(std::vector<drm_backend::Assignment> assi
 			_width = assign.intValue;
 		}else if(assign.property == &_device->srcHProperty) {
 			_height = assign.intValue;
+		}else if(assign.property == &_device->fbIdProperty) {
+			auto fb = assign.objectValue->asFrameBuffer();
+			if(!fb)
+				return false;
+			_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 		}else{
 			return false;
 		}
@@ -601,8 +620,9 @@ drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device)
+GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo)
 	:drm_backend::Object { device->allocator.allocate() } {
+	_buffObj = bo;
 }
 
 drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {

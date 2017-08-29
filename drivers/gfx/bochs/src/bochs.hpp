@@ -103,6 +103,7 @@ public:
 	id_allocator<uint32_t> allocator;
 	Property srcWProperty;
 	Property srcHProperty;
+	Property fbIdProperty;
 };
 
 struct File {
@@ -116,7 +117,7 @@ struct File {
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
 	
-	uint32_t createHandle(std::shared_ptr<BufferObject> buff);
+	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
 
 private:
@@ -167,6 +168,7 @@ struct Assignment {
 	Object *object;
 	Property *property;
 	uint64_t intValue;
+	Object *objectValue;
 };
 
 struct Object {
@@ -189,6 +191,8 @@ private:
 // ----------------------------------------------------------------
 
 struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> {
+	struct FrameBuffer;
+
 	struct Configuration : drm_backend::Configuration {
 		Configuration(GfxDevice *device)
 		:_device(device), _width(0), _height(0) { };
@@ -201,6 +205,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		GfxDevice *_device;
 		int _width;
 		int _height;
+		GfxDevice::FrameBuffer *_fb;
 	};
 
 	struct Plane : drm_backend::Object, drm_backend::Plane {
@@ -244,10 +249,13 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 
 	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
-		FrameBuffer(GfxDevice *device);
+		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo);
 
 		drm_backend::FrameBuffer *asFrameBuffer() override;
 		drm_backend::Object *asObject() override;
+
+	private:
+		std::shared_ptr<GfxDevice::BufferObject> _buffObj;
 	};
 
 	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
@@ -256,7 +264,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
 	std::shared_ptr<drm_backend::BufferObject> createDumb() override;
 	std::shared_ptr<drm_backend::FrameBuffer> 
-			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> buff) override;
+			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo) override;
 
 private:
 	std::shared_ptr<Crtc> _theCrtc;
