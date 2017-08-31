@@ -228,23 +228,6 @@ private:
 	AnyDescriptor _lane;
 };
 
-struct AwaitIrqWriter {
-	AwaitIrqWriter(Error error)
-	: _error(error) { }
-
-	size_t size() {
-		return sizeof(HelSimpleResult);
-	}
-
-	void write(ForeignSpaceAccessor accessor) {
-		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
-	}
-
-private:
-	Error _error;
-};
-
 struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, Interrupt interrupt)
 	: _error(error), _interrupt(interrupt) { }
@@ -1320,9 +1303,9 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 		static void issue(frigg::SharedPtr<IrqObject> irq,
 				frigg::SharedPtr<AddressSpace> space,
 				void *queue, uintptr_t context) {
-			auto node = frigg::makeShared<Closure>(*kernelAlloc,
+			auto node = frigg::construct<Closure>(*kernelAlloc,
 					frigg::move(space), queue, context);
-			irq->submitAwait(frigg::move(node));
+			irq->submitAwait(node);
 		}
 
 	public:
@@ -1342,7 +1325,7 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 			HelSimpleResult data{translateError(_error), 0};
 			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 
-			// TODO: Delete the Closure object.
+			frigg::destruct(*kernelAlloc, this);
 		}
 
 	private:

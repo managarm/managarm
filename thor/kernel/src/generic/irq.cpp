@@ -160,23 +160,23 @@ IrqStatus IrqObject::raise() {
 		assert(!_latched);
 
 		while(!_waitQueue.empty()) {
-			auto wait = _waitQueue.removeFront();
-			wait->onRaise(kErrSuccess);
+			auto node = _waitQueue.pop_front();
+			node->onRaise(kErrSuccess);
 		}
 	}
 
 	return irq_status::null;
 }
 
-void IrqObject::submitAwait(frigg::SharedPtr<AwaitIrqNode> wait) {
+void IrqObject::submitAwait(AwaitIrqNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	if(_latched) {
-		wait->onRaise(kErrSuccess);
+		node->onRaise(kErrSuccess);
 		_latched = false;
 	}else{
-		_waitQueue.addBack(frigg::move(wait));
+		_waitQueue.push_back(node);
 	}
 }
 

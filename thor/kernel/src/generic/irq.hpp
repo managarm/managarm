@@ -11,9 +11,12 @@
 namespace thor {
 
 struct AwaitIrqNode {
+	friend struct IrqObject;
+
 	virtual void onRaise(Error error) = 0;
 
-	frigg::IntrusiveSharedLinkedItem<AwaitIrqNode> processQueueItem;
+private:
+	frg::default_list_hook<AwaitIrqNode> _queueNode;
 };
 
 // ----------------------------------------------------------------------------
@@ -158,7 +161,7 @@ public:
 
 	IrqStatus raise() override;
 
-	void submitAwait(frigg::SharedPtr<AwaitIrqNode> wait);
+	void submitAwait(AwaitIrqNode *node);
 	
 	void acknowledge();
 	
@@ -170,9 +173,13 @@ private:
 	bool _latched;
 
 	// Protected by the mutex.
-	frigg::IntrusiveSharedLinkedList<
+	frg::intrusive_list<
 		AwaitIrqNode,
-		&AwaitIrqNode::processQueueItem
+		frg::locate_member<
+			AwaitIrqNode,
+			frg::default_list_hook<AwaitIrqNode>,
+			&AwaitIrqNode::_queueNode
+		>
 	> _waitQueue;
 };
 
