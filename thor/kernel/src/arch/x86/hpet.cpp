@@ -53,7 +53,7 @@ arch::field<uint8_t, int> operatingMode(1, 3);
 arch::field<uint8_t, int> accessMode(4, 2);
 
 struct CompareTimer {
-	bool operator() (const Timer *a, const Timer *b) const {
+	bool operator() (const PrecisionTimerNode *a, const PrecisionTimerNode *b) const {
 		return a->deadline > b->deadline;
 	}
 };
@@ -65,7 +65,7 @@ private:
 	static constexpr bool log = false;
 
 public:
-	void installTimer(Timer *timer) {
+	void installTimer(PrecisionTimerNode *timer) {
 		if(log)
 			frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline << frigg::endLog;
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -110,7 +110,7 @@ private:
 				_timerQueue.pop();
 				if(log)
 					frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
-				timer->callback();
+				timer->onElapse();
 			}
 
 			// Setup the comparator and iterate if there was a race.
@@ -123,11 +123,11 @@ private:
 	Mutex _mutex;
 
 	frg::pairing_heap<
-		Timer,
+		PrecisionTimerNode,
 		frg::locate_member<
-			Timer,
-			frg::pairing_heap_hook<Timer>,
-			&Timer::hook
+			PrecisionTimerNode,
+			frg::pairing_heap_hook<PrecisionTimerNode>,
+			&PrecisionTimerNode::hook
 		>,
 		CompareTimer
 	> _timerQueue;
@@ -228,7 +228,7 @@ uint64_t durationToTicks(uint64_t seconds,
 			+ (nanos * kFemtosPerNano) / hpetPeriod;
 }
 
-void installTimer(Timer *timer) {
+void installTimer(PrecisionTimerNode *timer) {
 	hpetDevice->installTimer(timer);
 }
 

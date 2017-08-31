@@ -1,5 +1,6 @@
 
 #include "../../generic/types.hpp"
+#include "../../generic/timer.hpp"
 
 namespace thor {
 
@@ -16,9 +17,9 @@ uint64_t currentNanos();
 uint64_t durationToTicks(uint64_t seconds, uint64_t millis = 0,
 		uint64_t micros = 0, uint64_t nanos = 0);
 
-class Timer;
+class PrecisionTimerNode;
 
-void installTimer(Timer *timer);
+void installTimer(PrecisionTimerNode *timer);
 
 void timerInterrupt();
 

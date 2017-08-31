@@ -1066,16 +1066,22 @@ HelError helGetClock(uint64_t *counter) {
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t context) {
-	struct Routine : QueueNode {
-		explicit Routine(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
+	struct Closure : PrecisionTimerNode, QueueNode {
+		static void issue(uint64_t ticks, frigg::SharedPtr<AddressSpace> space,
+				void *queue, uintptr_t context) {
+			auto node = frigg::construct<Closure>(*kernelAlloc, ticks,
+					frigg::move(space), queue, context);
+			installTimer(node);
+		}
+
+		explicit Closure(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
 				void *queue, uintptr_t context)
-		: space{frigg::move(the_space)}, queue{queue},
-				timer{ticks, CALLBACK_MEMBER(this, &Routine::elapsed)} {
+		: PrecisionTimerNode{ticks}, space{frigg::move(the_space)}, queue{queue} {
 			setupContext(context);
 			setupLength(sizeof(HelSimpleResult));
 		}
 
-		void elapsed() {
+		void onElapse() override {
 			space->queueSpace.submit(space, (uintptr_t)queue, this);
 		}
 
@@ -1083,20 +1089,17 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 			HelSimpleResult data{translateError(kErrSuccess), 0};
 			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
 
-			// TODO: Delete the Routine object.
+			frigg::destruct(*kernelAlloc, this);
 		}
 
 		frigg::SharedPtr<AddressSpace> space;
 		void *queue;
-		Timer timer;
 	};
 	
 	auto this_thread = getCurrentThread();
 
 	auto ticks = durationToTicks(0, 0, 0, counter);
-	auto routine = frigg::construct<Routine>(*kernelAlloc, ticks,
-			this_thread->getAddressSpace().toShared(), queue, context);
-	installTimer(&routine->timer);
+	Closure::issue(ticks, this_thread->getAddressSpace().toShared(), queue, context);
 
 	return kHelErrNone;
 }

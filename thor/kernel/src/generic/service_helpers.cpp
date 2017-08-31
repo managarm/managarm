@@ -24,20 +24,26 @@ namespace {
 
 void fiberSleep(uint64_t nanos) {
 	auto this_fiber = thisFiber();
-	std::atomic<bool> complete{false};
 
-	auto callback = [&] () {
-		complete.store(true, std::memory_order_release);
-		this_fiber->unblock();
+	struct Blocker : PrecisionTimerNode {
+		Blocker(uint64_t ticks, KernelFiber *fiber)
+		: PrecisionTimerNode{ticks}, complete{false}, fiber{fiber} { }
+
+		void onElapse() override {
+			complete.store(true, std::memory_order_release);
+			fiber->unblock();
+		}
+
+		std::atomic<bool> complete;
+		KernelFiber *fiber;
 	};
 
-	Timer timer{currentTicks() + durationToTicks(0, 0, 0, nanos),
-			wrap<void()>(callback)};
-	installTimer(&timer);
+	Blocker blocker{currentTicks() + durationToTicks(0, 0, 0, nanos), this_fiber};
+	installTimer(&blocker);
 
-	while(!complete.load(std::memory_order_acquire)) {
+	while(!blocker.complete.load(std::memory_order_acquire)) {
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !blocker.complete.load(std::memory_order_relaxed);
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}

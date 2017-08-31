@@ -3,7 +3,6 @@
 
 #include <frigg/callback.hpp>
 #include <frigg/variant.hpp>
-#include <frg/pairing_heap.hpp>
 #include "error.hpp"
 #include "../arch/x86/cpu.hpp"
 
@@ -44,21 +43,6 @@ struct CpuData : public PlatformCpuData {
 
 	IrqMutex irqMutex;
 	KernelFiber *activeFiber;
-};
-
-struct Timer {
-	Timer(uint64_t deadline, frigg::CallbackPtr<void()> callback)
-	: deadline{deadline}, callback{callback} { }
-
-	bool operator< (const Timer &other) {
-		return deadline < other.deadline;
-	}
-
-	uint64_t deadline;
-
-	frigg::CallbackPtr<void()> callback;
-
-	frg::pairing_heap_hook<Timer> hook;
 };
 
 struct SubmitInfo {
