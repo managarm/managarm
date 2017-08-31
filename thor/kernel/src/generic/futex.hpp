@@ -25,16 +25,14 @@ struct Futex {
 	bool empty() {
 		return _slots.empty();
 	}
-
+	
 	template<typename C>
-	void submitWait(Address address, C condition, FutexNode *node) {
+	bool checkSubmitWait(Address address, C condition, FutexNode *node) {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		if(!condition()) {
-			node->onWake();
-			return;
-		}
+		if(!condition())
+			return false;
 
 		auto it = _slots.get(address);
 		if(!it) {
@@ -43,6 +41,13 @@ struct Futex {
 		}
 		
 		it->queue.push_back(node);
+		return true;
+	}
+
+	template<typename C>
+	void submitWait(Address address, C condition, FutexNode *node) {
+		if(!checkSubmitWait(address, std::move(condition), node))
+			node->onWake();
 	}
 
 	void wake(Address address) {
@@ -68,7 +73,6 @@ private:
 	using Mutex = frigg::TicketLock;
 
 	struct Slot {
-		// TODO: we do not actually need shared pointers here.
 		frg::intrusive_list<
 			FutexNode,
 			frg::locate_member<
@@ -111,7 +115,7 @@ private:
 	size_t _length;
 	uintptr_t _context;
 
-	frigg::IntrusiveSharedLinkedItem<QueueNode> _hook;
+	frg::default_list_hook<QueueNode> _queueNode;
 };
 
 struct QueueSpace {
@@ -119,24 +123,45 @@ struct QueueSpace {
 
 public:
 	QueueSpace()
-	: _queues(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
+	: _slots(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
 
 	void submit(frigg::UnsafePtr<AddressSpace> space, Address address, QueueNode *element);
 
 private:
 	using Mutex = frigg::TicketLock;
 
-	struct Queue {
-		Queue();
+	struct Slot : FutexNode {
+		Slot(QueueSpace *manager, frigg::UnsafePtr<AddressSpace> space,
+				Address address)
+		: manager{manager}, space{space}, address{address} { }
 
-		size_t offset;
+		void onWake() override;
 
-		// TODO: we do not actually need shared pointers here.
-		frigg::IntrusiveSharedLinkedList<
+		QueueSpace *manager;
+		frigg::UnsafePtr<AddressSpace> space;
+		Address address;
+
+		frg::intrusive_list<
 			QueueNode,
-			&QueueNode::_hook
-		> elements;
+			frg::locate_member<
+				QueueNode,
+				frg::default_list_hook<QueueNode>,
+				&QueueNode::_queueNode
+			>
+		> queue;
 	};
+	
+	using NodeList = frg::intrusive_list<
+		QueueNode,
+		frg::locate_member<
+			QueueNode,
+			frg::default_list_hook<QueueNode>,
+			&QueueNode::_queueNode
+		>
+	>;
+
+	void _progress(Slot *slot);
+	bool _progressFront(Slot *slot, Address &successor, NodeList &migrate_list);
 
 	// TODO: use a scalable hash table with fine-grained locks to
 	// improve the scalability of the futex algorithm.
@@ -144,10 +169,10 @@ private:
 
 	frigg::Hashmap<
 		Address,
-		Queue,
+		Slot,
 		frigg::DefaultHasher<Address>,
 		KernelAlloc
-	> _queues;
+	> _slots;
 };
 
 } // namespace thor

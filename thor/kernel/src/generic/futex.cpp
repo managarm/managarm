@@ -19,7 +19,7 @@ struct QueueStruct {
 	unsigned int queueLength;
 	unsigned int kernelState;
 	unsigned int userState;
-	struct HelQueue *nextQueue;
+	QueueStruct *nextQueue;
 	char queueBuffer[];
 };
 
@@ -31,22 +31,65 @@ struct ElementStruct {
 
 } // anonymous namespace
 
-QueueSpace::Queue::Queue()
-: offset(0) { }
+void QueueSpace::Slot::onWake() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&manager->_mutex);
+	
+	manager->_progress(this);
+}
 
 void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 		QueueNode *node) {
-	assert(node->_length % 8 == 0);
-
-	// TODO: do not globally lock the space mutex.
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
-	
-	auto pin = ForeignSpaceAccessor{space.toShared(), address, sizeof(QueueStruct)};
+
+	auto it = _slots.get(address);
+	if(!it) {
+		_slots.insert(address, Slot{this, space, address});
+		it = _slots.get(address);
+	}
+
+	it->queue.push_back(node);
+
+	_progress(it);
+}
+
+void QueueSpace::_progress(Slot *slot) {
+	while(!slot->queue.empty()) {
+		Address successor = 0;
+		NodeList migrate_list;
+		if(!_progressFront(slot, successor, migrate_list))
+			return;
+
+		if(successor) {
+			// Allocate a new slot and migrate all existing nodes.
+			auto it = _slots.get(successor);
+			if(!it) {
+				_slots.insert(successor, Slot{this, slot->space, successor});
+				it = _slots.get(successor);
+			}
+
+			assert(!migrate_list.empty());
+			while(!migrate_list.empty())
+				it->queue.push_front(migrate_list.pop_back());
+
+			slot = it;
+		}
+	}
+}
+
+bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrate_list) {
+	assert(!slot->queue.empty());
+	auto node = slot->queue.front();
+	assert(node->_length % 8 == 0);
+
+	auto address = slot->address;
+
+	auto pin = ForeignSpaceAccessor{slot->space.toShared(), address, sizeof(QueueStruct)};
 	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
 	auto ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
 	auto us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
-	auto next = DirectSpaceAccessor<HelQueue *>{pin, offsetof(QueueStruct, nextQueue)};
+	auto next = DirectSpaceAccessor<QueueStruct *>{pin, offsetof(QueueStruct, nextQueue)};
 
 	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 
@@ -58,44 +101,23 @@ void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 			// Here we wait on the userState futex until the kQueueHasNext bit is set.
 			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
 			if(!(ue & kQueueHasNext)) {
-				lock.unlock();
-				irq_lock.unlock();
-
-				struct Closure : FutexNode {
-					Closure(QueueSpace *manager, frigg::UnsafePtr<AddressSpace> space,
-							Address address, QueueNode *node)
-					: manager{manager}, space{space}, address{address}, node{node} { }
-
-					void onWake() override {
-						manager->submit(space, address, node);
-					}
-
-					QueueSpace *manager;
-					frigg::UnsafePtr<AddressSpace> space;
-					Address address;
-					QueueNode *node;
-				};
-
-				auto futex_node = frigg::construct<Closure>(*kernelAlloc,
-						this, space, address, node);
-				// FIXME: this can potentially recurse and overflow the stack!
-				space->futexSpace.submitWait(address + offsetof(QueueStruct, userState), [&] {
+				// We need checkSubmitWait() to avoid a deadlock that is triggered
+				// by taking locks in onWake().
+				auto waiting = slot->space->futexSpace.checkSubmitWait(address
+						+ offsetof(QueueStruct, userState), [&] {
 					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
 					return ue == v;
-				}, futex_node);
-				return;
+				}, slot);
+				if(!waiting)
+					frigg::infoLogger() << "thor: Futex fast-path is untested" << frigg::endLog;
+				return !waiting;
 			}
 
 			// Finally we move to the next queue.
-			address = Address(*next.get());
-	
-			pin = ForeignSpaceAccessor{space.toShared(), address, sizeof(QueueStruct)};
-			qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
-			ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
-			us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
-			next = DirectSpaceAccessor<HelQueue *>{pin, offsetof(QueueStruct, nextQueue)};
-			
-			ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
+			successor = Address(*next.get());
+			while(!slot->queue.empty())
+				migrate_list.push_back(slot->queue.pop_front());
+			return true;
 		}else{
 			// Set the kQueueWantNext bit. If this happens we will usually
 			// wait on the userState futex in the next while-iteration.
@@ -103,14 +125,14 @@ void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 			if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 					__ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
 				if(ke & kQueueWaiters)
-					space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
+					slot->space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
 			}
 		}
 	}
 
 	unsigned int offset = (ke & kQueueTail);
 
-	auto ez = ForeignSpaceAccessor::acquire(space.toShared(),
+	auto ez = ForeignSpaceAccessor::acquire(slot->space.toShared(),
 			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
 			sizeof(ElementStruct));
 	ez.copyTo(offsetof(ElementStruct, length), &node->_length, 4);
@@ -118,7 +140,7 @@ void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 
 	auto element_ptr = reinterpret_cast<void *>(address
 			+ sizeof(QueueStruct) + offset + sizeof(ElementStruct));
-	node->emit(ForeignSpaceAccessor::acquire(space.toShared(),
+	node->emit(ForeignSpaceAccessor::acquire(slot->space.toShared(),
 			element_ptr, node->_length));
 
 	while(true) {
@@ -131,10 +153,13 @@ void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
 			if(ke & kQueueWaiters)
-				space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
+				slot->space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
 			break;
 		}
 	}
+
+	slot->queue.pop_front();
+	return !slot->queue.empty();
 }
 
 } // namespace thor
