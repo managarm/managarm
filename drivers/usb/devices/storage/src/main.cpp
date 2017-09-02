@@ -45,7 +45,8 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 	while(true) {
 		if(!_queue.empty()) {
 			auto req = &_queue.front();
-			
+			assert(req->numSectors);
+
 			assert(req->sector <= 0x1FFFFF);
 			scsi::Read6 read;
 			read.opCode = 0x08;

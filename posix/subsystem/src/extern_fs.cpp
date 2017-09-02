@@ -150,18 +150,16 @@ private:
 	}
 
 	std::shared_ptr<Node> getTarget() override {
-		auto shared = _target.lock();
-		assert(shared);
-		return shared;
+		return _target;
 	}
 
 public:
-	Entry(std::shared_ptr<Node> owner, std::weak_ptr<Node> target)
+	Entry(std::shared_ptr<Node> owner, std::shared_ptr<Node> target)
 	: _owner{std::move(owner)}, _target{std::move(target)} { }
 
 private:
 	std::shared_ptr<Node> _owner;
-	std::weak_ptr<Node> _target;
+	std::shared_ptr<Node> _target;
 };
 
 struct Directory : Node, std::enable_shared_from_this<Directory> {

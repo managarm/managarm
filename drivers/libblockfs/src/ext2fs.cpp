@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <algorithm>
+#include <iostream>
 
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
@@ -79,7 +80,6 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 
 FileSystem::FileSystem(BlockDevice *device)
 : device(device), blockCache(*this) {
-	blockCache.preallocate(32);
 }
 
 COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
@@ -105,6 +105,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::init(), ([=] {
 
 	COFIBER_AWAIT device->readSectors(2 * sectorsPerBlock,
 			blockGroupDescriptorBuffer, bgdt_size / 512);
+	
+	blockCache.preallocate(32);
 	
 	COFIBER_RETURN();
 }))
@@ -206,6 +208,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 			num_blocks++;
 
 		assert(manage.offset() % inode->fs.blockSize == 0);
+		assert(num_blocks * inode->fs.blockSize <= manage.length());
 		COFIBER_AWAIT inode->fs.readData(inode, manage.offset() / inode->fs.blockSize,
 				num_blocks, window);
 
@@ -242,7 +245,6 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 
 	size_t progress = 0;
 	while(progress < num_blocks) {
-//		printf("Reading block %lu of inode %u\n", index, inode->number);
 		BlockCache::Ref s_cache;
 		BlockCache::Ref d_cache;
 
@@ -250,6 +252,9 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 		std::pair<size_t, size_t> issue;
 
 		auto index = offset + progress;
+		std::cout << "Reading " << index << "-th block from inode " << inode->number
+				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
+
 		assert(index < d_range);
 		if(index >= d_range) {
 			assert(!"Fix tripple indirect blocks");
@@ -273,6 +278,9 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 			issue = fuse(index, num_blocks - progress, inode->fileData.blocks.direct, 12);
 		}
 
+		std::cout << "Issuing read of " << issue.second
+				<< " blocks, starting at " << issue.first << std::endl;
+
 		assert(issue.first != 0);
 		COFIBER_AWAIT device->readSectors(issue.first * sectorsPerBlock,
 				(uint8_t *)buffer + progress * blockSize,
@@ -292,6 +300,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::BlockCacheEntry::initiate(FileSy
 	assert(entry->state == BlockCacheEntry::kStateInitial);
 	
 	entry->state = BlockCacheEntry::kStateLoading;
+	std::cout << "Fetching block " << block << " into cache" << std::endl;
 	COFIBER_AWAIT fs->device->readSectors(block * fs->sectorsPerBlock,
 			entry->buffer, fs->sectorsPerBlock);
 
