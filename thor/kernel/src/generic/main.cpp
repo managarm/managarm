@@ -122,12 +122,16 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 
 			VirtualAddr actual_address;
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
+				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
+
 				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadWrite,
 						&actual_address);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
+				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
+
 				space->map(space_guard, memory, base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapReadExecute,
 						&actual_address);
@@ -183,7 +187,9 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 
 	VirtualAddr stack_base;
 	{
+		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
+
 		space->map(space_guard, stack_memory, 0, 0, stack_size,
 				AddressSpace::kMapPreferTop | AddressSpace::kMapReadWrite, &stack_base);
 	}
@@ -523,9 +529,14 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(*image.code() & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 
-	AddressSpace::Guard space_guard(&address_space->lock);
-	bool handled = address_space->handleFault(space_guard, address, flags);
-	space_guard.unlock();
+	bool handled;
+	{
+		// handleFault() might block, so we use a StatelessIrqLock here.
+		StatelessIrqLock irq_lock;
+		AddressSpace::Guard space_guard(&address_space->lock);
+
+		handled = address_space->handleFault(space_guard, address, flags);
+	}
 	
 	if(handled)
 		return;
@@ -609,6 +620,8 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		frigg::infoLogger() << this_thread.get()
 				<< " syscall #" << *image.number() << frigg::endLog;
+
+	assert(!irqMutex().nesting());
 
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {

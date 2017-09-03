@@ -56,9 +56,47 @@ struct IrqMutex {
 			enableInts();
 	}
 
+	unsigned int nesting() {
+		return _nesting.load(std::memory_order_relaxed);
+	}
+
 private:
 	// TODO: We do not need 'lock xadd' here; 'xadd' alone suffices.
 	std::atomic<unsigned int> _nesting;
+	bool _enabled;
+};
+
+struct StatelessIrqLock {
+	StatelessIrqLock()
+	: _locked{false} {
+		lock();
+	}
+
+	StatelessIrqLock(const StatelessIrqLock &) = delete;
+
+	~StatelessIrqLock() {
+		if(_locked)
+			unlock();
+	}
+
+	StatelessIrqLock &operator= (const StatelessIrqLock &) = delete;
+
+	void lock() {
+		assert(!_locked);
+		_enabled = intsAreEnabled();
+		disableInts();
+		_locked = true;
+	}
+
+	void unlock() {
+		assert(_locked);
+		if(_enabled)
+			enableInts();
+		_locked = false;
+	}
+
+private:
+	bool _locked;
 	bool _enabled;
 };
 

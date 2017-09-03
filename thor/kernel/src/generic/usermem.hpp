@@ -450,9 +450,6 @@ public:
 	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
 
 	void activate();
-	
-	// TODO: mappings should be referenced by shared pointers.
-	Mapping *getMapping(VirtualAddr address);
 
 	Lock lock;
 	
@@ -465,6 +462,8 @@ private:
 	VirtualAddr _allocate(size_t length, MapFlags flags);
 
 	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
+	
+	Mapping *_getMapping(VirtualAddr address);
 
 	void cloneRecursive(Mapping *mapping, AddressSpace *dest_space);
 

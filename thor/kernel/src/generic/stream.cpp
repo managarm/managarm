@@ -72,6 +72,7 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&stream->_mutex);
 		assert(!stream->_laneBroken[lane]);
+
 		stream->_laneBroken[lane] = true;
 
 		while(!stream->_processQueue[!lane].empty()) {

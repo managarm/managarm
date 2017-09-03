@@ -18,22 +18,28 @@ void Thread::ObserveBase::run() {
 
 void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
 
-	assert(!intsAreEnabled());
 	if(forkExecutor(&this_thread->_executor)) {
-		runDetached([] {
+		runDetached([] (frigg::LockGuard<Mutex> lock) {
+			lock.unlock();
 			globalScheduler().reschedule();
-		});
+		}, std::move(lock));
 	}
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunDeferred;
 	if(logRunStates)
@@ -41,18 +47,17 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 				<< " is deferred" << frigg::endLog;
 	saveExecutor(&this_thread->_executor, image);
 
-	assert(!intsAreEnabled());
-	runDetached([] {
+	runDetached([] (frigg::LockGuard<Mutex> lock) {
+		lock.unlock();
 		globalScheduler().reschedule();
-	});
-}
-
-void Thread::blockCurrent(void *, void (*) (void *)) {
-	assert(!"Use blockCurrentWhile() instead");
+	}, std::move(lock));
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
 	frigg::infoLogger() << "interrupt " << (void *)this_thread.get()
 			<< ", reason: " << (uint64_t)interrupt << frigg::endLog;
 	assert(this_thread->_runState == kRunActive);
@@ -70,15 +75,18 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		globalWorkQueue().post(observe);
 	}
 
-	assert(!intsAreEnabled());
 	globalScheduler().suspend(this_thread.get());
-	runDetached([] {
+	runDetached([] (frigg::LockGuard<Mutex> lock) {
+		lock.unlock();
 		globalScheduler().reschedule();
-	});
+	}, std::move(lock));
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunInterrupted;
 	if(logRunStates)
@@ -93,15 +101,18 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 		globalWorkQueue().post(observe);
 	}
 
-	assert(!intsAreEnabled());
 	globalScheduler().suspend(this_thread.get());
-	runDetached([] {
+	runDetached([] (frigg::LockGuard<Mutex> lock) {
+		lock.unlock();
 		globalScheduler().reschedule();
-	});
+	}, std::move(lock));
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
 	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+
 	if(logTransitions)
 		frigg::infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
 				<< frigg::endLog;
@@ -123,18 +134,17 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 		assert(!intsAreEnabled());
 		globalScheduler().suspend(this_thread.get());
-		runDetached([] {
+		runDetached([] (frigg::LockGuard<Mutex> lock) {
+			lock.unlock();
 			globalScheduler().reschedule();
-		});
+		}, std::move(lock));
 	}
 }
 
-void Thread::activateOther(frigg::UnsafePtr<Thread> other_thread) {
-	assert(!"TODO: Remove this");
-}
-
 void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
+
 	if(thread->_runState != kRunBlocked)
 		return;
 
@@ -146,7 +156,9 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 }
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
+
 	assert(thread->_runState == kRunInterrupted);
 
 	thread->_runState = kRunSuspended;
@@ -177,6 +189,8 @@ Thread::~Thread() {
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
 	frigg::infoLogger() << "\e[31mShutting down thread\e[39m" << frigg::endLog;
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 
 	globalScheduler().detach(this);
 
@@ -193,6 +207,9 @@ void Thread::cleanup() {
 }
 
 void Thread::doSubmitObserve(ObserveBase *observe) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	_observeQueue.push_back(observe);
 }
 
@@ -208,15 +225,23 @@ frigg::UnsafePtr<AddressSpace> Thread::getAddressSpace() {
 }
 
 void Thread::signalStop() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	assert(_pendingSignal == kSigNone);
 	_pendingSignal = kSigStop;
 }
 
 void Thread::invoke() {
+	assert(!intsAreEnabled());
+	auto lock = frigg::guard(&_mutex);
+
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
 	_runState = kRunActive;
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this << " is activated" << frigg::endLog;
+
+	lock.unlock();
 
 	_context.migrate(getCpuData());
 	_addressSpace->activate();
@@ -227,6 +252,7 @@ void Thread::invoke() {
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 	auto this_thread = getCurrentThread();
 	assert(lock.protects(&this_thread->_mutex));
+
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunBlocked;
 	if(logRunStates)

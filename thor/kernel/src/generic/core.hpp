@@ -73,13 +73,19 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_
 	assert(!(lock.address() % sizeof(T)));
 	
 	_misalign = (lock.address() + offset) % kPageSize;
-	AddressSpace::Guard guard(&lock.space()->lock);
-	auto physical = lock.space()->grabPhysical(guard, lock.address() + offset - _misalign);
+	PhysicalAddr physical;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		AddressSpace::Guard guard(&lock.space()->lock);
+
+		physical = lock.space()->grabPhysical(guard, lock.address() + offset - _misalign);
+	}
 	assert(physical != PhysicalAddr(-1));
 	_accessor = PageAccessor{generalWindow, physical};
 }
 
 inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
 	
 	size_t progress = 0;
@@ -98,6 +104,7 @@ inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size
 }
 
 inline Error ForeignSpaceAccessor::write(size_t offset, void *pointer, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
 	
 	size_t progress = 0;

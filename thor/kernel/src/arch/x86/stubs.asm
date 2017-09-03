@@ -191,6 +191,8 @@ syscallStub:
 	mov %rsp, %rbx
 	mov %gs:.L_gsSyscallStack, %rsp
 
+	sti
+
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 
 	push %rcx

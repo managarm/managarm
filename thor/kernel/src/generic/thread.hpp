@@ -57,14 +57,6 @@ public:
 				frigg::SharedControl{thread}};
 	}
 
-	// wrapper for the function below
-	template<typename F>
-	static void blockCurrent(F functor) {
-		blockCurrent(&functor, [] (void *argument) {
-			(*static_cast<F *>(argument))();
-		});
-	}
-
 	template<typename P>
 	static void blockCurrentWhile(P predicate) {
 		// optimization: do not acquire the lock for the first test.
@@ -73,9 +65,12 @@ public:
 
 		frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 		while(true) {
+			StatelessIrqLock irq_lock;
 			auto guard = frigg::guard(&this_thread->_mutex);
+
 			if(!predicate())
 				return;
+
 			_blockLocked(frigg::move(guard));
 		}
 	}
@@ -83,14 +78,12 @@ public:
 	// state transitions that apply to the current thread only.
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
-	static void blockCurrent(void *argument, void (*function) (void *));
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
 	
 	static void raiseSignals(SyscallImageAccessor image);
 
 	// state transitions that apply to arbitrary threads.
-	static void activateOther(frigg::UnsafePtr<Thread> thread);
 	static void unblockOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
 	static void resumeOther(frigg::UnsafePtr<Thread> thread);

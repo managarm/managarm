@@ -210,6 +210,8 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
+	assert(!irqMutex().nesting());
+
 	handleIrq(image, number);
 	
 	if(cs == kSelClientUserCode)

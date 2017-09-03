@@ -893,7 +893,7 @@ void AddressSpace::map(Guard &guard,
 void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	assert(guard.protects(&lock));
 
-	Mapping *mapping = getMapping(address);
+	Mapping *mapping = _getMapping(address);
 	assert(mapping);
 
 	// TODO: allow shrink of mapping
@@ -955,7 +955,7 @@ bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t fault
 	// TODO: It seems that this is not invoked for on-demand allocation
 	// of AllocatedMemory objects!
 
-	Mapping *mapping = getMapping(address);
+	Mapping *mapping = _getMapping(address);
 	if(!mapping || mapping->type() == MappingType::hole)
 		return false;
 	return mapping->handleFault(address - mapping->address(), fault_flags);
@@ -974,7 +974,7 @@ PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 	assert(guard.protects(&lock));
 	assert((address % kPageSize) == 0);
 
-	Mapping *mapping = getMapping(address);
+	Mapping *mapping = _getMapping(address);
 	if(!mapping)
 		return PhysicalAddr(-1);
 	return mapping->grabPhysical(address - mapping->address());
@@ -984,7 +984,7 @@ void AddressSpace::activate() {
 	_pageSpace.activate();
 }
 
-Mapping *AddressSpace::getMapping(VirtualAddr address) {
+Mapping *AddressSpace::_getMapping(VirtualAddr address) {
 	Mapping *current = spaceTree.get_root();
 	
 	while(current != nullptr) {
@@ -1051,7 +1051,7 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 	assert(!(address % kPageSize));
 	assert(!(length % kPageSize));
 
-	Mapping *hole = getMapping(address);
+	Mapping *hole = _getMapping(address);
 	assert(hole);
 	assert(hole->type() == MappingType::hole);
 	

@@ -363,7 +363,9 @@ namespace initrd {
 		: _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
 
+			auto irq_lock = frigg::guard(&irqMutex());
 			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
+
 			_thread->getAddressSpace()->map(space_guard, fileTableMemory, 0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapReadOnly,
 					&clientFileTable);
@@ -372,7 +374,9 @@ namespace initrd {
 		int attachFile(OpenFile *file) {
 			Handle handle;
 			{
+				auto irq_lock = frigg::guard(&irqMutex());
 				Universe::Guard universe_guard(&_thread->getUniverse()->lock);
+
 				handle = _thread->getUniverse()->attachDescriptor(universe_guard,
 						LaneDescriptor(file->clientLane));
 			}
