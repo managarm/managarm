@@ -97,6 +97,7 @@ private:
 
 			// Remove the item from the list of reclaimable items.
 			if(item->numLocks++ == 0) {
+				assert(item->queueHook.in_list);
 				_reclaimQueue.erase(_reclaimQueue.iterator_to(item));
 				_numReclaimable--;
 			}

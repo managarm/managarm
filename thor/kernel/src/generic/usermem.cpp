@@ -975,7 +975,8 @@ PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
 	assert((address % kPageSize) == 0);
 
 	Mapping *mapping = getMapping(address);
-	assert(mapping);
+	if(!mapping)
+		return PhysicalAddr(-1);
 	return mapping->grabPhysical(address - mapping->address());
 }
 

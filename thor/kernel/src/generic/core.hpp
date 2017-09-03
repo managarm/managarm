@@ -75,6 +75,7 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_
 	_misalign = (lock.address() + offset) % kPageSize;
 	AddressSpace::Guard guard(&lock.space()->lock);
 	auto physical = lock.space()->grabPhysical(guard, lock.address() + offset - _misalign);
+	assert(physical != PhysicalAddr(-1));
 	_accessor = PageAccessor{generalWindow, physical};
 }
 
@@ -96,7 +97,7 @@ inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size
 	}
 }
 
-inline void ForeignSpaceAccessor::copyTo(size_t offset, void *pointer, size_t size) {
+inline Error ForeignSpaceAccessor::write(size_t offset, void *pointer, size_t size) {
 	AddressSpace::Guard guard(&_space->lock);
 	
 	size_t progress = 0;
@@ -106,12 +107,15 @@ inline void ForeignSpaceAccessor::copyTo(size_t offset, void *pointer, size_t si
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		assert(page != PhysicalAddr(-1));
+		if(page == PhysicalAddr(-1))
+			return kErrFault;
 
 		PageAccessor accessor{generalWindow, page};
 		memcpy((char *)accessor.get() + misalign, (char *)pointer + progress, chunk);
 		progress += chunk;
 	}
+
+	return kErrSuccess;
 }
 
 // --------------------------------------------------------

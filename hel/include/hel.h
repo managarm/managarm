@@ -79,6 +79,7 @@ enum {
 	kHelErrClosedLocally = 8,
 	kHelErrClosedRemotely = 9,
 	kHelErrBufferTooSmall = 1,
+	kHelErrFault = 10,
 };
 
 //! Integer type that represents an error or success value.
@@ -361,6 +362,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Resource closed remotely";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
+	case kHelErrFault:
+		return "Segfault";
 	default:
 		return 0;
 	}

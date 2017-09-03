@@ -39,7 +39,8 @@ struct Futex {
 			_slots.insert(address, Slot());
 			it = _slots.get(address);
 		}
-		
+
+		assert(!node->_queueNode.in_list);
 		it->queue.push_back(node);
 		return true;
 	}
@@ -61,12 +62,31 @@ struct Futex {
 		// Invariant: If the slot exists then its queue is not empty.
 		assert(!it->queue.empty());
 
-		// TODO: enable users to only wake a certain number of waiters.
-		while(!it->queue.empty()) {
-			auto waiter = it->queue.pop_front();
+		// Note: We have to run the onWake() callbacks with locks released.
+		// This improves latency and prevents deadlocks if onWake() calls submitWait().
+		frg::intrusive_list<
+			FutexNode,
+			frg::locate_member<
+				FutexNode,
+				frg::default_list_hook<FutexNode>,
+				&FutexNode::_queueNode
+			>
+		> wake_queue;
+
+		// TODO: Use a splice() call here.
+		// TODO: Enable users to only wake a certain number of waiters.
+		while(!it->queue.empty())
+			wake_queue.push_front(it->queue.pop_front());
+		
+		_slots.remove(address);
+
+		lock.unlock();
+		irq_lock.unlock();
+
+		while(!wake_queue.empty()) {
+			auto waiter = wake_queue.pop_front();
 			waiter->onWake();
 		}
-		_slots.remove(address);
 	}
 
 private:	
@@ -109,7 +129,7 @@ struct QueueNode {
 		_context = context;
 	}
 	
-	virtual void emit(ForeignSpaceAccessor accessor) = 0;
+	virtual Error emit(ForeignSpaceAccessor accessor) = 0;
 
 private:
 	size_t _length;
@@ -133,13 +153,15 @@ private:
 	struct Slot : FutexNode {
 		Slot(QueueSpace *manager, frigg::UnsafePtr<AddressSpace> space,
 				Address address)
-		: manager{manager}, space{space}, address{address} { }
+		: manager{manager}, space{space}, address{address}, waitInFutex{false} { }
 
 		void onWake() override;
 
 		QueueSpace *manager;
 		frigg::UnsafePtr<AddressSpace> space;
 		Address address;
+
+		bool waitInFutex;
 
 		frg::intrusive_list<
 			QueueNode,

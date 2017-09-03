@@ -51,7 +51,7 @@ struct ForeignSpaceAccessor {
 	}
 
 	void load(size_t offset, void *pointer, size_t size);
-	void copyTo(size_t offset, void *pointer, size_t size);
+	Error write(size_t offset, void *pointer, size_t size);
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;
@@ -151,10 +151,11 @@ struct KernelAccessor {
 		return _length;
 	}
 
-	void copyTo(size_t offset, void *source, size_t size) {
+	Error write(size_t offset, void *source, size_t size) {
 		// TODO: detect overflows here.
 		assert(offset + size <= _length);
 		memcpy((char *)_pointer + offset, source, size);
+		return kErrSuccess;
 	}
 
 private:
@@ -180,9 +181,9 @@ public:
 		});
 	}
 
-	void copyTo(size_t offset, void *source, size_t size) {
-		_variant.apply([&] (auto &accessor) {
-			accessor.copyTo(offset, source, size);
+	Error write(size_t offset, void *source, size_t size) {
+		return _variant.apply([&] (auto &accessor) -> Error {
+			return accessor.write(offset, source, size);
 		});
 	}
 

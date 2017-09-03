@@ -11,6 +11,7 @@ HelError translateError(Error error) {
 //		case kErrClosedLocally: return kHelErrClosedLocally;
 	case kErrClosedRemotely: return kHelErrClosedRemotely;
 //		case kErrBufferTooSmall: return kHelErrBufferTooSmall;
+	case kErrFault: return kHelErrFault;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
@@ -32,9 +33,13 @@ public:
 		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 	}
 
-	void emit(ForeignSpaceAccessor accessor) override {
-		_writer->write(frigg::move(accessor));
+	Error emit(ForeignSpaceAccessor accessor) override {
+		auto err = _writer->write(frigg::move(accessor));
+		if(err)
+			return err;
+
 		frigg::destruct(*kernelAlloc, _writer);
+		return kErrSuccess;
 	}
 
 private:
@@ -51,9 +56,9 @@ struct ManageMemoryWriter {
 		return sizeof(HelManageResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	Error write(ForeignSpaceAccessor accessor) {
 		HelManageResult data{translateError(_error), 0, _offset, _length};
-		accessor.copyTo(0, &data, sizeof(HelManageResult));
+		return accessor.write(0, &data, sizeof(HelManageResult));
 	}
 
 private:
@@ -70,9 +75,9 @@ struct LockMemoryWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	Error write(ForeignSpaceAccessor accessor) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+		return accessor.write(0, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -87,9 +92,9 @@ struct OfferWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
+		return accessor.write(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -104,7 +109,7 @@ struct AcceptWriter {
 		return sizeof(HelHandleResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		Handle handle = kHelNullHandle;
 		if(_weakUniverse) {
 			auto universe = _weakUniverse.grab();
@@ -114,7 +119,7 @@ struct AcceptWriter {
 		}
 
 		HelHandleResult data{translateError(_error), 0, handle};
-		accessor.copyTo(disp, &data, sizeof(HelHandleResult));
+		return accessor.write(disp, &data, sizeof(HelHandleResult));
 	}
 
 private:
@@ -131,9 +136,9 @@ struct SendStringWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
+		return accessor.write(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -149,15 +154,17 @@ struct RecvInlineWriter {
 		return (size + 7) & ~size_t(7);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		if(_buffer) {
 			HelInlineResult data{translateError(_error), 0, _buffer.size()};
-			accessor.copyTo(disp, &data, sizeof(HelInlineResult));
-			accessor.copyTo(disp + __builtin_offsetof(HelInlineResult, data),
+			auto err = accessor.write(disp, &data, sizeof(HelInlineResult));
+			if(err)
+				return err;
+			return accessor.write(disp + __builtin_offsetof(HelInlineResult, data),
 					_buffer.data(), _buffer.size());
 		}else{
 			HelInlineResult data{translateError(_error), 0, 0};
-			accessor.copyTo(disp, &data, sizeof(HelInlineResult));
+			return accessor.write(disp, &data, sizeof(HelInlineResult));
 		}
 	}
 
@@ -174,9 +181,9 @@ struct RecvStringWriter {
 		return sizeof(HelLengthResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelLengthResult data{translateError(_error), 0, _length};
-		accessor.copyTo(disp, &data, sizeof(HelLengthResult));
+		return accessor.write(disp, &data, sizeof(HelLengthResult));
 	}
 
 private:
@@ -192,9 +199,9 @@ struct PushDescriptorWriter {
 		return sizeof(HelSimpleResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		HelSimpleResult data{translateError(_error), 0};
-		accessor.copyTo(disp, &data, sizeof(HelSimpleResult));
+		return accessor.write(disp, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -209,7 +216,7 @@ struct PullDescriptorWriter {
 		return sizeof(HelHandleResult);
 	}
 
-	void write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
+	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
 		Handle handle = kHelNullHandle;
 		if(_weakUniverse) {
 			auto universe = _weakUniverse.grab();
@@ -219,7 +226,7 @@ struct PullDescriptorWriter {
 		}
 
 		HelHandleResult data{translateError(_error), 0, handle};
-		accessor.copyTo(disp, &data, sizeof(HelHandleResult));
+		return accessor.write(disp, &data, sizeof(HelHandleResult));
 	}
 
 private:
@@ -236,7 +243,7 @@ struct ObserveThreadWriter {
 		return sizeof(HelObserveResult);
 	}
 
-	void write(ForeignSpaceAccessor accessor) {
+	Error write(ForeignSpaceAccessor accessor) {
 		unsigned int observation;
 		if(_interrupt == kIntrStop) {
 			observation = kHelObserveStop;
@@ -254,7 +261,7 @@ struct ObserveThreadWriter {
 		}
 
 		HelObserveResult data{translateError(_error), observation, 0};
-		accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+		return accessor.write(0, &data, sizeof(HelSimpleResult));
 	}
 
 private:
@@ -298,15 +305,20 @@ private:
 		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 	}
 	
-	void emit(ForeignSpaceAccessor accessor) override {
+	Error emit(ForeignSpaceAccessor accessor) override {
 		size_t disp = 0;
 		for(size_t i = 0; i < _results.size(); ++i) {
+			Error err;
 			_results[i].apply([&] (auto &writer) {
 				assert(!(disp & 7)); // TODO: Replace the magic constant by alignof(...).
-				writer.write(accessor, disp);
+				err = writer.write(accessor, disp);
 				disp += writer.size();
 			});
+			if(err)
+				return err;
 		}
+
+		return kErrSuccess;
 	}
 
 	frigg::Vector<ItemWriter, KernelAlloc> _results;
@@ -660,6 +672,7 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	{
 		AddressSpace::Guard space_guard(&space->lock);
 		page_physical = space->grabPhysical(space_guard, address - misalign);
+		assert(page_physical != PhysicalAddr(-1));
 	}
 
 	*physical = page_physical + misalign;
@@ -1068,11 +1081,14 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 			space->queueSpace.submit(space, (uintptr_t)queue, this);
 		}
 
-		void emit(ForeignSpaceAccessor accessor) override {
+		Error emit(ForeignSpaceAccessor accessor) override {
 			HelSimpleResult data{translateError(kErrSuccess), 0};
-			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
+			if(err)
+				return err;
 
 			frigg::destruct(*kernelAlloc, this);
+			return kErrSuccess;
 		}
 
 		frigg::SharedPtr<AddressSpace> space;
@@ -1321,11 +1337,14 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 			_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 		}
 
-		void emit(ForeignSpaceAccessor accessor) override {
+		Error emit(ForeignSpaceAccessor accessor) override {
 			HelSimpleResult data{translateError(_error), 0};
-			accessor.copyTo(0, &data, sizeof(HelSimpleResult));
+			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
+			if(err)
+				return err;
 
 			frigg::destruct(*kernelAlloc, this);
+			return kErrSuccess;
 		}
 
 	private:

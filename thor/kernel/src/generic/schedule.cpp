@@ -35,8 +35,10 @@ void Scheduler::resume(ScheduleEntity *entity) {
 void Scheduler::suspend(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::active);
-	if(entity != _current)
+	if(entity != _current) {
+		assert(entity->hook.in_list);
 		_waitQueue.erase(_waitQueue.iterator_to(entity));
+	}
 	entity->state = ScheduleState::attached;
 	
 	_refreshFlag();

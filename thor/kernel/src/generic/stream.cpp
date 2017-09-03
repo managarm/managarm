@@ -34,9 +34,14 @@ static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
 static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
 		frigg::SharedPtr<RecvToBufferBase> to) {
 	if(from->buffer.size() <= to->accessor.length()) {
-		to->accessor.copyTo(0, from->buffer.data(), from->buffer.size());
-		from->complete(kErrSuccess);
-		to->complete(kErrSuccess, from->buffer.size());
+		auto error = to->accessor.write(0, from->buffer.data(), from->buffer.size());
+		if(error) {
+			from->complete(error);
+			to->complete(error, 0);
+		}else{
+			from->complete(kErrSuccess);
+			to->complete(kErrSuccess, from->buffer.size());
+		}
 	}else{
 		from->complete(kErrBufferTooSmall);
 		to->complete(kErrBufferTooSmall, 0);

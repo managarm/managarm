@@ -9,6 +9,7 @@ enum Error {
 	kErrThreadExited,
 	kErrClosedLocally,
 	kErrClosedRemotely,
+	kErrFault
 };
 
 } // namespace thor

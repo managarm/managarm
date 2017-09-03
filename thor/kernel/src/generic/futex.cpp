@@ -34,7 +34,8 @@ struct ElementStruct {
 void QueueSpace::Slot::onWake() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&manager->_mutex);
-	
+
+	waitInFutex = false;
 	manager->_progress(this);
 }
 
@@ -49,6 +50,8 @@ void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
 		it = _slots.get(address);
 	}
 
+	assert(!node->_queueNode.in_list);
+//	frigg::infoLogger() << "[" << this << "] push " << node << frigg::endLog;
 	it->queue.push_back(node);
 
 	_progress(it);
@@ -70,8 +73,12 @@ void QueueSpace::_progress(Slot *slot) {
 			}
 
 			assert(!migrate_list.empty());
-			while(!migrate_list.empty())
+			while(!migrate_list.empty()) {
+//				frigg::infoLogger() << "[" << this << "] migrate "
+//						<< migrate_list.back() << frigg::endLog;
 				it->queue.push_front(migrate_list.pop_back());
+				assert(it->queue.front()->_queueNode.in_list);
+			}
 
 			slot = it;
 		}
@@ -80,10 +87,11 @@ void QueueSpace::_progress(Slot *slot) {
 
 bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrate_list) {
 	assert(!slot->queue.empty());
-	auto node = slot->queue.front();
-	assert(node->_length % 8 == 0);
-
 	auto address = slot->address;
+
+	auto length = slot->queue.front()->_length;
+	auto context = slot->queue.front()->_context;
+	assert(length % 8 == 0);
 
 	auto pin = ForeignSpaceAccessor{slot->space.toShared(), address, sizeof(QueueStruct)};
 	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
@@ -93,30 +101,35 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 
 	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 
+	if(slot->waitInFutex)
+		return false;
+
 	// First we traverse the nextQueue list until we find a queue that
 	// is has enough free space for our element.
 	while((ke & kQueueWantNext)
-			|| (ke & kQueueTail) + sizeof(ElementStruct) + node->_length > *qs.get()) {
+			|| (ke & kQueueTail) + sizeof(ElementStruct) + length > *qs.get()) {
 		if(ke & kQueueWantNext) {
 			// Here we wait on the userState futex until the kQueueHasNext bit is set.
 			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
 			if(!(ue & kQueueHasNext)) {
 				// We need checkSubmitWait() to avoid a deadlock that is triggered
 				// by taking locks in onWake().
-				auto waiting = slot->space->futexSpace.checkSubmitWait(address
+				slot->waitInFutex = slot->space->futexSpace.checkSubmitWait(address
 						+ offsetof(QueueStruct, userState), [&] {
 					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
 					return ue == v;
 				}, slot);
-				if(!waiting)
-					frigg::infoLogger() << "thor: Futex fast-path is untested" << frigg::endLog;
-				return !waiting;
+				return !slot->waitInFutex;
 			}
 
 			// Finally we move to the next queue.
 			successor = Address(*next.get());
-			while(!slot->queue.empty())
+			while(!slot->queue.empty()) {
+//				frigg::infoLogger() << "[" << this << "] erase "
+//						<< slot->queue.front() << frigg::endLog;
+				assert(slot->queue.front()->_queueNode.in_list);
 				migrate_list.push_back(slot->queue.pop_front());
+			}
 			return true;
 		}else{
 			// Set the kQueueWantNext bit. If this happens we will usually
@@ -135,13 +148,20 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 	auto ez = ForeignSpaceAccessor::acquire(slot->space.toShared(),
 			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
 			sizeof(ElementStruct));
-	ez.copyTo(offsetof(ElementStruct, length), &node->_length, 4);
-	ez.copyTo(offsetof(ElementStruct, context), &node->_context, sizeof(uintptr_t));
 
+	Error err;
+	err = ez.write(offsetof(ElementStruct, length), &length, 4);
+	assert(!err);
+	err = ez.write(offsetof(ElementStruct, context), &context, sizeof(uintptr_t));
+	assert(!err);
+	
 	auto element_ptr = reinterpret_cast<void *>(address
 			+ sizeof(QueueStruct) + offset + sizeof(ElementStruct));
-	node->emit(ForeignSpaceAccessor::acquire(slot->space.toShared(),
-			element_ptr, node->_length));
+//	frigg::infoLogger() << "[" << this << "] finish " << slot->queue.front() << frigg::endLog;
+	auto node = slot->queue.pop_front();
+	err = node->emit(ForeignSpaceAccessor::acquire(slot->space.toShared(),
+			element_ptr, length));
+	assert(!err);
 
 	while(true) {
 		assert(!(ke & kQueueWantNext));
@@ -149,7 +169,7 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 
 		// Try to update the kernel state word here.
 		// This CAS potentially resets the waiters bit.
-		unsigned int d = offset + node->_length + sizeof(ElementStruct);
+		unsigned int d = offset + length + sizeof(ElementStruct);
 		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
 			if(ke & kQueueWaiters)
@@ -158,7 +178,6 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 		}
 	}
 
-	slot->queue.pop_front();
 	return !slot->queue.empty();
 }
 
