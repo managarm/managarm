@@ -4,6 +4,42 @@
 
 using namespace thor;
 
+void readUserMemory(void *kern_ptr, const void *user_ptr, size_t size) {
+	enableUserAccess();
+	memcpy(kern_ptr, user_ptr, size);
+	disableUserAccess();
+}
+
+void writeUserMemory(void *user_ptr, const void *kern_ptr, size_t size) {
+	enableUserAccess();
+	memcpy(user_ptr, kern_ptr, size);
+	disableUserAccess();
+}
+
+template<typename T>
+T readUserObject(const T *pointer) {
+	T object;
+	readUserMemory(&object, pointer, sizeof(T));
+	return object;
+}
+
+template<typename T>
+void writeUserObject(T *pointer, T object) {
+	writeUserMemory(pointer, &object, sizeof(T));
+}
+
+template<typename T>
+void readUserArray(const T *pointer, T *array, size_t count) {
+	for(size_t i = 0; i < count; ++i)
+		array[i] = readUserObject(pointer + i);
+}
+
+template<typename T>
+void writeUserArray(T *pointer, const T *array, size_t count) {
+	for(size_t i = 0; i < count; ++i)
+		writeUserObject(pointer + i, array[i]);
+}
+
 // TODO: one translate function per error source?
 HelError translateError(Error error) {
 	switch(error) {
@@ -351,7 +387,7 @@ private:
 
 HelError helLog(const char *string, size_t length) {
 	for(size_t i = 0; i < length; i++)
-		infoSink.print(string[i]);
+		infoSink.print(readUserObject<char>(string + i));
 
 	return kHelErrNone;
 }
@@ -413,7 +449,7 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 	return kHelErrNone;
 }
 
-HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *user_info) {
+HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -732,10 +768,13 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 			return kHelErrBadDescriptor;
 		space = wrapper->get<AddressSpaceDescriptor>().space;
 	}
-	
+
+	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
 	auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
 			(void *)address, length);
+	enableUserAccess();
 	accessor.load(0, buffer, length);
+	disableUserAccess();
 
 	return kHelErrNone;
 }
@@ -1010,30 +1049,33 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	}
 
 	if(set == kHelRegsProgram) {
-		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = *thread->_executor.ip();
-		accessor[1] = *thread->_executor.sp();
+		uintptr_t regs[2];
+		regs[0] = *thread->_executor.ip();
+		regs[1] = *thread->_executor.sp();
+		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15);
 	}else if(set == kHelRegsGeneral) {
-		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = thread->_executor.general()->rax;
-		accessor[1] = thread->_executor.general()->rbx;
-		accessor[2] = thread->_executor.general()->rcx;
-		accessor[3] = thread->_executor.general()->rdx;
-		accessor[4] = thread->_executor.general()->rdi;
-		accessor[5] = thread->_executor.general()->rsi;
-		accessor[6] = thread->_executor.general()->r8;
-		accessor[7] = thread->_executor.general()->r9;
-		accessor[8] = thread->_executor.general()->r10;
-		accessor[9] = thread->_executor.general()->r11;
-		accessor[10] = thread->_executor.general()->r12;
-		accessor[11] = thread->_executor.general()->r13;
-		accessor[12] = thread->_executor.general()->r14;
-		accessor[13] = thread->_executor.general()->r15;
-		accessor[14] = thread->_executor.general()->rbp;
+		uintptr_t regs[15];
+		regs[0] = thread->_executor.general()->rax;
+		regs[1] = thread->_executor.general()->rbx;
+		regs[2] = thread->_executor.general()->rcx;
+		regs[3] = thread->_executor.general()->rdx;
+		regs[4] = thread->_executor.general()->rdi;
+		regs[5] = thread->_executor.general()->rsi;
+		regs[6] = thread->_executor.general()->r8;
+		regs[7] = thread->_executor.general()->r9;
+		regs[8] = thread->_executor.general()->r10;
+		regs[9] = thread->_executor.general()->r11;
+		regs[10] = thread->_executor.general()->r12;
+		regs[11] = thread->_executor.general()->r13;
+		regs[12] = thread->_executor.general()->r14;
+		regs[13] = thread->_executor.general()->r15;
+		regs[14] = thread->_executor.general()->rbp;
+		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15);
 	}else if(set == kHelRegsThread) {
-		auto accessor = reinterpret_cast<uintptr_t *>(image);
-		accessor[0] = thread->_executor.general()->clientFs;
-		accessor[1] = thread->_executor.general()->clientGs;
+		uintptr_t regs[2];
+		regs[0] = thread->_executor.general()->clientFs;
+		regs[1] = thread->_executor.general()->clientGs;
+		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1065,34 +1107,37 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	
 	// FIXME: We need to lock the thread and ensure it is in the interrupted state.
 	if(set == kHelRegsProgram) {
-		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		*thread->_executor.ip() = accessor[0];
-		*thread->_executor.sp() = accessor[1];
+		uintptr_t regs[2];
+		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
+		*thread->_executor.ip() = regs[0];
+		*thread->_executor.sp() = regs[1];
 	}else if(set == kHelRegsGeneral) {
-		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		thread->_executor.general()->rax = accessor[0];
-		thread->_executor.general()->rbx = accessor[1];
-		thread->_executor.general()->rcx = accessor[2];
-		thread->_executor.general()->rdx = accessor[3];
-		thread->_executor.general()->rdi = accessor[4];
-		thread->_executor.general()->rsi = accessor[5];
-		thread->_executor.general()->r8 = accessor[6];
-		thread->_executor.general()->r9 = accessor[7];
-		thread->_executor.general()->r10 = accessor[8];
-		thread->_executor.general()->r11 = accessor[9];
-		thread->_executor.general()->r12 = accessor[10];
-		thread->_executor.general()->r13 = accessor[11];
-		thread->_executor.general()->r14 = accessor[12];
-		thread->_executor.general()->r15 = accessor[13];
-		thread->_executor.general()->rbp = accessor[14];
+		uintptr_t regs[15];
+		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15);
+		thread->_executor.general()->rax = regs[0];
+		thread->_executor.general()->rbx = regs[1];
+		thread->_executor.general()->rcx = regs[2];
+		thread->_executor.general()->rdx = regs[3];
+		thread->_executor.general()->rdi = regs[4];
+		thread->_executor.general()->rsi = regs[5];
+		thread->_executor.general()->r8 = regs[6];
+		thread->_executor.general()->r9 = regs[7];
+		thread->_executor.general()->r10 = regs[8];
+		thread->_executor.general()->r11 = regs[9];
+		thread->_executor.general()->r12 = regs[10];
+		thread->_executor.general()->r13 = regs[11];
+		thread->_executor.general()->r14 = regs[12];
+		thread->_executor.general()->r15 = regs[13];
+		thread->_executor.general()->rbp = regs[14];
 	}else if(set == kHelRegsThread) {
-		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		thread->_executor.general()->clientFs = accessor[0];
-		thread->_executor.general()->clientGs = accessor[1];
+		uintptr_t regs[2];
+		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
+		thread->_executor.general()->clientFs = regs[0];
+		thread->_executor.general()->clientGs = regs[1];
 	}else if(set == kHelRegsDebug) {
 		// FIXME: Make those registers thread-specific.
-		auto accessor = reinterpret_cast<const uintptr_t *>(image);
-		breakOnWrite(reinterpret_cast<uint32_t *>(*accessor));
+		auto reg = readUserObject(reinterpret_cast<uint32_t *const *>(image));
+		breakOnWrite(reg);
 	}else{
 		return kHelErrIllegalArgs;
 	}
@@ -1206,7 +1251,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	size_t i = 0;
 	while(!stack.empty()) {
 		assert(i < count);
-		HelAction action = actions[i++];
+		HelAction action = readUserObject(actions + i++);
 
 		auto target = stack.back();
 		if(!(action.flags & kHelItemChain))
@@ -1233,7 +1278,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionSendFromBuffer: {
 			using Token = SetResult<SendStringWriter>;
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
-			memcpy(buffer.data(), action.buffer, action.length);
+			readUserMemory(buffer.data(), action.buffer, action.length);
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
 					Token(handler, i - 1));
 		} break;
@@ -1308,7 +1353,9 @@ HelError helFutexWait(int *pointer, int expected) {
 
 	// TODO: Support physical (i.e. non-private) futexes.
 	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
+		enableUserAccess();
 		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
+		disableUserAccess();
 		return expected == v;
 	}, &blocker);
 
@@ -1434,7 +1481,7 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 	return kHelErrNone;
 }
 
-HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
+HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1442,7 +1489,7 @@ HelError helAccessIo(uintptr_t *user_port_array, size_t num_ports,
 	// TODO: check userspace page access rights
 	auto io_space = frigg::makeShared<IoSpace>(*kernelAlloc);
 	for(size_t i = 0; i < num_ports; i++)
-		io_space->addPort(user_port_array[i]);
+		io_space->addPort(readUserObject<uintptr_t>(port_array + i));
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());

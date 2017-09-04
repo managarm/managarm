@@ -339,7 +339,8 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // --------------------------------------------------------
 
 PlatformCpuData::PlatformCpuData()
-: irqStack{UniqueKernelStack::make()}, detachedStack{UniqueKernelStack::make()} {
+: irqStack{UniqueKernelStack::make()}, detachedStack{UniqueKernelStack::make()},
+		haveSmap{false} {
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
@@ -361,6 +362,15 @@ PlatformCpuData::PlatformCpuData()
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&tss);
 	tss.ist1 = (uintptr_t)irqStack.base();
+}
+
+void enableUserAccess() {
+	if(getCpuData()->haveSmap)
+		asm volatile ("stac" : : : "memory");
+}
+void disableUserAccess() {
+	if(getCpuData()->haveSmap)
+		asm volatile ("clac" : : : "memory");
 }
 
 // --------------------------------------------------------
@@ -424,7 +434,7 @@ void initializeThisProcessor() {
 	idtr.pointer = cpu_data->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
-	// enable wrfsbase / wrgsbase instructions
+	// Enable the wr{fs,gs}base instructions.
 	// FIXME: does not seem to work under qemu
 //	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]
 //			& frigg::arch_x86::kCpuFlagFsGsBase))
@@ -435,6 +445,22 @@ void initializeThisProcessor() {
 //	asm volatile ( "mov %%cr4, %0" : "=r" (cr4) );
 //	cr4 |= 0x10000;
 //	asm volatile ( "mov %0, %%cr4" : : "r" (cr4) );
+
+	// Enable the SMAP extension.
+	if(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports SMAP\e[39m" << frigg::endLog;
+
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 21;
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+		asm volatile ("clac" : : : "memory");
+
+		cpu_data->haveSmap = true;
+	}else{
+		frigg::infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frigg::endLog;
+	}
 
 	// setup the syscall interface
 	if((frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexExtendedFeatures)[3]

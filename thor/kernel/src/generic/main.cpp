@@ -529,8 +529,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(*image.code() & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
 
-	bool handled;
-	{
+	bool handled = false;
+	if(image.inKernelDomain() && !image.allowUserPages()) {
+		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
+	}else{
 		// handleFault() might block, so we use a StatelessIrqLock here.
 		StatelessIrqLock irq_lock;
 		AddressSpace::Guard space_guard(&address_space->lock);
@@ -622,6 +624,7 @@ extern "C" void handleSyscall(SyscallImageAccessor image) {
 				<< " syscall #" << *image.number() << frigg::endLog;
 
 	assert(!irqMutex().nesting());
+	disableUserAccess();
 
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {

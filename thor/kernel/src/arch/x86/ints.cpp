@@ -182,6 +182,8 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
+	disableUserAccess();
+
 	switch(number) {
 	case 3: {
 		handleOtherFault(image, kIntrBreakpoint);
@@ -211,6 +213,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 		asm volatile ( "swapgs" : : : "memory" );
 
 	assert(!irqMutex().nesting());
+	disableUserAccess();
 
 	handleIrq(image, number);
 	

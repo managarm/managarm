@@ -119,7 +119,27 @@ struct FaultImageAccessor {
 	Word *ip() { return &_frame()->rip; }
 
 	Word *cs() { return &_frame()->cs; }
+	Word *rflags() { return &_frame()->rflags; }
 	Word *code() { return &_frame()->code; }
+	
+	bool inKernelDomain() {
+		if(*cs() == kSelSystemIdleCode
+				|| *cs() == kSelSystemFiberCode
+				|| *cs() == kSelExecutorFaultCode
+				|| *cs() == kSelExecutorSyscallCode) {
+			return true;
+		}else{
+			assert(*cs() == kSelClientUserCompat
+					|| *cs() == kSelClientUserCode);
+			return false;
+		}
+	}
+
+	bool allowUserPages() {
+		// TODO: Return true if SMAP is disabled.
+		assert(inKernelDomain());
+		return *rflags() & (uint32_t(1) << 18);
+	}
 
 private:
 	// note: this struct is accessed from assembly.
@@ -476,7 +496,12 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack detachedStack;
 	
 	frigg::arch_x86::Tss64 tss;
+
+	bool haveSmap;
 };
+
+void enableUserAccess();
+void disableUserAccess();
 
 bool intsAreAllowed();
 void allowInts();
