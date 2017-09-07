@@ -339,8 +339,7 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // --------------------------------------------------------
 
 PlatformCpuData::PlatformCpuData()
-: irqStack{UniqueKernelStack::make()}, detachedStack{UniqueKernelStack::make()},
-		haveSmap{false} {
+: haveSmap{false} {
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
@@ -361,7 +360,6 @@ PlatformCpuData::PlatformCpuData()
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
 	frigg::arch_x86::initializeTss64(&tss);
-	tss.ist1 = (uintptr_t)irqStack.base();
 }
 
 void enableUserAccess() {
@@ -401,15 +399,31 @@ void doRunDetached(void (*function) (void *), void *argument) {
 
 extern "C" void syscallStub();
 
-void initializeThisProcessor() {
-	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
-	
-	// FIXME: the stateSize should not be CPU specific!
-	// move it to a global variable and initialize it in initializeTheSystem() etc.!
+frigg::LazyInitializer<CpuData> staticBootCpuContext;
 
-	// set up the kernel gs segment
+void installBootCpuContext() {
+	// Set up the kernel gs segment.
+	staticBootCpuContext.initialize();
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+			(uintptr_t)static_cast<AssemblyCpuData *>(staticBootCpuContext.get()));
+}
+
+void allocateAdditionalCpuContext() {
+	// Set up the kernel gs segment.
+	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
 			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
+}
+
+void initializeThisProcessor() {	
+	// FIXME: the stateSize should not be CPU specific!
+	// move it to a global variable and initialize it in initializeTheSystem() etc.!
+	PlatformCpuData *cpu_data = getCpuData();
+
+	// Allocate per-CPU areas.
+	cpu_data->irqStack = UniqueKernelStack::make();
+	cpu_data->detachedStack = UniqueKernelStack::make();
+	cpu_data->tss.ist1 = (uintptr_t)cpu_data->irqStack.base();
 
 	frigg::arch_x86::Gdtr gdtr;
 	gdtr.limit = 13 * 8;
@@ -498,6 +512,7 @@ static_assert(sizeof(StatusBlock) == 32, "Bad sizeof(StatusBlock)");
 
 void secondaryMain(StatusBlock *status_block) {
 	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
+	allocateAdditionalCpuContext();
 	initializeThisProcessor();
 	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
 

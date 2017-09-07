@@ -4,6 +4,7 @@
 namespace thor {
 
 struct SkeletalRegion {
+	typedef frigg::TicketLock Mutex;
 public:
 	static void initialize(PhysicalAddr physical_base,
 			int order, size_t num_roots, int8_t *buddy_tree);
@@ -23,6 +24,8 @@ public:
 	void *access(PhysicalAddr physical);
 
 private:
+	Mutex _mutex;
+
 	PhysicalAddr _physicalBase;
 	int _order;
 	size_t _numRoots;

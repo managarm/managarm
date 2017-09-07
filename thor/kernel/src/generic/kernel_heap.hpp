@@ -8,7 +8,16 @@
 
 namespace thor {
 
+struct IrqSpinlock {
+	void lock();
+	void unlock();
+
+private:
+	frigg::TicketLock _spinlock;
+};
+
 struct KernelVirtualMemory {
+	using Mutex = frigg::TicketLock;
 public:
 	static KernelVirtualMemory &global();
 
@@ -22,6 +31,7 @@ public:
 	void *allocate(size_t length);
 
 private:
+	Mutex _mutex;
 	frigg::BuddyAllocator _buddy;
 };
 
@@ -41,7 +51,7 @@ struct KernelAlloc {
 	void free(void *pointer);
 
 private:
-	frigg::SlabAllocator<KernelVirtualAlloc, frigg::TicketLock> _allocator;
+	frigg::SlabAllocator<KernelVirtualAlloc, IrqSpinlock> _allocator;
 };
 
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;

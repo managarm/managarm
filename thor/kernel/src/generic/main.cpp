@@ -289,11 +289,12 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		debugToBochs = true;
 	}
 	setupDebugging();
-
-	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
-
-	initializeProcessorEarly();
 	
+	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
+	
+	initializeProcessorEarly();
+	installBootCpuContext();
+
 	if(info->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
 				<< frigg::endLog;
@@ -306,7 +307,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	PhysicalAddr pml4_ptr;
 	asm volatile ( "mov %%cr3, %%rax" : "=a" (pml4_ptr) );
 	KernelPageSpace::initialize(pml4_ptr);
-	
+
 	SkeletalRegion::initialize(info->skeletalRegion.address,
 			info->skeletalRegion.order, info->skeletalRegion.numRoots,
 			reinterpret_cast<int8_t *>(info->skeletalRegion.buddyTree));

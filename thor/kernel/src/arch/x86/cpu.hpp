@@ -528,6 +528,7 @@ void runDetached(F functor, Args... args) {
 // that destroys the thread together with its kernel stack
 void doRunDetached(void (*function) (void *), void *argument);
 
+void installBootCpuContext();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);

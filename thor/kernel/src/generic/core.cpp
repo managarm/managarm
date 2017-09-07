@@ -18,6 +18,20 @@ int64_t allocAsyncId() {
 BochsSink infoSink;
 
 // --------------------------------------------------------
+// Locking primitives
+// --------------------------------------------------------
+
+void IrqSpinlock::lock() {
+	irqMutex().lock();
+	_spinlock.lock();
+}
+
+void IrqSpinlock::unlock() {
+	_spinlock.unlock();
+	irqMutex().unlock();
+}
+
+// --------------------------------------------------------
 // Memory management
 // --------------------------------------------------------
 
@@ -59,6 +73,9 @@ KernelVirtualMemory::KernelVirtualMemory() {
 }
 
 void *KernelVirtualMemory::allocate(size_t length) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	return (void *)_buddy.allocate(length);
 }
 
@@ -105,12 +122,10 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 }
 
 void *KernelAlloc::allocate(size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
 	return _allocator.allocate(size);
 }
 
 void KernelAlloc::free(void *pointer) {
-	auto irq_lock = frigg::guard(&irqMutex());
 	_allocator.free(pointer);
 }
 

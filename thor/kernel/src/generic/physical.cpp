@@ -26,6 +26,9 @@ SkeletalRegion &SkeletalRegion::global() {
 }
 
 PhysicalAddr SkeletalRegion::allocate() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	if(logSkeletalAllocs)
 		frigg::infoLogger() << "thor: Allocating skeletal memory" << frigg::endLog;
 	auto physical = _physicalBase + (frigg::buddy_tools::allocate(_buddyTree,
@@ -65,6 +68,7 @@ void PhysicalChunkAllocator::bootstrap(PhysicalAddr address,
 }
 
 PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	assert(_freePages > size / kPageSize);
@@ -88,6 +92,7 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size) {
 }
 
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	
 	int target = 0;
@@ -104,9 +109,15 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 }
 
 size_t PhysicalChunkAllocator::numUsedPages() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	return _usedPages;
 }
 size_t PhysicalChunkAllocator::numFreePages() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	return _freePages;
 }
 
