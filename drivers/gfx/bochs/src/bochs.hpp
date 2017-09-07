@@ -147,6 +147,7 @@ struct Configuration;
 struct FrameBuffer;
 struct Plane;
 struct Assignment;
+struct Blob;
 struct Object;
 
 struct Property {
@@ -187,6 +188,7 @@ public:
 	Property srcWProperty;
 	Property srcHProperty;
 	Property fbIdProperty;
+	Property modeIdProperty;
 };
 
 struct File {
@@ -248,11 +250,23 @@ struct Plane {
 	virtual Object *asObject() = 0;
 };
 
+struct Blob {
+	Blob(std::vector<char> data)
+	: _data(std::move(data)) {  };
+
+	size_t size();
+	const void *data();
+	
+private:
+	std::vector<char> _data;
+};
+
 struct Assignment {
 	Object *object;
 	Property *property;
 	uint64_t intValue;
 	Object *objectValue;
+	std::shared_ptr<Blob> blobValue;
 };
 
 struct Object {
@@ -279,7 +293,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 
 	struct Configuration : drm_backend::Configuration {
 		Configuration(GfxDevice *device)
-		: _device(device), _width(0), _height(0) { };
+		: _device(device), _width(0), _height(0), _fb(nullptr) { };
 		
 		bool capture(std::vector<drm_backend::Assignment> assignment) override;
 		void dispose() override;
