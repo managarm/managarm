@@ -356,6 +356,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_SETCRTC) {
+		drm_mode_modeinfo mode;
+		helix::RecvBuffer recv_buffer;
+		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_buffer, &mode, sizeof(drm_mode_modeinfo)));
+		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(recv_buffer.error());
+		
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 	
@@ -369,13 +376,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assignments.push_back(Assignment{ 
 			crtc->primaryPlane()->asObject(),
 			&self->_device->srcWProperty,
-			req.drm_mode().hdisplay(),
+			mode.hdisplay,
 			nullptr
 		});
 		assignments.push_back(Assignment{ 
 			crtc->primaryPlane()->asObject(),
 			&self->_device->srcHProperty, 
-			req.drm_mode().vdisplay(),
+			mode.vdisplay,
 			nullptr
 		});
 			
