@@ -55,33 +55,40 @@ HelError translateError(Error error) {
 }
 
 template<typename P>
-struct PostEvent : QueueNode {
+struct PostEvent {
 public:
+	struct Wrapper : QueueNode {
+		template<typename... Args>
+		Wrapper(uintptr_t context, Args &&... args)
+		: _writer{frigg::forward<Args>(args)...} {
+			setupContext(context);
+			setupLength(_writer.size());
+		}
+
+		Error emit(ForeignSpaceAccessor accessor) override {
+			auto err = _writer.write(frigg::move(accessor));
+			frigg::destruct(*kernelAlloc, this);
+			return err;
+		}
+
+	private:
+		P _writer;
+	};
+
 	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
-	: _space(frigg::move(space)), _queue(queue) {
-		setupContext(context);
-	}
+	: _space(frigg::move(space)), _queue(queue), _context(context) { }
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
-		_writer = frigg::construct<P>(*kernelAlloc, frigg::forward<Args>(args)...);
-		setupLength(_writer->size());
-		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
-	}
-
-	Error emit(ForeignSpaceAccessor accessor) override {
-		auto err = _writer->write(frigg::move(accessor));
-		if(err)
-			return err;
-
-		frigg::destruct(*kernelAlloc, _writer);
-		return kErrSuccess;
+		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
+				_context, frigg::forward<Args>(args)...);
+		_space->queueSpace.submit(_space, (uintptr_t)_queue, wrapper);
 	}
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_queue;
-	P *_writer;
+	uintptr_t _context;
 };
 
 struct ManageMemoryWriter {
@@ -1178,11 +1185,8 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 		Error emit(ForeignSpaceAccessor accessor) override {
 			HelSimpleResult data{translateError(kErrSuccess), 0};
 			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
-			if(err)
-				return err;
-
 			frigg::destruct(*kernelAlloc, this);
-			return kErrSuccess;
+			return err;
 		}
 
 		frigg::SharedPtr<AddressSpace> space;
@@ -1446,11 +1450,8 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 		Error emit(ForeignSpaceAccessor accessor) override {
 			HelSimpleResult data{translateError(_error), 0};
 			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
-			if(err)
-				return err;
-
 			frigg::destruct(*kernelAlloc, this);
-			return kErrSuccess;
+			return err;
 		}
 
 	private:

@@ -166,6 +166,11 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, int number);
 
+void handleDebugFault(FaultImageAccessor image) {
+	frigg::infoLogger() << "\e[35mthor: Debug fault "
+			<< "at ip: " << (void *)*image.ip() << "\e[39m" << frigg::endLog;
+}
+
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 
@@ -173,8 +178,12 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
-	assert(!inStub(*image.ip()));
-	if(cs != kSelClientUserCode && cs != kSelExecutorSyscallCode)
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "Fault #" << number
+				<< " in stub section, cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+	if(cs != kSelSystemIrqCode && cs != kSelClientUserCode
+			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
 		frigg::panicLogger() << "Fault #" << number
 				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
@@ -185,6 +194,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	disableUserAccess();
 
 	switch(number) {
+	case 1: {
+		handleDebugFault(image);
+	} break;
 	case 3: {
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
@@ -204,7 +216,10 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
-	assert(!inStub(*image.ip()));
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "IRQ" << number
+				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
