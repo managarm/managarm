@@ -112,6 +112,18 @@ drm_backend::Plane *drm_backend::Object::asPlane() {
 }
 
 // ----------------------------------------------------------------
+// Crtc
+// ----------------------------------------------------------------
+
+std::shared_ptr<drm_backend::Blob> drm_backend::Crtc::currentMode() {
+	return _curMode;
+}
+	
+void drm_backend::Crtc::setCurrentMode(std::shared_ptr<drm_backend::Blob> mode) {
+	_curMode = mode;
+}
+
+// ----------------------------------------------------------------
 // Blob
 // ----------------------------------------------------------------
 
@@ -336,37 +348,33 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETCRTC) {
 		helix::SendBuffer send_resp;
+		helix::SendBuffer send_mode;
 		managarm::fs::SvrResponse resp;
 
-		resp.set_drm_fb_id(10);
-		resp.set_drm_x(1024);
-		resp.set_drm_y(768);
-		resp.set_drm_gamma_size(0);
-		resp.set_drm_mode_valid(1);
+		auto obj = self->_device->findObject(req.drm_crtc_id());
+		assert(obj);
+		auto crtc = obj->asCrtc();
+		assert(crtc);
 
-		resp.mutable_drm_mode()->set_clock(47185);
-		resp.mutable_drm_mode()->set_hdisplay(1024);
-		resp.mutable_drm_mode()->set_hsync_start(1024);
-		resp.mutable_drm_mode()->set_hsync_end(1024);
-		resp.mutable_drm_mode()->set_htotal(1024);
-		resp.mutable_drm_mode()->set_hskew(0);
-		resp.mutable_drm_mode()->set_vdisplay(768);
-		resp.mutable_drm_mode()->set_vsync_start(768);
-		resp.mutable_drm_mode()->set_vsync_end(768);
-		resp.mutable_drm_mode()->set_vtotal(768);
-		resp.mutable_drm_mode()->set_vscan(0);
-		resp.mutable_drm_mode()->set_vrefresh(60);
-		resp.mutable_drm_mode()->set_flags(0);
-		resp.mutable_drm_mode()->set_type(0);
-		resp.mutable_drm_mode()->set_name("1024x768");
-		
+		drm_mode_modeinfo mode_info;
+		if(crtc->currentMode()) {
+			/* TODO: Set x, y, fb_id, gamma_size */
+			memcpy(&mode_info, crtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
+			resp.set_drm_mode_valid(1);
+		}else{
+			memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
+			resp.set_drm_mode_valid(0);
+		}
+			
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
+			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_mode, &mode_info, sizeof(drm_mode_modeinfo)));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_mode.error());
 	}else if(req.command() == DRM_IOCTL_MODE_SETCRTC) {
 		std::vector<char> mode_buffer;
 		mode_buffer.resize(sizeof(drm_mode_modeinfo));
@@ -561,6 +569,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_backend::Assignment> assi
 			memcpy(&mode_info, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
 			_height = mode_info.vdisplay;
 			_width = mode_info.hdisplay;
+			_mode = assign.blobValue; 
 		}else{
 			return false;
 		}
@@ -578,6 +587,8 @@ void GfxDevice::Configuration::dispose() {
 }
 
 void GfxDevice::Configuration::commit() {
+	_device->_theCrtc->setCurrentMode(_mode);
+
 	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 	_device->_operational.store(regs::data, enable_bits::noMemClear || enable_bits::lfb);
 

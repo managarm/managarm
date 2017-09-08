@@ -160,6 +160,17 @@ struct BufferObject {
 	virtual size_t getSize() = 0;
 };
 
+struct Blob {
+	Blob(std::vector<char> data)
+	: _data(std::move(data)) {  };
+
+	size_t size();
+	const void *data();
+	
+private:
+	std::vector<char> _data;
+};
+
 struct Device {
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
@@ -223,6 +234,12 @@ struct Configuration {
 struct Crtc {
 	virtual Object *asObject() = 0;
 	virtual Plane *primaryPlane() = 0;
+	
+	std::shared_ptr<Blob> currentMode();
+	void setCurrentMode(std::shared_ptr<Blob> mode);
+
+private:
+	std::shared_ptr<Blob> _curMode;
 };
 
 struct Encoder {
@@ -248,17 +265,6 @@ struct FrameBuffer {
 
 struct Plane {
 	virtual Object *asObject() = 0;
-};
-
-struct Blob {
-	Blob(std::vector<char> data)
-	: _data(std::move(data)) {  };
-
-	size_t size();
-	const void *data();
-	
-private:
-	std::vector<char> _data;
 };
 
 struct Assignment {
@@ -304,6 +310,7 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		int _width;
 		int _height;
 		GfxDevice::FrameBuffer *_fb;
+		std::shared_ptr<drm_backend::Blob> _mode;
 	};
 
 	struct Plane : drm_backend::Object, drm_backend::Plane {
