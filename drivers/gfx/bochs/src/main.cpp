@@ -394,26 +394,38 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assert(obj);
 		auto crtc = obj->asCrtc();
 		assert(crtc);
-		
-		auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
+	
 		std::vector<drm_backend::Assignment> assignments;
-		assignments.push_back(Assignment{ 
-			crtc->asObject(),
-			&self->_device->modeIdProperty,
-			0,
-			nullptr,
-			mode_blob	
-		});
-		
-		auto fb = self->_device->findObject(req.drm_fb_id());
-		assert(fb);
-		assignments.push_back(Assignment{ 
-			crtc->primaryPlane()->asObject(),
-			&self->_device->fbIdProperty, 
-			0,
-			fb,
-			nullptr
-		});
+		if(req.drm_mode_valid()) {
+			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
+			assignments.push_back(Assignment{ 
+				crtc->asObject(),
+				&self->_device->modeIdProperty,
+				0,
+				nullptr,
+				mode_blob
+			});
+			
+			auto id = req.drm_fb_id();
+			auto fb = self->_device->findObject(id);
+			assert(fb);
+			assignments.push_back(Assignment{ 
+				crtc->primaryPlane()->asObject(),
+				&self->_device->fbIdProperty, 
+				0,
+				fb,
+				nullptr
+			});
+		}else{
+			std::vector<drm_backend::Assignment> assignments;
+			assignments.push_back(Assignment{ 
+				crtc->asObject(),
+				&self->_device->modeIdProperty,
+				0,
+				nullptr,
+				nullptr
+			});
+		}
 
 		auto valid = config->capture(assignments);
 		assert(valid);
@@ -566,20 +578,25 @@ bool GfxDevice::Configuration::capture(std::vector<drm_backend::Assignment> assi
 			_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 		}else if(assign.property == &_device->modeIdProperty) {
 			drm_mode_modeinfo mode_info;
-			memcpy(&mode_info, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
-			_height = mode_info.vdisplay;
-			_width = mode_info.hdisplay;
 			_mode = assign.blobValue; 
+			if(_mode) {
+				memcpy(&mode_info, _mode->data(), sizeof(drm_mode_modeinfo));
+				_height = mode_info.vdisplay;
+				_width = mode_info.hdisplay;
+			}
 		}else{
 			return false;
 		}
 	}
-	
-	if(_width <= 0 || _height <= 0 || _width > 1024 || _height > 768)
-		return false;
-	if(!_fb)
-		return false;
-	return true;
+
+		
+	if(_mode) {
+		if(_width <= 0 || _height <= 0 || _width > 1024 || _height > 768)
+			return false;
+		if(!_fb)
+			return false;
+	}
+	return true;	
 }
 
 void GfxDevice::Configuration::dispose() {
@@ -589,34 +606,38 @@ void GfxDevice::Configuration::dispose() {
 void GfxDevice::Configuration::commit() {
 	_device->_theCrtc->setCurrentMode(_mode);
 
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
-	_device->_operational.store(regs::data, enable_bits::noMemClear || enable_bits::lfb);
+	if(_mode) {
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
+		_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
+	
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
+		_device->_operational.store(regs::data, _fb->getPixelPitch());
+		
+		/* You don't need to initialize this register.
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
+		_device->_operational.store(regs::data, _height);
+		*/
+		
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
+		_device->_operational.store(regs::data, 32);
+	
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
+		_device->_operational.store(regs::data, _width);
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
+		_device->_operational.store(regs::data, _height);
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
+		_device->_operational.store(regs::data, 0);
+		
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
+		_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress() / (_fb->getPixelPitch() * 4));
 
-	
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
-	_device->_operational.store(regs::data, _fb->getPixelPitch());
-	
-	/* You don't need to initialize this register.
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
-	_device->_operational.store(regs::data, _height);
-	*/
-	
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
-	_device->_operational.store(regs::data, 32);
-
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
-	_device->_operational.store(regs::data, _width);
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
-	_device->_operational.store(regs::data, _height);
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
-	_device->_operational.store(regs::data, 0);
-	
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-	_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress() / (_fb->getPixelPitch() * 4));
-	
-	_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
-	_device->_operational.store(regs::data, enable_bits::enable 
-			|| enable_bits::noMemClear || enable_bits::lfb);
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
+		_device->_operational.store(regs::data, enable_bits::enable 
+				| enable_bits::noMemClear | enable_bits::lfb);
+	}else{
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
+		_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
+	}
 }
 
 // ----------------------------------------------------------------

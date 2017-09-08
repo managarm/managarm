@@ -115,6 +115,7 @@ message CntRequest {
 	optional uint32 drm_x = 30;
 	optional uint32 drm_y = 31;
 	optional uint32 drm_fb_id = 33;
+	optional uint32 drm_mode_valid = 34;
 }
 
 message SvrResponse {
