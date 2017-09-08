@@ -949,15 +949,23 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	}
 }
 
-bool AddressSpace::handleFault(Guard &guard, VirtualAddr address, uint32_t fault_flags) {
-	assert(guard.protects(&lock));
-
+bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
 	// TODO: It seems that this is not invoked for on-demand allocation
 	// of AllocatedMemory objects!
 
-	Mapping *mapping = _getMapping(address);
-	if(!mapping || mapping->type() == MappingType::hole)
-		return false;
+	Mapping *mapping;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		AddressSpace::Guard space_guard(&lock);
+
+		mapping = _getMapping(address);
+		if(!mapping || mapping->type() == MappingType::hole)
+			return false;
+	}
+
+	// FIXME: mapping might be deleted here!
+	// We need to use either refcounting or QS garbage collection here!
+
 	return mapping->handleFault(address - mapping->address(), fault_flags);
 }
 

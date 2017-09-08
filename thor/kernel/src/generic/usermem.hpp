@@ -443,7 +443,7 @@ public:
 	
 	void unmap(Guard &guard, VirtualAddr address, size_t length);
 
-	bool handleFault(Guard &guard, VirtualAddr address, uint32_t flags);
+	bool handleFault(VirtualAddr address, uint32_t flags);
 	
 	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
 	

@@ -534,11 +534,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
 	}else{
-		// handleFault() might block, so we use a StatelessIrqLock here.
-		StatelessIrqLock irq_lock;
-		AddressSpace::Guard space_guard(&address_space->lock);
-
-		handled = address_space->handleFault(space_guard, address, flags);
+		handled = address_space->handleFault(address, flags);
 	}
 	
 	if(handled)
