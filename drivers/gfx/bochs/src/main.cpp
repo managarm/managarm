@@ -124,6 +124,18 @@ void drm_backend::Crtc::setCurrentMode(std::shared_ptr<drm_backend::Blob> mode) 
 }
 
 // ----------------------------------------------------------------
+// Connector
+// ----------------------------------------------------------------
+
+const std::vector<drm_mode_modeinfo> &drm_backend::Connector::modeList() {
+	return _modeList;
+}
+
+void drm_backend::Connector::setModeList(std::vector<drm_mode_modeinfo> mode_list) {
+	_modeList = mode_list;
+}
+
+// ----------------------------------------------------------------
 // Blob
 // ----------------------------------------------------------------
 
@@ -230,6 +242,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		HEL_CHECK(send_resp.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETCONNECTOR) {
 		helix::SendBuffer send_resp;
+		helix::SendBuffer send_list;
 		managarm::fs::SvrResponse resp;
 	
 		auto obj = self->_device->findObject(req.drm_connector_id());
@@ -241,24 +254,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		for(int i = 0; i < psbl_enc.size(); i++) { 
 			resp.add_drm_encoders(psbl_enc[i]->asObject()->id());
 		}
-		
-		auto mode = resp.add_drm_modes();
-		mode->set_clock(47185);
-		mode->set_hdisplay(1024);
-		mode->set_hsync_start(1024);
-		mode->set_hsync_end(1024);
-		mode->set_htotal(1024);
-		mode->set_hskew(0);
-		mode->set_vdisplay(768);
-		mode->set_vsync_start(768);
-		mode->set_vsync_end(768);
-		mode->set_vtotal(768);
-		mode->set_vscan(0);
-		mode->set_vrefresh(60);
-		mode->set_flags(0);
-		mode->set_type(0);
-		mode->set_name("1024x768");
-		
+
 		resp.set_drm_encoder_id(0);
 		resp.set_drm_connector_type(0);
 		resp.set_drm_connector_type_id(0);
@@ -266,13 +262,17 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		resp.set_drm_mm_width(306);
 		resp.set_drm_mm_height(230);
 		resp.set_drm_subpixel(0);
+		resp.set_drm_num_modes(conn->modeList().size());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-			helix::action(&send_resp, ser.data(), ser.size()));
+			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_list, conn->modeList().data(),
+					conn->modeList().size() * sizeof(drm_mode_modeinfo)));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_list.error());
 	}else if(req.command() == DRM_IOCTL_MODE_GETENCODER) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -530,6 +530,26 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	attachConnector(_theConnector);
 
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
+
+	drm_mode_modeinfo mode;
+	mode.clock = 47185;
+	mode.hdisplay = 1024;
+	mode.hsync_start = 1024;
+	mode.hsync_end = 1024;
+	mode.htotal = 1024;
+	mode.hskew = 0;
+	mode.vdisplay = 768;
+	mode.vsync_start = 768;
+	mode.vsync_end = 768;
+	mode.vtotal = 768;
+	mode.vscan = 0;
+	mode.vrefresh = 60;
+	mode.flags = 0;
+	mode.type = 0;
+	memcpy(&mode.name, "1024x768", 8);
+	std::vector<drm_mode_modeinfo> mode_list;
+	mode_list.push_back(mode);
+	_theConnector->setModeList(mode_list);
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {

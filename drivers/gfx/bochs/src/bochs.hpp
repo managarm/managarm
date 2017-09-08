@@ -257,6 +257,12 @@ private:
 struct Connector {
 	virtual const std::vector<Encoder *> &possibleEncoders() = 0;
 	virtual Object *asObject() = 0;
+
+	const std::vector<drm_mode_modeinfo> &modeList();
+	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
+
+private:
+	std::vector<drm_mode_modeinfo> _modeList;
 };
 
 struct FrameBuffer {

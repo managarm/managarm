@@ -55,24 +55,6 @@ enum CntReqType {
 	CLOSE = 4;
 }
 
-message DrmMode {
-	optional uint32 clock = 1;
-	optional uint32 hdisplay = 2;
-	optional uint32 hsync_start = 3;
-	optional uint32 hsync_end = 4;
-	optional uint32 htotal = 5;
-	optional uint32 hskew = 6;
-	optional uint32 vdisplay = 7;
-	optional uint32 vsync_start = 8;
-	optional uint32 vsync_end = 9;
-	optional uint32 vtotal = 10;
-	optional uint32 vscan = 11;
-	optional uint32 vrefresh = 12;
-	optional uint32 flags = 13;
-	optional uint32 type = 14;
-	optional string name = 15;
-}
-
 message CntRequest {
 	optional CntReqType req_type = 1;
 
@@ -176,7 +158,6 @@ message SvrResponse {
 	optional int32 drm_max_height = 29;
 
 	repeated uint32 drm_encoders = 30;
-	repeated DrmMode drm_modes = 31;
 	optional uint32 drm_encoder_id = 32;
 	optional uint32 drm_connector_type = 33;
 	optional uint32 drm_connector_type_id = 34;
@@ -203,5 +184,5 @@ message SvrResponse {
 	optional uint32 drm_gamma_size = 50;
 	optional uint32 drm_mode_valid = 51;
 	
-	optional DrmMode drm_mode = 52;
+	optional uint32 drm_num_modes = 53;
 }
