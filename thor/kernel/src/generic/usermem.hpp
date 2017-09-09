@@ -242,6 +242,29 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
+struct Hole {
+	Hole(VirtualAddr address, size_t length)
+	: _address{address}, _length{length}, largestHole{0} { }
+
+	VirtualAddr address() const {
+		return _address;
+	}
+
+	size_t length() const {
+		return _length;
+	}
+
+	frigg::rbtree_hook treeNode;
+
+private:
+	VirtualAddr _address;
+	size_t _length;
+
+public:
+	// Largest hole in the subtree of this node.
+	size_t largestHole;
+};
+
 enum class MappingType {
 	null, hole, other
 };
@@ -304,36 +327,13 @@ struct Mapping {
 	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
 	virtual bool handleFault(VirtualAddr disp, uint32_t fault_flags) = 0;
 
-	frigg::rbtree_hook spaceHook;
+	frigg::rbtree_hook treeNode;
 
 private:
 	AddressSpace *_owner;
 	VirtualAddr _address;
 	size_t _length;
 	MappingFlags _flags;
-
-public:
-	// larget hole in the subtree of this node
-	size_t largestHole;
-};
-
-struct HoleMapping : Mapping {
-	HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			MappingFlags flags);
-
-	MappingType type() override {
-		return MappingType::hole;
-	}
-
-	Mapping *shareMapping(AddressSpace *dest_space) override;
-	Mapping *copyMapping(AddressSpace *dest_space) override;
-	Mapping *copyOnWrite(AddressSpace *dest_space) override;
-
-	void install(bool overwrite) override;
-	void uninstall(bool clear) override;
-	
-	PhysicalAddr grabPhysical(VirtualAddr disp) override;
-	bool handleFault(VirtualAddr disp, uint32_t fault_flags) override;
 };
 
 struct NormalMapping : Mapping {
@@ -387,25 +387,37 @@ private:
 	frigg::SharedPtr<CowChain> _chain;
 };
 
-struct SpaceLess {
+struct HoleLess {
+	bool operator() (const Hole &a, const Hole &b) {
+		return a.address() < b.address();
+	}
+};
+
+struct HoleAggregator;
+
+using HoleTree = frigg::rbtree<
+	Hole,
+	&Hole::treeNode,
+	HoleLess,
+	HoleAggregator
+>;
+
+struct HoleAggregator {
+	static bool aggregate(Hole *node);
+	static bool check_invariant(HoleTree &tree, Hole *node);
+};
+
+struct MappingLess {
 	bool operator() (const Mapping &a, const Mapping &b) {
 		return a.address() < b.address();
 	}
 };
 
-struct SpaceAggregator;
-
-using SpaceTree = frigg::rbtree<
+using MappingTree = frigg::rbtree<
 	Mapping,
-	&Mapping::spaceHook,
-	SpaceLess,
-	SpaceAggregator
+	&Mapping::treeNode,
+	MappingLess
 >;
-
-struct SpaceAggregator {
-	static bool aggregate(Mapping *node);
-	static bool check_invariant(SpaceTree &tree, Mapping *node);
-};
 
 class AddressSpace {
 public:
@@ -468,11 +480,10 @@ private:
 	void cloneRecursive(Mapping *mapping, AddressSpace *dest_space);
 
 	// Splits some memory range from a hole mapping.
-	void splitHole(Mapping *mapping, VirtualAddr offset, VirtualAddr length);
+	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 	
-	VirtualAddr _allocateDfs(Mapping *mapping, size_t length, MapFlags flags);
-	
-	SpaceTree spaceTree;
+	HoleTree _holes;
+	MappingTree _mappings;
 
 public: // TODO: Make this private.
 	ClientPageSpace _pageSpace;

@@ -507,49 +507,45 @@ void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) 
 }
 
 // --------------------------------------------------------
-// SpaceAggregator
+// HoleAggregator
 // --------------------------------------------------------
 
-bool SpaceAggregator::aggregate(Mapping *mapping) {
-	size_t hole = 0;
-	if(mapping->type() == MappingType::hole)
-		hole = mapping->length();
-	if(SpaceTree::get_left(mapping) && SpaceTree::get_left(mapping)->largestHole > hole)
-		hole = SpaceTree::get_left(mapping)->largestHole;
-	if(SpaceTree::get_right(mapping) && SpaceTree::get_right(mapping)->largestHole > hole)
-		hole = SpaceTree::get_right(mapping)->largestHole;
+bool HoleAggregator::aggregate(Hole *hole) {
+	size_t size = hole->length();
+	if(HoleTree::get_left(hole) && HoleTree::get_left(hole)->largestHole > size)
+		size = HoleTree::get_left(hole)->largestHole;
+	if(HoleTree::get_right(hole) && HoleTree::get_right(hole)->largestHole > size)
+		size = HoleTree::get_right(hole)->largestHole;
 	
-	if(mapping->largestHole == hole)
+	if(hole->largestHole == size)
 		return false;
-	mapping->largestHole = hole;
+	hole->largestHole = size;
 	return true;
 }
 
-bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
-	Mapping *pred = tree.predecessor(node);
-	Mapping *succ = tree.successor(node);
+bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
+	auto pred = tree.predecessor(hole);
+	auto succ = tree.successor(hole);
 
-	// check largest hole invariant.
-	size_t hole = 0;
-	if(node->type() == MappingType::hole)
-		hole = node->length();
-	if(tree.get_left(node) && tree.get_left(node)->largestHole > hole)
-		hole = tree.get_left(node)->largestHole;
-	if(tree.get_right(node) && tree.get_right(node)->largestHole > hole)
-		hole = tree.get_right(node)->largestHole;
+	// Check largest hole invariant.
+	size_t size = hole->length();
+	if(tree.get_left(hole) && tree.get_left(hole)->largestHole > size)
+		size = tree.get_left(hole)->largestHole;
+	if(tree.get_right(hole) && tree.get_right(hole)->largestHole > size)
+		size = tree.get_right(hole)->largestHole;
 	
-	if(node->largestHole != hole) {
-		frigg::infoLogger() << "largestHole violation: " << "Expected " << hole
-				<< ", got " << node->largestHole << "." << frigg::endLog;
+	if(hole->largestHole != size) {
+		frigg::infoLogger() << "largestHole violation: " << "Expected " << size
+				<< ", got " << hole->largestHole << "." << frigg::endLog;
 		return false;
 	}
 
-	// check non-overlapping memory areas invariant.
-	if(pred && node->address() < pred->address() + pred->length()) {
+	// Check non-overlapping memory areas invariant.
+	if(pred && hole->address() < pred->address() + pred->length()) {
 		frigg::infoLogger() << "Non-overlapping (left) violation" << frigg::endLog;
 		return false;
 	}
-	if(succ && node->address() + node->length() > succ->address()) {
+	if(succ && hole->address() + hole->length() > succ->address()) {
 		frigg::infoLogger() << "Non-overlapping (right) violation" << frigg::endLog;
 		return false;
 	}
@@ -563,61 +559,7 @@ bool SpaceAggregator::check_invariant(SpaceTree &tree, Mapping *node) {
 
 Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 		MappingFlags flags)
-: _owner{owner}, _address{base_address}, _length{length},
-		_flags{flags}, largestHole{0} { }
-
-// --------------------------------------------------------
-// HoleMapping
-// --------------------------------------------------------
-
-HoleMapping::HoleMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-		MappingFlags flags)
-: Mapping{owner, address, length, flags} {
-	// TODO: Is this even necessary?
-	largestHole = length;
-}
-
-Mapping *HoleMapping::shareMapping(AddressSpace *dest_space) {
-	(void)dest_space;
-	assert(!"Cannot share a HoleMapping");
-	__builtin_unreachable();
-}
-
-Mapping *HoleMapping::copyMapping(AddressSpace *dest_space) {
-	(void)dest_space;
-	assert(!"Cannot share a HoleMapping");
-	__builtin_unreachable();
-}
-
-Mapping *HoleMapping::copyOnWrite(AddressSpace *dest_space) {
-	(void)dest_space;
-	assert(!"Cannot copy-on-write a HoleMapping");
-	__builtin_unreachable();
-}
-
-void HoleMapping::install(bool overwrite) {
-	// We do not need to do anything here.
-	// TODO: Ensure that this is never called?
-	(void)overwrite;
-}	
-
-void HoleMapping::uninstall(bool clear) {
-	// See comments of HoleMapping.
-	(void)clear;
-}
-
-PhysicalAddr HoleMapping::grabPhysical(VirtualAddr disp) {
-	(void)disp;
-	assert(!"Cannot grab pages of HoleMapping");
-	__builtin_unreachable();
-}
-
-bool HoleMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
-	(void)disp;
-	(void)fault_flags;
-	assert(!"HoleMappings should never fault");
-	__builtin_unreachable();
-}
+: _owner{owner}, _address{base_address}, _length{length}, _flags{flags} { }
 
 // --------------------------------------------------------
 // NormalMapping
@@ -826,13 +768,12 @@ AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
 	assert(!"Fix this");
-	// TODO: fix this by iteratively freeing all nodes of *spaceTree*.
+	// TODO: fix this by iteratively freeing all nodes of *_mappings*.
 }
 
 void AddressSpace::setupDefaultMappings() {
-	auto mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
-			0x100000, 0x7ffffff00000, MappingFlags::null);
-	spaceTree.insert(mapping);
+	auto hole = frigg::construct<Hole>(*kernelAlloc, 0x100000, 0x7ffffff00000);
+	_holes.insert(hole);
 }
 
 void AddressSpace::map(Guard &guard,
@@ -883,7 +824,7 @@ void AddressSpace::map(Guard &guard,
 			static_cast<MappingFlags>(mapping_flags), memory.toShared(), offset);
 	
 	// Install the new mapping object.
-	spaceTree.insert(mapping);
+	_mappings.insert(mapping);
 	assert(!(flags & kMapPopulate));
 	mapping->install(false);
 
@@ -901,52 +842,67 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
 	assert(mapping->length() == length);
 	mapping->uninstall(true);
 
-	auto predecessor = SpaceTree::predecessor(mapping);
-	auto successor = SpaceTree::successor(mapping);
-	assert(predecessor->address() + predecessor->length() == mapping->address());
-	assert(mapping->address() + mapping->length() == successor->address());
-	
-	if(predecessor && predecessor->type() == MappingType::hole
-			&& successor && successor->type() == MappingType::hole) {
-		auto hole = frigg::construct<HoleMapping>(*kernelAlloc, this, predecessor->address(),
-				predecessor->length() + mapping->length() + successor->length(),
-				MappingFlags::null);
+	// Find the holes that preceede/succeede mapping.
+	Hole *pre;
+	Hole *succ;
 
-		spaceTree.remove(predecessor);
-		spaceTree.remove(mapping);
-		spaceTree.remove(successor);
-		frigg::destruct(*kernelAlloc, predecessor);
-		frigg::destruct(*kernelAlloc, mapping);
-		frigg::destruct(*kernelAlloc, successor);
-		spaceTree.insert(hole);
-	}else if(predecessor && predecessor->type() == MappingType::hole) {
-		auto hole = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				predecessor->address(), predecessor->length() + mapping->length(),
-				MappingFlags::null);
-
-		spaceTree.remove(predecessor);
-		spaceTree.remove(mapping);
-		frigg::destruct(*kernelAlloc, predecessor);
-		frigg::destruct(*kernelAlloc, mapping);
-		spaceTree.insert(hole);
-	}else if(successor && successor->type() == MappingType::hole) {
-		auto hole = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				mapping->address(), mapping->length() + successor->length(),
-				MappingFlags::null);
-
-		spaceTree.remove(mapping);
-		spaceTree.remove(successor);
-		frigg::destruct(*kernelAlloc, mapping);
-		frigg::destruct(*kernelAlloc, successor);
-		spaceTree.insert(hole);
-	}else{
-		auto hole = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				mapping->address(), mapping->length(), MappingFlags::null);
-
-		spaceTree.remove(mapping);
-		frigg::destruct(*kernelAlloc, mapping);
-		spaceTree.insert(hole);
+	auto current = _holes.get_root();
+	while(true) {
+		assert(current);
+		if(address < current->address()) {
+			if(HoleTree::get_left(current)) {
+				current = HoleTree::get_left(current);
+			}else{
+				pre = HoleTree::predecessor(current);
+				succ = current;
+				break;
+			}
+		}else{
+			assert(address >= current->address() + current->length());
+			if(HoleTree::get_right(current)) {
+				current = HoleTree::get_right(current);
+			}else{
+				pre = current;
+				succ = HoleTree::successor(current);
+				break;
+			}
+		}
 	}
+
+	// Try to merge the new hole and the existing ones.
+	if(pre && pre->address() + pre->length() == mapping->address()
+			&& succ && mapping->address() + mapping->length() == succ->address()) {
+		auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
+				pre->length() + mapping->length() + succ->length());
+
+		_holes.remove(pre);
+		_holes.remove(succ);
+		_holes.insert(hole);
+		frigg::destruct(*kernelAlloc, pre);
+		frigg::destruct(*kernelAlloc, succ);
+	}else if(pre && pre->address() + pre->length() == mapping->address()) {
+		auto hole = frigg::construct<Hole>(*kernelAlloc,
+				pre->address(), pre->length() + mapping->length());
+
+		_holes.remove(pre);
+		_holes.insert(hole);
+		frigg::destruct(*kernelAlloc, pre);
+	}else if(succ && mapping->address() + mapping->length() == succ->address()) {
+		auto hole = frigg::construct<Hole>(*kernelAlloc,
+				mapping->address(), mapping->length() + succ->length());
+
+		_holes.remove(succ);
+		_holes.insert(hole);
+		frigg::destruct(*kernelAlloc, succ);
+	}else{
+		auto hole = frigg::construct<Hole>(*kernelAlloc,
+				mapping->address(), mapping->length());
+
+		_holes.insert(hole);
+	}
+
+	_mappings.remove(mapping);
+	frigg::destruct(*kernelAlloc, mapping);
 }
 
 bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
@@ -959,7 +915,7 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
 		AddressSpace::Guard space_guard(&lock);
 
 		mapping = _getMapping(address);
-		if(!mapping || mapping->type() == MappingType::hole)
+		if(!mapping)
 			return false;
 	}
 
@@ -972,10 +928,21 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
 frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
-	auto forked = frigg::makeShared<AddressSpace>(*kernelAlloc);
-	cloneRecursive(spaceTree.first(), forked.get());
+	auto child_space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 
-	return frigg::move(forked);
+	// Copy holes to the child space.
+	auto current_hole = _holes.get_root();
+	while(current_hole) {
+		auto child_hole = frigg::construct<Hole>(*kernelAlloc,
+				current_hole->address(), current_hole->length());
+		child_space->_holes.insert(child_hole);
+
+		current_hole = HoleTree::successor(current_hole);
+	}
+
+	cloneRecursive(_mappings.first(), child_space.get());
+
+	return frigg::move(child_space);
 }
 
 PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
@@ -993,13 +960,12 @@ void AddressSpace::activate() {
 }
 
 Mapping *AddressSpace::_getMapping(VirtualAddr address) {
-	Mapping *current = spaceTree.get_root();
-	
-	while(current != nullptr) {
+	auto current = _mappings.get_root();
+	while(current) {
 		if(address < current->address()) {
-			current = SpaceTree::get_left(current);
+			current = MappingTree::get_left(current);
 		}else if(address >= current->address() + current->length()) {
-			current = SpaceTree::get_right(current);
+			current = MappingTree::get_right(current);
 		}else{
 			assert(address >= current->address()
 					&& address < current->address() + current->length());
@@ -1016,42 +982,47 @@ VirtualAddr AddressSpace::_allocate(size_t length, MapFlags flags) {
 //	frigg::infoLogger() << "Allocate virtual memory area"
 //			<< ", size: 0x" << frigg::logHex(length) << frigg::endLog;
 
-	if(spaceTree.get_root()->largestHole < length)
+	if(_holes.get_root()->largestHole < length)
 		return 0; // TODO: Return something else here?
 	
-	return _allocateDfs(spaceTree.get_root(), length, flags);
-}
+	auto current = _holes.get_root();
+	while(true) {
+		if(flags & kMapPreferBottom) {
+			// Try to allocate memory at the bottom of the range.
+			if(HoleTree::get_left(current)
+					&& HoleTree::get_left(current)->largestHole >= length) {
+				current = HoleTree::get_left(current);
+				continue;
+			}
+			
+			if(current->length() >= length) {
+				_splitHole(current, 0, length);
+				return current->address();
+			}
 
-VirtualAddr AddressSpace::_allocateDfs(Mapping *mapping, size_t length,
-		MapFlags flags) {
-	if((flags & kMapPreferBottom) != 0) {
-		// Try to allocate memory at the bottom of the range.
-		if(mapping->type() == MappingType::hole && mapping->length() >= length) {
-			splitHole(mapping, 0, length);
-			return mapping->address();
-		}
-		
-		if(SpaceTree::get_left(mapping) && SpaceTree::get_left(mapping)->largestHole >= length)
-			return _allocateDfs(SpaceTree::get_left(mapping), length, flags);
-		
-		assert(SpaceTree::get_right(mapping));
-		assert(SpaceTree::get_right(mapping)->largestHole >= length);
-		return _allocateDfs(SpaceTree::get_right(mapping), length, flags);
-	}else{
-		// Try to allocate memory at the top of the range.
-		assert((flags & kMapPreferTop) != 0);
-		if(mapping->type() == MappingType::hole && mapping->length() >= length) {
-			size_t offset = mapping->length() - length;
-			splitHole(mapping, offset, length);
-			return mapping->address() + offset;
-		}
+			assert(HoleTree::get_right(current));
+			assert(HoleTree::get_right(current)->largestHole >= length);
+			current = HoleTree::get_right(current);
+		}else{
+			// Try to allocate memory at the top of the range.
+			assert(flags & kMapPreferTop);
+			
+			if(HoleTree::get_right(current)
+					&& HoleTree::get_right(current)->largestHole >= length) {
+				current = HoleTree::get_right(current);
+				continue;
+			}
 
-		if(SpaceTree::get_right(mapping) && SpaceTree::get_right(mapping)->largestHole >= length)
-			return _allocateDfs(SpaceTree::get_right(mapping), length, flags);
-		
-		assert(SpaceTree::get_left(mapping));
-		assert(SpaceTree::get_left(mapping)->largestHole >= length);
-		return _allocateDfs(SpaceTree::get_left(mapping), length, flags);
+			if(current->length() >= length) {
+				size_t offset = current->length() - length;
+				_splitHole(current, offset, length);
+				return current->address() + offset;
+			}
+
+			assert(HoleTree::get_left(current));
+			assert(HoleTree::get_left(current)->largestHole >= length);
+			current = HoleTree::get_left(current);
+		}
 	}
 }
 
@@ -1059,30 +1030,38 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 	assert(!(address % kPageSize));
 	assert(!(length % kPageSize));
 
-	Mapping *hole = _getMapping(address);
-	assert(hole);
-	assert(hole->type() == MappingType::hole);
+	auto current = _holes.get_root();
+	while(true) {
+		// TODO: Otherwise, this method fails.
+		assert(current);
+
+		if(address < current->address()) {
+			current = HoleTree::get_left(current);
+		}else if(address >= current->address() + current->length()) {
+			current = HoleTree::get_right(current);
+		}else{
+			assert(address >= current->address()
+					&& address < current->address() + current->length());
+			break;
+		}
+	}
 	
-	splitHole(hole, address - hole->address(), length);
+	_splitHole(current, address - current->address(), length);
 	return address;
 }
 
 void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
-	auto successor = SpaceTree::successor(mapping);
+	auto successor = MappingTree::successor(mapping);
 
-	if(mapping->type() == MappingType::hole) {
-		auto dest_mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				mapping->address(), mapping->length(), MappingFlags::null);
-		dest_space->spaceTree.insert(dest_mapping);
-	}else if(mapping->flags() & MappingFlags::dropAtFork) {
+	if(mapping->flags() & MappingFlags::dropAtFork) {
 		// TODO: Merge this hole into adjacent holes.
-		auto dest_mapping = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				mapping->address(), mapping->length(), MappingFlags::null);
-		dest_space->spaceTree.insert(dest_mapping);
+		auto dest_hole = frigg::construct<Hole>(*kernelAlloc,
+				mapping->address(), mapping->length());
+		dest_space->_holes.insert(dest_hole);
 	}else if(mapping->flags() & MappingFlags::shareAtFork) {
 		auto dest_mapping = mapping->shareMapping(dest_space);
 
-		dest_space->spaceTree.insert(dest_mapping);
+		dest_space->_mappings.insert(dest_mapping);
 		dest_mapping->install(false);
 	}else if(mapping->flags() & MappingFlags::copyOnWriteAtFork) {
 		// TODO: Copy-on-write if possible and plain copy otherwise.
@@ -1095,9 +1074,9 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		auto new_mapping = mapping->copyOnWrite(this);
 		auto dest_mapping = mapping->copyOnWrite(dest_space);
 
-		spaceTree.remove(mapping);
-		spaceTree.insert(new_mapping);
-		dest_space->spaceTree.insert(dest_mapping);
+		_mappings.remove(mapping);
+		_mappings.insert(new_mapping);
+		dest_space->_mappings.insert(dest_mapping);
 		mapping->uninstall(false);
 		new_mapping->install(true);
 		dest_mapping->install(false);
@@ -1110,24 +1089,21 @@ void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
 		cloneRecursive(successor, dest_space);
 }
 
-void AddressSpace::splitHole(Mapping *hole, VirtualAddr offset, size_t length) {
-	assert(hole->type() == MappingType::hole);
+void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	assert(length);
 	assert(offset + length <= hole->length());
 	
-	spaceTree.remove(hole);
+	_holes.remove(hole);
 
 	if(offset) {
-		auto predecessor = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				hole->address(), offset, MappingFlags::null);
-		spaceTree.insert(predecessor);
+		auto predecessor = frigg::construct<Hole>(*kernelAlloc, hole->address(), offset);
+		_holes.insert(predecessor);
 	}
 
 	if(offset + length < hole->length()) {
-		auto successor = frigg::construct<HoleMapping>(*kernelAlloc, this,
-				hole->address() + (offset + length), hole->length() - (offset + length),
-				MappingFlags::null);
-		spaceTree.insert(successor);
+		auto successor = frigg::construct<Hole>(*kernelAlloc,
+				hole->address() + offset + length, hole->length() - (offset + length));
+		_holes.insert(successor);
 	}
 	
 	frigg::destruct(*kernelAlloc, hole);

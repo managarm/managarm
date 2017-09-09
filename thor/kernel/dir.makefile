@@ -199,12 +199,12 @@ $c_INCLUDES += -I$(TREE_PATH)/thor/kernel/c_headers -I$(ACPICA)/source/include
 $c_INCLUDES += -iquote $($c_SRCDIR)
 
 $c_CFLAGS := $(CFLAGS) $($c_INCLUDES)
-$c_CFLAGS += -std=c++14 -Wall -O2
+$c_CFLAGS += -std=c11 -Wall -O2
 $c_CFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++14 -Wall -O2
+$c_CXXFLAGS += -std=c++17 -Wall -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx

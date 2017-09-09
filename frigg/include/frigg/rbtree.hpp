@@ -30,6 +30,21 @@ struct hook_struct {
 	color_type color;
 };
 
+struct null_aggregator {
+	template<typename T>
+	static bool aggregate(T *node) {
+		(void)node;
+		return false;
+	}
+
+	template<typename S, typename T>
+	static bool check_invariant(S &tree, T *node) {
+		(void)tree;
+		(void)node;
+		return true;
+	}
+};
+
 template<typename T, hook_struct T:: *Member, typename L, typename A>
 struct tree_struct {
 private:
@@ -107,6 +122,7 @@ public:
 		if(!_root) {
 			_root = node;
 
+			aggregate_node(node);
 			fix_insert(node);
 			assert(check_invariant());
 			return;
@@ -127,8 +143,8 @@ public:
 					h(node)->successor = current;
 					h(current)->predecessor = node;
 
+					aggregate_node(node);
 					aggregate_path(current);
-
 					fix_insert(node);
 					assert(check_invariant());
 					return;
@@ -148,8 +164,8 @@ public:
 					if(succ)
 						h(succ)->predecessor = node;
 					
+					aggregate_node(node);
 					aggregate_path(current);
-					
 					fix_insert(node);
 					assert(check_invariant());
 					return;
@@ -621,9 +637,10 @@ private:
 } // namespace _redblack
 
 using rbtree_hook = _redblack::hook_struct;
+using null_aggregator = _redblack::null_aggregator;
 
-template<typename T, rbtree_hook T:: *Member, typename A, typename L>
-using rbtree = _redblack::tree_struct<T, Member, A, L>;
+template<typename T, rbtree_hook T:: *Member, typename L, typename A = null_aggregator>
+using rbtree = _redblack::tree_struct<T, Member, L, A>;
 
 } // namespace frigg
 
