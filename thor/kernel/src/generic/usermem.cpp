@@ -928,21 +928,59 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
 frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	assert(guard.protects(&lock));
 
-	auto child_space = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	auto fork_space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 
 	// Copy holes to the child space.
-	auto current_hole = _holes.get_root();
-	while(current_hole) {
-		auto child_hole = frigg::construct<Hole>(*kernelAlloc,
-				current_hole->address(), current_hole->length());
-		child_space->_holes.insert(child_hole);
+	auto cur_hole = _holes.first();
+	while(cur_hole) {
+		auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
+				cur_hole->address(), cur_hole->length());
+		fork_space->_holes.insert(fork_hole);
 
-		current_hole = HoleTree::successor(current_hole);
+		cur_hole = HoleTree::successor(cur_hole);
 	}
 
-	cloneRecursive(_mappings.first(), child_space.get());
+	// Modify memory mapping of both spaces.
+	auto cur_mapping = _mappings.first();
+	while(cur_mapping) {
+		auto successor = MappingTree::successor(cur_mapping);
 
-	return frigg::move(child_space);
+		if(cur_mapping->flags() & MappingFlags::dropAtFork) {
+			// TODO: Merge this hole into adjacent holes.
+			auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
+					cur_mapping->address(), cur_mapping->length());
+			fork_space->_holes.insert(fork_hole);
+		}else if(cur_mapping->flags() & MappingFlags::shareAtFork) {
+			auto fork_mapping = cur_mapping->shareMapping(fork_space.get());
+
+			fork_space->_mappings.insert(fork_mapping);
+			fork_mapping->install(false);
+		}else if(cur_mapping->flags() & MappingFlags::copyOnWriteAtFork) {
+			// TODO: Copy-on-write if possible and plain copy otherwise.
+			// TODO: Decide if we want a copy-on-write or a real copy of the mapping.
+			// * Pinned mappings prevent CoW.
+			//     This is necessary because CoW may change mapped pages
+			//     in the original space.
+			// * Futexes attached to the memory object prevent CoW.
+			//     This ensures that processes do not miss wake ups in the original space.
+			auto origin_mapping = cur_mapping->copyOnWrite(this);
+			auto fork_mapping = cur_mapping->copyOnWrite(fork_space.get());
+
+			_mappings.remove(cur_mapping);
+			_mappings.insert(origin_mapping);
+			fork_space->_mappings.insert(fork_mapping);
+			cur_mapping->uninstall(false);
+			origin_mapping->install(true);
+			fork_mapping->install(false);
+			frigg::destruct(*kernelAlloc, cur_mapping);
+		}else{
+			assert(!"Illegal mapping type");
+		}
+
+		cur_mapping = successor;
+	}
+
+	return frigg::move(fork_space);
 }
 
 PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
@@ -1048,45 +1086,6 @@ VirtualAddr AddressSpace::_allocateAt(VirtualAddr address, size_t length) {
 	
 	_splitHole(current, address - current->address(), length);
 	return address;
-}
-
-void AddressSpace::cloneRecursive(Mapping *mapping, AddressSpace *dest_space) {
-	auto successor = MappingTree::successor(mapping);
-
-	if(mapping->flags() & MappingFlags::dropAtFork) {
-		// TODO: Merge this hole into adjacent holes.
-		auto dest_hole = frigg::construct<Hole>(*kernelAlloc,
-				mapping->address(), mapping->length());
-		dest_space->_holes.insert(dest_hole);
-	}else if(mapping->flags() & MappingFlags::shareAtFork) {
-		auto dest_mapping = mapping->shareMapping(dest_space);
-
-		dest_space->_mappings.insert(dest_mapping);
-		dest_mapping->install(false);
-	}else if(mapping->flags() & MappingFlags::copyOnWriteAtFork) {
-		// TODO: Copy-on-write if possible and plain copy otherwise.
-		// TODO: Decide if we want a copy-on-write or a real copy of the mapping.
-		// * Pinned mappings prevent CoW.
-		//     This is necessary because CoW may change mapped pages
-		//     in the original space.
-		// * Futexes attached to the memory object prevent CoW.
-		//     This ensures that processes do not miss wake ups in the original space.
-		auto new_mapping = mapping->copyOnWrite(this);
-		auto dest_mapping = mapping->copyOnWrite(dest_space);
-
-		_mappings.remove(mapping);
-		_mappings.insert(new_mapping);
-		dest_space->_mappings.insert(dest_mapping);
-		mapping->uninstall(false);
-		new_mapping->install(true);
-		dest_mapping->install(false);
-		frigg::destruct(*kernelAlloc, mapping);
-	}else{
-		assert(!"Illegal mapping type");
-	}
-
-	if(successor)
-		cloneRecursive(successor, dest_space);
 }
 
 void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {

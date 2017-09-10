@@ -265,10 +265,6 @@ public:
 	size_t largestHole;
 };
 
-enum class MappingType {
-	null, hole, other
-};
-
 enum MappingFlags : uint32_t {
 	null = 0,
 
@@ -298,8 +294,6 @@ struct CowChain {
 struct Mapping {
 	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
-
-	virtual MappingType type() = 0;
 
 	AddressSpace *owner() {
 		return _owner;
@@ -341,10 +335,6 @@ struct NormalMapping : Mapping {
 			MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset);
 	~NormalMapping();
 
-	MappingType type() override {
-		return MappingType::other;
-	}
-
 	Mapping *shareMapping(AddressSpace *dest_space) override;
 	Mapping *copyMapping(AddressSpace *dest_space) override;
 	Mapping *copyOnWrite(AddressSpace *dest_space) override;
@@ -364,10 +354,6 @@ struct CowMapping : Mapping {
 	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
 	~CowMapping();
-
-	MappingType type() override {
-		return MappingType::other;
-	}
 
 	Mapping *shareMapping(AddressSpace *dest_space) override;
 	Mapping *copyMapping(AddressSpace *dest_space) override;
@@ -476,8 +462,6 @@ private:
 	VirtualAddr _allocateAt(VirtualAddr address, size_t length);
 	
 	Mapping *_getMapping(VirtualAddr address);
-
-	void cloneRecursive(Mapping *mapping, AddressSpace *dest_space);
 
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
