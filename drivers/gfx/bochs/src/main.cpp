@@ -74,6 +74,36 @@ drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
 	return it->second.get();
 }
 
+uint64_t drm_backend::Device::installMapping(drm_backend::BufferObject *bo) {
+	auto address = _mappingAllocator.allocate(bo->getSize());
+	_mappings.insert({address, bo});
+	return address;
+}
+	
+std::pair<uint64_t, drm_backend::BufferObject *> drm_backend::Device::findMapping(uint64_t offset) {
+	auto it = _mappings.upper_bound(offset);
+	if(it == _mappings.begin())
+		throw std::runtime_error("Mapping does not exist!");
+	
+	it--;
+	return *it;
+}
+	
+// ----------------------------------------------------------------
+// BufferObject
+// ----------------------------------------------------------------
+
+void drm_backend::BufferObject::setupMapping(uint64_t mapping) {
+	_mapping = mapping;
+}
+
+uint64_t drm_backend::BufferObject::getMapping() {
+	return _mapping;
+}
+
+// ----------------------------------------------------------------
+// Encoder
+// ----------------------------------------------------------------
 
 drm_backend::Crtc *drm_backend::Encoder::currentCrtc() {
 	return _currentCrtc;
@@ -178,10 +208,10 @@ async::result<size_t> drm_backend::File::read(std::shared_ptr<void> object, void
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_backend::File::accessMemory(std::shared_ptr<void> object,
 		uint64_t offset, size_t), ([=] {
-	// FIX ME: this is a hack
-	auto self = static_cast<drm_backend::File *>(object.get());
-	auto gfx = static_cast<GfxDevice *>(self->_device.get());
-	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor(gfx->_videoRam), offset));
+	auto self = std::static_pointer_cast<drm_backend::File>(object);
+	auto mapping = self->_device->findMapping(offset);
+	auto mem = mapping.second->getMemory();
+	COFIBER_RETURN(std::make_pair(mem.first, mem.second + (offset - mapping.first)));
 }))
 
 COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
@@ -337,8 +367,8 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		auto bo = self->resolveHandle(req.drm_handle());
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
-		
-		resp.set_drm_offset(buffer->getAddress());
+	
+		resp.set_drm_offset(buffer->getMapping());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -556,9 +586,9 @@ std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo,
+std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> base_bo,
 		uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) {
-	auto buff_obj = std::static_pointer_cast<GfxDevice::BufferObject>(bo);
+	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 		
 	assert(pitch % 4 == 0);
 	auto pixel_pitch = pitch / 4;
@@ -567,7 +597,7 @@ std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shar
 	assert(bo->getAddress() % pitch == 0);
 	assert(bo->getSize() >= pitch * height);
 
-	auto fb = std::make_shared<FrameBuffer>(this, buff_obj, pixel_pitch);
+	auto fb = std::make_shared<FrameBuffer>(this, bo, pixel_pitch);
 	registerObject(fb);
 	return fb;
 }
@@ -577,8 +607,11 @@ std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t> GfxDevice::creat
 	assert(width <= 1024);
 	auto size = height * 4096;
 	auto address = _vramAllocator.allocate(size);
-	
-	return std::make_pair(std::make_shared<BufferObject>(address, size), 4096);
+
+	auto buffer = std::make_shared<BufferObject>(this, address, size);
+	auto mapping = installMapping(buffer.get());
+	buffer->setupMapping(mapping);
+	return std::make_pair(buffer, 4096);
 }
 
 // ----------------------------------------------------------------
@@ -775,6 +808,10 @@ uintptr_t GfxDevice::BufferObject::getAddress() {
 
 size_t GfxDevice::BufferObject::getSize() {
 	return _size;
+}
+	
+std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
+	return std::make_pair(helix::BorrowedDescriptor(_device->_videoRam), _address);
 }
 
 // ----------------------------------------------------------------

@@ -1,5 +1,6 @@
 
 #include <queue>
+#include <map>
 #include <unordered_map>
 
 #include <arch/mem_space.hpp>
@@ -155,9 +156,17 @@ struct Property {
 };
 
 struct BufferObject {
+	BufferObject()
+	: _mapping(-1) { }
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
-	virtual uintptr_t getAddress() = 0;
 	virtual size_t getSize() = 0;
+	virtual std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() = 0;
+
+	void setupMapping(uint64_t mapping);
+	uint64_t getMapping();
+
+private:
+	uint64_t _mapping;
 };
 
 struct Blob {
@@ -172,6 +181,9 @@ private:
 };
 
 struct Device {
+	Device()
+	: _mappingAllocator{63, 12} { }
+
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) = 0;
@@ -188,11 +200,16 @@ struct Device {
 	void registerObject(std::shared_ptr<Object> object);
 	Object *findObject(uint32_t);
 
+	uint64_t installMapping(drm_backend::BufferObject *bo);
+	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
+
 private:	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
 	std::vector<std::shared_ptr<Connector>> _connectors;
 	std::unordered_map<uint32_t, std::shared_ptr<Object>> _objects;
+	range_allocator _mappingAllocator;
+	std::map<uint64_t, BufferObject *> _mappings;
 
 public:
 	id_allocator<uint32_t> allocator;
@@ -327,14 +344,16 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 	
 	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(uintptr_t address, size_t size )
-		: _address(address), _size(size) { };
+		BufferObject(GfxDevice *device, uintptr_t address, size_t size )
+		: _device(device), _address(address), _size(size) { };
 
 		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
 		uintptr_t getAddress();
-		size_t getSize();
+		size_t getSize() override;
+		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
 		
 	private:
+		GfxDevice *_device;
 		uintptr_t _address;
 		size_t _size;
 	};
