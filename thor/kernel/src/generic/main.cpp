@@ -614,14 +614,11 @@ extern "C" void thorImplementNoThreadIrqs() {
 	assert(!"Implement no-thread IRQ stubs");
 }
 
-extern "C" void handleSyscall(SyscallImageAccessor image) {
+void handleSyscall(SyscallImageAccessor image) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 	if(logEverySyscall && *image.number() != kHelCallLog)
 		frigg::infoLogger() << this_thread.get()
 				<< " syscall #" << *image.number() << frigg::endLog;
-
-	assert(!irqMutex().nesting());
-	disableUserAccess();
 
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {

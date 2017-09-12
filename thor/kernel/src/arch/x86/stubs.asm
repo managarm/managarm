@@ -50,12 +50,18 @@
 .section .text.stubs
 .global \name
 \name:
-	# if there is no error code we push a fake one to keep the image struct intact
+	# If there is no error code we push a fake one to keep the image struct intact.
 .if \type != .L_typeFaultWithCode
 	push $0
 .endif
-	# we're pushing 15 registers here.
-	# adjust the rsp offsets below if you change those pushs.
+	# Swap GS if we interrupted user-space.
+	testl $3, 16(%rsp)
+	jz 1f
+	swapgs
+1:
+
+	# We're pushing 15 registers here.
+	# Adjust the rsp offsets below if you change those pushs.
 	push %rbp
 	push %r15
 	push %r14
@@ -91,6 +97,13 @@
 	pop %r14
 	pop %r15
 	pop %rbp
+
+	# Restore GS.
+	testl $3, 16(%rsp)
+	jz 1f
+	swapgs
+1:
+
 	add $8, %rsp
 	iretq
 .endm
@@ -115,6 +128,12 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 .section .text.stubs
 .global \name
 \name:
+	# Swap GS if we interrupted user-space.
+	testl $3, 8(%rsp)
+	jz 1f
+	swapgs
+1:
+
 	push %rbp
 	push %r15
 	push %r14
@@ -150,6 +169,13 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 	pop %r14
 	pop %r15
 	pop %rbp
+
+	# Restore GS.
+	testl $3, 8(%rsp)
+	jz 1f
+	swapgs
+1:
+
 	iretq
 .endm
 
@@ -191,8 +217,6 @@ syscallStub:
 	mov %rsp, %rbx
 	mov %gs:.L_gsSyscallStack, %rsp
 
-	sti
-
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 
 	push %rcx
@@ -217,7 +241,7 @@ syscallStub:
 #	mov %r15, %cr0
 
 	mov %rsp, %rdi
-	call handleSyscall
+	call onPlatformSyscall
 
 	# debugging: disallow use of the FPU in kernel code
 #	mov %cr0, %r15

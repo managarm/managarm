@@ -165,6 +165,7 @@ bool inStub(uintptr_t ip) {
 void handlePageFault(FaultImageAccessor image, uintptr_t address);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, int number);
+void handleSyscall(SyscallImageAccessor image);
 
 void handleDebugFault(FaultImageAccessor image) {
 	frigg::infoLogger() << "\e[35mthor: Debug fault "
@@ -188,9 +189,6 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 				<< ", from unexpected cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
-	if(cs == kSelClientUserCode)
-		asm volatile ( "swapgs" : : : "memory" );
-
 	disableUserAccess();
 
 	switch(number) {
@@ -210,9 +208,6 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 				<< ", from cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 	}
-	
-	if(cs == kSelClientUserCode)
-		asm volatile ( "swapgs" : : : "memory" );
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
@@ -224,16 +219,19 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
 			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
-	if(cs == kSelClientUserCode)
-		asm volatile ( "swapgs" : : : "memory" );
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
 	handleIrq(image, number);
-	
-	if(cs == kSelClientUserCode)
-		asm volatile ( "swapgs" : : : "memory" );
+}
+
+extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
+	assert(!irqMutex().nesting());
+	enableInts();
+	disableUserAccess();
+
+	handleSyscall(image);
 }
 
 bool intsAreEnabled() {
