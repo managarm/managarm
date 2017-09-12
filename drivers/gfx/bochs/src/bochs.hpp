@@ -203,6 +203,13 @@ struct Device {
 	uint64_t installMapping(drm_backend::BufferObject *bo);
 	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
 
+	void setupMinDimensions(uint32_t width, uint32_t height);
+	void setupMaxDimensions(uint32_t width, uint32_t height);
+	uint32_t getMinWidth();
+	uint32_t getMaxWidth();
+	uint32_t getMinHeight();
+	uint32_t getMaxHeight();
+
 private:	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
@@ -210,6 +217,10 @@ private:
 	std::unordered_map<uint32_t, std::shared_ptr<Object>> _objects;
 	range_allocator _mappingAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
+	uint32_t _minWidth;
+	uint32_t _maxWidth;
+	uint32_t _minHeight;
+	uint32_t _maxHeight;
 
 public:
 	id_allocator<uint32_t> allocator;

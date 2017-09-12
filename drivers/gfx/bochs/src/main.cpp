@@ -88,6 +88,32 @@ std::pair<uint64_t, drm_backend::BufferObject *> drm_backend::Device::findMappin
 	it--;
 	return *it;
 }
+
+void drm_backend::Device::setupMinDimensions(uint32_t width, uint32_t height) {
+	_minWidth = width;
+	_minHeight = height;
+}
+
+void drm_backend::Device::setupMaxDimensions(uint32_t width, uint32_t height) {
+	_maxWidth = width;
+	_maxHeight = height;
+}
+
+uint32_t drm_backend::Device::getMinWidth() {
+	return _minWidth;
+}
+
+uint32_t drm_backend::Device::getMaxWidth() {
+	return _maxWidth;
+}
+
+uint32_t drm_backend::Device::getMinHeight() {
+	return _minHeight;
+}
+
+uint32_t drm_backend::Device::getMaxHeight() {
+	return _maxHeight;
+}
 	
 // ----------------------------------------------------------------
 // BufferObject
@@ -259,10 +285,10 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 			resp.add_drm_fb_ids(fbs[i]->asObject()->id());
 		}
 	
-		resp.set_drm_min_width(640);
-		resp.set_drm_max_width(1024);
-		resp.set_drm_min_height(480);
-		resp.set_drm_max_height(758);
+		resp.set_drm_min_width(self->_device->getMinWidth());
+		resp.set_drm_max_width(self->_device->getMaxWidth());
+		resp.set_drm_min_height(self->_device->getMinHeight());
+		resp.set_drm_max_height(self->_device->getMaxHeight());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -580,6 +606,9 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	std::vector<drm_mode_modeinfo> mode_list;
 	mode_list.push_back(mode);
 	_theConnector->setModeList(mode_list);
+	
+	setupMinDimensions(640, 480);
+	setupMaxDimensions(1024, 768);
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
