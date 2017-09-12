@@ -46,24 +46,43 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 		if(!_queue.empty()) {
 			auto req = &_queue.front();
 			assert(req->numSectors);
-
-			assert(req->sector <= 0x1FFFFF);
-			scsi::Read6 read;
-			read.opCode = 0x08;
-			read.lba[0] = (req->sector >> 16) & 0x1F;
-			read.lba[1] = (req->sector >> 8) & 0xFF;
-			read.lba[2] = req->sector & 0xFF;
-			read.transferLength = req->numSectors;
-			read.control = 0;
+			assert(req->numSectors <= 255);
 
 			CommandBlockWrapper cbw;
+			memset(&cbw, 0, sizeof(CommandBlockWrapper));
 			cbw.signature = Signatures::kSignCbw;
 			cbw.tag = 1;
 			cbw.transferLength = req->numSectors * 512;
-			cbw.flags = 0x80;
+			cbw.flags = 0x80; // Direction: Device-to-host.
 			cbw.lun = 0;
-			cbw.cmdLength = sizeof(scsi::Read6);
-			memcpy(cbw.cmdData, &read, sizeof(scsi::Read6));
+
+			if(req->sector <= 0x1FFFFF) {
+				scsi::Read6 command;
+				memset(&command, 0, sizeof(scsi::Read6));
+				command.opCode = 0x08;
+				command.lba[0] = req->sector >> 16;
+				command.lba[1] = (req->sector >> 8) & 0xFF;
+				command.lba[2] = req->sector & 0xFF;
+				command.transferLength = req->numSectors;
+
+				cbw.cmdLength = sizeof(scsi::Read6);
+				memcpy(cbw.cmdData, &command, sizeof(scsi::Read6));
+			}else if(req->sector <= 0xFFFFFFFF) {
+				scsi::Read10 command;
+				memset(&command, 0, sizeof(scsi::Read10));
+				command.opCode = 0x28;
+				command.lba[0] = req->sector >> 24;
+				command.lba[1] = (req->sector >> 16) & 0xFF;
+				command.lba[2] = (req->sector >> 8) & 0xFF;
+				command.lba[3] = req->sector & 0xFF;
+				command.transferLength[0] = req->numSectors >> 8;
+				command.transferLength[1] = req->numSectors & 0xFF;
+
+				cbw.cmdLength = sizeof(scsi::Read10);
+				memcpy(cbw.cmdData, &command, sizeof(scsi::Read10));
+			}else{
+				throw std::logic_error("USB storage does not currently support high LBAs!");
+			}
 
 			// TODO: Respect USB device DMA requirements.
 
@@ -76,9 +95,11 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 			CommandStatusWrapper csw;
 			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
-			assert(csw.signature == Signatures::kSignCsw);
 
-			// TODO: Verify remaining CSW parameters.
+			assert(csw.signature == Signatures::kSignCsw);
+			assert(csw.tag == 1);
+			assert(!csw.dataResidue);
+			assert(!csw.status);
 
 			req->promise.set_value();
 			_queue.pop_front();

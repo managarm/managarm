@@ -34,15 +34,17 @@ struct Read6 {
 	uint8_t transferLength;
 	uint8_t control;
 };
+static_assert(sizeof(Read6) == 6);
 
 struct Read10 {
 	uint8_t opCode;
 	uint8_t options;
-	uint8_t lba[2];
+	uint8_t lba[4];
 	uint8_t groupNumber;
 	uint8_t transferLength[2];
 	uint8_t control;
 };
+static_assert(sizeof(Read10) == 10);
 
 struct Read12 {
 	uint8_t opCode;
