@@ -257,6 +257,14 @@ drm_backend::Encoder *drm_backend::Connector::currentEncoder() {
 uint32_t drm_backend::Connector::getCurrentStatus() {
 	return _currentStatus;
 }
+	
+void drm_backend::Connector::setupPossibleEncoders(std::vector<drm_backend::Encoder *> encoders) {
+	_possibleEncoders = encoders;
+}
+
+const std::vector<drm_backend::Encoder *> &drm_backend::Connector::getPossibleEncoders() {
+	return _possibleEncoders;
+}
 
 // ----------------------------------------------------------------
 // Blob
@@ -373,7 +381,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		auto conn = obj->asConnector();
 		assert(conn);
 		
-		auto psbl_enc = conn->possibleEncoders();
+		auto psbl_enc = conn->getPossibleEncoders();
 		for(int i = 0; i < psbl_enc.size(); i++) { 
 			resp.add_drm_encoders(psbl_enc[i]->asObject()->id());
 		}
@@ -823,10 +831,6 @@ drm_backend::Object *GfxDevice::Connector::asObject() {
 	return this;
 }
 		
-const std::vector<drm_backend::Encoder *> &GfxDevice::Connector::possibleEncoders() {
-	return _encoders;
-}
-
 // ----------------------------------------------------------------
 // GfxDevice::Encoder.
 // ----------------------------------------------------------------

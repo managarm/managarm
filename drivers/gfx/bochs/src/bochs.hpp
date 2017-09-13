@@ -311,7 +311,6 @@ struct Connector {
 	Connector()
 	: _currentEncoder(nullptr) {  };
 
-	virtual const std::vector<Encoder *> &possibleEncoders() = 0;
 	virtual Object *asObject() = 0;
 
 	const std::vector<drm_mode_modeinfo> &modeList();
@@ -322,11 +321,15 @@ struct Connector {
 
 	void setCurrentStatus(uint32_t status);
 	uint32_t getCurrentStatus();
+	
+	void setupPossibleEncoders(std::vector<Encoder *> encoders);
+	const std::vector<Encoder *> &getPossibleEncoders();
 
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
 	drm_backend::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
+	std::vector<Encoder *> _possibleEncoders;
 };
 
 struct FrameBuffer {
@@ -410,7 +413,6 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		
 		drm_backend::Connector *asConnector() override;
 		drm_backend::Object *asObject() override;
-		const std::vector<drm_backend::Encoder *> &possibleEncoders() override;
 
 	private:
 		std::vector<drm_backend::Encoder *> _encoders;
