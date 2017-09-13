@@ -182,7 +182,7 @@ private:
 
 struct Device {
 	Device()
-	: _mappingAllocator{63, 12} { }
+	: _mappingAllocator{63, 12}, _connectorType(0) { }
 
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
@@ -209,7 +209,13 @@ struct Device {
 	uint32_t getMaxWidth();
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
-
+	void setupPhysicalDimensions(uint32_t width, uint32_t height);
+	uint32_t getPhysicalWidth();
+	uint32_t getPhysicalHeight();
+	void setupSubpixel(uint32_t subpixel);
+	uint32_t getSubpixel();
+	uint32_t connectorType();
+	
 private:	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
@@ -221,6 +227,10 @@ private:
 	uint32_t _maxWidth;
 	uint32_t _minHeight;
 	uint32_t _maxHeight;
+	uint32_t _physicalWidth;
+	uint32_t _physicalHeight;
+	uint32_t _subpixel;
+	uint32_t _connectorType;
 
 public:
 	id_allocator<uint32_t> allocator;
@@ -260,11 +270,15 @@ struct Configuration {
 };
 
 struct Crtc {
+	Crtc()
+	: index(-1) { };
 	virtual Object *asObject() = 0;
 	virtual Plane *primaryPlane() = 0;
 	
 	std::shared_ptr<Blob> currentMode();
 	void setCurrentMode(std::shared_ptr<Blob> mode);
+
+	int index;
 
 private:
 	std::shared_ptr<Blob> _curMode;
@@ -272,25 +286,47 @@ private:
 
 struct Encoder {
 	Encoder()
-	: _currentCrtc(nullptr) {  };
+	: index(-1), _currentCrtc(nullptr) {  };
 	
 	virtual Object *asObject() = 0;	
 	drm_backend::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_backend::Crtc *crtc);
+	void setupEncoderType(uint32_t type);
+	uint32_t getEncoderType();
+	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
+	const std::vector<Crtc *> &getPossibleCrtcs();
+	void setupPossibleClones(std::vector<Encoder *> clones);
+	const std::vector<Encoder *> &getPossibleClones();
+
+	int index;
 
 private:
 	drm_backend::Crtc *_currentCrtc;
+	uint32_t _encoderType;
+	std::vector<Crtc *> _possibleCrtcs;
+	std::vector<Encoder *> _possibleClones;
 };
 
 struct Connector {
+	Connector()
+	: _currentEncoder(nullptr) {  };
+
 	virtual const std::vector<Encoder *> &possibleEncoders() = 0;
 	virtual Object *asObject() = 0;
 
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
+	
+	drm_backend::Encoder *currentEncoder();
+	void setCurrentEncoder(drm_backend::Encoder *encoder);
+
+	void setCurrentStatus(uint32_t status);
+	uint32_t getCurrentStatus();
 
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
+	drm_backend::Encoder *_currentEncoder;
+	uint32_t _currentStatus;
 };
 
 struct FrameBuffer {

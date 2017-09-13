@@ -40,10 +40,12 @@
 // ----------------------------------------------------------------
 
 void drm_backend::Device::setupCrtc(std::shared_ptr<drm_backend::Crtc> crtc) {
+	crtc->index = _crtcs.size();
 	_crtcs.push_back(crtc);
 }
 
 void drm_backend::Device::setupEncoder(std::shared_ptr<drm_backend::Encoder> encoder) {
+	encoder->index = _encoders.size();
 	_encoders.push_back(encoder);
 }
 
@@ -115,6 +117,31 @@ uint32_t drm_backend::Device::getMaxHeight() {
 	return _maxHeight;
 }
 	
+void drm_backend::Device::setupPhysicalDimensions(uint32_t width, uint32_t height) {
+	_physicalWidth = width;
+	_physicalHeight = height;
+}
+
+uint32_t drm_backend::Device::getPhysicalWidth() {
+	return _physicalWidth;
+}
+
+uint32_t drm_backend::Device::getPhysicalHeight() {
+	return _physicalHeight;
+}
+
+void drm_backend::Device::setupSubpixel(uint32_t subpixel) {
+	_subpixel = subpixel;
+}
+
+uint32_t drm_backend::Device::getSubpixel() {
+	return _subpixel;
+}
+
+uint32_t drm_backend::Device::connectorType() {
+	return _connectorType;
+}
+	
 // ----------------------------------------------------------------
 // BufferObject
 // ----------------------------------------------------------------
@@ -137,6 +164,30 @@ drm_backend::Crtc *drm_backend::Encoder::currentCrtc() {
 
 void drm_backend::Encoder::setCurrentCrtc(drm_backend::Crtc *crtc) {
 	_currentCrtc = crtc;
+}
+	
+void drm_backend::Encoder::setupEncoderType(uint32_t type) {
+	_encoderType = type;
+}
+	
+uint32_t drm_backend::Encoder::getEncoderType() {
+	return _encoderType;
+}
+	
+void drm_backend::Encoder::setupPossibleCrtcs(std::vector<drm_backend::Crtc *> crtcs) {
+	_possibleCrtcs = crtcs;
+}
+	
+const std::vector<drm_backend::Crtc *> &drm_backend::Encoder::getPossibleCrtcs() {
+	return _possibleCrtcs;
+}
+	
+void drm_backend::Encoder::setupPossibleClones(std::vector<drm_backend::Encoder *> clones) {
+	_possibleClones = clones;
+}
+	
+const std::vector<drm_backend::Encoder *> &drm_backend::Encoder::getPossibleClones() {
+	return _possibleClones;
 }
 
 // ----------------------------------------------------------------
@@ -189,6 +240,22 @@ const std::vector<drm_mode_modeinfo> &drm_backend::Connector::modeList() {
 
 void drm_backend::Connector::setModeList(std::vector<drm_mode_modeinfo> mode_list) {
 	_modeList = mode_list;
+}
+	
+void drm_backend::Connector::setCurrentStatus(uint32_t status) {
+	_currentStatus = status;
+}
+	
+void drm_backend::Connector::setCurrentEncoder(drm_backend::Encoder *encoder) {
+	_currentEncoder = encoder;
+}
+	
+drm_backend::Encoder *drm_backend::Connector::currentEncoder() {
+	return _currentEncoder;
+}
+
+uint32_t drm_backend::Connector::getCurrentStatus() {
+	return _currentStatus;
 }
 
 // ----------------------------------------------------------------
@@ -311,13 +378,13 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 			resp.add_drm_encoders(psbl_enc[i]->asObject()->id());
 		}
 
-		resp.set_drm_encoder_id(0);
-		resp.set_drm_connector_type(0);
+		resp.set_drm_encoder_id(conn->currentEncoder()->asObject()->id());
+		resp.set_drm_connector_type(self->_device->connectorType());
 		resp.set_drm_connector_type_id(0);
-		resp.set_drm_connection(1); // DRM_MODE_CONNECTED
-		resp.set_drm_mm_width(306);
-		resp.set_drm_mm_height(230);
-		resp.set_drm_subpixel(0);
+		resp.set_drm_connection(conn->getCurrentStatus()); // DRM_MODE_CONNECTED
+		resp.set_drm_mm_width(self->_device->getPhysicalWidth());
+		resp.set_drm_mm_height(self->_device->getPhysicalHeight());
+		resp.set_drm_subpixel(self->_device->getSubpixel());
 		resp.set_drm_num_modes(conn->modeList().size());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
@@ -332,7 +399,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 	}else if(req.command() == DRM_IOCTL_MODE_GETENCODER) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
-	
+
 		resp.set_drm_encoder_type(0);
 
 		auto obj = self->_device->findObject(req.drm_encoder_id());
@@ -341,8 +408,18 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assert(enc);
 		resp.set_drm_crtc_id(enc->currentCrtc()->asObject()->id());
 		
-		resp.set_drm_possible_crtcs(1);
-		resp.set_drm_possible_clones(0);
+		uint32_t crtc_mask = 0;
+		for(auto crtc : enc->getPossibleCrtcs()) {
+			crtc_mask |= 1 << crtc->index;
+		}
+		resp.set_drm_possible_crtcs(crtc_mask);
+		
+		uint32_t clone_mask = 0;
+		for(auto clone : enc->getPossibleClones()) {
+			clone_mask |= 1 << clone->index;
+		}
+		resp.set_drm_possible_clones(clone_mask);
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -581,11 +658,15 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	registerObject(_theConnector);
 	registerObject(_primaryPlane);
 	
+	_theEncoder->setCurrentCrtc(_theCrtc.get());
+	_theConnector->setCurrentEncoder(_theEncoder.get());
+	_theConnector->setCurrentStatus(1);
+	_theEncoder->setupPossibleCrtcs({_theCrtc.get()});
+	_theEncoder->setupPossibleClones({_theEncoder.get()});
+
 	setupCrtc(_theCrtc);
 	setupEncoder(_theEncoder);
 	attachConnector(_theConnector);
-
-	_theEncoder->setCurrentCrtc(_theCrtc.get());
 
 	drm_mode_modeinfo mode;
 	mode.clock = 47185;
@@ -609,6 +690,9 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	
 	setupMinDimensions(640, 480);
 	setupMaxDimensions(1024, 768);
+		
+	setupPhysicalDimensions(306, 230);
+	setupSubpixel(0);
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
