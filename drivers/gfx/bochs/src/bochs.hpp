@@ -182,7 +182,7 @@ private:
 
 struct Device {
 	Device()
-	: _mappingAllocator{63, 12}, _connectorType(0) { }
+	: _mappingAllocator{63, 12} { }
 
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
@@ -209,12 +209,6 @@ struct Device {
 	uint32_t getMaxWidth();
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
-	void setupPhysicalDimensions(uint32_t width, uint32_t height);
-	uint32_t getPhysicalWidth();
-	uint32_t getPhysicalHeight();
-	void setupSubpixel(uint32_t subpixel);
-	uint32_t getSubpixel();
-	uint32_t connectorType();
 	
 private:	
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
@@ -227,10 +221,6 @@ private:
 	uint32_t _maxWidth;
 	uint32_t _minHeight;
 	uint32_t _maxHeight;
-	uint32_t _physicalWidth;
-	uint32_t _physicalHeight;
-	uint32_t _subpixel;
-	uint32_t _connectorType;
 
 public:
 	id_allocator<uint32_t> allocator;
@@ -309,7 +299,7 @@ private:
 
 struct Connector {
 	Connector()
-	: _currentEncoder(nullptr) {  };
+	: _currentEncoder(nullptr), _connectorType(0) {  };
 
 	virtual Object *asObject() = 0;
 
@@ -324,12 +314,23 @@ struct Connector {
 	
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
 	const std::vector<Encoder *> &getPossibleEncoders();
+	
+	void setupPhysicalDimensions(uint32_t width, uint32_t height);
+	uint32_t getPhysicalWidth();
+	uint32_t getPhysicalHeight();
+	void setupSubpixel(uint32_t subpixel);
+	uint32_t getSubpixel();
+	uint32_t connectorType();
 
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
 	drm_backend::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
 	std::vector<Encoder *> _possibleEncoders;
+	uint32_t _physicalWidth;
+	uint32_t _physicalHeight;
+	uint32_t _subpixel;
+	uint32_t _connectorType;
 };
 
 struct FrameBuffer {

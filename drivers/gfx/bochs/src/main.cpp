@@ -117,31 +117,6 @@ uint32_t drm_backend::Device::getMaxHeight() {
 	return _maxHeight;
 }
 	
-void drm_backend::Device::setupPhysicalDimensions(uint32_t width, uint32_t height) {
-	_physicalWidth = width;
-	_physicalHeight = height;
-}
-
-uint32_t drm_backend::Device::getPhysicalWidth() {
-	return _physicalWidth;
-}
-
-uint32_t drm_backend::Device::getPhysicalHeight() {
-	return _physicalHeight;
-}
-
-void drm_backend::Device::setupSubpixel(uint32_t subpixel) {
-	_subpixel = subpixel;
-}
-
-uint32_t drm_backend::Device::getSubpixel() {
-	return _subpixel;
-}
-
-uint32_t drm_backend::Device::connectorType() {
-	return _connectorType;
-}
-	
 // ----------------------------------------------------------------
 // BufferObject
 // ----------------------------------------------------------------
@@ -265,6 +240,31 @@ void drm_backend::Connector::setupPossibleEncoders(std::vector<drm_backend::Enco
 const std::vector<drm_backend::Encoder *> &drm_backend::Connector::getPossibleEncoders() {
 	return _possibleEncoders;
 }
+	
+void drm_backend::Connector::setupPhysicalDimensions(uint32_t width, uint32_t height) {
+	_physicalWidth = width;
+	_physicalHeight = height;
+}
+
+uint32_t drm_backend::Connector::getPhysicalWidth() {
+	return _physicalWidth;
+}
+
+uint32_t drm_backend::Connector::getPhysicalHeight() {
+	return _physicalHeight;
+}
+
+void drm_backend::Connector::setupSubpixel(uint32_t subpixel) {
+	_subpixel = subpixel;
+}
+
+uint32_t drm_backend::Connector::getSubpixel() {
+	return _subpixel;
+}
+
+uint32_t drm_backend::Connector::connectorType() {
+	return _connectorType;
+}
 
 // ----------------------------------------------------------------
 // Blob
@@ -387,12 +387,12 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		}
 
 		resp.set_drm_encoder_id(conn->currentEncoder()->asObject()->id());
-		resp.set_drm_connector_type(self->_device->connectorType());
+		resp.set_drm_connector_type(self->_device->getConnectors()[0]->connectorType());
 		resp.set_drm_connector_type_id(0);
 		resp.set_drm_connection(conn->getCurrentStatus()); // DRM_MODE_CONNECTED
-		resp.set_drm_mm_width(self->_device->getPhysicalWidth());
-		resp.set_drm_mm_height(self->_device->getPhysicalHeight());
-		resp.set_drm_subpixel(self->_device->getSubpixel());
+		resp.set_drm_mm_width(self->_device->getConnectors()[0]->getPhysicalWidth());
+		resp.set_drm_mm_height(self->_device->getConnectors()[0]->getPhysicalHeight());
+		resp.set_drm_subpixel(self->_device->getConnectors()[0]->getSubpixel());
 		resp.set_drm_num_modes(conn->modeList().size());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
@@ -699,8 +699,8 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	setupMinDimensions(640, 480);
 	setupMaxDimensions(1024, 768);
 		
-	setupPhysicalDimensions(306, 230);
-	setupSubpixel(0);
+	_theConnector->setupPhysicalDimensions(306, 230);
+	_theConnector->setupSubpixel(0);
 }))
 	
 std::unique_ptr<drm_backend::Configuration> GfxDevice::createConfiguration() {
