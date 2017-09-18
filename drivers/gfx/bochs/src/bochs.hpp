@@ -464,5 +464,6 @@ private:
 	range_allocator _vramAllocator;
 	arch::io_space _operational;
 	void* _frameBuffer;
+	uint32_t _currentPixelPitch;
 };
 
