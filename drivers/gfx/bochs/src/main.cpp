@@ -65,11 +65,11 @@ const std::vector<std::shared_ptr<drm_backend::Connector>> &drm_backend::Device:
 	return _connectors;
 }
 
-void drm_backend::Device::registerObject(std::shared_ptr<drm_backend::Object> object) {
+void drm_backend::Device::registerObject(std::shared_ptr<drm_backend::ModeObject> object) {
 	_objects.insert({object->id(), object});
 }
 
-drm_backend::Object *drm_backend::Device::findObject(uint32_t id) {
+drm_backend::ModeObject *drm_backend::Device::findObject(uint32_t id) {
 	auto it = _objects.find(id);
 	if(it == _objects.end())
 		return nullptr;
@@ -133,6 +133,12 @@ uint64_t drm_backend::BufferObject::getMapping() {
 // Encoder
 // ----------------------------------------------------------------
 
+drm_backend::Encoder::Encoder(uint32_t id)
+	:drm_backend::ModeObject { ObjectType::encoder, id } {
+	index = -1;
+	_currentCrtc = nullptr;
+}
+
 drm_backend::Crtc *drm_backend::Encoder::currentCrtc() {
 	return _currentCrtc;
 }
@@ -166,36 +172,51 @@ const std::vector<drm_backend::Encoder *> &drm_backend::Encoder::getPossibleClon
 }
 
 // ----------------------------------------------------------------
-// Object
+// ModeObject
 // ----------------------------------------------------------------
 
-uint32_t drm_backend::Object::id() {
+uint32_t drm_backend::ModeObject::id() {
 	return _id;
 }
 
-drm_backend::Encoder *drm_backend::Object::asEncoder() {
-	return nullptr;
+drm_backend::Encoder *drm_backend::ModeObject::asEncoder() {
+	if(_type != ObjectType::encoder)
+		return nullptr;
+	return static_cast<Encoder *>(this);
 }
 
-drm_backend::Connector *drm_backend::Object::asConnector() {
-	return nullptr;
+drm_backend::Connector *drm_backend::ModeObject::asConnector() {
+	if(_type != ObjectType::connector)
+		return nullptr;
+	return static_cast<Connector *>(this);
 }
 
-drm_backend::Crtc *drm_backend::Object::asCrtc() {
-	return nullptr;
+drm_backend::Crtc *drm_backend::ModeObject::asCrtc() {
+	if(_type != ObjectType::crtc)
+		return nullptr;
+	return static_cast<Crtc *>(this);
 }
 
-drm_backend::FrameBuffer *drm_backend::Object::asFrameBuffer() {
-	return nullptr;
+drm_backend::FrameBuffer *drm_backend::ModeObject::asFrameBuffer() {
+	if(_type != ObjectType::frameBuffer)
+		return nullptr;
+	return static_cast<FrameBuffer *>(this);
 }
 
-drm_backend::Plane *drm_backend::Object::asPlane() {
-	return nullptr;
+drm_backend::Plane *drm_backend::ModeObject::asPlane() {
+	if(_type != ObjectType::plane)
+		return nullptr;
+	return static_cast<Plane *>(this);
 }
 
 // ----------------------------------------------------------------
 // Crtc
 // ----------------------------------------------------------------
+
+drm_backend::Crtc::Crtc(uint32_t id)
+	:drm_backend::ModeObject { ObjectType::crtc, id } {
+	index = -1;
+}
 
 std::shared_ptr<drm_backend::Blob> drm_backend::Crtc::currentMode() {
 	return _curMode;
@@ -206,8 +227,30 @@ void drm_backend::Crtc::setCurrentMode(std::shared_ptr<drm_backend::Blob> mode) 
 }
 
 // ----------------------------------------------------------------
+// FrameBuffer
+// ----------------------------------------------------------------
+
+drm_backend::FrameBuffer::FrameBuffer(uint32_t id)
+	:drm_backend::ModeObject { ObjectType::frameBuffer, id } {
+}
+
+// ----------------------------------------------------------------
+// Plane
+// ----------------------------------------------------------------
+
+drm_backend::Plane::Plane(uint32_t id)
+	:drm_backend::ModeObject { ObjectType::plane, id } {
+}
+
+// ----------------------------------------------------------------
 // Connector
 // ----------------------------------------------------------------
+
+drm_backend::Connector::Connector(uint32_t id)
+	:drm_backend::ModeObject { ObjectType::connector, id } {
+	_currentEncoder = nullptr;
+	_connectorType = 0;
+}
 
 const std::vector<drm_mode_modeinfo> &drm_backend::Connector::modeList() {
 	return _modeList;
@@ -342,22 +385,22 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 
 		auto &crtcs = self->_device->getCrtcs();
 		for(int i = 0; i < crtcs.size(); i++) {
-			resp.add_drm_crtc_ids(crtcs[i]->asObject()->id());
+			resp.add_drm_crtc_ids(crtcs[i]->id());
 		}
 			
 		auto &encoders = self->_device->getEncoders();
 		for(int i = 0; i < encoders.size(); i++) {
-			resp.add_drm_encoder_ids(encoders[i]->asObject()->id());
+			resp.add_drm_encoder_ids(encoders[i]->id());
 		}
 	
 		auto &connectors = self->_device->getConnectors();
 		for(int i = 0; i < connectors.size(); i++) {
-			resp.add_drm_connector_ids(connectors[i]->asObject()->id());
+			resp.add_drm_connector_ids(connectors[i]->id());
 		}
 		
 		auto &fbs = self->getFrameBuffers();
 		for(int i = 0; i < fbs.size(); i++) {
-			resp.add_drm_fb_ids(fbs[i]->asObject()->id());
+			resp.add_drm_fb_ids(fbs[i]->id());
 		}
 	
 		resp.set_drm_min_width(self->_device->getMinWidth());
@@ -383,10 +426,10 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		
 		auto psbl_enc = conn->getPossibleEncoders();
 		for(int i = 0; i < psbl_enc.size(); i++) { 
-			resp.add_drm_encoders(psbl_enc[i]->asObject()->id());
+			resp.add_drm_encoders(psbl_enc[i]->id());
 		}
 
-		resp.set_drm_encoder_id(conn->currentEncoder()->asObject()->id());
+		resp.set_drm_encoder_id(conn->currentEncoder()->id());
 		resp.set_drm_connector_type(conn->connectorType());
 		resp.set_drm_connector_type_id(0);
 		resp.set_drm_connection(conn->getCurrentStatus()); // DRM_MODE_CONNECTED
@@ -414,7 +457,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		assert(obj);
 		auto enc = obj->asEncoder();
 		assert(enc);
-		resp.set_drm_crtc_id(enc->currentCrtc()->asObject()->id());
+		resp.set_drm_crtc_id(enc->currentCrtc()->id());
 		
 		uint32_t crtc_mask = 0;
 		for(auto crtc : enc->getPossibleCrtcs()) {
@@ -463,7 +506,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		auto fb = self->_device->createFrameBuffer(buffer, req.drm_width(), req.drm_height(),
 				req.drm_bpp(), req.drm_pitch());
 		self->attachFrameBuffer(fb);
-		resp.set_drm_fb_id(fb->asObject()->id());
+		resp.set_drm_fb_id(fb->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
@@ -540,7 +583,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		if(req.drm_mode_valid()) {
 			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
 			assignments.push_back(Assignment{ 
-				crtc->asObject(),
+				crtc,
 				&self->_device->modeIdProperty,
 				0,
 				nullptr,
@@ -551,7 +594,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 			auto fb = self->_device->findObject(id);
 			assert(fb);
 			assignments.push_back(Assignment{ 
-				crtc->primaryPlane()->asObject(),
+				crtc->primaryPlane(),
 				&self->_device->fbIdProperty, 
 				0,
 				fb,
@@ -560,7 +603,7 @@ COFIBER_ROUTINE(async::result<void>, drm_backend::File::ioctl(std::shared_ptr<vo
 		}else{
 			std::vector<drm_backend::Assignment> assignments;
 			assignments.push_back(Assignment{ 
-				crtc->asObject(),
+				crtc,
 				&self->_device->modeIdProperty,
 				0,
 				nullptr,
@@ -819,32 +862,16 @@ void GfxDevice::Configuration::commit() {
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *device)
-	: drm_backend::Object { device->allocator.allocate() } {
+	: drm_backend::Connector { device->allocator.allocate() } {
 	_encoders.push_back(device->_theEncoder.get());
 }
 
-drm_backend::Connector *GfxDevice::Connector::asConnector() {
-	return this;
-}
-
-drm_backend::Object *GfxDevice::Connector::asObject() {
-	return this;
-}
-		
 // ----------------------------------------------------------------
 // GfxDevice::Encoder.
 // ----------------------------------------------------------------
 
 GfxDevice::Encoder::Encoder(GfxDevice *device)
-	:drm_backend::Object { device->allocator.allocate() } {
-}
-
-drm_backend::Encoder *GfxDevice::Encoder::asEncoder() {
-	return this;
-}
-
-drm_backend::Object *GfxDevice::Encoder::asObject() {
-	return this;
+	:drm_backend::Encoder { device->allocator.allocate() } {
 }
 
 // ----------------------------------------------------------------
@@ -852,16 +879,8 @@ drm_backend::Object *GfxDevice::Encoder::asObject() {
 // ----------------------------------------------------------------
 
 GfxDevice::Crtc::Crtc(GfxDevice *device)
-	:drm_backend::Object { device->allocator.allocate() } {
+	:drm_backend::Crtc { device->allocator.allocate() } {
 	_device = device;
-}
-
-drm_backend::Crtc *GfxDevice::Crtc::asCrtc() {
-	return this;
-}
-
-drm_backend::Object *GfxDevice::Crtc::asObject() {
-	return this;
 }
 
 drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
@@ -874,17 +893,9 @@ drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
 
 GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
 		uint32_t pixel_pitch)
-	:drm_backend::Object { device->allocator.allocate() } {
+	:drm_backend::FrameBuffer { device->allocator.allocate() } {
 	_bo = bo;
 	_pixelPitch = pixel_pitch;
-}
-
-drm_backend::FrameBuffer *GfxDevice::FrameBuffer::asFrameBuffer() {
-	return this;
-}
-
-drm_backend::Object *GfxDevice::FrameBuffer::asObject() {
-	return this;
 }
 
 GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
@@ -900,15 +911,7 @@ uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
 // ----------------------------------------------------------------
 
 GfxDevice::Plane::Plane(GfxDevice *device)
-	:drm_backend::Object { device->allocator.allocate() } {
-}
-
-drm_backend::Plane *GfxDevice::Plane::asPlane() {
-	return this;
-}
-
-drm_backend::Object *GfxDevice::Plane::asObject() {
-	return this;
+	:drm_backend::Plane { device->allocator.allocate() } {
 }
 
 // ----------------------------------------------------------------

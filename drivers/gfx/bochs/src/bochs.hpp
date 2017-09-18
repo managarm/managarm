@@ -141,6 +141,7 @@ private:
 // ----------------------------------------------------------------
 namespace drm_backend {
 
+struct ModeObject;
 struct Crtc;
 struct Encoder;
 struct Connector;
@@ -149,7 +150,14 @@ struct FrameBuffer;
 struct Plane;
 struct Assignment;
 struct Blob;
-struct Object;
+
+enum struct ObjectType {
+	encoder,
+	connector,
+	crtc,
+	frameBuffer,
+	plane
+};
 
 struct Property {
 
@@ -197,8 +205,8 @@ struct Device {
 	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
 	const std::vector<std::shared_ptr<Connector>> &getConnectors();
 	
-	void registerObject(std::shared_ptr<Object> object);
-	Object *findObject(uint32_t);
+	void registerObject(std::shared_ptr<ModeObject> object);
+	ModeObject *findObject(uint32_t);
 
 	uint64_t installMapping(drm_backend::BufferObject *bo);
 	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
@@ -214,7 +222,7 @@ private:
 	std::vector<std::shared_ptr<Crtc>> _crtcs;
 	std::vector<std::shared_ptr<Encoder>> _encoders;
 	std::vector<std::shared_ptr<Connector>> _connectors;
-	std::unordered_map<uint32_t, std::shared_ptr<Object>> _objects;
+	std::unordered_map<uint32_t, std::shared_ptr<ModeObject>> _objects;
 	range_allocator _mappingAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
 	uint32_t _minWidth;
@@ -259,10 +267,24 @@ struct Configuration {
 	virtual void commit() = 0;
 };
 
-struct Crtc {
-	Crtc()
-	: index(-1) { };
-	virtual Object *asObject() = 0;
+struct ModeObject {
+	ModeObject(ObjectType type, uint32_t id)
+	: _type(type), _id(id) { };
+	
+	uint32_t id();
+	Encoder *asEncoder();
+	Connector *asConnector();
+	Crtc *asCrtc();
+	FrameBuffer *asFrameBuffer();
+	Plane *asPlane();
+	
+private:
+	ObjectType _type;
+	uint32_t _id;
+};
+
+struct Crtc : ModeObject {
+	Crtc(uint32_t id);
 	virtual Plane *primaryPlane() = 0;
 	
 	std::shared_ptr<Blob> currentMode();
@@ -274,11 +296,9 @@ private:
 	std::shared_ptr<Blob> _curMode;
 };
 
-struct Encoder {
-	Encoder()
-	: index(-1), _currentCrtc(nullptr) {  };
+struct Encoder : ModeObject {
+	Encoder(uint32_t id);
 	
-	virtual Object *asObject() = 0;	
 	drm_backend::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_backend::Crtc *crtc);
 	void setupEncoderType(uint32_t type);
@@ -297,11 +317,8 @@ private:
 	std::vector<Encoder *> _possibleClones;
 };
 
-struct Connector {
-	Connector()
-	: _currentEncoder(nullptr), _connectorType(0) {  };
-
-	virtual Object *asObject() = 0;
+struct Connector : ModeObject {
+	Connector(uint32_t id);
 
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
@@ -333,35 +350,20 @@ private:
 	uint32_t _connectorType;
 };
 
-struct FrameBuffer {
-	virtual Object *asObject() = 0;
+struct FrameBuffer : ModeObject {
+	FrameBuffer(uint32_t id);
 };
 
-struct Plane {
-	virtual Object *asObject() = 0;
+struct Plane : ModeObject {
+	Plane(uint32_t id);	
 };
 
 struct Assignment {
-	Object *object;
+	ModeObject *object;
 	Property *property;
 	uint64_t intValue;
-	Object *objectValue;
+	ModeObject *objectValue;
 	std::shared_ptr<Blob> blobValue;
-};
-
-struct Object {
-	Object(uint32_t id)
-	: _id(id) { };
-	
-	uint32_t id();
-	virtual Encoder *asEncoder();
-	virtual Connector *asConnector();
-	virtual Crtc *asCrtc();
-	virtual FrameBuffer *asFrameBuffer();
-	virtual Plane *asPlane();
-	
-private:
-	uint32_t _id;
 };
 
 }
@@ -387,11 +389,8 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		std::shared_ptr<drm_backend::Blob> _mode;
 	};
 
-	struct Plane : drm_backend::Object, drm_backend::Plane {
+	struct Plane : drm_backend::Plane {
 		Plane(GfxDevice *device);
-		
-		drm_backend::Plane *asPlane() override;	
-		drm_backend::Object *asObject() override;
 	};
 	
 	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
@@ -409,41 +408,30 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		size_t _size;
 	};
 
-	struct Connector : drm_backend::Object, drm_backend::Connector {
+	struct Connector : drm_backend::Connector {
 		Connector(GfxDevice *device);
-		
-		drm_backend::Connector *asConnector() override;
-		drm_backend::Object *asObject() override;
 
 	private:
 		std::vector<drm_backend::Encoder *> _encoders;
 	};
 
-	struct Encoder : drm_backend::Object, drm_backend::Encoder {
+	struct Encoder : drm_backend::Encoder {
 		Encoder(GfxDevice *device);
-		
-		drm_backend::Encoder *asEncoder() override;
-		drm_backend::Object *asObject() override;
 	};
 	
-	struct Crtc : drm_backend::Object, drm_backend::Crtc {
+	struct Crtc : drm_backend::Crtc {
 		Crtc(GfxDevice *device);
 		
-		drm_backend::Crtc *asCrtc() override;
-		drm_backend::Object *asObject() override;
 		drm_backend::Plane *primaryPlane() override;
 	
 	private:	
 		GfxDevice *_device;
 	};
 
-	struct FrameBuffer : drm_backend::Object, drm_backend::FrameBuffer {
+	struct FrameBuffer : drm_backend::FrameBuffer {
 		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
 				uint32_t pixel_pitch);
 
-		drm_backend::FrameBuffer *asFrameBuffer() override;
-		drm_backend::Object *asObject() override;
-		
 		GfxDevice::BufferObject *getBufferObject();
 		uint32_t getPixelPitch();
 
