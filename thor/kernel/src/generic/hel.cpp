@@ -1399,10 +1399,9 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	return kHelErrNone;
 }
-HelError helSetupIrq(HelHandle handle, uint32_t flags) {
-	assert(!"helSetupIrq is broken and should be removed");
-}
-HelError helAcknowledgeIrq(HelHandle handle) {
+HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
+	assert(!flags);
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1419,19 +1418,19 @@ HelError helAcknowledgeIrq(HelHandle handle) {
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	irq->acknowledge();
+	irq->acknowledge(sequence);
 
 	return kHelErrNone;
 }
-HelError helSubmitWaitForIrq(HelHandle handle,
+HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelQueue *queue, uintptr_t context) {
 	struct Closure : AwaitIrqNode, QueueNode {
-		static void issue(frigg::SharedPtr<IrqObject> irq,
+		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<AddressSpace> space,
 				void *queue, uintptr_t context) {
 			auto node = frigg::construct<Closure>(*kernelAlloc,
 					frigg::move(space), queue, context);
-			irq->submitAwait(node);
+			irq->submitAwait(node, sequence);
 		}
 
 	public:
@@ -1439,17 +1438,18 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 				void *queue, uintptr_t context)
 		: _space{frigg::move(space)}, _queue{queue} {
 			setupContext(context);
-			setupLength(sizeof(HelSimpleResult));
+			setupLength(sizeof(HelEventResult));
 		}
 
-		void onRaise(Error error) override {
+		void onRaise(Error error, uint64_t sequence) override {
 			_error = error;
+			_sequence = sequence;
 			_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 		}
 
 		Error emit(ForeignSpaceAccessor accessor) override {
-			HelSimpleResult data{translateError(_error), 0};
-			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
+			HelEventResult data{translateError(_error), 0, _sequence};
+			auto err = accessor.write(0, &data, sizeof(HelEventResult));
 			frigg::destruct(*kernelAlloc, this);
 			return err;
 		}
@@ -1458,6 +1458,7 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 		frigg::SharedPtr<AddressSpace> _space;
 		void *_queue;
 		Error _error;
+		uint64_t _sequence;
 	};
 	
 	auto this_thread = getCurrentThread();
@@ -1476,7 +1477,7 @@ HelError helSubmitWaitForIrq(HelHandle handle,
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	Closure::issue(frigg::move(irq),
+	Closure::issue(frigg::move(irq), sequence,
 			this_thread->getAddressSpace().toShared(), queue, context);
 
 	return kHelErrNone;

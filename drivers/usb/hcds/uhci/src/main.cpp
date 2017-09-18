@@ -452,11 +452,14 @@ void Controller::initialize() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
+	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(_irq, &await_irq, sequence,
+				helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
 
 		auto stat = _base.load(op_regs::status);
 		assert(!(stat & status::hostProcessError));
@@ -468,7 +471,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 			printf("uhci: Error interrupt\n");
 		_base.store(op_regs::status, status::transactionIrq(stat & status::transactionIrq) 
 				| status::errorIrq(stat & status::errorIrq));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
 		
 		//printf("uhci: Processing transfers.\n");
 		_progressSchedule();

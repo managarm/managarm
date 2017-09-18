@@ -255,27 +255,15 @@ DEFINE_SYSCALL(AccessIrq, int number, HelHandle *handle)
 	OUT(0, HelHandle, handle)
 END_SYSCALL()
 
-DEFINE_SYSCALL(SetupIrq, HelHandle handle, uint32_t flags)
-	IN(0, handle) IN(1, handle)
-	DO_SYSCALL(SetupIrq)
-END_SYSCALL()
-
-DEFINE_SYSCALL(AcknowledgeIrq, HelHandle handle)
-	IN(0, handle)
+DEFINE_SYSCALL(AcknowledgeIrq, HelHandle handle, uint32_t flags, uint64_t sequence)
+	IN(0, handle) IN(1, flags) IN(2, sequence)
 	DO_SYSCALL(AcknowledgeIrq)
 END_SYSCALL()
 
-DEFINE_SYSCALL(SubmitWaitForIrq, HelHandle handle,
+DEFINE_SYSCALL(SubmitAwaitEvent, HelHandle handle, uint64_t sequence,
 		struct HelQueue *queue, uintptr_t context)
-	IN(0, handle) IN(1, queue) IN(2, context)
-	DO_SYSCALL(SubmitWaitForIrq)
-END_SYSCALL()
-
-DEFINE_SYSCALL(SubscribeIrq, HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id)
-	IN(0, handle) IN(1, hub_handle) IN(2, submit_function) IN(3, submit_object)
-	DO_SYSCALL(SubscribeIrq)
-	OUT(0, int64_t, async_id)
+	IN(0, handle) IN(1, sequence) IN(2, queue) IN(3, context)
+	DO_SYSCALL(SubmitAwaitEvent)
 END_SYSCALL()
 
 DEFINE_SYSCALL(AccessIo, uintptr_t *port_array, size_t num_ports, HelHandle *handle)

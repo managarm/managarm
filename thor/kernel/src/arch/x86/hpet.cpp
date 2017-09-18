@@ -75,7 +75,9 @@ public:
 		_progress();
 	}
 
-	IrqStatus raise() override {
+	IrqStatus raise(uint64_t sequence) override {
+		(void)sequence;
+
 		if(log)
 			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
 		auto irq_lock = frigg::guard(&irqMutex());

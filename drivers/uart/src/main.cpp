@@ -96,19 +96,22 @@ void sendBurst() {
 	}
 }
 
-COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {	
+COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
+	uint64_t sequence = 0;
 	while(true) {
 		std::cout << "uart: Awaiting IRQ." << std::endl;
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(irq, &await_irq, helix::Dispatcher::global());
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(irq, &await_irq, sequence,
+				helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
 		std::cout << "uart: IRQ fired." << std::endl;
 		
 		auto reason = base.load(uart_register::irqIdentification);
 		if(reason & irq_ident_register::ignore)
 			continue;
-		HEL_CHECK(helAcknowledgeIrq(irq.getHandle()));
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), 0, sequence));
 
 		if((reason & irq_ident_register::id) == IrqIds::lineStatus) {
 			printf("Overrun, Parity, Framing or Break Error!\n");

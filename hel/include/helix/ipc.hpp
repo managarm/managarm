@@ -454,14 +454,18 @@ private:
 	}
 };
 
-struct AwaitIrq : Operation {
+struct AwaitEvent : Operation {
 	HelError error() {
 		return result()->error;
 	}
 
+	uint64_t sequence() {
+		return result()->sequence;
+	}
+
 private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	HelEventResult *result() {
+		return reinterpret_cast<HelEventResult *>(OperationBase::element());
 	}
 };
 
@@ -516,10 +520,10 @@ struct Submission : private Context {
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
-	Submission(BorrowedDescriptor descriptor, AwaitIrq *operation,
-			Dispatcher &dispatcher)
+	Submission(BorrowedDescriptor descriptor, AwaitEvent *operation,
+			uint64_t sequence, Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitWaitForIrq(descriptor.getHandle(),
+		HEL_CHECK(helSubmitAwaitEvent(descriptor.getHandle(), sequence,
 				dispatcher.acquire().get(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
@@ -668,9 +672,9 @@ inline Transmission<I...> submitAsync(BorrowedDescriptor descriptor, Dispatcher 
 	return {descriptor, actions, results, dispatcher};
 }
 
-inline Submission submitAwaitIrq(BorrowedDescriptor descriptor, AwaitIrq *operation,
-		Dispatcher &dispatcher) {
-	return {descriptor, operation, dispatcher};
+inline Submission submitAwaitEvent(BorrowedDescriptor descriptor, AwaitEvent *operation,
+		uint64_t sequence, Dispatcher &dispatcher) {
+	return {descriptor, operation, sequence, dispatcher};
 }
 
 } // namespace helix

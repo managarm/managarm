@@ -109,14 +109,17 @@ void Device::afterRetrieve() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
+	uint64_t sequence;
 	while(true) {
-		helix::AwaitIrq await;
-		auto &&submit = helix::submitAwaitIrq(interrupt, &await, helix::Dispatcher::global());
+		helix::AwaitEvent await;
+		auto &&submit = helix::submitAwaitEvent(interrupt, &await, sequence,
+				helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(await.error());
+		sequence = await.sequence();
 
 		readIsr();
-		HEL_CHECK(helAcknowledgeIrq(interrupt.getHandle()));
+		HEL_CHECK(helAcknowledgeIrq(interrupt.getHandle(), 0, sequence));
 		requestQueue.processInterrupt();
 	}
 }))

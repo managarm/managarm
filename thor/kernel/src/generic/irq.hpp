@@ -13,7 +13,7 @@ namespace thor {
 struct AwaitIrqNode {
 	friend struct IrqObject;
 
-	virtual void onRaise(Error error) = 0;
+	virtual void onRaise(Error error, uint64_t sequence) = 0;
 
 private:
 	frg::default_list_hook<AwaitIrqNode> _queueNode;
@@ -53,7 +53,7 @@ struct IrqSink {
 
 	IrqSink();
 
-	virtual IrqStatus raise() = 0;
+	virtual IrqStatus raise(uint64_t sequence) = 0;
 
 	// TODO: This needs to be thread-safe.
 	IrqPin *getPin();
@@ -107,7 +107,7 @@ public:
 
 	void kick();
 
-	void acknowledge();
+	void acknowledge(uint64_t sequence);
 
 	void warnIfPending();
 
@@ -129,12 +129,16 @@ private:
 	Mutex _mutex;
 
 	IrqStrategy _strategy;
-	bool _latched;
-	bool _warnedAfterPending;
+
+	uint64_t _raiseSequence;
+	uint64_t _currentSequence;
+	bool _sequenceWasAcked;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().
 	uint64_t _raiseClock;
+	
+	bool _warnedAfterPending;
 
 	// TODO: This list should change rarely. Use a RCU list.
 	frg::intrusive_list<
@@ -159,18 +163,18 @@ private:
 public:
 	IrqObject();
 
-	IrqStatus raise() override;
+	IrqStatus raise(uint64_t sequence) override;
 
-	void submitAwait(AwaitIrqNode *node);
+	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 	
-	void acknowledge();
+	void acknowledge(uint64_t sequence);
 	
 private:
 	// Must be protected against IRQs.
 	Mutex _mutex;
 
 	// Protected by the mutex.
-	bool _latched;
+	uint64_t _currentSequence;
 
 	// Protected by the mutex.
 	frg::intrusive_list<

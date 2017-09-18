@@ -232,6 +232,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	_operational.store(op_regs::usbcmd, usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	_operational.store(op_regs::configflag, 0x01);
 
+	_checkPorts();
 	handleIrqs();
 }))
 
@@ -365,17 +366,21 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
-	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
+	std::cout << "ehci: Fix IRQ kicking!" << std::endl;
+	//HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
 
+	uint64_t sequence = 0;
 	while(true) {
 		if(logIrqs)
 			std::cout << "ehci: Awaiting IRQ." << std::endl;
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(_irq, &await_irq, helix::Dispatcher::global());
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(_irq, &await_irq,
+				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
 		if(logIrqs)
-			std::cout << "ehci: IRQ fired." << std::endl;
+			std::cout << "ehci: IRQ fired (sequence: " << sequence << ")." << std::endl;
 
 		// _updateFrame();
 
@@ -392,7 +397,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 				usbsts::transactionIrq(status & usbsts::transactionIrq)
 				| usbsts::errorIrq(status & usbsts::errorIrq)
 				| usbsts::portChange(status & usbsts::portChange));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
 		
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {

@@ -31,7 +31,8 @@ IrqPin *IrqSink::getPin() {
 }
 
 IrqPin::IrqPin(frigg::String<KernelAlloc> name)
-: _name{std::move(name)}, _strategy{IrqStrategy::null} { }
+: _name{std::move(name)}, _strategy{IrqStrategy::null},
+		_raiseSequence{0}, _currentSequence{0}, _sequenceWasAcked{true} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -42,7 +43,9 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 			<< ", polarity: " << static_cast<int>(polarity) << frigg::endLog;
 
 	_strategy = program(mode, polarity);
-	_latched = false;
+	_raiseSequence = 0;
+	_currentSequence = 0;
+	_sequenceWasAcked = true;
 }
 
 void IrqPin::raise() {
@@ -56,23 +59,28 @@ void IrqPin::raise() {
 				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
-	if(!_latched) {
-		auto status = _callSinks();
+	_raiseSequence++;
 
-		// Latch this IRQ.
-		if(!(status & irq_status::handled)) {
-			_latched = true;
+	if(_sequenceWasAcked) {
+		_sequenceWasAcked = false;
+		_currentSequence = _raiseSequence;
+
+		auto status = _callSinks();
+		if(status & irq_status::handled) {
+			_sequenceWasAcked = true;
+		}else{
 			_raiseClock = currentNanos();
 			_warnedAfterPending = false;
-
-			if(_strategy == IrqStrategy::maskThenEoi)
-				mask();
 		}
 	}else{
+		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
 		// TODO: If the IRQ is edge-triggered we lose an edge here!
 		frigg::infoLogger() << "\e[35mthor: Ignoring already latched IRQ " << _name
 				<< "\e[39m" << frigg::endLog;
 	}
+
+	if(!_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+		mask();
 
 	sendEoi();
 }
@@ -81,39 +89,58 @@ void IrqPin::kick() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(!_latched)
+	if(_sequenceWasAcked)
 		return;
+	_sequenceWasAcked = true;
 
-	if(_strategy == IrqStrategy::maskThenEoi) {
-		unmask();
-	}else{
-		assert(_strategy == IrqStrategy::justEoi);
+	if(_currentSequence < _raiseSequence) {
+		_sequenceWasAcked = false;
+		_currentSequence = _raiseSequence;
+
+		auto status = _callSinks();
+		if(status & irq_status::handled) {
+			_sequenceWasAcked = true;
+		}else{
+			_raiseClock = currentNanos();
+			_warnedAfterPending = false;
+		}
 	}
 
-	_latched = false;
+	if(_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+		unmask();
 }
 
-void IrqPin::acknowledge() {
+void IrqPin::acknowledge(uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(!_latched)
+	assert(sequence <= _currentSequence);
+	if(sequence < _currentSequence || _sequenceWasAcked)
 		return;
+	_sequenceWasAcked = true;
 
-	if(_strategy == IrqStrategy::maskThenEoi) {
-		unmask();
-	}else{
-		assert(_strategy == IrqStrategy::justEoi);
+	if(_currentSequence < _raiseSequence) {
+		_sequenceWasAcked = false;
+		_currentSequence = _raiseSequence;
+
+		auto status = _callSinks();
+		if(status & irq_status::handled) {
+			_sequenceWasAcked = true;
+		}else{
+			_raiseClock = currentNanos();
+			_warnedAfterPending = false;
+		}
 	}
 
-	_latched = false;
+	if(_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+		unmask();
 }
 
 void IrqPin::warnIfPending() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_latched && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
+	if(!_sequenceWasAcked && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
 		frigg::infoLogger() << "\e[35mthor: Pending IRQ " << _name << " has not been acked"
 				" for more than one second.\e[39m" << frigg::endLog;
 		_warnedAfterPending = true;
@@ -127,7 +154,7 @@ IrqStatus IrqPin::_callSinks() {
 
 	auto status = irq_status::null;
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
-		status |= (*it)->raise();
+		status |= (*it)->raise(_currentSequence);
 	return status;
 }
 
@@ -148,40 +175,36 @@ void attachIrq(IrqPin *pin, IrqSink *sink) {
 // that happened before the object was created.
 // However this can result in spurious raises.
 IrqObject::IrqObject()
-: _latched{true} { }
+: _currentSequence{0} { }
 
-IrqStatus IrqObject::raise() {
+IrqStatus IrqObject::raise(uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_waitQueue.empty()) {
-		_latched = true;
-	}else{
-		assert(!_latched);
+	_currentSequence = sequence;
 
-		while(!_waitQueue.empty()) {
-			auto node = _waitQueue.pop_front();
-			node->onRaise(kErrSuccess);
-		}
+	while(!_waitQueue.empty()) {
+		auto node = _waitQueue.pop_front();
+		node->onRaise(kErrSuccess, _currentSequence);
 	}
 
 	return irq_status::null;
 }
 
-void IrqObject::submitAwait(AwaitIrqNode *node) {
+void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_latched) {
-		node->onRaise(kErrSuccess);
-		_latched = false;
+	assert(sequence <= _currentSequence);
+	if(sequence < _currentSequence) {
+		node->onRaise(kErrSuccess, _currentSequence);
 	}else{
 		_waitQueue.push_back(node);
 	}
 }
 
-void IrqObject::acknowledge() {
-	getPin()->acknowledge();
+void IrqObject::acknowledge(uint64_t sequence) {
+	getPin()->acknowledge(sequence);
 }
 
 } // namespace thor

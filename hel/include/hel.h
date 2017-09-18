@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 81,
+	kHelNumCalls = 83,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -58,10 +58,8 @@ enum {
 	kHelCallFutexWake = 71,
 	
 	kHelCallAccessIrq = 14,
-	kHelCallSetupIrq = 51,
-	kHelCallAcknowledgeIrq = 50,
-	kHelCallSubmitWaitForIrq = 73,
-	kHelCallSubscribeIrq = 52,
+	kHelCallAcknowledgeIrq = 81,
+	kHelCallSubmitAwaitEvent = 82,
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12,
@@ -272,6 +270,12 @@ struct HelHandleResult {
 	HelHandle handle;
 };
 
+struct HelEventResult {
+	HelError error;
+	int reserved;
+	uint64_t sequence;
+};
+
 enum HelIrqFlags {
 	kHelIrqExclusive = 1,
 	kHelIrqManualAcknowledge = 2
@@ -332,12 +336,9 @@ HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
-HEL_C_LINKAGE HelError helSetupIrq(HelHandle handle, uint32_t flags);
-HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle);
-HEL_C_LINKAGE HelError helSubmitWaitForIrq(HelHandle handle,
+HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
+HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		struct HelQueue *queue, uintptr_t context);
-HEL_C_LINKAGE HelError helSubscribeIrq(HelHandle handle, HelHandle hub_handle,
-		uintptr_t submit_function, uintptr_t submit_object, int64_t *async_id);
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);

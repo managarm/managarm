@@ -796,15 +796,12 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAccessIrq((int)arg0, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallSetupIrq: {
-		*image.error() = helSetupIrq((HelHandle)arg0, (uint32_t)arg1);
-	} break;
 	case kHelCallAcknowledgeIrq: {
-		*image.error() = helAcknowledgeIrq((HelHandle)arg0);
+		*image.error() = helAcknowledgeIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2);
 	} break;
-	case kHelCallSubmitWaitForIrq: {
-		*image.error() = helSubmitWaitForIrq((HelHandle)arg0,
-				(HelQueue *)arg1, (uintptr_t)arg2);
+	case kHelCallSubmitAwaitEvent: {
+		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
+				(HelQueue *)arg2, (uintptr_t)arg3);
 	} break;
 
 	case kHelCallAccessIo: {
