@@ -139,7 +139,7 @@ private:
 // ----------------------------------------------------------------
 // Stuff that belongs in a DRM library.
 // ----------------------------------------------------------------
-namespace drm_backend {
+namespace drm_core {
 
 struct ModeObject;
 struct Crtc;
@@ -208,7 +208,7 @@ struct Device {
 	void registerObject(std::shared_ptr<ModeObject> object);
 	ModeObject *findObject(uint32_t);
 
-	uint64_t installMapping(drm_backend::BufferObject *bo);
+	uint64_t installMapping(drm_core::BufferObject *bo);
 	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
@@ -299,8 +299,8 @@ private:
 struct Encoder : ModeObject {
 	Encoder(uint32_t id);
 	
-	drm_backend::Crtc *currentCrtc();
-	void setCurrentCrtc(drm_backend::Crtc *crtc);
+	drm_core::Crtc *currentCrtc();
+	void setCurrentCrtc(drm_core::Crtc *crtc);
 	void setupEncoderType(uint32_t type);
 	uint32_t getEncoderType();
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
@@ -311,7 +311,7 @@ struct Encoder : ModeObject {
 	int index;
 
 private:
-	drm_backend::Crtc *_currentCrtc;
+	drm_core::Crtc *_currentCrtc;
 	uint32_t _encoderType;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::vector<Encoder *> _possibleClones;
@@ -323,8 +323,8 @@ struct Connector : ModeObject {
 	const std::vector<drm_mode_modeinfo> &modeList();
 	void setModeList(std::vector<drm_mode_modeinfo> mode_list);
 	
-	drm_backend::Encoder *currentEncoder();
-	void setCurrentEncoder(drm_backend::Encoder *encoder);
+	drm_core::Encoder *currentEncoder();
+	void setCurrentEncoder(drm_core::Encoder *encoder);
 
 	void setCurrentStatus(uint32_t status);
 	uint32_t getCurrentStatus();
@@ -341,7 +341,7 @@ struct Connector : ModeObject {
 
 private:
 	std::vector<drm_mode_modeinfo> _modeList;
-	drm_backend::Encoder *_currentEncoder;
+	drm_core::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
 	std::vector<Encoder *> _possibleEncoders;
 	uint32_t _physicalWidth;
@@ -370,14 +370,14 @@ struct Assignment {
 
 // ----------------------------------------------------------------
 
-struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> {
+struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
 
-	struct Configuration : drm_backend::Configuration {
+	struct Configuration : drm_core::Configuration {
 		Configuration(GfxDevice *device)
 		: _device(device), _width(0), _height(0), _fb(nullptr) { };
 		
-		bool capture(std::vector<drm_backend::Assignment> assignment) override;
+		bool capture(std::vector<drm_core::Assignment> assignment) override;
 		void dispose() override;
 		void commit() override;
 		
@@ -386,10 +386,10 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		int _width;
 		int _height;
 		GfxDevice::FrameBuffer *_fb;
-		std::shared_ptr<drm_backend::Blob> _mode;
+		std::shared_ptr<drm_core::Blob> _mode;
 	};
 
-	struct Plane : drm_backend::Plane {
+	struct Plane : drm_core::Plane {
 		Plane(GfxDevice *device);
 	};
 	
@@ -414,27 +414,27 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 		ptrdiff_t _displacement;
 	};
 
-	struct Connector : drm_backend::Connector {
+	struct Connector : drm_core::Connector {
 		Connector(GfxDevice *device);
 
 	private:
-		std::vector<drm_backend::Encoder *> _encoders;
+		std::vector<drm_core::Encoder *> _encoders;
 	};
 
-	struct Encoder : drm_backend::Encoder {
+	struct Encoder : drm_core::Encoder {
 		Encoder(GfxDevice *device);
 	};
 	
-	struct Crtc : drm_backend::Crtc {
+	struct Crtc : drm_core::Crtc {
 		Crtc(GfxDevice *device);
 		
-		drm_backend::Plane *primaryPlane() override;
+		drm_core::Plane *primaryPlane() override;
 	
 	private:	
 		GfxDevice *_device;
 	};
 
-	struct FrameBuffer : drm_backend::FrameBuffer {
+	struct FrameBuffer : drm_core::FrameBuffer {
 		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
 				uint32_t pixel_pitch);
 
@@ -449,11 +449,11 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
 	cofiber::no_future initialize();
-	std::unique_ptr<drm_backend::Configuration> createConfiguration() override;
-	std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t> createDumb(uint32_t width,
+	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
+	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) override;
-	std::shared_ptr<drm_backend::FrameBuffer> 
-			createFrameBuffer(std::shared_ptr<drm_backend::BufferObject> bo,
+	std::shared_ptr<drm_core::FrameBuffer> 
+			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
 	
 private:
