@@ -37,7 +37,7 @@ void IrqSpinlock::unlock() {
 
 KernelVirtualMemory::KernelVirtualMemory() {
 	// the size is chosen arbitrarily here; 1 GiB of kernel heap is sufficient for now.
-	uintptr_t original_base = 0xFFFF'8000'0000'0000;
+	uintptr_t original_base = 0xFFFF'E000'0000'0000;
 	size_t original_size = 0x4000'0000;
 	
 	size_t fine_shift = kPageShift + 4, coarse_shift = kPageShift + 12;

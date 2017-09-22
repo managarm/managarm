@@ -45,7 +45,7 @@ void *SkeletalRegion::access(PhysicalAddr physical) {
 	assert(!(physical & (kPageSize - 1)));
 	auto offset = physical - _physicalBase;
 	assert(offset < (_numRoots << (_order + kPageShift)));
-	return reinterpret_cast<void *>(0xFFFF'FE00'0000'0000 + offset);
+	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
 }
 
 // --------------------------------------------------------
