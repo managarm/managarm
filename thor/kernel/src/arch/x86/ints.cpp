@@ -232,6 +232,8 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	disableUserAccess();
 
 	handleSyscall(image);
+
+	disableInts();
 }
 
 bool intsAreEnabled() {
