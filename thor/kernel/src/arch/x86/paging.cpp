@@ -13,6 +13,11 @@ void invlpg(const void *address) {
 	asm volatile ("invlpg %0" : : "m"(*p));
 }
 
+void invalidatePage(const void *address) {
+	auto p = reinterpret_cast<const char *>(address);
+	asm volatile ("invlpg %0" : : "m"(*p));
+}
+
 struct PWindow {
 private:
 	struct Item {
@@ -259,6 +264,146 @@ PhysicalWindow generalWindow{reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000)
 		reinterpret_cast<void *>(0xFFFF'FF80'0040'0000)};
 
 // --------------------------------------------------------
+
+PageBinding::PageBinding()
+: _boundSpace{nullptr}, _alreadyShotSequence{0} { }
+
+void PageBinding::rebind(PageSpace *space, PhysicalAddr pml4) {
+	assert(!intsAreEnabled());
+
+	// Shootdown everything.
+	asm volatile ("mov %0, %%cr3" : : "r"(pml4) : "memory");
+	
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> complete;
+
+	if(_boundSpace) {
+		auto lock = frigg::guard(&_boundSpace->_mutex);
+
+		if(!_boundSpace->_shootQueue.empty()) {
+			auto current = _boundSpace->_shootQueue.back();
+			while(current->_sequence > _alreadyShotSequence) {
+				auto predecessor = current->_queueNode.previous;
+
+				// Signal completion of the shootdown.
+				if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					auto it = _boundSpace->_shootQueue.iterator_to(current);
+					_boundSpace->_shootQueue.erase(it);
+					complete.push_front(current);
+				}
+
+				if(!predecessor)
+					break;
+				current = predecessor;
+			}
+		}
+		
+		_boundSpace->_numBindings--;
+	}
+
+	while(!complete.empty()) {
+		auto current = complete.pop_front();
+		current->shotDown(current);
+	}
+
+	uint64_t target_seq;
+	{
+		auto lock = frigg::guard(&space->_mutex);
+
+		target_seq = space->_shootSequence;
+		space->_numBindings++;
+	}
+
+	_boundSpace = space;
+	_alreadyShotSequence = target_seq;
+}
+
+void PageBinding::shootdown() {
+	assert(!intsAreEnabled());
+	
+	if(!_boundSpace)
+		return;
+	
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> complete;
+
+	uint64_t target_seq;
+	{
+		auto lock = frigg::guard(&_boundSpace->_mutex);
+
+		if(_boundSpace->_shootQueue.empty())
+			return;
+		
+		target_seq = _boundSpace->_shootQueue.back()->_sequence;
+
+		auto current = _boundSpace->_shootQueue.back();
+		while(current->_sequence > _alreadyShotSequence) {
+			auto predecessor = current->_queueNode.previous;
+
+			// Perform the actual shootdown.
+			assert(!(current->address & (kPageSize - 1)));
+			assert(!(current->size & (kPageSize - 1)));
+			for(size_t pg = 0; pg < current->size; pg += kPageSize)
+				invlpg(reinterpret_cast<void *>(current->address + pg));
+
+			// Signal completion of the shootdown.
+			if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+				auto it = _boundSpace->_shootQueue.iterator_to(current);
+				_boundSpace->_shootQueue.erase(it);
+				complete.push_front(current);
+			}
+
+			if(!predecessor)
+				break;
+			current = predecessor;
+		}
+	}
+
+	while(!complete.empty()) {
+		auto current = complete.pop_front();
+		current->shotDown(current);
+	}
+
+	_alreadyShotSequence = target_seq;
+}
+
+PageSpace::PageSpace()
+: _numBindings{0}, _shootSequence{0} { }
+
+void PageSpace::submitShootdown(ShootNode *node) {
+	bool any_bindings;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
+
+		any_bindings = _numBindings;
+		if(any_bindings) {
+			node->_sequence = _shootSequence++;
+			node->_bindingsToShoot = _numBindings;
+			_shootQueue.push_back(node);
+		}
+	}
+
+	if(any_bindings) {
+		sendShootdownIpi();
+	}else{
+		node->shotDown(node);
+	}
+}
+
+// --------------------------------------------------------
 // Kernel paging management.
 // --------------------------------------------------------
 
@@ -437,7 +582,7 @@ ClientPageSpace::~ClientPageSpace() {
 }
 
 void ClientPageSpace::activate() {
-	asm volatile ( "mov %0, %%cr3" : : "r"( _pml4Address ) : "memory" );
+	getCpuData()->primaryBinding.rebind(this, _pml4Address);
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,

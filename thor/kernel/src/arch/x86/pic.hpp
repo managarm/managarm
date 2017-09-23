@@ -19,7 +19,7 @@ void calibrateApicTimer();
 
 void preemptThisCpu(uint64_t slice_nanos);
 
-void acknowledgePreemption();
+void acknowledgeIpi();
 
 void raiseInitAssertIpi(uint32_t dest_apic_id);
 

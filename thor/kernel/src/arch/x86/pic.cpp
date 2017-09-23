@@ -36,7 +36,7 @@ arch::field<uint32_t, bool> apicIcrLowDestMode(11, 1);
 arch::field<uint32_t, bool> apicIcrLowDelivStatus(12, 1);
 arch::field<uint32_t, bool> apicIcrLowLevel(14, 1);
 arch::field<uint32_t, bool> apicIcrLowTriggerMode(15, 1);
-arch::field<uint32_t, uint8_t> apicIcrLowDestShortHand(18, 2);
+arch::field<uint32_t, uint8_t> apicIcrLowShorthand(18, 2);
 
 // lApicIcrHigh registers
 arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
@@ -115,7 +115,7 @@ void preemptThisCpu(uint64_t slice_nano) {
 	picBase.store(lApicInitCount, ticks);
 }
 
-void acknowledgePreemption() {
+void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);
 }
 
@@ -140,6 +140,15 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 	// DM:startup = 6
 	picBase.store(lApicIcrLow, apicIcrLowVector(vector)
 			| apicIcrLowDelivMode(6));
+}
+
+void sendShootdownIpi() {
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+	picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
 }
 
 // --------------------------------------------------------

@@ -117,9 +117,6 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, 8
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubProtection, 13
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 
-# TODO: handle this as an IRQ
-#MAKE_FAULT_STUB .L_typeCall, thorRtIsrPreempted, onPreemption
-
 # ---------------------------------------------------------
 # IRQ stubs
 # ---------------------------------------------------------
@@ -179,6 +176,47 @@ MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
 	iretq
 .endm
 
+.macro MAKE_IPI_STUB name, handler
+.section .text.stubs
+.global \name
+\name:
+	push %rbp
+	push %r15
+	push %r14
+	push %r13
+	push %r12
+	push %r11
+	push %r10
+	push %r9
+	push %r8
+	push %rsi
+	push %rdi
+	push %rdx
+	push %rcx
+	push %rbx
+	push %rax
+	
+	mov %rsp, %rdi
+	call \handler
+
+	pop %rax
+	pop %rbx
+	pop %rcx
+	pop %rdx
+	pop %rdi
+	pop %rsi
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r11
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %r15
+	pop %rbp
+	iretq
+.endm
+
 MAKE_IRQ_STUB thorRtIsrIrq0, 0
 MAKE_IRQ_STUB thorRtIsrIrq1, 1
 MAKE_IRQ_STUB thorRtIsrIrq2, 2
@@ -203,6 +241,8 @@ MAKE_IRQ_STUB thorRtIsrIrq20, 20
 MAKE_IRQ_STUB thorRtIsrIrq21, 21
 MAKE_IRQ_STUB thorRtIsrIrq22, 22
 MAKE_IRQ_STUB thorRtIsrIrq23, 23
+
+MAKE_IPI_STUB thorRtIpiShootdown, onPlatformShootdown
 
 # ---------------------------------------------------------
 # Syscall stubs

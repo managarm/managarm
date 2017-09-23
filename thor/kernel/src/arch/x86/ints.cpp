@@ -43,7 +43,7 @@ extern "C" void thorRtIsrIrq21();
 extern "C" void thorRtIsrIrq22();
 extern "C" void thorRtIsrIrq23();
 
-extern "C" void thorRtIsrPreempted();
+extern "C" void thorRtIpiShootdown();
 
 
 namespace thor {
@@ -152,6 +152,8 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 85, irq_selector, (void *)&thorRtIsrIrq21, 1);
 	makeIdt64IntSystemGate(table, 86, irq_selector, (void *)&thorRtIsrIrq22, 1);
 	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 1);
+	
+	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
@@ -212,7 +214,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "IRQ" << number
+		frigg::panicLogger() << "IRQ " << number
 				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
@@ -234,6 +236,24 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	handleSyscall(image);
 
 	disableInts();
+}
+
+extern "C" void onPlatformShootdown(IrqImageAccessor image) {
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "Shootdown IPI"
+				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
+	uint16_t cs = *image.cs();
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+
+	assert(!irqMutex().nesting());
+	disableUserAccess();
+
+	getCpuData()->primaryBinding.shootdown();
+
+	acknowledgeIpi();
 }
 
 bool intsAreEnabled() {

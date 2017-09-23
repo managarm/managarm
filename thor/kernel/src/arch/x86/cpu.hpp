@@ -12,6 +12,7 @@
 #include <frigg/tuple.hpp>
 #include "../../generic/types.hpp"
 #include "ints.hpp"
+#include "paging.hpp"
 
 namespace thor {
 
@@ -496,6 +497,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack detachedStack;
 	
 	frigg::arch_x86::Tss64 tss;
+
+	PageBinding primaryBinding;
 
 	bool haveSmap;
 };

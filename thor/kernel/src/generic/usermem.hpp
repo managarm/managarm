@@ -405,6 +405,14 @@ using MappingTree = frigg::rbtree<
 	MappingLess
 >;
 
+struct AddressUnmapNode {
+	friend struct AddressSpace;
+
+private:
+	AddressSpace *_space;
+	ShootNode _shootNode;
+};
+
 class AddressSpace {
 public:
 	typedef frigg::TicketLock Lock;
@@ -439,7 +447,8 @@ public:
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	
-	void unmap(Guard &guard, VirtualAddr address, size_t length);
+	void unmap(Guard &guard, VirtualAddr address, size_t length,
+			AddressUnmapNode *node);
 
 	bool handleFault(VirtualAddr address, uint32_t flags);
 	

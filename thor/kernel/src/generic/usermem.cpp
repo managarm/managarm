@@ -1,6 +1,7 @@
 
 #include <type_traits>
 #include "kernel.hpp"
+#include <frg/container_of.hpp>
 #include "types.hpp"
 
 namespace thor {
@@ -764,6 +765,10 @@ PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
 // AddressSpace
 // --------------------------------------------------------
 
+
+
+// --------------------------------------------------------
+
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
@@ -831,78 +836,92 @@ void AddressSpace::map(Guard &guard,
 	*actual_address = target;
 }
 
-void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length) {
+void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
+		AddressUnmapNode *node) {
 	assert(guard.protects(&lock));
 
 	Mapping *mapping = _getMapping(address);
 	assert(mapping);
 
-	// TODO: allow shrink of mapping
+	// TODO: Allow shrinking of the mapping.
 	assert(mapping->address() == address);
 	assert(mapping->length() == length);
 	mapping->uninstall(true);
 
-	// Find the holes that preceede/succeede mapping.
-	Hole *pre;
-	Hole *succ;
-
-	auto current = _holes.get_root();
-	while(true) {
-		assert(current);
-		if(address < current->address()) {
-			if(HoleTree::get_left(current)) {
-				current = HoleTree::get_left(current);
-			}else{
-				pre = HoleTree::predecessor(current);
-				succ = current;
-				break;
-			}
-		}else{
-			assert(address >= current->address() + current->length());
-			if(HoleTree::get_right(current)) {
-				current = HoleTree::get_right(current);
-			}else{
-				pre = current;
-				succ = HoleTree::successor(current);
-				break;
-			}
-		}
-	}
-
-	// Try to merge the new hole and the existing ones.
-	if(pre && pre->address() + pre->length() == mapping->address()
-			&& succ && mapping->address() + mapping->length() == succ->address()) {
-		auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
-				pre->length() + mapping->length() + succ->length());
-
-		_holes.remove(pre);
-		_holes.remove(succ);
-		_holes.insert(hole);
-		frigg::destruct(*kernelAlloc, pre);
-		frigg::destruct(*kernelAlloc, succ);
-	}else if(pre && pre->address() + pre->length() == mapping->address()) {
-		auto hole = frigg::construct<Hole>(*kernelAlloc,
-				pre->address(), pre->length() + mapping->length());
-
-		_holes.remove(pre);
-		_holes.insert(hole);
-		frigg::destruct(*kernelAlloc, pre);
-	}else if(succ && mapping->address() + mapping->length() == succ->address()) {
-		auto hole = frigg::construct<Hole>(*kernelAlloc,
-				mapping->address(), mapping->length() + succ->length());
-
-		_holes.remove(succ);
-		_holes.insert(hole);
-		frigg::destruct(*kernelAlloc, succ);
-	}else{
-		auto hole = frigg::construct<Hole>(*kernelAlloc,
-				mapping->address(), mapping->length());
-
-		_holes.insert(hole);
-	}
-
 	_mappings.remove(mapping);
 	frigg::destruct(*kernelAlloc, mapping);
+
+	node->_shootNode.shotDown = [] (ShootNode *sn) {
+		auto node = frg::container_of(sn, &AddressUnmapNode::_shootNode);
+
+		auto irq_lock = frigg::guard(&irqMutex());
+		AddressSpace::Guard space_guard(&node->_space->lock);
+
+		// Find the holes that preceede/succeede mapping.
+		Hole *pre;
+		Hole *succ;
+
+		auto current = node->_space->_holes.get_root();
+		while(true) {
+			assert(current);
+			if(sn->address < current->address()) {
+				if(HoleTree::get_left(current)) {
+					current = HoleTree::get_left(current);
+				}else{
+					pre = HoleTree::predecessor(current);
+					succ = current;
+					break;
+				}
+			}else{
+				assert(sn->address >= current->address() + current->length());
+				if(HoleTree::get_right(current)) {
+					current = HoleTree::get_right(current);
+				}else{
+					pre = current;
+					succ = HoleTree::successor(current);
+					break;
+				}
+			}
+		}
+
+		// Try to merge the new hole and the existing ones.
+		if(pre && pre->address() + pre->length() == sn->address
+				&& succ && sn->address + sn->size == succ->address()) {
+			auto hole = frigg::construct<Hole>(*kernelAlloc, pre->address(),
+					pre->length() + sn->size + succ->length());
+
+			node->_space->_holes.remove(pre);
+			node->_space->_holes.remove(succ);
+			node->_space->_holes.insert(hole);
+			frigg::destruct(*kernelAlloc, pre);
+			frigg::destruct(*kernelAlloc, succ);
+		}else if(pre && pre->address() + pre->length() == sn->address) {
+			auto hole = frigg::construct<Hole>(*kernelAlloc,
+					pre->address(), pre->length() + sn->size);
+
+			node->_space->_holes.remove(pre);
+			node->_space->_holes.insert(hole);
+			frigg::destruct(*kernelAlloc, pre);
+		}else if(succ && sn->address + sn->size == succ->address()) {
+			auto hole = frigg::construct<Hole>(*kernelAlloc,
+					sn->address, sn->size + succ->length());
+
+			node->_space->_holes.remove(succ);
+			node->_space->_holes.insert(hole);
+			frigg::destruct(*kernelAlloc, succ);
+		}else{
+			auto hole = frigg::construct<Hole>(*kernelAlloc,
+					sn->address, sn->size);
+
+			node->_space->_holes.insert(hole);
+		}
+	};
+
+	node->_space = this;
+	node->_shootNode.address = address;
+	node->_shootNode.size = length;
+
+	_pageSpace.submitShootdown(&node->_shootNode);
 }
 
 bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {

@@ -1,6 +1,8 @@
 #ifndef THOR_ARCH_X86_PAGING_HPP
 #define THOR_ARCH_X86_PAGING_HPP
 
+#include <atomic>
+#include <frg/list.hpp>
 #include <frigg/algorithm.hpp>
 #include "../../generic/types.hpp"
 
@@ -68,6 +70,68 @@ private:
 
 extern PhysicalWindow generalWindow;
 
+void sendShootdownIpi();
+
+struct ShootNode {
+	friend struct PageSpace;
+	friend struct PageBinding;
+
+	VirtualAddr address;
+	size_t size;
+
+	void (*shotDown)(ShootNode *node);
+
+private:
+	uint64_t _sequence;
+
+	std::atomic<unsigned int> _bindingsToShoot;
+
+	frg::default_list_hook<ShootNode> _queueNode;
+};
+
+struct PageSpace;
+
+struct PageBinding {
+	PageBinding();
+
+	PageBinding(const PageBinding &) = delete;
+	
+	PageBinding &operator= (const PageBinding &) = delete;
+
+	void rebind(PageSpace *space, PhysicalAddr pml4);
+
+	void shootdown();
+
+private:
+	PageSpace *_boundSpace;
+
+	uint64_t _alreadyShotSequence;
+};
+
+struct PageSpace {
+	friend struct PageBinding;
+
+	PageSpace();
+
+	void submitShootdown(ShootNode *node);
+
+private:
+	frigg::TicketLock _mutex;
+	
+	unsigned int _numBindings;
+
+	uint64_t _shootSequence;
+
+	frg::intrusive_list<
+		ShootNode,
+		frg::locate_member<
+			ShootNode,
+			frg::default_list_hook<ShootNode>,
+			&ShootNode::_queueNode
+		>
+	> _shootQueue;
+};
+
 namespace page_mode {
 	static constexpr uint32_t remap = 1;
 }
@@ -105,7 +169,7 @@ private:
 	PhysicalAddr _pml4Address;
 };
 
-struct ClientPageSpace {
+struct ClientPageSpace : PageSpace {
 public:
 	ClientPageSpace();
 	

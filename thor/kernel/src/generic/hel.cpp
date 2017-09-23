@@ -698,6 +698,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				map_flags, &actual_address);
 	}
 
+	// TODO: This should not be necessary but we get a page fault if we disable this.
+	// Investigate that bug!
 	thorRtInvalidateSpace();
 
 	*actual_pointer = (void *)actual_address;
@@ -726,11 +728,12 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		}
 	}
 	
+	auto closure = frigg::construct<AddressUnmapNode>(*kernelAlloc);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
 
-		space->unmap(space_guard, (VirtualAddr)pointer, length);
+		space->unmap(space_guard, (VirtualAddr)pointer, length, closure);
 	}
 
 	return kHelErrNone;
