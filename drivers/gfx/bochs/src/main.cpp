@@ -682,7 +682,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Dev
 // ----------------------------------------------------------------
 
 GfxDevice::GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer)
-: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer} {
+: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer},
+		_currentPixelPitch{0} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -825,7 +826,7 @@ void GfxDevice::Configuration::commit() {
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
 
 	if(_device->_theCrtc->currentMode())
-		memcpy(&last_mode, _device->_theCrtc->currentMode().get(), sizeof(drm_mode_modeinfo));
+		memcpy(&last_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
 	
 	auto switch_mode = last_mode.hdisplay != _width || last_mode.vdisplay != _height 
 			|| _device->_currentPixelPitch != _fb->getPixelPitch();
@@ -907,12 +908,11 @@ drm_backend::Plane *GfxDevice::Crtc::primaryPlane() {
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
-		uint32_t pixel_pitch)
-	:drm_backend::FrameBuffer { device->allocator.allocate() } {
+GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
+		std::shared_ptr<GfxDevice::BufferObject> bo, uint32_t pixel_pitch)
+: drm_backend::FrameBuffer { device->allocator.allocate() } {
 	_bo = bo;
 	_pixelPitch = pixel_pitch;
-	device->_currentPixelPitch = pixel_pitch;
 }
 
 GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
