@@ -6,6 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <numeric>
 
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
@@ -682,8 +683,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_backend::Dev
 // ----------------------------------------------------------------
 
 GfxDevice::GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer)
-: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer},
-		_currentPixelPitch{0} {
+: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -759,7 +759,7 @@ std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shar
 	auto pixel_pitch = pitch / 4;
 	
 	assert(pixel_pitch >= width);
-	assert(bo->getAddress() % pitch == 0);
+	assert(bo->getAlignment() % pitch == 0);
 	assert(bo->getSize() >= pitch * height);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, pixel_pitch);
@@ -767,16 +767,43 @@ std::shared_ptr<drm_backend::FrameBuffer> GfxDevice::createFrameBuffer(std::shar
 	return fb;
 }
 
-std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t> GfxDevice::createDumb(uint32_t width,
-		uint32_t height, uint32_t bpp) {
-	assert(width <= 1024);
-	auto size = height * 4096;
-	auto address = _vramAllocator.allocate(size);
+std::pair<std::shared_ptr<drm_backend::BufferObject>, uint32_t>
+GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
+	assert(bpp == 32);
+	unsigned int page_size = 4096;
+	unsigned int bytes_pp = bpp / 8;
 
-	auto buffer = std::make_shared<BufferObject>(this, address, size);
+	// Buffers need to be aligned to lcm(pitch, page size). Here we compute a pitch that
+	// minimizes the effective size (= data size + alignment) of the buffer.
+	// avdgrinten: I'm not sure if there is a closed form expression for that, so we
+	// just perform a brute-force search. Stop once the pitch is so big that no improvement
+	// to the alignment can decrease the buffer size.
+	auto best_ppitch = width;
+	auto best_esize = std::lcm(bytes_pp * width, page_size) + bytes_pp * width * height;
+	auto best_waste = std::lcm(bytes_pp * width, page_size);
+	for(auto ppitch = width; bytes_pp * (ppitch - width) * height < best_waste; ++ppitch) {
+		auto esize = std::lcm(bytes_pp * ppitch, page_size) + bytes_pp * ppitch * height;
+		if(esize < best_esize) {
+			best_ppitch = ppitch;
+			best_esize = esize;
+			best_waste = std::lcm(bytes_pp * best_ppitch, page_size)
+					+ bytes_pp * (best_ppitch - width) * height;
+		}
+	}
+
+	// TODO: Once we support VRAM <-> RAM eviction, we do not need to
+	// statically determine the alignment at buffer creation time.
+	auto pitch = bytes_pp * best_ppitch;
+	auto alignment = std::lcm(pitch, page_size);
+	auto size = pitch * height;
+
+	auto offset = _vramAllocator.allocate(alignment + size);
+	auto buffer = std::make_shared<BufferObject>(this, alignment, size,
+			offset, alignment - (offset % alignment));
+
 	auto mapping = installMapping(buffer.get());
 	buffer->setupMapping(mapping);
-	return std::make_pair(buffer, 4096);
+	return std::make_pair(buffer, pitch);
 }
 
 // ----------------------------------------------------------------
@@ -828,46 +855,40 @@ void GfxDevice::Configuration::commit() {
 	if(_device->_theCrtc->currentMode())
 		memcpy(&last_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
 	
-	auto switch_mode = last_mode.hdisplay != _width || last_mode.vdisplay != _height 
-			|| _device->_currentPixelPitch != _fb->getPixelPitch();
+	auto switch_mode = last_mode.hdisplay != _width || last_mode.vdisplay != _height;
 
 	_device->_theCrtc->setCurrentMode(_mode);
-	_device->_currentPixelPitch = _fb->getPixelPitch();
 
 	if(_mode) {
 		if(switch_mode) {
+			// The resolution registers must be written while the device is disabled.
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 			_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
-		
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
-			_device->_operational.store(regs::data, _fb->getPixelPitch());
-			/* You don't need to initialize this register.
-				_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtHeight);
-			_device->_operational.store(regs::data, _height);
-			*/
-			
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
-			_device->_operational.store(regs::data, 32);
-		
+
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resX);
 			_device->_operational.store(regs::data, _width);
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::resY);
 			_device->_operational.store(regs::data, _height);
-			
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
-			_device->_operational.store(regs::data, 0);	
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-			_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress() / (_fb->getPixelPitch() * 4));
+			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::bpp);
+			_device->_operational.store(regs::data, 32);
 			
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 			_device->_operational.store(regs::data, enable_bits::enable 
 					| enable_bits::noMemClear | enable_bits::lfb);
-		}else{
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
-			_device->_operational.store(regs::data, 0);	
-			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
-			_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress() / (_fb->getPixelPitch() * 4));
+			
 		}
+
+		// We do not have to write the virtual height.
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::virtWidth);
+		_device->_operational.store(regs::data, _fb->getPixelPitch());
+
+		// The offset registers have to be written while the device is enabled!
+		assert(!(_fb->getBufferObject()->getAddress() % (_fb->getPixelPitch() * 4)));
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
+		_device->_operational.store(regs::data, 0);	
+		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
+		_device->_operational.store(regs::data, _fb->getBufferObject()->getAddress()
+				/ (_fb->getPixelPitch() * 4));
 	}else{
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 		_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
@@ -938,17 +959,22 @@ GfxDevice::Plane::Plane(GfxDevice *device)
 std::shared_ptr<drm_backend::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
 }
-		
-uintptr_t GfxDevice::BufferObject::getAddress() {
-	return _address;
-}
 
 size_t GfxDevice::BufferObject::getSize() {
 	return _size;
 }
 	
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor(_device->_videoRam), _address);
+	return std::make_pair(helix::BorrowedDescriptor(_device->_videoRam),
+			_offset + _displacement);
+}
+
+size_t GfxDevice::BufferObject::getAlignment() {
+	return _alignment;
+}
+
+uintptr_t GfxDevice::BufferObject::getAddress() {
+	return _offset + _displacement;
 }
 
 // ----------------------------------------------------------------

@@ -394,18 +394,24 @@ struct GfxDevice : drm_backend::Device, std::enable_shared_from_this<GfxDevice> 
 	};
 	
 	struct BufferObject : drm_backend::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(GfxDevice *device, uintptr_t address, size_t size )
-		: _device(device), _address(address), _size(size) { };
-
+		BufferObject(GfxDevice *device, size_t alignment, size_t size,
+				uintptr_t offset, ptrdiff_t displacement)
+		: _device{device}, _alignment{alignment}, _size{size},
+				_offset{offset}, _displacement{displacement} { };
+		
 		std::shared_ptr<drm_backend::BufferObject> sharedBufferObject() override;
-		uintptr_t getAddress();
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
 		
+		size_t getAlignment();
+		uintptr_t getAddress();
+		
 	private:
 		GfxDevice *_device;
-		uintptr_t _address;
+		size_t _alignment;
 		size_t _size;
+		uintptr_t _offset;
+		ptrdiff_t _displacement;
 	};
 
 	struct Connector : drm_backend::Connector {
@@ -464,6 +470,5 @@ private:
 	range_allocator _vramAllocator;
 	arch::io_space _operational;
 	void* _frameBuffer;
-	uint32_t _currentPixelPitch;
 };
 
