@@ -201,7 +201,8 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	frigg::String<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
-	stack_memory->copyFrom(data_disp, data_area.data(), data_area.size());
+	KernelFiber::await<CopyToBundleNode>(&copyToBundle, stack_memory.get(), data_disp,
+			data_area.data(), data_area.size());
 
 	// build the stack tail area (containing the aux vector).
 	Handle xpipe_handle;
@@ -250,7 +251,8 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
-	stack_memory->copyFrom(tail_disp, tail_area.data(), tail_area.size());
+	KernelFiber::await<CopyToBundleNode>(&copyToBundle, stack_memory.get(), tail_disp,
+			tail_area.data(), tail_area.size());
 
 	// create a thread for the module
 	AbiParameters params;
@@ -333,117 +335,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		frigg::infoLogger() << "thor: Bootstrap processor initialized successfully."
 				<< frigg::endLog;
 
-	// Parse the initrd image.
-	auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
-	assert(info->numModules == 1);
-	
-	mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
-	{
-		assert(modules[0].physicalBase % kPageSize == 0);
-		assert(modules[0].length <= 0x1000000);
-		auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(0x1000000));
-		for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
-			KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
-					modules[0].physicalBase + pg, 0);
-
-		struct Header {
-			char magic[6];
-			char inode[8];
-			char mode[8];
-			char uid[8];
-			char gid[8];
-			char numLinks[8];
-			char mtime[8];
-			char fileSize[8];
-			char devMajor[8];
-			char devMinor[8];
-			char rdevMajor[8];
-			char rdevMinor[8];
-			char nameSize[8];
-			char check[8];
-		};
-
-		constexpr uint32_t type_mask = 0170000;
-		constexpr uint32_t regular_type = 0100000;
-		constexpr uint32_t directory_type = 0040000;
-
-		auto parseHex = [] (const char *c, int n) {
-			uint32_t v = 0;
-			for(int i = 0; i < n; i++) {
-				uint32_t d;
-				if(*c >= 'a' && *c <= 'f') {
-					d = *c++ - 'a' + 10;
-				}else if(*c >= 'A' && *c <= 'F') {
-					d = *c++ - 'A' + 10;
-				}else if(*c >= '0' && *c <= '9') {
-					d = *c++ - '0';
-				}else{
-					frigg::panicLogger() << "Unexpected character 0x" << frigg::logHex(*c)
-							<< " in CPIO header" << frigg::endLog;
-					__builtin_unreachable();
-				}
-				v = (v << 4) | d;
-			}
-			return v;
-		};
-
-		auto p = base;
-		auto limit = base + modules[0].length;
-		while(true) {
-			Header header;
-			assert(p + sizeof(Header) <= limit);
-			memcpy(&header, p, sizeof(Header));
-
-			auto magic = parseHex(header.magic, 6);
-			assert(magic == 0x070701 || magic == 0x070702);
-
-			auto mode = parseHex(header.mode, 8);
-			auto name_size = parseHex(header.nameSize, 8);
-			auto file_size = parseHex(header.fileSize, 8);
-			auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
-			
-			frigg::StringView path{p + sizeof(Header), name_size - 1};
-			if(path == "TRAILER!!!")
-				break;
-
-			if((mode & type_mask) == directory_type) {
-				frigg::infoLogger() << "thor: initrd directory " << path << frigg::endLog;
-
-				mfsRoot->link(frigg::String<KernelAlloc>{*kernelAlloc, path},
-						frigg::construct<MfsDirectory>(*kernelAlloc));
-			}else{
-				assert((mode & type_mask) == regular_type);
-//				if(logInitialization)
-					frigg::infoLogger() << "thor: initrd file " << path << frigg::endLog;
-
-				auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
-						(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-				memory->copyFrom(0, data, file_size);
-	
-				const char *begin = path.data();
-				const char *end = path.data() + path.size();
-				auto slash = std::find(begin, end, '/');
-				assert(slash != end);
-				assert(std::find(slash + 1, end, '/') == end);
-
-				auto parent = mfsRoot->getTarget(path.subString(0, slash - begin));
-				assert(parent && parent->type == MfsType::directory);
-				auto directory = static_cast<MfsDirectory *>(parent);
-
-				auto name = frigg::String<KernelAlloc>{*kernelAlloc,
-						path.subString((slash - begin) + 1, end - (slash + 1))};
-				directory->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
-						std::move(memory)));
-			}
-
-			p = data + ((file_size + 3) & ~uint32_t{3});
-		}
-	}
-
-	if(logInitialization)
-		frigg::infoLogger() << "thor: Modules are set up successfully."
-				<< frigg::endLog;
-	
 	// create a root universe and run a kernel thread to communicate with the universe 
 	rootUniverse.initialize(frigg::makeShared<Universe>(*kernelAlloc));
 
@@ -456,6 +347,119 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.
 		initializeExtendedSystem();
+
+		// Parse the initrd image.
+		auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);
+		assert(info->numModules == 1);
+		
+		mfsRoot = frigg::construct<MfsDirectory>(*kernelAlloc);
+		{
+			assert(modules[0].physicalBase % kPageSize == 0);
+			assert(modules[0].length <= 0x1000000);
+			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(0x1000000));
+			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
+				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
+						modules[0].physicalBase + pg, 0);
+
+			struct Header {
+				char magic[6];
+				char inode[8];
+				char mode[8];
+				char uid[8];
+				char gid[8];
+				char numLinks[8];
+				char mtime[8];
+				char fileSize[8];
+				char devMajor[8];
+				char devMinor[8];
+				char rdevMajor[8];
+				char rdevMinor[8];
+				char nameSize[8];
+				char check[8];
+			};
+
+			constexpr uint32_t type_mask = 0170000;
+			constexpr uint32_t regular_type = 0100000;
+			constexpr uint32_t directory_type = 0040000;
+
+			auto parseHex = [] (const char *c, int n) {
+				uint32_t v = 0;
+				for(int i = 0; i < n; i++) {
+					uint32_t d;
+					if(*c >= 'a' && *c <= 'f') {
+						d = *c++ - 'a' + 10;
+					}else if(*c >= 'A' && *c <= 'F') {
+						d = *c++ - 'A' + 10;
+					}else if(*c >= '0' && *c <= '9') {
+						d = *c++ - '0';
+					}else{
+						frigg::panicLogger() << "Unexpected character 0x" << frigg::logHex(*c)
+								<< " in CPIO header" << frigg::endLog;
+						__builtin_unreachable();
+					}
+					v = (v << 4) | d;
+				}
+				return v;
+			};
+
+			auto p = base;
+			auto limit = base + modules[0].length;
+			while(true) {
+				Header header;
+				assert(p + sizeof(Header) <= limit);
+				memcpy(&header, p, sizeof(Header));
+
+				auto magic = parseHex(header.magic, 6);
+				assert(magic == 0x070701 || magic == 0x070702);
+
+				auto mode = parseHex(header.mode, 8);
+				auto name_size = parseHex(header.nameSize, 8);
+				auto file_size = parseHex(header.fileSize, 8);
+				auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
+				
+				frigg::StringView path{p + sizeof(Header), name_size - 1};
+				if(path == "TRAILER!!!")
+					break;
+
+				if((mode & type_mask) == directory_type) {
+					frigg::infoLogger() << "thor: initrd directory " << path << frigg::endLog;
+
+					mfsRoot->link(frigg::String<KernelAlloc>{*kernelAlloc, path},
+							frigg::construct<MfsDirectory>(*kernelAlloc));
+				}else{
+					assert((mode & type_mask) == regular_type);
+	//				if(logInitialization)
+						frigg::infoLogger() << "thor: initrd file " << path << frigg::endLog;
+
+					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+					KernelFiber::await<CopyToBundleNode>(&copyToBundle, memory.get(), 0,
+							data, file_size);
+		
+					const char *begin = path.data();
+					const char *end = path.data() + path.size();
+					auto slash = std::find(begin, end, '/');
+					assert(slash != end);
+					assert(std::find(slash + 1, end, '/') == end);
+
+					auto parent = mfsRoot->getTarget(path.subString(0, slash - begin));
+					assert(parent && parent->type == MfsType::directory);
+					auto directory = static_cast<MfsDirectory *>(parent);
+
+					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
+							path.subString((slash - begin) + 1, end - (slash + 1))};
+					directory->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
+							std::move(memory)));
+				}
+
+				p = data + ((file_size + 3) & ~uint32_t{3});
+			}
+		}
+
+		if(logInitialization)
+			frigg::infoLogger() << "thor: Modules are set up successfully."
+					<< frigg::endLog;
+	
 
 		// Launch initial user space programs.
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;

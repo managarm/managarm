@@ -47,6 +47,13 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 	src_memory->release(src_offset, length);
 }
 
+void Memory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
+	(void)offset;
+	(void)pointer;
+	(void)size;
+	frigg::panicLogger() << "Bundle does not support synchronous operations!" << frigg::endLog;
+}
+
 size_t Memory::getLength() {
 	switch(tag()) {
 	case MemoryTag::hardware: return static_cast<HardwareMemory *>(this)->getLength();
@@ -132,41 +139,47 @@ void Memory::load(size_t offset, void *buffer, size_t length) {
 	release(offset, length);
 }
 
-void Memory::copyFrom(size_t offset, const void *buffer, size_t length) {
-	acquire(offset, length);
+// --------------------------------------------------------
+// Copy operations.
+// --------------------------------------------------------
+
+void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
+		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
+	bundle->acquire(offset, size);
 
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
-		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = fetchRange(offset - misalign);
+		size_t prefix = frigg::min(kPageSize - misalign, size);
+		PhysicalAddr page = bundle->fetchRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
-		memcpy((uint8_t *)accessor.get() + misalign, buffer, prefix);
+		memcpy((uint8_t *)accessor.get() + misalign, pointer, prefix);
 		progress += prefix;
 	}
 
-	while(length - progress >= kPageSize) {
+	while(size - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = fetchRange(offset + progress);
+		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{generalWindow, page};
-		memcpy(accessor.get(), (uint8_t *)buffer + progress, kPageSize);
+		memcpy(accessor.get(), (uint8_t *)pointer + progress, kPageSize);
 		progress += kPageSize;
 	}
 
-	if(length - progress > 0) {
+	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = fetchRange(offset + progress);
+		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, page};
-		memcpy(accessor.get(), (uint8_t *)buffer + progress, length - progress);
+		memcpy(accessor.get(), (uint8_t *)pointer + progress, size - progress);
 	}
 
-	release(offset, length);
+	bundle->release(offset, size);
+	complete(node);
 }
 
 // --------------------------------------------------------
@@ -241,6 +254,30 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1))
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
 	}
+}
+
+void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
+	// TODO: For now we only allow naturally aligned access.
+	assert(size <= kPageSize);
+	assert(!(offset % size));
+
+	size_t index = offset / _chunkSize;
+	assert(index < _physicalChunks.size());
+	if(_physicalChunks[index] == PhysicalAddr(-1)) {
+		auto physical = physicalAllocator->allocate(_chunkSize);
+		assert(physical != PhysicalAddr(-1));
+		assert(!(physical % _chunkAlign));
+
+		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
+			PageAccessor accessor{generalWindow, physical + pg_progress};
+			memset(accessor.get(), 0, kPageSize);
+		}
+		_physicalChunks[index] = physical;
+	}
+
+	PageAccessor accessor{generalWindow, _physicalChunks[index]
+			+ ((offset % _chunkSize) / kPageSize)};
+	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
 }
 
 void AllocatedMemory::acquire(uintptr_t offset, size_t length) {

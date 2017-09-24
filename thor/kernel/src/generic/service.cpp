@@ -381,17 +381,21 @@ namespace initrd {
 						LaneDescriptor(file->clientLane));
 			}
 
+			// TODO: Get rid of copyKernelToThisSync()?
+
 			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
 				if(openFiles[fd])
 					continue;
 				openFiles[fd] = file;
-				fileTableMemory->copyFrom(sizeof(Handle) * fd, &handle, sizeof(Handle));
+				fileTableMemory->copyKernelToThisSync(sizeof(Handle) * fd,
+						&handle, sizeof(Handle));
 				return fd;
 			}
 
 			int fd = openFiles.size();
 			openFiles.push(file);
-			fileTableMemory->copyFrom(sizeof(Handle) * fd, &handle, sizeof(Handle));
+			fileTableMemory->copyKernelToThisSync(sizeof(Handle) * fd,
+					&handle, sizeof(Handle));
 			return fd;
 		}
 

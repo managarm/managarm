@@ -92,6 +92,8 @@ struct Memory {
 		return _tag;
 	}
 
+	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
+
 	// Prevents eviction of a range of memory.
 	// Does NOT ensure that this range is present before the call returns.
 	virtual void acquire(uintptr_t offset, size_t length) = 0;
@@ -114,11 +116,17 @@ struct Memory {
 	void completeLoad(size_t offset, size_t length);
 
 	void load(size_t offset, void *pointer, size_t length);
-	void copyFrom(size_t offset, const void *pointer, size_t length);
 
 private:
 	MemoryTag _tag;
 };
+
+struct CopyToBundleNode {
+
+};
+
+void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
+		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
 
 struct HardwareMemory : Memory {
 	static bool classOf(const Memory &memory) {
@@ -149,6 +157,8 @@ struct AllocatedMemory : Memory {
 	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
 			size_t chunk_align = kPageSize);
 	~AllocatedMemory();
+
+	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	void acquire(uintptr_t offset, size_t length) override;
 	void release(uintptr_t offset, size_t length) override;
