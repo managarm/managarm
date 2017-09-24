@@ -91,7 +91,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	image->load(0, &ehdr, sizeof(Elf64_Ehdr));
+	KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
+			0, &ehdr, sizeof(Elf64_Ehdr));
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -103,7 +104,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
-		image->load(ehdr.e_phoff + i * ehdr.e_phentsize, &phdr, sizeof(Elf64_Phdr));
+		KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
+				ehdr.e_phoff + i * ehdr.e_phentsize, &phdr, sizeof(Elf64_Phdr));
 		
 		if(phdr.p_type == PT_LOAD) {
 			assert(phdr.p_memsz > 0);
@@ -142,7 +144,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 			thorRtInvalidateSpace();
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
-			image->load(phdr.p_offset, info.interpreter.data(), phdr.p_filesz);
+			KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
+					phdr.p_offset, info.interpreter.data(), phdr.p_filesz);
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr.p_vaddr;
 		}else if(phdr.p_type == PT_DYNAMIC

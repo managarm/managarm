@@ -115,8 +115,6 @@ struct Memory {
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
 
-	void load(size_t offset, void *pointer, size_t length);
-
 private:
 	MemoryTag _tag;
 };
@@ -125,8 +123,15 @@ struct CopyToBundleNode {
 
 };
 
+struct CopyFromBundleNode {
+
+};
+
 void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *));
+
+void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t size,
+		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *));
 
 struct HardwareMemory : Memory {
 	static bool classOf(const Memory &memory) {

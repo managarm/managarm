@@ -102,43 +102,6 @@ void Memory::completeLoad(size_t offset, size_t length) {
 	}
 }
 
-void Memory::load(size_t offset, void *buffer, size_t length) {
-	acquire(offset, length);
-
-	size_t progress = 0;
-	size_t misalign = offset % kPageSize;
-	if(misalign > 0) {
-		size_t prefix = frigg::min(kPageSize - misalign, length);
-		PhysicalAddr page = fetchRange(offset - misalign);
-		assert(page != PhysicalAddr(-1));
-
-		PageAccessor accessor{generalWindow, page};
-		memcpy(buffer, (uint8_t *)accessor.get() + misalign, prefix);
-		progress += prefix;
-	}
-
-	while(length - progress >= kPageSize) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = fetchRange(offset + progress);
-		assert(page != PhysicalAddr(-1));
-		
-		PageAccessor accessor{generalWindow, page};
-		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
-		progress += kPageSize;
-	}
-
-	if(length - progress > 0) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = fetchRange(offset + progress);
-		assert(page != PhysicalAddr(-1));
-		
-		PageAccessor accessor{generalWindow, page};
-		memcpy((uint8_t *)buffer + progress, accessor.get(), length - progress);
-	}
-
-	release(offset, length);
-}
-
 // --------------------------------------------------------
 // Copy operations.
 // --------------------------------------------------------
@@ -176,6 +139,45 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		
 		PageAccessor accessor{generalWindow, page};
 		memcpy(accessor.get(), (uint8_t *)pointer + progress, size - progress);
+	}
+
+	bundle->release(offset, size);
+	complete(node);
+}
+
+void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
+		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
+	bundle->acquire(offset, size);
+
+	size_t progress = 0;
+	size_t misalign = offset % kPageSize;
+	if(misalign > 0) {
+		size_t prefix = frigg::min(kPageSize - misalign, size);
+		PhysicalAddr page = bundle->fetchRange(offset - misalign);
+		assert(page != PhysicalAddr(-1));
+
+		PageAccessor accessor{generalWindow, page};
+		memcpy(buffer, (uint8_t *)accessor.get() + misalign, prefix);
+		progress += prefix;
+	}
+
+	while(size - progress >= kPageSize) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		assert(page != PhysicalAddr(-1));
+		
+		PageAccessor accessor{generalWindow, page};
+		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
+		progress += kPageSize;
+	}
+
+	if(size - progress > 0) {
+		assert((offset + progress) % kPageSize == 0);
+		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		assert(page != PhysicalAddr(-1));
+		
+		PageAccessor accessor{generalWindow, page};
+		memcpy((uint8_t *)buffer + progress, accessor.get(), size - progress);
 	}
 
 	bundle->release(offset, size);
