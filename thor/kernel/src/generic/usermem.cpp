@@ -17,25 +17,23 @@ namespace {
 // --------------------------------------------------------
 
 CowBundle::CowBundle(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size)
-: _superRoot{frigg::move(view)}, _superOffset{offset}, _mask(*kernelAlloc) {
+: _superRoot{frigg::move(view)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
-	_mask.resize(size >> kPageShift, false);
 }
 
 CowBundle::CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size)
-: _superChain{frigg::move(chain)}, _superOffset{offset}, _mask(*kernelAlloc) {
+: _superChain{frigg::move(chain)}, _superOffset{offset}, _pages{kernelAlloc.get()} {
 	assert(!(size & (kPageSize - 1)));
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
-	_mask.resize(size >> kPageShift, false);
 }
 
 PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 	assert(!(offset & (kPageSize - 1)));
 
 	// If the page is present in this bundle we just return it.
-	if(_mask[offset >> kPageShift]) {
-		auto physical = _copy->fetchRange(offset);
+	if(auto it = _pages.find(offset >> kPageShift); it) {
+		auto physical = it->load(std::memory_order_relaxed);
 		assert(physical != PhysicalAddr(-1));
 		return physical;
 	}
@@ -45,14 +43,15 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 	ptrdiff_t disp = offset;
 	while(true) {
 		// Copy from a descendant CoW bundle.
-		if(chain->_mask[disp >> kPageShift]) {
+		if(auto it = chain->_pages.find(disp >> kPageShift); it) {
 			// Cannot copy from ourselves; this case is handled above.
 			assert(chain != this);
 			Memory::transfer(_copy.get(), offset, chain->_copy.get(), disp, kPageSize);
-			_mask[offset >> kPageShift] = true;
 
 			auto physical = _copy->fetchRange(offset);
 			assert(physical != PhysicalAddr(-1));
+			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
+			cow_it->store(physical, std::memory_order_relaxed);
 			return physical;
 		}
 
@@ -61,10 +60,11 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 			assert(chain->_superRoot);
 			auto bundle = chain->_superRoot->resolveRange(chain->_superOffset + disp, kPageSize);
 			Memory::transfer(_copy.get(), offset, bundle.get<0>(), bundle.get<1>(), kPageSize);
-			_mask[offset >> kPageShift] = true;
 
 			auto physical = _copy->fetchRange(offset);
 			assert(physical != PhysicalAddr(-1));
+			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
+			cow_it->store(physical, std::memory_order_relaxed);
 			return physical;
 		}
 

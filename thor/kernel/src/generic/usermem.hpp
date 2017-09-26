@@ -3,6 +3,7 @@
 
 #include <frigg/rbtree.hpp>
 #include <frigg/vector.hpp>
+#include <frg/rcu_radixtree.hpp>
 #include "error.hpp"
 #include "types.hpp"
 #include "futex.hpp"
@@ -101,8 +102,8 @@ private:
 	frigg::SharedPtr<VirtualView> _superRoot;
 	frigg::SharedPtr<CowBundle> _superChain;
 	ptrdiff_t _superOffset;
+	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
 	frigg::SharedPtr<Memory> _copy;
-	frigg::Vector<bool, KernelAlloc> _mask;
 };
 
 struct Memory : MemoryBundle {
