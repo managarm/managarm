@@ -15,13 +15,72 @@ namespace {
 }
 
 // --------------------------------------------------------
+
+CowBundle::CowBundle(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size)
+: _superRoot{frigg::move(view)}, _superOffset{offset}, _mask(*kernelAlloc) {
+	assert(!(size & (kPageSize - 1)));
+	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
+	_mask.resize(size >> kPageShift, false);
+}
+
+CowBundle::CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size)
+: _superChain{frigg::move(chain)}, _superOffset{offset}, _mask(*kernelAlloc) {
+	assert(!(size & (kPageSize - 1)));
+	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
+	_mask.resize(size >> kPageShift, false);
+}
+
+PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
+	assert(!(offset & (kPageSize - 1)));
+
+	// If the page is present in this bundle we just return it.
+	if(_mask[offset >> kPageShift]) {
+		auto physical = _copy->fetchRange(offset);
+		assert(physical != PhysicalAddr(-1));
+		return physical;
+	}
+
+	// Otherwise we need to copy from the super-tree.
+	CowBundle *chain = this;
+	ptrdiff_t disp = offset;
+	while(true) {
+		// Copy from a descendant CoW bundle.
+		if(chain->_mask[disp >> kPageShift]) {
+			// Cannot copy from ourselves; this case is handled above.
+			assert(chain != this);
+			Memory::transfer(_copy.get(), offset, chain->_copy.get(), disp, kPageSize);
+			_mask[offset >> kPageShift] = true;
+
+			auto physical = _copy->fetchRange(offset);
+			assert(physical != PhysicalAddr(-1));
+			return physical;
+		}
+
+		// Copy from the root view.
+		if(!chain->_superChain) {
+			assert(chain->_superRoot);
+			auto bundle = chain->_superRoot->resolveRange(chain->_superOffset + disp, kPageSize);
+			Memory::transfer(_copy.get(), offset, bundle.get<0>(), bundle.get<1>(), kPageSize);
+			_mask[offset >> kPageShift] = true;
+
+			auto physical = _copy->fetchRange(offset);
+			assert(physical != PhysicalAddr(-1));
+			return physical;
+		}
+
+		disp += chain->_superOffset;
+		chain = chain->_superChain.get();
+	}
+}
+
+// --------------------------------------------------------
 // Memory
 // --------------------------------------------------------
 
-void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
-		frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length) {
-	dest_memory->acquire(dest_offset, length);
-	src_memory->acquire(src_offset, length);
+void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
+		MemoryBundle *src_memory, uintptr_t src_offset, size_t length) {
+//	dest_memory->acquire(dest_offset, length);
+//	src_memory->acquire(src_offset, length);
 
 	size_t progress = 0;
 	while(progress < length) {
@@ -43,8 +102,8 @@ void Memory::transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offse
 		progress += chunk;
 	}
 
-	dest_memory->release(dest_offset, length);
-	src_memory->release(src_offset, length);
+//	dest_memory->release(dest_offset, length);
+//	src_memory->release(src_offset, length);
 }
 
 void Memory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
@@ -547,6 +606,19 @@ void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) 
 }
 
 // --------------------------------------------------------
+
+ExteriorBundleView::ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
+		ptrdiff_t view_offset, size_t view_size)
+: _bundle{frigg:move(bundle)}, _viewOffset{view_offset}, _viewSize{view_size} { }
+
+frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+ExteriorBundleView::resolveRange(ptrdiff_t offset, size_t size) {
+	assert(offset + size <= _viewSize);
+	return frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>{_bundle.get(), _viewOffset + offset,
+			frigg::min(size, _viewSize - offset)};
+}
+
+// --------------------------------------------------------
 // HoleAggregator
 // --------------------------------------------------------
 
@@ -609,29 +681,23 @@ NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t le
 		MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset)
 : Mapping{owner, address, length, flags}, _memory{frigg::move(memory)}, _offset{offset} { }
 
+frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+NormalMapping::resolveRange(ptrdiff_t offset, size_t size) {
+	assert(offset + size <= length());
+	return frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>{_memory.get(), _offset + offset,
+			frigg::min(size, length() - offset)};
+}
+
 Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
 	// TODO: Always keep the exact flags?
 	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), _memory, _offset);
 }
 
-Mapping *NormalMapping::copyMapping(AddressSpace *dest_space) {
-	// TODO: Always keep the exact flags?
-	// TODO: We do not need to copy the whole memory object.
-	// TODO: Call a copy operation of the corresponding memory object here.
-	auto dest_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
-			_memory->getLength(), kPageSize, kPageSize);
-	Memory::transfer(dest_memory, 0, _memory, 0, _memory->getLength());
-	
-	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), frigg::move(dest_memory), _offset);
-}
-
 Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto chain = frigg::makeShared<CowChain>(*kernelAlloc);
-	chain->memory = _memory;
-	chain->offset = _offset;
-	chain->mask.resize(length() >> kPageShift, true);
+	auto chain = frigg::makeShared<CowBundle>(*kernelAlloc, 
+			frigg::makeShared<ExteriorBundleView>(*kernelAlloc, _memory, 0, _memory->getLength()),
+			 _offset, length());
 	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(chain));
 }
@@ -707,10 +773,15 @@ bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 // --------------------------------------------------------
 
 CowMapping::CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-		MappingFlags flags, frigg::SharedPtr<CowChain> chain)
-: Mapping{owner, address, length, flags}, _mask{*kernelAlloc}, _chain{frigg::move(chain)} {
-	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, length, kPageSize, kPageSize);
-	_mask.resize(length >> kPageShift, false);
+		MappingFlags flags, frigg::SharedPtr<CowBundle> chain)
+: Mapping{owner, address, length, flags}, _cowBundle{frigg::move(chain)} {
+}
+
+frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+CowMapping::resolveRange(ptrdiff_t offset, size_t size) {
+	assert(offset + size <= length());
+	return frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>{_cowBundle.get(), offset,
+			frigg::min(size, length())};
 }
 
 Mapping *CowMapping::shareMapping(AddressSpace *dest_space) {
@@ -719,20 +790,8 @@ Mapping *CowMapping::shareMapping(AddressSpace *dest_space) {
 	__builtin_unreachable();
 }
 
-Mapping *CowMapping::copyMapping(AddressSpace *dest_space) {
-	(void)dest_space;
-	assert(!"Fix this");
-	__builtin_unreachable();
-}
-
 Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto sub_chain = frigg::makeShared<CowChain>(*kernelAlloc);
-	sub_chain->memory = _copy;
-	sub_chain->offset = 0;
-	sub_chain->super = _chain;
-	sub_chain->mask.resize(length() >> kPageShift, false);
-	for(size_t i = 0; i < (length() >> kPageShift); ++i)
-		sub_chain->mask[i] = _mask[i]; // TODO: Use a copy constructor.
+	auto sub_chain = frigg::makeShared<CowBundle>(*kernelAlloc, _cowBundle, 0, length());
 	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(sub_chain));
 }
@@ -759,45 +818,17 @@ void CowMapping::uninstall(bool clear) {
 }
 
 PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
-	return _retrievePage(disp);
+	return _cowBundle->fetchRange(disp);
 }
 
-bool CowMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
+bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	(void)fault_flags; // TODO: Assert that it is a write-fault.
-	auto page = disp & ~(kPageSize - 1);
-	// TODO: This may actually happen if there are multiple threads
-	// racing for the page.
-	assert(!_mask[page >> kPageShift]);
-	_retrievePage(disp);
+	auto fault_page = fault_offset & ~(kPageSize - 1);
+	auto physical = _cowBundle->fetchRange(fault_page);
+	// TODO: Ensure that no racing threads still see the original page.
+	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
+			true, page_access::write);
 	return true;
-}
-
-PhysicalAddr CowMapping::_retrievePage(VirtualAddr disp) {
-	auto page = disp & ~(kPageSize - 1);
-	if(_mask[page >> kPageShift]) {
-		auto physical = _copy->fetchRange(page);
-		assert(physical != PhysicalAddr(-1));
-		return physical;
-	}
-
-	for(frigg::UnsafePtr<CowChain> ch = _chain; ch; ch = ch->super) {
-		if(!ch->mask[page >> kPageShift])
-			continue;
-
-		Memory::transfer(_copy, page, ch->memory, ch->offset + page, kPageSize);
-		_mask[page >> kPageShift] = true;
-
-		auto physical = _copy->fetchRange(page);
-
-		// We have to map the page immediately after copying it.
-		// This ensures that no racing threads still see the original page.
-		owner()->_pageSpace.mapSingle4k(address() + page, physical,
-				true, page_access::write);
-		return physical;
-	}
-
-	assert(!"Fix this");
-	__builtin_unreachable();
 }
 
 // --------------------------------------------------------

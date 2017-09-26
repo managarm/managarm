@@ -119,8 +119,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
-			Memory::transfer(memory, phdr.p_vaddr - virt_address,
-					image, phdr.p_offset, phdr.p_filesz);
+			Memory::transfer(memory.get(), phdr.p_vaddr - virt_address,
+					image.get(), phdr.p_offset, phdr.p_filesz);
 
 			VirtualAddr actual_address;
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {

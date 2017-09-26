@@ -77,9 +77,37 @@ private:
 	F _functor;
 };
 
-struct Memory {
-	static void transfer(frigg::UnsafePtr<Memory> dest_memory, uintptr_t dest_offset,
-			frigg::UnsafePtr<Memory> src_memory, uintptr_t src_offset, size_t length);
+struct MemoryBundle {
+	// Returns the physical memory that backs a range of memory.
+	// Ensures that the range is present before returning.
+	// Result stays valid until the range is evicted.
+	// TODO: This should be asynchronous.
+	virtual PhysicalAddr fetchRange(uintptr_t offset) = 0;
+};
+
+struct VirtualView {
+	virtual frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+	resolveRange(ptrdiff_t offset, size_t size) = 0;
+};
+
+struct CowBundle : MemoryBundle {
+	CowBundle(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size);
+
+	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
+
+	PhysicalAddr fetchRange(uintptr_t offset) override;
+
+private:
+	frigg::SharedPtr<VirtualView> _superRoot;
+	frigg::SharedPtr<CowBundle> _superChain;
+	ptrdiff_t _superOffset;
+	frigg::SharedPtr<Memory> _copy;
+	frigg::Vector<bool, KernelAlloc> _mask;
+};
+
+struct Memory : MemoryBundle {
+	static void transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
+			MemoryBundle *src_memory, uintptr_t src_offset, size_t length);
 
 	Memory(MemoryTag tag)
 	: _tag(tag) { }
@@ -102,12 +130,6 @@ struct Memory {
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
 	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
-
-	// Returns the physical memory that backs a range of memory.
-	// Ensures that the range is present before returning.
-	// Result stays valid until the range is evicted.
-	// TODO: This should be asynchronous.
-	virtual PhysicalAddr fetchRange(uintptr_t offset) = 0;
 
 	size_t getLength();
 
@@ -257,6 +279,19 @@ private:
 	frigg::SharedPtr<ManagedSpace> _managed;
 };
 
+struct ExteriorBundleView : VirtualView {
+	ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
+			ptrdiff_t view_offset, size_t view_size);
+
+	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+	resolveRange(ptrdiff_t offset, size_t size) override;
+
+private:
+	frigg::SharedPtr<MemoryBundle> _bundle;
+	ptrdiff_t _viewOffset;
+	size_t _viewSize;
+};
+
 struct Hole {
 	Hole(VirtualAddr address, size_t length)
 	: _address{address}, _length{length}, largestHole{0} { }
@@ -296,16 +331,6 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
-struct CowChain {
-	CowChain()
-	: mask(*kernelAlloc) { }
-
-	frigg::SharedPtr<Memory> memory;
-	VirtualAddr offset;
-	frigg::SharedPtr<CowChain> super;
-	frigg::Vector<bool, KernelAlloc> mask;
-};
-
 struct Mapping {
 	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
@@ -326,8 +351,10 @@ struct Mapping {
 		return _flags;
 	}
 
+	virtual frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+	resolveRange(ptrdiff_t offset, size_t size) = 0;
+
 	virtual Mapping *shareMapping(AddressSpace *dest_space) = 0;
-	virtual Mapping *copyMapping(AddressSpace *dest_space) = 0;
 	virtual Mapping *copyOnWrite(AddressSpace *dest_space) = 0;
 
 	virtual void install(bool overwrite) = 0;
@@ -350,8 +377,10 @@ struct NormalMapping : Mapping {
 			MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset);
 	~NormalMapping();
 
+	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+	resolveRange(ptrdiff_t offset, size_t size) override;
+
 	Mapping *shareMapping(AddressSpace *dest_space) override;
-	Mapping *copyMapping(AddressSpace *dest_space) override;
 	Mapping *copyOnWrite(AddressSpace *dest_space) override;
 
 	void install(bool overwrite) override;
@@ -367,11 +396,13 @@ private:
 
 struct CowMapping : Mapping {
 	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
+			MappingFlags flags, frigg::SharedPtr<CowBundle> chain);
 	~CowMapping();
 
+	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
+	resolveRange(ptrdiff_t offset, size_t size) override;
+
 	Mapping *shareMapping(AddressSpace *dest_space) override;
-	Mapping *copyMapping(AddressSpace *dest_space) override;
 	Mapping *copyOnWrite(AddressSpace *dest_space) override;
 
 	void install(bool overwrite) override;
@@ -381,11 +412,7 @@ struct CowMapping : Mapping {
 	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
-	PhysicalAddr _retrievePage(VirtualAddr disp);
-
-	frigg::SharedPtr<Memory> _copy;
-	frigg::Vector<bool, KernelAlloc> _mask;
-	frigg::SharedPtr<CowChain> _chain;
+	frigg::SharedPtr<CowBundle> _cowBundle;
 };
 
 struct HoleLess {
