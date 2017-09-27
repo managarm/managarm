@@ -121,25 +121,9 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	setupEncoder(_theEncoder);
 	attachConnector(_theConnector);
 
-	drm_mode_modeinfo mode;
-	mode.clock = 47185;
-	mode.hdisplay = 1024;
-	mode.hsync_start = 1024;
-	mode.hsync_end = 1024;
-	mode.htotal = 1024;
-	mode.hskew = 0;
-	mode.vdisplay = 768;
-	mode.vsync_start = 768;
-	mode.vsync_end = 768;
-	mode.vtotal = 768;
-	mode.vscan = 0;
-	mode.vrefresh = 60;
-	mode.flags = 0;
-	mode.type = 0;
-	memcpy(&mode.name, "1024x768", 8);
-	std::vector<drm_mode_modeinfo> mode_list;
-	mode_list.push_back(mode);
-	_theConnector->setModeList(mode_list);
+	std::vector<drm_mode_modeinfo> supported_modes;	
+	drm_core::addDmtModes(supported_modes, 1024, 768);
+	_theConnector->setModeList(supported_modes);
 	
 	setupMinDimensions(640, 480);
 	setupMaxDimensions(1024, 768);
@@ -196,7 +180,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	// statically determine the alignment at buffer creation time.
 	auto pitch = bytes_pp * best_ppitch;
 	auto alignment = std::lcm(pitch, page_size);
-	auto size = pitch * height;
+	auto size = ((pitch * height) + (page_size - 1)) & ~(page_size - 1);
 
 	auto offset = _vramAllocator.allocate(alignment + size);
 	auto buffer = std::make_shared<BufferObject>(this, alignment, size,

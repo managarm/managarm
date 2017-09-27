@@ -257,6 +257,15 @@ struct FormatInfo {
 
 std::optional<FormatInfo> getFormatInfo(uint32_t fourcc);
 
+drm_mode_modeinfo makeModeInfo(const char *name, uint32_t type,
+		uint32_t clock, unsigned int hdisplay, unsigned int hsync_start,
+		unsigned int hsync_end, unsigned int htotal, unsigned int hskew,
+		unsigned int vdisplay, unsigned int vsync_start, unsigned int vsync_end,
+		unsigned int vtotal, unsigned int vscan, uint32_t flags);
+
+void addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
+		unsigned int max_width, unsigned max_height);
+
 } //namespace drm_core
 
 #endif // CORE_DRM_CORE_HPP
