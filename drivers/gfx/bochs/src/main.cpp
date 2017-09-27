@@ -106,10 +106,10 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	_theConnector = std::make_shared<Connector>(this);
 	_primaryPlane = std::make_shared<Plane>(this);
 	
-	registerObject(_theCrtc);
-	registerObject(_theEncoder);
-	registerObject(_theConnector);
-	registerObject(_primaryPlane);
+	registerObject(_theCrtc.get());
+	registerObject(_theEncoder.get());
+	registerObject(_theConnector.get());
+	registerObject(_primaryPlane.get());
 	
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
 	_theConnector->setCurrentEncoder(_theEncoder.get());
@@ -117,9 +117,9 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	_theEncoder->setupPossibleCrtcs({_theCrtc.get()});
 	_theEncoder->setupPossibleClones({_theEncoder.get()});
 
-	setupCrtc(_theCrtc);
-	setupEncoder(_theEncoder);
-	attachConnector(_theConnector);
+	setupCrtc(_theCrtc.get());
+	setupEncoder(_theEncoder.get());
+	attachConnector(_theConnector.get());
 
 	std::vector<drm_mode_modeinfo> supported_modes;	
 	drm_core::addDmtModes(supported_modes, 1024, 768);
@@ -148,7 +148,7 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	assert(bo->getSize() >= pitch * height);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, pixel_pitch);
-	registerObject(fb);
+	registerObject(fb.get());
 	return fb;
 }
 

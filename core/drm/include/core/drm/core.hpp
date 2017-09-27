@@ -77,14 +77,14 @@ struct Device {
 	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) = 0;
 	
-	void setupCrtc(std::shared_ptr<Crtc> crtc);
-	void setupEncoder(std::shared_ptr<Encoder> encoder);
-	void attachConnector(std::shared_ptr<Connector> connector);
-	const std::vector<std::shared_ptr<Crtc>> &getCrtcs();
-	const std::vector<std::shared_ptr<Encoder>> &getEncoders();
-	const std::vector<std::shared_ptr<Connector>> &getConnectors();
+	void setupCrtc(Crtc *crtc);
+	void setupEncoder(Encoder *encoder);
+	void attachConnector(Connector *connector);
+	const std::vector<Crtc *> &getCrtcs();
+	const std::vector<Encoder *> &getEncoders();
+	const std::vector<Connector *> &getConnectors();
 	
-	void registerObject(std::shared_ptr<ModeObject> object);
+	void registerObject(ModeObject *object);
 	ModeObject *findObject(uint32_t);
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
@@ -98,10 +98,10 @@ struct Device {
 	uint32_t getMaxHeight();
 	
 private:	
-	std::vector<std::shared_ptr<Crtc>> _crtcs;
-	std::vector<std::shared_ptr<Encoder>> _encoders;
-	std::vector<std::shared_ptr<Connector>> _connectors;
-	std::unordered_map<uint32_t, std::shared_ptr<ModeObject>> _objects;
+	std::vector<Crtc *> _crtcs;
+	std::vector<Encoder *> _encoders;
+	std::vector<Connector *> _connectors;
+	std::unordered_map<uint32_t, ModeObject *> _objects;
 	range_allocator _mappingAllocator;
 	std::map<uint64_t, BufferObject *> _mappings;
 	uint32_t _minWidth;

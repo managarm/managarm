@@ -32,33 +32,33 @@
 // Device
 // ----------------------------------------------------------------
 
-void drm_core::Device::setupCrtc(std::shared_ptr<drm_core::Crtc> crtc) {
+void drm_core::Device::setupCrtc(drm_core::Crtc *crtc) {
 	crtc->index = _crtcs.size();
 	_crtcs.push_back(crtc);
 }
 
-void drm_core::Device::setupEncoder(std::shared_ptr<drm_core::Encoder> encoder) {
+void drm_core::Device::setupEncoder(drm_core::Encoder *encoder) {
 	encoder->index = _encoders.size();
 	_encoders.push_back(encoder);
 }
 
-void drm_core::Device::attachConnector(std::shared_ptr<drm_core::Connector> connector) {
+void drm_core::Device::attachConnector(drm_core::Connector *connector) {
 	_connectors.push_back(connector);
 }
 
-const std::vector<std::shared_ptr<drm_core::Crtc>> &drm_core::Device::getCrtcs() {
+const std::vector<drm_core::Crtc *> &drm_core::Device::getCrtcs() {
 	return _crtcs;
 }
 
-const std::vector<std::shared_ptr<drm_core::Encoder>> &drm_core::Device::getEncoders() {
+const std::vector<drm_core::Encoder *> &drm_core::Device::getEncoders() {
 	return _encoders;
 }
 
-const std::vector<std::shared_ptr<drm_core::Connector>> &drm_core::Device::getConnectors() {
+const std::vector<drm_core::Connector *> &drm_core::Device::getConnectors() {
 	return _connectors;
 }
 
-void drm_core::Device::registerObject(std::shared_ptr<drm_core::ModeObject> object) {
+void drm_core::Device::registerObject(drm_core::ModeObject *object) {
 	_objects.insert({object->id(), object});
 }
 
@@ -66,7 +66,7 @@ drm_core::ModeObject *drm_core::Device::findObject(uint32_t id) {
 	auto it = _objects.find(id);
 	if(it == _objects.end())
 		return nullptr;
-	return it->second.get();
+	return it->second;
 }
 
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
