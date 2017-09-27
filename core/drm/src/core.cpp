@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <deque>
 #include <experimental/optional>
+#include <optional>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -22,6 +23,7 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
+#include <libdrm/drm_fourcc.h>
 
 #include "fs.pb.h"
 #include "core/drm/core.hpp"
@@ -494,8 +496,9 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		assert(bo);
 		auto buffer = bo->sharedBufferObject();
 		
+		auto fourcc = convertLegacyFormat(req.drm_bpp(), req.drm_depth());
 		auto fb = self->_device->createFrameBuffer(buffer, req.drm_width(), req.drm_height(),
-				req.drm_bpp(), req.drm_pitch());
+				fourcc, req.drm_pitch());
 		self->attachFrameBuffer(fb);
 		resp.set_drm_fb_id(fb->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -618,4 +621,54 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 	}
 	COFIBER_RETURN();
 }))
+
+// ----------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------
+
+uint32_t drm_core::convertLegacyFormat(uint32_t bpp, uint32_t depth) {
+	switch(bpp) {
+		case 8:
+			assert(depth == 8);
+			return DRM_FORMAT_C8;
+		
+		case 16:
+			assert(depth == 15 || depth == 16);
+			if(depth == 15) {
+				return DRM_FORMAT_XRGB1555;
+			}else {
+				return DRM_FORMAT_RGB565;
+			}
+		
+		case 24:
+			assert(depth == 24);
+			return DRM_FORMAT_RGB888;
+
+		case 32:
+			assert(depth == 24 || depth == 30 || depth == 32);
+			if(depth == 24) {
+				return DRM_FORMAT_XRGB8888;
+			}else if(depth == 30) {
+				return DRM_FORMAT_XRGB2101010;
+			}else {
+				return DRM_FORMAT_ARGB8888;
+			}
+
+		default:
+			throw std::runtime_error("Bad BPP");
+	}
+}
+
+std::optional<drm_core::FormatInfo> drm_core::getFormatInfo(uint32_t fourcc) {
+	switch(fourcc) {
+		case(DRM_FORMAT_C8): return FormatInfo{1};
+		case(DRM_FORMAT_XRGB1555): return FormatInfo{2};
+		case(DRM_FORMAT_RGB565): return FormatInfo{2};
+		case(DRM_FORMAT_RGB888): return FormatInfo{3};
+		case(DRM_FORMAT_XRGB8888): return FormatInfo{4};
+		case(DRM_FORMAT_XRGB2101010): return FormatInfo{4};
+		case(DRM_FORMAT_ARGB8888): return FormatInfo{4};
+		default: return std::nullopt;
+	}
+}
 

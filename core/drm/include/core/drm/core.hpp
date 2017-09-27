@@ -5,6 +5,7 @@
 #include <queue>
 #include <map>
 #include <unordered_map>
+#include <optional>
 
 #include <arch/mem_space.hpp>
 #include <async/doorbell.hpp>
@@ -243,6 +244,18 @@ struct Assignment {
 	ModeObject *objectValue;
 	std::shared_ptr<Blob> blobValue;
 };
+
+// ---------------------------------------------
+// Formats
+// ---------------------------------------------
+
+uint32_t convertLegacyFormat(uint32_t bpp, uint32_t depth);
+
+struct FormatInfo {
+	int cpp;
+};
+
+std::optional<FormatInfo> getFormatInfo(uint32_t fourcc);
 
 } //namespace drm_core
 
