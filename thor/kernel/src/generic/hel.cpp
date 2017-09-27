@@ -1,6 +1,7 @@
 
 #include "kernel.hpp"
 #include "irq.hpp"
+#include "../arch/x86/debug.hpp"
 
 using namespace thor;
 
@@ -62,13 +63,11 @@ public:
 		Wrapper(uintptr_t context, Args &&... args)
 		: _writer{frigg::forward<Args>(args)...} {
 			setupContext(context);
-			setupLength(_writer.size());
+			setupChunk(&_writer.chunk);
 		}
 
-		Error emit(ForeignSpaceAccessor accessor) override {
-			auto err = _writer.write(frigg::move(accessor));
+		void complete() override {
 			frigg::destruct(*kernelAlloc, this);
-			return err;
 		}
 
 	private:
@@ -93,226 +92,203 @@ private:
 
 struct ManageMemoryWriter {
 	ManageMemoryWriter(Error error, uintptr_t offset, size_t length)
-	: _error(error), _offset(offset), _length(length) { }
+	: chunk{&_result, sizeof(HelManageResult), nullptr},
+			_result{translateError(error), 0, offset, length} { }
 
-	size_t size() {
-		return sizeof(HelManageResult);
-	}
-
-	Error write(ForeignSpaceAccessor accessor) {
-		HelManageResult data{translateError(_error), 0, _offset, _length};
-		return accessor.write(0, &data, sizeof(HelManageResult));
-	}
+	QueueChunk chunk;
 
 private:
-	Error _error;
-	uintptr_t _offset;
-	size_t _length;
+	HelManageResult _result;
 };
 
 struct LockMemoryWriter {
 	LockMemoryWriter(Error error)
-	: _error(error) { }
+	: chunk{&_result, sizeof(HelSimpleResult), nullptr},
+			_result{translateError(error), 0} { }
 
-	size_t size() {
-		return sizeof(HelSimpleResult);
-	}
-
-	Error write(ForeignSpaceAccessor accessor) {
-		HelSimpleResult data{translateError(_error), 0};
-		return accessor.write(0, &data, sizeof(HelSimpleResult));
-	}
+	QueueChunk chunk;
 
 private:
-	Error _error;
+	HelSimpleResult _result;
 };
 
 struct OfferWriter {
 	OfferWriter(Error error)
-	: _error(error) { }
+	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+			_result{translateError(error), 0} { }
 
-	size_t size() {
-		return sizeof(HelSimpleResult);
+	OfferWriter(const OfferWriter &) = delete;
+
+	QueueChunk *chunk() {
+		return &_chunk;
 	}
 
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		HelSimpleResult data{translateError(_error), 0};
-		return accessor.write(disp, &data, sizeof(HelSimpleResult));
+	void link(QueueChunk *next) {
+		_chunk.link = next;
 	}
 
 private:
-	Error _error;
+	QueueChunk _chunk;
+	HelSimpleResult _result;
 };
 
 struct AcceptWriter {
-	AcceptWriter(Error error, frigg::WeakPtr<Universe> universe, LaneDescriptor lane)
-	: _error(error), _weakUniverse(frigg::move(universe)), _descriptor(frigg::move(lane)) { }
-
-	size_t size() {
-		return sizeof(HelHandleResult);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		Handle handle = kHelNullHandle;
-		if(_weakUniverse) {
-			auto universe = _weakUniverse.grab();
-			assert(universe);
-			Universe::Guard lock(&universe->lock);
-			handle = universe->attachDescriptor(lock, frigg::move(_descriptor));
-		}
-
-		HelHandleResult data{translateError(_error), 0, handle};
-		return accessor.write(disp, &data, sizeof(HelHandleResult));
-	}
-
-private:
-	Error _error;
-	frigg::WeakPtr<Universe> _weakUniverse;
-	LaneDescriptor _descriptor;
-};
-
-struct SendStringWriter {
-	SendStringWriter(Error error)
-	: _error(error) { }
-
-	size_t size() {
-		return sizeof(HelSimpleResult);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		HelSimpleResult data{translateError(_error), 0};
-		return accessor.write(disp, &data, sizeof(HelSimpleResult));
-	}
-
-private:
-	Error _error;
-};
-
-struct RecvInlineWriter {
-	RecvInlineWriter(Error error, frigg::UniqueMemory<KernelAlloc> buffer)
-	: _error(error), _buffer(frigg::move(buffer)) { }
-
-	size_t size() {
-		size_t size = sizeof(HelInlineResult) + _buffer.size();
-		return (size + 7) & ~size_t(7);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		if(_buffer) {
-			HelInlineResult data{translateError(_error), 0, _buffer.size()};
-			auto err = accessor.write(disp, &data, sizeof(HelInlineResult));
-			if(err)
-				return err;
-			return accessor.write(disp + __builtin_offsetof(HelInlineResult, data),
-					_buffer.data(), _buffer.size());
-		}else{
-			HelInlineResult data{translateError(_error), 0, 0};
-			return accessor.write(disp, &data, sizeof(HelInlineResult));
-		}
-	}
-
-private:
-	Error _error;
-	frigg::UniqueMemory<KernelAlloc> _buffer;
-};
-
-struct RecvStringWriter {
-	RecvStringWriter(Error error, size_t length)
-	: _error(error), _length(length) { }
-
-	size_t size() {
-		return sizeof(HelLengthResult);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		HelLengthResult data{translateError(_error), 0, _length};
-		return accessor.write(disp, &data, sizeof(HelLengthResult));
-	}
-
-private:
-	Error _error;
-	size_t _length;
-};
-
-struct PushDescriptorWriter {
-	PushDescriptorWriter(Error error)
-	: _error(error) { }
-
-	size_t size() {
-		return sizeof(HelSimpleResult);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		HelSimpleResult data{translateError(_error), 0};
-		return accessor.write(disp, &data, sizeof(HelSimpleResult));
-	}
-
-private:
-	Error _error;
-};
-
-struct PullDescriptorWriter {
-	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> universe, AnyDescriptor descriptor)
-	: _error(error), _weakUniverse(frigg::move(universe)), _lane(frigg::move(descriptor)) { }
-
-	size_t size() {
-		return sizeof(HelHandleResult);
-	}
-
-	Error write(ForeignSpaceAccessor &accessor, uintptr_t disp) {
-		Handle handle = kHelNullHandle;
-		if(_weakUniverse) {
-			auto universe = _weakUniverse.grab();
+	AcceptWriter(Error error, frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane)
+	: _chunk{&_result, sizeof(HelHandleResult), nullptr},
+			_result{translateError(error), 0, kHelNullHandle} {
+		if(weak_universe) {
+			auto universe = weak_universe.grab();
 			assert(universe);
 
 			auto irq_lock = frigg::guard(&irqMutex());
 			Universe::Guard lock(&universe->lock);
 
-			handle = universe->attachDescriptor(lock, frigg::move(_lane));
+			_result.handle = universe->attachDescriptor(lock, frigg::move(lane));
 		}
+	}
 
-		HelHandleResult data{translateError(_error), 0, handle};
-		return accessor.write(disp, &data, sizeof(HelHandleResult));
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
 	}
 
 private:
-	Error _error;
-	frigg::WeakPtr<Universe> _weakUniverse;
-	AnyDescriptor _lane;
+	QueueChunk _chunk;
+	HelHandleResult _result;
+};
+
+struct SendStringWriter {
+	SendStringWriter(Error error)
+	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+			_result{translateError(error), 0} { }
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelSimpleResult _result;
+};
+
+struct RecvInlineWriter {
+	RecvInlineWriter(Error error, frigg::UniqueMemory<KernelAlloc> buffer)
+	: _resultChunk{&_result, sizeof(HelInlineResultNoFlex), &_bufferChunk},
+			_bufferChunk{buffer.data(), buffer.size(), nullptr},
+			_result{translateError(error), 0, buffer.size()},
+			_buffer(frigg::move(buffer)) { }
+
+	QueueChunk *chunk() {
+		return &_resultChunk;
+	}
+
+	void link(QueueChunk *next) {
+		_bufferChunk.link = next;
+	}
+
+private:
+	QueueChunk _resultChunk;
+	QueueChunk _bufferChunk;
+	HelInlineResultNoFlex _result;
+	frigg::UniqueMemory<KernelAlloc> _buffer;
+};
+
+struct RecvStringWriter {
+	RecvStringWriter(Error error, size_t length)
+	: _chunk{&_result, sizeof(HelLengthResult), nullptr},
+			_result{translateError(error), 0, length} { }
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelLengthResult _result;
+};
+
+struct PushDescriptorWriter {
+	PushDescriptorWriter(Error error)
+	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+			_result{translateError(error), 0} { }
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelSimpleResult _result;
+};
+
+struct PullDescriptorWriter {
+	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> weak_universe,
+			AnyDescriptor descriptor)
+	: _chunk{&_result, sizeof(HelHandleResult), nullptr},
+			_result{translateError(error), 0, kHelNullHandle} {
+		if(weak_universe) {
+			auto universe = weak_universe.grab();
+			assert(universe);
+
+			auto irq_lock = frigg::guard(&irqMutex());
+			Universe::Guard lock(&universe->lock);
+
+			_result.handle = universe->attachDescriptor(lock, frigg::move(descriptor));
+		}
+	}
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelHandleResult _result;
 };
 
 struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, Interrupt interrupt)
-	: _error(error), _interrupt(interrupt) { }
-
-	size_t size() {
-		return sizeof(HelObserveResult);
-	}
-
-	Error write(ForeignSpaceAccessor accessor) {
-		unsigned int observation;
-		if(_interrupt == kIntrStop) {
-			observation = kHelObserveStop;
-		}else if(_interrupt == kIntrPanic) {
-			observation = kHelObservePanic;
-		}else if(_interrupt == kIntrBreakpoint) {
-			observation = kHelObserveBreakpoint;
-		}else if(_interrupt == kIntrPageFault) {
-			observation = kHelObservePageFault;
-		}else if(_interrupt >= kIntrSuperCall) {
-			observation = kHelObserveSuperCall + (_interrupt - kIntrSuperCall);
+	: chunk{&_result, sizeof(HelObserveResult), nullptr},
+			_result{translateError(error), 0, 0} {
+		if(interrupt == kIntrStop) {
+			_result.observation = kHelObserveStop;
+		}else if(interrupt == kIntrPanic) {
+			_result.observation = kHelObservePanic;
+		}else if(interrupt == kIntrBreakpoint) {
+			_result.observation = kHelObserveBreakpoint;
+		}else if(interrupt == kIntrPageFault) {
+			_result.observation = kHelObservePageFault;
+		}else if(interrupt >= kIntrSuperCall) {
+			_result.observation = kHelObserveSuperCall + (interrupt - kIntrSuperCall);
 		}else{
 			frigg::panicLogger() << "Unexpected interrupt" << frigg::endLog;
 			__builtin_unreachable();
 		}
-
-		HelObserveResult data{translateError(_error), observation, 0};
-		return accessor.write(0, &data, sizeof(HelSimpleResult));
 	}
 
+	QueueChunk chunk;
+
 private:
-	Error _error;
-	Interrupt _interrupt;
+	HelObserveResult _result;
 };
 
 using ItemWriter = frigg::Variant<
@@ -332,42 +308,39 @@ struct MsgHandler : QueueNode {
 public:
 	MsgHandler(size_t num_items, frigg::SharedPtr<AddressSpace> space,
 			void *queue, uintptr_t context)
-	: _results(*kernelAlloc), _numComplete(0),
-			_space(frigg::move(space)), _queue(queue) {
+	: _numItems(num_items), _results(frigg::constructN<ItemWriter>(*kernelAlloc, num_items)),
+			_numComplete(0), _space(frigg::move(space)), _queue(queue) {
 		setupContext(context);
-		_results.resize(num_items);
 	}
 
 private:
-	void complete() {
-		size_t size = 0;
-		for(size_t i = 0; i < _results.size(); ++i) {
-			size += _results[i].apply([] (auto &writer) -> size_t {
-				return writer.size();
+	void submit() {
+		auto chunk = [this] (int index) {
+			return _results[index].apply([&] (auto &item) {
+				return item.chunk();
 			});
-		}
-
-		setupLength(size);
+		};
+		
+		auto link = [this] (int index, QueueChunk *next) {
+			return _results[index].apply([&] (auto &item) {
+				return item.link(next);
+			});
+		};
+		
+		for(size_t i = 1; i < _numItems; ++i)
+			link(i - 1, chunk(i));
+		
+		assert(_numItems);
+		setupChunk(chunk(0));
 		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 	}
 	
-	Error emit(ForeignSpaceAccessor accessor) override {
-		size_t disp = 0;
-		for(size_t i = 0; i < _results.size(); ++i) {
-			Error err;
-			_results[i].apply([&] (auto &writer) {
-				assert(!(disp & 7)); // TODO: Replace the magic constant by alignof(...).
-				err = writer.write(accessor, disp);
-				disp += writer.size();
-			});
-			if(err)
-				return err;
-		}
-
-		return kErrSuccess;
+	void complete() override {
+		// TODO: Destruct this.
 	}
 
-	frigg::Vector<ItemWriter, KernelAlloc> _results;
+	size_t _numItems;
+	ItemWriter *_results;
 	std::atomic<unsigned int> _numComplete;
 
 	frigg::SharedPtr<AddressSpace> _space;
@@ -381,10 +354,10 @@ struct SetResult {
 
 	template<typename... Args>
 	void operator() (Args &&... args) {
-		_handler->_results[_index] = W{frigg::forward<Args>(args)...};
+		_handler->_results[_index].emplace<W>(frigg::forward<Args>(args)...);
 		auto c = _handler->_numComplete.fetch_add(1, std::memory_order_acq_rel);
-		if(c + 1 == _handler->_results.size())
-			_handler->complete();
+		if(c + 1 == _handler->_numItems)
+			_handler->submit();
 	}
 
 private:
@@ -1093,8 +1066,6 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	return kHelErrNone;
 }
 
-#include "../arch/x86/debug.hpp"
-
 HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1176,24 +1147,25 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 
 		explicit Closure(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
 				void *queue, uintptr_t context)
-		: PrecisionTimerNode{ticks}, space{frigg::move(the_space)}, queue{queue} {
+		: PrecisionTimerNode{ticks}, space{frigg::move(the_space)}, queue{queue},
+				chunk{&result, sizeof(HelSimpleResult), nullptr},
+				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
-			setupLength(sizeof(HelSimpleResult));
+			setupChunk(&chunk);
 		}
 
 		void onElapse() override {
 			space->queueSpace.submit(space, (uintptr_t)queue, this);
 		}
 
-		Error emit(ForeignSpaceAccessor accessor) override {
-			HelSimpleResult data{translateError(kErrSuccess), 0};
-			auto err = accessor.write(0, &data, sizeof(HelSimpleResult));
+		void complete() override {
 			frigg::destruct(*kernelAlloc, this);
-			return err;
 		}
 
 		frigg::SharedPtr<AddressSpace> space;
 		void *queue;
+		QueueChunk chunk;
+		HelSimpleResult result;
 	};
 	
 	auto this_thread = getCurrentThread();
@@ -1439,29 +1411,27 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	public:
 		explicit Closure(frigg::SharedPtr<AddressSpace> space,
 				void *queue, uintptr_t context)
-		: _space{frigg::move(space)}, _queue{queue} {
+		: _space{frigg::move(space)}, _queue{queue},
+				chunk{&result, sizeof(HelEventResult), nullptr} {
 			setupContext(context);
-			setupLength(sizeof(HelEventResult));
+			setupChunk(&chunk);
 		}
 
 		void onRaise(Error error, uint64_t sequence) override {
-			_error = error;
-			_sequence = sequence;
+			result.error = translateError(error);
+			result.sequence = sequence;
 			_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
 		}
 
-		Error emit(ForeignSpaceAccessor accessor) override {
-			HelEventResult data{translateError(_error), 0, _sequence};
-			auto err = accessor.write(0, &data, sizeof(HelEventResult));
+		void complete() override {
 			frigg::destruct(*kernelAlloc, this);
-			return err;
 		}
 
 	private:
 		frigg::SharedPtr<AddressSpace> _space;
 		void *_queue;
-		Error _error;
-		uint64_t _sequence;
+		QueueChunk chunk;
+		HelEventResult result;
 	};
 	
 	auto this_thread = getCurrentThread();

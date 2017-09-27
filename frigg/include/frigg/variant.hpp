@@ -125,6 +125,15 @@ struct Variant {
 		return *reinterpret_cast<const X *>(_access());
 	}
 
+	template<typename X, int index = _variant::IndexOf<X, T...>::value,
+			typename... Args>
+	void emplace(Args &&... args) {
+		if(_tag != -1)
+			_destruct(IntegralConstant<int, 0>());
+		new (_access()) X(forward<Args>(args)...);
+		_tag = index;
+	}
+
 	template<typename F>
 	CommonType<ResultOf<F(T &)>...> apply(F functor) {
 		return _apply(IntegralConstant<int, 0>(), move(functor));
@@ -197,7 +206,7 @@ private:
 	void _destruct(IntegralConstant<int, sizeof...(T)>) {
 		assert(!"Destruction of variant with illegal tag");
 	}
-	
+
 	// assign the internal object
 	template<int index, typename X = _variant::Get<index, T...>>
 	void _assign(IntegralConstant<int, index>, Variant other) {

@@ -115,25 +115,31 @@ private:
 	> _slots;
 };
 
+struct QueueChunk {
+	void *pointer;
+	size_t size;
+	const QueueChunk *link;
+};
+
 struct QueueNode {
 	friend struct QueueSpace;
 
 	QueueNode()
-	: _length{0}, _context{0} { }
+	: _context{0}, _chunk{nullptr} { }
 
 	// Users of QueueSpace::submit() have to set this up first.
-	void setupLength(size_t length) {
-		_length = length;
-	}
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
-	
-	virtual Error emit(ForeignSpaceAccessor accessor) = 0;
+	void setupChunk(QueueChunk *chunk) {
+		_chunk = chunk;
+	}
 
+	virtual void complete();
+	
 private:
-	size_t _length;
 	uintptr_t _context;
+	const QueueChunk *_chunk;
 
 	frg::default_list_hook<QueueNode> _queueNode;
 };

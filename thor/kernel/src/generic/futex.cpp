@@ -89,9 +89,11 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 	assert(!slot->queue.empty());
 	auto address = slot->address;
 
-	auto length = slot->queue.front()->_length;
-	auto context = slot->queue.front()->_context;
+	size_t length = 0;
+	for(auto chunk = slot->queue.front()->_chunk; chunk; chunk = chunk->link)
+		length += (chunk->size + 7) & ~size_t(7);
 	assert(length % 8 == 0);
+	auto context = slot->queue.front()->_context;
 
 	auto pin = ForeignSpaceAccessor{slot->space.toShared(), address, sizeof(QueueStruct)};
 	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
@@ -155,13 +157,20 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 	err = ez.write(offsetof(ElementStruct, context), &context, sizeof(uintptr_t));
 	assert(!err);
 	
-	auto element_ptr = reinterpret_cast<void *>(address
-			+ sizeof(QueueStruct) + offset + sizeof(ElementStruct));
 //	frigg::infoLogger() << "[" << this << "] finish " << slot->queue.front() << frigg::endLog;
 	auto node = slot->queue.pop_front();
-	err = node->emit(ForeignSpaceAccessor::acquire(slot->space.toShared(),
-			element_ptr, length));
-	assert(!err);
+
+	auto accessor = ForeignSpaceAccessor::acquire(slot->space.toShared(),
+			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset
+					+ sizeof(ElementStruct)),
+			length);
+	size_t disp = 0;
+	for(auto chunk = node->_chunk; chunk; chunk = chunk->link) {
+		accessor.write(disp, chunk->pointer, chunk->size);
+		disp += (chunk->size + 7) & ~size_t(7);
+	}
+
+	node->complete();
 
 	while(true) {
 		assert(!(ke & kQueueWantNext));

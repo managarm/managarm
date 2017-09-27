@@ -258,6 +258,12 @@ struct HelInlineResult {
 	char data[];
 };
 
+struct HelInlineResultNoFlex {
+	HelError error;
+	int reserved;
+	size_t length;
+};
+
 struct HelLengthResult {
 	HelError error;
 	int reserved;
