@@ -62,11 +62,11 @@ void drm_core::Device::registerObject(drm_core::ModeObject *object) {
 	_objects.insert({object->id(), object});
 }
 
-drm_core::ModeObject *drm_core::Device::findObject(uint32_t id) {
+std::shared_ptr<drm_core::ModeObject> drm_core::Device::findObject(uint32_t id) {
 	auto it = _objects.find(id);
 	if(it == _objects.end())
 		return nullptr;
-	return it->second;
+	return it->second->sharedModeObject();
 }
 
 uint64_t drm_core::Device::installMapping(drm_core::BufferObject *bo) {
@@ -200,6 +200,14 @@ drm_core::Plane *drm_core::ModeObject::asPlane() {
 	if(_type != ObjectType::plane)
 		return nullptr;
 	return static_cast<Plane *>(this);
+}
+
+void drm_core::ModeObject::setupWeakPtr(std::weak_ptr<ModeObject> self) {
+	_self = self;
+}
+
+std::shared_ptr<drm_core::ModeObject> drm_core::ModeObject::sharedModeObject() {
+	return _self.lock();
 }
 
 // ----------------------------------------------------------------
@@ -577,7 +585,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		if(req.drm_mode_valid()) {
 			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
 			assignments.push_back(Assignment{ 
-				crtc,
+				crtc->sharedModeObject(),
 				&self->_device->modeIdProperty,
 				0,
 				nullptr,
@@ -588,7 +596,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 			auto fb = self->_device->findObject(id);
 			assert(fb);
 			assignments.push_back(Assignment{ 
-				crtc->primaryPlane(),
+				crtc->primaryPlane()->sharedModeObject(),
 				&self->_device->fbIdProperty, 
 				0,
 				fb,
@@ -597,7 +605,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		}else{
 			std::vector<drm_core::Assignment> assignments;
 			assignments.push_back(Assignment{ 
-				crtc,
+				crtc->sharedModeObject(),
 				&self->_device->modeIdProperty,
 				0,
 				nullptr,

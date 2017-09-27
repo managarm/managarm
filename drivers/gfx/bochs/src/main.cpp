@@ -102,9 +102,13 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	}
 
 	_theCrtc = std::make_shared<Crtc>(this);
+	_theCrtc->setupWeakPtr(_theCrtc);
 	_theEncoder = std::make_shared<Encoder>(this);
+	_theEncoder->setupWeakPtr(_theEncoder);
 	_theConnector = std::make_shared<Connector>(this);
+	_theConnector->setupWeakPtr(_theConnector);
 	_primaryPlane = std::make_shared<Plane>(this);
+	_primaryPlane->setupWeakPtr(_primaryPlane);
 	
 	registerObject(_theCrtc.get());
 	registerObject(_theEncoder.get());
@@ -148,6 +152,7 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	assert(bo->getSize() >= pitch * height);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, pixel_pitch);
+	fb->setupWeakPtr(fb);
 	registerObject(fb.get());
 	return fb;
 }

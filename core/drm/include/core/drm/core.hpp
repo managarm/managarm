@@ -85,7 +85,7 @@ struct Device {
 	const std::vector<Connector *> &getConnectors();
 	
 	void registerObject(ModeObject *object);
-	ModeObject *findObject(uint32_t);
+	std::shared_ptr<ModeObject> findObject(uint32_t);
 
 	uint64_t installMapping(drm_core::BufferObject *bo);
 	std::pair<uint64_t, BufferObject *> findMapping(uint64_t offset);
@@ -156,10 +156,14 @@ struct ModeObject {
 	Crtc *asCrtc();
 	FrameBuffer *asFrameBuffer();
 	Plane *asPlane();
+
+	void setupWeakPtr(std::weak_ptr<ModeObject> self);
+	std::shared_ptr<ModeObject> sharedModeObject();
 	
 private:
 	ObjectType _type;
 	uint32_t _id;
+	std::weak_ptr<ModeObject> _self;
 };
 
 struct Crtc : ModeObject {
@@ -238,10 +242,10 @@ struct Plane : ModeObject {
 };
 
 struct Assignment {
-	ModeObject *object;
+	std::shared_ptr<ModeObject> object;
 	Property *property;
 	uint64_t intValue;
-	ModeObject *objectValue;
+	std::shared_ptr<ModeObject> objectValue;
 	std::shared_ptr<Blob> blobValue;
 };
 
