@@ -50,14 +50,14 @@ enum {
 	VIRTQ_USED_F_NO_NOTIFY = 1 // no need to notify the device
 };
 
-struct VirtAvailHeader {
+struct VirtAvailableHeader {
 	uint16_t flags;
 	uint16_t headIndex;
 };
-struct VirtAvailRing {
+struct VirtAvailableRing {
 	uint16_t descIndex;
 };
-struct VirtAvailFooter {
+struct VirtAvailableFooter {
 	uint16_t eventIndex;
 };
 
@@ -73,10 +73,11 @@ struct VirtUsedFooter {
 	uint16_t eventIndex;
 };
 
+struct Queue;
+
 // --------------------------------------------------------
 // GenericDevice
 // --------------------------------------------------------
-
 
 struct GenericDevice {
 	friend class Queue;
@@ -109,77 +110,101 @@ protected:
 // Queue
 // --------------------------------------------------------
 
+struct HostToDeviceType { };
+struct DeviceToHostType { };
+
+inline constexpr HostToDeviceType hostToDevice;
+inline constexpr DeviceToHostType deviceToHost;
+
+// Handle to a virtq descriptor.
+struct Handle {
+	Handle(Queue *queue, size_t table_index);
+	
+	size_t tableIndex() {
+		return _tableIndex;
+	}
+
+	void setupBuffer(HostToDeviceType, const void *buffer, size_t size);
+	void setupBuffer(DeviceToHostType, void *buffer, size_t size);
+	void setupLink(Handle other);
+
+private:
+	Queue *_queue;
+	size_t _tableIndex;
+};
+
+// Represents a single virtq.
 struct Queue {
-	Queue(GenericDevice &device, size_t queue_index);
+	Queue(GenericDevice *device, size_t queue_index);
 
 	VirtDescriptor *accessDescriptor(size_t index);
 
-	// initializes the virtqueue. called during driver initialization
+	// Initializes the virtq. Called this during driver initialization.
 	void setupQueue();
 
-	// returns the number of descriptors in this virtqueue
-	size_t getSize();
+	// Returns the number of descriptors in this virtq.
+	size_t numDescriptors();
 
-	// returns the number of unused descriptors
-	size_t numLockable();
+	// Returns the number of unused descriptors.
+	size_t numUnusedDescriptors();
 
-	// allocates a single descriptor
-	// the descriptor is freed when the device returns via the virtqueue's used ring
-	size_t lockDescriptor();
+	// Allocates a single descriptor.
+	// The descriptor is automatically freed when the device returns it.
+	Handle obtainDescriptor();
 
-	// posts a descriptor to the virtqueue's available ring
-	void postDescriptor(size_t desc_index);
+	// Posts a descriptor to the virtq's available ring.
+	void postDescriptor(Handle descriptor);
 
-	// notifies the device that new descriptors have been posted to the available ring
+	// Notifies the device that new descriptors have been posted.
 	void notifyDevice();
 
-	// processes interrupts for this virtqueue
-	// calls retrieveDescriptor() to complete individual requests
+	// Processes interrupts for this virtq.
+	// Calls retrieveDescriptor() to complete individual requests.
 	void processInterrupt();
 
 private:
 	static constexpr size_t kQueueAlign = 0x1000;
 
-	auto accessAvailHeader() {
-		return reinterpret_cast<VirtAvailHeader *>(availPtr);
+	auto accessAvailableHeader() {
+		return reinterpret_cast<VirtAvailableHeader *>(_availablePtr);
 	}
-	auto accessAvailRing(size_t index) {
-		return reinterpret_cast<VirtAvailRing *>(availPtr + sizeof(VirtAvailHeader)
-				+ index * sizeof(VirtAvailRing));
+	auto accessAvailableRing(size_t index) {
+		return reinterpret_cast<VirtAvailableRing *>(_availablePtr + sizeof(VirtAvailableHeader)
+				+ index * sizeof(VirtAvailableRing));
 	}
-	auto accessAvailFooter() {
-		return reinterpret_cast<VirtAvailFooter *>(availPtr + sizeof(VirtAvailHeader)
-				+ queueSize * sizeof(VirtAvailRing));
+	auto accessAvailableFooter() {
+		return reinterpret_cast<VirtAvailableFooter *>(_availablePtr + sizeof(VirtAvailableHeader)
+				+ _queueSize * sizeof(VirtAvailableRing));
 	}
 
 	auto accessUsedHeader() {
-		return reinterpret_cast<VirtUsedHeader *>(usedPtr);
+		return reinterpret_cast<VirtUsedHeader *>(_usedPtr);
 	}
 	auto accessUsedRing(size_t index) {
-		return reinterpret_cast<VirtUsedRing *>(usedPtr + sizeof(VirtUsedHeader)
+		return reinterpret_cast<VirtUsedRing *>(_usedPtr + sizeof(VirtUsedHeader)
 				+ index * sizeof(VirtUsedRing));
 	}
 	auto accessUsedFooter() {
-		return reinterpret_cast<VirtUsedFooter *>(usedPtr + sizeof(VirtUsedHeader)
-				+ queueSize * sizeof(VirtUsedRing));
+		return reinterpret_cast<VirtUsedFooter *>(_usedPtr + sizeof(VirtUsedHeader)
+				+ _queueSize * sizeof(VirtUsedRing));
 	}
 
-	GenericDevice &device;
+	GenericDevice *_device;
 
-	// index of this queue relativate to its owning device
-	size_t queueIndex;
+	// Index of this queue as part of its owning device.
+	size_t _queueIndex;
 	
 	// number of descriptors in this queue
-	size_t queueSize;
+	size_t _queueSize;
 	
-	// pointers to different data structures of this queue
-	char *descriptorPtr, *availPtr, *usedPtr;
+	// Pointers to different data structures of this virtq.
+	char *_descriptorPtr, *_availablePtr, *_usedPtr;
 
-	// keeps track of unused descriptor indices
-	std::vector<uint16_t> descriptorStack;
+	// Keeps track of unused descriptor indices.
+	std::vector<uint16_t> _descriptorStack;
 
-	// keeps track of which entries in the used ring have already been processed
-	uint16_t progressHead;
+	// Keeps track of which entries in the used ring have already been processed.
+	uint16_t _progressHead;
 };
 
 } // namespace virtio

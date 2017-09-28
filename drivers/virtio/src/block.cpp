@@ -24,14 +24,14 @@ UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors)
 // --------------------------------------------------------
 
 Device::Device()
-: blockfs::BlockDevice(512), requestQueue(*this, 0) { }
+: blockfs::BlockDevice(512), requestQueue(this, 0) { }
 
 void Device::doInitialize() {
 	// perform device specific setup
 	requestQueue.setupQueue();
-	userRequestPtrs.resize(requestQueue.getSize());
-	virtRequestBuffer = (VirtRequest *)malloc(requestQueue.getSize() * sizeof(VirtRequest));
-	statusBuffer = (uint8_t *)malloc(requestQueue.getSize());
+	userRequestPtrs.resize(requestQueue.numDescriptors());
+	virtRequestBuffer = (VirtRequest *)malloc(requestQueue.numDescriptors() * sizeof(VirtRequest));
+	statusBuffer = (uint8_t *)malloc(requestQueue.numDescriptors());
 
 	// natural alignment makes sure that request headers do not cross page boundaries
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
@@ -125,77 +125,53 @@ COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
 }))
 
 bool Device::requestIsReady(UserRequest *user_request) {
-	return requestQueue.numLockable() > 2;
+	return requestQueue.numUnusedDescriptors() > 2;
 }
 
 void Device::submitRequest(UserRequest *user_request) {
 	assert(user_request->numSubmitted == 0);
 	assert(user_request->sectorsRead < user_request->numSectors);
 
-	// setup the actual request header
-	size_t header_index = requestQueue.lockDescriptor();
+	// Setup the descriptor for the request header.
+	auto header_handle = requestQueue.obtainDescriptor();
 
-	VirtRequest *header = &virtRequestBuffer[header_index];
+	VirtRequest *header = &virtRequestBuffer[header_handle.tableIndex()];
 	header->type = VIRTIO_BLK_T_IN;
 	header->reserved = 0;
 	header->sector = user_request->sector + user_request->sectorsRead;
 
-	// setup a descriptor for the request header
-	uintptr_t header_physical;
-	HEL_CHECK(helPointerPhysical(header, &header_physical));
-	
-	VirtDescriptor *header_desc = requestQueue.accessDescriptor(header_index);
-	header_desc->address = header_physical;
-	header_desc->length = sizeof(VirtRequest);
-	header_desc->flags = 0;
+	header_handle.setupBuffer(hostToDevice, header, sizeof(VirtRequest));
 
-	size_t num_lockable = requestQueue.numLockable();
+	// Setup descriptors for the transfered data.
+	size_t num_lockable = requestQueue.numUnusedDescriptors();
 	assert(num_lockable > 2);
 	size_t max_data_chain = num_lockable - 2;
 
-	// setup descriptors for the transfered data
-	VirtDescriptor *chain_desc = header_desc;
+	auto chain_handle = header_handle;
 	for(size_t i = 0; i < max_data_chain; i++) {
 		size_t offset = user_request->sectorsRead + user_request->numSubmitted;
 		if(offset == user_request->numSectors)
 			break;
 		assert(offset < user_request->numSectors);
-		
-		uintptr_t data_physical;
-		HEL_CHECK(helPointerPhysical((char *)user_request->buffer + offset * 512,
-				&data_physical));
 
-		size_t data_index = requestQueue.lockDescriptor();
-		VirtDescriptor *data_desc = requestQueue.accessDescriptor(data_index);
-		data_desc->address = data_physical;
-		data_desc->length = 512;
-		data_desc->flags = VIRTQ_DESC_F_WRITE;
-
-		chain_desc->flags |= VIRTQ_DESC_F_NEXT;
-		chain_desc->next = data_index;
+		auto data_handle = requestQueue.obtainDescriptor();
+		data_handle.setupBuffer(deviceToHost, (char *)user_request->buffer + offset * 512, 512);
+		chain_handle.setupLink(data_handle);
 
 		user_request->numSubmitted++;
-		chain_desc = data_desc;
+		chain_handle = data_handle;
 	}
 //	printf("Submitting %lu data descriptors\n", user_request->numSubmitted);
 
-	// setup a descriptor for the status byte	
-	uintptr_t status_physical;
-	HEL_CHECK(helPointerPhysical(&statusBuffer[header_index], &status_physical));
-	
-	size_t status_index = requestQueue.lockDescriptor();
-	VirtDescriptor *status_desc = requestQueue.accessDescriptor(status_index);
-	status_desc->address = status_physical;
-	status_desc->length = 1;
-	status_desc->flags = VIRTQ_DESC_F_WRITE;
+	// Setup a descriptor for the status byte.
+	auto status_handle = requestQueue.obtainDescriptor();
+	status_handle.setupBuffer(deviceToHost, &statusBuffer[header_handle.tableIndex()], 1);
+	chain_handle.setupLink(status_handle);
 
-	chain_desc->flags |= VIRTQ_DESC_F_NEXT;
-	chain_desc->next = status_index;
-
-	// submit the request to the device
-	assert(!userRequestPtrs[header_index]);
-	userRequestPtrs[header_index] = user_request;
-	requestQueue.postDescriptor(header_index);
+	// Submit the request to the device
+	assert(!userRequestPtrs[header_handle.tableIndex()]);
+	userRequestPtrs[header_handle.tableIndex()] = user_request;
+	requestQueue.postDescriptor(header_handle);
 	requestQueue.notifyDevice();
 }
 
