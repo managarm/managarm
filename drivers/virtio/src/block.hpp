@@ -61,7 +61,7 @@ private:
 	bool requestIsReady(UserRequest *user_request);
 	
 	// submits a single request to the device
-	void submitRequest(UserRequest *user_request);
+	cofiber::no_future submitRequest(UserRequest *user_request);
 
 	// the single virtqueue of this virtio-block device
 	Queue requestQueue;

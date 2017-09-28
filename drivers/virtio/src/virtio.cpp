@@ -148,13 +148,18 @@ size_t Queue::numUnusedDescriptors() {
 	return _descriptorStack.size();
 }
 
-Handle Queue::obtainDescriptor() {
-	assert(!_descriptorStack.empty());
-	size_t table_index = _descriptorStack.back();
-	_descriptorStack.pop_back();
-	memset(accessDescriptor(table_index), 0, sizeof(VirtDescriptor));
-	return Handle{this, table_index};
-}
+COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
+	while(true) {
+		if(_descriptorStack.empty()) {
+			COFIBER_AWAIT _descriptorDoorbell.async_wait();
+		}else{
+			size_t table_index = _descriptorStack.back();
+			_descriptorStack.pop_back();
+			memset(accessDescriptor(table_index), 0, sizeof(VirtDescriptor));
+			COFIBER_RETURN((Handle{this, table_index}));
+		}
+	}
+}))
 
 void Queue::postDescriptor(Handle descriptor) {
 	size_t head = accessAvailableHeader()->headIndex;
@@ -179,13 +184,13 @@ void Queue::processInterrupt() {
 		
 		asm volatile ( "" : : : "memory" );
 		
-		// call the GenericDevice to complete the request
+		// Call the GenericDevice to complete the request.
 		auto desc_index = accessUsedRing(_progressHead % _queueSize)->descIndex;
 		assert(desc_index < _queueSize);
 		_device->retrieveDescriptor(_queueIndex, desc_index,
 				accessUsedRing(_progressHead % _queueSize)->written);
 
-		// free all descriptors in the descriptor chain
+		// Free all descriptors in the descriptor chain.
 		auto chain = desc_index;
 		while(accessDescriptor(chain)->flags & VIRTQ_DESC_F_NEXT) {
 			auto successor = accessDescriptor(chain)->next;
@@ -193,6 +198,7 @@ void Queue::processInterrupt() {
 			chain = successor;
 		}
 		_descriptorStack.push_back(chain);
+		_descriptorDoorbell.ring();
 
 		_progressHead++;
 	}

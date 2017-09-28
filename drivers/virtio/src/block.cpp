@@ -128,12 +128,12 @@ bool Device::requestIsReady(UserRequest *user_request) {
 	return requestQueue.numUnusedDescriptors() > 2;
 }
 
-void Device::submitRequest(UserRequest *user_request) {
+COFIBER_ROUTINE(cofiber::no_future, Device::submitRequest(UserRequest *user_request), ([=] {
 	assert(user_request->numSubmitted == 0);
 	assert(user_request->sectorsRead < user_request->numSectors);
 
 	// Setup the descriptor for the request header.
-	auto header_handle = requestQueue.obtainDescriptor();
+	auto header_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
 
 	VirtRequest *header = &virtRequestBuffer[header_handle.tableIndex()];
 	header->type = VIRTIO_BLK_T_IN;
@@ -154,7 +154,7 @@ void Device::submitRequest(UserRequest *user_request) {
 			break;
 		assert(offset < user_request->numSectors);
 
-		auto data_handle = requestQueue.obtainDescriptor();
+		auto data_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
 		data_handle.setupBuffer(deviceToHost, (char *)user_request->buffer + offset * 512, 512);
 		chain_handle.setupLink(data_handle);
 
@@ -164,7 +164,7 @@ void Device::submitRequest(UserRequest *user_request) {
 //	printf("Submitting %lu data descriptors\n", user_request->numSubmitted);
 
 	// Setup a descriptor for the status byte.
-	auto status_handle = requestQueue.obtainDescriptor();
+	auto status_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
 	status_handle.setupBuffer(deviceToHost, &statusBuffer[header_handle.tableIndex()], 1);
 	chain_handle.setupLink(status_handle);
 
@@ -173,6 +173,6 @@ void Device::submitRequest(UserRequest *user_request) {
 	userRequestPtrs[header_handle.tableIndex()] = user_request;
 	requestQueue.postDescriptor(header_handle);
 	requestQueue.notifyDevice();
-}
+}))
 
 } } // namespace virtio::block

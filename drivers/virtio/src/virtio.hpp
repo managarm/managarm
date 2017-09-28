@@ -6,6 +6,7 @@
 
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
+#include <async/doorbell.hpp>
 #include <helix/ipc.hpp>
 
 namespace virtio {
@@ -150,7 +151,7 @@ struct Queue {
 
 	// Allocates a single descriptor.
 	// The descriptor is automatically freed when the device returns it.
-	Handle obtainDescriptor();
+	async::result<Handle> obtainDescriptor();
 
 	// Posts a descriptor to the virtq's available ring.
 	void postDescriptor(Handle descriptor);
@@ -194,7 +195,7 @@ private:
 	// Index of this queue as part of its owning device.
 	size_t _queueIndex;
 	
-	// number of descriptors in this queue
+	// Number of descriptors in this queue.
 	size_t _queueSize;
 	
 	// Pointers to different data structures of this virtq.
@@ -202,6 +203,8 @@ private:
 
 	// Keeps track of unused descriptor indices.
 	std::vector<uint16_t> _descriptorStack;
+
+	async::doorbell _descriptorDoorbell;
 
 	// Keeps track of which entries in the used ring have already been processed.
 	uint16_t _progressHead;
