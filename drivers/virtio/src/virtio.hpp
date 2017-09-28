@@ -95,11 +95,6 @@ struct GenericDevice {
 	// this is called after features are negotiated
 	virtual void doInitialize() = 0;
 
-	virtual void retrieveDescriptor(size_t queue_index,
-			size_t desc_index, size_t bytes_written) = 0;
-
-	virtual void afterRetrieve() = 0;
-
 private:
 	arch::io_space space;
 
@@ -134,27 +129,29 @@ private:
 	size_t _tableIndex;
 };
 
+struct Request {
+	void (*complete)(Request *);
+};
+
 // Represents a single virtq.
 struct Queue {
 	Queue(GenericDevice *device, size_t queue_index);
 
 	VirtDescriptor *accessDescriptor(size_t index);
 
-	// Initializes the virtq. Called this during driver initialization.
+	// Initializes the virtq. Call this during driver initialization.
 	void setupQueue();
 
 	// Returns the number of descriptors in this virtq.
 	size_t numDescriptors();
-
-	// Returns the number of unused descriptors.
-	size_t numUnusedDescriptors();
 
 	// Allocates a single descriptor.
 	// The descriptor is automatically freed when the device returns it.
 	async::result<Handle> obtainDescriptor();
 
 	// Posts a descriptor to the virtq's available ring.
-	void postDescriptor(Handle descriptor);
+	void postDescriptor(Handle descriptor, Request *request,
+			void (*complete)(Request *));
 
 	// Notifies the device that new descriptors have been posted.
 	void notifyDevice();
@@ -197,7 +194,7 @@ private:
 	
 	// Number of descriptors in this queue.
 	size_t _queueSize;
-	
+
 	// Pointers to different data structures of this virtq.
 	char *_descriptorPtr, *_availablePtr, *_usedPtr;
 
@@ -205,6 +202,8 @@ private:
 	std::vector<uint16_t> _descriptorStack;
 
 	async::doorbell _descriptorDoorbell;
+
+	std::vector<Request *> _activeRequests;
 
 	// Keeps track of which entries in the used ring have already been processed.
 	uint16_t _progressHead;

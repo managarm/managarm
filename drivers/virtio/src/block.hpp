@@ -23,24 +23,24 @@ enum {
 	VIRTIO_BLK_T_OUT = 1
 };
 
+struct Device;
+
 // --------------------------------------------------------
 // UserRequest
 // --------------------------------------------------------
 
-struct UserRequest {
+struct UserRequest : Request {
 	UserRequest(uint64_t sector, void *buffer, size_t num_sectors);
 
 	uint64_t sector;
 	void *buffer;
 	size_t numSectors;
 
-	size_t numSubmitted;
-	size_t sectorsRead;
 	async::promise<void> promise;
 };
 
 // --------------------------------------------------------
-// UserRequest
+// Device
 // --------------------------------------------------------
 
 struct Device : public GenericDevice, public blockfs::BlockDevice {
@@ -50,36 +50,25 @@ struct Device : public GenericDevice, public blockfs::BlockDevice {
 			void *buffer, size_t num_sectors) override;
 
 	void doInitialize() override;
-	void retrieveDescriptor(size_t queue_index,
-			size_t desc_index, size_t bytes_written) override;
-	void afterRetrieve() override;
-
-	cofiber::no_future processIrqs();
 
 private:
-	// returns true iff the request can be submitted to the device
-	bool requestIsReady(UserRequest *user_request);
+	// Submits requests from _pendingQueue to the device.
+	cofiber::no_future _processRequests();
 	
-	// submits a single request to the device
-	cofiber::no_future submitRequest(UserRequest *user_request);
+	cofiber::no_future _processIrqs();
 
-	// the single virtqueue of this virtio-block device
-	Queue requestQueue;
+	// The single virtq of this device.
+	Queue _requestQueue;
+
+	// Stores UserRequest objects that have not been submitted yet.
+	std::queue<UserRequest *> _pendingQueue;
+
+	async::doorbell _pendingDoorbell;
 
 	// these two buffer store virtio-block request header and status bytes
 	// they are indexed by the index of the request's first descriptor
 	VirtRequest *virtRequestBuffer;
 	uint8_t *statusBuffer;
-
-	// memorizes UserRequest objects that have been submitted to the queue
-	// indexed by the index of the request's first descriptor
-	std::vector<UserRequest *> userRequestPtrs;
-
-	// stores UserRequest objects that have not been submitted yet
-	std::queue<UserRequest *> pendingRequests;
-	
-	// stores UserRequest objects that were retrieved and completed
-	std::vector<UserRequest *> completeStack;
 };
 
 } } // namespace virtio::block

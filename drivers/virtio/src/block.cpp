@@ -1,7 +1,6 @@
 
 #include <stdlib.h>
-#include <stdio.h>
-
+#include <iostream>
 #include <helix/await.hpp>
 
 #include "block.hpp"
@@ -16,99 +15,54 @@ static bool logInitiateRetire = false;
 // --------------------------------------------------------
 
 UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors)
-: sector(sector), buffer(buffer), numSectors(num_sectors),
-		numSubmitted(0), sectorsRead(0) { }
+: sector{sector}, buffer{buffer}, numSectors{num_sectors} { }
 
 // --------------------------------------------------------
 // Device
 // --------------------------------------------------------
 
 Device::Device()
-: blockfs::BlockDevice(512), requestQueue(this, 0) { }
+: blockfs::BlockDevice(512), _requestQueue(this, 0) { }
 
 void Device::doInitialize() {
 	// perform device specific setup
-	requestQueue.setupQueue();
-	userRequestPtrs.resize(requestQueue.numDescriptors());
-	virtRequestBuffer = (VirtRequest *)malloc(requestQueue.numDescriptors() * sizeof(VirtRequest));
-	statusBuffer = (uint8_t *)malloc(requestQueue.numDescriptors());
+	_requestQueue.setupQueue();
+	virtRequestBuffer = (VirtRequest *)malloc(_requestQueue.numDescriptors() * sizeof(VirtRequest));
+	statusBuffer = (uint8_t *)malloc(_requestQueue.numDescriptors());
 
 	// natural alignment makes sure that request headers do not cross page boundaries
 	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
 	
 	// setup an interrupt for the device
-	processIrqs();
+	_processRequests();
+	_processIrqs();
 
 	blockfs::runDevice(this);
 }
 
-async::result<void> Device::readSectors(uint64_t sector, void *buffer, size_t num_sectors) {
+COFIBER_ROUTINE(async::result<void>, Device::readSectors(uint64_t sector,
+		void *buffer, size_t num_sectors), ([=] {
 	// natural alignment makes sure a sector does not cross a page boundary
 	assert(((uintptr_t)buffer % 512) == 0);
-
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
-	UserRequest *user_request = new UserRequest(sector, buffer, num_sectors);
-	auto future = user_request->promise.async_get();
+	// Limit to ensure that we don't monopolize the device.
+	auto max_sectors = _requestQueue.numDescriptors() / 4;
+	assert(max_sectors >= 1);
 
-//	FIXME: is this assertion still nesecarry?
-//	assert(pendingRequests.empty());
-	if(!requestIsReady(user_request)) {
-		pendingRequests.push(user_request);
-	}else{
-		submitRequest(user_request);
+	for(size_t progress = 0; progress < num_sectors; progress += max_sectors) {
+		auto request = new UserRequest(sector + progress, (char *)buffer + 512 * progress,
+				std::min(num_sectors - progress, max_sectors));
+		_pendingQueue.push(request);
+		_pendingDoorbell.ring();
+		COFIBER_AWAIT request->promise.async_get();
+		delete request;
 	}
 
-	return future;
-}
+	COFIBER_RETURN();
+}))
 
-void Device::retrieveDescriptor(size_t queue_index, size_t desc_index, size_t bytes_written) {
-	assert(queue_index == 0);
-
-	UserRequest *user_request = userRequestPtrs[desc_index];
-	assert(user_request);
-	userRequestPtrs[desc_index] = nullptr;
-
-	// check the status byte
-	assert(user_request->numSubmitted > 0);
-	assert(statusBuffer[desc_index] == 0);
-
-	user_request->sectorsRead += user_request->numSubmitted;
-	user_request->numSubmitted = 0;
-	
-	if(logInitiateRetire)
-		printf("Initiate %p\n", user_request);
-
-	// re-submit the request if it is not complete yet
-	if(user_request->sectorsRead < user_request->numSectors) {
-		pendingRequests.push(user_request);
-	}else{
-		completeStack.push_back(user_request);
-	}
-}
-
-void Device::afterRetrieve() {
-	while(!pendingRequests.empty()) {
-		UserRequest *user_request = pendingRequests.front();
-		if(!requestIsReady(user_request))
-			break;
-		submitRequest(user_request);
-		pendingRequests.pop();
-	}
-
-	while(!completeStack.empty()) {
-		UserRequest *user_request = completeStack.back();
-		user_request->promise.set_value();
-
-		if(logInitiateRetire)
-			printf("Retire %p\n", user_request);
-
-		delete user_request;
-		completeStack.pop_back();
-	}
-}
-
-COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, Device::_processIrqs(), ([=] {
 	uint64_t sequence;
 	while(true) {
 		helix::AwaitEvent await;
@@ -120,59 +74,58 @@ COFIBER_ROUTINE(cofiber::no_future, Device::processIrqs(), ([=] {
 
 		readIsr();
 		HEL_CHECK(helAcknowledgeIrq(interrupt.getHandle(), 0, sequence));
-		requestQueue.processInterrupt();
+		_requestQueue.processInterrupt();
 	}
 }))
 
-bool Device::requestIsReady(UserRequest *user_request) {
-	return requestQueue.numUnusedDescriptors() > 2;
-}
+COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
+	while(true) {
+		if(_pendingQueue.empty()) {
+			COFIBER_AWAIT _pendingDoorbell.async_wait();
+			continue;
+		}
 
-COFIBER_ROUTINE(cofiber::no_future, Device::submitRequest(UserRequest *user_request), ([=] {
-	assert(user_request->numSubmitted == 0);
-	assert(user_request->sectorsRead < user_request->numSectors);
+		auto request = _pendingQueue.front();
+		_pendingQueue.pop();
 
-	// Setup the descriptor for the request header.
-	auto header_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
+		// Setup the descriptor for the request header.
+		auto header_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();
 
-	VirtRequest *header = &virtRequestBuffer[header_handle.tableIndex()];
-	header->type = VIRTIO_BLK_T_IN;
-	header->reserved = 0;
-	header->sector = user_request->sector + user_request->sectorsRead;
+		VirtRequest *header = &virtRequestBuffer[header_handle.tableIndex()];
+		header->type = VIRTIO_BLK_T_IN;
+		header->reserved = 0;
+		header->sector = request->sector;
 
-	header_handle.setupBuffer(hostToDevice, header, sizeof(VirtRequest));
+		header_handle.setupBuffer(hostToDevice, header, sizeof(VirtRequest));
+		
+		// Setup descriptors for the transfered data.
+		auto chain_handle = header_handle;
+		for(size_t i = 0; i < request->numSectors; i++) {
+			auto data_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();
+			data_handle.setupBuffer(deviceToHost, (char *)request->buffer + 512 * i, 512);
+			chain_handle.setupLink(data_handle);
+			chain_handle = data_handle;
+		}
 
-	// Setup descriptors for the transfered data.
-	size_t num_lockable = requestQueue.numUnusedDescriptors();
-	assert(num_lockable > 2);
-	size_t max_data_chain = num_lockable - 2;
+		if(logInitiateRetire)
+			std::cout << "Submitting " << request->numSectors
+					<< " data descriptors" << std::endl;
 
-	auto chain_handle = header_handle;
-	for(size_t i = 0; i < max_data_chain; i++) {
-		size_t offset = user_request->sectorsRead + user_request->numSubmitted;
-		if(offset == user_request->numSectors)
-			break;
-		assert(offset < user_request->numSectors);
+		// Setup a descriptor for the status byte.
+		auto status_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();
+		status_handle.setupBuffer(deviceToHost, &statusBuffer[header_handle.tableIndex()], 1);
+		chain_handle.setupLink(status_handle);
 
-		auto data_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
-		data_handle.setupBuffer(deviceToHost, (char *)user_request->buffer + offset * 512, 512);
-		chain_handle.setupLink(data_handle);
-
-		user_request->numSubmitted++;
-		chain_handle = data_handle;
+		// Submit the request to the device
+		_requestQueue.postDescriptor(header_handle, request, [] (Request *base_request) {
+			auto request = static_cast<UserRequest *>(base_request);
+			if(logInitiateRetire)
+				std::cout << "Retiring " << request->numSectors
+						<< " data descriptors" << std::endl;
+			request->promise.set_value();
+		});
+		_requestQueue.notifyDevice();
 	}
-//	printf("Submitting %lu data descriptors\n", user_request->numSubmitted);
-
-	// Setup a descriptor for the status byte.
-	auto status_handle = COFIBER_AWAIT requestQueue.obtainDescriptor();
-	status_handle.setupBuffer(deviceToHost, &statusBuffer[header_handle.tableIndex()], 1);
-	chain_handle.setupLink(status_handle);
-
-	// Submit the request to the device
-	assert(!userRequestPtrs[header_handle.tableIndex()]);
-	userRequestPtrs[header_handle.tableIndex()] = user_request;
-	requestQueue.postDescriptor(header_handle);
-	requestQueue.notifyDevice();
 }))
 
 } } // namespace virtio::block

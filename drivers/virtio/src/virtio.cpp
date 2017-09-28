@@ -103,6 +103,7 @@ void Queue::setupQueue() {
 
 	for(size_t i = 0; i < _queueSize; i++)
 		_descriptorStack.push_back(i);
+	_activeRequests.resize(_queueSize);
 
 	// Determine the queue size in bytes.
 	size_t available_offset = _queueSize * sizeof(VirtDescriptor);
@@ -144,10 +145,6 @@ size_t Queue::numDescriptors() {
 	return _queueSize;
 }
 
-size_t Queue::numUnusedDescriptors() {
-	return _descriptorStack.size();
-}
-
 COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
 	while(true) {
 		if(_descriptorStack.empty()) {
@@ -161,7 +158,13 @@ COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
 	}
 }))
 
-void Queue::postDescriptor(Handle descriptor) {
+void Queue::postDescriptor(Handle descriptor, Request *request,
+		void (*complete)(Request *)) {
+	request->complete = complete;
+
+	assert(!_activeRequests[descriptor.tableIndex()]);
+	_activeRequests[descriptor.tableIndex()] = request;
+
 	size_t head = accessAvailableHeader()->headIndex;
 	accessAvailableRing(head % _queueSize)->descIndex = descriptor.tableIndex();
 
@@ -184,14 +187,17 @@ void Queue::processInterrupt() {
 		
 		asm volatile ( "" : : : "memory" );
 		
-		// Call the GenericDevice to complete the request.
-		auto desc_index = accessUsedRing(_progressHead % _queueSize)->descIndex;
-		assert(desc_index < _queueSize);
-		_device->retrieveDescriptor(_queueIndex, desc_index,
-				accessUsedRing(_progressHead % _queueSize)->written);
+		auto table_index = accessUsedRing(_progressHead % _queueSize)->descIndex;
+		assert(table_index < _queueSize);
+
+		// Call the Request completion handler.
+		auto request = _activeRequests[table_index];
+		assert(request);
+		_activeRequests[table_index] = nullptr;
+		request->complete(request);
 
 		// Free all descriptors in the descriptor chain.
-		auto chain = desc_index;
+		auto chain = table_index;
 		while(accessDescriptor(chain)->flags & VIRTQ_DESC_F_NEXT) {
 			auto successor = accessDescriptor(chain)->next;
 			_descriptorStack.push_back(chain);
@@ -202,8 +208,6 @@ void Queue::processInterrupt() {
 
 		_progressHead++;
 	}
-
-	_device->afterRetrieve();
 }
 
 } // namespace virtio
