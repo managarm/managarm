@@ -96,13 +96,15 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 		header->reserved = 0;
 		header->sector = request->sector;
 
-		header_handle.setupBuffer(hostToDevice, header, sizeof(VirtRequest));
+		header_handle.setupBuffer(hostToDevice, arch::dma_buffer_view{nullptr,
+				header, sizeof(VirtRequest)});
 		
 		// Setup descriptors for the transfered data.
 		auto chain_handle = header_handle;
 		for(size_t i = 0; i < request->numSectors; i++) {
 			auto data_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();
-			data_handle.setupBuffer(deviceToHost, (char *)request->buffer + 512 * i, 512);
+			data_handle.setupBuffer(deviceToHost, arch::dma_buffer_view{nullptr,
+					(char *)request->buffer + 512 * i, 512});
 			chain_handle.setupLink(data_handle);
 			chain_handle = data_handle;
 		}
@@ -113,7 +115,8 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 
 		// Setup a descriptor for the status byte.
 		auto status_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();
-		status_handle.setupBuffer(deviceToHost, &statusBuffer[header_handle.tableIndex()], 1);
+		status_handle.setupBuffer(deviceToHost, arch::dma_buffer_view{nullptr,
+				&statusBuffer[header_handle.tableIndex()], 1});
 		chain_handle.setupLink(status_handle);
 
 		// Submit the request to the device

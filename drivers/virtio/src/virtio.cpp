@@ -55,29 +55,29 @@ void GenericDevice::setupDevice(uint16_t base_port, helix::UniqueDescriptor the_
 Handle::Handle(Queue *queue, size_t table_index)
 : _queue{queue}, _tableIndex{table_index} { }
 
-void Handle::setupBuffer(HostToDeviceType, const void *buffer, size_t size) {
+void Handle::setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(const_cast<void *>(buffer), &physical));
+	HEL_CHECK(helPointerPhysical(view.data(), &physical));
 	
-	auto entry = _queue->accessDescriptor(_tableIndex);
-	entry->address = physical;
-	entry->length = size;
+	auto descriptor = _queue->_table + _tableIndex;
+	descriptor->address.store(physical);
+	descriptor->length.store(view.size());
 }
 
-void Handle::setupBuffer(DeviceToHostType, void *buffer, size_t size) {
+void Handle::setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(buffer, &physical));
+	HEL_CHECK(helPointerPhysical(view.data(), &physical));
 	
-	auto entry = _queue->accessDescriptor(_tableIndex);
-	entry->address = physical;
-	entry->length = size;
-	entry->flags |= VIRTQ_DESC_F_WRITE;
+	auto descriptor = _queue->_table + _tableIndex;
+	descriptor->address.store(physical);
+	descriptor->length.store(view.size());
+	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_WRITE);
 }
 
 void Handle::setupLink(Handle other) {
-	auto entry = _queue->accessDescriptor(_tableIndex);
-	entry->next = other._tableIndex;
-	entry->flags |= VIRTQ_DESC_F_NEXT;
+	auto descriptor = _queue->_table + _tableIndex;
+	descriptor->next.store(other._tableIndex);
+	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_NEXT);
 }
 
 // --------------------------------------------------------
@@ -85,13 +85,10 @@ void Handle::setupLink(Handle other) {
 // --------------------------------------------------------
 
 Queue::Queue(GenericDevice *device, size_t queue_index)
-: _device{device}, _queueIndex{queue_index}, _queueSize{0},
-		_descriptorPtr(nullptr), _availablePtr(nullptr), _usedPtr(nullptr),
-		_progressHead(0) { }
-
-VirtDescriptor *Queue::accessDescriptor(size_t index) {
-	return reinterpret_cast<VirtDescriptor *>(_descriptorPtr + index * sizeof(VirtDescriptor));
-}
+: _device{device}, _queueIndex{queue_index}, _queueSize{0}, _table{nullptr},
+		_availableRing{nullptr}, _availableExtra{nullptr},
+		_usedRing{nullptr}, _usedExtra{nullptr},
+		_progressHead{0} { }
 
 void Queue::setupQueue() {
 	assert(!_queueSize);
@@ -101,43 +98,49 @@ void Queue::setupQueue() {
 	_queueSize = _device->space.load(PCI_L_QUEUE_SIZE);
 	assert(_queueSize > 0);
 
+	// TODO: Ensure that the queue size is indeed a power of 2.
+
 	for(size_t i = 0; i < _queueSize; i++)
 		_descriptorStack.push_back(i);
 	_activeRequests.resize(_queueSize);
 
 	// Determine the queue size in bytes.
-	size_t available_offset = _queueSize * sizeof(VirtDescriptor);
-	size_t used_offset = available_offset + sizeof(VirtAvailableHeader)
-			+ _queueSize * sizeof(VirtAvailableRing) + sizeof(VirtAvailableFooter);
+	size_t available_offset = _queueSize * sizeof(spec::Descriptor);
+	size_t available_extra_offset = available_offset + sizeof(spec::AvailableRing)
+			+ _queueSize * sizeof(spec::AvailableRing::Element);;
+	size_t used_offset = available_extra_offset + sizeof(spec::AvailableExtra);
 	used_offset = (used_offset + 0xFFF) & ~size_t(0xFFF);
-	size_t byte_size = used_offset + sizeof(VirtUsedHeader)
-			+ _queueSize * sizeof(VirtUsedRing) + sizeof(VirtUsedFooter);
+	size_t used_extra_offset = used_offset + sizeof(spec::UsedRing)
+			+ _queueSize * sizeof(spec::UsedRing::Element);;
+	size_t end_offset = used_extra_offset + sizeof(spec::UsedExtra);
 
 	// Allocate physical memory for the virtq structs.
-	assert(byte_size < 0x4000); // FIXME: do not hardcode 0x4000
+	assert(end_offset < 0x4000); // FIXME: do not hardcode 0x4000
 	HelHandle memory;
-	void *pointer;
+	void *window;
 	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x4000, kHelMapReadWrite, &pointer));
+			0, 0x4000, kHelMapReadWrite, &window));
 	HEL_CHECK(helCloseDescriptor(memory));
 
-	_descriptorPtr = (char *)pointer;
-	_availablePtr = (char *)pointer + available_offset;
-	_usedPtr = (char *)pointer + used_offset;
+	_table = reinterpret_cast<spec::Descriptor *>((char *)window);
+	_availableRing = new ((char *)window + available_offset) spec::AvailableRing;
+	_availableExtra = new ((char *)window + available_extra_offset) spec::AvailableExtra;
+	_usedRing = new ((char *)window + used_offset) spec::UsedRing;
+	_usedExtra = new ((char *)window + used_extra_offset) spec::UsedExtra;
 
 	// Setup the memory region.
-	accessAvailableHeader()->flags = 0;
-	accessAvailableHeader()->headIndex = 0;
-	accessAvailableFooter()->eventIndex = 0;
+	_availableRing->flags.store(0);
+	_availableRing->headIndex.store(0);
+	_availableExtra->eventIndex.store(0);
 
-	accessUsedHeader()->flags = 0;
-	accessUsedHeader()->headIndex = 0;
-	accessUsedFooter()->eventIndex = 0;
+	_usedRing->flags.store(0);
+	_usedRing->headIndex.store(0);
+	_usedExtra->eventIndex.store(0);
 	
 	// Hand the queue to the device.
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(pointer, &physical));
+	HEL_CHECK(helPointerPhysical(window, &physical));
 	_device->space.store(PCI_L_QUEUE_ADDRESS, physical >> 12);
 }
 
@@ -149,62 +152,74 @@ COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
 	while(true) {
 		if(_descriptorStack.empty()) {
 			COFIBER_AWAIT _descriptorDoorbell.async_wait();
-		}else{
-			size_t table_index = _descriptorStack.back();
-			_descriptorStack.pop_back();
-			memset(accessDescriptor(table_index), 0, sizeof(VirtDescriptor));
-			COFIBER_RETURN((Handle{this, table_index}));
+			continue;
 		}
+
+		size_t table_index = _descriptorStack.back();
+		_descriptorStack.pop_back();
+		
+		auto descriptor = _table + table_index;
+		descriptor->address.store(0);
+		descriptor->length.store(0);
+		descriptor->flags.store(0);
+
+		COFIBER_RETURN((Handle{this, table_index}));
 	}
 }))
 
-void Queue::postDescriptor(Handle descriptor, Request *request,
+void Queue::postDescriptor(Handle handle, Request *request,
 		void (*complete)(Request *)) {
 	request->complete = complete;
 
-	assert(!_activeRequests[descriptor.tableIndex()]);
-	_activeRequests[descriptor.tableIndex()] = request;
+	assert(request);
+	assert(!_activeRequests[handle.tableIndex()]);
+	_activeRequests[handle.tableIndex()] = request;
 
-	size_t head = accessAvailableHeader()->headIndex;
-	accessAvailableRing(head % _queueSize)->descIndex = descriptor.tableIndex();
+	auto enqueue_head = _availableRing->headIndex.load();
+	auto ring_index = enqueue_head & (_queueSize - 1);
+	_availableRing->elements[ring_index].tableIndex.store(handle.tableIndex());
 
 	asm volatile ( "" : : : "memory" );
-	accessAvailableHeader()->headIndex++;
+	_availableRing->headIndex.store(enqueue_head + 1);
 }
 
 void Queue::notifyDevice() {
 	asm volatile ( "" : : : "memory" );
-	if(!(accessUsedHeader()->flags & VIRTQ_USED_F_NO_NOTIFY))
+	if(!(_usedRing->flags.load() & VIRTQ_USED_F_NO_NOTIFY))
 		_device->space.store(PCI_L_QUEUE_NOTIFY, _queueIndex);
 }
 
 void Queue::processInterrupt() {
 	while(true) {
-		auto used_head = accessUsedHeader()->headIndex;
+		auto used_head = _usedRing->headIndex.load();
+		// TODO: I think this assertion is incorrect once we issue more than 2^16 requests.
 		assert(_progressHead <= used_head);
 		if(_progressHead == used_head)
 			break;
 		
 		asm volatile ( "" : : : "memory" );
-		
-		auto table_index = accessUsedRing(_progressHead % _queueSize)->descIndex;
+
+		auto ring_index = _progressHead & (_queueSize - 1);
+		auto table_index = _usedRing->elements[ring_index].tableIndex.load();
 		assert(table_index < _queueSize);
 
-		// Call the Request completion handler.
+		// Dequeue the Request object.
 		auto request = _activeRequests[table_index];
 		assert(request);
 		_activeRequests[table_index] = nullptr;
-		request->complete(request);
 
 		// Free all descriptors in the descriptor chain.
-		auto chain = table_index;
-		while(accessDescriptor(chain)->flags & VIRTQ_DESC_F_NEXT) {
-			auto successor = accessDescriptor(chain)->next;
-			_descriptorStack.push_back(chain);
-			chain = successor;
+		auto chain_index = table_index;
+		while(_table[chain_index].flags.load() & VIRTQ_DESC_F_NEXT) {
+			auto successor = _table[chain_index].next.load();
+			_descriptorStack.push_back(chain_index);
+			chain_index = successor;
 		}
-		_descriptorStack.push_back(chain);
+		_descriptorStack.push_back(chain_index);
 		_descriptorDoorbell.ring();
+
+		// Call the completion handler.
+		request->complete(request);
 
 		_progressHead++;
 	}

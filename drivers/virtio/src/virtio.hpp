@@ -4,8 +4,10 @@
 #include <string.h>
 #include <vector>
 
+#include <arch/dma_structs.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
+#include <arch/variable.hpp>
 #include <async/doorbell.hpp>
 #include <helix/ipc.hpp>
 
@@ -35,43 +37,49 @@ enum {
 	DRIVER_OK = 4
 };
 
-struct VirtDescriptor {
-	uint64_t address;
-	uint32_t length;
-	uint16_t flags;
-	uint16_t next;
-};
-
 enum {
-	// bits of the VirtDescriptor::flags field
+	// Bits of the spec::Descriptor::flags field.
 	VIRTQ_DESC_F_NEXT = 1, // descriptor is part of a chain
 	VIRTQ_DESC_F_WRITE = 2, // buffer is written by device
 
-	// bits of the VirtUsedHeader::flags field
+	// Bits of the spec::UsedRing::flags field.
 	VIRTQ_USED_F_NO_NOTIFY = 1 // no need to notify the device
 };
 
-struct VirtAvailableHeader {
-	uint16_t flags;
-	uint16_t headIndex;
-};
-struct VirtAvailableRing {
-	uint16_t descIndex;
-};
-struct VirtAvailableFooter {
-	uint16_t eventIndex;
-};
+namespace spec {
+	struct Descriptor {
+		arch::scalar_variable<uint64_t> address;
+		arch::scalar_variable<uint32_t> length;
+		arch::scalar_variable<uint16_t> flags;
+		arch::scalar_variable<uint16_t> next;
+	};
 
-struct VirtUsedHeader {
-	uint16_t flags;
-	uint16_t headIndex;
-};
-struct VirtUsedRing {
-	uint32_t descIndex;
-	uint32_t written;
-};
-struct VirtUsedFooter {
-	uint16_t eventIndex;
+	struct AvailableRing {
+		arch::scalar_variable<uint16_t> flags;
+		arch::scalar_variable<uint16_t> headIndex;
+		
+		struct Element {
+			arch::scalar_variable<uint16_t> tableIndex;
+		} elements[];
+	};
+
+	struct AvailableExtra {
+		arch::scalar_variable<uint16_t> eventIndex;
+	};
+
+	struct UsedRing {
+		arch::scalar_variable<uint16_t> flags;
+		arch::scalar_variable<uint16_t> headIndex;
+	
+		struct Element {
+			arch::scalar_variable<uint32_t> tableIndex;
+			arch::scalar_variable<uint32_t> written;
+		} elements[];
+	};
+
+	struct UsedExtra {
+		arch::scalar_variable<uint16_t> eventIndex;
+	};
 };
 
 struct Queue;
@@ -120,8 +128,9 @@ struct Handle {
 		return _tableIndex;
 	}
 
-	void setupBuffer(HostToDeviceType, const void *buffer, size_t size);
-	void setupBuffer(DeviceToHostType, void *buffer, size_t size);
+	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
+	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
+
 	void setupLink(Handle other);
 
 private:
@@ -135,9 +144,9 @@ struct Request {
 
 // Represents a single virtq.
 struct Queue {
-	Queue(GenericDevice *device, size_t queue_index);
+	friend struct Handle;
 
-	VirtDescriptor *accessDescriptor(size_t index);
+	Queue(GenericDevice *device, size_t queue_index);
 
 	// Initializes the virtq. Call this during driver initialization.
 	void setupQueue();
@@ -161,32 +170,6 @@ struct Queue {
 	void processInterrupt();
 
 private:
-	static constexpr size_t kQueueAlign = 0x1000;
-
-	auto accessAvailableHeader() {
-		return reinterpret_cast<VirtAvailableHeader *>(_availablePtr);
-	}
-	auto accessAvailableRing(size_t index) {
-		return reinterpret_cast<VirtAvailableRing *>(_availablePtr + sizeof(VirtAvailableHeader)
-				+ index * sizeof(VirtAvailableRing));
-	}
-	auto accessAvailableFooter() {
-		return reinterpret_cast<VirtAvailableFooter *>(_availablePtr + sizeof(VirtAvailableHeader)
-				+ _queueSize * sizeof(VirtAvailableRing));
-	}
-
-	auto accessUsedHeader() {
-		return reinterpret_cast<VirtUsedHeader *>(_usedPtr);
-	}
-	auto accessUsedRing(size_t index) {
-		return reinterpret_cast<VirtUsedRing *>(_usedPtr + sizeof(VirtUsedHeader)
-				+ index * sizeof(VirtUsedRing));
-	}
-	auto accessUsedFooter() {
-		return reinterpret_cast<VirtUsedFooter *>(_usedPtr + sizeof(VirtUsedHeader)
-				+ _queueSize * sizeof(VirtUsedRing));
-	}
-
 	GenericDevice *_device;
 
 	// Index of this queue as part of its owning device.
@@ -196,7 +179,11 @@ private:
 	size_t _queueSize;
 
 	// Pointers to different data structures of this virtq.
-	char *_descriptorPtr, *_availablePtr, *_usedPtr;
+	spec::Descriptor *_table;
+	spec::AvailableRing *_availableRing;
+	spec::AvailableExtra *_availableExtra;
+	spec::UsedRing *_usedRing;
+	spec::UsedExtra *_usedExtra;
 
 	// Keeps track of unused descriptor indices.
 	std::vector<uint16_t> _descriptorStack;
