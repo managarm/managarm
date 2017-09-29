@@ -43,13 +43,13 @@ struct UserRequest : Request {
 // Device
 // --------------------------------------------------------
 
-struct Device : public GenericDevice, public blockfs::BlockDevice {
-	Device();
+struct Device : blockfs::BlockDevice {
+	Device(std::unique_ptr<Transport> transport);
+
+	void runDevice();
 
 	async::result<void> readSectors(uint64_t sector,
 			void *buffer, size_t num_sectors) override;
-
-	void doInitialize() override;
 
 private:
 	// Submits requests from _pendingQueue to the device.
@@ -57,12 +57,13 @@ private:
 	
 	cofiber::no_future _processIrqs();
 
+	std::unique_ptr<Transport> _transport;
+
 	// The single virtq of this device.
 	Queue _requestQueue;
 
 	// Stores UserRequest objects that have not been submitted yet.
 	std::queue<UserRequest *> _pendingQueue;
-
 	async::doorbell _pendingDoorbell;
 
 	// these two buffer store virtio-block request header and status bytes

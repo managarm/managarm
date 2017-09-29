@@ -1,52 +1,168 @@
 
 #include <assert.h>
-#include <stdio.h>
+#include <iostream>
 
 #include "virtio.hpp"
 
 namespace virtio {
 
 // --------------------------------------------------------
-// GenericDevice
+// LegacyPciTransport
 // --------------------------------------------------------
 
-GenericDevice::GenericDevice()
-: space(0) { }
+namespace {
 
-uint8_t GenericDevice::readIsr() {
-	return space.load(PCI_L_ISR_STATUS);
-}
+struct LegacyPciTransport : Transport {
+	friend class Queue;
 
-uint8_t GenericDevice::readConfig8(size_t offset) {
+	LegacyPciTransport(protocols::hw::Device hw_device,
+			arch::io_space legacy_space, helix::UniqueDescriptor irq);
+
+	uint8_t readConfig8(size_t offset);
+
+	void setupDevice() override;
+
+	helix::BorrowedDescriptor getIrq() override;
+
+	void readIsr() override;
+
+	size_t queryQueue(unsigned int queue_index) override;
+	
+	void setupQueue(unsigned int queue_index, uintptr_t physical) override;
+
+	void notifyQueue(unsigned int queue_index) override;
+
+private:
+	protocols::hw::Device _hwDevice;
+	arch::io_space _legacySpace;
+	helix::UniqueDescriptor _irq;
+};
+
+LegacyPciTransport::LegacyPciTransport(protocols::hw::Device hw_device,
+		arch::io_space legacy_space, helix::UniqueDescriptor irq)
+: _hwDevice{std::move(hw_device)}, _legacySpace{legacy_space},
+		_irq{std::move(irq)} { }
+
+uint8_t LegacyPciTransport::readConfig8(size_t offset) {
 	(void)offset;
 	throw std::logic_error("Fix virtio::readConfig8()");
 //FIXME	return frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
 }
 
-void GenericDevice::setupDevice(uint16_t base_port, helix::UniqueDescriptor the_interrupt) {
-	space = arch::io_space(base_port);
-	interrupt = std::move(the_interrupt);
-
-	// Reset the device.
-	space.store(PCI_L_DEVICE_STATUS, 0);
-	
-	// Set the ACKNOWLEDGE and DRIVER bits.
-	// The specification says this should be done in two steps
-	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
-	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | DRIVER);
-	
+void LegacyPciTransport::setupDevice() {
 	// Negotiate features that we want to use.
 	uint32_t negotiated = 0;
-	uint32_t offered = space.load(PCI_L_DEVICE_FEATURES);
+	uint32_t offered = _legacySpace.load(PCI_L_DEVICE_FEATURES);
 	printf("Features %x\n", offered);
 
-	space.store(PCI_L_DRIVER_FEATURES, negotiated);
-
-	doInitialize();
+	_legacySpace.store(PCI_L_DRIVER_FEATURES, negotiated);
 
 	// Finally set the DRIVER_OK bit to finish the configuration.
-	space.store(PCI_L_DEVICE_STATUS, space.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
+	_legacySpace.store(PCI_L_DEVICE_STATUS, _legacySpace.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
 }
+
+helix::BorrowedDescriptor LegacyPciTransport::getIrq() {
+	return _irq;
+}
+
+void LegacyPciTransport::readIsr() {
+	_legacySpace.load(PCI_L_ISR_STATUS);
+}
+
+size_t LegacyPciTransport::queryQueue(unsigned int queue_index) {
+	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
+	return _legacySpace.load(PCI_L_QUEUE_SIZE);
+
+}
+
+void LegacyPciTransport::setupQueue(unsigned int queue_index, uintptr_t physical) {
+	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
+	_legacySpace.store(PCI_L_QUEUE_ADDRESS, physical >> 12);
+}
+
+void LegacyPciTransport::notifyQueue(unsigned int queue_index) {
+	_legacySpace.store(PCI_L_QUEUE_NOTIFY, queue_index);
+}
+
+} // anonymous namespace
+
+// --------------------------------------------------------
+// StandardPciTransport
+// --------------------------------------------------------
+
+namespace {
+
+/*
+struct StandardPciTransport {
+
+private:
+	arch::mem_space _commonSpace;
+	arch::mem_space _notifySpace;
+	arch::mem_space _isrSpace;
+	arch::mem_space _deviceSpace;
+};
+*/
+
+} // anonymous namespace
+
+// --------------------------------------------------------
+// The discover() function.
+// --------------------------------------------------------
+
+COFIBER_ROUTINE(async::result<std::unique_ptr<Transport>>,
+discover(protocols::hw::Device hw_device), ([hw_device = std::move(hw_device)] () mutable {
+	auto info = COFIBER_AWAIT hw_device.getPciInfo();
+
+/*
+	for(size_t i = 0; i < info.caps.size(); i++) {
+		if(info.caps[i].type != 0x09)
+			continue;
+
+		auto subtype = COFIBER_AWAIT hw_device.loadPciCapability(i, 3, 1);
+		if(subtype != 1 && subtype != 2 && subtype != 3 && subtype != 4)
+			continue;
+
+		auto bir = COFIBER_AWAIT hw_device.loadPciCapability(i, 4, 1);
+		auto offset = COFIBER_AWAIT hw_device.loadPciCapability(i, 8, 4);
+		auto length = COFIBER_AWAIT hw_device.loadPciCapability(i, 12, 4);
+		std::cout << "Subtype: " << subtype << ", BAR index: " << bir
+				<< ", offset: " << offset << ", length: " << length << std::endl;
+	
+		auto bar = COFIBER_AWAIT hw_device.accessBar(bir);
+		void *window;
+		HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
+				offset, length, kHelMapReadWrite | kHelMapShareAtFork, &window));
+
+		if(subtype == 1) {
+			_commonSpace = arch::mem_space{window};
+		}else if(subtype == 2) {
+			_notifySpace = arch::mem_space{window};
+		}else if(subtype == 3) {
+			_isrSpace = arch::mem_space{window};
+		}else if(subtype == 4) {
+			_deviceSpace = arch::mem_space{window};
+		}
+	}
+*/
+
+	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
+	auto bar = COFIBER_AWAIT hw_device.accessBar(0);
+	auto irq = COFIBER_AWAIT hw_device.accessIrq();
+
+	HEL_CHECK(helEnableIo(bar.getHandle()));
+	
+	// Reset the device.
+	arch::io_space legacy_space{static_cast<uint16_t>(info.barInfo[0].address)};
+	legacy_space.store(PCI_L_DEVICE_STATUS, 0);
+
+	// Set the ACKNOWLEDGE and DRIVER bits.
+	// The specification says this should be done in two steps
+	legacy_space.store(PCI_L_DEVICE_STATUS, legacy_space.load(PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
+	legacy_space.store(PCI_L_DEVICE_STATUS, legacy_space.load(PCI_L_DEVICE_STATUS) | DRIVER);
+
+	COFIBER_RETURN(std::make_unique<LegacyPciTransport>(std::move(hw_device),
+			legacy_space, std::move(irq)));
+}))
 
 // --------------------------------------------------------
 // Handle
@@ -84,8 +200,8 @@ void Handle::setupLink(Handle other) {
 // Queue
 // --------------------------------------------------------
 
-Queue::Queue(GenericDevice *device, size_t queue_index)
-: _device{device}, _queueIndex{queue_index}, _queueSize{0}, _table{nullptr},
+Queue::Queue(Transport *transport, size_t queue_index)
+: _transport{transport}, _queueIndex{queue_index}, _queueSize{0}, _table{nullptr},
 		_availableRing{nullptr}, _availableExtra{nullptr},
 		_usedRing{nullptr}, _usedExtra{nullptr},
 		_progressHead{0} { }
@@ -94,8 +210,7 @@ void Queue::setupQueue() {
 	assert(!_queueSize);
 
 	// Select the queue and determine its size.
-	_device->space.store(PCI_L_QUEUE_SELECT, _queueIndex);
-	_queueSize = _device->space.load(PCI_L_QUEUE_SIZE);
+	_queueSize = _transport->queryQueue(_queueIndex);
 	assert(_queueSize > 0);
 
 	// TODO: Ensure that the queue size is indeed a power of 2.
@@ -141,7 +256,7 @@ void Queue::setupQueue() {
 	// Hand the queue to the device.
 	uintptr_t physical;
 	HEL_CHECK(helPointerPhysical(window, &physical));
-	_device->space.store(PCI_L_QUEUE_ADDRESS, physical >> 12);
+	_transport->setupQueue(_queueIndex, physical);
 }
 
 size_t Queue::numDescriptors() {
@@ -186,7 +301,7 @@ void Queue::postDescriptor(Handle handle, Request *request,
 void Queue::notifyDevice() {
 	asm volatile ( "" : : : "memory" );
 	if(!(_usedRing->flags.load() & VIRTQ_USED_F_NO_NOTIFY))
-		_device->space.store(PCI_L_QUEUE_NOTIFY, _queueIndex);
+		_transport->notifyQueue(_queueIndex);
 }
 
 void Queue::processInterrupt() {

@@ -20,10 +20,15 @@
 #include "block.hpp"
 
 // TODO: Support more than one device.
-virtio::block::Device device;
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
+	auto transport = COFIBER_AWAIT virtio::discover(std::move(hw_device));
+
+	auto device = new virtio::block::Device{std::move(transport)};
+	device->runDevice();
+
+/*
 	auto info = COFIBER_AWAIT hw_device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
 	auto bar = COFIBER_AWAIT hw_device.accessBar(0);
@@ -33,6 +38,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 
 	std::cout << "Setting up the device" << std::endl;
 	device.setupDevice(info.barInfo[0].address, std::move(irq));
+*/
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {

@@ -21,12 +21,15 @@ UserRequest::UserRequest(uint64_t sector, void *buffer, size_t num_sectors)
 // Device
 // --------------------------------------------------------
 
-Device::Device()
-: blockfs::BlockDevice(512), _requestQueue(this, 0) { }
+Device::Device(std::unique_ptr<Transport> transport)
+: blockfs::BlockDevice{512}, _transport{std::move(transport)},
+		_requestQueue{_transport.get(), 0} { }
 
-void Device::doInitialize() {
-	// perform device specific setup
+void Device::runDevice() {
+	_transport->setupDevice();
 	_requestQueue.setupQueue();
+
+	// perform device specific setup
 	virtRequestBuffer = (VirtRequest *)malloc(_requestQueue.numDescriptors() * sizeof(VirtRequest));
 	statusBuffer = (uint8_t *)malloc(_requestQueue.numDescriptors());
 
@@ -63,17 +66,19 @@ COFIBER_ROUTINE(async::result<void>, Device::readSectors(uint64_t sector,
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Device::_processIrqs(), ([=] {
+	auto irq = _transport->getIrq();
+
 	uint64_t sequence;
 	while(true) {
 		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(interrupt, &await, sequence,
+		auto &&submit = helix::submitAwaitEvent(irq, &await, sequence,
 				helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		readIsr();
-		HEL_CHECK(helAcknowledgeIrq(interrupt.getHandle(), 0, sequence));
+		_transport->readIsr();
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), 0, sequence));
 		_requestQueue.processInterrupt();
 	}
 }))

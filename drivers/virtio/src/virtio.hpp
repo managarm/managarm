@@ -6,10 +6,12 @@
 
 #include <arch/dma_structs.hpp>
 #include <arch/io_space.hpp>
+#include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
 #include <async/doorbell.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/hw/client.hpp>
 
 namespace virtio {
 
@@ -85,30 +87,24 @@ namespace spec {
 struct Queue;
 
 // --------------------------------------------------------
-// GenericDevice
+// Transport
 // --------------------------------------------------------
 
-struct GenericDevice {
-	friend class Queue;
+struct Transport {
+	virtual void setupDevice() = 0;
 
-	GenericDevice();
+	virtual helix::BorrowedDescriptor getIrq() = 0;
+	
+	virtual void readIsr() = 0;
 
-	void setupDevice(uint16_t base_port, helix::UniqueDescriptor the_interrupt);
+	virtual size_t queryQueue(unsigned int queue_index) = 0;
+	
+	virtual void setupQueue(unsigned int queue_index, uintptr_t physical) = 0;
 
-	uint8_t readIsr();
-
-	uint8_t readConfig8(size_t offset);
-
-	// performs device specific initialization
-	// this is called after features are negotiated
-	virtual void doInitialize() = 0;
-
-private:
-	arch::io_space space;
-
-protected:
-	helix::UniqueDescriptor interrupt;
+	virtual void notifyQueue(unsigned int queue_index) = 0;
 };
+
+async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device);
 
 // --------------------------------------------------------
 // Queue
@@ -146,7 +142,7 @@ struct Request {
 struct Queue {
 	friend struct Handle;
 
-	Queue(GenericDevice *device, size_t queue_index);
+	Queue(Transport *transport, size_t queue_index);
 
 	// Initializes the virtq. Call this during driver initialization.
 	void setupQueue();
@@ -170,7 +166,7 @@ struct Queue {
 	void processInterrupt();
 
 private:
-	GenericDevice *_device;
+	Transport *_transport;
 
 	// Index of this queue as part of its owning device.
 	size_t _queueIndex;
