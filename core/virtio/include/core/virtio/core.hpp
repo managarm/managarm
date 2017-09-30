@@ -13,7 +13,7 @@
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 
-namespace virtio {
+namespace virtio_core {
 
 // --------------------------------------------------------
 // VirtIO data structures and constants
@@ -252,5 +252,5 @@ private:
 	uint16_t _progressHead;
 };
 
-} // namespace virtio
+} // namespace virtio_core
 

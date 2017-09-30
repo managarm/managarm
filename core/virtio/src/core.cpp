@@ -3,9 +3,9 @@
 #include <iostream>
 #include <optional>
 
-#include "virtio.hpp"
+#include <core/virtio/core.hpp>
 
-namespace virtio {
+namespace virtio_core {
 
 // --------------------------------------------------------
 // LegacyPciTransport
@@ -570,5 +570,5 @@ void Queue::processInterrupt() {
 	}
 }
 
-} // namespace virtio
+} // namespace virtio_core
 

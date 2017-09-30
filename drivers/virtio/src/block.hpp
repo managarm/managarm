@@ -1,11 +1,11 @@
 
 #include <queue>
+
 #include <blockfs.hpp>
+#include <core/virtio/core.hpp>
 
-#include "virtio.hpp"
-
-namespace virtio {
 namespace block {
+namespace virtio {
 
 // --------------------------------------------------------
 // VirtIO data structures and constants
@@ -29,7 +29,7 @@ struct Device;
 // UserRequest
 // --------------------------------------------------------
 
-struct UserRequest : Request {
+struct UserRequest : virtio_core::Request {
 	UserRequest(uint64_t sector, void *buffer, size_t num_sectors);
 
 	uint64_t sector;
@@ -44,7 +44,7 @@ struct UserRequest : Request {
 // --------------------------------------------------------
 
 struct Device : blockfs::BlockDevice {
-	Device(std::unique_ptr<Transport> transport);
+	Device(std::unique_ptr<virtio_core::Transport> transport);
 
 	void runDevice();
 
@@ -57,10 +57,10 @@ private:
 	
 	cofiber::no_future _processIrqs();
 
-	std::unique_ptr<Transport> _transport;
+	std::unique_ptr<virtio_core::Transport> _transport;
 
 	// The single virtq of this device.
-	Queue *_requestQueue;
+	virtio_core::Queue *_requestQueue;
 
 	// Stores UserRequest objects that have not been submitted yet.
 	std::queue<UserRequest *> _pendingQueue;
@@ -72,5 +72,5 @@ private:
 	uint8_t *statusBuffer;
 };
 
-} } // namespace virtio::block
+} } // namespace block::virtio
 

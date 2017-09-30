@@ -12,13 +12,13 @@ $c_INCLUDES := -iquote$($c_GENDIR) \
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++17 -Wall -Wextra -O2
 
-$c_block_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus_protocol -lblockfs \
+$c_block_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus_protocol -lblockfs -lvirtio_core \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $c_net_LIBS := -lnet \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
-$(call make_exec,virtio-block,main-block.o block.o virtio.o,block_)
-#$(call make_exec,virtio-net,main-net.o net.o virtio.o,net_)
+$(call make_exec,virtio-block,main-block.o block.o,block_)
+#$(call make_exec,virtio-net,main-net.o net.o,net_)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 

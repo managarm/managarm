@@ -23,10 +23,10 @@
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
-	auto transport = COFIBER_AWAIT virtio::discover(std::move(hw_device),
-			virtio::DiscoverMode::transitional);
+	auto transport = COFIBER_AWAIT virtio_core::discover(std::move(hw_device),
+			virtio_core::DiscoverMode::transitional);
 
-	auto device = new virtio::block::Device{std::move(transport)};
+	auto device = new block::virtio::Device{std::move(transport)};
 	device->runDevice();
 
 /*
