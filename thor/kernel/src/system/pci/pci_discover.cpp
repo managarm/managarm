@@ -30,6 +30,16 @@ namespace {
 	
 		if(req.req_type() == managarm::hw::CntReqType::GET_PCI_INFO) {
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			for(size_t i = 0; i < device->caps.size(); i++) {
+				managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
+				msg.set_type(device->caps[i].type);
+				msg.set_offset(device->caps[i].offset);
+				msg.set_length(device->caps[i].length);
+				resp.add_capabilities(std::move(msg));
+			}
+
 			for(size_t k = 0; k < 6; k++) {
 				managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
 				if(device->bars[k].type == PciDevice::kBarIo) {
@@ -48,7 +58,6 @@ namespace {
 				}
 				resp.add_bars(std::move(msg));
 			}
-			resp.set_error(managarm::hw::Errors::SUCCESS);
 		
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -115,6 +124,30 @@ namespace {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
+		
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_CAPABILITY) {
+			assert(req.index() < device->caps.size());
+
+			// TODO: Perform some sanity checks on the offset.
+			uint32_t word;
+			if(req.size() == 1) {
+				word = readPciByte(device->bus, device->slot, device->function,
+						device->caps[req.index()].offset + req.offset());
+			}else if(req.size() == 2) {
+				word = readPciHalf(device->bus, device->slot, device->function,
+						device->caps[req.index()].offset + req.offset());
+			}else{
+				assert(req.size() == 4);
+				word = readPciWord(device->bus, device->slot, device->function,
+						device->caps[req.index()].offset + req.offset());
+			}
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+			resp.set_word(word);
 		
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -346,35 +379,38 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 		if(status & 0x08)
 			frigg::infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frigg::endLog;
 
+		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, slot, function,
+				vendor, device_id, revision, class_code, sub_class, interface);
+
+		// Find all capabilities.
 		if(status & 0x10) {
-			// NOTE: the bottom two bits of each capability offset must be masked
+			// The bottom two bits of each capability offset must be masked!
 			uint8_t offset = readPciByte(bus, slot, function, kPciRegularCapabilities) & 0xFC;
 			while(offset != 0) {
-				uint8_t capability = readPciByte(bus, slot, function, offset);
-				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
-				
-				frigg::infoLogger() << "            Capability 0x"
-						<< frigg::logHex((int)capability) << frigg::endLog;
-/*
-				if(capability == 0x09) {
-					uint8_t size = readPciByte(bus, slot, function, offset + 2);
+				auto type = readPciByte(bus, slot, function, offset);
 
-					std::cout << "            Bytes: ";
-					for(size_t i = 2; i < size; i++) {
-						uint8_t byte = readPciByte(bus, slot, function, offset + i);
-						std::cout << (i > 2 ? ", " : "") << std::hex << (int)byte << std::dec;
-					}
-					std::cout << std::endl;
+				auto name = nameOfCapability(type);
+				if(name) {
+					frigg::infoLogger() << "            " << name << " capability"
+							<< frigg::endLog;
+				}else{
+					frigg::infoLogger() << "            Capability of type 0x"
+							<< frigg::logHex((int)type) << frigg::endLog;
 				}
-*/
+
+				// TODO: 
+				size_t size = -1;
+				if(type == 0x09)
+					size = readPciByte(bus, slot, function, offset + 2);
+
+				device->caps.push({type, offset, size});
+
+				uint8_t successor = readPciByte(bus, slot, function, offset + 1);
 				offset = successor & 0xFC;
 			}
 		}
-
-		auto device = frigg::makeShared<PciDevice>(*kernelAlloc, bus, slot, function,
-				vendor, device_id, revision, class_code, sub_class, interface);
 		
-		// determine the BARs
+		// Determine the BARs
 		for(int i = 0; i < 6; i++) {
 			uint32_t offset = kPciRegularBar0 + i * 4;
 			uint32_t bar = readPciWord(bus, slot, function, offset);

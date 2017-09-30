@@ -26,8 +26,9 @@ Device::Device(std::unique_ptr<Transport> transport)
 		_requestQueue{_transport.get(), 0} { }
 
 void Device::runDevice() {
-	_transport->setupDevice();
+	_transport->finalizeFeatures();
 	_requestQueue.setupQueue();
+	_transport->runDevice();
 
 	// perform device specific setup
 	virtRequestBuffer = (VirtRequest *)malloc(_requestQueue.numDescriptors() * sizeof(VirtRequest));
@@ -92,6 +93,7 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 
 		auto request = _pendingQueue.front();
 		_pendingQueue.pop();
+		assert(request->numSectors);
 
 		// Setup the descriptor for the request header.
 		auto header_handle = COFIBER_AWAIT _requestQueue.obtainDescriptor();

@@ -26,6 +26,27 @@ namespace _detail {
 	};
 
 	template<>
+	struct mem_ops<uint16_t> {
+		static void store(uint16_t *p, uint16_t v) {
+			asm volatile ("movw %0, %1" : : "r"(v), "m"(*p) : "memory");
+		}
+		static void store_relaxed(uint16_t *p, uint16_t v) {
+			asm volatile ("movw %0, %1" : : "r"(v), "m"(*p));
+		}
+
+		static uint16_t load(const uint16_t *p) {
+			uint16_t v;
+			asm volatile ("movw %1, %0" : "=r"(v) : "m"(*p) : "memory");
+			return v;
+		}
+		static uint16_t load_relaxed(const uint16_t *p) {
+			uint16_t v;
+			asm volatile ("movw %1, %0" : "=r"(v) : "m"(*p));
+			return v;
+		}
+	};
+
+	template<>
 	struct mem_ops<uint32_t> {
 		static void store(uint32_t *p, uint32_t v) {
 			asm volatile ("movl %0, %1" : : "r"(v), "m"(*p) : "memory");

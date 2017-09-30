@@ -46,7 +46,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "1af4"),
-		mbus::EqualsFilter("pci-device", "1001")
+//		mbus::EqualsFilter("pci-device", "1001")
+		mbus::EqualsFilter("pci-device", "1042")
 	});
 
 	auto handler = mbus::ObserverHandler{}

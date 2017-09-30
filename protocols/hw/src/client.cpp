@@ -38,6 +38,10 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 	assert(resp.bars_size() == 6);
 
 	PciInfo info;
+
+	for(int i = 0; i < resp.capabilities_size(); i++)
+		info.caps.push_back({resp.capabilities(i).type()});
+
 	for(int i = 0; i < 6; i++) {
 		if(resp.bars(i).io_type() == managarm::hw::IoType::NO_BAR) {
 			info.barInfo[i].ioType = IoType::kIoTypeNone;
@@ -169,6 +173,34 @@ COFIBER_ROUTINE(async::result<void>, Device::storePciSpace(size_t offset,
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciCapability(unsigned int index,
+		size_t offset, unsigned int size), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::LOAD_PCI_CAPABILITY);
+	req.set_index(index);
+	req.set_offset(offset);
+	req.set_size(size);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	COFIBER_RETURN(resp.word());
 }))
 
 } } // namespace protocols::hw

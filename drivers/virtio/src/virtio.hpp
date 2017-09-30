@@ -19,14 +19,35 @@ namespace virtio {
 // VirtIO data structures and constants
 // --------------------------------------------------------
 
-static arch::scalar_register<uint32_t> PCI_L_DEVICE_FEATURES(0);
-static arch::scalar_register<uint32_t> PCI_L_DRIVER_FEATURES(4);
-static arch::scalar_register<uint32_t> PCI_L_QUEUE_ADDRESS(8);
-static arch::scalar_register<uint16_t> PCI_L_QUEUE_SIZE(12);
-static arch::scalar_register<uint16_t> PCI_L_QUEUE_SELECT(14);
-static arch::scalar_register<uint16_t> PCI_L_QUEUE_NOTIFY(16);
-static arch::scalar_register<uint8_t> PCI_L_DEVICE_STATUS(18);
-static arch::scalar_register<uint8_t> PCI_L_ISR_STATUS(19);
+inline constexpr arch::scalar_register<uint32_t> PCI_L_DEVICE_FEATURES(0);
+inline constexpr arch::scalar_register<uint32_t> PCI_L_DRIVER_FEATURES(4);
+inline constexpr arch::scalar_register<uint32_t> PCI_L_QUEUE_ADDRESS(8);
+inline constexpr arch::scalar_register<uint16_t> PCI_L_QUEUE_SIZE(12);
+inline constexpr arch::scalar_register<uint16_t> PCI_L_QUEUE_SELECT(14);
+inline constexpr arch::scalar_register<uint16_t> PCI_L_QUEUE_NOTIFY(16);
+inline constexpr arch::scalar_register<uint8_t> PCI_L_DEVICE_STATUS(18);
+inline constexpr arch::scalar_register<uint8_t> PCI_L_ISR_STATUS(19);
+
+inline constexpr arch::scalar_register<uint32_t> PCI_DEVICE_FEATURE_SELECT(0);
+inline constexpr arch::scalar_register<uint32_t> PCI_DEVICE_FEATURE_WINDOW(4);
+inline constexpr arch::scalar_register<uint32_t> PCI_DRIVER_FEATURE_SELECT(8);
+inline constexpr arch::scalar_register<uint32_t> PCI_DRIVER_FEATURE_WINDOW(12);
+inline constexpr arch::scalar_register<uint8_t> PCI_DEVICE_STATUS(20);
+inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SELECT(22);
+inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_SIZE(24);
+inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_ENABLE(28);
+inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_NOTIFY(30);
+inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_TABLE[] = {
+		arch::scalar_register<uint32_t>{32},
+		arch::scalar_register<uint32_t>{36}};
+inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_AVAILABLE[] = {
+		arch::scalar_register<uint32_t>{40},
+		arch::scalar_register<uint32_t>{44}};
+inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_USED[] = {
+		arch::scalar_register<uint32_t>{48},
+		arch::scalar_register<uint32_t>{52}};
+
+inline constexpr arch::scalar_register<uint8_t> PCI_ISR(0);
 
 enum {
 	PCI_L_DEVICE_SPECIFIC = 20
@@ -36,6 +57,7 @@ enum {
 enum {
 	ACKNOWLEDGE = 1,
 	DRIVER = 2,
+	FEATURES_OK = 8,
 	DRIVER_OK = 4
 };
 
@@ -55,6 +77,7 @@ namespace spec {
 		arch::scalar_variable<uint16_t> flags;
 		arch::scalar_variable<uint16_t> next;
 	};
+	static_assert(sizeof(Descriptor) == 16);
 
 	struct AvailableRing {
 		arch::scalar_variable<uint16_t> flags;
@@ -64,6 +87,7 @@ namespace spec {
 			arch::scalar_variable<uint16_t> tableIndex;
 		} elements[];
 	};
+	static_assert(sizeof(AvailableRing) == 4);
 
 	struct AvailableExtra {
 		arch::scalar_variable<uint16_t> eventIndex;
@@ -78,6 +102,7 @@ namespace spec {
 			arch::scalar_variable<uint32_t> written;
 		} elements[];
 	};
+	static_assert(sizeof(UsedRing) == 4);
 
 	struct UsedExtra {
 		arch::scalar_variable<uint16_t> eventIndex;
@@ -90,18 +115,33 @@ struct Queue;
 // Transport
 // --------------------------------------------------------
 
+struct QueueInfo {
+	size_t queueSize;
+	ptrdiff_t notifyOffset;
+};
+
+/* This class represents a virtio device.
+ * 
+ * Usual initialization works as follows:
+ * - Call discover() to obtain a transport.
+ * - Call Transport::finalizeFeatures().
+ * - Call Queue::setupQueue() for each virtq.
+ * - Call Transport::runDevice().
+ */
 struct Transport {
-	virtual void setupDevice() = 0;
+	virtual void finalizeFeatures() = 0;
+	virtual void runDevice() = 0;
 
 	virtual helix::BorrowedDescriptor getIrq() = 0;
 	
 	virtual void readIsr() = 0;
 
-	virtual size_t queryQueue(unsigned int queue_index) = 0;
-	
-	virtual void setupQueue(unsigned int queue_index, uintptr_t physical) = 0;
-
-	virtual void notifyQueue(unsigned int queue_index) = 0;
+	// The following functions are used by the Queue class.
+	// Usually you should not use them directly.
+	virtual QueueInfo queryQueueInfo(unsigned int queue_index) = 0;
+	virtual void setupQueue(unsigned int queue_index, uintptr_t table_physical,
+			uintptr_t available_physical, uintptr_t used_physical) = 0;
+	virtual void notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) = 0;
 };
 
 async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device);
@@ -170,9 +210,10 @@ private:
 
 	// Index of this queue as part of its owning device.
 	size_t _queueIndex;
-	
 	// Number of descriptors in this queue.
 	size_t _queueSize;
+	// We need to pass this to Transport::notifyDevice().
+	ptrdiff_t _notifyOffset;
 
 	// Pointers to different data structures of this virtq.
 	spec::Descriptor *_table;

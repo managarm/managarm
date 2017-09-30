@@ -21,8 +21,13 @@ struct BarInfo {
 	ptrdiff_t offset;
 };
 
+struct Capability {
+	unsigned int type;
+};
+
 struct PciInfo {
 	BarInfo barInfo[6];
+	std::vector<Capability> caps;
 };
 
 struct Device {
@@ -35,6 +40,7 @@ struct Device {
 	
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
 	async::result<void> storePciSpace(size_t offset, unsigned int size, uint32_t word);
+	async::result<uint32_t> loadPciCapability(unsigned int index, size_t offset, unsigned int size);
 
 private:
 	helix::UniqueLane _lane;

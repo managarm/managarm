@@ -29,6 +29,19 @@ inline const char *nameOf(IrqIndex index) {
 	}
 }
 
+inline const char *nameOfCapability(unsigned int type) {
+	switch(type) {
+	case 0x04: return "Slot-identification";
+	case 0x05: return "MSI";
+	case 0x09: return "Vendor-specific";
+	case 0x0A: return "Debug-port";
+	case 0x10: return "PCIe";
+	case 0x11: return "MSI-X";
+	default:
+		return nullptr;
+	}
+}
+
 struct RoutingEntry {
 	unsigned int slot;
 	IrqIndex index;
@@ -57,13 +70,19 @@ struct PciDevice {
 		ptrdiff_t offset;
 	};
 
+	struct Capability {
+		unsigned int type;
+		ptrdiff_t offset;
+		size_t length;
+	};
+
 	PciDevice(uint32_t bus, uint32_t slot, uint32_t function,
 			uint32_t vendor, uint32_t device_id, uint8_t revision,
 			uint8_t class_code, uint8_t sub_class, uint8_t interface)
 	: mbusId(0), bus(bus), slot(slot), function(function),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface),
-			interrupt(nullptr) { }
+			interrupt(nullptr), caps(*kernelAlloc) { }
 	
 	// mbus object ID of the device
 	int64_t mbusId;
@@ -87,6 +106,8 @@ struct PciDevice {
 	
 	// device configuration
 	Bar bars[6];
+
+	frigg::Vector<Capability, KernelAlloc> caps;
 };
 
 enum {
