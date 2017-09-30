@@ -13,8 +13,10 @@ namespace virtio {
 
 namespace {
 
+struct LegacyPciQueue;
+
 struct LegacyPciTransport : Transport {
-	friend class Queue;
+	friend class LegacyPciQueue;
 
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);
@@ -22,20 +24,33 @@ struct LegacyPciTransport : Transport {
 	uint8_t readConfig8(size_t offset);
 
 	void finalizeFeatures() override;
+
+	void claimQueues(unsigned int max_index) override;
+	Queue *setupQueue(unsigned int index) override;
+
 	void runDevice() override;
 
 	helix::BorrowedDescriptor getIrq() override;
 	void readIsr() override;
 
-	QueueInfo queryQueueInfo(unsigned int queue_index) override;
-	void setupQueue(unsigned int queue_index, uintptr_t table_physical,
-			uintptr_t available_physical, uintptr_t used_physical) override;
-	void notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) override;
-
 private:
 	protocols::hw::Device _hwDevice;
 	arch::io_space _legacySpace;
 	helix::UniqueDescriptor _irq;
+
+	std::vector<std::unique_ptr<LegacyPciQueue>> _queues;
+};
+
+struct LegacyPciQueue : Queue {
+	LegacyPciQueue(LegacyPciTransport *transport,
+			unsigned int queue_index, size_t queue_size,
+			spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used);
+
+protected:
+	void notifyTransport() override;
+
+private:
+	LegacyPciTransport *_transport;
 };
 
 LegacyPciTransport::LegacyPciTransport(protocols::hw::Device hw_device,
@@ -51,6 +66,58 @@ uint8_t LegacyPciTransport::readConfig8(size_t offset) {
 
 void LegacyPciTransport::finalizeFeatures() {
 	// Does nothing for now.
+}
+
+void LegacyPciTransport::claimQueues(unsigned int max_index) {
+	_queues.resize(max_index);
+}
+
+Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
+	assert(queue_index < _queues.size());
+	assert(!_queues[queue_index]);
+
+	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
+	auto queue_size = _legacySpace.load(PCI_L_QUEUE_SIZE);
+	assert(queue_size);
+
+	// TODO: Ensure that the queue size is indeed a power of 2.
+
+	// Determine the queue size in bytes.
+	constexpr size_t available_align = 2;
+	constexpr size_t used_align = 4096;
+
+	auto available_offset = (queue_size * sizeof(spec::Descriptor)
+				+ (available_align - 1))
+			& ~size_t(available_align - 1);
+	auto used_offset = (available_offset + queue_size * sizeof(spec::AvailableRing::Element)
+				+ sizeof(spec::AvailableExtra) + (used_align - 1))
+			& ~size_t(used_align - 1);
+
+	auto region_size = used_offset + queue_size * sizeof(spec::UsedRing::Element)
+				+ sizeof(spec::UsedExtra);
+
+	// Allocate physical memory for the virtq structs.
+	assert(region_size < 0x4000); // FIXME: do not hardcode 0x4000
+	HelHandle memory;
+	void *window;
+	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+			0, 0x4000, kHelMapReadWrite, &window));
+	HEL_CHECK(helCloseDescriptor(memory));
+
+	// Setup the memory region.
+	auto table = reinterpret_cast<spec::Descriptor *>((char *)window);
+	auto available = reinterpret_cast<spec::AvailableRing *>((char *)window + available_offset);
+	auto used = reinterpret_cast<spec::UsedRing *>((char *)window + used_offset);
+	_queues[queue_index] = std::make_unique<LegacyPciQueue>(this, queue_index, queue_size,
+			table, available, used);
+	
+	// Hand the queue to the device.
+	uintptr_t table_physical;
+	HEL_CHECK(helPointerPhysical(table, &table_physical));
+	_legacySpace.store(PCI_L_QUEUE_ADDRESS, table_physical >> 12);
+
+	return _queues[queue_index].get();
 }
 
 void LegacyPciTransport::runDevice() {
@@ -73,24 +140,13 @@ void LegacyPciTransport::readIsr() {
 	_legacySpace.load(PCI_L_ISR_STATUS);
 }
 
-QueueInfo LegacyPciTransport::queryQueueInfo(unsigned int queue_index) {
-	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
-	auto queue_size = _legacySpace.load(PCI_L_QUEUE_SIZE);
-	return {queue_size, 0};
+LegacyPciQueue::LegacyPciQueue(LegacyPciTransport *transport,
+		unsigned int queue_index, size_t queue_size,
+		spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used)
+: Queue{queue_index, queue_size, table, available, used}, _transport{transport} { }
 
-}
-
-void LegacyPciTransport::setupQueue(unsigned int queue_index, uintptr_t table_physical,
-			uintptr_t available_physical, uintptr_t used_physical) {
-	(void)available_physical;
-	(void)used_physical;
-	_legacySpace.store(PCI_L_QUEUE_SELECT, queue_index);
-	_legacySpace.store(PCI_L_QUEUE_ADDRESS, table_physical >> 12);
-}
-
-void LegacyPciTransport::notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) {
-	assert(!notify_offset);
-	_legacySpace.store(PCI_L_QUEUE_NOTIFY, queue_index);
+void LegacyPciQueue::notifyTransport() {
+	_transport->_legacySpace.store(PCI_L_QUEUE_NOTIFY, queueIndex());
 }
 
 } // anonymous namespace
@@ -101,7 +157,11 @@ void LegacyPciTransport::notifyDevice(unsigned int queue_index, ptrdiff_t notify
 
 namespace {
 
+struct StandardPciQueue;
+
 struct StandardPciTransport : Transport {
+	friend struct StandardPciQueue;
+
 	StandardPciTransport(protocols::hw::Device hw_device,
 			arch::mem_space common_space, arch::mem_space notify_space,
 			arch::mem_space isr_space, arch::mem_space device_space,
@@ -109,17 +169,15 @@ struct StandardPciTransport : Transport {
 
 	bool checkDeviceFeature(unsigned int feature);
 	void acknowledgeDriverFeature(unsigned int feature);
-
 	void finalizeFeatures() override;
+
+	void claimQueues(unsigned int max_index) override;
+	Queue *setupQueue(unsigned int index) override;
+
 	void runDevice() override;
 
 	helix::BorrowedDescriptor getIrq() override;
 	void readIsr() override;
-
-	QueueInfo queryQueueInfo(unsigned int queue_index) override;
-	void setupQueue(unsigned int queue_index, uintptr_t table_physical,
-			uintptr_t available_physical, uintptr_t used_physical) override;
-	void notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) override;
 
 private:
 	protocols::hw::Device _hwDevice;
@@ -129,6 +187,24 @@ private:
 	arch::mem_space _deviceSpace;
 	unsigned int _notifyMultiplier;
 	helix::UniqueDescriptor _irq;
+
+	std::vector<std::unique_ptr<StandardPciQueue>> _queues;
+};
+
+struct StandardPciQueue : Queue {
+	StandardPciQueue(StandardPciTransport *transport,
+			unsigned int queue_index, size_t queue_size,
+			spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,
+			ptrdiff_t notify_offset);
+
+protected:
+	void notifyTransport() override;
+
+private:
+	StandardPciTransport *_transport;
+
+	// We need to pass this to Transport::notifyDevice().
+	ptrdiff_t _notifyOffset;
 };
 
 StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
@@ -167,6 +243,67 @@ void StandardPciTransport::finalizeFeatures() {
 	assert(confirm & FEATURES_OK);
 }
 
+void StandardPciTransport::claimQueues(unsigned int max_index) {
+	_queues.resize(max_index);
+}
+
+Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
+	assert(queue_index < _queues.size());
+	assert(!_queues[queue_index]);
+
+	_commonSpace.store(PCI_QUEUE_SELECT, queue_index);
+	auto queue_size = _commonSpace.load(PCI_QUEUE_SIZE);
+	auto notify_index = _commonSpace.load(PCI_QUEUE_NOTIFY);
+	assert(queue_size);
+
+	// TODO: Ensure that the queue size is indeed a power of 2.
+
+	// Determine the queue size in bytes.
+	constexpr size_t available_align = 2;
+	constexpr size_t used_align = 4;
+
+	auto available_offset = (queue_size * sizeof(spec::Descriptor)
+				+ (available_align - 1))
+			& ~size_t(available_align - 1);
+	auto used_offset = (available_offset + queue_size * sizeof(spec::AvailableRing::Element)
+				+ sizeof(spec::AvailableExtra) + (used_align - 1))
+			& ~size_t(used_align - 1);
+
+	auto region_size = used_offset + queue_size * sizeof(spec::UsedRing::Element)
+				+ sizeof(spec::UsedExtra);
+
+	// Allocate physical memory for the virtq structs.
+	assert(region_size < 0x4000); // FIXME: do not hardcode 0x4000
+	HelHandle memory;
+	void *window;
+	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
+	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
+			0, 0x4000, kHelMapReadWrite, &window));
+	HEL_CHECK(helCloseDescriptor(memory));
+
+	// Setup the memory region.
+	auto table = reinterpret_cast<spec::Descriptor *>((char *)window);
+	auto available = reinterpret_cast<spec::AvailableRing *>((char *)window + available_offset);
+	auto used = reinterpret_cast<spec::UsedRing *>((char *)window + used_offset);
+	_queues[queue_index] = std::make_unique<StandardPciQueue>(this, queue_index, queue_size,
+			table, available, used, _notifyMultiplier * notify_index);
+
+	// Hand the queue to the device.
+	uintptr_t table_physical, available_physical, used_physical;
+	HEL_CHECK(helPointerPhysical(table, &table_physical));
+	HEL_CHECK(helPointerPhysical(available, &available_physical));
+	HEL_CHECK(helPointerPhysical(used, &used_physical));
+	_commonSpace.store(PCI_QUEUE_TABLE[0], table_physical);
+	_commonSpace.store(PCI_QUEUE_TABLE[1], table_physical >> 32);
+	_commonSpace.store(PCI_QUEUE_AVAILABLE[0], available_physical);
+	_commonSpace.store(PCI_QUEUE_AVAILABLE[1], available_physical >> 32);
+	_commonSpace.store(PCI_QUEUE_USED[0], used_physical);
+	_commonSpace.store(PCI_QUEUE_USED[1], used_physical >> 32);
+	_commonSpace.store(PCI_QUEUE_ENABLE, 1);
+
+	return _queues[queue_index].get();
+}
+
 void StandardPciTransport::runDevice() {
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_commonSpace.store(PCI_DEVICE_STATUS, _commonSpace.load(PCI_DEVICE_STATUS) | DRIVER_OK);
@@ -180,30 +317,15 @@ void StandardPciTransport::readIsr() {
 	_isrSpace.load(PCI_ISR);
 }
 
-QueueInfo StandardPciTransport::queryQueueInfo(unsigned int queue_index) {
-	_commonSpace.store(PCI_QUEUE_SELECT, queue_index);
-	auto queue_size = _commonSpace.load(PCI_QUEUE_SIZE);
-	auto notify_index = _commonSpace.load(PCI_QUEUE_NOTIFY);
-	return {queue_size, notify_index * _notifyMultiplier};
-}
+StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
+		unsigned int queue_index, size_t queue_size,
+		spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,
+		ptrdiff_t notify_offset)
+: Queue{queue_index, queue_size, table, available, used},
+		_transport{transport}, _notifyOffset{notify_offset} { }
 
-void StandardPciTransport::setupQueue(unsigned int queue_index,
-		uintptr_t table_physical, uintptr_t available_physical, uintptr_t used_physical) {
-	assert(!(table_physical & 15));
-	assert(!(available_physical & 1));
-	assert(!(used_physical & 3));
-	_commonSpace.store(PCI_QUEUE_SELECT, queue_index);
-	_commonSpace.store(PCI_QUEUE_TABLE[0], table_physical);
-	_commonSpace.store(PCI_QUEUE_TABLE[1], table_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_AVAILABLE[0], available_physical);
-	_commonSpace.store(PCI_QUEUE_AVAILABLE[1], available_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_USED[0], used_physical);
-	_commonSpace.store(PCI_QUEUE_USED[1], used_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_ENABLE, 1);
-}
-
-void StandardPciTransport::notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) {
-	_notifySpace.store(arch::scalar_register<uint16_t>(notify_offset), queue_index);
+void StandardPciQueue::notifyTransport() {
+	_transport->_notifySpace.store(arch::scalar_register<uint16_t>(_notifyOffset), queueIndex());
 }
 
 } // anonymous namespace
@@ -213,11 +335,12 @@ void StandardPciTransport::notifyDevice(unsigned int queue_index, ptrdiff_t noti
 // --------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<std::unique_ptr<Transport>>,
-discover(protocols::hw::Device hw_device), ([hw_device = std::move(hw_device)] () mutable {
+discover(protocols::hw::Device hw_device, DiscoverMode mode),
+		([hw_device = std::move(hw_device), mode] () mutable {
 	auto info = COFIBER_AWAIT hw_device.getPciInfo();
 	auto irq = COFIBER_AWAIT hw_device.accessIrq();
 
-	if(true) {
+	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
 		std::optional<arch::mem_space> common_space;
 		std::optional<arch::mem_space> notify_space;
 		std::optional<arch::mem_space> isr_space;
@@ -266,30 +389,33 @@ discover(protocols::hw::Device hw_device), ([hw_device = std::move(hw_device)] (
 			common_space->store(PCI_DEVICE_STATUS,
 					common_space->load(PCI_DEVICE_STATUS) | DRIVER);
 
+			std::cout << "virtio: Using standard PCI transport" << std::endl;
 			COFIBER_RETURN(std::make_unique<StandardPciTransport>(std::move(hw_device),
 					*common_space, *notify_space, *isr_space, *device_space,
 					notify_multiplier, std::move(irq)));
 		}
 	}
 
-	if(false) {
-		assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort);
-		auto bar = COFIBER_AWAIT hw_device.accessBar(0);
-		HEL_CHECK(helEnableIo(bar.getHandle()));
-		
-		// Reset the device.
-		arch::io_space legacy_space{static_cast<uint16_t>(info.barInfo[0].address)};
-		legacy_space.store(PCI_L_DEVICE_STATUS, 0);
+	if(mode == DiscoverMode::legacyOnly || mode == DiscoverMode::transitional) {
+		if(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypePort) {
+			auto bar = COFIBER_AWAIT hw_device.accessBar(0);
+			HEL_CHECK(helEnableIo(bar.getHandle()));
+			
+			// Reset the device.
+			arch::io_space legacy_space{static_cast<uint16_t>(info.barInfo[0].address)};
+			legacy_space.store(PCI_L_DEVICE_STATUS, 0);
 
-		// Set the ACKNOWLEDGE and DRIVER bits.
-		// The specification says this should be done in two steps
-		legacy_space.store(PCI_L_DEVICE_STATUS,
-				legacy_space.load(PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
-		legacy_space.store(PCI_L_DEVICE_STATUS,
-				legacy_space.load(PCI_L_DEVICE_STATUS) | DRIVER);
+			// Set the ACKNOWLEDGE and DRIVER bits.
+			// The specification says this should be done in two steps
+			legacy_space.store(PCI_L_DEVICE_STATUS,
+					legacy_space.load(PCI_L_DEVICE_STATUS) | ACKNOWLEDGE);
+			legacy_space.store(PCI_L_DEVICE_STATUS,
+					legacy_space.load(PCI_L_DEVICE_STATUS) | DRIVER);
 
-		COFIBER_RETURN(std::make_unique<LegacyPciTransport>(std::move(hw_device),
-				legacy_space, std::move(irq)));
+			std::cout << "virtio: Using legacy PCI transport" << std::endl;
+			COFIBER_RETURN(std::make_unique<LegacyPciTransport>(std::move(hw_device),
+					legacy_space, std::move(irq)));
+		}
 	}
 
 	throw std::runtime_error("Cannot construct a suitable virtio::Transport");
@@ -335,57 +461,19 @@ void Handle::setupLink(Handle other) {
 // Queue
 // --------------------------------------------------------
 
-Queue::Queue(Transport *transport, size_t queue_index)
-: _transport{transport}, _queueIndex{queue_index}, _queueSize{0}, _table{nullptr},
-		_availableRing{nullptr}, _availableExtra{nullptr},
-		_usedRing{nullptr}, _usedExtra{nullptr},
-		_progressHead{0} { }
+Queue::Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *table,
+		spec::AvailableRing *available, spec::UsedRing *used)
+: _queueIndex{queue_index}, _queueSize{queue_size}, _progressHead{0} {
+	// Construct the hardware state.
+	_table = new (table) spec::Descriptor[_queueSize];
+	_availableRing = new (available) spec::AvailableRing;
+	_usedRing = new (used) spec::UsedRing;
+	_availableExtra = new (spec::AvailableExtra::get(available, _queueSize)) spec::AvailableExtra;
+	_usedExtra = new (spec::UsedExtra::get(used, _queueSize)) spec::UsedExtra;
 
-void Queue::setupQueue() {
-	assert(!_queueSize);
+	// Initializing the table as 0xFFFF helps debugging
+	// as qemu complains if it encounters illegal values.
 
-	// Select the queue and determine its size.
-	auto info = _transport->queryQueueInfo(_queueIndex);
-	_queueSize = info.queueSize;
-	_notifyOffset = info.notifyOffset;
-	assert(_queueSize > 0);
-
-	// TODO: Ensure that the queue size is indeed a power of 2.
-
-	for(size_t i = 0; i < _queueSize; i++)
-		_descriptorStack.push_back(i);
-	_activeRequests.resize(_queueSize);
-
-	// Determine the queue size in bytes.
-	size_t available_offset = _queueSize * sizeof(spec::Descriptor);
-//	available_offset = (available_offset + 0xFFF) & ~size_t(0xFFF);
-	size_t available_extra_offset = available_offset + sizeof(spec::AvailableRing)
-			+ _queueSize * sizeof(spec::AvailableRing::Element);;
-	size_t used_offset = available_extra_offset + sizeof(spec::AvailableExtra);
-	used_offset = (used_offset + 0xFFF) & ~size_t(0xFFF);
-//	used_offset = (used_offset + 3) & ~size_t(3);
-	size_t used_extra_offset = used_offset + sizeof(spec::UsedRing)
-			+ _queueSize * sizeof(spec::UsedRing::Element);;
-	size_t end_offset = used_extra_offset + sizeof(spec::UsedExtra);
-
-	// Allocate physical memory for the virtq structs.
-	assert(end_offset < 0x4000); // FIXME: do not hardcode 0x4000
-	HelHandle memory;
-	void *window;
-	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x4000, kHelMapReadWrite, &window));
-	HEL_CHECK(helCloseDescriptor(memory));
-
-	_table = reinterpret_cast<spec::Descriptor *>((char *)window);
-	for(size_t i = 0; i < _queueSize; i++)
-		new (_table + i) spec::Descriptor;
-	_availableRing = new ((char *)window + available_offset) spec::AvailableRing;
-	_availableExtra = new ((char *)window + available_extra_offset) spec::AvailableExtra;
-	_usedRing = new ((char *)window + used_offset) spec::UsedRing;
-	_usedExtra = new ((char *)window + used_extra_offset) spec::UsedExtra;
-
-	// Setup the memory region.
 	_availableRing->flags.store(0);
 	_availableRing->headIndex.store(0);
 	for(size_t i = 0; i < _queueSize; i++)
@@ -398,16 +486,10 @@ void Queue::setupQueue() {
 		_usedRing->elements[i].tableIndex.store(0xFFFF);
 	_usedExtra->eventIndex.store(0);
 	
-	// Hand the queue to the device.
-	uintptr_t table_physical, available_physical, used_physical;
-	HEL_CHECK(helPointerPhysical(_table, &table_physical));
-	HEL_CHECK(helPointerPhysical(_availableRing, &available_physical));
-	HEL_CHECK(helPointerPhysical(_usedRing, &used_physical));
-	_transport->setupQueue(_queueIndex, table_physical, available_physical, used_physical);
-}
-
-size_t Queue::numDescriptors() {
-	return _queueSize;
+	// Construct the software state.
+	for(size_t i = 0; i < _queueSize; i++)
+		_descriptorStack.push_back(i);
+	_activeRequests.resize(_queueSize);
 }
 
 COFIBER_ROUTINE(async::result<Handle>, Queue::obtainDescriptor(), ([=] {
@@ -445,10 +527,11 @@ void Queue::postDescriptor(Handle handle, Request *request,
 	_availableRing->headIndex.store(enqueue_head + 1);
 }
 
-void Queue::notifyDevice() {
+void Queue::notify() {
 	asm volatile ( "" : : : "memory" );
 	if(!(_usedRing->flags.load() & VIRTQ_USED_F_NO_NOTIFY))
-		_transport->notifyDevice(_queueIndex, _notifyOffset);
+		notifyTransport();
+//FIXME	_transport->notifyDevice(_queueIndex, _notifyOffset);
 }
 
 void Queue::processInterrupt() {

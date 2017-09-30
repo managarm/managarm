@@ -90,6 +90,10 @@ namespace spec {
 	static_assert(sizeof(AvailableRing) == 4);
 
 	struct AvailableExtra {
+		static AvailableExtra *get(AvailableRing *ring, size_t queue_size) {
+			return reinterpret_cast<AvailableExtra *>(ring->elements + queue_size);
+		}
+
 		arch::scalar_variable<uint16_t> eventIndex;
 	};
 
@@ -105,6 +109,10 @@ namespace spec {
 	static_assert(sizeof(UsedRing) == 4);
 
 	struct UsedExtra {
+		static UsedExtra *get(UsedRing *ring, size_t queue_size) {
+			return reinterpret_cast<UsedExtra *>(ring->elements + queue_size);
+		}
+
 		arch::scalar_variable<uint16_t> eventIndex;
 	};
 };
@@ -125,26 +133,33 @@ struct QueueInfo {
  * Usual initialization works as follows:
  * - Call discover() to obtain a transport.
  * - Call Transport::finalizeFeatures().
- * - Call Queue::setupQueue() for each virtq.
+ * - Call Transport::claimQueues().
+ * - Call Transport::setupQueue() for each virtq.
  * - Call Transport::runDevice().
  */
 struct Transport {
 	virtual void finalizeFeatures() = 0;
+
+	virtual void claimQueues(unsigned int max_index) = 0;
+
+	virtual Queue *setupQueue(unsigned int index) = 0;
+	
 	virtual void runDevice() = 0;
 
 	virtual helix::BorrowedDescriptor getIrq() = 0;
 	
 	virtual void readIsr() = 0;
-
-	// The following functions are used by the Queue class.
-	// Usually you should not use them directly.
-	virtual QueueInfo queryQueueInfo(unsigned int queue_index) = 0;
-	virtual void setupQueue(unsigned int queue_index, uintptr_t table_physical,
-			uintptr_t available_physical, uintptr_t used_physical) = 0;
-	virtual void notifyDevice(unsigned int queue_index, ptrdiff_t notify_offset) = 0;
 };
 
-async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device);
+enum class DiscoverMode {
+	null,
+	legacyOnly,
+	transitional,
+	modernOnly
+};
+
+async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device,
+		DiscoverMode mode);
 
 // --------------------------------------------------------
 // Queue
@@ -182,13 +197,17 @@ struct Request {
 struct Queue {
 	friend struct Handle;
 
-	Queue(Transport *transport, size_t queue_index);
+	Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *table,
+			spec::AvailableRing *available, spec::UsedRing *used);
 
-	// Initializes the virtq. Call this during driver initialization.
-	void setupQueue();
+	unsigned int queueIndex() {
+		return _queueIndex;
+	}
 
 	// Returns the number of descriptors in this virtq.
-	size_t numDescriptors();
+	size_t numDescriptors() {
+		return _queueSize;
+	}
 
 	// Allocates a single descriptor.
 	// The descriptor is automatically freed when the device returns it.
@@ -199,27 +218,27 @@ struct Queue {
 			void (*complete)(Request *));
 
 	// Notifies the device that new descriptors have been posted.
-	void notifyDevice();
+	void notify();
 
 	// Processes interrupts for this virtq.
 	// Calls retrieveDescriptor() to complete individual requests.
 	void processInterrupt();
 
-private:
-	Transport *_transport;
+protected:
+	virtual void notifyTransport() = 0;
 
+private:
 	// Index of this queue as part of its owning device.
-	size_t _queueIndex;
+	unsigned int _queueIndex;
+
 	// Number of descriptors in this queue.
 	size_t _queueSize;
-	// We need to pass this to Transport::notifyDevice().
-	ptrdiff_t _notifyOffset;
 
 	// Pointers to different data structures of this virtq.
 	spec::Descriptor *_table;
 	spec::AvailableRing *_availableRing;
-	spec::AvailableExtra *_availableExtra;
 	spec::UsedRing *_usedRing;
+	spec::AvailableExtra *_availableExtra;
 	spec::UsedExtra *_usedExtra;
 
 	// Keeps track of unused descriptor indices.

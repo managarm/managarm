@@ -60,7 +60,7 @@ private:
 	std::unique_ptr<Transport> _transport;
 
 	// The single virtq of this device.
-	Queue _requestQueue;
+	Queue *_requestQueue;
 
 	// Stores UserRequest objects that have not been submitted yet.
 	std::queue<UserRequest *> _pendingQueue;

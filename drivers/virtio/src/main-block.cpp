@@ -23,7 +23,8 @@
 
 COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
-	auto transport = COFIBER_AWAIT virtio::discover(std::move(hw_device));
+	auto transport = COFIBER_AWAIT virtio::discover(std::move(hw_device),
+			virtio::DiscoverMode::transitional);
 
 	auto device = new virtio::block::Device{std::move(transport)};
 	device->runDevice();
@@ -46,8 +47,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 
 	auto filter = mbus::Conjunction({
 		mbus::EqualsFilter("pci-vendor", "1af4"),
-//		mbus::EqualsFilter("pci-device", "1001")
-		mbus::EqualsFilter("pci-device", "1042")
+		mbus::EqualsFilter("pci-device", "1001")
+//		mbus::EqualsFilter("pci-device", "1042")
 	});
 
 	auto handler = mbus::ObserverHandler{}
