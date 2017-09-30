@@ -145,10 +145,6 @@ struct Transport {
 	virtual Queue *setupQueue(unsigned int index) = 0;
 	
 	virtual void runDevice() = 0;
-
-	virtual helix::BorrowedDescriptor getIrq() = 0;
-	
-	virtual void readIsr() = 0;
 };
 
 enum class DiscoverMode {

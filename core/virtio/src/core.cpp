@@ -30,10 +30,9 @@ struct LegacyPciTransport : Transport {
 
 	void runDevice() override;
 
-	helix::BorrowedDescriptor getIrq() override;
-	void readIsr() override;
-
 private:
+	cofiber::no_future _processIrqs();
+
 	protocols::hw::Device _hwDevice;
 	arch::io_space _legacySpace;
 	helix::UniqueDescriptor _irq;
@@ -130,15 +129,27 @@ void LegacyPciTransport::runDevice() {
 
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_legacySpace.store(PCI_L_DEVICE_STATUS, _legacySpace.load(PCI_L_DEVICE_STATUS) | DRIVER_OK);
+
+	_processIrqs();
 }
 
-helix::BorrowedDescriptor LegacyPciTransport::getIrq() {
-	return _irq;
-}
+COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
+	uint64_t sequence;
+	while(true) {
+		helix::AwaitEvent await;
+		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
+				helix::Dispatcher::global());
+		COFIBER_AWAIT(submit.async_wait());
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 
-void LegacyPciTransport::readIsr() {
-	_legacySpace.load(PCI_L_ISR_STATUS);
-}
+		_legacySpace.load(PCI_L_ISR_STATUS);
+
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
+		for(auto &queue : _queues)
+			queue->processInterrupt();
+	}
+}))
 
 LegacyPciQueue::LegacyPciQueue(LegacyPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,
@@ -176,10 +187,9 @@ struct StandardPciTransport : Transport {
 
 	void runDevice() override;
 
-	helix::BorrowedDescriptor getIrq() override;
-	void readIsr() override;
-
 private:
+	cofiber::no_future _processIrqs();
+
 	protocols::hw::Device _hwDevice;
 	arch::mem_space _commonSpace;
 	arch::mem_space _notifySpace;
@@ -307,15 +317,27 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 void StandardPciTransport::runDevice() {
 	// Finally set the DRIVER_OK bit to finish the configuration.
 	_commonSpace.store(PCI_DEVICE_STATUS, _commonSpace.load(PCI_DEVICE_STATUS) | DRIVER_OK);
+
+	_processIrqs();
 }
 
-helix::BorrowedDescriptor StandardPciTransport::getIrq() {
-	return _irq;
-}
+COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
+	uint64_t sequence;
+	while(true) {
+		helix::AwaitEvent await;
+		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
+				helix::Dispatcher::global());
+		COFIBER_AWAIT(submit.async_wait());
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
 
-void StandardPciTransport::readIsr() {
-	_isrSpace.load(PCI_ISR);
-}
+		_isrSpace.load(PCI_ISR);
+
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
+		for(auto &queue : _queues)
+			queue->processInterrupt();
+	}
+}))
 
 StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,

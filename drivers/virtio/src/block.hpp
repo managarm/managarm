@@ -55,8 +55,6 @@ private:
 	// Submits requests from _pendingQueue to the device.
 	cofiber::no_future _processRequests();
 	
-	cofiber::no_future _processIrqs();
-
 	std::unique_ptr<virtio_core::Transport> _transport;
 
 	// The single virtq of this device.

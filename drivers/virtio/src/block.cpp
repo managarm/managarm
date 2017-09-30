@@ -40,7 +40,6 @@ void Device::runDevice() {
 	
 	// setup an interrupt for the device
 	_processRequests();
-	_processIrqs();
 
 	blockfs::runDevice(this);
 }
@@ -65,24 +64,6 @@ COFIBER_ROUTINE(async::result<void>, Device::readSectors(uint64_t sector,
 	}
 
 	COFIBER_RETURN();
-}))
-
-COFIBER_ROUTINE(cofiber::no_future, Device::_processIrqs(), ([=] {
-	auto irq = _transport->getIrq();
-
-	uint64_t sequence;
-	while(true) {
-		helix::AwaitEvent await;
-		auto &&submit = helix::submitAwaitEvent(irq, &await, sequence,
-				helix::Dispatcher::global());
-		COFIBER_AWAIT(submit.async_wait());
-		HEL_CHECK(await.error());
-		sequence = await.sequence();
-
-		_transport->readIsr();
-		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), 0, sequence));
-		_requestQueue->processInterrupt();
-	}
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
