@@ -29,6 +29,11 @@ void Device::runDevice() {
 	_transport->finalizeFeatures();
 	_transport->claimQueues(1);
 	_requestQueue = _transport->setupQueue(0);
+
+	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
+			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
+	std::cout << "virtio: Disk size: " << size << " sectors" << std::endl;
+
 	_transport->runDevice();
 
 	// perform device specific setup

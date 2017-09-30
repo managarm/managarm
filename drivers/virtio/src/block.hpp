@@ -23,6 +23,12 @@ enum {
 	VIRTIO_BLK_T_OUT = 1
 };
 
+namespace spec::regs {
+	inline constexpr arch::scalar_register<uint32_t> capacity[] = {
+			arch::scalar_register<uint32_t>{0},
+			arch::scalar_register<uint32_t>{4}};
+}
+
 struct Device;
 
 // --------------------------------------------------------

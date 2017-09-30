@@ -21,7 +21,7 @@ struct LegacyPciTransport : Transport {
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);
 
-	uint8_t readConfig8(size_t offset);
+	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 
 	void finalizeFeatures() override;
 
@@ -57,10 +57,8 @@ LegacyPciTransport::LegacyPciTransport(protocols::hw::Device hw_device,
 : _hwDevice{std::move(hw_device)}, _legacySpace{legacy_space},
 		_irq{std::move(irq)} { }
 
-uint8_t LegacyPciTransport::readConfig8(size_t offset) {
-	(void)offset;
-	throw std::logic_error("Fix virtio::readConfig8()");
-//FIXME	return frigg::readIo<uint8_t>(basePort + PCI_L_DEVICE_SPECIFIC + offset);
+uint32_t LegacyPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
+	return _legacySpace.subspace(20).load(r);
 }
 
 void LegacyPciTransport::finalizeFeatures() {
@@ -177,6 +175,8 @@ struct StandardPciTransport : Transport {
 			arch::mem_space common_space, arch::mem_space notify_space,
 			arch::mem_space isr_space, arch::mem_space device_space,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq);
+	
+	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 
 	bool checkDeviceFeature(unsigned int feature);
 	void acknowledgeDriverFeature(unsigned int feature);
@@ -225,12 +225,9 @@ StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
 		_isrSpace{isr_space}, _deviceSpace{device_space},
 		_notifyMultiplier{notify_multiplier}, _irq{std::move(irq)} { }
 
-/*
-uint8_t StandardPciTransport::readConfig8(size_t offset) {
-	(void)offset;
-	throw std::logic_error("Fix virtio::readConfig8()");
+uint32_t StandardPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
+	return _deviceSpace.load(r);
 }
-*/
 
 bool StandardPciTransport::checkDeviceFeature(unsigned int feature) {
 	_commonSpace.store(PCI_DEVICE_FEATURE_SELECT, feature >> 5);

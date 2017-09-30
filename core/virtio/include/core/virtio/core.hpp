@@ -117,6 +117,7 @@ namespace spec {
 	};
 };
 
+struct DeviceSpace;
 struct Queue;
 
 // --------------------------------------------------------
@@ -138,6 +139,10 @@ struct QueueInfo {
  * - Call Transport::runDevice().
  */
 struct Transport {
+	DeviceSpace space();
+
+	virtual uint32_t loadConfig(arch::scalar_register<uint32_t> offset) = 0;
+
 	virtual void finalizeFeatures() = 0;
 
 	virtual void claimQueues(unsigned int max_index) = 0;
@@ -146,6 +151,24 @@ struct Transport {
 	
 	virtual void runDevice() = 0;
 };
+
+struct DeviceSpace {
+	DeviceSpace(Transport *transport)
+	: _transport{transport} { }
+	
+	template<typename RT, typename = std::enable_if_t<sizeof(typename RT::rep_type) == 4>>
+	typename RT::rep_type load(RT r) const {
+		auto v = _transport->loadConfig(arch::scalar_register<uint32_t>{r.offset()});
+		return static_cast<typename RT::rep_type>(v);
+	}
+
+private:
+	Transport *_transport;
+};
+
+inline DeviceSpace Transport::space() {
+	return DeviceSpace{this};
+}
 
 enum class DiscoverMode {
 	null,
