@@ -454,6 +454,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 			// Reset the device.
 			arch::mem_space common_space{common_mapping->get()};
 			common_space.store(PCI_DEVICE_STATUS, 0);
+			assert(!common_space.load(PCI_DEVICE_STATUS));
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
@@ -478,6 +479,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 			// Reset the device.
 			arch::io_space legacy_space{static_cast<uint16_t>(info.barInfo[0].address)};
 			legacy_space.store(PCI_L_DEVICE_STATUS, 0);
+			assert(!legacy_space.load(PCI_L_DEVICE_STATUS));
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
