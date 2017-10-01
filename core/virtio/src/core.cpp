@@ -258,16 +258,14 @@ struct StandardPciQueue : Queue {
 	StandardPciQueue(StandardPciTransport *transport,
 			unsigned int queue_index, size_t queue_size,
 			spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,
-			ptrdiff_t notify_offset);
+			arch::scalar_register<uint16_t> notify_register);
 
 protected:
 	void notifyTransport() override;
 
 private:
 	StandardPciTransport *_transport;
-
-	// We need to pass this to Transport::notifyDevice().
-	ptrdiff_t _notifyOffset;
+	arch::scalar_register<uint16_t> _notifyRegister;
 };
 
 StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
@@ -347,7 +345,8 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	auto available = reinterpret_cast<spec::AvailableRing *>((char *)window + available_offset);
 	auto used = reinterpret_cast<spec::UsedRing *>((char *)window + used_offset);
 	_queues[queue_index] = std::make_unique<StandardPciQueue>(this, queue_index, queue_size,
-			table, available, used, _notifyMultiplier * notify_index);
+			table, available, used,
+			arch::scalar_register<uint16_t>{_notifyMultiplier * notify_index});
 
 	// Hand the queue to the device.
 	uintptr_t table_physical, available_physical, used_physical;
@@ -393,12 +392,12 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
 		unsigned int queue_index, size_t queue_size,
 		spec::Descriptor *table, spec::AvailableRing *available, spec::UsedRing *used,
-		ptrdiff_t notify_offset)
+		arch::scalar_register<uint16_t> notify_register)
 : Queue{queue_index, queue_size, table, available, used},
-		_transport{transport}, _notifyOffset{notify_offset} { }
+		_transport{transport}, _notifyRegister{notify_register} { }
 
 void StandardPciQueue::notifyTransport() {
-	_transport->_notifySpace().store(arch::scalar_register<uint16_t>(_notifyOffset), queueIndex());
+	_transport->_notifySpace().store(_notifyRegister, queueIndex());
 }
 
 } // anonymous namespace
@@ -431,7 +430,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 			auto bir = COFIBER_AWAIT hw_device.loadPciCapability(i, 4, 1);
 			auto offset = COFIBER_AWAIT hw_device.loadPciCapability(i, 8, 4);
 			auto length = COFIBER_AWAIT hw_device.loadPciCapability(i, 12, 4);
-			std::cout << "Subtype: " << subtype << ", BAR index: " << bir
+			std::cout << "virtio: Subtype: " << subtype << ", BAR index: " << bir
 					<< ", offset: " << offset << ", length: " << length << std::endl;
 		
 			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
@@ -607,7 +606,6 @@ void Queue::notify() {
 	asm volatile ( "" : : : "memory" );
 	if(!(_usedRing->flags.load() & VIRTQ_USED_F_NO_NOTIFY))
 		notifyTransport();
-//FIXME	_transport->notifyDevice(_queueIndex, _notifyOffset);
 }
 
 void Queue::processInterrupt() {
