@@ -83,24 +83,22 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 		assert(request->numSectors);
 
 		// Setup the descriptor for the request header.
-		auto header_handle = COFIBER_AWAIT _requestQueue->obtainDescriptor();
+		virtio_core::Chain chain;
+		chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
 
-		VirtRequest *header = &virtRequestBuffer[header_handle.tableIndex()];
+		VirtRequest *header = &virtRequestBuffer[chain.front().tableIndex()];
 		header->type = VIRTIO_BLK_T_IN;
 		header->reserved = 0;
 		header->sector = request->sector;
 
-		header_handle.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
+		chain.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
 				header, sizeof(VirtRequest)});
 		
 		// Setup descriptors for the transfered data.
-		auto chain_handle = header_handle;
 		for(size_t i = 0; i < request->numSectors; i++) {
-			auto data_handle = COFIBER_AWAIT _requestQueue->obtainDescriptor();
-			data_handle.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
+			chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
+			chain.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
 					(char *)request->buffer + 512 * i, 512});
-			chain_handle.setupLink(data_handle);
-			chain_handle = data_handle;
 		}
 
 		if(logInitiateRetire)
@@ -108,13 +106,12 @@ COFIBER_ROUTINE(cofiber::no_future, Device::_processRequests(), ([=] {
 					<< " data descriptors" << std::endl;
 
 		// Setup a descriptor for the status byte.
-		auto status_handle = COFIBER_AWAIT _requestQueue->obtainDescriptor();
-		status_handle.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
-				&statusBuffer[header_handle.tableIndex()], 1});
-		chain_handle.setupLink(status_handle);
+		chain.append(COFIBER_AWAIT _requestQueue->obtainDescriptor());
+		chain.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
+				&statusBuffer[chain.front().tableIndex()], 1});
 
 		// Submit the request to the device
-		_requestQueue->postDescriptor(header_handle, request,
+		_requestQueue->postDescriptor(chain.front(), request,
 				[] (virtio_core::Request *base_request) {
 			auto request = static_cast<UserRequest *>(base_request);
 			if(logInitiateRetire)

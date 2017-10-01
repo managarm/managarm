@@ -192,8 +192,15 @@ inline constexpr DeviceToHostType deviceToHost;
 
 // Handle to a virtq descriptor.
 struct Handle {
+	Handle()
+	: _queue{nullptr}, _tableIndex{0} { }
+
 	Handle(Queue *queue, size_t table_index);
 	
+	explicit operator bool() {
+		return _queue;
+	}
+
 	size_t tableIndex() {
 		return _tableIndex;
 	}
@@ -206,6 +213,40 @@ struct Handle {
 private:
 	Queue *_queue;
 	size_t _tableIndex;
+};
+
+// Helper class to create Handle chains.
+struct Chain {
+	Chain() = default;
+
+	Chain(const Chain &) = delete;
+
+	Chain &operator= (const Chain &) = delete;
+
+	void append(Handle handle) {
+		if(_front) {
+			_back.setupLink(handle);
+			_back = handle;
+		}else{
+			_front = handle;
+			_back = handle;
+		}
+	}
+
+	Handle front() {
+		return _front;
+	}
+
+	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
+		_back.setupBuffer(hostToDevice, view);
+	}
+	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
+		_back.setupBuffer(deviceToHost, view);
+	}
+
+private:
+	Handle _front;
+	Handle _back;
 };
 
 struct Request {
