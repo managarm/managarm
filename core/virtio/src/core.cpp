@@ -7,6 +7,54 @@
 
 namespace virtio_core {
 
+struct Mapping {
+	static constexpr size_t pageSize = 0x1000;
+
+	friend void swap(Mapping &x, Mapping &y) {
+		using std::swap;
+		swap(x._window, y._window);
+		swap(x._offset, y._offset);
+		swap(x._size, y._size);
+	}
+
+	Mapping()
+	: _window{nullptr}, _offset{0}, _size{0} { }
+
+	Mapping(helix::BorrowedDescriptor slice, ptrdiff_t offset, size_t size)
+	: _offset{offset}, _size{size} {
+		HEL_CHECK(helMapMemory(slice.getHandle(), kHelNullHandle,
+				nullptr, _offset & ~(pageSize - 1),
+				((_offset & (pageSize - 1)) + _size + (pageSize - 1)) & ~(pageSize - 1),
+				kHelMapReadWrite, &_window));
+	}
+
+	Mapping(const Mapping &) = delete;
+	
+	Mapping(Mapping &&other)
+	: Mapping() {
+		swap(*this, other);
+	}
+
+	~Mapping() {
+		if(_window)
+			assert(!"Unmap memory here!");
+	}
+
+	Mapping &operator= (Mapping other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	void *get() {
+		return reinterpret_cast<char *>(_window) + (_offset & (pageSize - 1));
+	}
+
+private:
+	void *_window;
+	ptrdiff_t _offset;
+	size_t _size;
+};
+
 // --------------------------------------------------------
 // LegacyPciTransport
 // --------------------------------------------------------
@@ -172,8 +220,8 @@ struct StandardPciTransport : Transport {
 	friend struct StandardPciQueue;
 
 	StandardPciTransport(protocols::hw::Device hw_device,
-			arch::mem_space common_space, arch::mem_space notify_space,
-			arch::mem_space isr_space, arch::mem_space device_space,
+			Mapping common_mapping, Mapping notify_mapping,
+			Mapping isr_mapping, Mapping device_mapping,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq);
 	
 	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
@@ -188,13 +236,18 @@ struct StandardPciTransport : Transport {
 	void runDevice() override;
 
 private:
+	arch::mem_space _commonSpace() { return arch::mem_space{_commonMapping.get()}; }
+	arch::mem_space _notifySpace() { return arch::mem_space{_notifyMapping.get()}; }
+	arch::mem_space _isrSpace() { return arch::mem_space{_isrMapping.get()}; }
+	arch::mem_space _deviceSpace() { return arch::mem_space{_deviceMapping.get()}; }
+
 	cofiber::no_future _processIrqs();
 
 	protocols::hw::Device _hwDevice;
-	arch::mem_space _commonSpace;
-	arch::mem_space _notifySpace;
-	arch::mem_space _isrSpace;
-	arch::mem_space _deviceSpace;
+	Mapping _commonMapping;
+	Mapping _notifyMapping;
+	Mapping _isrMapping;
+	Mapping _deviceMapping;
 	unsigned int _notifyMultiplier;
 	helix::UniqueDescriptor _irq;
 
@@ -218,35 +271,36 @@ private:
 };
 
 StandardPciTransport::StandardPciTransport(protocols::hw::Device hw_device,
-		arch::mem_space common_space, arch::mem_space notify_space,
-		arch::mem_space isr_space, arch::mem_space device_space,
+		Mapping common_mapping, Mapping notify_mapping,
+		Mapping isr_mapping, Mapping device_mapping,
 		unsigned int notify_multiplier, helix::UniqueDescriptor irq)
-: _hwDevice{std::move(hw_device)}, _commonSpace{common_space}, _notifySpace{notify_space},
-		_isrSpace{isr_space}, _deviceSpace{device_space},
+: _hwDevice{std::move(hw_device)},
+		_commonMapping{std::move(common_mapping)}, _notifyMapping{std::move(notify_mapping)},
+		_isrMapping{std::move(isr_mapping)}, _deviceMapping{std::move(device_mapping)},
 		_notifyMultiplier{notify_multiplier}, _irq{std::move(irq)} { }
 
 uint32_t StandardPciTransport::loadConfig(arch::scalar_register<uint32_t> r) {
-	return _deviceSpace.load(r);
+	return _deviceSpace().load(r);
 }
 
 bool StandardPciTransport::checkDeviceFeature(unsigned int feature) {
-	_commonSpace.store(PCI_DEVICE_FEATURE_SELECT, feature >> 5);
-	return _commonSpace.load(PCI_DEVICE_FEATURE_WINDOW) & (uint32_t(1) << (feature & 31));
+	_commonSpace().store(PCI_DEVICE_FEATURE_SELECT, feature >> 5);
+	return _commonSpace().load(PCI_DEVICE_FEATURE_WINDOW) & (uint32_t(1) << (feature & 31));
 }
 
 void StandardPciTransport::acknowledgeDriverFeature(unsigned int feature) {
 	auto bit = uint32_t(1) << (feature & 31);
-	_commonSpace.store(PCI_DRIVER_FEATURE_SELECT, feature >> 5);
-	auto current = _commonSpace.load(PCI_DRIVER_FEATURE_WINDOW);
-	_commonSpace.store(PCI_DRIVER_FEATURE_WINDOW, current | bit);
+	_commonSpace().store(PCI_DRIVER_FEATURE_SELECT, feature >> 5);
+	auto current = _commonSpace().load(PCI_DRIVER_FEATURE_WINDOW);
+	_commonSpace().store(PCI_DRIVER_FEATURE_WINDOW, current | bit);
 }
 
 void StandardPciTransport::finalizeFeatures() {
 	assert(checkDeviceFeature(32));
 	acknowledgeDriverFeature(32);
 
-	_commonSpace.store(PCI_DEVICE_STATUS, _commonSpace.load(PCI_DEVICE_STATUS) | FEATURES_OK);
-	auto confirm = _commonSpace.load(PCI_DEVICE_STATUS);
+	_commonSpace().store(PCI_DEVICE_STATUS, _commonSpace().load(PCI_DEVICE_STATUS) | FEATURES_OK);
+	auto confirm = _commonSpace().load(PCI_DEVICE_STATUS);
 	assert(confirm & FEATURES_OK);
 }
 
@@ -258,9 +312,9 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	assert(queue_index < _queues.size());
 	assert(!_queues[queue_index]);
 
-	_commonSpace.store(PCI_QUEUE_SELECT, queue_index);
-	auto queue_size = _commonSpace.load(PCI_QUEUE_SIZE);
-	auto notify_index = _commonSpace.load(PCI_QUEUE_NOTIFY);
+	_commonSpace().store(PCI_QUEUE_SELECT, queue_index);
+	auto queue_size = _commonSpace().load(PCI_QUEUE_SIZE);
+	auto notify_index = _commonSpace().load(PCI_QUEUE_NOTIFY);
 	assert(queue_size);
 
 	// TODO: Ensure that the queue size is indeed a power of 2.
@@ -300,20 +354,20 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	HEL_CHECK(helPointerPhysical(table, &table_physical));
 	HEL_CHECK(helPointerPhysical(available, &available_physical));
 	HEL_CHECK(helPointerPhysical(used, &used_physical));
-	_commonSpace.store(PCI_QUEUE_TABLE[0], table_physical);
-	_commonSpace.store(PCI_QUEUE_TABLE[1], table_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_AVAILABLE[0], available_physical);
-	_commonSpace.store(PCI_QUEUE_AVAILABLE[1], available_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_USED[0], used_physical);
-	_commonSpace.store(PCI_QUEUE_USED[1], used_physical >> 32);
-	_commonSpace.store(PCI_QUEUE_ENABLE, 1);
+	_commonSpace().store(PCI_QUEUE_TABLE[0], table_physical);
+	_commonSpace().store(PCI_QUEUE_TABLE[1], table_physical >> 32);
+	_commonSpace().store(PCI_QUEUE_AVAILABLE[0], available_physical);
+	_commonSpace().store(PCI_QUEUE_AVAILABLE[1], available_physical >> 32);
+	_commonSpace().store(PCI_QUEUE_USED[0], used_physical);
+	_commonSpace().store(PCI_QUEUE_USED[1], used_physical >> 32);
+	_commonSpace().store(PCI_QUEUE_ENABLE, 1);
 
 	return _queues[queue_index].get();
 }
 
 void StandardPciTransport::runDevice() {
 	// Finally set the DRIVER_OK bit to finish the configuration.
-	_commonSpace.store(PCI_DEVICE_STATUS, _commonSpace.load(PCI_DEVICE_STATUS) | DRIVER_OK);
+	_commonSpace().store(PCI_DEVICE_STATUS, _commonSpace().load(PCI_DEVICE_STATUS) | DRIVER_OK);
 
 	_processIrqs();
 }
@@ -328,7 +382,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		_isrSpace.load(PCI_ISR);
+		_isrSpace().load(PCI_ISR);
 
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
 		for(auto &queue : _queues)
@@ -344,7 +398,7 @@ StandardPciQueue::StandardPciQueue(StandardPciTransport *transport,
 		_transport{transport}, _notifyOffset{notify_offset} { }
 
 void StandardPciQueue::notifyTransport() {
-	_transport->_notifySpace.store(arch::scalar_register<uint16_t>(_notifyOffset), queueIndex());
+	_transport->_notifySpace().store(arch::scalar_register<uint16_t>(_notifyOffset), queueIndex());
 }
 
 } // anonymous namespace
@@ -360,10 +414,10 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 	auto irq = COFIBER_AWAIT hw_device.accessIrq();
 
 	if(mode == DiscoverMode::transitional || mode == DiscoverMode::modernOnly) {
-		std::optional<arch::mem_space> common_space;
-		std::optional<arch::mem_space> notify_space;
-		std::optional<arch::mem_space> isr_space;
-		std::optional<arch::mem_space> device_space;
+		std::optional<Mapping> common_mapping;
+		std::optional<Mapping> notify_mapping;
+		std::optional<Mapping> isr_mapping;
+		std::optional<Mapping> device_mapping;
 		unsigned int notify_multiplier = 0;
 
 		for(size_t i = 0; i < info.caps.size(); i++) {
@@ -380,37 +434,38 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 			std::cout << "Subtype: " << subtype << ", BAR index: " << bir
 					<< ", offset: " << offset << ", length: " << length << std::endl;
 		
+			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
 			auto bar = COFIBER_AWAIT hw_device.accessBar(bir);
-			void *window;
-			HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-					offset, length, kHelMapReadWrite | kHelMapShareAtFork, &window));
+			Mapping mapping{bar, info.barInfo[bir].offset + offset, length};
 
 			if(subtype == 1) {
-				common_space = arch::mem_space{window};
+				common_mapping = std::move(mapping);
 			}else if(subtype == 2) {
-				notify_space = arch::mem_space{window};
+				notify_mapping = std::move(mapping);
 				notify_multiplier = COFIBER_AWAIT hw_device.loadPciCapability(i, 16, 4);
 			}else if(subtype == 3) {
-				isr_space = arch::mem_space{window};
+				isr_mapping = std::move(mapping);
 			}else if(subtype == 4) {
-				device_space = arch::mem_space{window};
+				device_mapping = std::move(mapping);
 			}
 		}
 		
-		if(common_space && notify_space && isr_space && device_space) {
+		if(common_mapping && notify_mapping && isr_mapping && device_mapping) {
 			// Reset the device.
-			common_space->store(PCI_DEVICE_STATUS, 0);
+			arch::mem_space common_space{common_mapping->get()};
+			common_space.store(PCI_DEVICE_STATUS, 0);
 
 			// Set the ACKNOWLEDGE and DRIVER bits.
 			// The specification says this should be done in two steps
-			common_space->store(PCI_DEVICE_STATUS,
-					common_space->load(PCI_DEVICE_STATUS) | ACKNOWLEDGE);
-			common_space->store(PCI_DEVICE_STATUS,
-					common_space->load(PCI_DEVICE_STATUS) | DRIVER);
+			common_space.store(PCI_DEVICE_STATUS,
+					common_space.load(PCI_DEVICE_STATUS) | ACKNOWLEDGE);
+			common_space.store(PCI_DEVICE_STATUS,
+					common_space.load(PCI_DEVICE_STATUS) | DRIVER);
 
 			std::cout << "virtio: Using standard PCI transport" << std::endl;
 			COFIBER_RETURN(std::make_unique<StandardPciTransport>(std::move(hw_device),
-					*common_space, *notify_space, *isr_space, *device_space,
+					std::move(*common_mapping), std::move(*notify_mapping),
+					std::move(*isr_mapping), std::move(*device_mapping),
 					notify_multiplier, std::move(irq)));
 		}
 	}
