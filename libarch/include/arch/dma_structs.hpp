@@ -34,7 +34,7 @@ struct dma_buffer_view {
 		return _data;
 	}
 
-	dma_buffer_view subview(size_t offset, size_t chunk) {
+	dma_buffer_view subview(size_t offset, size_t chunk) const {
 		return dma_buffer_view{_pool, (char *)_data + offset, chunk};
 	}
 

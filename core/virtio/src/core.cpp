@@ -532,6 +532,34 @@ void Handle::setupLink(Handle other) {
 	descriptor->flags.store(descriptor->flags.load() | VIRTQ_DESC_F_NEXT);
 }
 
+COFIBER_ROUTINE(async::result<void>, scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view), ([chain = &chain, queue, view] {
+	constexpr size_t page_size = 0x1000;
+	size_t offset = 0;
+	while(offset < view.size()) {
+		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
+		auto chunk = std::min(view.size() - offset, page_size - (address & ~(page_size - 1)));
+		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
+		chain->setupBuffer(hostToDevice, view.subview(offset, chunk));
+		offset += chunk;
+	}
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<void>, scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view), ([chain = &chain, queue, view] {
+	constexpr size_t page_size = 0x1000;
+	size_t offset = 0;
+	while(offset < view.size()) {
+		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
+		auto chunk = std::min(view.size() - offset, page_size - (address & ~(page_size - 1)));
+		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
+		chain->setupBuffer(deviceToHost, view.subview(offset, chunk));
+		offset += chunk;
+	}
+	COFIBER_RETURN();
+}))
+
 // --------------------------------------------------------
 // Queue
 // --------------------------------------------------------

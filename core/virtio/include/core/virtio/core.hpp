@@ -205,6 +205,8 @@ struct Handle {
 		return _tableIndex;
 	}
 
+	// setupBuffer() assumes that the buffer is contiguous in physical memory.
+	// Use scatterGather() for a more convenient API.
 	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
 	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
 
@@ -237,6 +239,7 @@ struct Chain {
 		return _front;
 	}
 
+	// Note the remarks on Handle::setupBuffer().
 	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
 		_back.setupBuffer(hostToDevice, view);
 	}
@@ -248,6 +251,12 @@ private:
 	Handle _front;
 	Handle _back;
 };
+
+// Helper functions that obtain descriptor from a queue as needed.
+async::result<void> scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view);
+async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
+		arch::dma_buffer_view view);
 
 struct Request {
 	void (*complete)(Request *);
