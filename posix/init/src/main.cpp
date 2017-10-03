@@ -27,49 +27,12 @@ int main() {
 	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");
 	
-	int mfd = open("/sbin/gfx_bochs", O_RDONLY);
-	if(mfd < 0) {
-		printf("open() failed\n");
-		exit(1);
-	}
-
-	auto ptr = reinterpret_cast<char *>(mmap(nullptr, 0x1000, PROT_READ | PROT_WRITE,
-			MAP_SHARED, mfd, 0));
-	if(ptr == MAP_FAILED) {
-		printf("mmap() failed\n");
-		exit(1);
-	}
-
-	printf("Bytes: %x %x %x %x\n", ptr[0], ptr[1], ptr[2], ptr[3]);
-
 	std::vector<char *> args;
 	args.push_back(const_cast<char *>("acpi"));
 	args.push_back(nullptr);
 
 	char *envp[] = { nullptr };
 
-	auto gfx_bochs = fork();
-	if(!gfx_bochs) {
-		execve("/sbin/gfx_bochs", args.data(), envp);
-	}else assert(gfx_bochs != -1);
-
-	while(access("/dev/card0", F_OK)) {
-		assert(errno == ENOENT);
-		sleep(1);
-	}
-/*
-	auto modeset = fork();
-	if(!modeset) {
-		execve("/sbin/modeset", args.data(), envp);
-	}else assert(modeset != -1);
-*/
-
-	auto modeset_db = fork();
-	if(!modeset_db) {
-		execve("/sbin/modeset-double-buffered", args.data(), envp);
-	}else assert(modeset_db != -1);
-
-/*
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
@@ -80,6 +43,11 @@ int main() {
 	if(!ehci) {
 		execve("/sbin/ehci", args.data(), envp);
 	}else assert(ehci != -1);
+
+	auto virtio = fork();
+	if(!virtio) {
+		execve("/sbin/virtio-block", args.data(), envp);
+	}else assert(virtio != -1);
 
 	auto storage = fork();
 	if(!storage) {
@@ -103,7 +71,29 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
+	
+	auto gfx_bochs = fork();
+	if(!gfx_bochs) {
+		execve("/usr/bin/gfx_bochs", args.data(), envp);
+	}else assert(gfx_bochs != -1);
 
+	while(access("/dev/card0", F_OK)) {
+		assert(errno == ENOENT);
+		sleep(1);
+	}
+/*
+	auto modeset = fork();
+	if(!modeset) {
+		execve("/sbin/modeset", args.data(), envp);
+	}else assert(modeset != -1);
+*/
+
+	auto modeset_db = fork();
+	if(!modeset_db) {
+		execve("/root/modeset-double-buffered", args.data(), envp);
+	}else assert(modeset_db != -1);
+
+/*
 	// UART
 	auto uart = fork();
 	if(!uart) {
@@ -154,13 +144,6 @@ int main() {
 	}else assert(gfx_intel != -1);
 */
 
-/*
-	auto virtio = fork();
-	if(!virtio) {
-//		execve("/usr/bin/ata", args.data(), envp);
-		execve("/usr/bin/virtio-block", args.data(), envp);
-	}else assert(virtio != -1);
-*/
 /*
 	auto hid = fork();
 	if(!hid) {

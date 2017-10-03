@@ -252,8 +252,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 		std::pair<size_t, size_t> issue;
 
 		auto index = offset + progress;
-		std::cout << "Reading " << index << "-th block from inode " << inode->number
-				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
+//		std::cout << "Reading " << index << "-th block from inode " << inode->number
+//				<< " (" << progress << "/" << num_blocks << " in request)" << std::endl;
 
 		assert(index < d_range);
 		if(index >= d_range) {
@@ -278,8 +278,8 @@ COFIBER_ROUTINE(async::result<void>, FileSystem::readData(std::shared_ptr<Inode>
 			issue = fuse(index, num_blocks - progress, inode->fileData.blocks.direct, 12);
 		}
 
-		std::cout << "Issuing read of " << issue.second
-				<< " blocks, starting at " << issue.first << std::endl;
+//		std::cout << "Issuing read of " << issue.second
+//				<< " blocks, starting at " << issue.first << std::endl;
 
 		assert(issue.first != 0);
 		COFIBER_AWAIT device->readSectors(issue.first * sectorsPerBlock,
