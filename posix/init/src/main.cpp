@@ -71,11 +71,16 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-	
+	/*
 	auto gfx_bochs = fork();
 	if(!gfx_bochs) {
 		execve("/usr/bin/gfx_bochs", args.data(), envp);
 	}else assert(gfx_bochs != -1);
+	*/
+	auto gfx_virtio = fork();
+	if(!gfx_virtio) {
+		execve("/usr/bin/gfx_virtio", args.data(), envp);
+	}else assert(gfx_virtio != -1);
 
 	while(access("/dev/card0", F_OK)) {
 		assert(errno == ENOENT);
