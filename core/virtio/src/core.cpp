@@ -538,7 +538,7 @@ COFIBER_ROUTINE(async::result<void>, scatterGather(HostToDeviceType, Chain &chai
 	size_t offset = 0;
 	while(offset < view.size()) {
 		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
-		auto chunk = std::min(view.size() - offset, page_size - (address & ~(page_size - 1)));
+		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
 		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
 		chain->setupBuffer(hostToDevice, view.subview(offset, chunk));
 		offset += chunk;
@@ -552,7 +552,7 @@ COFIBER_ROUTINE(async::result<void>, scatterGather(DeviceToHostType, Chain &chai
 	size_t offset = 0;
 	while(offset < view.size()) {
 		auto address = reinterpret_cast<uintptr_t>(view.data()) + offset;
-		auto chunk = std::min(view.size() - offset, page_size - (address & ~(page_size - 1)));
+		auto chunk = std::min(view.size() - offset, page_size - (address & (page_size - 1)));
 		chain->append(COFIBER_AWAIT queue->obtainDescriptor());
 		chain->setupBuffer(deviceToHost, view.subview(offset, chunk));
 		offset += chunk;
