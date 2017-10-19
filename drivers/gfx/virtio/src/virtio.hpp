@@ -28,7 +28,8 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		void commit() override;
 		
 	private:
-		cofiber::no_future _dispatch();
+		static cofiber::no_future _dispatch(GfxDevice *device, GfxDevice::FrameBuffer *fb,
+				std::shared_ptr<drm_core::Blob> mode, int width, int height);
 		
 		GfxDevice *_device;
 		int _width;

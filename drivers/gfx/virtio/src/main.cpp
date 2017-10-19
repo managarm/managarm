@@ -267,31 +267,33 @@ void GfxDevice::Configuration::dispose() {
 
 void GfxDevice::Configuration::commit() {
 	_device->_theCrtcs[0]->setCurrentMode(_mode);
-	_dispatch();
+	_dispatch(_device, _fb, _mode, _width, _height);
 }
 
-COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] { 
-	if(!_mode)
+COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevice *device, 
+			GfxDevice::FrameBuffer *fb, std::shared_ptr<drm_core::Blob> mode,
+			int width, int height), ([=] { 
+	if(!mode)
 		return;
-	_fb->getBufferObject()->wait();
+	fb->getBufferObject()->wait();
 
 	spec::XferToHost2d xfer;
 	memset(&xfer, 0, sizeof(spec::XferToHost2d));
 	xfer.header.type = spec::cmd::xferToHost2d;
 	xfer.rect.x = 0;
 	xfer.rect.y = 0;
-	xfer.rect.width = _width;
-	xfer.rect.height = _height;
-	xfer.resourceId = _fb->getBufferObject()->hardwareId();
+	xfer.rect.width = width;
+	xfer.rect.height = height;
+	xfer.resourceId = fb->getBufferObject()->hardwareId();
 	
 	spec::Header xfer_result;
 	virtio_core::Request xfer_request;	
 	virtio_core::Chain xfer_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, xfer_chain.front()};
+	COFIBER_AWAIT AwaitableRequest{device->_controlQ, xfer_chain.front()};
 
 	
 	spec::SetScanout scanout;
@@ -299,20 +301,20 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 	scanout.header.type = spec::cmd::setScanout;
 	scanout.rect.x = 0;
 	scanout.rect.y = 0;
-	scanout.rect.width = _width;
-	scanout.rect.height = _height;
+	scanout.rect.width = width;
+	scanout.rect.height = height;
 	scanout.scanoutId = 0;
-	scanout.resourceId = _fb->getBufferObject()->hardwareId();
+	scanout.resourceId = fb->getBufferObject()->hardwareId();
 	
 
 	spec::Header scanout_result;
 	virtio_core::Request scanout_request;	
 	virtio_core::Chain scanout_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, scanout_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, scanout_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, scanout_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, scanout_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, scanout_chain.front()};
+	COFIBER_AWAIT AwaitableRequest{device->_controlQ, scanout_chain.front()};
 
 	
 	spec::ResourceFlush flush;
@@ -320,18 +322,18 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 	flush.header.type = spec::cmd::resourceFlush;
 	flush.rect.x = 0;
 	flush.rect.y = 0;
-	flush.rect.width = _width;
-	flush.rect.height = _height;
-	flush.resourceId = _fb->getBufferObject()->hardwareId();
+	flush.rect.width = width;
+	flush.rect.height = height;
+	flush.resourceId = fb->getBufferObject()->hardwareId();
 	
 	spec::Header flush_result;
 	virtio_core::Request flush_request;	
 	virtio_core::Chain flush_chain;
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, _device->_controlQ,
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, device->_controlQ,
 			arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
-	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, flush_chain.front()};
+	COFIBER_AWAIT AwaitableRequest{device->_controlQ, flush_chain.front()};
 }))
 
 // ----------------------------------------------------------------
