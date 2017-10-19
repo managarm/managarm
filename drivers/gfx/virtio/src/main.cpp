@@ -265,9 +265,12 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		}
 	}
 
-	for(size_t i = 0; i < _state.size(); i++) {	
+	for(size_t i = 0; i < _state.size(); i++) {
+		if(!_state[i])
+			continue;
 		if(_state[i]->mode) {
-			if(_state[i]->width <= 0 || _state[i]->height <= 0 || _state[i]->width > 1024 || _state[i]->height > 768)
+			if(_state[i]->width <= 0 || _state[i]->height <= 0 
+					|| _state[i]->width > 1024 || _state[i]->height > 768)
 				return false;
 			if(!_state[i]->fb)
 				return false;
@@ -294,8 +297,23 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 	for(size_t i = 0; i < states.size(); i++) {
 		if(!states[i])
 			continue;
-		if(!states[i]->mode)
+		if(!states[i]->mode) {
+			std::cout << "gfx/virtio: Disabling scanouts is untested." << std::endl;
+			spec::SetScanout scanout;
+			memset(&scanout, 0, sizeof(spec::SetScanout));
+			scanout.header.type = spec::cmd::setScanout;
+
+			spec::Header scanout_result;
+			virtio_core::Request scanout_request;	
+			virtio_core::Chain scanout_chain;
+			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, scanout_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
+			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, scanout_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
+			COFIBER_AWAIT AwaitableRequest{device->_controlQ, scanout_chain.front()};
+			
 			continue;
+		}
 
 		states[i]->fb->getBufferObject()->wait();
 
@@ -327,7 +345,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		scanout.rect.height = states[i]->height;
 		scanout.scanoutId = 0;
 		scanout.resourceId = states[i]->fb->getBufferObject()->hardwareId();
-
 
 		spec::Header scanout_result;
 		virtio_core::Request scanout_request;	
