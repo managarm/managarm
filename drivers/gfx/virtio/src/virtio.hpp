@@ -19,6 +19,15 @@
 struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct FrameBuffer;
 
+	struct ScanoutState {
+		ScanoutState()
+		: width(0), height(0) { };
+		GfxDevice::FrameBuffer *fb;
+		std::shared_ptr<drm_core::Blob> mode;
+		int width;
+		int height;
+	};
+
 	struct Configuration : drm_core::Configuration {
 		Configuration(GfxDevice *device)
 		: _device(device), _width(0), _height(0), _fb(nullptr) { };
@@ -28,9 +37,10 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		void commit() override;
 		
 	private:
-		static cofiber::no_future _dispatch(GfxDevice *device, GfxDevice::FrameBuffer *fb,
-				std::shared_ptr<drm_core::Blob> mode, int width, int height);
-		
+		static cofiber::no_future _dispatch(GfxDevice *device,
+				std::array<std::optional<ScanoutState>, 16> states);
+	
+		std::array<std::optional<ScanoutState>, 16> _state; 	
 		GfxDevice *_device;
 		int _width;
 		int _height;
@@ -39,7 +49,12 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	};
 
 	struct Plane : drm_core::Plane {
-		Plane(GfxDevice *device);
+		Plane(GfxDevice *device, int id);
+		
+		int scanoutId();
+
+	private:
+		int _scanoutId;
 	};
 	
 	struct BufferObject : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
@@ -76,13 +91,15 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	};
 	
 	struct Crtc : drm_core::Crtc {
-		Crtc(GfxDevice *device, std::shared_ptr<Plane> plane);
+		Crtc(GfxDevice *device, int id, std::shared_ptr<Plane> plane);
 		
 		drm_core::Plane *primaryPlane() override;
+		int scanoutId();
 		// cursorPlane
 	
 	private:	
 		GfxDevice *_device;
+		int _scanoutId;
 		std::shared_ptr<Plane> _primaryPlane;
 	};
 
