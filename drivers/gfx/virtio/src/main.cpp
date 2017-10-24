@@ -298,7 +298,6 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		if(!states[i])
 			continue;
 		if(!states[i]->mode) {
-			std::cout << "gfx/virtio: Disabling scanouts is untested." << std::endl;
 			spec::SetScanout scanout;
 			memset(&scanout, 0, sizeof(spec::SetScanout));
 			scanout.header.type = spec::cmd::setScanout;
@@ -343,7 +342,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		scanout.rect.y = 0;
 		scanout.rect.width = states[i]->width;
 		scanout.rect.height = states[i]->height;
-		scanout.scanoutId = 0;
+		scanout.scanoutId = i;
 		scanout.resourceId = states[i]->fb->getBufferObject()->hardwareId();
 
 		spec::Header scanout_result;

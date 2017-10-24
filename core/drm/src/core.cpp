@@ -603,7 +603,6 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 				nullptr
 			});
 		}else{
-			std::vector<drm_core::Assignment> assignments;
 			assignments.push_back(Assignment{ 
 				crtc->sharedModeObject(),
 				&self->_device->modeIdProperty,
