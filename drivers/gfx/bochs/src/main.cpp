@@ -334,6 +334,10 @@ uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
 	return _pixelPitch;
 }
 
+void GfxDevice::FrameBuffer::notifyDirty() {
+	
+}
+
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
 // ----------------------------------------------------------------

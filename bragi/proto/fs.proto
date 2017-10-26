@@ -55,6 +55,13 @@ enum CntReqType {
 	CLOSE = 4;
 }
 
+message Rect {
+	optional int32 x1 = 1;
+	optional int32 y1 = 2;
+	optional int32 x2 = 3;
+	optional int32 y2 = 4;
+}
+
 message CntRequest {
 	optional CntReqType req_type = 1;
 
@@ -98,6 +105,9 @@ message CntRequest {
 	optional uint32 drm_y = 31;
 	optional uint32 drm_fb_id = 33;
 	optional uint32 drm_mode_valid = 34;
+
+	optional uint32 drm_color = 35;
+	repeated Rect drm_clips = 36;
 }
 
 message SvrResponse {

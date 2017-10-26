@@ -235,6 +235,8 @@ private:
 
 struct FrameBuffer : ModeObject {
 	FrameBuffer(uint32_t id);
+
+	virtual void notifyDirty() = 0;
 };
 
 struct Plane : ModeObject {

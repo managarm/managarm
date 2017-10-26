@@ -107,6 +107,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo);
 
 		GfxDevice::BufferObject *getBufferObject();
+		void notifyDirty() override;
 
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;

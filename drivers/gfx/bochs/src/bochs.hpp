@@ -80,6 +80,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 
 		GfxDevice::BufferObject *getBufferObject();
 		uint32_t getPixelPitch();
+		void notifyDirty() override;
 
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;

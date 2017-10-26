@@ -425,6 +425,10 @@ GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
 	return _bo.get();
 }
 
+void GfxDevice::FrameBuffer::notifyDirty() {
+	std::cout << "notifyDirty() not implemented yet!" << std::endl;
+}
+
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
 // ----------------------------------------------------------------
