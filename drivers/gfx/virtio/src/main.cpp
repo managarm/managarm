@@ -419,6 +419,7 @@ GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
 		std::shared_ptr<GfxDevice::BufferObject> bo)
 : drm_core::FrameBuffer { device->allocator.allocate() } {
 	_bo = bo;
+	_device = device;
 }
 
 GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
@@ -426,8 +427,46 @@ GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
 }
 
 void GfxDevice::FrameBuffer::notifyDirty() {
-	std::cout << "notifyDirty() not implemented yet!" << std::endl;
+	_xferAndFlush();
 }
+
+COFIBER_ROUTINE(cofiber::no_future, GfxDevice::FrameBuffer::_xferAndFlush(), ([=] {
+	spec::XferToHost2d xfer;
+	memset(&xfer, 0, sizeof(spec::XferToHost2d));
+	xfer.header.type = spec::cmd::xferToHost2d;
+	xfer.rect.x = 0;
+	xfer.rect.y = 0;
+	xfer.rect.width = _bo->getWidth();
+	xfer.rect.height = _bo->getHeight();
+	xfer.resourceId = _bo->hardwareId();
+
+	spec::Header xfer_result;
+	virtio_core::Request xfer_request;	
+	virtio_core::Chain xfer_chain;
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, _device->_controlQ,
+		arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, _device->_controlQ,
+		arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
+	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, xfer_chain.front()};
+		
+	spec::ResourceFlush flush;
+	memset(&flush, 0, sizeof(spec::ResourceFlush));
+	flush.header.type = spec::cmd::resourceFlush;
+	flush.rect.x = 0;
+	flush.rect.y = 0;
+	flush.rect.width = _bo->getWidth();
+	flush.rect.height = _bo->getHeight();
+	flush.resourceId = _bo->hardwareId();
+
+	spec::Header flush_result;
+	virtio_core::Request flush_request;	
+	virtio_core::Chain flush_chain;
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, _device->_controlQ,
+		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
+	COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, _device->_controlQ,
+		arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
+	COFIBER_AWAIT AwaitableRequest{_device->_controlQ, flush_chain.front()};
+}));
 
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
@@ -582,7 +621,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 
 int main() {
 	std::cout << "gfx/virtio: Starting driver" << std::endl;
-	
+
 	observeControllers();
 
 	while(true)

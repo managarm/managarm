@@ -108,9 +108,11 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 
 		GfxDevice::BufferObject *getBufferObject();
 		void notifyDirty() override;
+		cofiber::no_future _xferAndFlush();
 
 	private:
 		std::shared_ptr<GfxDevice::BufferObject> _bo;
+		GfxDevice *_device;
 	};
 
 	GfxDevice(std::unique_ptr<virtio_core::Transport> transport);
