@@ -32,6 +32,43 @@
 // Device
 // ----------------------------------------------------------------
 
+drm_core::Device::Device() 
+: _mappingAllocator{63, 12} {
+	_srcWProperty = std::make_shared<Property>();
+	_srcHProperty = std::make_shared<Property>();
+	_fbIdProperty = std::make_shared<Property>();
+
+	struct ModeIdProperty : drm_core::Property{
+		bool validate(const Assignment& assignment) override {
+			if(!assignment.blobValue)
+				return true;
+
+			if(assignment.blobValue->size() != sizeof(drm_mode_modeinfo))
+				return false;
+			
+			drm_mode_modeinfo mode_info;
+			memcpy(&mode_info, assignment.blobValue.get(), sizeof(drm_mode_modeinfo));
+			if(mode_info.hdisplay > mode_info.hsync_start)
+				return false;
+			if(mode_info.hsync_start > mode_info.hsync_end)
+				return false;
+			if(mode_info.hsync_end > mode_info.htotal)
+				return false;
+
+			if(mode_info.vdisplay > mode_info.vsync_start)
+				return false;
+			if(mode_info.vsync_start > mode_info.vsync_end)
+				return false;
+			if(mode_info.vsync_end > mode_info.vtotal)
+				return false;
+
+			return true;
+		};
+	};
+
+	_modeIdProperty = std::make_shared<ModeIdProperty>();
+}
+
 void drm_core::Device::setupCrtc(drm_core::Crtc *crtc) {
 	crtc->index = _crtcs.size();
 	_crtcs.push_back(crtc);
@@ -110,6 +147,30 @@ uint32_t drm_core::Device::getMaxHeight() {
 	return _maxHeight;
 }
 	
+drm_core::Property *drm_core::Device::srcWProperty() {
+	return _srcWProperty.get();
+}
+
+drm_core::Property *drm_core::Device::srcHProperty() {
+	return _srcHProperty.get();
+}
+
+drm_core::Property *drm_core::Device::fbIdProperty() {
+	return _fbIdProperty.get();
+}
+
+drm_core::Property *drm_core::Device::modeIdProperty() {
+	return _modeIdProperty.get();
+}
+	
+// ----------------------------------------------------------------
+// Property
+// ----------------------------------------------------------------
+	
+bool drm_core::Property::validate(const Assignment&) {
+	return true;
+}
+
 // ----------------------------------------------------------------
 // BufferObject
 // ----------------------------------------------------------------
@@ -586,7 +647,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 			auto mode_blob = std::make_shared<Blob>(std::move(mode_buffer));
 			assignments.push_back(Assignment{ 
 				crtc->sharedModeObject(),
-				&self->_device->modeIdProperty,
+				self->_device->modeIdProperty(),
 				0,
 				nullptr,
 				mode_blob
@@ -597,7 +658,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 			assert(fb);
 			assignments.push_back(Assignment{ 
 				crtc->primaryPlane()->sharedModeObject(),
-				&self->_device->fbIdProperty, 
+				self->_device->fbIdProperty(),
 				0,
 				fb,
 				nullptr
@@ -605,7 +666,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		}else{
 			assignments.push_back(Assignment{ 
 				crtc->sharedModeObject(),
-				&self->_device->modeIdProperty,
+				self->_device->modeIdProperty(),
 				0,
 				nullptr,
 				nullptr

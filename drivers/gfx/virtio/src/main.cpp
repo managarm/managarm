@@ -228,18 +228,18 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // ----------------------------------------------------------------
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
-	for(auto &assign: assignment) {
-		if(assign.property == &_device->srcWProperty) {
+	for(auto &assign : assignment) {
+		if(assign.property == _device->srcWProperty()) {
 			auto plane = static_cast<Plane *>(assign.object.get());
 			if(!_state[plane->scanoutId()])
 				_state[plane->scanoutId()].emplace();
 			_state[plane->scanoutId()]->width = assign.intValue;
-		}else if(assign.property == &_device->srcHProperty) {
+		}else if(assign.property == _device->srcHProperty()) {
 			auto plane = static_cast<Plane *>(assign.object.get());
 			if(!_state[plane->scanoutId()])
 				_state[plane->scanoutId()].emplace();
 			_state[plane->scanoutId()]->height = assign.intValue;
-		}else if(assign.property == &_device->fbIdProperty) {
+		}else if(assign.property == _device->fbIdProperty()) {
 			auto plane = static_cast<Plane *>(assign.object.get());
 			if(!_state[plane->scanoutId()])
 				_state[plane->scanoutId()].emplace();
@@ -248,7 +248,10 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			if(!fb)
 				return false;
 			_state[plane->scanoutId()]->fb = static_cast<GfxDevice::FrameBuffer *>(fb);
-		}else if(assign.property == &_device->modeIdProperty) {
+		}else if(assign.property == _device->modeIdProperty()) {
+			//TODO: check this outside of capture.
+			assert(!assign.property->validate(assign));
+		
 			auto crtc = static_cast<Crtc *>(assign.object.get());
 			if(!_state[crtc->scanoutId()])
 				_state[crtc->scanoutId()].emplace();

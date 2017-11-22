@@ -39,7 +39,7 @@ enum struct ObjectType {
 };
 
 struct Property {
-
+	virtual bool validate(const Assignment& assignment);
 };
 
 struct BufferObject {
@@ -68,8 +68,7 @@ private:
 };
 
 struct Device {
-	Device()
-	: _mappingAllocator{63, 12} { }
+	Device();
 
 	virtual std::unique_ptr<Configuration> createConfiguration() = 0;
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
@@ -96,6 +95,7 @@ struct Device {
 	uint32_t getMaxWidth();
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
+
 	
 private:	
 	std::vector<Crtc *> _crtcs;
@@ -108,13 +108,17 @@ private:
 	uint32_t _maxWidth;
 	uint32_t _minHeight;
 	uint32_t _maxHeight;
+	std::shared_ptr<Property> _srcWProperty;
+	std::shared_ptr<Property> _srcHProperty;
+	std::shared_ptr<Property> _fbIdProperty;
+	std::shared_ptr<Property> _modeIdProperty;
 
 public:
 	id_allocator<uint32_t> allocator;
-	Property srcWProperty;
-	Property srcHProperty;
-	Property fbIdProperty;
-	Property modeIdProperty;
+	Property *srcWProperty();
+	Property *srcHProperty();
+	Property *fbIdProperty();
+	Property *modeIdProperty();
 };
 
 struct File {
