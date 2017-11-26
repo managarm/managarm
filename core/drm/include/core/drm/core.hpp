@@ -38,8 +38,33 @@ enum struct ObjectType {
 	plane
 };
 
+struct IntPropertyType {
+
+};
+
+struct ObjectPropertyType {
+
+};
+
+struct BlobPropertyType {
+		
+};
+
+using PropertyType = std::variant<
+	IntPropertyType,
+	ObjectPropertyType,
+	BlobPropertyType
+>;
+
 struct Property {
+	Property(PropertyType property_type)
+	: _propertyType(property_type) { }
+	
 	virtual bool validate(const Assignment& assignment);
+	PropertyType propertyType();
+
+private:
+	PropertyType _propertyType;
 };
 
 struct BufferObject {

@@ -34,11 +34,46 @@
 
 drm_core::Device::Device() 
 : _mappingAllocator{63, 12} {
-	_srcWProperty = std::make_shared<Property>();
-	_srcHProperty = std::make_shared<Property>();
-	_fbIdProperty = std::make_shared<Property>();
+	struct SrcWProperty : drm_core::Property {
+		SrcWProperty()
+		: drm_core::Property{drm_core::IntPropertyType{}} { }
 
-	struct ModeIdProperty : drm_core::Property{
+		bool validate(const Assignment& assignment) override {
+			return true;
+		};
+	};
+	_srcWProperty = std::make_shared<SrcWProperty>();
+	
+	struct SrcHProperty : drm_core::Property {
+		SrcHProperty()
+		: drm_core::Property{drm_core::IntPropertyType{}} { }
+
+		bool validate(const Assignment& assignment) override {
+			return true;
+		};
+	};
+	_srcHProperty = std::make_shared<SrcHProperty>();
+
+	struct FbIdProperty : drm_core::Property {
+		FbIdProperty()
+		: drm_core::Property{drm_core::ObjectPropertyType{}} { }
+		
+		bool validate(const Assignment& assignment) override {
+			if(!assignment.objectValue)
+				return true;
+
+			if(assignment.objectValue->asFrameBuffer())
+				return true;
+
+			return false;
+		};
+	};
+	_fbIdProperty = std::make_shared<FbIdProperty>();
+
+	struct ModeIdProperty : drm_core::Property {
+		ModeIdProperty()
+		: drm_core::Property{drm_core::BlobPropertyType{}} { }
+
 		bool validate(const Assignment& assignment) override {
 			if(!assignment.blobValue)
 				return true;
@@ -47,7 +82,7 @@ drm_core::Device::Device()
 				return false;
 			
 			drm_mode_modeinfo mode_info;
-			memcpy(&mode_info, assignment.blobValue.get(), sizeof(drm_mode_modeinfo));
+			memcpy(&mode_info, assignment.blobValue->data(), sizeof(drm_mode_modeinfo));
 			if(mode_info.hdisplay > mode_info.hsync_start)
 				return false;
 			if(mode_info.hsync_start > mode_info.hsync_end)
@@ -65,7 +100,6 @@ drm_core::Device::Device()
 			return true;
 		};
 	};
-
 	_modeIdProperty = std::make_shared<ModeIdProperty>();
 }
 
@@ -166,9 +200,13 @@ drm_core::Property *drm_core::Device::modeIdProperty() {
 // ----------------------------------------------------------------
 // Property
 // ----------------------------------------------------------------
-	
+
 bool drm_core::Property::validate(const Assignment&) {
 	return true;
+}
+
+drm_core::PropertyType drm_core::Property::propertyType() {
+	return _propertyType;
 }
 
 // ----------------------------------------------------------------
