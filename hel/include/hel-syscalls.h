@@ -2,290 +2,261 @@
 #ifndef HEL_SYSCALLS_H
 #define HEL_SYSCALLS_H
 
-typedef uint64_t HelWord;
-typedef HelWord HelSyscallInput[9];
-typedef HelWord HelSyscallOutput[2];
+#include <hel-stubs.h>
 
-extern inline __attribute__ (( always_inline )) HelError helSyscall(int number,
-		HelSyscallInput input, HelSyscallOutput output) {
-	// note: the rcx and r11 registers are clobbered by syscall
-	// so we do not use them to pass parameters
-	// we also clobber rbx in kernel code
-	register HelWord in1 asm("rdi") = number;
-	register HelWord in2 asm("rsi") = input[0];
-	register HelWord in3 asm("rdx") = input[1];
-	register HelWord in4 asm("rax") = input[2];
-	register HelWord in5 asm("r8") = input[3];
-	register HelWord in6 asm("r9") = input[4];
-	register HelWord in7 asm("r10") = input[5];
-	register HelWord in8 asm("r12") = input[6];
-	register HelWord in9 asm("r13") = input[7];
-	register HelWord in10 asm("r14") = input[8];
+extern inline __attribute__ (( always_inline )) HelError helLog(const char *string,
+		size_t length) {
+	return helSyscall2(kHelCallLog, (HelWord)string, length);
+};
 
-	register HelWord out1 asm("rdi");
-	register HelWord out2 asm("rsi");
-	register HelWord out3 asm("rdx");
-	register HelWord out4 asm("rax");
-	register HelWord out5 asm("r8");
-	register HelWord out6 asm("r9");
-	register HelWord out7 asm("r10");
-	register HelWord out8 asm("r12");
-	register HelWord out9 asm("r13");
-	register HelWord out10 asm("r14");
-	
-	asm volatile ( "syscall" : "=r" (out1), "=r" (out2), "=r" (out3), "=r" (out4), "=r" (out5),
-				"=r" (out6), "=r" (out7), "=r" (out8), "=r" (out9), "=r" (out10)
-			: "r" (in1), "r" (in2), "r" (in3), "r" (in4), "r" (in5),
-				"r" (in6), "r" (in7), "r" (in8), "r" (in9), "r" (in10)
-			: "rcx", "r11", "rbx", "memory" );
-
-	output[0] = out2;
-	output[1] = out3;
-	return out1;
-}
-
-#define DEFINE_SYSCALL(name, ...) extern inline __attribute__ (( always_inline )) HelError hel ## name(__VA_ARGS__) { \
-	HelSyscallInput in; HelSyscallOutput out;
-#define IN(index, what) in[index] = (HelWord)what;
-#define DO_SYSCALL(number) HelError error = helSyscall(kHelCall ## number, in, out);
-#define OUT(index, type, what) *what = (type)out[index];
-#define END_SYSCALL() return error; }
-
-DEFINE_SYSCALL(Log, const char *string, size_t length)
-	IN(0, string) IN(1, length)
-	DO_SYSCALL(Log)
-END_SYSCALL()
-
-// note: this entry is intentionally different
-extern inline void helPanic(const char *string, size_t length) {
-	HelSyscallInput in; HelSyscallOutput out;
-	IN(0, string) IN(1, length)
-	helSyscall(kHelCallPanic, in, out);
+extern inline __attribute__ (( always_inline )) void helPanic(const char *string,
+		size_t length) {
+	helSyscall2(kHelCallPanic, (HelWord)string, length);
 	__builtin_unreachable();
-}
+};
 
-DEFINE_SYSCALL(CreateUniverse, HelHandle *handle)
-	DO_SYSCALL(CreateUniverse)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall0_1(kHelCallCreateUniverse, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(TransferDescriptor, HelHandle handle, HelHandle universe_handle,
-		HelHandle *out_handle)
-	IN(0, handle) IN(1, universe_handle)
-	DO_SYSCALL(TransferDescriptor)
-	OUT(0, HelHandle, out_handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helTransferDescriptor(HelHandle handle,
+		HelHandle universe_handle, HelHandle *out_handle) {
+	HelWord hel_out_handle;
+	HelError error = helSyscall2_1(kHelCallTransferDescriptor, (HelWord)handle,
+			(HelWord) universe_handle, &hel_out_handle);
+	*out_handle = (HelHandle)hel_out_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(DescriptorInfo, HelHandle handle, struct HelDescriptorInfo *info)
-	IN(0, handle) IN(1, info)
-	DO_SYSCALL(DescriptorInfo)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helDescriptorInfo(HelHandle handle,
+		struct HelDescriptorInfo *info) {
+	return helSyscall2(kHelCallDescriptorInfo, (HelWord)handle, (HelWord)info);
+};
 
-DEFINE_SYSCALL(CloseDescriptor, HelHandle handle)
-	IN(0, handle)
-	DO_SYSCALL(CloseDescriptor)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(HelHandle handle) {
+	return helSyscall1(kHelCallCloseDescriptor, (HelWord)handle);
+};
 
-DEFINE_SYSCALL(AllocateMemory, size_t size, uint32_t flags, HelHandle *handle)
-	IN(0, size) IN(1, flags)
-	DO_SYSCALL(AllocateMemory)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
+		uint32_t flags, HelHandle *handle) {
+	HelWord hel_handle;
+	HelError error = helSyscall2_1(kHelCallAllocateMemory, (HelWord)size, (HelWord)flags, &hel_handle);
+	*handle = (HelHandle)hel_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(CreateManagedMemory, size_t size, uint32_t flags,
-		HelHandle *backing_handle, HelHandle *frontal_handle)
-	IN(0, size) IN(1, flags)
-	DO_SYSCALL(CreateManagedMemory)
-	OUT(0, HelHandle, backing_handle)
-	OUT(1, HelHandle, frontal_handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(size_t size,
+		uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
+	HelWord back_handle;
+	HelWord front_handle;
+	HelError error = helSyscall2_2(kHelCallCreateManagedMemory, (HelWord)size, (HelWord)flags, 
+			&back_handle, &front_handle);
+	*backing_handle = (HelHandle)back_handle;
+	*frontal_handle = (HelHandle)front_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(AccessPhysical, uintptr_t physical, size_t size, HelHandle *handle)
-	IN(0, physical) IN(1, size)
-	DO_SYSCALL(AccessPhysical)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintptr_t physical,
+		size_t size, HelHandle *handle) {
+	HelWord hel_handle;
+	HelError error = helSyscall2_1(kHelCallAccessPhysical, (HelWord)physical, (HelWord)size, &hel_handle);
+	*handle = (HelHandle)hel_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(CreateSpace, HelHandle *handle)
-	DO_SYSCALL(CreateSpace)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCreateSpace(HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall0_1(kHelCallCreateSpace, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(ForkSpace, HelHandle handle, HelHandle *forked)
-	IN(0, handle)
-	DO_SYSCALL(ForkSpace)
-	OUT(0, HelHandle, forked)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helForkSpace(HelHandle handle, 
+		HelHandle *out_handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallForkSpace, (HelWord)handle, &handle_word);
+	*out_handle = (HelHandle)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(MapMemory, HelHandle handle, HelHandle space,
-		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actual_pointer)
-	IN(0, handle) IN(1, space) IN(2, pointer) IN(3, offset) IN(4, size) IN(5, flags)
-	DO_SYSCALL(MapMemory)
-	OUT(0, void *, actual_pointer)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helMapMemory(HelHandle handle,
+		HelHandle space, void *pointer, uintptr_t offset, size_t size, uint32_t flags,
+		void **actual_pointer) {
+	HelWord out_ptr;
+	HelError error = helSyscall6_1(kHelCallMapMemory, (HelWord)handle, (HelWord)space,
+			(HelWord)pointer, (HelWord)offset, (HelWord)size, (HelWord)flags, &out_ptr);
+	*actual_pointer = (void *)out_ptr;
+	return error;
+};
 
-DEFINE_SYSCALL(UnmapMemory, HelHandle space, void *pointer, size_t size)
-	IN(0, space) IN(1, pointer) IN(2, size)
-	DO_SYSCALL(UnmapMemory)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helUnmapMemory(HelHandle space,
+		void *pointer, size_t size) {
+	return helSyscall3(kHelCallUnmapMemory, (HelWord)space, (HelWord)pointer, (HelWord)size);
+};
 
-DEFINE_SYSCALL(PointerPhysical, void *pointer, uintptr_t *physical)
-	IN(0, pointer)
-	DO_SYSCALL(PointerPhysical)
-	OUT(0, uintptr_t, physical)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(void *pointer, 
+		uintptr_t *physical) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallPointerPhysical, (HelWord)pointer, &handle_word);
+	*physical = (uintptr_t)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(LoadForeign, HelHandle handle, uintptr_t address,
-		size_t length, void *buffer)
-	IN(0, handle) IN(1, address) IN(2, length) IN(3, buffer)
-	DO_SYSCALL(LoadForeign)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helLoadForeign(HelHandle handle,
+		uintptr_t address, size_t length, void *buffer) {
+	return helSyscall4(kHelCallLoadForeign, (HelWord)handle, (HelWord)address,
+			(HelWord)length, (HelWord)buffer);
+};
 
-DEFINE_SYSCALL(StoreForeign, HelHandle handle, uintptr_t address,
-		size_t length, const void *buffer)
-	IN(0, handle) IN(1, address) IN(2, length) IN(3, buffer)
-	DO_SYSCALL(StoreForeign)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helStoreForeign(HelHandle handle,
+		uintptr_t address, size_t length, const void *buffer) {
+	return helSyscall4(kHelCallStoreForeign, (HelWord)handle, (HelWord)address,
+			(HelWord)length, (HelWord)buffer);
+};
 
-DEFINE_SYSCALL(MemoryInfo, HelHandle handle, size_t *size)
-	IN(0, handle)
-	DO_SYSCALL(MemoryInfo)
-	OUT(0, size_t, size)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle handle, 
+		size_t *size) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallMemoryInfo, (HelWord)handle, &handle_word);
+	*size = (size_t)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(SubmitManageMemory, HelHandle handle,
-		struct HelQueue *queue, uintptr_t context)
-	IN(0, handle) IN(1, queue) IN(2, context)
-	DO_SYSCALL(SubmitManageMemory)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helSubmitManageMemory(HelHandle handle,
+		struct HelQueue *queue, uintptr_t context) {
+	return helSyscall3(kHelCallSubmitManageMemory, (HelWord)handle, (HelWord)queue, (HelWord)context);
+};
 
-DEFINE_SYSCALL(CompleteLoad, HelHandle handle, uintptr_t offset, size_t length)
-	IN(0, handle) IN(1, offset) IN(2, length)
-	DO_SYSCALL(CompleteLoad)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCompleteLoad(HelHandle handle,
+		uintptr_t offset, size_t length) {
+	return helSyscall3(kHelCallCompleteLoad, (HelWord)handle, (HelWord)offset, (HelWord)length);
+};
 
-DEFINE_SYSCALL(SubmitLockMemory, HelHandle handle, uintptr_t offset, size_t size,
-		struct HelQueue *queue, uintptr_t context)
-	IN(0, handle) IN(1, offset) IN(2, size) IN(3, queue) IN(4, context)
-	DO_SYSCALL(SubmitLockMemory)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helSubmitLockMemory(HelHandle handle,
+		uintptr_t offset, size_t size, struct HelQueue *queue, uintptr_t context) {
+	return helSyscall5(kHelCallSubmitLockMemory, (HelWord)handle, (HelWord)offset,
+			(HelWord)size, (HelWord)queue, (HelWord)context);
+};
 
-DEFINE_SYSCALL(Loadahead, HelHandle handle, uintptr_t offset, size_t length)
-	IN(0, handle) IN(1, offset) IN(2, length)
-	DO_SYSCALL(Loadahead)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helLoadahead(HelHandle handle,
+		uintptr_t offset, size_t length) {
+	return helSyscall3(kHelCallLoadahead, (HelWord)handle, (HelWord)offset, (HelWord)length);
+};
 
-DEFINE_SYSCALL(CreateThread, HelHandle universe, HelHandle address_space,
-		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle)
-	IN(0, universe) IN(1, address_space) IN(2, abi)
-		IN(3, ip) IN(4, sp) IN(5, flags)
-	DO_SYSCALL(CreateThread)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helCreateThread(HelHandle universe,
+		HelHandle address_space, HelAbi abi, void *ip, void *sp, uint32_t flags,
+		HelHandle *handle) {
+	HelWord out_handle;
+	HelError error = helSyscall6_1(kHelCallCreateThread, (HelWord)universe, (HelWord)address_space,
+			(HelWord)abi, (HelWord)ip, (HelWord)sp, (HelWord)flags, &out_handle);
+	*handle = (HelHandle)out_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(Yield)
-	DO_SYSCALL(Yield)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helYield() {
+	return helSyscall0(kHelCallYield);
+};
 
-DEFINE_SYSCALL(SubmitObserve, HelHandle handle,
-		struct HelQueue *queue, uintptr_t context)
-	IN(0, handle) IN(1, queue) IN(2, context)
-	DO_SYSCALL(SubmitObserve)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helSubmitObserve(HelHandle handle,
+		struct HelQueue *queue, uintptr_t context) {
+	return helSyscall3(kHelCallSubmitObserve, (HelWord)handle, (HelWord)queue, (HelWord)context);
+};
 
-DEFINE_SYSCALL(Resume, HelHandle handle)
-	IN(0, handle)
-	DO_SYSCALL(Resume)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helResume(HelHandle handle) {
+	return helSyscall1(kHelCallResume, (HelWord)handle);
+};
 
-DEFINE_SYSCALL(LoadRegisters, HelHandle handle, int set, void *image)
-	IN(0, handle) IN(1, set) IN(2, image)
-	DO_SYSCALL(LoadRegisters)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helLoadRegisters(HelHandle handle,
+		int set, void *image) {
+	return helSyscall3(kHelCallLoadRegisters, (HelWord)handle, (HelWord)set, (HelWord)image);
+};
 
-DEFINE_SYSCALL(StoreRegisters, HelHandle handle, int set, const void *image)
-	IN(0, handle) IN(1, set) IN(2, image)
-	DO_SYSCALL(StoreRegisters)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helStoreRegisters(HelHandle handle,
+		int set, const void *image) {
+	return helSyscall3(kHelCallStoreRegisters, (HelWord)handle, (HelWord)set, (HelWord)image);
+};
 
-DEFINE_SYSCALL(WriteFsBase, void *pointer)
-	IN(0, pointer)
-	DO_SYSCALL(WriteFsBase)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helWriteFsBase(void *pointer) {
+	return helSyscall1(kHelCallWriteFsBase, (HelWord)pointer);
+};
 
-DEFINE_SYSCALL(GetClock, uint64_t *counter)
-	DO_SYSCALL(GetClock)
-	OUT(0, uint64_t, counter)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *counter) {
+	HelWord handle_word;
+	HelError error = helSyscall0_1(kHelCallGetClock, &handle_word);
+	*counter = (uint64_t)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(SubmitAwaitClock, uint64_t counter, struct HelQueue *queue, uintptr_t context)
-	IN(0, counter) IN(1, queue) IN(2, context)
-	DO_SYSCALL(SubmitAwaitClock)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitClock(uint64_t counter,
+		struct HelQueue *queue, uintptr_t context) {
+	return helSyscall3(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue, (HelWord)context);
+};
 
+extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHandle *lane1,
+		HelHandle *lane2) {
+	HelWord out_lane1;
+	HelWord out_lane2;
+	HelError error = helSyscall0_2(kHelCallCreateStream, &out_lane1, &out_lane2);
+	*lane1 = (HelHandle)out_lane1;
+	*lane2 = (HelHandle)out_lane2;
+	return error;
+};
 
-DEFINE_SYSCALL(CreateStream, HelHandle *lane1, HelHandle *lane2)
-	DO_SYSCALL(CreateStream)
-	OUT(0, HelHandle, lane1)
-	OUT(1, HelHandle, lane2)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helSubmitAsync(HelHandle handle,
+		const HelAction *actions, size_t count, struct HelQueue *queue, uintptr_t context,
+		uint32_t flags) {
+	return helSyscall6(kHelCallSubmitAsync, (HelWord)handle, (HelWord)actions, (HelWord)count,
+			(HelWord)queue, (HelWord)context, (HelWord)flags);
+};
 
-DEFINE_SYSCALL(SubmitAsync, HelHandle handle, const HelAction *actions,
-		size_t count, struct HelQueue *queue, uintptr_t context, uint32_t flags)
-	IN(0, handle) IN(1, actions) IN(2, count) IN(3, queue)
-			IN(4, context) IN(5, flags)
-	DO_SYSCALL(SubmitAsync)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helFutexWait(int *pointer,
+		int expected) {
+	return helSyscall2(kHelCallFutexWait, (HelWord)pointer, (HelWord)expected);
+};
 
+extern inline __attribute__ (( always_inline )) HelError helFutexWake(int *pointer) {
+	return helSyscall1(kHelCallFutexWake, (HelWord)pointer);
+};
 
-DEFINE_SYSCALL(FutexWait, int *pointer, int expected)
-	IN(0, pointer); IN(1, expected);
-	DO_SYSCALL(FutexWait)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number, 
+		HelHandle *handle) {
+	HelWord handle_word;
+	HelError error = helSyscall1_1(kHelCallAccessIrq, (HelWord)handle, &handle_word);
+	*handle = (HelHandle)handle_word;
+	return error;
+};
 
-DEFINE_SYSCALL(FutexWake, int *pointer)
-	IN(0, pointer);
-	DO_SYSCALL(FutexWake)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHandle handle,
+		uint32_t flags, uint64_t sequence) {
+	return helSyscall3(kHelCallAcknowledgeIrq, (HelWord)handle, (HelWord)flags,
+			(HelWord)sequence);
+};
 
+extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(HelHandle handle,
+		uint64_t sequence, struct HelQueue *queue, uintptr_t context) {
+	return helSyscall4(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
+			(HelWord)queue, (HelWord)context);
+};
 
-DEFINE_SYSCALL(AccessIrq, int number, HelHandle *handle)
-	IN(0, number)
-	DO_SYSCALL(AccessIrq)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helAccessIo(uintptr_t *port_array,
+		size_t num_ports, HelHandle *handle) {
+	HelWord out_handle;
+	HelError error = helSyscall2_1(kHelCallAccessIo, (HelWord)port_array,
+			(HelWord) num_ports, &out_handle);
+	*handle = (HelHandle)out_handle;
+	return error;
+};
 
-DEFINE_SYSCALL(AcknowledgeIrq, HelHandle handle, uint32_t flags, uint64_t sequence)
-	IN(0, handle) IN(1, flags) IN(2, sequence)
-	DO_SYSCALL(AcknowledgeIrq)
-END_SYSCALL()
+extern inline __attribute__ (( always_inline )) HelError helEnableIo(HelHandle handle) {
+	return helSyscall1(kHelCallEnableIo, (HelWord)handle);
+};
 
-DEFINE_SYSCALL(SubmitAwaitEvent, HelHandle handle, uint64_t sequence,
-		struct HelQueue *queue, uintptr_t context)
-	IN(0, handle) IN(1, sequence) IN(2, queue) IN(3, context)
-	DO_SYSCALL(SubmitAwaitEvent)
-END_SYSCALL()
-
-DEFINE_SYSCALL(AccessIo, uintptr_t *port_array, size_t num_ports, HelHandle *handle)
-	IN(0, port_array) IN(1, num_ports)
-	DO_SYSCALL(AccessIo)
-	OUT(0, HelHandle, handle)
-END_SYSCALL()
-
-DEFINE_SYSCALL(EnableIo, HelHandle handle)
-	IN(0, handle)
-	DO_SYSCALL(EnableIo)
-END_SYSCALL()
-
-DEFINE_SYSCALL(EnableFullIo)
-	DO_SYSCALL(EnableFullIo)
-END_SYSCALL()
-
-#undef DEFINE_SYSCALL
-#undef IN
-#undef DO_SYSCALL
-#undef OUT
-#undef END_SYSCALL
+extern inline __attribute__ (( always_inline )) HelError helEnableFullIo() {
+	return helSyscall0(kHelCallEnableFullIo);
+};
 
 #endif // HEL_SYSCALLS_H
 

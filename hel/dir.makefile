@@ -12,6 +12,7 @@ $c_LIBS :=
 
 $(call make_so,libhelix.so,globals.o)
 $(call install_header,hel.h)
+$(call install_header,hel-stubs.h)
 $(call install_header,hel-syscalls.h)
 $(call install_header,helix/ipc.hpp)
 $(call install_header,helix/await.hpp)
