@@ -16,7 +16,7 @@ namespace tmp_fs {
 
 namespace {
 
-struct Symlink : Node {
+struct Symlink : FsNode {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
@@ -39,7 +39,7 @@ private:
 	std::string _link;
 };
 
-struct DeviceFile : Node {
+struct DeviceFile : FsNode {
 private:
 	VfsType getType() override {
 		return _type;
@@ -65,9 +65,9 @@ private:
 	DeviceId _id;
 };
 
-struct MyLink : Link {
+struct MyLink : FsLink {
 private:
-	std::shared_ptr<Node> getOwner() override {
+	std::shared_ptr<FsNode> getOwner() override {
 		return owner;
 	}
 
@@ -75,20 +75,20 @@ private:
 		return name;
 	}
 
-	std::shared_ptr<Node> getTarget() override {
+	std::shared_ptr<FsNode> getTarget() override {
 		return target;
 	}
 
 public:
-	explicit MyLink(std::shared_ptr<Node> owner, std::string name, std::shared_ptr<Node> target)
+	explicit MyLink(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
 	: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
 
-	std::shared_ptr<Node> owner;
+	std::shared_ptr<FsNode> owner;
 	std::string name;
-	std::shared_ptr<Node> target;
+	std::shared_ptr<FsNode> target;
 };
 
-struct Directory : Node, std::enable_shared_from_this<Directory> {
+struct Directory : FsNode, std::enable_shared_from_this<Directory> {
 private:
 	VfsType getType() override {
 		return VfsType::directory;
@@ -99,7 +99,7 @@ private:
 		return FileStats{};
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			getLink(std::string name) override, ([=] {
 		auto it = _entries.find(name);
 		if(it != _entries.end())
@@ -107,15 +107,15 @@ private:
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, link(std::string name,
-			std::shared_ptr<Node> target) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, link(std::string name,
+			std::shared_ptr<FsNode> target) override, ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(target));
 		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			mkdir(std::string name) override, ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<Directory>();
@@ -124,7 +124,7 @@ private:
 		COFIBER_RETURN(link);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			symlink(std::string name, std::string path), ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<Symlink>(std::move(path));
@@ -133,7 +133,7 @@ private:
 		COFIBER_RETURN(link);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>, mkdev(std::string name,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mkdev(std::string name,
 			VfsType type, DeviceId id), ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<DeviceFile>(type, id);
@@ -164,7 +164,7 @@ private:
 	std::set<std::shared_ptr<MyLink>, Compare> _entries;
 };
 
-struct MemoryNode : Node {
+struct MemoryNode : FsNode {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -175,7 +175,7 @@ private:
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
-			open(std::shared_ptr<Link> link) override, ([=] {
+			open(std::shared_ptr<FsLink> link) override, ([=] {
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
@@ -193,11 +193,11 @@ private:
 
 } // anonymous namespace
 
-std::shared_ptr<Node> createMemoryNode(std::string path) {
+std::shared_ptr<FsNode> createMemoryNode(std::string path) {
 	return std::make_shared<MemoryNode>(std::move(path));
 }
 
-std::shared_ptr<Link> createRoot() {
+std::shared_ptr<FsLink> createRoot() {
 	auto node = std::make_shared<Directory>();
 	return std::make_shared<MyLink>(nullptr, std::string{}, std::move(node));
 }

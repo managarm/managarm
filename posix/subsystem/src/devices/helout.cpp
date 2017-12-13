@@ -31,7 +31,7 @@ private:
 	}
 
 public:
-	HeloutFile(std::shared_ptr<Link> link)
+	HeloutFile(std::shared_ptr<FsLink> link)
 	: ProxyFile{std::move(link)} { }
 };
 
@@ -45,7 +45,7 @@ struct HeloutDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device, std::shared_ptr<Link> link), ([=] {
+			open(std::shared_ptr<Device> device, std::shared_ptr<FsLink> link), ([=] {
 		(void)device;
 		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
 	}))

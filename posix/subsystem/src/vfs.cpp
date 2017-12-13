@@ -22,25 +22,25 @@ static bool debugResolve = false;
 // MountView implementation.
 // --------------------------------------------------------
 
-std::shared_ptr<MountView> MountView::createRoot(std::shared_ptr<Link> origin) {
+std::shared_ptr<MountView> MountView::createRoot(std::shared_ptr<FsLink> origin) {
 	return std::make_shared<MountView>(nullptr, nullptr, std::move(origin));
 }
 
-std::shared_ptr<Link> MountView::getAnchor() const {
+std::shared_ptr<FsLink> MountView::getAnchor() const {
 	return _anchor;
 }
 
-std::shared_ptr<Link> MountView::getOrigin() const {
+std::shared_ptr<FsLink> MountView::getOrigin() const {
 	return _origin;
 }
 
-void MountView::mount(std::shared_ptr<Link> anchor, std::shared_ptr<Link> origin) {
+void MountView::mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin) {
 	_mounts.insert(std::make_shared<MountView>(shared_from_this(),
 			std::move(anchor), std::move(origin)));
 	// TODO: check insert return value
 }
 
-std::shared_ptr<MountView> MountView::getMount(std::shared_ptr<Link> link) const {
+std::shared_ptr<MountView> MountView::getMount(std::shared_ptr<FsLink> link) const {
 	auto it = _mounts.find(link);
 	if(it == _mounts.end())
 		return nullptr;
@@ -66,7 +66,7 @@ COFIBER_ROUTINE(async::result<void>, populateRootView(), ([=] {
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<
 		std::pair<
-			std::shared_ptr<Node>,
+			std::shared_ptr<FsNode>,
 			std::string
 		>
 	> stack;

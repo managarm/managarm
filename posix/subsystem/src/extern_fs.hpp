@@ -6,8 +6,8 @@
 
 namespace extern_fs {
 
-std::shared_ptr<Link> createRoot(helix::UniqueLane lane);
-std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<Link> link);
+std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane);
+std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link);
 
 } // namespace extern_fs
 

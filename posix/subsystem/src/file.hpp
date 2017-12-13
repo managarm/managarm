@@ -7,7 +7,7 @@
 #include <cofiber/future.hpp>
 #include <hel.h>
 
-struct Link;
+struct FsLink;
 
 // TODO: Rename this enum as is not part of the VFS.
 enum VfsError {
@@ -27,13 +27,13 @@ using FutureMaybe = async::result<T>;
 // ----------------------------------------------------------------------------
 
 struct File {
-	File(std::shared_ptr<Link> link)
+	File(std::shared_ptr<FsLink> link)
 	: _link{std::move(link)} { }
 
 	// This is the link that was used to open the file.
 	// Note that this might not be the only link that can be used
 	// to reach the file's inode.
-	std::shared_ptr<Link> associatedLink() {
+	std::shared_ptr<FsLink> associatedLink() {
 		return _link;
 	}
 
@@ -45,13 +45,13 @@ struct File {
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:
-	const std::shared_ptr<Link> _link;
+	const std::shared_ptr<FsLink> _link;
 };
 
 // This class represents files that are part of an actual file system.
 // Their operations are provided by that file system.
 struct ProperFile : File {
-	ProperFile(std::shared_ptr<Link> link)
+	ProperFile(std::shared_ptr<FsLink> link)
 	: File{std::move(link)} { }
 };
 
@@ -59,7 +59,7 @@ struct ProperFile : File {
 // have operations that are provided externally.
 // This concerns mainly devices and UNIX sockets.
 struct ProxyFile : File {
-	ProxyFile(std::shared_ptr<Link> link)
+	ProxyFile(std::shared_ptr<FsLink> link)
 	: File{std::move(link)} { }
 };
 

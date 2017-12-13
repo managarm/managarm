@@ -12,7 +12,7 @@ struct DeviceOperations;
 struct Device {
 	static VfsType getType(std::shared_ptr<Device> object);
 	static std::string getName(std::shared_ptr<Device> object);
-	static FutureMaybe<std::shared_ptr<Link>> mount(std::shared_ptr<Device> object);
+	static FutureMaybe<std::shared_ptr<FsLink>> mount(std::shared_ptr<Device> object);
 
 	Device(const DeviceOperations *operations)
 	: _operations(operations) { }
@@ -39,12 +39,12 @@ struct DeviceOperations {
 	std::string (*getName)(std::shared_ptr<Device> object) = 0;
 
 	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object,
-			std::shared_ptr<Link> link) = 0;
-	FutureMaybe<std::shared_ptr<Link>> (*mount)(std::shared_ptr<Device> object) = 0;
+			std::shared_ptr<FsLink> link) = 0;
+	FutureMaybe<std::shared_ptr<FsLink>> (*mount)(std::shared_ptr<Device> object) = 0;
 };
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> object,
-		std::shared_ptr<Link> link);
+		std::shared_ptr<FsLink> link);
 
 // --------------------------------------------------------
 // DeviceManager
@@ -74,7 +74,7 @@ private:
 	std::set<std::shared_ptr<Device>, Compare> _devices;
 };
 
-std::shared_ptr<Link> getDevtmpfs();
+std::shared_ptr<FsLink> getDevtmpfs();
 
 extern DeviceManager deviceManager;
 

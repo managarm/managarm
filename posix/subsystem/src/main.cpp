@@ -400,7 +400,7 @@ struct ExternDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> object, std::shared_ptr<Link> link), ([=] {
+			open(std::shared_ptr<Device> object, std::shared_ptr<FsLink> link), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
 		helix::Offer offer;
@@ -430,7 +430,7 @@ struct ExternDevice : Device {
 				std::move(link)));
 	}))
 
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,
+	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			mount(std::shared_ptr<Device> object), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 

@@ -9,46 +9,46 @@
 #include "fs.hpp"
 
 // --------------------------------------------------------
-// Node implementation.
+// FsNode implementation.
 // --------------------------------------------------------
 
-VfsType Node::getType() {
+VfsType FsNode::getType() {
 	throw std::runtime_error("Not implemented");
 }
 
-FileStats Node::getStats() {
+FileStats FsNode::getStats() {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> Node::getLink(std::string) {
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::getLink(std::string) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> Node::link(std::string, std::shared_ptr<Node>) {
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> Node::mkdir(std::string) {
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdir(std::string) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> Node::symlink(std::string, std::string) {
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::symlink(std::string, std::string) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<Link>> Node::mkdev(std::string, VfsType, DeviceId) {
+FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceId) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<ProperFile>> Node::open(std::shared_ptr<Link>) {
+FutureMaybe<std::shared_ptr<ProperFile>> FsNode::open(std::shared_ptr<FsLink>) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::string> Node::readSymlink() {
+FutureMaybe<std::string> FsNode::readSymlink() {
 	throw std::runtime_error("Not implemented");
 }
 
-DeviceId Node::readDevice() {
+DeviceId FsNode::readDevice() {
 	throw std::runtime_error("Not implemented");
 }
 

@@ -32,51 +32,51 @@ struct FileStats {
 
 
 // Forward declarations.
-struct Link;
-struct Node;
+struct FsLink;
+struct FsNode;
 
 // ----------------------------------------------------------------------------
-// Link class.
+// FsLink class.
 // ----------------------------------------------------------------------------
 
 // Represents a directory entry on an actual file system (i.e. not in the VFS).
-struct Link {
-	virtual std::shared_ptr<Node> getOwner() = 0;
+struct FsLink {
+	virtual std::shared_ptr<FsNode> getOwner() = 0;
 	virtual std::string getName() = 0;
-	virtual std::shared_ptr<Node> getTarget() = 0;
+	virtual std::shared_ptr<FsNode> getTarget() = 0;
 };
 
 // ----------------------------------------------------------------------------
-// Node class.
+// FsNode class.
 // ----------------------------------------------------------------------------
 
 // Represents an inode on an actual file system (i.e. not in the VFS).
-struct Node {
+struct FsNode {
 	virtual VfsType getType();
 
 	// TODO: This should be async.
 	virtual FileStats getStats();
 
 	//! Resolves a file in a directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<Link>> getLink(std::string name);
+	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
 	
 	//! Links an existing node to this directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<Link>> link(std::string name,
-			std::shared_ptr<Node> target);
+	virtual FutureMaybe<std::shared_ptr<FsLink>> link(std::string name,
+			std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
-	virtual FutureMaybe<std::shared_ptr<Link>> mkdir(std::string name);
+	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdir(std::string name);
 	
 	//! Creates a new symlink (directories only).
-	virtual FutureMaybe<std::shared_ptr<Link>> symlink(std::string name, std::string path);
+	virtual FutureMaybe<std::shared_ptr<FsLink>> symlink(std::string name, std::string path);
 	
 	//! Creates a new device file (directories only).
-	virtual FutureMaybe<std::shared_ptr<Link>> mkdev(std::string name,
+	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id);
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
-	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<Link> link);
+	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link);
 	
 	//! Reads the target of a symlink (symlinks only).
 	virtual FutureMaybe<std::string> readSymlink();

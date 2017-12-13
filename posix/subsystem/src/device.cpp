@@ -19,10 +19,10 @@ std::string Device::getName(std::shared_ptr<Device> object) {
 }
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device,
-		std::shared_ptr<Link> link) {
+		std::shared_ptr<FsLink> link) {
 	return device->operations()->open(device, std::move(link));
 }
-FutureMaybe<std::shared_ptr<Link>> Device::mount(std::shared_ptr<Device> object) {
+FutureMaybe<std::shared_ptr<FsLink>> Device::mount(std::shared_ptr<Device> object) {
 	return object->operations()->mount(object);
 }
 
@@ -52,8 +52,8 @@ std::shared_ptr<Device> DeviceManager::get(DeviceId id) {
 // Free functions.
 // --------------------------------------------------------
 
-std::shared_ptr<Link> getDevtmpfs() {
-	static std::shared_ptr<Link> devtmpfs = tmp_fs::createRoot();
+std::shared_ptr<FsLink> getDevtmpfs() {
+	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createRoot();
 	return devtmpfs;
 }
 
