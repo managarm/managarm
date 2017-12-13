@@ -3,6 +3,6 @@
 
 #include "device.hpp"
 
-std::shared_ptr<Device> createHeloutDevice();
+std::shared_ptr<UnixDevice> createHeloutDevice();
 
 #endif // POSIX_SUBSYSTEM_DEVICES_HELOUT_HPP

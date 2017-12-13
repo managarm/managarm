@@ -35,17 +35,17 @@ public:
 	: ProxyFile{std::move(link)} { }
 };
 
-struct HeloutDevice : Device {
-	static VfsType getType(std::shared_ptr<Device>) {
+struct HeloutDevice : UnixDevice {
+	static VfsType getType(std::shared_ptr<UnixDevice>) {
 		return VfsType::charDevice;
 	}
 
-	static std::string getName(std::shared_ptr<Device>) {
+	static std::string getName(std::shared_ptr<UnixDevice>) {
 		return "helout";
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device, std::shared_ptr<FsLink> link), ([=] {
+			open(std::shared_ptr<UnixDevice> device, std::shared_ptr<FsLink> link), ([=] {
 		(void)device;
 		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
 	}))
@@ -53,7 +53,7 @@ struct HeloutDevice : Device {
 	static const DeviceOperations operations;
 
 	HeloutDevice()
-	: Device(&operations) { }
+	: UnixDevice(&operations) { }
 };
 
 const DeviceOperations HeloutDevice::operations{
@@ -65,7 +65,7 @@ const DeviceOperations HeloutDevice::operations{
 
 } // anonymous namespace
 
-std::shared_ptr<Device> createHeloutDevice() {
+std::shared_ptr<UnixDevice> createHeloutDevice() {
 	return std::make_shared<HeloutDevice>();
 }
 

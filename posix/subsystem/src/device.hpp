@@ -9,12 +9,12 @@
 
 struct DeviceOperations;
 
-struct Device {
-	static VfsType getType(std::shared_ptr<Device> object);
-	static std::string getName(std::shared_ptr<Device> object);
-	static FutureMaybe<std::shared_ptr<FsLink>> mount(std::shared_ptr<Device> object);
+struct UnixDevice {
+	static VfsType getType(std::shared_ptr<UnixDevice> object);
+	static std::string getName(std::shared_ptr<UnixDevice> object);
+	static FutureMaybe<std::shared_ptr<FsLink>> mount(std::shared_ptr<UnixDevice> object);
 
-	Device(const DeviceOperations *operations)
+	UnixDevice(const DeviceOperations *operations)
 	: _operations(operations) { }
 
 	void assignId(DeviceId id) {
@@ -35,47 +35,47 @@ private:
 };
 
 struct DeviceOperations {
-	VfsType (*getType)(std::shared_ptr<Device> object) = 0;
-	std::string (*getName)(std::shared_ptr<Device> object) = 0;
+	VfsType (*getType)(std::shared_ptr<UnixDevice> object) = 0;
+	std::string (*getName)(std::shared_ptr<UnixDevice> object) = 0;
 
-	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object,
+	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<UnixDevice> object,
 			std::shared_ptr<FsLink> link) = 0;
-	FutureMaybe<std::shared_ptr<FsLink>> (*mount)(std::shared_ptr<Device> object) = 0;
+	FutureMaybe<std::shared_ptr<FsLink>> (*mount)(std::shared_ptr<UnixDevice> object) = 0;
 };
 
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> object,
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<UnixDevice> object,
 		std::shared_ptr<FsLink> link);
 
 // --------------------------------------------------------
-// DeviceManager
+// UnixDeviceManager
 // --------------------------------------------------------
 
-struct DeviceManager {
-	void install(std::shared_ptr<Device> device);
+struct UnixDeviceManager {
+	void install(std::shared_ptr<UnixDevice> device);
 
-	std::shared_ptr<Device> get(DeviceId id);
+	std::shared_ptr<UnixDevice> get(DeviceId id);
 
 private:
 	struct Compare {
 		struct is_transparent { };
 
-		bool operator() (std::shared_ptr<Device> a, DeviceId b) const {
+		bool operator() (std::shared_ptr<UnixDevice> a, DeviceId b) const {
 			return a->getId() < b;
 		}
-		bool operator() (DeviceId a, std::shared_ptr<Device> b) const {
+		bool operator() (DeviceId a, std::shared_ptr<UnixDevice> b) const {
 			return a < b->getId();
 		}
 
-		bool operator() (std::shared_ptr<Device> a, std::shared_ptr<Device> b) const {
+		bool operator() (std::shared_ptr<UnixDevice> a, std::shared_ptr<UnixDevice> b) const {
 			return a->getId() < b->getId();
 		}
 	};
 
-	std::set<std::shared_ptr<Device>, Compare> _devices;
+	std::set<std::shared_ptr<UnixDevice>, Compare> _devices;
 };
 
 std::shared_ptr<FsLink> getDevtmpfs();
 
-extern DeviceManager deviceManager;
+extern UnixDeviceManager deviceManager;
 
 #endif // POSIX_SUBSYSTEM_DEVICE_HPP

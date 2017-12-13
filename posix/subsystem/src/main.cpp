@@ -165,7 +165,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 				assert(source.second);
 				auto device = deviceManager.get(source.second->getTarget()->readDevice());
-				auto link = COFIBER_AWAIT Device::mount(device);
+				auto link = COFIBER_AWAIT UnixDevice::mount(device);
 				target.first->mount(target.second, std::move(link));	
 			}
 
@@ -389,18 +389,18 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // main() function
 // --------------------------------------------------------
 
-struct ExternDevice : Device {
-	static VfsType getType(std::shared_ptr<Device>) {
+struct ExternDevice : UnixDevice {
+	static VfsType getType(std::shared_ptr<UnixDevice>) {
 		return VfsType::charDevice;
 	}
 
-	static std::string getName(std::shared_ptr<Device> object) {
+	static std::string getName(std::shared_ptr<UnixDevice> object) {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 		return self->_name;
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> object, std::shared_ptr<FsLink> link), ([=] {
+			open(std::shared_ptr<UnixDevice> object, std::shared_ptr<FsLink> link), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
 		helix::Offer offer;
@@ -431,7 +431,7 @@ struct ExternDevice : Device {
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			mount(std::shared_ptr<Device> object), ([=] {
+			mount(std::shared_ptr<UnixDevice> object), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
 		helix::Offer offer;
@@ -463,7 +463,7 @@ struct ExternDevice : Device {
 	static const DeviceOperations operations;
 
 	ExternDevice(std::string name, helix::UniqueLane lane)
-	: Device{&operations}, _name{std::move(name)}, _lane{std::move(lane)} { }
+	: UnixDevice{&operations}, _name{std::move(name)}, _lane{std::move(lane)} { }
 
 private:
 	std::string _name;

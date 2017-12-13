@@ -5,32 +5,32 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 
-DeviceManager deviceManager;
+UnixDeviceManager deviceManager;
 
 // --------------------------------------------------------
-// Device
+// UnixDevice
 // --------------------------------------------------------
 
-VfsType Device::getType(std::shared_ptr<Device> object) {
+VfsType UnixDevice::getType(std::shared_ptr<UnixDevice> object) {
 	return object->operations()->getType(object);
 }
-std::string Device::getName(std::shared_ptr<Device> object) {
+std::string UnixDevice::getName(std::shared_ptr<UnixDevice> object) {
 	return object->operations()->getName(object);
 }
 
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> device,
+FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<UnixDevice> device,
 		std::shared_ptr<FsLink> link) {
 	return device->operations()->open(device, std::move(link));
 }
-FutureMaybe<std::shared_ptr<FsLink>> Device::mount(std::shared_ptr<Device> object) {
+FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount(std::shared_ptr<UnixDevice> object) {
 	return object->operations()->mount(object);
 }
 
 // --------------------------------------------------------
-// DeviceManager
+// UnixDeviceManager
 // --------------------------------------------------------
 
-void DeviceManager::install(std::shared_ptr<Device> device) {
+void UnixDeviceManager::install(std::shared_ptr<UnixDevice> device) {
 	DeviceId id{0, 1};
 	while(_devices.find(id) != _devices.end())
 		id.second++;
@@ -38,11 +38,11 @@ void DeviceManager::install(std::shared_ptr<Device> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	getDevtmpfs()->getTarget()->mkdev(Device::getName(device),
-			Device::getType(device), id);
+	getDevtmpfs()->getTarget()->mkdev(UnixDevice::getName(device),
+			UnixDevice::getType(device), id);
 }
 
-std::shared_ptr<Device> DeviceManager::get(DeviceId id) {
+std::shared_ptr<UnixDevice> UnixDeviceManager::get(DeviceId id) {
 	auto it = _devices.find(id);
 	assert(it != _devices.end());
 	return *it;
