@@ -2,7 +2,7 @@
 $(call standard_dirs)
 $(call define_objdir,DEVICES_OBJ,$($c_OBJDIR)/devices)
 
-$c_OBJECTS := main.o vfs.o process.o device.o exec.o
+$c_OBJECTS := main.o file.o fs.o vfs.o process.o device.o exec.o
 $c_OBJECTS += devices/helout.o
 $c_OBJECTS += tmp_fs.o extern_fs.o
 $c_OBJECTS += posix.pb.o
