@@ -72,7 +72,7 @@ FutureMaybe<std::shared_ptr<Link>> Node::mkdev(std::string, VfsType, DeviceId) {
 	throw std::runtime_error("Not implemented");
 }
 
-FutureMaybe<std::shared_ptr<File>> Node::open() {
+FutureMaybe<std::shared_ptr<ProperFile>> Node::open() {
 	throw std::runtime_error("Not implemented");
 }
 

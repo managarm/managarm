@@ -174,7 +174,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open() override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>, open() override, ([=] {
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 

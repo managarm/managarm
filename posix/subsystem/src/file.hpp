@@ -45,4 +45,19 @@ private:
 	const std::shared_ptr<Node> _node;
 };
 
+// This class represents files that are part of an actual file system.
+// Their operations are provided by that file system.
+struct ProperFile : File {
+	ProperFile(std::shared_ptr<Node> node)
+	: File{std::move(node)} { }
+};
+
+// Represents files that have a link in a file system but that
+// have operations that are provided externally.
+// This concerns mainly devices and UNIX sockets.
+struct ProxyFile : File {
+	ProxyFile(std::shared_ptr<Node> node)
+	: File{std::move(node)} { }
+};
+
 #endif // POSIX_SUBSYSTEM_FILE_HPP
