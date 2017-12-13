@@ -42,14 +42,14 @@ private:
 	}
 
 public:
-	OpenFile(helix::UniqueLane lane, std::shared_ptr<Node> node)
-	: ProperFile{std::move(node)}, _file{std::move(lane)} { }
+	OpenFile(helix::UniqueLane lane, std::shared_ptr<Link> link)
+	: ProperFile{std::move(link)}, _file{std::move(lane)} { }
 
 private:
 	protocols::fs::File _file;
 };
 
-struct Regular : Node, std::enable_shared_from_this<Regular> {
+struct Regular : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -59,7 +59,8 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>, open() override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+			open(std::shared_ptr<Link> link) override, ([=] {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
@@ -83,7 +84,7 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor(), shared_from_this()));
+		COFIBER_RETURN(std::make_shared<OpenFile>(pull_passthrough.descriptor(), std::move(link)));
 	}))
 
 public:
@@ -291,8 +292,8 @@ std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
 	return createRootLink(std::move(node));
 }
 
-std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<Node> node) {
-	return std::make_shared<OpenFile>(std::move(lane), std::move(node));
+std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<Link> link) {
+	return std::make_shared<OpenFile>(std::move(lane), std::move(link));
 }
 
 } // namespace extern_fs

@@ -320,7 +320,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(push_passthrough.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			auto file = self->fileContext()->getFile(req.fd());
-			auto stats = file->node()->getStats();
+			auto stats = file->associatedLink()->getTarget()->getStats();
 
 			helix::SendBuffer send_resp;
 
@@ -400,7 +400,7 @@ struct ExternDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> object, std::shared_ptr<Node> node), ([=] {
+			open(std::shared_ptr<Device> object, std::shared_ptr<Link> link), ([=] {
 		auto self = std::static_pointer_cast<ExternDevice>(object);
 
 		helix::Offer offer;
@@ -427,7 +427,7 @@ struct ExternDevice : Device {
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 		COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor(),
-				std::move(node)));
+				std::move(link)));
 	}))
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<Link>>,

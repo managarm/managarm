@@ -75,7 +75,7 @@ struct Node {
 			VfsType type, DeviceId id);
 	
 	//! Opens the file (regular files only).
-	virtual FutureMaybe<std::shared_ptr<ProperFile>> open();
+	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<Link> link);
 	
 	//! Reads the target of a symlink (symlinks only).
 	virtual FutureMaybe<std::string> readSymlink();

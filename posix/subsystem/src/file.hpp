@@ -7,7 +7,7 @@
 #include <cofiber/future.hpp>
 #include <hel.h>
 
-struct Node;
+struct Link;
 
 // TODO: Rename this enum as is not part of the VFS.
 enum VfsError {
@@ -27,11 +27,14 @@ using FutureMaybe = async::result<T>;
 // ----------------------------------------------------------------------------
 
 struct File {
-	File(std::shared_ptr<Node> node)
-	: _node{std::move(node)} { }
+	File(std::shared_ptr<Link> link)
+	: _link{std::move(link)} { }
 
-	std::shared_ptr<Node> node() {
-		return _node;
+	// This is the link that was used to open the file.
+	// Note that this might not be the only link that can be used
+	// to reach the file's inode.
+	std::shared_ptr<Link> associatedLink() {
+		return _link;
 	}
 
 	FutureMaybe<void> readExactly(void *data, size_t length);
@@ -42,22 +45,22 @@ struct File {
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:
-	const std::shared_ptr<Node> _node;
+	const std::shared_ptr<Link> _link;
 };
 
 // This class represents files that are part of an actual file system.
 // Their operations are provided by that file system.
 struct ProperFile : File {
-	ProperFile(std::shared_ptr<Node> node)
-	: File{std::move(node)} { }
+	ProperFile(std::shared_ptr<Link> link)
+	: File{std::move(link)} { }
 };
 
 // Represents files that have a link in a file system but that
 // have operations that are provided externally.
 // This concerns mainly devices and UNIX sockets.
 struct ProxyFile : File {
-	ProxyFile(std::shared_ptr<Node> node)
-	: File{std::move(node)} { }
+	ProxyFile(std::shared_ptr<Link> link)
+	: File{std::move(link)} { }
 };
 
 #endif // POSIX_SUBSYSTEM_FILE_HPP

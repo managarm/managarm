@@ -8,7 +8,7 @@ HelHandle __mlibc_getPassthrough(int fd);
 
 namespace {
 
-struct HeloutFile : File {
+struct HeloutFile : ProxyFile {
 private:
 	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		(void)offset;
@@ -31,8 +31,8 @@ private:
 	}
 
 public:
-	HeloutFile(std::shared_ptr<Node> node)
-	: File{std::move(node)} { }
+	HeloutFile(std::shared_ptr<Link> link)
+	: ProxyFile{std::move(link)} { }
 };
 
 struct HeloutDevice : Device {
@@ -45,9 +45,9 @@ struct HeloutDevice : Device {
 	}
 
 	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<Device> device, std::shared_ptr<Node> node), ([=] {
+			open(std::shared_ptr<Device> device, std::shared_ptr<Link> link), ([=] {
 		(void)device;
-		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(node)));
+		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
 	}))
 
 	static const DeviceOperations operations;

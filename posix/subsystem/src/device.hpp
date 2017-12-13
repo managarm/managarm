@@ -39,12 +39,12 @@ struct DeviceOperations {
 	std::string (*getName)(std::shared_ptr<Device> object) = 0;
 
 	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<Device> object,
-			std::shared_ptr<Node> node) = 0;
+			std::shared_ptr<Link> link) = 0;
 	FutureMaybe<std::shared_ptr<Link>> (*mount)(std::shared_ptr<Device> object) = 0;
 };
 
 FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<Device> object,
-		std::shared_ptr<Node> node);
+		std::shared_ptr<Link> link);
 
 // --------------------------------------------------------
 // DeviceManager

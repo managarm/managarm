@@ -164,7 +164,7 @@ private:
 	std::set<std::shared_ptr<MyLink>, Compare> _entries;
 };
 
-struct MemoryNode : Node, std::enable_shared_from_this<MemoryNode> {
+struct MemoryNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -174,12 +174,13 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>, open() override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+			open(std::shared_ptr<Link> link) override, ([=] {
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
 		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
-		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), shared_from_this()));
+		COFIBER_RETURN(extern_fs::createFile(std::move(passthrough), std::move(link)));
 	}))
 
 public:
