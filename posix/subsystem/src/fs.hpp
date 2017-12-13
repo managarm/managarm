@@ -39,18 +39,18 @@ struct Node;
 // Link class.
 // ----------------------------------------------------------------------------
 
+// Represents a directory entry on an actual file system (i.e. not in the VFS).
 struct Link {
 	virtual std::shared_ptr<Node> getOwner() = 0;
 	virtual std::string getName() = 0;
 	virtual std::shared_ptr<Node> getTarget() = 0;
 };
 
-std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target);
-
 // ----------------------------------------------------------------------------
 // Node class.
 // ----------------------------------------------------------------------------
 
+// Represents an inode on an actual file system (i.e. not in the VFS).
 struct Node {
 	virtual VfsType getType();
 
@@ -73,8 +73,9 @@ struct Node {
 	//! Creates a new device file (directories only).
 	virtual FutureMaybe<std::shared_ptr<Link>> mkdev(std::string name,
 			VfsType type, DeviceId id);
-	
+
 	//! Opens the file (regular files only).
+	// TODO: Move this to the link instead of the inode?
 	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<Link> link);
 	
 	//! Reads the target of a symlink (symlinks only).

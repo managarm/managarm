@@ -289,7 +289,10 @@ std::shared_ptr<Link> Context::internalizeLink(Node *parent, std::string name, s
 std::shared_ptr<Link> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};
 	auto node = std::make_shared<Directory>(context, std::move(lane));
-	return createRootLink(std::move(node));
+	// FIXME: 2 is the ext2fs root inode.
+	auto intern = context->internalizeNode(2, node);
+	auto link = std::make_shared<Entry>(nullptr, intern);
+	return context->internalizeLink(nullptr, std::string{}, link);
 }
 
 std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<Link> link) {

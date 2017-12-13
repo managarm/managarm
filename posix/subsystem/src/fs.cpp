@@ -9,38 +9,6 @@
 #include "fs.hpp"
 
 // --------------------------------------------------------
-// Link implementation.
-// --------------------------------------------------------
-
-namespace {
-	struct RootLink : Link {
-	private:
-		std::shared_ptr<Node> getOwner() override {
-			return std::shared_ptr<Node>{};
-		}
-
-		std::string getName() override {
-			assert(!"No associated name");
-		}
-
-		std::shared_ptr<Node> getTarget() override {
-			return _target;
-		}
-
-	public:
-		RootLink(std::shared_ptr<Node> target)
-		: _target{std::move(target)} { }
-
-	private:
-		std::shared_ptr<Node> _target;
-	};
-}
-
-std::shared_ptr<Link> createRootLink(std::shared_ptr<Node> target) {
-	return std::make_shared<RootLink>(std::move(target));
-}
-
-// --------------------------------------------------------
 // Node implementation.
 // --------------------------------------------------------
 

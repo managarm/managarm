@@ -65,6 +65,29 @@ private:
 	DeviceId _id;
 };
 
+struct MyLink : Link {
+private:
+	std::shared_ptr<Node> getOwner() override {
+		return owner;
+	}
+
+	std::string getName() override {
+		return name;
+	}
+
+	std::shared_ptr<Node> getTarget() override {
+		return target;
+	}
+
+public:
+	explicit MyLink(std::shared_ptr<Node> owner, std::string name, std::shared_ptr<Node> target)
+	: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
+
+	std::shared_ptr<Node> owner;
+	std::string name;
+	std::shared_ptr<Node> target;
+};
+
 struct Directory : Node, std::enable_shared_from_this<Directory> {
 private:
 	VfsType getType() override {
@@ -123,29 +146,6 @@ public:
 	Directory() = default;
 
 private:
-	struct MyLink : Link {
-	private:
-		std::shared_ptr<Node> getOwner() override {
-			return owner;
-		}
-
-		std::string getName() override {
-			return name;
-		}
-
-		std::shared_ptr<Node> getTarget() override {
-			return target;
-		}
-
-	public:
-		explicit MyLink(std::shared_ptr<Node> owner, std::string name, std::shared_ptr<Node> target)
-		: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
-
-		std::shared_ptr<Node> owner;
-		std::string name;
-		std::shared_ptr<Node> target;
-	};
-
 	struct Compare {
 		struct is_transparent { };
 
@@ -199,7 +199,7 @@ std::shared_ptr<Node> createMemoryNode(std::string path) {
 
 std::shared_ptr<Link> createRoot() {
 	auto node = std::make_shared<Directory>();
-	return createRootLink(std::move(node));
+	return std::make_shared<MyLink>(nullptr, std::string{}, std::move(node));
 }
 
 } // namespace tmp_fs
