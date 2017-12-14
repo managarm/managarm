@@ -36,31 +36,17 @@ public:
 };
 
 struct HeloutDevice : UnixDevice {
-	static VfsType getType(std::shared_ptr<UnixDevice>) {
-		return VfsType::charDevice;
-	}
-
-	static std::string getName(std::shared_ptr<UnixDevice>) {
+	HeloutDevice()
+	: UnixDevice(VfsType::charDevice) { }
+	
+	std::string getName() override {
 		return "helout";
 	}
-
-	static COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<UnixDevice> device, std::shared_ptr<FsLink> link), ([=] {
-		(void)device;
+	
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<FsLink> link) override, ([=] {
 		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
 	}))
-
-	static const DeviceOperations operations;
-
-	HeloutDevice()
-	: UnixDevice(&operations) { }
-};
-
-const DeviceOperations HeloutDevice::operations{
-	&HeloutDevice::getType,
-	&HeloutDevice::getName,
-	&HeloutDevice::open,
-	nullptr
 };
 
 } // anonymous namespace

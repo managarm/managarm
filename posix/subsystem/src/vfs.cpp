@@ -255,7 +255,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::str
 		assert(current.second->getTarget()->getType() == VfsType::charDevice);
 		auto id = current.second->getTarget()->readDevice();
 		auto device = deviceManager.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT open(device, current.second));
+		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second));
 	}
 }))
 

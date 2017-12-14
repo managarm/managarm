@@ -10,12 +10,12 @@
 struct DeviceOperations;
 
 struct UnixDevice {
-	static VfsType getType(std::shared_ptr<UnixDevice> object);
-	static std::string getName(std::shared_ptr<UnixDevice> object);
-	static FutureMaybe<std::shared_ptr<FsLink>> mount(std::shared_ptr<UnixDevice> object);
+	UnixDevice(VfsType type)
+	: _type{type} { }
 
-	UnixDevice(const DeviceOperations *operations)
-	: _operations(operations) { }
+	VfsType type() {
+		return _type;
+	}
 
 	void assignId(DeviceId id) {
 		_id = id;
@@ -25,26 +25,16 @@ struct UnixDevice {
 		return _id;
 	}
 
-	const DeviceOperations *operations() {
-		return _operations;
-	}
+	virtual std::string getName() = 0;
+
+	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) = 0;
+
+	virtual FutureMaybe<std::shared_ptr<FsLink>> mount();
 
 private:
+	VfsType _type;
 	DeviceId _id;
-	const DeviceOperations *_operations;
 };
-
-struct DeviceOperations {
-	VfsType (*getType)(std::shared_ptr<UnixDevice> object) = 0;
-	std::string (*getName)(std::shared_ptr<UnixDevice> object) = 0;
-
-	FutureMaybe<std::shared_ptr<File>> (*open)(std::shared_ptr<UnixDevice> object,
-			std::shared_ptr<FsLink> link) = 0;
-	FutureMaybe<std::shared_ptr<FsLink>> (*mount)(std::shared_ptr<UnixDevice> object) = 0;
-};
-
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<UnixDevice> object,
-		std::shared_ptr<FsLink> link);
 
 // --------------------------------------------------------
 // UnixDeviceManager

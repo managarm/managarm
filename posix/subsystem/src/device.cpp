@@ -11,19 +11,9 @@ UnixDeviceManager deviceManager;
 // UnixDevice
 // --------------------------------------------------------
 
-VfsType UnixDevice::getType(std::shared_ptr<UnixDevice> object) {
-	return object->operations()->getType(object);
-}
-std::string UnixDevice::getName(std::shared_ptr<UnixDevice> object) {
-	return object->operations()->getName(object);
-}
-
-FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<UnixDevice> device,
-		std::shared_ptr<FsLink> link) {
-	return device->operations()->open(device, std::move(link));
-}
-FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount(std::shared_ptr<UnixDevice> object) {
-	return object->operations()->mount(object);
+FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount() {
+	// TODO: Return an error.
+	throw std::logic_error("Device cannot be mounted!");
 }
 
 // --------------------------------------------------------
@@ -38,8 +28,8 @@ void UnixDeviceManager::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	getDevtmpfs()->getTarget()->mkdev(UnixDevice::getName(device),
-			UnixDevice::getType(device), id);
+	getDevtmpfs()->getTarget()->mkdev(device->getName(),
+			device->type(), id);
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceManager::get(DeviceId id) {
