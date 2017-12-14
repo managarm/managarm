@@ -393,7 +393,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	
 	mbus::Properties descriptor{
 		{"unix.devtype", mbus::StringItem{"block"}},
-		{"unix.devname", mbus::StringItem{"card0"}}
+		{"unix.devname", mbus::StringItem{"dri/card0"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

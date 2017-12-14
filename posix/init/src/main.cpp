@@ -82,7 +82,7 @@ int main() {
 		execve("/usr/bin/gfx_virtio", args.data(), envp);
 	}else assert(gfx_virtio != -1);
 
-	while(access("/dev/card0", F_OK)) {
+	while(access("/dev/dri/card0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
 	}

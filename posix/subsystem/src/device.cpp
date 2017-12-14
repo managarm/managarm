@@ -20,6 +20,24 @@ FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount() {
 // UnixDeviceManager
 // --------------------------------------------------------
 
+static COFIBER_ROUTINE(cofiber::no_future, createDevicePath(std::string path,
+		VfsType type, DeviceId id), ([=] {
+	size_t k = 0;
+	auto node = getDevtmpfs()->getTarget();
+	while(true) {
+		size_t s = path.find('/', k);
+		if(s == std::string::npos) {
+			COFIBER_AWAIT node->mkdev(path.substr(k), type, id);
+			break;
+		}else{
+			assert(s > k);
+			auto link = COFIBER_AWAIT node->mkdir(path.substr(k, s - k));
+			k = s + 1;
+			node = link->getTarget();
+		}
+	}
+}));
+
 void UnixDeviceManager::install(std::shared_ptr<UnixDevice> device) {
 	DeviceId id{0, 1};
 	while(_devices.find(id) != _devices.end())
@@ -28,8 +46,7 @@ void UnixDeviceManager::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	getDevtmpfs()->getTarget()->mkdev(device->getName(),
-			device->type(), id);
+	createDevicePath(device->getName(), device->type(), id);
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceManager::get(DeviceId id) {
