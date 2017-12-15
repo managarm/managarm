@@ -3,7 +3,9 @@
 
 #include "common.hpp"
 #include "device.hpp"
+#include "extern_fs.hpp"
 #include "tmp_fs.hpp"
+#include <fs.pb.h>
 
 UnixDeviceRegistry charRegistry;
 UnixDeviceRegistry blockRegistry;
@@ -39,7 +41,7 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 }
 
 // --------------------------------------------------------
-// Free functions.
+// devtmpfs functions.
 // --------------------------------------------------------
 
 std::shared_ptr<FsLink> getDevtmpfs() {
@@ -65,5 +67,66 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 	}
 
 	COFIBER_RETURN();
+}))
+
+// --------------------------------------------------------
+// External device helpers.
+// --------------------------------------------------------
+
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, openExternalDevice(helix::BorrowedLane lane,
+		std::shared_ptr<FsLink> link), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_node;
+
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_node));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_node.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor(),
+			std::move(link)));
+}))
+
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mountExternalDevice(helix::BorrowedLane lane),
+		([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_node;
+
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_node));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_node.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	COFIBER_RETURN(extern_fs::createRoot(pull_node.descriptor()));
 }))
 

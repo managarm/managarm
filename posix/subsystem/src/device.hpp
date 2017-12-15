@@ -64,11 +64,24 @@ private:
 	std::set<std::shared_ptr<UnixDevice>, Compare> _devices;
 };
 
+extern UnixDeviceRegistry charRegistry;
+extern UnixDeviceRegistry blockRegistry;
+
+// --------------------------------------------------------
+// devtmpfs functions.
+// --------------------------------------------------------
+
 std::shared_ptr<FsLink> getDevtmpfs();
 
 async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id);
 
-extern UnixDeviceRegistry charRegistry;
-extern UnixDeviceRegistry blockRegistry;
+// --------------------------------------------------------
+// External device helpers.
+// --------------------------------------------------------
+
+FutureMaybe<std::shared_ptr<File>> openExternalDevice(helix::BorrowedLane lane,
+		std::shared_ptr<FsLink> link);
+
+FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane);
 
 #endif // POSIX_SUBSYSTEM_DEVICE_HPP

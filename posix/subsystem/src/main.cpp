@@ -17,7 +17,7 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
-#include <fs.pb.h>
+#include "subsystem/block.hpp"
 #include <posix.pb.h>
 
 bool traceRequests = false;
@@ -390,100 +390,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // main() function
 // --------------------------------------------------------
 
-struct ExternDevice : UnixDevice {
-	ExternDevice(VfsType type, std::string name, helix::UniqueLane lane)
-	: UnixDevice{type},
-			_name{std::move(name)}, _lane{std::move(lane)} { }
-
-	std::string getName() override {
-		return _name;
-	}
-	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link) override, ([=] {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_node;
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_node));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(pull_node.error());
-
-		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(extern_fs::createFile(pull_node.descriptor(),
-				std::move(link)));
-	}))
-
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-			mount() override, ([=] {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_node;
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
-
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_node));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
-		HEL_CHECK(pull_node.error());
-
-		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(extern_fs::createRoot(pull_node.descriptor()));
-	}))
-
-
-private:
-	std::string _name;
-	helix::UniqueLane _lane;
-};
-
-COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-
-	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.devtype", "block")
-	});
-	
-	auto handler = mbus::ObserverHandler{}
-	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		std::cout << "POSIX: Binding device "
-				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
-
-		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
-		auto device = std::make_shared<ExternDevice>(VfsType::blockDevice,
-				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
-				std::move(lane));
-		blockRegistry.install(device);
-	});
-
-	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
-}))
-
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
@@ -493,7 +399,7 @@ int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
 	charRegistry.install(createHeloutDevice());
-	observeDevices();
+	block_system::run();
 	runInit();
 
 	while(true)

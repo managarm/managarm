@@ -1,11 +1,13 @@
 
 $(call standard_dirs)
 $(call define_objdir,DEVICES_OBJ,$($c_OBJDIR)/devices)
+$(call define_objdir,SUBSYSTEM_OBJ,$($c_OBJDIR)/subsystem)
 
 $c_OBJECTS := main.o file.o fs.o vfs.o process.o device.o exec.o
 $c_OBJECTS += devices/helout.o
 $c_OBJECTS += tmp_fs.o extern_fs.o
 $c_OBJECTS += posix.pb.o
+$c_OBJECTS += subsystem/block.o
 # fs.pb.o is part of libfs_protocol.
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
@@ -32,6 +34,10 @@ $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 $($c_OBJDIR)/devices/%.o: $($c_SRCDIR)/devices/%.cpp | $($c_DEVICES_OBJDIR)
+	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
+	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+
+$($c_OBJDIR)/subsystem/%.o: $($c_SRCDIR)/subsystem/%.cpp | $($c_SUBSYSTEM_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
 	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
