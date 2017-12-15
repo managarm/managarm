@@ -202,16 +202,16 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
 	for(auto &assign: assignment) {
-		if(assign.property == &_device->srcWProperty) {
+		if(assign.property == _device->srcWProperty()) {
 			_width = assign.intValue;
-		}else if(assign.property == &_device->srcHProperty) {
+		}else if(assign.property == _device->srcHProperty()) {
 			_height = assign.intValue;
-		}else if(assign.property == &_device->fbIdProperty) {
+		}else if(assign.property == _device->fbIdProperty()) {
 			auto fb = assign.objectValue->asFrameBuffer();
 			if(!fb)
 				return false;
 			_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
-		}else if(assign.property == &_device->modeIdProperty) {
+		}else if(assign.property == _device->modeIdProperty()) {
 			_mode = assign.blobValue; 
 			if(_mode) {
 				drm_mode_modeinfo mode_info;

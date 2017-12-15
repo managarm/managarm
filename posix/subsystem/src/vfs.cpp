@@ -251,10 +251,14 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::str
 	if(current.second->getTarget()->getType() == VfsType::regular) {
 		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second);
 		COFIBER_RETURN(std::move(file));
-	}else{
-		assert(current.second->getTarget()->getType() == VfsType::charDevice);
+	}else if(current.second->getTarget()->getType() == VfsType::charDevice) {
 		auto id = current.second->getTarget()->readDevice();
-		auto device = deviceManager.get(id);
+		auto device = charRegistry.get(id);
+		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second));
+	}else{
+		assert(current.second->getTarget()->getType() == VfsType::blockDevice);
+		auto id = current.second->getTarget()->readDevice();
+		auto device = blockRegistry.get(id);
 		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second));
 	}
 }))

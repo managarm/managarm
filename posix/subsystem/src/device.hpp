@@ -37,10 +37,10 @@ private:
 };
 
 // --------------------------------------------------------
-// UnixDeviceManager
+// UnixDeviceRegistry
 // --------------------------------------------------------
 
-struct UnixDeviceManager {
+struct UnixDeviceRegistry {
 	void install(std::shared_ptr<UnixDevice> device);
 
 	std::shared_ptr<UnixDevice> get(DeviceId id);
@@ -66,6 +66,9 @@ private:
 
 std::shared_ptr<FsLink> getDevtmpfs();
 
-extern UnixDeviceManager deviceManager;
+async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id);
+
+extern UnixDeviceRegistry charRegistry;
+extern UnixDeviceRegistry blockRegistry;
 
 #endif // POSIX_SUBSYSTEM_DEVICE_HPP

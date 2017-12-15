@@ -164,7 +164,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 				assert(source.second);
-				auto device = deviceManager.get(source.second->getTarget()->readDevice());
+				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
+				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = COFIBER_AWAIT device->mount();
 				target.first->mount(target.second, std::move(link));	
 			}
@@ -390,8 +391,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // --------------------------------------------------------
 
 struct ExternDevice : UnixDevice {
-	ExternDevice(std::string name, helix::UniqueLane lane)
-	: UnixDevice{VfsType::charDevice},
+	ExternDevice(VfsType type, std::string name, helix::UniqueLane lane)
+	: UnixDevice{type},
 			_name{std::move(name)}, _lane{std::move(lane)} { }
 
 	std::string getName() override {
@@ -474,9 +475,10 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
 
 		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
-		auto device = std::make_shared<ExternDevice>(std::get<mbus::StringItem>(properties.at("unix.devname")).value,
+		auto device = std::make_shared<ExternDevice>(VfsType::blockDevice,
+				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
-		deviceManager.install(device);
+		blockRegistry.install(device);
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
@@ -490,7 +492,7 @@ COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
-	deviceManager.install(createHeloutDevice());
+	charRegistry.install(createHeloutDevice());
 	observeDevices();
 	runInit();
 

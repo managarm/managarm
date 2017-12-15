@@ -5,7 +5,8 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 
-UnixDeviceManager deviceManager;
+UnixDeviceRegistry charRegistry;
+UnixDeviceRegistry blockRegistry;
 
 // --------------------------------------------------------
 // UnixDevice
@@ -17,10 +18,36 @@ FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount() {
 }
 
 // --------------------------------------------------------
-// UnixDeviceManager
+// UnixDeviceRegistry
 // --------------------------------------------------------
 
-static COFIBER_ROUTINE(cofiber::no_future, createDevicePath(std::string path,
+void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
+	DeviceId id{0, 1};
+	while(_devices.find(id) != _devices.end())
+		id.second++;
+	device->assignId(id);
+	// TODO: Ensure that the insert succeeded.
+	_devices.insert(device);
+
+	createDeviceNode(device->getName(), device->type(), id);
+}
+
+std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
+	auto it = _devices.find(id);
+	assert(it != _devices.end());
+	return *it;
+}
+
+// --------------------------------------------------------
+// Free functions.
+// --------------------------------------------------------
+
+std::shared_ptr<FsLink> getDevtmpfs() {
+	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createRoot();
+	return devtmpfs;
+}
+
+COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 		VfsType type, DeviceId id), ([=] {
 	size_t k = 0;
 	auto node = getDevtmpfs()->getTarget();
@@ -36,31 +63,7 @@ static COFIBER_ROUTINE(cofiber::no_future, createDevicePath(std::string path,
 			node = link->getTarget();
 		}
 	}
-}));
 
-void UnixDeviceManager::install(std::shared_ptr<UnixDevice> device) {
-	DeviceId id{0, 1};
-	while(_devices.find(id) != _devices.end())
-		id.second++;
-	device->assignId(id);
-	// TODO: Ensure that the insert succeeded.
-	_devices.insert(device);
-
-	createDevicePath(device->getName(), device->type(), id);
-}
-
-std::shared_ptr<UnixDevice> UnixDeviceManager::get(DeviceId id) {
-	auto it = _devices.find(id);
-	assert(it != _devices.end());
-	return *it;
-}
-
-// --------------------------------------------------------
-// Free functions.
-// --------------------------------------------------------
-
-std::shared_ptr<FsLink> getDevtmpfs() {
-	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createRoot();
-	return devtmpfs;
-}
+	COFIBER_RETURN();
+}))
 
