@@ -2,7 +2,50 @@
 #include <frigg/string.hpp>
 #include <frigg/optional.hpp>
 
+struct LinkUniverse;
 struct Scope;
+struct Loader;
+struct SharedObject;
+
+// --------------------------------------------------------
+// LinkUniverse
+// --------------------------------------------------------
+
+struct LinkUniverse {
+	LinkUniverse();
+
+	LinkUniverse(const LinkUniverse &) = delete;
+
+	LinkUniverse &operator= (const LinkUniverse &) = delete;
+
+	// This is primarily used to create a SharedObject for the RTDL itself.
+	SharedObject *injectObjectFromDts(frigg::StringView name,
+			uintptr_t base_address, Elf64_Dyn *dynamic);
+
+	// This is used to create a SharedObject for the executable that we want to link.
+	SharedObject *injectObjectFromPhdrs(frigg::StringView name,
+			void *phdr_pointer, size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
+
+	SharedObject *requestObjectWithName(frigg::StringView name);
+
+	SharedObject *requestObjectAtPath(frigg::StringView path);
+
+private:
+	void _fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
+			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
+
+	void _fetchFromFile(SharedObject *object, const char *file);
+
+	void _parseDynamic(SharedObject *object);
+
+	void _discoverDependencies(SharedObject *object);
+
+	frigg::Hashmap<frigg::StringView, SharedObject *,
+			frigg::DefaultHasher<frigg::StringView>, Allocator> _nameMap;
+};
+
+// FIXME: Do not depend on the initial universe everywhere.
+extern frigg::LazyInitializer<LinkUniverse> initialUniverse;
 
 // --------------------------------------------------------
 // SharedObject
@@ -49,7 +92,10 @@ struct SharedObject {
 	
 	TlsModel tlsModel;
 	size_t tlsOffset;
+	
+	bool wasLinked;
 
+	bool scheduledForInit;
 	bool onInitStack;
 	bool wasInitialized;
 };
@@ -113,33 +159,34 @@ struct Scope {
 class Loader {
 public:
 	Loader(Scope *scope);
-	
-	void loadFromPhdr(SharedObject *object, void *phdr_pointer,
-			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
-	void loadFromFile(SharedObject *object, const char *file);
 
+	void linkObject(SharedObject *object);
+
+private:
+public:
 	void buildInitialTls();
 
 	void linkObjects();
-
-	void initObjects();
-
 private:
-	void parseDynamic(SharedObject *object);
-	void processDependencies(SharedObject *object);
 	void processStaticRelocations(SharedObject *object);
 	void processLazyRelocations(SharedObject *object);
-	
 	void processRela(SharedObject *object, Elf64_Rela *reloc);
 
-	Scope *p_scope;
-	frigg::LinkedList<SharedObject *, Allocator> p_linkQueue;
-	frigg::LinkedList<SharedObject *, Allocator> p_initQueue;
-
-	// FIXME: move this to an own class
 public:
-	frigg::Hashmap<frigg::String<Allocator>, SharedObject *,
-			frigg::DefaultHasher<frigg::String<Allocator>>, Allocator> p_allObjects;
+	void initObjects();
+private:
+	struct Token { };
+
+	void _scheduleInit(SharedObject *object);
+	
+	Scope *p_scope;
+
+	frigg::Hashmap<SharedObject *, Token,
+			frigg::DefaultHasher<SharedObject *>, Allocator> _linkObjects;
+
+	frigg::LinkedList<SharedObject *, Allocator> _linkQueue;
+	frigg::LinkedList<SharedObject *, Allocator> _initQueue;
+
 };
 
 // --------------------------------------------------------

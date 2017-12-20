@@ -29,307 +29,12 @@
 
 uintptr_t libraryBase = 0x41000000;
 
-bool verbose = false;
+bool verbose = true;
 bool eagerBinding = true;
 
 // --------------------------------------------------------
-// SharedObject
+// POSIX I/O functions.
 // --------------------------------------------------------
-
-SharedObject::SharedObject(const char *name, bool is_main_object)
-		: name(name), isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
-		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
-		tlsSegmentSize(0), tlsAlignment(0), tlsImageSize(0), tlsImagePtr(nullptr),
-		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
-		lazyRelocTableOffset(0), lazyTableSize(0),
-		lazyExplicitAddend(false), dependencies(*allocator),
-		tlsModel(kTlsNone), tlsOffset(0), onInitStack(false), wasInitialized(false) { }
-
-void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
-	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
-	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
-	if(type != R_X86_64_COPY)
-		return;
-	
-	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
-	
-	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
-			+ symbol_index * sizeof(Elf64_Sym));
-	SymbolRef r(object, *symbol);
-	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, Scope::kResolveCopy);
-	assert(p);
-
-	memcpy((void *)rel_addr, (void *)p->virtualAddress(), symbol->st_size);
-}
-
-void processCopyRelocations(SharedObject *object) {
-	bool has_rela_offset = false, has_rela_length = false;
-	uintptr_t rela_offset;
-	size_t rela_length;
-
-	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
-		Elf64_Dyn *dynamic = &object->dynamic[i];
-		
-		switch(dynamic->d_tag) {
-		case DT_RELA:
-			rela_offset = dynamic->d_ptr;
-			has_rela_offset = true;
-			break;
-		case DT_RELASZ:
-			rela_length = dynamic->d_val;
-			has_rela_length = true;
-			break;
-		case DT_RELAENT:
-			assert(dynamic->d_val == sizeof(Elf64_Rela));
-			break;
-		}
-	}
-
-	if(has_rela_offset && has_rela_length) {
-		for(size_t offset = 0; offset < rela_length; offset += sizeof(Elf64_Rela)) {
-			auto reloc = (Elf64_Rela *)(object->baseAddress + rela_offset + offset);
-			processCopyRela(object, reloc);
-		}
-	}else{
-		assert(!has_rela_offset && !has_rela_length);
-	}
-}
-
-void doInitialize(SharedObject *object) {
-	assert(!object->wasInitialized);
-	assert(!object->onInitStack);
-
-	// make sure we detect cyclic dependencies
-	object->onInitStack = true;
-
-	// if the object has dependencies we initialize them first
-	for(size_t i = 0; i < object->dependencies.size(); i++) {
-		if(!object->dependencies[i]->wasInitialized)
-			doInitialize(object->dependencies[i]);
-		assert(object->dependencies[i]->wasInitialized);
-	}
-
-	if(verbose)
-		frigg::infoLogger() << "Initialize " << object->name << frigg::endLog;
-	
-	// now initialize the actual object
-	typedef void (*InitFuncPtr) ();
-
-	InitFuncPtr init_ptr = nullptr;
-	InitFuncPtr *init_array = nullptr;
-	size_t array_size = 0;
-
-	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
-		Elf64_Dyn *dynamic = &object->dynamic[i];
-		
-		switch(dynamic->d_tag) {
-		case DT_INIT:
-			if(dynamic->d_ptr != 0)
-				init_ptr = (InitFuncPtr)(object->baseAddress + dynamic->d_ptr);
-			break;
-		case DT_INIT_ARRAY:
-			if(dynamic->d_ptr != 0)
-				init_array = (InitFuncPtr *)(object->baseAddress + dynamic->d_ptr);
-			break;
-		case DT_INIT_ARRAYSZ:
-			array_size = dynamic->d_val;
-			break;
-		}
-	}
-
-	if(init_ptr != nullptr)
-		init_ptr();
-	
-	assert((array_size % sizeof(InitFuncPtr)) == 0);
-	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
-		init_array[i]();
-	
-	object->wasInitialized = true;
-}
-
-// --------------------------------------------------------
-// RuntimeTlsMap
-// --------------------------------------------------------
-
-RuntimeTlsMap::RuntimeTlsMap()
-: initialSize(0), initialObjects(*allocator) { }
-
-struct Tcb {
-	Tcb *selfPointer;
-};
-
-void allocateTcb() {
-	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
-	char *fs_buffer = (char *)allocator->allocate(fs_size);
-	memset(fs_buffer, 0, fs_size);
-
-	for(size_t i = 0; i < runtimeTlsMap->initialObjects.size(); i++) {
-		SharedObject *object = runtimeTlsMap->initialObjects[i];
-		if(object->tlsModel != SharedObject::kTlsInitial)
-			continue;
-		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
-		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
-	}
-
-	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
-	tcb_ptr->selfPointer = tcb_ptr;
-	HEL_CHECK(helWriteFsBase(tcb_ptr));
-}
-
-// --------------------------------------------------------
-// SymbolRef
-// --------------------------------------------------------
-SymbolRef::SymbolRef(SharedObject *object, Elf64_Sym &symbol)
-: object(object), symbol(symbol) { }
-
-const char *SymbolRef::getString() {
-	assert(symbol.st_name != 0);
-	return (const char *)(object->baseAddress
-			+ object->stringTableOffset + symbol.st_name);
-}
-
-uintptr_t SymbolRef::virtualAddress() {
-	auto bind = ELF64_ST_BIND(symbol.st_info);
-	assert(bind == STB_GLOBAL || bind == STB_WEAK);
-	assert(symbol.st_shndx != SHN_UNDEF);
-	return object->baseAddress + symbol.st_value;
-}
-
-// --------------------------------------------------------
-// Scope
-// --------------------------------------------------------
-
-Scope::Scope() : objects(*allocator) { }
-
-bool strEquals(const char *str1, const char *str2) {
-	while(*str1 != 0 && *str2 != 0) {
-		if(*str1++ != *str2++)
-			return false;
-	}
-	if(*str1 != 0 || *str2 != 0)
-		return false;
-	return true;
-}
-
-uint32_t elf64Hash(const char *name) {
-	uint32_t h = 0, g;
-
-	while(*name) {
-		h = (h << 4) + (uint32_t)(*name++);
-		g = h & 0xF0000000;
-		if(g)
-			h ^= g >> 24;
-		h &= 0x0FFFFFFF;
-	}
-
-	return h;
-}
-
-// Checks if the symbol p and be used to satisfy the dependency r
-bool symbolSatisfies(SymbolRef p, SymbolRef r) {
-	if(p.symbol.st_shndx == SHN_UNDEF)
-		return false;
-
-	auto p_bind = ELF64_ST_BIND(p.symbol.st_info);
-	if(p_bind != STB_GLOBAL && p_bind != STB_WEAK)
-		return false;
-	
-	return strEquals(p.getString(), r.getString());
-}
-
-// TODO: move this to some namespace or class?
-frigg::Optional<SymbolRef> resolveInObject(SharedObject *p_object, SymbolRef r) {
-	const char *r_string = (const char *)(r.object->baseAddress
-			+ r.object->stringTableOffset + r.symbol.st_name);
-
-	auto hash_table = (Elf64_Word *)(p_object->baseAddress + p_object->hashTableOffset);
-	Elf64_Word num_buckets = hash_table[0];
-	auto bucket = elf64Hash(r_string) % num_buckets;
-
-	auto index = hash_table[2 + bucket];
-	while(index != 0) {
-		auto p_symbol = (Elf64_Sym *)(p_object->baseAddress
-				+ p_object->symbolTableOffset + index * sizeof(Elf64_Sym));
-		SymbolRef p(p_object, *p_symbol);
-		if(symbolSatisfies(p, r))
-			return p;
-
-		index = hash_table[2 + num_buckets + index];
-	}
-
-	return frigg::Optional<SymbolRef>();
-}	
-
-void Scope::appendObject(SharedObject *object) {
-	for(size_t i = 0; i < objects.size(); i++)
-		if(objects[i] == object)
-			return;
-	objects.push(object);
-}
-
-void Scope::buildScope(SharedObject *object) {
-	appendObject(object);
-
-	for(size_t i = 0; i < object->dependencies.size(); i++)
-		buildScope(object->dependencies[i]);
-}
-
-// TODO: let this return uintptr_t
-frigg::Optional<SymbolRef> Scope::resolveSymbol(SymbolRef r, uint32_t flags) {
-	for(size_t i = 0; i < objects.size(); i++) {
-		if((flags & kResolveCopy) != 0 && objects[i] == r.object)
-			continue;
-
-		frigg::Optional<SymbolRef> p = resolveInObject(objects[i], r);
-		if(p)
-			return p;
-	}
-
-	return frigg::Optional<SymbolRef>();
-}
-
-
-// --------------------------------------------------------
-// Loader
-// --------------------------------------------------------
-
-Loader::Loader(Scope *scope)
-: p_scope(scope), p_linkQueue(*allocator), p_initQueue(*allocator),
-		p_allObjects(frigg::DefaultHasher<frigg::String<Allocator>>(), *allocator) { }
-
-void Loader::loadFromPhdr(SharedObject *object, void *phdr_pointer,
-		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
-	assert(object->isMainObject);
-	if(verbose)
-		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
-	
-	object->entry = entry_pointer;
-
-	// segments are already mapped, so we just have to find the dynamic section
-	for(size_t i = 0; i < phdr_count; i++) {
-		auto phdr = (Elf64_Phdr *)((uintptr_t)phdr_pointer + i * phdr_entry_size);
-		switch(phdr->p_type) {
-		case PT_DYNAMIC:
-			object->dynamic = (Elf64_Dyn *)phdr->p_vaddr;
-			break;
-		case PT_TLS: {
-			object->tlsSegmentSize = phdr->p_memsz;
-			object->tlsAlignment = phdr->p_align;
-			object->tlsImageSize = phdr->p_filesz;
-			object->tlsImagePtr = (void *)(object->baseAddress + phdr->p_vaddr);
-		} break;
-		default:
-			//FIXME warn about unknown phdrs
-			break;
-		}
-	}
-
-	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
-	p_linkQueue.addBack(object);
-	p_initQueue.addBack(object);
-	parseDynamic(object);
-	processDependencies(object);
-}
 
 template<typename T>
 T load(void *ptr) {
@@ -603,8 +308,97 @@ void posixClose(int fd) {
 	assert(resp.error() == managarm::posix::Errors::SUCCESS);
 }
 
-void Loader::loadFromFile(SharedObject *object, const char *name) {
+// --------------------------------------------------------
+// LinkUniverse
+// --------------------------------------------------------
+
+LinkUniverse::LinkUniverse()
+: _nameMap{frigg::DefaultHasher<frigg::StringView>{}, *allocator} { }
+
+SharedObject *LinkUniverse::injectObjectFromDts(frigg::StringView name,
+		uintptr_t base_address, Elf64_Dyn *dynamic) {
+	assert(!_nameMap.get(name));
+
+	auto object = frigg::construct<SharedObject>(*allocator, name.data(), false);
+	object->baseAddress = base_address;
+	object->dynamic = dynamic;
+	_parseDynamic(object);
+
+	_nameMap.insert(name, object);
+	_discoverDependencies(object);
+
+	return object;
+}
+
+SharedObject *LinkUniverse::injectObjectFromPhdrs(frigg::StringView name,
+		void *phdr_pointer, size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer) {
+	assert(!_nameMap.get(name));
+
+	auto object = frigg::construct<SharedObject>(*allocator, name.data(), true);
+	_fetchFromPhdrs(object, phdr_pointer, phdr_entry_size, num_phdrs, entry_pointer);
+	_parseDynamic(object);
+
+	_nameMap.insert(name, object);
+	_discoverDependencies(object);
+
+	return object;
+}
+
+SharedObject *LinkUniverse::requestObjectWithName(frigg::StringView name) {
+	auto it = _nameMap.get(name);
+	if(it)
+		return *it;
+
+	auto object = frigg::construct<SharedObject>(*allocator, name.data(), false);
+	_fetchFromFile(object, name.data());
+	_parseDynamic(object);
+
+	_nameMap.insert(name, object);
+	_discoverDependencies(object);
+
+	return object;
+}
+
+// --------------------------------------------------------
+// LinkUniverse: Fetching methods.
+// --------------------------------------------------------
+
+void LinkUniverse::_fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
+		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
+	assert(object->isMainObject);
+	if(verbose)
+		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
+	
+	object->entry = entry_pointer;
+
+	// segments are already mapped, so we just have to find the dynamic section
+	for(size_t i = 0; i < phdr_count; i++) {
+		auto phdr = (Elf64_Phdr *)((uintptr_t)phdr_pointer + i * phdr_entry_size);
+		switch(phdr->p_type) {
+		case PT_DYNAMIC:
+			object->dynamic = (Elf64_Dyn *)(object->baseAddress + phdr->p_vaddr);
+			break;
+		case PT_TLS: {
+			object->tlsSegmentSize = phdr->p_memsz;
+			object->tlsAlignment = phdr->p_align;
+			object->tlsImageSize = phdr->p_filesz;
+			object->tlsImagePtr = (void *)(object->baseAddress + phdr->p_vaddr);
+		} break;
+		default:
+			//FIXME warn about unknown phdrs
+			break;
+		}
+	}
+}
+
+
+void LinkUniverse::_fetchFromFile(SharedObject *object, const char *name) {
 	assert(!object->isMainObject);
+
+	object->baseAddress = libraryBase;
+	// TODO: handle this dynamically
+	libraryBase += 0x1000000; // assume 16 MiB per library
+
 	if(verbose)
 		frigg::infoLogger() << "Loading " << object->name
 				<< " at " << (void *)object->baseAddress << frigg::endLog;
@@ -715,70 +509,13 @@ void Loader::loadFromFile(SharedObject *object, const char *name) {
 	HEL_CHECK(helCloseDescriptor(file_memory));
 
 	posixClose(file);
-
-	p_allObjects.insert(frigg::String<Allocator>(*allocator, object->name), object);
-	p_linkQueue.addBack(object);
-	p_initQueue.addBack(object);
-	parseDynamic(object);
-	processDependencies(object);
 }
 
-void Loader::buildInitialTls() {
-	assert(runtimeTlsMap->initialSize == 0);
+// --------------------------------------------------------
+// LinkUniverse: Parsing methods.
+// --------------------------------------------------------
 
-	assert(!p_linkQueue.empty());
-	assert(p_linkQueue.front()->isMainObject);
-
-	for(auto it = p_linkQueue.frontIter(); it.okay(); ++it) {
-		SharedObject *object = *it;
-		assert(object->tlsModel == SharedObject::kTlsNone);
-		
-		if(object->tlsSegmentSize == 0)
-			continue;
-		
-		runtimeTlsMap->initialSize += object->tlsSegmentSize;
-		assert(16 % object->tlsAlignment == 0);
-		size_t misalign = runtimeTlsMap->initialSize % object->tlsAlignment;
-		if(misalign)
-			runtimeTlsMap->initialSize += object->tlsAlignment - misalign;
-		object->tlsModel = SharedObject::kTlsInitial;
-		object->tlsOffset = -runtimeTlsMap->initialSize;
-		runtimeTlsMap->initialObjects.push(object);
-		
-		if(verbose)
-			frigg::infoLogger() << "TLS of " << object->name
-					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
-					<< ", size: " << object->tlsSegmentSize
-					<< ", alignment: " << object->tlsAlignment << frigg::endLog;
-	}
-}
-
-void Loader::linkObjects() {
-	while(!p_linkQueue.empty()) {
-		SharedObject *object = p_linkQueue.front();
-		if(verbose)
-			frigg::infoLogger() << "Linking " << object->name << frigg::endLog;
-
-		object->loadScope = p_scope;
-
-		processStaticRelocations(object);
-		processLazyRelocations(object);
-
-		p_linkQueue.removeFront();
-	}
-}
-
-void Loader::initObjects() {
-	while(!p_initQueue.empty()) {
-		SharedObject *object = p_initQueue.front();
-		if(!object->wasInitialized)
-			doInitialize(object);
-
-		p_initQueue.removeFront();
-	}
-}
-
-void Loader::parseDynamic(SharedObject *object) {
+void LinkUniverse::_parseDynamic(SharedObject *object) {
 	assert(object->dynamic != nullptr);
 
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
@@ -835,8 +572,8 @@ void Loader::parseDynamic(SharedObject *object) {
 	}
 }
 
-void Loader::processDependencies(SharedObject *object) {
-	// load required dynamic libraries
+void LinkUniverse::_discoverDependencies(SharedObject *object) {
+	// Load required dynamic libraries.
 	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &object->dynamic[i];
 		if(dynamic->d_tag != DT_NEEDED)
@@ -845,21 +582,361 @@ void Loader::processDependencies(SharedObject *object) {
 		const char *library_str = (const char *)(object->baseAddress
 				+ object->stringTableOffset + dynamic->d_val);
 
-		// TODO: cache libraries
-		SharedObject **existing
-				= p_allObjects.get(frigg::String<Allocator>(*allocator, library_str));
-		if(existing) {
-			object->dependencies.push(*existing);
-		}else{
-			auto library = frigg::construct<SharedObject>(*allocator, library_str, false);
-			library->baseAddress = libraryBase;
-			// TODO: handle this dynamically
-			libraryBase += 0x1000000; // assume 16 MiB per library
-			loadFromFile(library, library_str);
+		auto library = initialUniverse->requestObjectWithName(frigg::StringView{library_str});
+		object->dependencies.push(library);
+	}
+}
 
-			object->dependencies.push(library);
+// --------------------------------------------------------
+// SharedObject
+// --------------------------------------------------------
+
+SharedObject::SharedObject(const char *name, bool is_main_object)
+		: name(name), isMainObject(is_main_object), baseAddress(0), loadScope(nullptr),
+		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
+		tlsSegmentSize(0), tlsAlignment(0), tlsImageSize(0), tlsImagePtr(nullptr),
+		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
+		lazyRelocTableOffset(0), lazyTableSize(0),
+		lazyExplicitAddend(false), dependencies(*allocator),
+		tlsModel(kTlsNone), tlsOffset(0),
+		wasLinked(false),
+		scheduledForInit(false), onInitStack(false), wasInitialized(false) { }
+
+void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
+	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
+	Elf64_Xword symbol_index = ELF64_R_SYM(reloc->r_info);
+	if(type != R_X86_64_COPY)
+		return;
+	
+	uintptr_t rel_addr = object->baseAddress + reloc->r_offset;
+	
+	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
+			+ symbol_index * sizeof(Elf64_Sym));
+	SymbolRef r(object, *symbol);
+	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, Scope::kResolveCopy);
+	assert(p);
+
+	memcpy((void *)rel_addr, (void *)p->virtualAddress(), symbol->st_size);
+}
+
+void processCopyRelocations(SharedObject *object) {
+	bool has_rela_offset = false, has_rela_length = false;
+	uintptr_t rela_offset;
+	size_t rela_length;
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		
+		switch(dynamic->d_tag) {
+		case DT_RELA:
+			rela_offset = dynamic->d_ptr;
+			has_rela_offset = true;
+			break;
+		case DT_RELASZ:
+			rela_length = dynamic->d_val;
+			has_rela_length = true;
+			break;
+		case DT_RELAENT:
+			assert(dynamic->d_val == sizeof(Elf64_Rela));
+			break;
 		}
 	}
+
+	if(has_rela_offset && has_rela_length) {
+		for(size_t offset = 0; offset < rela_length; offset += sizeof(Elf64_Rela)) {
+			auto reloc = (Elf64_Rela *)(object->baseAddress + rela_offset + offset);
+			processCopyRela(object, reloc);
+		}
+	}else{
+		assert(!has_rela_offset && !has_rela_length);
+	}
+}
+
+void doInitialize(SharedObject *object) {
+	assert(object->wasLinked);
+	assert(!object->wasInitialized);
+
+	// if the object has dependencies we initialize them first
+	for(size_t i = 0; i < object->dependencies.size(); i++)
+		assert(object->dependencies[i]->wasInitialized);
+
+	if(verbose)
+		frigg::infoLogger() << "Initialize " << object->name << frigg::endLog;
+	
+	// now initialize the actual object
+	typedef void (*InitFuncPtr) ();
+
+	InitFuncPtr init_ptr = nullptr;
+	InitFuncPtr *init_array = nullptr;
+	size_t array_size = 0;
+
+	for(size_t i = 0; object->dynamic[i].d_tag != DT_NULL; i++) {
+		Elf64_Dyn *dynamic = &object->dynamic[i];
+		
+		switch(dynamic->d_tag) {
+		case DT_INIT:
+			if(dynamic->d_ptr != 0)
+				init_ptr = (InitFuncPtr)(object->baseAddress + dynamic->d_ptr);
+			break;
+		case DT_INIT_ARRAY:
+			if(dynamic->d_ptr != 0)
+				init_array = (InitFuncPtr *)(object->baseAddress + dynamic->d_ptr);
+			break;
+		case DT_INIT_ARRAYSZ:
+			array_size = dynamic->d_val;
+			break;
+		}
+	}
+
+	if(init_ptr != nullptr)
+		init_ptr();
+	
+	assert((array_size % sizeof(InitFuncPtr)) == 0);
+	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
+		init_array[i]();
+	
+	object->wasInitialized = true;
+}
+
+// --------------------------------------------------------
+// RuntimeTlsMap
+// --------------------------------------------------------
+
+RuntimeTlsMap::RuntimeTlsMap()
+: initialSize(0), initialObjects(*allocator) { }
+
+struct Tcb {
+	Tcb *selfPointer;
+};
+
+void allocateTcb() {
+	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
+	char *fs_buffer = (char *)allocator->allocate(fs_size);
+	memset(fs_buffer, 0, fs_size);
+
+	for(size_t i = 0; i < runtimeTlsMap->initialObjects.size(); i++) {
+		SharedObject *object = runtimeTlsMap->initialObjects[i];
+		if(object->tlsModel != SharedObject::kTlsInitial)
+			continue;
+		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
+		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
+	}
+
+	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
+	tcb_ptr->selfPointer = tcb_ptr;
+	HEL_CHECK(helWriteFsBase(tcb_ptr));
+}
+
+// --------------------------------------------------------
+// SymbolRef
+// --------------------------------------------------------
+SymbolRef::SymbolRef(SharedObject *object, Elf64_Sym &symbol)
+: object(object), symbol(symbol) { }
+
+const char *SymbolRef::getString() {
+	assert(symbol.st_name != 0);
+	return (const char *)(object->baseAddress
+			+ object->stringTableOffset + symbol.st_name);
+}
+
+uintptr_t SymbolRef::virtualAddress() {
+	auto bind = ELF64_ST_BIND(symbol.st_info);
+	assert(bind == STB_GLOBAL || bind == STB_WEAK);
+	assert(symbol.st_shndx != SHN_UNDEF);
+	return object->baseAddress + symbol.st_value;
+}
+
+// --------------------------------------------------------
+// Scope
+// --------------------------------------------------------
+
+Scope::Scope() : objects(*allocator) { }
+
+bool strEquals(const char *str1, const char *str2) {
+	while(*str1 != 0 && *str2 != 0) {
+		if(*str1++ != *str2++)
+			return false;
+	}
+	if(*str1 != 0 || *str2 != 0)
+		return false;
+	return true;
+}
+
+uint32_t elf64Hash(const char *name) {
+	uint32_t h = 0, g;
+
+	while(*name) {
+		h = (h << 4) + (uint32_t)(*name++);
+		g = h & 0xF0000000;
+		if(g)
+			h ^= g >> 24;
+		h &= 0x0FFFFFFF;
+	}
+
+	return h;
+}
+
+// Checks if the symbol p and be used to satisfy the dependency r
+bool symbolSatisfies(SymbolRef p, SymbolRef r) {
+	if(p.symbol.st_shndx == SHN_UNDEF)
+		return false;
+
+	auto p_bind = ELF64_ST_BIND(p.symbol.st_info);
+	if(p_bind != STB_GLOBAL && p_bind != STB_WEAK)
+		return false;
+	
+	return strEquals(p.getString(), r.getString());
+}
+
+// TODO: move this to some namespace or class?
+frigg::Optional<SymbolRef> resolveInObject(SharedObject *p_object, SymbolRef r) {
+	const char *r_string = (const char *)(r.object->baseAddress
+			+ r.object->stringTableOffset + r.symbol.st_name);
+
+	auto hash_table = (Elf64_Word *)(p_object->baseAddress + p_object->hashTableOffset);
+	Elf64_Word num_buckets = hash_table[0];
+	auto bucket = elf64Hash(r_string) % num_buckets;
+
+	auto index = hash_table[2 + bucket];
+	while(index != 0) {
+		auto p_symbol = (Elf64_Sym *)(p_object->baseAddress
+				+ p_object->symbolTableOffset + index * sizeof(Elf64_Sym));
+		SymbolRef p(p_object, *p_symbol);
+		if(symbolSatisfies(p, r))
+			return p;
+
+		index = hash_table[2 + num_buckets + index];
+	}
+
+	return frigg::Optional<SymbolRef>();
+}	
+
+void Scope::appendObject(SharedObject *object) {
+	for(size_t i = 0; i < objects.size(); i++)
+		if(objects[i] == object)
+			return;
+	objects.push(object);
+}
+
+void Scope::buildScope(SharedObject *object) {
+	appendObject(object);
+
+	for(size_t i = 0; i < object->dependencies.size(); i++)
+		buildScope(object->dependencies[i]);
+}
+
+// TODO: let this return uintptr_t
+frigg::Optional<SymbolRef> Scope::resolveSymbol(SymbolRef r, uint32_t flags) {
+	for(size_t i = 0; i < objects.size(); i++) {
+		if((flags & kResolveCopy) != 0 && objects[i] == r.object)
+			continue;
+
+		frigg::Optional<SymbolRef> p = resolveInObject(objects[i], r);
+		if(p)
+			return p;
+	}
+
+	return frigg::Optional<SymbolRef>();
+}
+
+
+// --------------------------------------------------------
+// Loader
+// --------------------------------------------------------
+
+Loader::Loader(Scope *scope)
+: p_scope(scope), _linkQueue(*allocator), _initQueue(*allocator),
+		_linkObjects(frigg::DefaultHasher<SharedObject *>(), *allocator) { }
+
+// TODO: Use an explicit vector to reduce stack usage to O(1)?
+void Loader::linkObject(SharedObject *object) {
+	if(_linkObjects.get(object))
+		return;
+
+	_linkObjects.insert(object, Token{});
+	_linkQueue.addBack(object);
+
+	for(size_t i = 0; i < object->dependencies.size(); i++)
+		linkObject(object->dependencies[i]);
+}
+
+void Loader::buildInitialTls() {
+	assert(runtimeTlsMap->initialSize == 0);
+
+	assert(!_linkQueue.empty());
+	assert(_linkQueue.front()->isMainObject);
+
+	for(auto it = _linkQueue.frontIter(); it.okay(); ++it) {
+		SharedObject *object = *it;
+		assert(object->tlsModel == SharedObject::kTlsNone);
+		
+		if(object->tlsSegmentSize == 0)
+			continue;
+		
+		runtimeTlsMap->initialSize += object->tlsSegmentSize;
+		assert(16 % object->tlsAlignment == 0);
+		size_t misalign = runtimeTlsMap->initialSize % object->tlsAlignment;
+		if(misalign)
+			runtimeTlsMap->initialSize += object->tlsAlignment - misalign;
+		object->tlsModel = SharedObject::kTlsInitial;
+		object->tlsOffset = -runtimeTlsMap->initialSize;
+		runtimeTlsMap->initialObjects.push(object);
+		
+		if(verbose)
+			frigg::infoLogger() << "TLS of " << object->name
+					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
+					<< ", size: " << object->tlsSegmentSize
+					<< ", alignment: " << object->tlsAlignment << frigg::endLog;
+	}
+}
+
+void Loader::linkObjects() {
+	while(!_linkQueue.empty()) {
+		SharedObject *object = _linkQueue.front();
+		if(verbose)
+			frigg::infoLogger() << "Linking " << object->name << frigg::endLog;
+
+		assert(!object->wasLinked);
+		object->loadScope = p_scope;
+
+		processStaticRelocations(object);
+		processLazyRelocations(object);
+		
+		if(!object->scheduledForInit)
+			_scheduleInit(object);
+
+		object->wasLinked = true;
+
+		_linkQueue.removeFront();
+	}
+}
+
+void Loader::initObjects() {
+	while(!_initQueue.empty()) {
+		SharedObject *object = _initQueue.front();
+		if(!object->wasInitialized)
+			doInitialize(object);
+
+		_initQueue.removeFront();
+	}
+}
+
+// TODO: Use an explicit vector to reduce stack usage to O(1)?
+void Loader::_scheduleInit(SharedObject *object) {
+	// Here we detect cyclic dependencies.
+	assert(!object->onInitStack);
+	object->onInitStack = true;
+
+	assert(!object->scheduledForInit);
+	object->scheduledForInit = true;
+
+	for(size_t i = 0; i < object->dependencies.size(); i++) {
+		if(!object->dependencies[i]->scheduledForInit)
+			_scheduleInit(object->dependencies[i]);
+	}
+
+	_initQueue.addBack(object);
+	object->onInitStack = false;
 }
 
 void Loader::processRela(SharedObject *object, Elf64_Rela *reloc) {

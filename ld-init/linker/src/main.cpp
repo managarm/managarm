@@ -31,8 +31,7 @@ static constexpr bool logEntryExit = false;
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
-frigg::LazyInitializer<SharedObject> interpreter;
-frigg::LazyInitializer<SharedObject> executable;
+frigg::LazyInitializer<LinkUniverse> initialUniverse;
 frigg::LazyInitializer<Scope> globalScope;
 frigg::LazyInitializer<Loader> globalLoader;
 
@@ -93,34 +92,21 @@ extern "C" void *interpreterMain(char *sp) {
 			: "rbx", "rcx", "r11");
 	HEL_CHECK(error);
 
-	// Parse the RTLDs own dynamic section.
-	// FIXME: read own SONAME
-	interpreter.initialize("ld-init.so", false);
-	interpreter->baseAddress = (uintptr_t)_DYNAMIC
-			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0];
-	interpreter->dynamic = _DYNAMIC;
-
-	_GLOBAL_OFFSET_TABLE_[1] = interpreter.get();
-	_GLOBAL_OFFSET_TABLE_[2] = (void *)&pltRelocateStub;
+	// TODO: Use a fake PLT stub that reports an error message?
+	_GLOBAL_OFFSET_TABLE_[1] = 0;
+	_GLOBAL_OFFSET_TABLE_[2] = 0;
 	
+	// Sanitize our own dynamic section.
+	// Here, we make sure that the dynamic linker does not need relocations itself.
 	for(size_t i = 0; _DYNAMIC[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &_DYNAMIC[i];
 		switch(dynamic->d_tag) {
-		// handle hash table, symbol table and string table
 		case DT_HASH:
-			interpreter->hashTableOffset = dynamic->d_ptr;
-			break;
 		case DT_STRTAB:
-			interpreter->stringTableOffset = dynamic->d_ptr;
-			break;
 		case DT_STRSZ:
-			break; // we don't need the size of the string table
 		case DT_SYMTAB:
-			interpreter->symbolTableOffset = dynamic->d_ptr;
-			break;
 		case DT_SYMENT:
-			assert(dynamic->d_val == sizeof(Elf64_Sym));
-			break;
+			continue;
 		default:
 			assert(!"Unexpected dynamic entry in program interpreter");
 		}
@@ -180,21 +166,24 @@ extern "C" void *interpreterMain(char *sp) {
 	}
 
 	// perform the initial dynamic linking
+	initialUniverse.initialize();
+
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
-	globalLoader->p_allObjects.insert(frigg::String<Allocator>(*allocator, interpreter->name),
-			interpreter.get());
 
-	executable.initialize("(executable)", true);
+	// FIXME: read own SONAME
+	initialUniverse->injectObjectFromDts("ld-init.so", (uintptr_t)_DYNAMIC
+			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0], _DYNAMIC);
 	// TODO: support non-zero base addresses?
-	globalLoader->loadFromPhdr(executable.get(), phdr_pointer,
+	auto executable = initialUniverse->injectObjectFromPhdrs("(executable)", phdr_pointer,
 			phdr_entry_size, phdr_count, entry_pointer);
 
+	globalLoader->linkObject(executable);
 	globalLoader->buildInitialTls();
-	globalScope->buildScope(executable.get());
+	globalScope->buildScope(executable);
 	globalLoader->linkObjects();
 
-	processCopyRelocations(executable.get());
+	processCopyRelocations(executable);
 	allocateTcb();
 	globalLoader->initObjects();
 

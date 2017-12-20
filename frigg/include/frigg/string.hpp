@@ -35,7 +35,7 @@ public:
 		return p_length;
 	}
 
-	bool operator== (BasicStringView other) {
+	bool operator== (BasicStringView other) const {
 		if(p_length != other.p_length)
 			return false;
 		for(size_t i = 0; i < p_length; i++)
@@ -43,7 +43,7 @@ public:
 				return false;
 		return true;
 	}
-	bool operator!= (BasicStringView other) {
+	bool operator!= (BasicStringView other) const {
 		return !(*this == other);
 	}
 

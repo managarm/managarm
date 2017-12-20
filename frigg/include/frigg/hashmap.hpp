@@ -248,6 +248,14 @@ public:
 	}
 };
 
+template<typename T>
+class DefaultHasher<T *> {
+public:
+	unsigned int operator() (T *p) {
+		return reinterpret_cast<uintptr_t>(p);
+	}
+};
+
 class CStringHasher {
 public:
 	unsigned int operator() (const char *str) {
