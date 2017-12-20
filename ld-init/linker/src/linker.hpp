@@ -2,21 +2,21 @@
 #include <frigg/string.hpp>
 #include <frigg/optional.hpp>
 
-struct LinkUniverse;
+struct ObjectRepository;
 struct Scope;
 struct Loader;
 struct SharedObject;
 
 // --------------------------------------------------------
-// LinkUniverse
+// ObjectRepository
 // --------------------------------------------------------
 
-struct LinkUniverse {
-	LinkUniverse();
+struct ObjectRepository {
+	ObjectRepository();
 
-	LinkUniverse(const LinkUniverse &) = delete;
+	ObjectRepository(const ObjectRepository &) = delete;
 
-	LinkUniverse &operator= (const LinkUniverse &) = delete;
+	ObjectRepository &operator= (const ObjectRepository &) = delete;
 
 	// This is primarily used to create a SharedObject for the RTDL itself.
 	SharedObject *injectObjectFromDts(frigg::StringView name,
@@ -45,7 +45,7 @@ private:
 };
 
 // FIXME: Do not depend on the initial universe everywhere.
-extern frigg::LazyInitializer<LinkUniverse> initialUniverse;
+extern frigg::LazyInitializer<ObjectRepository> initialRepository;
 
 // --------------------------------------------------------
 // SharedObject
@@ -118,18 +118,27 @@ extern frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
 void allocateTcb();
 
 // --------------------------------------------------------
-// SymbolRef
+// ObjectSymbol
 // --------------------------------------------------------
 
-struct SymbolRef {
-	SymbolRef(SharedObject *object, Elf64_Sym &symbol);
+struct ObjectSymbol {
+	ObjectSymbol(SharedObject *object, const Elf64_Sym *symbol);
+
+	SharedObject *object() {
+		return _object;
+	}
+
+	const Elf64_Sym *symbol() {
+		return _symbol;
+	}
 
 	const char *getString();
 	
 	uintptr_t virtualAddress();
 
-	SharedObject *object;
-	Elf64_Sym symbol;
+private:
+	SharedObject *_object;
+	const Elf64_Sym *_symbol;
 };
 
 // --------------------------------------------------------
@@ -147,7 +156,7 @@ struct Scope {
 
 	void buildScope(SharedObject *object);
 
-	frigg::Optional<SymbolRef> resolveSymbol(SymbolRef r, uint32_t flags);
+	frigg::Optional<ObjectSymbol> resolveSymbol(ObjectSymbol r, uint32_t flags);
 
 	frigg::Vector<SharedObject *, Allocator> objects;
 };

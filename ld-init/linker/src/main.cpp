@@ -31,7 +31,7 @@ static constexpr bool logEntryExit = false;
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
-frigg::LazyInitializer<LinkUniverse> initialUniverse;
+frigg::LazyInitializer<ObjectRepository> initialRepository;
 frigg::LazyInitializer<Scope> globalScope;
 frigg::LazyInitializer<Loader> globalLoader;
 
@@ -50,8 +50,8 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 
 	auto symbol = (Elf64_Sym *)(object->baseAddress + object->symbolTableOffset
 			+ symbol_index * sizeof(Elf64_Sym));
-	SymbolRef r(object, *symbol);
-	frigg::Optional<SymbolRef> p = object->loadScope->resolveSymbol(r, 0);
+	ObjectSymbol r(object, symbol);
+	frigg::Optional<ObjectSymbol> p = object->loadScope->resolveSymbol(r, 0);
 	if(!p)
 		frigg::panicLogger() << "Unresolved JUMP_SLOT symbol" << frigg::endLog;
 
@@ -166,16 +166,16 @@ extern "C" void *interpreterMain(char *sp) {
 	}
 
 	// perform the initial dynamic linking
-	initialUniverse.initialize();
+	initialRepository.initialize();
 
 	globalScope.initialize();
 	globalLoader.initialize(globalScope.get());
 
 	// FIXME: read own SONAME
-	initialUniverse->injectObjectFromDts("ld-init.so", (uintptr_t)_DYNAMIC
+	initialRepository->injectObjectFromDts("ld-init.so", (uintptr_t)_DYNAMIC
 			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0], _DYNAMIC);
 	// TODO: support non-zero base addresses?
-	auto executable = initialUniverse->injectObjectFromPhdrs("(executable)", phdr_pointer,
+	auto executable = initialRepository->injectObjectFromPhdrs("(executable)", phdr_pointer,
 			phdr_entry_size, phdr_count, entry_pointer);
 
 	globalLoader->linkObject(executable);
