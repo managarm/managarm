@@ -224,7 +224,7 @@ extern inline __attribute__ (( always_inline )) HelError helFutexWake(int *point
 extern inline __attribute__ (( always_inline )) HelError helAccessIrq(int number, 
 		HelHandle *handle) {
 	HelWord handle_word;
-	HelError error = helSyscall1_1(kHelCallAccessIrq, (HelWord)handle, &handle_word);
+	HelError error = helSyscall2_1(kHelCallAccessIrq, number, (HelWord)handle, &handle_word);
 	*handle = (HelHandle)handle_word;
 	return error;
 };
