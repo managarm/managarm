@@ -206,6 +206,14 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	return fb;
 }
 
+std::tuple<int, int, int> GfxDevice::driverVersion() {
+	return {0, 0, 1};
+}
+
+std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
+	return {"virtio_gpu", "virtio GPU", "0"};
+}
+
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	HelHandle handle;

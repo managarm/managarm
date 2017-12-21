@@ -156,6 +156,14 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	registerObject(fb.get());
 	return fb;
 }
+	
+std::tuple<int, int, int> GfxDevice::driverVersion() {
+	return {1, 0, 0};
+}
+
+std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
+	return {"bochs-drm", "bochs dispi vga interface (qemu stdvga)", "20130925"};
+}
 
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {

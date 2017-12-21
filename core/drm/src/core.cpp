@@ -429,6 +429,16 @@ void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> fr
 	_frameBuffers.push_back(frame_buffer);
 }
 	
+void drm_core::File::detachFrameBuffer(drm_core::FrameBuffer *frame_buffer) {
+	auto it = std::find_if(_frameBuffers.begin(), _frameBuffers.end(),
+			([&](std::shared_ptr<drm_core::FrameBuffer> fb) {
+				if(fb.get() == frame_buffer)
+					return true;
+			}));
+	assert(it != _frameBuffers.end());
+	_frameBuffers.erase(it);
+}
+	
 const std::vector<std::shared_ptr<drm_core::FrameBuffer>> &drm_core::File::getFrameBuffers() {
 	return _frameBuffers;
 }
@@ -462,7 +472,29 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
 		conversation = std::move(conversation)] {
 	auto self = std::static_pointer_cast<drm_core::File>(object);
-	if(req.command() == DRM_IOCTL_GET_CAP) {
+	if(req.command() == DRM_IOCTL_VERSION) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+	
+		auto version = self->_device->driverVersion();
+		auto info = self->_device->driverInfo();
+		
+		resp.set_drm_version_major(std::get<0>(version));
+		resp.set_drm_version_minor(std::get<1>(version));
+		resp.set_drm_version_patchlevel(std::get<2>(version));
+
+		resp.set_drm_driver_name(std::get<0>(info));
+		resp.set_drm_driver_desc(std::get<1>(info));
+		resp.set_drm_driver_date(std::get<2>(info));
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_GET_CAP) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		
@@ -610,6 +642,22 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		resp.set_drm_fb_id(fb->id());
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_RMFB) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		
+		auto obj = self->_device->findObject(req.drm_fb_id());
+		assert(obj);
+		auto fb = obj->asFrameBuffer();
+		assert(fb);
+		self->detachFrameBuffer(fb);
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size()));

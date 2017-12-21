@@ -100,7 +100,11 @@ struct Device {
 			uint32_t height, uint32_t bpp) = 0;
 	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) = 0;
-	
+	//returns major, minor, patchlvl
+	virtual std::tuple<int, int, int> driverVersion() = 0;
+	//returns name, desc, date
+	virtual std::tuple<std::string, std::string, std::string> driverInfo() = 0;
+
 	void setupCrtc(Crtc *crtc);
 	void setupEncoder(Encoder *encoder);
 	void attachConnector(Connector *connector);
@@ -121,7 +125,6 @@ struct Device {
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
 
-	
 private:	
 	std::vector<Crtc *> _crtcs;
 	std::vector<Encoder *> _encoders;
@@ -156,6 +159,7 @@ struct File {
 			helix::UniqueLane conversation);
 
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
+	void detachFrameBuffer(FrameBuffer *frame_buffer);
 	const std::vector<std::shared_ptr<FrameBuffer>> &getFrameBuffers();
 	
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);

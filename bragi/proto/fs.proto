@@ -195,4 +195,11 @@ message SvrResponse {
 	optional uint32 drm_mode_valid = 51;
 	
 	optional uint32 drm_num_modes = 53;
+
+	optional uint32 drm_version_major = 54;
+	optional uint32 drm_version_minor = 55;
+	optional uint32 drm_version_patchlevel = 56;
+	optional string drm_driver_name = 57;
+	optional string drm_driver_date = 58;
+	optional string drm_driver_desc = 59;
 }

@@ -124,6 +124,11 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	std::shared_ptr<drm_core::FrameBuffer> 
 			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
 			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
+	
+	//returns major, minor, patchlvl
+	std::tuple<int, int, int> driverVersion() override;
+	//returns name, desc, date
+	std::tuple<std::string, std::string, std::string> driverInfo() override;
 
 private:
 	std::shared_ptr<Crtc> _theCrtcs[16];
