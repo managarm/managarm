@@ -89,15 +89,10 @@ int main() {
 
 	auto modeset = fork();
 	if(!modeset) {
-		execve("/root/modeset", args.data(), envp);
+		execve("/root/modeset-render", args.data(), envp);
+		//execve("/root/modeset-double-buffered", args.data(), envp);
 	}else assert(modeset != -1);
 
-/*
-	auto modeset_db = fork();
-	if(!modeset_db) {
-		execve("/root/modeset-double-buffered", args.data(), envp);
-	}else assert(modeset_db != -1);
-*/
 /*
 	// UART
 	auto uart = fork();

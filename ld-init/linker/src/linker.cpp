@@ -563,6 +563,20 @@ void ObjectRepository::_parseDynamic(SharedObject *object) {
 				assert(dynamic->d_val == DT_REL);
 			}
 			break;
+		// TODO: Implement this correctly!
+		case DT_SYMBOLIC:
+			object->symbolicResolution = true;
+			break;
+		case DT_FLAGS:
+			if(dynamic->d_val & DF_SYMBOLIC)
+				object->symbolicResolution = true;
+			if(dynamic->d_val & DF_STATIC_TLS)
+				object->haveStaticTls = true;
+			if(dynamic->d_val & ~(DF_SYMBOLIC | DF_STATIC_TLS))
+				frigg::infoLogger() << "rtdl: DT_FLAGS(" << frigg::logHex(dynamic->d_val)
+						<< ") is not implemented correctly!"
+						<< frigg::endLog;
+			break;
 		// ignore unimportant tags
 		case DT_SONAME: case DT_NEEDED: case DT_RPATH: // we handle this later
 		case DT_INIT: case DT_FINI:
@@ -606,8 +620,9 @@ SharedObject::SharedObject(const char *name, bool is_main_object, uint64_t objec
 		dynamic(nullptr), globalOffsetTable(nullptr), entry(nullptr),
 		tlsSegmentSize(0), tlsAlignment(0), tlsImageSize(0), tlsImagePtr(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
-		lazyRelocTableOffset(0), lazyTableSize(0),
-		lazyExplicitAddend(false), dependencies(*allocator),
+		lazyRelocTableOffset(0), lazyTableSize(0), lazyExplicitAddend(false),
+		symbolicResolution(false), haveStaticTls(false),
+		dependencies(*allocator),
 		tlsModel(TlsModel::null), tlsOffset(0),
 		globalRts(0), wasLinked(false),
 		scheduledForInit(false), onInitStack(false), wasInitialized(false) { }
@@ -887,6 +902,11 @@ void Loader::linkObjects() {
 		assert(!(*it)->wasLinked);
 		(*it)->loadScope = _globalScope;
 
+		// TODO: Support this.
+		if((*it)->symbolicResolution)
+			frigg::infoLogger() << "rtdl: DT_SYMBOLIC is not implemented correctly!"
+					<< frigg::endLog;
+
 		_processStaticRelocations(*it);
 		_processLazyRelocations(*it);
 	}
@@ -909,6 +929,7 @@ void Loader::linkObjects() {
 
 void Loader::_buildTlsMaps() {
 	// TODO: Implement dynamic TLS.
+	// TODO: Ensure that haveStaticTls is false for dynamic TLS!
 	if(_tlsModel == TlsModel::dynamic)
 		return;
 
@@ -1035,10 +1056,11 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 		*((uint64_t *)rel_addr) = p->symbol()->st_value;
 	} break;
 	case R_X86_64_TPOFF64: {
-		assert(p);
+		auto tls_object = p ? p->object() : object;
+		auto tls_value = p ? p->symbol()->st_value : 0;
 		assert(!reloc->r_addend);
-		assert(p->object()->tlsModel == TlsModel::initial);
-		*((uint64_t *)rel_addr) = p->object()->tlsOffset + p->symbol()->st_value;
+		assert(tls_object->tlsModel == TlsModel::initial);
+		*((uint64_t *)rel_addr) = tls_object->tlsOffset + tls_value;
 	} break;
 	default:
 		frigg::panicLogger() << "Unexpected relocation type "

@@ -131,6 +131,7 @@ enum {
 	DT_FINI = 13,
 	DT_SONAME = 14,
 	DT_RPATH = 15,
+	DT_SYMBOLIC = 16,
 	DT_REL = 17,
 	DT_INIT_ARRAY = 25,
 	DT_FINI_ARRAY = 26,
@@ -139,12 +140,18 @@ enum {
 	DT_PLTREL = 20,
 	DT_DEBUG = 21,
 	DT_JMPREL = 23,
+	DT_FLAGS = 30,
 	DT_VERSYM = 0x6ffffff0,
 	DT_RELACOUNT = 0x6ffffff9,
 	DT_VERDEF = 0x6ffffffc,
 	DT_VERDEFNUM = 0x6ffffffd,
 	DT_VERNEED = 0x6ffffffe,
 	DT_VERNEEDNUM = 0x6fffffff
+};
+
+enum {
+	DF_SYMBOLIC = 0x02,
+	DF_STATIC_TLS = 0x10
 };
 
 struct Elf64_Dyn {

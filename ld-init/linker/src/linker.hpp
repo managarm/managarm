@@ -92,6 +92,9 @@ struct SharedObject {
 	size_t lazyTableSize;
 	bool lazyExplicitAddend;
 
+	bool symbolicResolution;
+	bool haveStaticTls;
+
 	// vector of dependencies
 	frigg::Vector<SharedObject *, Allocator> dependencies;
 	
