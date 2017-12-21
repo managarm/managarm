@@ -18,7 +18,7 @@ $c_INCLUDES := -I$(TREE_PATH)/hel/include
 $c_INCLUDES += -I$(TREE_PATH)/frigg/include -I$($c_GENDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++14 -Wall -Wextra -O2 -ffreestanding -fno-exceptions -fno-rtti
+$c_CXXFLAGS += -std=c++1z -Wall -Wextra -O2 -ffreestanding -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -fpic -fvisibility=hidden
 $c_CXXFLAGS += -DFRIGG_NO_LIBC
 

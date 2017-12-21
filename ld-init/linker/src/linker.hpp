@@ -7,6 +7,14 @@ struct Scope;
 struct Loader;
 struct SharedObject;
 
+extern uint64_t rtsCounter;
+
+enum class TlsModel {
+	null,
+	initial,
+	dynamic
+};
+
 // --------------------------------------------------------
 // ObjectRepository
 // --------------------------------------------------------
@@ -20,15 +28,16 @@ struct ObjectRepository {
 
 	// This is primarily used to create a SharedObject for the RTDL itself.
 	SharedObject *injectObjectFromDts(frigg::StringView name,
-			uintptr_t base_address, Elf64_Dyn *dynamic);
+			uintptr_t base_address, Elf64_Dyn *dynamic, uint64_t rts);
 
 	// This is used to create a SharedObject for the executable that we want to link.
 	SharedObject *injectObjectFromPhdrs(frigg::StringView name,
-			void *phdr_pointer, size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
+			void *phdr_pointer, size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer,
+			uint64_t rts);
 
-	SharedObject *requestObjectWithName(frigg::StringView name);
+	SharedObject *requestObjectWithName(frigg::StringView name, uint64_t rts);
 
-	SharedObject *requestObjectAtPath(frigg::StringView path);
+	SharedObject *requestObjectAtPath(frigg::StringView path, uint64_t rts);
 
 private:
 	void _fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
@@ -38,7 +47,7 @@ private:
 
 	void _parseDynamic(SharedObject *object);
 
-	void _discoverDependencies(SharedObject *object);
+	void _discoverDependencies(SharedObject *object, uint64_t rts);
 
 	frigg::Hashmap<frigg::StringView, SharedObject *,
 			frigg::DefaultHasher<frigg::StringView>, Allocator> _nameMap;
@@ -52,16 +61,12 @@ extern frigg::LazyInitializer<ObjectRepository> initialRepository;
 // --------------------------------------------------------
 
 struct SharedObject {
-	enum TlsModel {
-		kTlsNone,
-		kTlsInitial,
-		kTlsDynamic
-	};
-
-	SharedObject(const char *name, bool is_main_object);
+	SharedObject(const char *name, bool is_main_object,
+			uint64_t object_rts);
 
 	const char *name;
 	bool isMainObject;
+	uint64_t objectRts;
 
 	// base address this shared object was loaded to
 	uintptr_t baseAddress;
@@ -93,6 +98,7 @@ struct SharedObject {
 	TlsModel tlsModel;
 	size_t tlsOffset;
 	
+	uint64_t globalRts;
 	bool wasLinked;
 
 	bool scheduledForInit;
@@ -146,19 +152,20 @@ private:
 // --------------------------------------------------------
 
 struct Scope {
-	enum : uint32_t {
-		kResolveCopy = 1
-	};
+	using ResolveFlags = uint32_t;
+	static inline constexpr ResolveFlags resolveCopy = 1;
+
+	static frigg::Optional<ObjectSymbol> resolveWholeScope(Scope *scope,
+			frigg::StringView string, ResolveFlags flags);
 
 	Scope();
 	
 	void appendObject(SharedObject *object);
 
-	void buildScope(SharedObject *object);
+	frigg::Optional<ObjectSymbol> resolveSymbol(ObjectSymbol r, ResolveFlags flags);
 
-	frigg::Optional<ObjectSymbol> resolveSymbol(ObjectSymbol r, uint32_t flags);
-
-	frigg::Vector<SharedObject *, Allocator> objects;
+private:
+	frigg::Vector<SharedObject *, Allocator> _objects;
 };
 
 // --------------------------------------------------------
@@ -167,33 +174,39 @@ struct Scope {
 
 class Loader {
 public:
-	Loader(Scope *scope);
+	Loader(Scope *scope, TlsModel tls_model, uint64_t rts);
 
-	void linkObject(SharedObject *object);
+	void submitObject(SharedObject *object);
 
-private:
 public:
-	void buildInitialTls();
-
 	void linkObjects();
+
 private:
-	void processStaticRelocations(SharedObject *object);
-	void processLazyRelocations(SharedObject *object);
-	void processRela(SharedObject *object, Elf64_Rela *reloc);
+	void _buildTlsMaps();
+
+	void _processStaticRelocations(SharedObject *object);
+	void _processLazyRelocations(SharedObject *object);
+	void _processRela(SharedObject *object, Elf64_Rela *reloc);
 
 public:
 	void initObjects();
+
+private:
+	void _scheduleInit(SharedObject *object);
+
 private:
 	struct Token { };
 
-	void _scheduleInit(SharedObject *object);
-	
-	Scope *p_scope;
+	Scope *_globalScope;
+	TlsModel _tlsModel;
+	uint64_t _linkRts;
 
 	frigg::Hashmap<SharedObject *, Token,
-			frigg::DefaultHasher<SharedObject *>, Allocator> _linkObjects;
+			frigg::DefaultHasher<SharedObject *>, Allocator> _linkSet;
+	
+	// Stores the same objects as _linkSet but in dependency-BFS order.
+	frigg::LinkedList<SharedObject *, Allocator> _linkBfs;
 
-	frigg::LinkedList<SharedObject *, Allocator> _linkQueue;
 	frigg::LinkedList<SharedObject *, Allocator> _initQueue;
 
 };

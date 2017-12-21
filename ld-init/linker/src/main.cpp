@@ -96,7 +96,7 @@ extern "C" void *interpreterMain(char *sp) {
 	_GLOBAL_OFFSET_TABLE_[1] = 0;
 	_GLOBAL_OFFSET_TABLE_[2] = 0;
 	
-	// Sanitize our own dynamic section.
+	// Validate our own dynamic section.
 	// Here, we make sure that the dynamic linker does not need relocations itself.
 	for(size_t i = 0; _DYNAMIC[i].d_tag != DT_NULL; i++) {
 		Elf64_Dyn *dynamic = &_DYNAMIC[i];
@@ -169,23 +169,19 @@ extern "C" void *interpreterMain(char *sp) {
 	initialRepository.initialize();
 
 	globalScope.initialize();
-	globalLoader.initialize(globalScope.get());
 
 	// FIXME: read own SONAME
 	initialRepository->injectObjectFromDts("ld-init.so", (uintptr_t)_DYNAMIC
-			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0], _DYNAMIC);
+			- (uintptr_t)_GLOBAL_OFFSET_TABLE_[0], _DYNAMIC, 1);
 	// TODO: support non-zero base addresses?
 	auto executable = initialRepository->injectObjectFromPhdrs("(executable)", phdr_pointer,
-			phdr_entry_size, phdr_count, entry_pointer);
+			phdr_entry_size, phdr_count, entry_pointer, 1);
 
-	globalLoader->linkObject(executable);
-	globalLoader->buildInitialTls();
-	globalScope->buildScope(executable);
-	globalLoader->linkObjects();
-
-	processCopyRelocations(executable);
+	Loader linker{globalScope.get(), TlsModel::initial, 1};
+	linker.submitObject(executable);
+	linker.linkObjects();
 	allocateTcb();
-	globalLoader->initObjects();
+	linker.initObjects();
 
 	if(logEntryExit)
 		frigg::infoLogger() << "Leaving ld-init" << frigg::endLog;
@@ -201,8 +197,9 @@ struct __abi_tls_entry {
 static_assert(sizeof(__abi_tls_entry) == 16, "Bad __abi_tls_entry size");
 
 extern "C" __attribute__ (( visibility("default") ))
-void *__rtdl_get_tls(struct __abi_tls_entry *entry) {
-	assert(entry->object->tlsModel == SharedObject::kTlsInitial);
+void *__dlapi_get_tls(struct __abi_tls_entry *entry) {
+	// TODO: Thread-safety!
+	assert(entry->object->tlsModel == TlsModel::initial);
 	
 //	frigg::infoLogger() << "__tls_get_addr(" << entry->object->name
 //			<< ", " << entry->offset << ")" << frigg::endLog;
@@ -210,5 +207,36 @@ void *__rtdl_get_tls(struct __abi_tls_entry *entry) {
 	char *tp;
 	asm ( "mov %%fs:(0), %0" : "=r" (tp) );
 	return tp + entry->object->tlsOffset + entry->offset;
+}
+
+extern "C" [[gnu::visibility("default")]]
+void *__dlapi_open(const char *file) {
+	// TODO: Thread-safety!
+	frigg::infoLogger() << "__dlapi_open(" << file << ")" << frigg::endLog;
+	auto rts = rtsCounter++;
+
+	SharedObject *object;
+	if(frigg::StringView(file).findFirst('/') == size_t(-1)) {
+		object = initialRepository->requestObjectWithName(file, rts);
+	}else{
+		frigg::panicLogger() << "__dlapi_open(): Support loading DSOs from paths" << frigg::endLog;
+	}
+
+	Loader linker{globalScope.get(), TlsModel::dynamic, rts};
+	linker.submitObject(object);
+	linker.linkObjects();
+	linker.initObjects();
+
+	return object;
+}
+
+extern "C" [[gnu::visibility("default")]]
+void *__dlapi_resolve(void *handle, const char *string) {
+	frigg::infoLogger() << "__dlapi_resolve(" << string << ")" << frigg::endLog;
+
+	assert(!handle);
+	auto target = Scope::resolveWholeScope(globalScope.get(), string, 0);
+	assert(target);
+	return reinterpret_cast<void *>(target->virtualAddress());
 }
 
