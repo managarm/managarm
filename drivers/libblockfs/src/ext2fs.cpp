@@ -337,6 +337,7 @@ void FileSystem::BlockCache::initEntry(uint64_t block, BlockCacheEntry *entry) {
 void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
 	assert(entry->state == BlockCacheEntry::kStateReady);
 	entry->state = BlockCacheEntry::kStateInitial;
+	entry->readyJump.reset();
 }
 
 
