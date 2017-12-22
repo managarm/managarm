@@ -196,6 +196,15 @@ struct __abi_tls_entry {
 
 static_assert(sizeof(__abi_tls_entry) == 16, "Bad __abi_tls_entry size");
 
+const char *lastError;
+
+extern "C" [[gnu::visibility("default")]]
+const char *__dlapi_error() {
+	auto error = lastError;
+	lastError = nullptr;
+	return error;
+}
+
 extern "C" __attribute__ (( visibility("default") ))
 void *__dlapi_get_tls(struct __abi_tls_entry *entry) {
 	// TODO: Thread-safety!
@@ -221,8 +230,10 @@ void *__dlapi_open(const char *file) {
 	}else{
 		object = initialRepository->requestObjectAtPath(file, rts);
 	}
-	if(!object)
+	if(!object) {
+		lastError = "Cannot locate requested DSO";
 		return nullptr;
+	}
 
 	Loader linker{globalScope.get(), TlsModel::dynamic, rts};
 	linker.submitObject(object);
