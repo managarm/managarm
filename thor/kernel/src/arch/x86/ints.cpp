@@ -17,6 +17,8 @@ extern "C" void faultStubNoFpu();
 extern "C" void faultStubDouble();
 extern "C" void faultStubProtection();
 extern "C" void faultStubPage();
+extern "C" void faultStubFpuException();
+extern "C" void faultStubSimdException();
 
 extern "C" void thorRtIsrIrq0();
 extern "C" void thorRtIsrIrq1();
@@ -126,6 +128,8 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 8, fault_selector, (void *)&faultStubDouble, 0);
 	makeIdt64IntSystemGate(table, 13, fault_selector, (void *)&faultStubProtection, 0);
 	makeIdt64IntSystemGate(table, 14, fault_selector, (void *)&faultStubPage, 0);
+	makeIdt64IntSystemGate(table, 16, fault_selector, (void *)&faultStubFpuException, 0);
+	makeIdt64IntSystemGate(table, 19, fault_selector, (void *)&faultStubSimdException, 0);
 
 	int irq_selector = kSelSystemIrqCode;
 	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);

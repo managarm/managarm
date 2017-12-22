@@ -116,6 +116,8 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubNoFpu, 7
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubDouble, 8
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubProtection, 13
 MAKE_FAULT_STUB .L_typeFaultWithCode, faultStubPage, 14
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubFpuException, 16
+MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 
 # ---------------------------------------------------------
 # IRQ stubs

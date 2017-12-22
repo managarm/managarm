@@ -160,6 +160,13 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 	_pointer = (char *)kernelAlloc->allocate(getStateSize());
 	memset(_pointer, 0, getStateSize());
 
+	_fxState()->mxcsr |= 1 << 7;
+	_fxState()->mxcsr |= 1 << 8;
+	_fxState()->mxcsr |= 1 << 9;
+	_fxState()->mxcsr |= 1 << 10;
+	_fxState()->mxcsr |= 1 << 11;
+	_fxState()->mxcsr |= 1 << 12;
+
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
 	general()->rsp = abi.sp;
@@ -174,6 +181,13 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 : _syscallStack{nullptr}, _tss{nullptr} {
 	_pointer = (char *)kernelAlloc->allocate(getStateSize());
 	memset(_pointer, 0, getStateSize());
+
+	_fxState()->mxcsr |= 1 << 7;
+	_fxState()->mxcsr |= 1 << 8;
+	_fxState()->mxcsr |= 1 << 9;
+	_fxState()->mxcsr |= 1 << 10;
+	_fxState()->mxcsr |= 1 << 11;
+	_fxState()->mxcsr |= 1 << 12;
 
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
