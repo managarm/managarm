@@ -219,8 +219,10 @@ void *__dlapi_open(const char *file) {
 	if(frigg::StringView(file).findFirst('/') == size_t(-1)) {
 		object = initialRepository->requestObjectWithName(file, rts);
 	}else{
-		frigg::panicLogger() << "__dlapi_open(): Support loading DSOs from paths" << frigg::endLog;
+		object = initialRepository->requestObjectAtPath(file, rts);
 	}
+	if(!object)
+		return nullptr;
 
 	Loader linker{globalScope.get(), TlsModel::dynamic, rts};
 	linker.submitObject(object);

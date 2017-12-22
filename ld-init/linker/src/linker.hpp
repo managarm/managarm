@@ -43,7 +43,7 @@ private:
 	void _fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
 			size_t phdr_entry_size, size_t num_phdrs, void *entry_pointer);
 
-	void _fetchFromFile(SharedObject *object, const char *file);
+	void _fetchFromFile(SharedObject *object, int fd);
 
 	void _parseDynamic(SharedObject *object);
 

@@ -121,12 +121,12 @@ HelHandleResult *parseHandle(void *&element) {
 	return result;
 }
 
-int posixOpen(frigg::String<Allocator> path) {
+int posixOpen(frigg::StringView path) {
 	HelAction actions[3];
 
 	managarm::posix::CntRequest<Allocator> req(*allocator);
 	req.set_request_type(managarm::posix::CntReqType::OPEN);
-	req.set_path(path);
+	req.set_path(frigg::String<Allocator>(*allocator, path));
 
 	Queue m;
 
@@ -359,10 +359,44 @@ SharedObject *ObjectRepository::requestObjectWithName(frigg::StringView name, ui
 		return *it;
 
 	auto object = frigg::construct<SharedObject>(*allocator, name.data(), false, rts);
-	_fetchFromFile(object, name.data());
+
+	frigg::String<Allocator> lib_prefix(*allocator, "/lib/");
+	frigg::String<Allocator> usr_prefix(*allocator, "/usr/lib/");
+
+	// open the object file
+	auto fd = posixOpen(lib_prefix + name);
+	if(fd == -1)
+		fd = posixOpen(usr_prefix + name);
+	if(fd == -1)
+		frigg::panicLogger() << "Could not find library " << name << frigg::endLog;
+	_fetchFromFile(object, fd);
+	posixClose(fd);
+
 	_parseDynamic(object);
 
 	_nameMap.insert(name, object);
+	_discoverDependencies(object, rts);
+
+	return object;
+}
+
+SharedObject *ObjectRepository::requestObjectAtPath(frigg::StringView path, uint64_t rts) {
+	// TODO: Support SONAME correctly.
+	auto it = _nameMap.get(path);
+	if(it)
+		return *it;
+
+	auto object = frigg::construct<SharedObject>(*allocator, path.data(), false, rts);
+	
+	auto fd = posixOpen(path);
+	if(fd == -1)
+		return nullptr; // TODO: Free the SharedObject.
+	_fetchFromFile(object, fd);
+	posixClose(fd);
+
+	_parseDynamic(object);
+
+	_nameMap.insert(path, object);
 	_discoverDependencies(object, rts);
 
 	return object;
@@ -401,7 +435,7 @@ void ObjectRepository::_fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
 }
 
 
-void ObjectRepository::_fetchFromFile(SharedObject *object, const char *name) {
+void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 	assert(!object->isMainObject);
 
 	object->baseAddress = libraryBase;
@@ -411,21 +445,10 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, const char *name) {
 	if(verbose)
 		frigg::infoLogger() << "Loading " << object->name
 				<< " at " << (void *)object->baseAddress << frigg::endLog;
-	
-	// FIXME: remove this initrd prefix
-	frigg::String<Allocator> lib_prefix(*allocator, "/lib/");
-	frigg::String<Allocator> usr_prefix(*allocator, "/usr/lib/");
-
-	// open the object file
-	auto file = posixOpen(lib_prefix + name);
-	if(file == -1)
-		file = posixOpen(usr_prefix + name);
-	if(file == -1)
-		frigg::panicLogger() << "Could not find library " << name << frigg::endLog;
 
 	// read the elf file header
 	Elf64_Ehdr ehdr;
-	posixRead(file, &ehdr, sizeof(Elf64_Ehdr));
+	posixRead(fd, &ehdr, sizeof(Elf64_Ehdr));
 
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
@@ -435,11 +458,11 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, const char *name) {
 
 	// read the elf program headers
 	auto phdr_buffer = (char *)allocator->allocate(ehdr.e_phnum * ehdr.e_phentsize);
-	posixSeek(file, ehdr.e_phoff);
-	posixRead(file, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
+	posixSeek(fd, ehdr.e_phoff);
+	posixRead(fd, phdr_buffer, ehdr.e_phnum * ehdr.e_phentsize);
 
 	// mmap the file so we can map read-only segments instead of copying them
-	HelHandle file_memory = posixMmap(file);
+	HelHandle file_memory = posixMmap(fd);
 
 	constexpr size_t kPageSize = 0x1000;
 	
@@ -482,8 +505,8 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, const char *name) {
 						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
 
 				memset(write_ptr, 0, map_length);
-				posixSeek(file, phdr->p_offset);
-				posixRead(file, (char *)write_ptr + misalign, phdr->p_filesz);
+				posixSeek(fd, phdr->p_offset);
+				posixRead(fd, (char *)write_ptr + misalign, phdr->p_filesz);
 				HEL_CHECK(helUnmapMemory(kHelNullHandle, write_ptr, map_length));
 
 				// map the segment with correct permissions
@@ -516,8 +539,6 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, const char *name) {
 	}
 
 	HEL_CHECK(helCloseDescriptor(file_memory));
-
-	posixClose(file);
 }
 
 // --------------------------------------------------------
@@ -573,8 +594,8 @@ void ObjectRepository::_parseDynamic(SharedObject *object) {
 			if(dynamic->d_val & DF_STATIC_TLS)
 				object->haveStaticTls = true;
 			if(dynamic->d_val & ~(DF_SYMBOLIC | DF_STATIC_TLS))
-				frigg::infoLogger() << "rtdl: DT_FLAGS(" << frigg::logHex(dynamic->d_val)
-						<< ") is not implemented correctly!"
+				frigg::infoLogger() << "\e[31mrtdl: DT_FLAGS(" << frigg::logHex(dynamic->d_val)
+						<< ") is not implemented correctly!\e[39m"
 						<< frigg::endLog;
 			break;
 		// ignore unimportant tags
@@ -904,7 +925,7 @@ void Loader::linkObjects() {
 
 		// TODO: Support this.
 		if((*it)->symbolicResolution)
-			frigg::infoLogger() << "rtdl: DT_SYMBOLIC is not implemented correctly!"
+			frigg::infoLogger() << "\e[31mrtdl: DT_SYMBOLIC is not implemented correctly!\e[39m"
 					<< frigg::endLog;
 
 		_processStaticRelocations(*it);
