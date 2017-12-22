@@ -304,21 +304,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			auto file = self->fileContext()->getFile(req.fd());
-			self->fileContext()->attachFile(req.newfd(), file);
+
+			int resfd;
+			if(req.newfd() >= 0) {
+				self->fileContext()->attachFile(req.newfd(), file);
+				resfd = req.newfd();
+			}else{
+				resfd = self->fileContext()->attachFile(file);
+			}
 
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_passthrough;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(resfd);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_passthrough, file->getPassthroughLane()));
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_passthrough.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			auto file = self->fileContext()->getFile(req.fd());
 			auto stats = file->associatedLink()->getTarget()->getStats();
