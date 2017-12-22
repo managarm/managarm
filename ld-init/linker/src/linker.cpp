@@ -368,7 +368,7 @@ SharedObject *ObjectRepository::requestObjectWithName(frigg::StringView name, ui
 	if(fd == -1)
 		fd = posixOpen(usr_prefix + name);
 	if(fd == -1)
-		frigg::panicLogger() << "Could not find library " << name << frigg::endLog;
+		return nullptr; // TODO: Free the SharedObject.
 	_fetchFromFile(object, fd);
 	posixClose(fd);
 
@@ -627,6 +627,8 @@ void ObjectRepository::_discoverDependencies(SharedObject *object, uint64_t rts)
 				+ object->stringTableOffset + dynamic->d_val);
 
 		auto library = requestObjectWithName(frigg::StringView{library_str}, rts);
+		if(!library)
+			frigg::panicLogger() << "Could not satisfy dependency " << library_str << frigg::endLog;
 		object->dependencies.push(library);
 	}
 }

@@ -236,7 +236,10 @@ extern "C" [[gnu::visibility("default")]]
 void *__dlapi_resolve(void *handle, const char *string) {
 	frigg::infoLogger() << "__dlapi_resolve(" << string << ")" << frigg::endLog;
 
-	assert(!handle);
+	if(handle)
+		frigg::infoLogger() << "__dlapi_resolve() with non-null handle is implemented incorrectly"
+				<< frigg::endLog;
+
 	auto target = Scope::resolveWholeScope(globalScope.get(), string, 0);
 	assert(target);
 	return reinterpret_cast<void *>(target->virtualAddress());
