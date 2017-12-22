@@ -118,6 +118,7 @@ void printf(P &printer, const char *format, va_list args) {
 			assert(!l_prefix);
 
 			auto s = va_arg(args, const char *);
+			assert(s);
 			int length = strlen(s);
 			if(precision && *precision < length)
 				length = *precision;
@@ -183,14 +184,14 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		} break;
 		case 'u': {
-			assert(!fill_zeros);
 			assert(!left_justify);
-			assert(minimum_width == 0);
 			assert(!precision);
 			if(l_prefix) {
-				printUInt(printer, va_arg(args, unsigned long), 10);
+				printUInt(printer, va_arg(args, unsigned long), 10, minimum_width,
+						1, fill_zeros ? '0' : ' ');
 			}else{
-				printUInt(printer, va_arg(args, unsigned int), 10);
+				printUInt(printer, va_arg(args, unsigned int), 10, minimum_width,
+						1, fill_zeros ? '0' : ' ');
 			}
 		} break;
 		case 'p':
