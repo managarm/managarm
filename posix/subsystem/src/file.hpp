@@ -39,9 +39,9 @@ struct File {
 
 	FutureMaybe<void> readExactly(void *data, size_t length);
 
-	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence) = 0;
+	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
-	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory() = 0;
+	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory();
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:

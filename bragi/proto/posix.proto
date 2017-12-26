@@ -38,6 +38,10 @@ enum CntReqType {
 	DUP2 = 6;
 	IS_TTY = 22;
 	TTY_NAME = 18;
+	
+	// Socket-specific calls.
+	SOCKPAIR = 25;
+
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
 };
@@ -84,6 +88,11 @@ message CntRequest {
 	// used by FORK
 	optional uint64 child_sp = 8;
 	optional uint64 child_ip = 9;
+
+	// used by socket functions
+	optional int32 domain = 14;
+	optional int32 socktype = 15;
+	optional int32 protocol = 16;
 }
 
 message SvrResponse {
@@ -127,5 +136,7 @@ message SvrResponse {
 
 	// returned by TTY_NAME
 	optional string path = 19;
+	
+	repeated int32 fds = 20;
 }
 

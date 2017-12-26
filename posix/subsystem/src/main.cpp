@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <sys/socket.h>
 #include <iomanip>
 #include <iostream>
 
@@ -17,6 +18,7 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
+#include "socket.hpp"
 #include "subsystem/block.hpp"
 #include <posix.pb.h>
 
@@ -370,6 +372,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_path("/dev/ttyS0");
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
+			helix::SendBuffer send_resp;
+
+			assert(req.domain() == AF_UNIX);
+			assert(req.socktype() == SOCK_DGRAM);
+			assert(!req.protocol());
+
+			auto pair = createUnixSocketPair();
+			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair));
+			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair));
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.mutable_fds()->Add(fd0);
+			resp.mutable_fds()->Add(fd1);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

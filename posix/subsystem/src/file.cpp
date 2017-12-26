@@ -24,3 +24,13 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length),
 	COFIBER_RETURN();
 }))
 
+FutureMaybe<off_t> File::seek(off_t, VfsSeek) {
+	// TODO: Return an error.
+	throw std::runtime_error("posix: Object has no File::seek()");
+}
+
+FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
+	// TODO: Return an error.
+	throw std::runtime_error("posix: Object has no File::accessMemory()");
+}
+
