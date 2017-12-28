@@ -219,10 +219,14 @@ void *__dlapi_get_tls(struct __abi_tls_entry *entry) {
 }
 
 extern "C" [[gnu::visibility("default")]]
-void *__dlapi_open(const char *file) {
+void *__dlapi_open(const char *file, int local) {
 	// TODO: Thread-safety!
-	frigg::infoLogger() << "__dlapi_open(" << file << ")" << frigg::endLog;
+	frigg::infoLogger() << "rtdl: __dlapi_open(" << file << ")" << frigg::endLog;
 	auto rts = rtsCounter++;
+	
+	if(local)
+		frigg::infoLogger() << "\e[31mrtdl: RTLD_LOCAL is not supported properly\e[39m"
+				<< frigg::endLog;
 
 	SharedObject *object;
 	if(frigg::StringView(file).findFirst('/') == size_t(-1)) {
@@ -245,11 +249,11 @@ void *__dlapi_open(const char *file) {
 
 extern "C" [[gnu::visibility("default")]]
 void *__dlapi_resolve(void *handle, const char *string) {
-	frigg::infoLogger() << "__dlapi_resolve(" << string << ")" << frigg::endLog;
+	frigg::infoLogger() << "rtdl: __dlapi_resolve(" << string << ")" << frigg::endLog;
 
 	if(handle)
-		frigg::infoLogger() << "__dlapi_resolve() with non-null handle is implemented incorrectly"
-				<< frigg::endLog;
+		frigg::infoLogger() << "\e[31mrtdl: __dlapi_resolve() with non-null"
+				<< " handle is implemented incorrectly\e[39m" << frigg::endLog;
 
 	auto target = Scope::resolveWholeScope(globalScope.get(), string, 0);
 	assert(target);

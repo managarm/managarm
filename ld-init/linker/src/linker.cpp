@@ -1079,11 +1079,17 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 		*((uint64_t *)rel_addr) = p->symbol()->st_value;
 	} break;
 	case R_X86_64_TPOFF64: {
-		auto tls_object = p ? p->object() : object;
-		auto tls_value = p ? p->symbol()->st_value : 0;
-		assert(!reloc->r_addend);
-		assert(tls_object->tlsModel == TlsModel::initial);
-		*((uint64_t *)rel_addr) = tls_object->tlsOffset + tls_value;
+		if(symbol_index) {
+			assert(p);
+			assert(!reloc->r_addend);
+			assert(p->object()->tlsModel == TlsModel::initial);
+			*((uint64_t *)rel_addr) = p->object()->tlsOffset + p->symbol()->st_value;
+		}else{
+			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol" << frigg::endLog;
+			assert(!reloc->r_addend);
+			assert(object->tlsModel == TlsModel::initial);
+			*((uint64_t *)rel_addr) = object->tlsOffset;
+		}
 	} break;
 	default:
 		frigg::panicLogger() << "Unexpected relocation type "
