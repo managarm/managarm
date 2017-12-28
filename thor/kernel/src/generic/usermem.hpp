@@ -477,7 +477,8 @@ public:
 	};
 
 	enum FaultFlags : uint32_t {
-		kFaultWrite = 0x01
+		kFaultWrite = (1 << 1),
+		kFaultExecute = (1 << 2)
 	};
 
 	AddressSpace();

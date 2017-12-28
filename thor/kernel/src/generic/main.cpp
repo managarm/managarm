@@ -536,6 +536,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	uint32_t flags = 0;
 	if(*image.code() & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
+	if(*image.code() & kPfInstruction)
+		flags |= AddressSpace::kFaultExecute;
 
 	bool handled = false;
 	if(image.inKernelDomain() && !image.allowUserPages()) {
