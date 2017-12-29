@@ -233,6 +233,13 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	};
 
 	frigg::String<KernelAlloc> tail_area(*kernelAlloc);
+	
+	// Setup the stack with argc, argv and environment.
+	copyToStack<uintptr_t>(tail_area, 0); // argc.
+	copyToStack<uintptr_t>(tail_area, 0); // End of args.
+	copyToStack<uintptr_t>(tail_area, 0); // End of environment.
+
+	// This is the auxiliary vector.
 	copyToStack<uintptr_t>(tail_area, AT_ENTRY);
 	copyToStack<uintptr_t>(tail_area, (uintptr_t)exec_info.entryIp);
 	copyToStack<uintptr_t>(tail_area, AT_PHDR);
@@ -252,6 +259,9 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	copyToStack<uintptr_t>(tail_area, AT_NULL);
 	copyToStack<uintptr_t>(tail_area, 0);
 
+	// Padding to ensure the stack alignment.
+	copyToStack<uintptr_t>(tail_area, 0);
+	
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
 	KernelFiber::await<CopyToBundleNode>(&copyToBundle, stack_memory.get(), tail_disp,

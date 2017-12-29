@@ -161,7 +161,22 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 	// the offset at which the stack image starts.
 	size_t d = stack_size;
 
+	auto pushWord = [&] (uintptr_t w) {
+		assert(!(d % alignof(uintptr_t)));
+		d -= sizeof(uintptr_t);
+		memcpy(reinterpret_cast<char *>(window) + d, &w, sizeof(uintptr_t));
+	};
+
+	// Pad the stack so that it is aligned after pushing all words.
+	size_t word_parity = 1 + /* + argc */ + 1 // Words representing argc and args.
+			/* + size of environment */ + 1; // Words representing the environment.
+	if(word_parity % 2)
+		pushWord(0);
+
 	copyArrayToStack(window, d, (uintptr_t[]){
+		0, // argc.
+		0, // End of args.
+		0, // End of environment.
 		AT_ENTRY,
 		uintptr_t(exec_info.entryIp),
 		AT_PHDR,
@@ -175,6 +190,9 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 		AT_NULL,
 		0
 	});
+
+	// Stack has to be aligned at entry.
+	assert(!(d % 16));
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, window, stack_size));
 

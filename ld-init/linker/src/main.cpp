@@ -31,6 +31,7 @@ static constexpr bool logEntryExit = false;
 extern HIDDEN void *_GLOBAL_OFFSET_TABLE_[];
 extern HIDDEN Elf64_Dyn _DYNAMIC[];
 
+uintptr_t *entryStack;
 frigg::LazyInitializer<ObjectRepository> initialRepository;
 frigg::LazyInitializer<Scope> globalScope;
 frigg::LazyInitializer<Loader> globalLoader;
@@ -62,28 +63,14 @@ extern "C" void *lazyRelocate(SharedObject *object, unsigned int rel_index) {
 	return (void *)p->virtualAddress();
 }
 
-void *auxiliaryPtr;
-
-extern "C" [[ gnu::visibility("default") ]] void *__rtdl_auxvector() {
-	return auxiliaryPtr;
-}
-
 extern "C" [[ gnu::visibility("default") ]] void __rtdl_setupTcb() {
 	allocateTcb();
 }
 
-template<typename T>
-T loadItem(char *&sp) {
-	T item;
-	memcpy(&item, sp, sizeof(T));
-	sp += sizeof(T);
-	return item;
-}
-
-extern "C" void *interpreterMain(char *sp) {
+extern "C" void *interpreterMain(uintptr_t *entry_stack) {
 	if(logEntryExit)
 		frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
-	auxiliaryPtr = sp;
+	entryStack = entry_stack;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
 	
@@ -128,41 +115,42 @@ extern "C" void *interpreterMain(char *sp) {
 		AT_MBUS_SERVER = 0x1103
 	};
 
-	struct Auxiliary {
-		Auxiliary()
-		: type(AT_ILLEGAL) { }
-
-		int type;
-		union {
-			long longValue;
-			void *pointerValue;
-		};
-	};
-
 	void *phdr_pointer;
 	size_t phdr_entry_size;
 	size_t phdr_count;
 	void *entry_pointer;
-	
+
+	// Find the auxiliary vector by skipping args and environment.
+	auto aux = entryStack;
+	aux += *aux + 1; // First, we skip argc and all args.
+	assert(!*aux);
+	aux++;
+	while(*aux) // Now, we skip the environment.
+		aux++;
+	aux++;
+
+	// Parse the actual vector.
 	while(true) {
-		auto aux = loadItem<Auxiliary>(sp);
-		if(aux.type == AT_NULL)
+		auto value = aux + 1;
+		if(*aux == AT_NULL)
 			break;
 		
-		switch(aux.type) {
-			case AT_PHDR: phdr_pointer = aux.pointerValue; break;
-			case AT_PHENT: phdr_entry_size = aux.longValue; break;
-			case AT_PHNUM: phdr_count = aux.longValue; break;
-			case AT_ENTRY: entry_pointer = aux.pointerValue; break;
+		switch(*aux) {
+			case AT_PHDR: phdr_pointer = reinterpret_cast<void *>(*value); break;
+			case AT_PHENT: phdr_entry_size = *value; break;
+			case AT_PHNUM: phdr_count = *value; break;
+			case AT_ENTRY: entry_pointer = reinterpret_cast<void *>(*value); break;
 			case AT_XPIPE:
 			case AT_OPENFILES:
 			case AT_MBUS_SERVER:
 				// ignore these auxiliary vector entries.
 				break;
 		default:
-			frigg::panicLogger() << "Unexpected auxiliary item type "
-					<< aux.type << frigg::endLog;
+			frigg::panicLogger() << "rtdl: Unexpected auxiliary item type "
+					<< *aux << frigg::endLog;
 		}
+
+		aux += 2;
 	}
 
 	// perform the initial dynamic linking
@@ -197,6 +185,10 @@ struct __abi_tls_entry {
 static_assert(sizeof(__abi_tls_entry) == 16, "Bad __abi_tls_entry size");
 
 const char *lastError;
+
+extern "C" [[ gnu::visibility("default") ]] uintptr_t *__dlapi_entrystack() {
+	return entryStack;
+}
 
 extern "C" [[gnu::visibility("default")]]
 const char *__dlapi_error() {
