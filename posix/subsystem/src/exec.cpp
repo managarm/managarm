@@ -161,22 +161,31 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 	// the offset at which the stack image starts.
 	size_t d = stack_size;
 
+	auto pushString = [&] (std::string str) -> uintptr_t {
+		d -= str.size() + 1;
+		memcpy(reinterpret_cast<char *>(window) + d, str.c_str(), str.size() + 1);
+		return reinterpret_cast<uintptr_t>(stack_base) + d;
+	};
+
 	auto pushWord = [&] (uintptr_t w) {
 		assert(!(d % alignof(uintptr_t)));
 		d -= sizeof(uintptr_t);
 		memcpy(reinterpret_cast<char *>(window) + d, &w, sizeof(uintptr_t));
 	};
 
+	std::vector<uintptr_t> env_ptrs;
+	env_ptrs.push_back(pushString("MESA_DEBUG=1"));
+
+	// Align the stack before pushing the args, environment and auxiliary words.
+	d -= d % alignof(uintptr_t);
+
 	// Pad the stack so that it is aligned after pushing all words.
 	size_t word_parity = 1 + /* + argc */ + 1 // Words representing argc and args.
-			/* + size of environment */ + 1; // Words representing the environment.
+			+ env_ptrs.size() + 1; // Words representing the environment.
 	if(word_parity % 2)
 		pushWord(0);
 
 	copyArrayToStack(window, d, (uintptr_t[]){
-		0, // argc.
-		0, // End of args.
-		0, // End of environment.
 		AT_ENTRY,
 		uintptr_t(exec_info.entryIp),
 		AT_PHDR,
@@ -190,6 +199,14 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 		AT_NULL,
 		0
 	});
+	
+	// Push the environment pointers.
+	pushWord(0); // End of environment.
+	for(auto it = env_ptrs.rbegin(); it != env_ptrs.rend(); ++it)
+		pushWord(*it);
+	
+	pushWord(0); // End of args.
+	pushWord(0); // argc.
 
 	// Stack has to be aligned at entry.
 	assert(!(d % 16));
