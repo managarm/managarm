@@ -244,6 +244,32 @@ void *__dlapi_open(const char *file, int local) {
 	linker.linkObjects();
 	linker.initObjects();
 
+	// Build the object scope. TODO: Use the Loader object to do this.
+	if(!object->objectScope) {
+		struct Token { };
+
+		using Set = frigg::Hashmap<SharedObject *, Token,
+				frigg::DefaultHasher<SharedObject *>, Allocator>;
+		Set set{frigg::DefaultHasher<SharedObject *>{}, *allocator};
+		
+		object->objectScope = frigg::construct<Scope>(*allocator);
+		frigg::LinkedList<SharedObject *, Allocator> queue{*allocator};
+
+		object->objectScope->appendObject(object);
+		set.insert(object, Token{});
+		queue.addBack(object);
+
+		while(!queue.empty()) {
+			auto current = queue.removeFront();
+			if(set.get(current))
+				continue;
+		
+			object->objectScope->appendObject(current);
+			set.insert(current, Token{});
+			queue.addBack(current);
+		}
+	}
+
 	return object;
 }
 
@@ -251,11 +277,15 @@ extern "C" [[gnu::visibility("default")]]
 void *__dlapi_resolve(void *handle, const char *string) {
 	frigg::infoLogger() << "rtdl: __dlapi_resolve(" << string << ")" << frigg::endLog;
 
-	if(handle)
-		frigg::infoLogger() << "\e[31mrtdl: __dlapi_resolve() with non-null"
-				<< " handle is implemented incorrectly\e[39m" << frigg::endLog;
+	frigg::Optional<ObjectSymbol> target;
+	if(handle) {
+		auto object = reinterpret_cast<SharedObject *>(handle);
+		assert(object->objectScope);
+		target = Scope::resolveWholeScope(object->objectScope, string, 0);
+	}else{
+		target = Scope::resolveWholeScope(globalScope.get(), string, 0);
+	}
 
-	auto target = Scope::resolveWholeScope(globalScope.get(), string, 0);
 	assert(target);
 	return reinterpret_cast<void *>(target->virtualAddress());
 }

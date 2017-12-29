@@ -648,7 +648,8 @@ SharedObject::SharedObject(const char *name, bool is_main_object, uint64_t objec
 		dependencies(*allocator),
 		tlsModel(TlsModel::null), tlsOffset(0),
 		globalRts(0), wasLinked(false),
-		scheduledForInit(false), onInitStack(false), wasInitialized(false) { }
+		scheduledForInit(false), onInitStack(false), wasInitialized(false),
+		objectScope(nullptr) { }
 
 void processCopyRela(SharedObject *object, Elf64_Rela *reloc) {
 	Elf64_Xword type = ELF64_R_TYPE(reloc->r_info);
@@ -915,12 +916,12 @@ void Loader::linkObjects() {
 
 	// Process regular relocations.
 	for(auto it = _linkBfs.frontIter(); it.okay(); ++it) {
-		if(verbose)
-			frigg::infoLogger() << "Linking " << (*it)->name << frigg::endLog;
-
 		// Some objects have already been linked before.
 		if((*it)->objectRts < _linkRts)
 			continue;
+
+		if(verbose)
+			frigg::infoLogger() << "Linking " << (*it)->name << frigg::endLog;
 
 		assert(!(*it)->wasLinked);
 		(*it)->loadScope = _globalScope;

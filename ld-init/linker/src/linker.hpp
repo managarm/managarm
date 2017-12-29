@@ -107,6 +107,8 @@ struct SharedObject {
 	bool scheduledForInit;
 	bool onInitStack;
 	bool wasInitialized;
+
+	Scope *objectScope;
 };
 
 void processCopyRelocations(SharedObject *object);
