@@ -569,9 +569,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	
 	void *ctrl_window, *memory_window;
 	HEL_CHECK(helMapMemory(ctrl_bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x8'0000, kHelMapReadWrite | kHelMapShareAtFork, &ctrl_window));
+			0, 0x8'0000, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork,
+			&ctrl_window));
 	HEL_CHECK(helMapMemory(memory_bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x1000'0000, kHelMapReadWrite | kHelMapShareAtFork, &memory_window));
+			0, 0x1000'0000, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork,
+			&memory_window));
 
 	Controller controller{arch::mem_space(ctrl_window), memory_window};
 	controller.run();

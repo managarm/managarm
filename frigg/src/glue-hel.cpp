@@ -43,7 +43,7 @@ uintptr_t VirtualAlloc::map(size_t length) {
 	void *actual_ptr;
 	HEL_CHECK(helAllocateMemory(length, 0, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, length,
-			kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &actual_ptr));
+			kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork, &actual_ptr));
 	HEL_CHECK(helCloseDescriptor(memory));
 	return (uintptr_t)actual_ptr;
 }

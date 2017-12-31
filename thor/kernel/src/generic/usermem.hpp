@@ -324,10 +324,10 @@ enum MappingFlags : uint32_t {
 	shareAtFork = 0x02,
 	copyOnWriteAtFork = 0x04,
 
-	permissionMask = 0x30,
-	readOnly = 0x00,
-	readWrite = 0x10,
-	readExecute = 0x20,
+	permissionMask = 0x70,
+	protRead = 0x10,
+	protWrite = 0x20,
+	protExecute = 0x40,
 
 	dontRequireBacking = 0x100
 };
@@ -466,9 +466,9 @@ public:
 		kMapFixed = 0x01,
 		kMapPreferBottom = 0x02,
 		kMapPreferTop = 0x04,
-		kMapReadOnly = 0x08,
-		kMapReadWrite = 0x10,
-		kMapReadExecute = 0x20,
+		kMapProtRead = 0x08,
+		kMapProtWrite = 0x10,
+		kMapProtExecute = 0x20,
 		kMapDropAtFork = 0x40,
 		kMapShareAtFork = 0x80,
 		kMapCopyOnWriteAtFork = 0x100,

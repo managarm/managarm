@@ -25,7 +25,7 @@ struct Mapping {
 		HEL_CHECK(helMapMemory(slice.getHandle(), kHelNullHandle,
 				nullptr, _offset & ~(pageSize - 1),
 				((_offset & (pageSize - 1)) + _size + (pageSize - 1)) & ~(pageSize - 1),
-				kHelMapReadWrite, &_window));
+				kHelMapProtRead | kHelMapProtWrite, &_window));
 	}
 
 	Mapping(const Mapping &) = delete;
@@ -147,7 +147,7 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 	void *window;
 	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x4000, kHelMapReadWrite, &window));
+			0, 0x4000, kHelMapProtRead | kHelMapProtWrite, &window));
 	HEL_CHECK(helCloseDescriptor(memory));
 
 	// Setup the memory region.
@@ -337,7 +337,7 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	void *window;
 	HEL_CHECK(helAllocateMemory(0x4000, kHelAllocContinuous, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x4000, kHelMapReadWrite, &window));
+			0, 0x4000, kHelMapProtRead | kHelMapProtWrite, &window));
 	HEL_CHECK(helCloseDescriptor(memory));
 
 	// Setup the memory region.

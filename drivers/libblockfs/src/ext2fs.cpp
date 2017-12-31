@@ -40,8 +40,8 @@ COFIBER_ROUTINE(async::result<std::experimental::optional<DirEntry>>,
 	// TODO: Use a RAII mapping class to get rid of the mapping on return.
 	// map the page cache into the address space
 	void *window;
-	HEL_CHECK(helMapMemory(frontalMemory, kHelNullHandle,
-			nullptr, 0, map_size, kHelMapReadWrite | kHelMapDontRequireBacking, &window));
+	HEL_CHECK(helMapMemory(frontalMemory, kHelNullHandle, nullptr, 0, map_size,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking, &window));
 
 	// read the directory structure
 	uintptr_t offset = 0;
@@ -199,7 +199,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 		
 		void *window;
 		HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
-				manage.offset(), manage.length(), kHelMapReadWrite, &window));
+				manage.offset(), manage.length(), kHelMapProtRead | kHelMapProtWrite, &window));
 
 		assert(manage.offset() < inode->fileSize);
 		size_t read_size = std::min(manage.length(), inode->fileSize - manage.offset());

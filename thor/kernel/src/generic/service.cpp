@@ -372,7 +372,7 @@ namespace initrd {
 			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
 
 			_thread->getAddressSpace()->map(space_guard, fileTableMemory, 0, 0, 0x1000,
-					AddressSpace::kMapPreferTop | AddressSpace::kMapReadOnly,
+					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
 		}
 

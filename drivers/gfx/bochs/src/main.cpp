@@ -391,7 +391,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-			0, info.barInfo[0].length, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
+			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork,
+			&actual_pointer));
 
 	auto gfx_device = std::make_shared<GfxDevice>(std::move(bar), actual_pointer);
 	gfx_device->initialize();

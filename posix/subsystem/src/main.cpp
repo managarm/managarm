@@ -161,19 +161,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			// TODO: Validate mode and flags.
 
-			// TODO: Return EINVAL instead of assert()ing.
-			// TODO: Handle arbitrary combinations.
 			uint32_t native_flags = kHelMapCopyOnWriteAtFork;
-			if(req.mode() & PROT_EXEC) {
-				assert(!(req.mode() & PROT_WRITE));
-				native_flags |= kHelMapReadExecute;
-			}else if(req.mode() & PROT_WRITE) {
-				native_flags |= kHelMapReadWrite;
-			}else if(req.mode() & PROT_READ) {
-				native_flags |= kHelMapReadOnly;
-			}else{
-				assert(!"mmap(): Protection not supported");
-			}
+			if(req.mode() & PROT_READ)
+				native_flags |= kHelMapProtRead;
+			if(req.mode() & PROT_WRITE)
+				native_flags |= kHelMapProtWrite;
+			if(req.mode() & PROT_EXEC)
+				native_flags |= kHelMapProtExecute;
 
 			void *address;
 			if(req.flags() & MAP_ANONYMOUS) {

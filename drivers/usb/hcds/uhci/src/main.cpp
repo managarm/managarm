@@ -427,7 +427,7 @@ void Controller::initialize() {
 	HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
 	void *list_mapping;
 	HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
-			nullptr, 0, 4096, kHelMapReadWrite, &list_mapping));
+			nullptr, 0, 4096, kHelMapProtRead | kHelMapProtWrite, &list_mapping));
 	
 	auto list_pointer = (FrameList *)list_mapping;
 	for(int i = 0; i < 1024; i++) {

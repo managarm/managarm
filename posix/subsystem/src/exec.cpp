@@ -76,7 +76,8 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(file_memory.getHandle(), space.getHandle(),
 							(void *)map_address, phdr->p_offset, map_length,
-							kHelMapReadExecute | kHelMapShareAtFork, &map_pointer));
+							kHelMapProtRead | kHelMapProtExecute | kHelMapShareAtFork,
+							&map_pointer));
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
@@ -87,14 +88,15 @@ COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
 
 				void *window;
 				HEL_CHECK(helMapMemory(segment_memory, kHelNullHandle, nullptr,
-						0, map_length, kHelMapReadWrite, &window));
+						0, map_length, kHelMapProtRead | kHelMapProtWrite, &window));
 			
 				// map the segment with correct permissions into the process.
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(segment_memory, space.getHandle(),
 							(void *)map_address, 0, map_length,
-							kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &map_pointer));
+							kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork,
+							&map_pointer));
 				}else{
 					throw std::runtime_error("Illegal combination of segment permissions");
 				}
@@ -150,12 +152,12 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, execute(ViewPath root, s
 	void *stack_base;
 	HEL_CHECK(helMapMemory(stack_memory, vm_context->getSpace().getHandle(),
 			nullptr, 0, stack_size,
-			kHelMapReadWrite | kHelMapCopyOnWriteAtFork, &stack_base));
+			kHelMapProtRead | kHelMapProtWrite | kHelMapCopyOnWriteAtFork, &stack_base));
 	
 	// map the stack into this process and set it up.
 	void *window;
 	HEL_CHECK(helMapMemory(stack_memory, kHelNullHandle, nullptr,
-			0, stack_size, kHelMapReadWrite, &window));
+			0, stack_size, kHelMapProtRead | kHelMapProtWrite, &window));
 	HEL_CHECK(helCloseDescriptor(stack_memory));
 
 	// the offset at which the stack image starts.

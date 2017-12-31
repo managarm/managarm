@@ -931,7 +931,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	
 	void *actual_pointer;
 	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite | kHelMapShareAtFork, &actual_pointer));
+			0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork, &actual_pointer));
 
 	auto controller = std::make_shared<Controller>(std::move(device),
 			(char *)actual_pointer + info.barInfo[0].offset, std::move(irq));

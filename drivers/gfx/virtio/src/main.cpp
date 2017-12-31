@@ -536,7 +536,7 @@ std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemor
 COFIBER_ROUTINE(cofiber::no_future, GfxDevice::BufferObject::_initHw(), ([=] { 
 	void *ptr;
 	HEL_CHECK(helMapMemory(_memory.getHandle(), kHelNullHandle,
-		nullptr, 0, getSize(), kHelMapReadOnly, &ptr));
+		nullptr, 0, getSize(), kHelMapProtRead, &ptr));
 
 	spec::Create2d buffer;
 	memset(&buffer, 0, sizeof(spec::Create2d));

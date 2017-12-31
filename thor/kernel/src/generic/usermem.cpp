@@ -704,13 +704,12 @@ Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
 
 void NormalMapping::install(bool overwrite) {
 	uint32_t page_flags = 0;
-	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
 		page_flags |= page_access::write;
-	}else if((flags() & MappingFlags::permissionMask) == MappingFlags::readExecute) {
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
 		page_flags |= page_access::execute;
-	}else{
-		assert((flags() & MappingFlags::permissionMask) == MappingFlags::readOnly);
-	}
+	// TODO: Allow inaccessible mappings.
+	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		// TODO: Add a don't-require-backing flag to peekRange.
@@ -749,20 +748,19 @@ PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
 
 bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	if(fault_flags & AddressSpace::kFaultWrite)
-		if((flags() & MappingFlags::permissionMask) != MappingFlags::readWrite)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
 			return false;
 	if(fault_flags & AddressSpace::kFaultExecute)
-		if((flags() & MappingFlags::permissionMask) != MappingFlags::readExecute)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute))
 			return false;
 
 	uint32_t page_flags = 0;
-	if((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite) {
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
 		page_flags |= page_access::write;
-	}else if((flags() & MappingFlags::permissionMask) == MappingFlags::readExecute) {
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
 		page_flags |= page_access::execute;
-	}else{
-		assert((flags() & MappingFlags::permissionMask) == MappingFlags::readOnly);
-	}
+	// TODO: Allow inaccessible mappings.
+	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	auto page = disp & ~(kPageSize - 1);
 	auto physical = _memory->fetchRange(page);
@@ -802,7 +800,7 @@ Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
 }
 
 void CowMapping::install(bool overwrite) {
-	assert((flags() & MappingFlags::permissionMask) == MappingFlags::readWrite);
+	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite);
 	
 	// For now we just unmap everything. TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
@@ -889,15 +887,27 @@ void AddressSpace::map(Guard &guard,
 	}else if(flags & kMapCopyOnWriteAtFork) {
 		mapping_flags |= MappingFlags::copyOnWriteAtFork;
 	}
-	
-	constexpr uint32_t mask = kMapReadOnly | kMapReadExecute | kMapReadWrite;
-	if((flags & mask) == kMapReadWrite) {
-		mapping_flags |= MappingFlags::readWrite;
-	}else if((flags & mask) == kMapReadExecute) {
-		mapping_flags |= MappingFlags::readExecute;
+
+	// TODO: The upgrading mechanism needs to be arch-specific:
+	// Some archs might only support RX, while other support X.
+	auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
+	if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
+			|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
+		// WX is upgraded to RWX.
+		mapping_flags |= MappingFlags::protRead | MappingFlags::protWrite
+			| MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
+			|| (flags & mask) == kMapProtExecute) {
+		// X is upgraded to RX.
+		mapping_flags |= MappingFlags::protRead | MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
+			|| (flags & mask) == kMapProtWrite) {
+		// W is upgraded to RW.
+		mapping_flags |= MappingFlags::protRead | MappingFlags::protWrite;
+	}else if((flags & mask) == kMapProtRead) {
+		mapping_flags |= MappingFlags::protRead;
 	}else{
-		assert((flags & mask) == kMapReadOnly);
-		mapping_flags |= MappingFlags::readOnly;
+		assert(!(flags & mask));
 	}
 	
 	if(flags & kMapDontRequireBacking)

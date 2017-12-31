@@ -641,15 +641,12 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapPreferTop;
 	}
 
-	constexpr int mask = kHelMapReadOnly | kHelMapReadWrite | kHelMapReadExecute;
-	if((flags & mask) == kHelMapReadWrite) {
-		map_flags |= AddressSpace::kMapReadWrite;
-	}else if((flags & mask) == kHelMapReadExecute) {
-		map_flags |= AddressSpace::kMapReadExecute;
-	}else{
-		assert((flags & mask) == kHelMapReadOnly);
-		map_flags |= AddressSpace::kMapReadOnly;
-	}
+	if(flags & kHelMapProtRead)
+		map_flags |= AddressSpace::kMapProtRead;
+	if(flags & kHelMapProtWrite)
+		map_flags |= AddressSpace::kMapProtWrite;
+	if(flags & kHelMapProtExecute)
+		map_flags |= AddressSpace::kMapProtExecute;
 
 	if(flags & kHelMapDropAtFork) {
 		map_flags |= AddressSpace::kMapDropAtFork;

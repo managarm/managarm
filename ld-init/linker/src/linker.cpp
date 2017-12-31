@@ -490,7 +490,8 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(file_memory, kHelNullHandle,
 							(void *)map_address, phdr->p_offset, map_length,
-							kHelMapReadExecute | kHelMapShareAtFork, &map_pointer));
+							kHelMapProtRead | kHelMapProtExecute | kHelMapShareAtFork,
+							&map_pointer));
 				}else{
 					frigg::panicLogger() << "Illegal combination of segment permissions"
 							<< frigg::endLog;
@@ -502,7 +503,8 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 
 				void *write_ptr;
 				HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						0, map_length, kHelMapReadWrite | kHelMapDropAtFork, &write_ptr));
+						0, map_length, kHelMapProtRead | kHelMapProtWrite | kHelMapDropAtFork,
+						&write_ptr));
 
 				memset(write_ptr, 0, map_length);
 				posixSeek(fd, phdr->p_offset);
@@ -513,7 +515,8 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 					void *map_pointer;
 					HEL_CHECK(helMapMemory(memory, kHelNullHandle, (void *)map_address,
-							0, map_length, kHelMapReadWrite | kHelMapCopyOnWriteAtFork,
+							0, map_length, kHelMapProtRead | kHelMapProtWrite
+								| kHelMapCopyOnWriteAtFork,
 							&map_pointer));
 				}else{
 					frigg::panicLogger() << "Illegal combination of segment permissions"

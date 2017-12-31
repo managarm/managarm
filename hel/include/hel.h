@@ -148,9 +148,9 @@ enum HelAllocFlags {
 };
 
 enum HelMapFlags {
-	kHelMapReadOnly = 1,
-	kHelMapReadWrite = 2,
-	kHelMapReadExecute = 4,
+	kHelMapProtRead = 256,
+	kHelMapProtWrite = 512,
+	kHelMapProtExecute = 1024,
 	kHelMapDropAtFork = 32,
 	kHelMapShareAtFork = 8,
 	kHelMapCopyOnWriteAtFork = 64,

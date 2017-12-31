@@ -53,7 +53,7 @@ COFIBER_ROUTINE(async::result<size_t>, read(std::shared_ptr<void> object,
 	// map the page cache into the address space
 	void *window;
 	HEL_CHECK(helMapMemory(self->inode->frontalMemory, kHelNullHandle,
-			nullptr, map_offset, map_size, kHelMapReadOnly | kHelMapDontRequireBacking, &window));
+			nullptr, map_offset, map_size, kHelMapProtRead | kHelMapDontRequireBacking, &window));
 
 	memcpy(buffer, (char *)window + (chunk_offset - map_offset), chunk_size);
 	COFIBER_RETURN(chunk_size);

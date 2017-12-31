@@ -75,7 +75,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 	void *window;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite, &window));
+			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
@@ -99,7 +99,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	void *window;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapReadWrite, &window));
+			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
@@ -169,7 +169,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
 	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path, process->_vmContext,
@@ -188,7 +188,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
 	return process;
@@ -210,7 +210,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapReadOnly | kHelMapDropAtFork,
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
 	COFIBER_RETURN();
