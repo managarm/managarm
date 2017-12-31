@@ -180,7 +180,7 @@ void LegacyPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
-	uint64_t sequence;
+	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
 		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
@@ -372,7 +372,7 @@ void StandardPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
-	uint64_t sequence;
+	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
 		auto &&submit = helix::submitAwaitEvent(_irq, &await, sequence,
