@@ -22,10 +22,6 @@ private:
 		assert(!"Not implemented");
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory() override, ([=] {
-		assert(!"Not implemented");
-	}))
-
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));
 	}

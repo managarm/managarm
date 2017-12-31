@@ -69,7 +69,7 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 	COFIBER_RETURN(recv_data.actualLength());
 }))	
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(), ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(off_t offset), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvBuffer recv_resp;
@@ -77,6 +77,7 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(), ([
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
+	req.set_rel_offset(offset);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];

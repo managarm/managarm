@@ -32,8 +32,8 @@ private:
 		COFIBER_RETURN(length);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory() override, ([=] {
-		auto memory = COFIBER_AWAIT _file.accessMemory();
+	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(off_t offset) override, ([=] {
+		auto memory = COFIBER_AWAIT _file.accessMemory(offset);
 		COFIBER_RETURN(std::move(memory));
 	}))
 

@@ -41,7 +41,12 @@ struct File {
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
-	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory();
+	
+	// TODO: This should not depend on an offset.
+	// Due to missing support from the kernel, we currently need multiple memory
+	// objects per file for DRM device files.
+	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset = 0);
+
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:

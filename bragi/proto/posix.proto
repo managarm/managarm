@@ -21,6 +21,9 @@ enum CntReqType {
 	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
+	VM_MAP = 26;
+	VM_UNMAP = 27;
+
 	MOUNT = 21;
 	CHROOT = 24;
 	ACCESS = 20;

@@ -29,7 +29,7 @@ struct File {
 
 	async::result<size_t> readSome(void *data, size_t max_length);
 	
-	async::result<helix::UniqueDescriptor> accessMemory();
+	async::result<helix::UniqueDescriptor> accessMemory(off_t offset);
 
 private:
 	helix::UniqueDescriptor _lane;

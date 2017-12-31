@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/auxv.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <iomanip>
 #include <iostream>
@@ -149,6 +150,58 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(1);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
+			helix::SendBuffer send_resp;
+
+			// TODO: Validate mode and flags.
+
+			// TODO: Return EINVAL instead of assert()ing.
+			// TODO: Handle arbitrary combinations.
+			uint32_t native_flags = kHelMapCopyOnWriteAtFork;
+			if(req.mode() & PROT_EXEC) {
+				assert(!(req.mode() & PROT_WRITE));
+				native_flags |= kHelMapReadExecute;
+			}else if(req.mode() & PROT_WRITE) {
+				native_flags |= kHelMapReadWrite;
+			}else if(req.mode() & PROT_READ) {
+				native_flags |= kHelMapReadOnly;
+			}else{
+				assert(!"mmap(): Protection not supported");
+			}
+
+			void *address;
+			if(req.flags() & MAP_ANONYMOUS) {
+				assert(req.fd() == -1);
+				assert(!req.rel_offset());
+
+				HelHandle memory;
+				HEL_CHECK(helAllocateMemory(req.size(), 0, &memory));
+
+				// Perform the actual mapping.
+				HEL_CHECK(helMapMemory(memory, self->vmContext()->getSpace().getHandle(),
+						nullptr, 0, req.size(), native_flags, &address));
+				HEL_CHECK(helCloseDescriptor(memory));
+			}else{
+				auto file = self->fileContext()->getFile(req.fd());
+				assert(file);
+				auto memory = COFIBER_AWAIT file->accessMemory(req.rel_offset());
+
+				// Perform the actual mapping.
+				std::cout << "offset: " << req.rel_offset() << std::endl;
+				HEL_CHECK(helMapMemory(memory.getHandle(),
+						self->vmContext()->getSpace().getHandle(),
+						nullptr, 0 /*req.rel_offset()*/, req.size(), native_flags, &address));
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_offset(reinterpret_cast<uintptr_t>(address));
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
