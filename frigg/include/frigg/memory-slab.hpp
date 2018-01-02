@@ -93,9 +93,12 @@ template<typename VirtualAlloc, typename Mutex>
 void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 //	infoLogger() << "frigg: Allocating " << length << frigg::endLog;
 	LockGuard<Mutex> guard(&p_mutex);
-	
-	if(length == 0)
-		return nullptr;
+
+	// malloc() is allowed to either return null or a unique value.
+	// However, some programs always interpret null returns as failure,
+	// so we round up the length.
+	if(!length)
+		length = 1;
 
 	if(length <= (uintptr_t(1) << kMaxPower)) {
 		int power = nextPower(length);
