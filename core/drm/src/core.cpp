@@ -721,8 +721,6 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 	
-		auto config = self->_device->createConfiguration();
-	
 		auto obj = self->_device->findObject(req.drm_crtc_id());
 		assert(obj);
 		auto crtc = obj->asCrtc();
@@ -739,8 +737,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 				mode_blob
 			});
 			
-			auto id = req.drm_fb_id();
-			auto fb = self->_device->findObject(id);
+			auto fb = self->_device->findObject(req.drm_fb_id());
 			assert(fb);
 			assignments.push_back(Assignment{ 
 				crtc->primaryPlane()->sharedModeObject(),
@@ -759,6 +756,40 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 			});
 		}
 
+		auto config = self->_device->createConfiguration();
+		auto valid = config->capture(assignments);
+		assert(valid);
+		config->commit();
+			
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == DRM_IOCTL_MODE_PAGE_FLIP) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+	
+		auto obj = self->_device->findObject(req.drm_crtc_id());
+		assert(obj);
+		auto crtc = obj->asCrtc();
+		assert(crtc);
+	
+		std::vector<drm_core::Assignment> assignments;
+
+		auto fb = self->_device->findObject(req.drm_fb_id());
+		assert(fb);
+		assignments.push_back(Assignment{ 
+			crtc->primaryPlane()->sharedModeObject(),
+			self->_device->fbIdProperty(),
+			0,
+			fb,
+			nullptr
+		});
+
+		auto config = self->_device->createConfiguration();
 		auto valid = config->capture(assignments);
 		assert(valid);
 		config->commit();
@@ -787,7 +818,7 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else{
-		throw std::runtime_error("Unknown ioctl() with ID" + std::to_string(req.command()));
+		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
 	COFIBER_RETURN();
 }))

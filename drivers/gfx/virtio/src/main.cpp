@@ -236,50 +236,45 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // ----------------------------------------------------------------
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
+	auto captureScanout = [&] (int index) {
+		if(_state[index])
+			return;
+
+		_state[index].emplace();
+		// TODO: Capture FB, width and height.
+		_state[index]->mode = _device->_theCrtcs[index]->currentMode();
+	};
+
 	for(auto &assign : assignment) {
 		if(assign.property == _device->srcWProperty()) {
 			//TODO: check this outside of capure
 			assert(assign.property->validate(assign));
 			
 			auto plane = static_cast<Plane *>(assign.object.get());
-			if(!_state[plane->scanoutId()])
-				_state[plane->scanoutId()].emplace();
+			captureScanout(plane->scanoutId());
 			_state[plane->scanoutId()]->width = assign.intValue;
 		}else if(assign.property == _device->srcHProperty()) {
 			//TODO: check this outside of capure
 			assert(assign.property->validate(assign));
 
 			auto plane = static_cast<Plane *>(assign.object.get());
-			if(!_state[plane->scanoutId()])
-				_state[plane->scanoutId()].emplace();
+			captureScanout(plane->scanoutId());
 			_state[plane->scanoutId()]->height = assign.intValue;
 		}else if(assign.property == _device->fbIdProperty()) {
 			//TODO: check this outside of capure
 			assert(assign.property->validate(assign));
 
 			auto plane = static_cast<Plane *>(assign.object.get());
-			if(!_state[plane->scanoutId()])
-				_state[plane->scanoutId()].emplace();
-			
 			auto fb = assign.objectValue->asFrameBuffer();
-			if(!fb)
-				return false;
+			captureScanout(plane->scanoutId());
 			_state[plane->scanoutId()]->fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 		}else if(assign.property == _device->modeIdProperty()) {
 			//TODO: check this outside of capture.
 			assert(assign.property->validate(assign));
 		
 			auto crtc = static_cast<Crtc *>(assign.object.get());
-			if(!_state[crtc->scanoutId()])
-				_state[crtc->scanoutId()].emplace();
-			
+			captureScanout(crtc->scanoutId());
 			_state[crtc->scanoutId()]->mode = assign.blobValue;
-			if(_state[crtc->scanoutId()]->mode) {
-				drm_mode_modeinfo mode_info;
-				memcpy(&mode_info, _state[crtc->scanoutId()]->mode->data(), sizeof(drm_mode_modeinfo));
-				_state[crtc->scanoutId()]->height = mode_info.vdisplay;
-				_state[crtc->scanoutId()]->width = mode_info.hdisplay;
-			}
 		}else{
 			return false;
 		}
@@ -288,7 +283,14 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	for(size_t i = 0; i < _state.size(); i++) {
 		if(!_state[i])
 			continue;
+
 		if(_state[i]->mode) {
+			// TODO: Consider current width/height if FB did not change.
+			drm_mode_modeinfo mode_info;
+			memcpy(&mode_info, _state[i]->mode->data(), sizeof(drm_mode_modeinfo));
+			_state[i]->height = mode_info.vdisplay;
+			_state[i]->width = mode_info.hdisplay;
+			
 			if(_state[i]->width <= 0 || _state[i]->height <= 0 
 					|| _state[i]->width > 1024 || _state[i]->height > 768)
 				return false;
@@ -317,6 +319,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 	for(size_t i = 0; i < states.size(); i++) {
 		if(!states[i])
 			continue;
+
 		if(!states[i]->mode) {
 			spec::SetScanout scanout;
 			memset(&scanout, 0, sizeof(spec::SetScanout));
@@ -325,16 +328,18 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 			spec::Header scanout_result;
 			virtio_core::Request scanout_request;	
 			virtio_core::Chain scanout_chain;
-			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, scanout_chain, device->_controlQ,
-				arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
-			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, scanout_chain, device->_controlQ,
-				arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
+			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+					scanout_chain, device->_controlQ,
+					arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
+			COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+					scanout_chain, device->_controlQ,
+					arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
 			COFIBER_AWAIT AwaitableRequest{device->_controlQ, scanout_chain.front()};
 			
 			continue;
 		}
 
-		states[i]->fb->getBufferObject()->wait();
+		COFIBER_AWAIT states[i]->fb->getBufferObject()->wait();
 
 		spec::XferToHost2d xfer;
 		memset(&xfer, 0, sizeof(spec::XferToHost2d));
@@ -348,10 +353,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		spec::Header xfer_result;
 		virtio_core::Request xfer_request;	
 		virtio_core::Chain xfer_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, xfer_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, xfer_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+				xfer_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+				xfer_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
 		COFIBER_AWAIT AwaitableRequest{device->_controlQ, xfer_chain.front()};
 
 
@@ -368,10 +375,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		spec::Header scanout_result;
 		virtio_core::Request scanout_request;	
 		virtio_core::Chain scanout_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, scanout_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, scanout_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+				scanout_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+				scanout_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
 		COFIBER_AWAIT AwaitableRequest{device->_controlQ, scanout_chain.front()};
 
 
@@ -387,10 +396,12 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(GfxDevic
 		spec::Header flush_result;
 		virtio_core::Request flush_request;	
 		virtio_core::Chain flush_chain;
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
-		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::hostToDevice,
+				flush_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
+		COFIBER_AWAIT virtio_core::scatterGather(virtio_core::deviceToHost,
+				flush_chain, device->_controlQ,
+				arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
 		COFIBER_AWAIT AwaitableRequest{device->_controlQ, flush_chain.front()};
 	}
 }))

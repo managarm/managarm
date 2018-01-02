@@ -22,6 +22,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	struct ScanoutState {
 		ScanoutState()
 		: width(0), height(0) { };
+
 		GfxDevice::FrameBuffer *fb;
 		std::shared_ptr<drm_core::Blob> mode;
 		int width;
