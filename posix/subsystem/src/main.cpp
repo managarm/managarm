@@ -93,11 +93,44 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			std::string path;
-			path.resize(gprs[7]);
+			path.resize(gprs[3]);
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
-					gprs[6], gprs[7], &path[0]));
+					gprs[5], gprs[3], path.data()));
+			
+			std::string args_area;
+			args_area.resize(gprs[6]);
+			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
+					gprs[0], gprs[6], args_area.data()));
 
-			Process::exec(self, path);
+			std::string env_area;
+			env_area.resize(gprs[8]);
+			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
+					gprs[7], gprs[8], env_area.data()));
+
+			// Parse both the arguments and the environment areas.
+			size_t k;
+
+			std::vector<std::string> args;
+			k = 0;
+			while(k < args_area.size()) {
+				auto d = args_area.find(char(0), k);
+				assert(d != std::string::npos);
+				args.push_back(args_area.substr(k, d - k));
+				std::cout << "arg: " << args.back() << std::endl;
+				k = d + 1;
+			}
+
+			std::vector<std::string> env;
+			k = 0;
+			while(k < env_area.size()) {
+				auto d = env_area.find(char(0), k);
+				assert(d != std::string::npos);
+				env.push_back(env_area.substr(k, d - k));
+				std::cout << "env: " << env.back() << std::endl;
+				k = d + 1;
+			}
+
+			Process::exec(self, path, std::move(args), std::move(env));
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {
 			printf("\e[35mThread exited\e[39m\n");
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
@@ -160,6 +193,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			// TODO: Validate mode and flags.
+			std::cout << "flags: " << req.flags() << std::endl;
 
 			uint32_t native_flags = kHelMapCopyOnWriteAtFork;
 			if(req.mode() & PROT_READ)
@@ -187,7 +221,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				auto memory = COFIBER_AWAIT file->accessMemory(req.rel_offset());
 
 				// Perform the actual mapping.
-				std::cout << "offset: " << req.rel_offset() << std::endl;
 				HEL_CHECK(helMapMemory(memory.getHandle(),
 						self->vmContext()->getSpace().getHandle(),
 						nullptr, 0 /*req.rel_offset()*/, req.size(), native_flags, &address));

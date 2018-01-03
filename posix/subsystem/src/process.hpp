@@ -79,7 +79,7 @@ struct Process {
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
 
 	static async::result<void> exec(std::shared_ptr<Process> process,
-			std::string path);
+			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
 	std::shared_ptr<VmContext> vmContext() {
 		return _vmContext;

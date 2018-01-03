@@ -172,7 +172,10 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
 
-	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path, process->_vmContext,
+	// TODO: Do not pass an empty argument vector?
+	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
+			std::vector<std::string>{}, std::vector<std::string>{},
+			process->_vmContext,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));
@@ -195,12 +198,13 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 }
 
 COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> process,
-		std::string path), ([=] {
+		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
 
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
-	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path, exec_vm_context,
+	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
+			path, std::move(args), std::move(env), exec_vm_context,
 			process->_fileContext->getUniverse(),
 			process->_fileContext->clientMbusLane());
 	serve(process, std::move(thread));
