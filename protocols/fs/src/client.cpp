@@ -69,6 +69,34 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 	COFIBER_RETURN(recv_data.actualLength());
 }))	
 
+COFIBER_ROUTINE(async::result<PollResult>, File::poll(uint64_t sequence), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvBuffer recv_resp;
+
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::FILE_POLL);
+	req.set_sequence(sequence);
+
+	auto ser = req.SerializeAsString();
+	uint8_t buffer[128];
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, buffer, 128));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+	PollResult result{resp.sequence(), resp.edges(), resp.status()};
+	COFIBER_RETURN(result);
+}))
+
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, File::accessMemory(off_t offset), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;

@@ -10,6 +10,7 @@
 #include <boost/variant.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/fs/common.hpp>
 
 // EVENTUALLY: use std::variant instead of boost::variant!
 
@@ -28,6 +29,8 @@ struct File {
 	async::result<void> seekAbsolute(int64_t offset);
 
 	async::result<size_t> readSome(void *data, size_t max_length);
+	
+	async::result<PollResult> poll(uint64_t sequence);
 	
 	async::result<helix::UniqueDescriptor> accessMemory(off_t offset);
 

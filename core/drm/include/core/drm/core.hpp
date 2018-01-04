@@ -56,6 +56,10 @@ using PropertyType = std::variant<
 	BlobPropertyType
 >;
 
+struct Event {
+	uint64_t cookie;
+};
+
 struct Property {
 	Property(PropertyType property_type)
 	: _propertyType(property_type) { }
@@ -151,12 +155,14 @@ public:
 
 struct File {
 	File(std::shared_ptr<Device> device)
-	: _device(device) { };
+	: _device(device), _eventSequence{1} { };
 	
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
 	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+	static async::result<protocols::fs::PollResult> poll(std::shared_ptr<void> object,
+			uint64_t sequence);
 
 	void attachFrameBuffer(std::shared_ptr<FrameBuffer> frame_buffer);
 	void detachFrameBuffer(FrameBuffer *frame_buffer);
@@ -165,18 +171,43 @@ struct File {
 	uint32_t createHandle(std::shared_ptr<BufferObject> bo);
 	BufferObject *resolveHandle(uint32_t handle);
 
+	void postEvent(Event event);
+
 private:
-	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
+	cofiber::no_future _retirePageFlip(std::unique_ptr<Configuration> config,
+			uint64_t cookie);
+
 	std::shared_ptr<Device> _device;
+
+	std::vector<std::shared_ptr<FrameBuffer>> _frameBuffers;
+
+	// BufferObjects associated with this file.
 	std::unordered_map<uint32_t, std::shared_ptr<BufferObject>> _buffers;
 	id_allocator<uint32_t> _allocator;
-	
+
+	// Event queuing structures.
+	std::deque<Event> _pendingEvents;
+	uint64_t _eventSequence;
+	async::doorbell _eventBell;
 };
 
 struct Configuration {
 	virtual bool capture(std::vector<Assignment> assignment) = 0;
 	virtual void dispose() = 0;
 	virtual void commit() = 0;
+
+	async::result<void> waitForCompletion() {
+		return _promise.async_get();
+	}
+
+protected:
+	// TODO: Let derive classes handle the promise?
+	void complete() {
+		_promise.set_value();
+	}
+
+private:
+	async::promise<void> _promise;
 };
 
 struct ModeObject {

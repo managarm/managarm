@@ -38,8 +38,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		void commit() override;
 		
 	private:
-		static cofiber::no_future _dispatch(GfxDevice *device,
-				std::array<std::optional<ScanoutState>, 16> states);
+		cofiber::no_future _dispatch();
 	
 		std::array<std::optional<ScanoutState>, 16> _state; 	
 		GfxDevice *_device;

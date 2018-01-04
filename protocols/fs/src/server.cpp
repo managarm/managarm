@@ -12,6 +12,134 @@
 namespace protocols {
 namespace fs {
 
+namespace {
+
+COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file,
+		const FileOperations *file_ops,
+		managarm::fs::CntRequest req, helix::UniqueLane conversation),
+		([file, file_ops, req = std::move(req), conversation = std::move(conversation)] () mutable {
+	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+		helix::SendBuffer send_resp;
+		
+		auto offset = COFIBER_AWAIT(file_ops->seekAbs(file, req.rel_offset()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_offset(offset);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+		helix::SendBuffer send_resp;
+		
+		auto offset = COFIBER_AWAIT(file_ops->seekRel(file, req.rel_offset()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_offset(offset);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
+		helix::SendBuffer send_resp;
+		
+		auto offset = COFIBER_AWAIT(file_ops->seekEof(file, req.rel_offset()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_offset(offset);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_data;
+		
+		std::string data;
+		data.resize(req.size());
+		auto size = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, data.data(), size));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+		helix::RecvInline recv_buffer;
+		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_buffer));
+		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(recv_buffer.error());
+	
+		COFIBER_AWAIT(file_ops->write(file, recv_buffer.data(), recv_buffer.length()));
+		
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
+		helix::SendBuffer send_resp;
+		helix::PushDescriptor push_memory;
+		
+		// TODO: Fix the size.
+		auto memory = COFIBER_AWAIT(file_ops->accessMemory(file, req.rel_offset(), 0));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_offset(memory.second);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&push_memory, memory.first));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(push_memory.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
+		COFIBER_AWAIT file_ops->ioctl(file, std::move(req), std::move(conversation));
+	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
+		helix::SendBuffer send_resp;
+		
+		auto result = COFIBER_AWAIT(file_ops->poll(file, req.sequence()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_sequence(std::get<0>(result));
+		resp.set_edges(std::get<1>(result));
+		resp.set_status(std::get<2>(result));
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else{
+		throw std::runtime_error("libfs_protocol: Unexpected"
+				" request type in servePassthrough()");
+	}
+}))
+
+} // anonymous namespace
+
 COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
 	while(true) {
@@ -29,108 +157,7 @@ COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::s
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-			helix::SendBuffer send_resp;
-			
-			auto offset = COFIBER_AWAIT(file_ops->seekAbs(file, req.rel_offset()));
-			
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_offset(offset);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-			helix::SendBuffer send_resp;
-			
-			auto offset = COFIBER_AWAIT(file_ops->seekRel(file, req.rel_offset()));
-			
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_offset(offset);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
-			helix::SendBuffer send_resp;
-			
-			auto offset = COFIBER_AWAIT(file_ops->seekEof(file, req.rel_offset()));
-			
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_offset(offset);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_data;
-			
-			std::string data;
-			data.resize(req.size());
-			auto size = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
-			
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, data.data(), size));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_data.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
-			helix::RecvInline recv_buffer;
-			auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&recv_buffer));
-			COFIBER_AWAIT buff.async_wait();
-			HEL_CHECK(recv_buffer.error());
-		
-			COFIBER_AWAIT(file_ops->write(file, recv_buffer.data(), recv_buffer.length()));
-			
-			helix::SendBuffer send_resp;
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_memory;
-			
-			// TODO: Fix the size.
-			auto memory = COFIBER_AWAIT(file_ops->accessMemory(file, req.rel_offset(), 0));
-			
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_offset(memory.second);
-
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_memory, memory.first));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_memory.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
-			COFIBER_AWAIT file_ops->ioctl(file, std::move(req), std::move(conversation));
-		}else{
-			throw std::runtime_error("libfs_protocol: Unexpected"
-					" request type in servePassthrough()");
-		}
+		handlePassthrough(file, file_ops, std::move(req), std::move(conversation));
 	}
 }))
 

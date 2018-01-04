@@ -8,6 +8,7 @@
 #include <iostream>
 #include <memory>
 #include <numeric>
+#include <sys/epoll.h>
 
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
@@ -456,9 +457,36 @@ drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 	return it->second.get();
 };
 
-async::result<size_t> drm_core::File::read(std::shared_ptr<void> object, void *buffer, size_t length) {
-	throw std::runtime_error("read() not implemented");
+void drm_core::File::postEvent(drm_core::Event event) {
+	if(_pendingEvents.empty())
+		++_eventSequence;
+	_pendingEvents.push_back(event);
+	_eventBell.ring();
 }
+
+COFIBER_ROUTINE(async::result<size_t>, drm_core::File::read(std::shared_ptr<void> object,
+		void *buffer, size_t length), ([=] {
+	auto self = std::static_pointer_cast<drm_core::File>(object);
+
+	while(self->_pendingEvents.empty())
+		COFIBER_AWAIT self->_eventBell.async_wait();
+
+	auto ev = &self->_pendingEvents.front();
+
+	// TODO: Support sequence number and CRTC id.
+	drm_event_vblank out;
+	memset(&out, 0, sizeof(drm_event_vblank));
+	out.base.type = DRM_EVENT_FLIP_COMPLETE;
+	out.base.length = sizeof(drm_event_vblank);
+	out.user_data = ev->cookie;
+
+	assert(length >= sizeof(drm_event_vblank));
+	memcpy(buffer, &out, sizeof(drm_event_vblank));
+	
+	self->_pendingEvents.pop_front();
+
+	COFIBER_RETURN(sizeof(drm_event_vblank));
+}))
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_core::File::accessMemory(std::shared_ptr<void> object,
 		uint64_t offset, size_t), ([=] {
@@ -760,7 +788,9 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		auto valid = config->capture(assignments);
 		assert(valid);
 		config->commit();
-			
+
+		COFIBER_AWAIT config->waitForCompletion();
+
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
 		auto ser = resp.SerializeAsString();
@@ -793,6 +823,8 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		auto valid = config->capture(assignments);
 		assert(valid);
 		config->commit();
+
+		self->_retirePageFlip(std::move(config), req.drm_cookie());
 			
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -821,6 +853,37 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
 	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
+		drm_core::File::poll(std::shared_ptr<void> object, uint64_t sequence),
+		([object = std::move(object), sequence] {
+	auto self = std::static_pointer_cast<drm_core::File>(object);
+
+	if(sequence > self->_eventSequence) {
+		throw std::runtime_error("drm_core: Illegal poll() sequence");
+	}else if(sequence == self->_eventSequence) {
+		while(sequence == self->_eventSequence)
+			COFIBER_AWAIT self->_eventBell.async_wait();
+	}
+
+	int s = 0;
+	if(!self->_pendingEvents.empty())
+		s |= EPOLLIN;
+	
+	protocols::fs::PollResult result{self->_eventSequence, EPOLLIN, s};
+	COFIBER_RETURN(result);
+}))
+
+COFIBER_ROUTINE(cofiber::no_future,
+		drm_core::File::_retirePageFlip(std::unique_ptr<drm_core::Configuration> config,
+			uint64_t cookie),
+		([this, config = std::move(config), cookie] {
+	COFIBER_AWAIT config->waitForCompletion();
+
+	Event event;
+	event.cookie = cookie;
+	postEvent(event);
 }))
 
 // ----------------------------------------------------------------

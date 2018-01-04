@@ -16,6 +16,7 @@
 #include "device.hpp"
 #include "vfs.hpp"
 #include "process.hpp"
+#include "epoll.hpp"
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
@@ -477,6 +478,56 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
+			helix::SendBuffer send_resp;
+
+			auto file = createEpollFile();
+			auto fd = self->fileContext()->attachFile(file);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CTL) {
+			helix::SendBuffer send_resp;
+
+			auto epfile = self->fileContext()->getFile(req.fd());
+			auto file = self->fileContext()->getFile(req.newfd());
+			assert(epfile);
+			assert(file);
+
+			epollCtl(epfile.get(), file.get(), req.flags(), req.cookie());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
+			helix::SendBuffer send_resp;
+			helix::SendBuffer send_data;
+			
+			auto epfile = self->fileContext()->getFile(req.fd());
+			assert(epfile);
+			auto event = COFIBER_AWAIT epollWait(epfile.get());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, &event, sizeof(struct epoll_event)));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{

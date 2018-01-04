@@ -44,6 +44,11 @@ enum CntReqType {
 	
 	// Socket-specific calls.
 	SOCKPAIR = 25;
+	
+	// epoll-specific calls.
+	EPOLL_CREATE = 28;
+	EPOLL_CTL = 29;
+	EPOLL_WAIT = 30;
 
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
@@ -96,6 +101,9 @@ message CntRequest {
 	optional int32 domain = 14;
 	optional int32 socktype = 15;
 	optional int32 protocol = 16;
+	
+	// used by EPOLL_CTL
+	optional uint64 cookie = 17;
 }
 
 message SvrResponse {

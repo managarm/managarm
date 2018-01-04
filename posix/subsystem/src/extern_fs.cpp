@@ -31,6 +31,13 @@ private:
 		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
+	
+	// TODO: For extern_fs, we can simply return POLLIN | POLLOUT here.
+	// Move device code out of this file.
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
+		auto result = COFIBER_AWAIT _file.poll(sequence);
+		COFIBER_RETURN(result);
+	}))
 
 	COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, accessMemory(off_t offset) override, ([=] {
 		auto memory = COFIBER_AWAIT _file.accessMemory(offset);

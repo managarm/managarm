@@ -26,6 +26,8 @@ using FutureMaybe = async::result<T>;
 // File class.
 // ----------------------------------------------------------------------------
 
+using PollResult = std::tuple<uint64_t, int, int>;
+
 struct File {
 	File(std::shared_ptr<FsLink> link)
 	: _link{std::move(link)} { }
@@ -41,7 +43,15 @@ struct File {
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
-	
+
+	// poll() uses a sequence number mechansim for synchronization.
+	// Before returning, it waits until current-sequence > in-sequence.
+	// Returns (current-sequence, edges since in-sequence, current events).
+	// current-sequence is incremented each time an edge (i.e. an event bit
+	// transitions from clear to set) happens.
+	// TODO: This request should be cancelable.
+	virtual FutureMaybe<PollResult> poll(uint64_t sequence);
+
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory
 	// objects per file for DRM device files.

@@ -118,7 +118,9 @@ void printf(P &printer, const char *format, va_list args) {
 			assert(!l_prefix);
 
 			auto s = va_arg(args, const char *);
-			assert(s);
+			if(!s)
+				s = "(null)";
+
 			int length = strlen(s);
 			if(precision && *precision < length)
 				length = *precision;
@@ -200,6 +202,14 @@ void printf(P &printer, const char *format, va_list args) {
 			assert(minimum_width == 0);
 			printer.print("0x");
 			printUInt(printer, (uintptr_t)va_arg(args, void *), 16);
+			break;
+		case 'f':
+		case 'F':
+		case 'g':
+		case 'G':
+		case 'e':
+		case 'E':
+			printer.print("%f");
 			break;
 		default:
 			assert(!"Illegal printf modifier");

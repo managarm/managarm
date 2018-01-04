@@ -17,6 +17,7 @@ $c_LIBS := -lhelix -lcofiber \
 
 $(call make_so,libfs_protocol.so,client.o server.o fs.pb.o)
 $(call install_header,protocols/fs/client.hpp)
+$(call install_header,protocols/fs/common.hpp)
 $(call install_header,protocols/fs/server.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 

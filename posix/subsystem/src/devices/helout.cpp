@@ -21,6 +21,14 @@ private:
 		(void)max_length;
 		assert(!"Not implemented");
 	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
+		// TODO: Signal that we are ready to accept output.
+		if(!sequence) {
+			PollResult result{1, 0, 0};
+			COFIBER_RETURN(result);
+		}
+	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));

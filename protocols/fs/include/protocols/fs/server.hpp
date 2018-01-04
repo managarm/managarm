@@ -8,6 +8,7 @@
 #include <async/result.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/fs/common.hpp>
 
 namespace managarm::fs {
 	struct CntRequest;
@@ -30,25 +31,31 @@ using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
 struct FileOperations {
 	constexpr FileOperations()
 	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
-			read{nullptr}, write{nullptr}, accessMemory{nullptr}, ioctl{nullptr} { }
+			read{nullptr}, write{nullptr}, accessMemory{nullptr}, ioctl{nullptr},
+			poll{nullptr} { }
 
-	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(std::shared_ptr<void> object,
+			int64_t offset)) {
 		seekAbs = f;
 		return *this;
 	}
-	constexpr FileOperations &withSeekRel(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+	constexpr FileOperations &withSeekRel(async::result<int64_t> (*f)(std::shared_ptr<void> object,
+			int64_t offset)) {
 		seekRel = f;
 		return *this;
 	}
-	constexpr FileOperations &withSeekEof(async::result<int64_t> (*f)(std::shared_ptr<void> object, int64_t offset)) {
+	constexpr FileOperations &withSeekEof(async::result<int64_t> (*f)(std::shared_ptr<void> object,
+			int64_t offset)) {
 		seekEof = f;
 		return *this;
 	}
-	constexpr FileOperations &withRead(async::result<size_t> (*f)(std::shared_ptr<void> object, void *buffer, size_t length)) {
+	constexpr FileOperations &withRead(async::result<size_t> (*f)(std::shared_ptr<void> object,
+			void *buffer, size_t length)) {
 		read = f;
 		return *this;
 	}
-	constexpr FileOperations &withWrite(async::result<void> (*f)(std::shared_ptr<void> object, const void *buffer, size_t length)) {
+	constexpr FileOperations &withWrite(async::result<void> (*f)(std::shared_ptr<void> object,
+			const void *buffer, size_t length)) {
 		write = f;
 		return *this;
 	}
@@ -57,9 +64,14 @@ struct FileOperations {
 		accessMemory = f;
 		return *this;
 	}
-	constexpr FileOperations &withIoctl(async::result<void> (*f)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
-			helix::UniqueLane conversation)) {
+	constexpr FileOperations &withIoctl(async::result<void> (*f)(std::shared_ptr<void> object,
+			managarm::fs::CntRequest req, helix::UniqueLane conversation)) {
 		ioctl = f;
+		return *this;
+	}
+	constexpr FileOperations &withPoll(async::result<PollResult> (*f)(std::shared_ptr<void> object,
+			uint64_t sequence)) {
+		poll = f;
 		return *this;
 	}
 
@@ -72,6 +84,7 @@ struct FileOperations {
 			uint64_t offset, size_t size);
 	async::result<void> (*ioctl)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+	async::result<PollResult> (*poll)(std::shared_ptr<void> object, uint64_t sequence);
 };
 
 struct NodeOperations {

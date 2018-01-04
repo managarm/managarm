@@ -29,6 +29,10 @@ FutureMaybe<off_t> File::seek(off_t, VfsSeek) {
 	throw std::runtime_error("posix: Object has no File::seek()");
 }
 
+FutureMaybe<PollResult> File::poll(uint64_t) {
+	throw std::runtime_error("posix: Object has no File::poll()");
+}
+
 FutureMaybe<helix::UniqueDescriptor> File::accessMemory(off_t) {
 	// TODO: Return an error.
 	throw std::runtime_error("posix: Object has no File::accessMemory()");
