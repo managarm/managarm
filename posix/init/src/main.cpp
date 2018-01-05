@@ -31,27 +31,33 @@ int main() {
 	args.push_back(const_cast<char *>("acpi"));
 	args.push_back(nullptr);
 
-	char *envp[] = { nullptr };
+	std::vector<char *> env;
+	env.push_back(const_cast<char *>("MESA_GLSL_CACHE_DISABLE=1"));
+//	env.push_back(const_cast<char *>("MESA_DEBUG=1"));
+//	env.push_back(const_cast<char *>("TGSI_PRINT_SANITY=1"));
+//	env.push_back(const_cast<char *>("SOFTPIPE_NO_RAST=1"));
+//	env.push_back(const_cast<char *>("SOFTPIPE_DUMP_FS=1"));
+	env.push_back(nullptr);
 
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
-		execve("/sbin/uhci", args.data(), envp);
+		execve("/sbin/uhci", args.data(), env.data());
 	}else assert(uhci != -1);
 
 	auto ehci = fork();
 	if(!ehci) {
-		execve("/sbin/ehci", args.data(), envp);
+		execve("/sbin/ehci", args.data(), env.data());
 	}else assert(ehci != -1);
 
 	auto virtio = fork();
 	if(!virtio) {
-		execve("/sbin/virtio-block", args.data(), envp);
+		execve("/sbin/virtio-block", args.data(), env.data());
 	}else assert(virtio != -1);
 
 	auto storage = fork();
 	if(!storage) {
-		execve("/sbin/storage", args.data(), envp);
+		execve("/sbin/storage", args.data(), env.data());
 	}else assert(storage != -1);
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
@@ -74,12 +80,12 @@ int main() {
 	/*
 	auto gfx_bochs = fork();
 	if(!gfx_bochs) {
-		execve("/usr/bin/gfx_bochs", args.data(), envp);
+		execve("/usr/bin/gfx_bochs", args.data(), env.data());
 	}else assert(gfx_bochs != -1);
 	*/
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
-		execve("/usr/bin/gfx_virtio", args.data(), envp);
+		execve("/usr/bin/gfx_virtio", args.data(), env.data());
 	}else assert(gfx_virtio != -1);
 
 	while(access("/dev/dri/card0", F_OK)) {
@@ -89,15 +95,17 @@ int main() {
 
 	auto modeset = fork();
 	if(!modeset) {
-		execve("/root/modeset-render", args.data(), envp);
-		//execve("/root/modeset-double-buffered", args.data(), envp);
+		execve("/usr/bin/kmscube", args.data(), env.data());
+		//execve("/root/unixsock", args.data(), env.data());
+		//execve("/root/modeset-render", args.data(), env.data());
+		//execve("/root/modeset-double-buffered", args.data(), env.data());
 	}else assert(modeset != -1);
 
 /*
 	// UART
 	auto uart = fork();
 	if(!uart) {
-		execve("/usr/bin/uart", args.data(), envp);
+		execve("/usr/bin/uart", args.data(), env.data());
 	}else assert(uart != -1);
 
 	// Spin until /dev/ttyS0 becomes available.
@@ -120,13 +128,13 @@ int main() {
 /*
 	auto hid = fork();
 	if(!hid) {
-		execve("/realfs/usr/bin/hid", args.data(), envp);
+		execve("/realfs/usr/bin/hid", args.data(), env.data());
 	}else assert(hid != -1);
 */
 /*
 	auto bash = fork();
 	if(!bash) {
-		execve("/realfs/usr/bin/bash", args.data(), envp);
+		execve("/realfs/usr/bin/bash", args.data(), env.data());
 	}else assert(bash != -1);
 */
 /*
@@ -140,14 +148,14 @@ int main() {
 /*
 	auto gfx_intel = fork();
 	if(!gfx_intel) {
-		execve("/usr/bin/gfx_intel", args.data(), envp);
+		execve("/usr/bin/gfx_intel", args.data(), env.data());
 	}else assert(gfx_intel != -1);
 */
 
 /*
 	auto hid = fork();
 	if(!hid) {
-		execve("/usr/bin/hid", args.data(), envp);
+		execve("/usr/bin/hid", args.data(), env.data());
 	}else assert(hid != -1);
 
 	// Spin until /dev/event0 becomes available.
@@ -176,7 +184,7 @@ int main() {
 /*
 	auto vga_terminal = fork();
 	if(!vga_terminal) {
-		execve("/realfs/usr/bin/vga_terminal", args.data(), envp);
+		execve("/realfs/usr/bin/vga_terminal", args.data(), env.data());
 	}else assert(vga_terminal != -1);
 */
 
@@ -190,11 +198,11 @@ int main() {
 	pid_t terminal_child = fork();
 	assert(terminal_child != -1);
 	if(!terminal_child) {
-//		execve("/usr/bin/kbd", args.data(), envp);
-		execve("/usr/bin/uhci", args.data(), envp);
-//		execve("/usr/bin/virtio-net", args.data(), envp);
-//		execve("/usr/bin/bochs_vga", args.data(), envp);
-//		execve("/usr/bin/zisa", args.data(), envp);
+//		execve("/usr/bin/kbd", args.data(), env.data());
+		execve("/usr/bin/uhci", args.data(), env.data());
+//		execve("/usr/bin/virtio-net", args.data(), env.data());
+//		execve("/usr/bin/bochs_vga", args.data(), env.data());
+//		execve("/usr/bin/zisa", args.data(), env.data());
 	}
 */	
 	// TODO: this is a very ugly hack to wait until the fs is ready

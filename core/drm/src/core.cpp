@@ -860,12 +860,12 @@ COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
 		([object = std::move(object), sequence] {
 	auto self = std::static_pointer_cast<drm_core::File>(object);
 
-	if(sequence > self->_eventSequence) {
+	if(sequence > self->_eventSequence)
 		throw std::runtime_error("drm_core: Illegal poll() sequence");
-	}else if(sequence == self->_eventSequence) {
-		while(sequence == self->_eventSequence)
-			COFIBER_AWAIT self->_eventBell.async_wait();
-	}
+
+	// Wait until we surpass the input sequence.
+	while(sequence == self->_eventSequence)
+		COFIBER_AWAIT self->_eventBell.async_wait();
 
 	int s = 0;
 	if(!self->_pendingEvents.empty())
