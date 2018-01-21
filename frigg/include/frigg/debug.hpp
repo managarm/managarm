@@ -3,6 +3,7 @@
 #define FRIGG_DEBUG_HPP
 
 #include <frigg/macros.hpp>
+#include <frigg/support.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 
@@ -170,14 +171,24 @@ public:
 	public:
 		struct IsPrinter { };
 
-		void print(char c);
-		void print(const char *str);
+		inline void print(char c) {
+			friggPrintCritical(c);
+		}
+		
+		inline void print(const char *str) {
+			friggPrintCritical(str);
+		}
 
 		void flush() { }
-		void finish();
+		
+		inline void finish() {
+			friggPrintCritical('\n');
+		}
 	};
 
-	Printer operator() ();
+	inline Printer operator() () {
+		return Printer();
+	}
 };
 
 class PanicLogger {
@@ -186,18 +197,30 @@ public:
 	public:
 		struct IsPrinter { };
 
-		void print(char c);
-		void print(const char *str);
+		inline void print(char c) {
+			friggPrintCritical(c);
+		}
+
+		inline void print(const char *str) {
+			friggPrintCritical(str);
+		}
 
 		void flush() { }
-		void finish();
+
+		inline void finish() {
+			friggPrintCritical('\n');
+			friggPanic();
+		}
 	};
 
-	Printer operator() ();
+	inline Printer operator() () {
+		friggPrintCritical("Panic!\n");
+		return Printer();
+	}
 };
 
-extern InfoLogger infoLogger;
-extern PanicLogger panicLogger;
+inline InfoLogger infoLogger;
+inline PanicLogger panicLogger;
 
 } // namespace frigg
 
