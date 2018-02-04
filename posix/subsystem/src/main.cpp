@@ -400,6 +400,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				self->fileContext()->attachFile(req.newfd(), file);
 				resfd = req.newfd();
 			}else{
+				throw std::runtime_error("Do not use DUP2 in this way");
 				resfd = self->fileContext()->attachFile(file);
 			}
 
