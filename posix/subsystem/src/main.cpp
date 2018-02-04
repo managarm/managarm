@@ -22,9 +22,11 @@
 #include "devices/helout.hpp"
 #include "socket.hpp"
 #include "subsystem/block.hpp"
+#include "sysfs.hpp"
 #include <posix.pb.h>
 
 bool traceRequests = false;
+bool logPaths = true;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -243,6 +245,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(target.second);
 			if(req.fs_type() == "devtmpfs") {
 				target.first->mount(target.second, getDevtmpfs());	
+			}else if(req.fs_type() == "sysfs") {
+				target.first->mount(target.second, getSysfs());	
 			}else{
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
@@ -348,6 +352,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 			helix::SendBuffer send_resp;
+			
+			if(logPaths)
+				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
 
 			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path());
 			if(file) {
@@ -551,6 +558,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // --------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
+	auto clsdir = sysfsMkdir(getSysfs()->getTarget().get(), "class");
+	auto drmdir = sysfsMkdir(clsdir->getTarget().get(), "drm");
+	sysfsMkdir(drmdir->getTarget().get(), "card0");
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
 }))

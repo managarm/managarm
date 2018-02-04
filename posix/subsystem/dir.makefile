@@ -3,7 +3,7 @@ $(call standard_dirs)
 $(call define_objdir,DEVICES_OBJ,$($c_OBJDIR)/devices)
 $(call define_objdir,SUBSYSTEM_OBJ,$($c_OBJDIR)/subsystem)
 
-$c_OBJECTS := device.o epoll.o exec.o file.o fs.o main.o process.o socket.o vfs.o
+$c_OBJECTS := device.o epoll.o exec.o file.o fs.o main.o process.o socket.o sysfs.o vfs.o
 $c_OBJECTS += devices/helout.o
 $c_OBJECTS += tmp_fs.o extern_fs.o
 $c_OBJECTS += posix.pb.o

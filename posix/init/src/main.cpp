@@ -72,6 +72,8 @@ int main() {
 
 	if(mount("", "/realfs/dev", "devtmpfs", 0, ""))
 		throw std::runtime_error("mount() failed");
+	if(mount("", "/realfs/sys", "sysfs", 0, ""))
+		throw std::runtime_error("mount() failed");
 
 	if(chroot("/realfs"))
 		throw std::runtime_error("chroot() failed");
@@ -95,8 +97,9 @@ int main() {
 
 	auto modeset = fork();
 	if(!modeset) {
-		execve("/usr/bin/kmscube", args.data(), env.data());
 		//execve("/root/unixsock", args.data(), env.data());
+		execve("/root/test-libudev", args.data(), env.data());
+		//execve("/usr/bin/kmscube", args.data(), env.data());
 		//execve("/root/modeset-render", args.data(), env.data());
 		//execve("/root/modeset-double-buffered", args.data(), env.data());
 	}else assert(modeset != -1);
