@@ -8,6 +8,7 @@ enum Errors {
 	SUCCESS = 0;
 	DEAD_FORK = 6;
 	ILLEGAL_REQUEST = 4;
+	ILLEGAL_ARGUMENTS = 9;
 	FILE_NOT_FOUND = 1;
 	ACCESS_DENIED = 2;
 	ALREADY_EXISTS = 3;
@@ -29,6 +30,7 @@ enum CntReqType {
 	ACCESS = 20;
 	STAT = 23;
 	FSTAT = 12;
+	READLINK = 31;
 	OPEN = 2;
 	CONNECT = 19;
 	READ = 3;
@@ -61,6 +63,12 @@ enum OpenFlags {
 enum OpenMode {
 	REGULAR = 1;
 	HELFD = 2;
+};
+
+enum FileType {
+	FT_UNKNOWN = 0;
+	FT_REGULAR = 1;
+	FT_DIRECTORY = 2;
 };
 
 message CntRequest {
@@ -113,7 +121,7 @@ message SvrResponse {
 	optional int64 pid = 18;
 
 	// returned by FSTAT
-//	optional FileType file_type = 5;
+	optional FileType file_type = 5;
 
 	// returned by FSTAT
 	optional uint64 file_size = 4;

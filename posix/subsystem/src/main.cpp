@@ -313,7 +313,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {
+		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {	
+			if(logPaths)
+				std::cout << "posix: STAT path: " << req.path() << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
@@ -322,6 +325,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				switch(path.second->getTarget()->getType()) {
+				case VfsType::regular:
+					resp.set_file_type(managarm::posix::FT_REGULAR); break;
+				case VfsType::directory:
+					resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+				}
+
 				resp.set_inode_num(stats.inodeNumber);
 				resp.set_mode(stats.mode);
 				resp.set_num_links(stats.numLinks);
@@ -350,11 +361,24 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
-		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {
+		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
 			helix::SendBuffer send_resp;
-			
+			helix::SendBuffer send_data;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, nullptr, 0));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {	
 			if(logPaths)
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
+
+			helix::SendBuffer send_resp;
 
 			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path());
 			if(file) {
@@ -424,6 +448,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			switch(file->associatedLink()->getTarget()->getType()) {
+			case VfsType::regular:
+				resp.set_file_type(managarm::posix::FT_REGULAR); break;
+			case VfsType::directory:
+				resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+			}
+
 			resp.set_inode_num(stats.inodeNumber);
 			resp.set_mode(stats.mode);
 			resp.set_num_links(stats.numLinks);
