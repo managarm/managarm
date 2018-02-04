@@ -557,10 +557,15 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // main() function
 // --------------------------------------------------------
 
+std::shared_ptr<sysfs::Object> cardObject;
+
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
-	auto clsdir = sysfsMkdir(getSysfs()->getTarget().get(), "class");
-	auto drmdir = sysfsMkdir(clsdir->getTarget().get(), "drm");
-	sysfsMkdir(drmdir->getTarget().get(), "card0");
+	auto cls_object = std::make_shared<sysfs::Object>(nullptr, "class");
+	cls_object->addObject();
+	auto drm_object = std::make_shared<sysfs::Object>(cls_object, "drm");
+	drm_object->addObject();
+	cardObject = std::make_shared<sysfs::Object>(drm_object, "card0");
+	cardObject->addObject();
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
 }))
