@@ -251,6 +251,11 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::str
 	if(current.second->getTarget()->getType() == VfsType::regular) {
 		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second);
 		COFIBER_RETURN(std::move(file));
+	}else if(current.second->getTarget()->getType() == VfsType::directory) {
+		// TODO: Correctly reject opening directories when no O_DIRECTORY flag is set
+		// (see Open Group).
+		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second);
+		COFIBER_RETURN(std::move(file));
 	}else if(current.second->getTarget()->getType() == VfsType::charDevice) {
 		auto id = current.second->getTarget()->readDevice();
 		auto device = charRegistry.get(id);

@@ -31,7 +31,8 @@ using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
 struct FileOperations {
 	constexpr FileOperations()
 	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
-			read{nullptr}, write{nullptr}, accessMemory{nullptr}, ioctl{nullptr},
+			read{nullptr}, write{nullptr}, readEntries{nullptr},
+			accessMemory{nullptr}, ioctl{nullptr},
 			poll{nullptr} { }
 
 	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(std::shared_ptr<void> object,
@@ -59,6 +60,10 @@ struct FileOperations {
 		write = f;
 		return *this;
 	}
+	constexpr FileOperations &withReadEntries(async::result<ReadEntriesResult> (*f)(std::shared_ptr<void> object)) {
+		readEntries = f;
+		return *this;
+	}
 	constexpr FileOperations &withAccessMemory(async::result<AccessMemoryResult>(*f)(std::shared_ptr<void> object,
 			uint64_t offset, size_t size)) {
 		accessMemory = f;
@@ -80,6 +85,7 @@ struct FileOperations {
 	async::result<int64_t> (*seekEof)(std::shared_ptr<void> object, int64_t offset);
 	async::result<size_t> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
 	async::result<void> (*write)(std::shared_ptr<void> object, const void *buffer, size_t length);
+	async::result<ReadEntriesResult> (*readEntries)(std::shared_ptr<void> object);
 	async::result<AccessMemoryResult>(*accessMemory)(std::shared_ptr<void> object,
 			uint64_t offset, size_t size);
 	async::result<void> (*ioctl)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
