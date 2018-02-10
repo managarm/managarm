@@ -214,7 +214,8 @@ ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
-COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name), ([=] {
+COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
+		ResolveFlags flags), ([=] {
 	auto path = Path::decompose(std::move(name));
 
 	ViewPath current = root;
@@ -230,7 +231,8 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name),
 		if(!child.second)
 			COFIBER_RETURN(child); // TODO: Return an error code.
 
-		if(child.second->getTarget()->getType() == VfsType::symlink) {
+		if((!components.empty() || !(flags & resolveDontFollow))
+				&& child.second->getTarget()->getType() == VfsType::symlink) {
 			auto link = Path::decompose(COFIBER_AWAIT child.second->getTarget()->readSymlink());
 			if(!link.isRelative())
 				current = root;

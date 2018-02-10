@@ -61,11 +61,22 @@ private:
 	std::shared_ptr<FsNode> target;
 };
 
+struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
+	SymlinkNode() = default;
+
+	VfsType getType() override;
+	FileStats getStats() override;
+	FutureMaybe<std::string> readSymlink() override;
+
+private:
+};
+
 struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	friend struct DirectoryFile;
 
 	DirectoryNode() = default;
 
+	std::shared_ptr<Link> directMklink(std::string name);
 	std::shared_ptr<Link> directMkdir(std::string name);
 
 	VfsType getType() override;
@@ -88,6 +99,8 @@ struct Hierarchy;
 // Object corresponds to Linux kobjects.
 struct Object {
 	Object(std::shared_ptr<Object> parent, std::string name);
+
+	void createSymlink(std::string name, std::shared_ptr<Object> target);
 
 	void addObject();
 

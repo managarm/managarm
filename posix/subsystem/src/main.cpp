@@ -362,18 +362,39 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
+			if(logPaths)
+				std::cout << "posix: READLINK path: " << req.path() << std::endl;
+
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
+			
+			// TODO: Return managarm::posix::Errors::ILLEGAL_ARGUMENTS if the file is not a link.
 
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					req.path(), resolveDontFollow);
+			if(path.second) {
+				auto target = COFIBER_AWAIT path.second->getTarget()->readSymlink();
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, nullptr, 0));
-			COFIBER_AWAIT transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&send_data, target.data(), target.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&send_data, nullptr, 0));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {	
 			if(logPaths)
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
@@ -593,12 +614,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 std::shared_ptr<sysfs::Object> cardObject;
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
+	auto devs_object = std::make_shared<sysfs::Object>(nullptr, "devices");
+	devs_object->addObject();
+	cardObject = std::make_shared<sysfs::Object>(devs_object, "card0");
+	cardObject->addObject();
+
 	auto cls_object = std::make_shared<sysfs::Object>(nullptr, "class");
 	cls_object->addObject();
 	auto drm_object = std::make_shared<sysfs::Object>(cls_object, "drm");
 	drm_object->addObject();
-	cardObject = std::make_shared<sysfs::Object>(drm_object, "card0");
-	cardObject->addObject();
+	drm_object->createSymlink("card0", cardObject);
+
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
 }))

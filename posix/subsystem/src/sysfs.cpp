@@ -82,8 +82,33 @@ std::shared_ptr<FsNode> Link::getTarget() {
 }
 
 // ----------------------------------------------------------------------------
+// SymlinkNode implementation.
+// ----------------------------------------------------------------------------
+
+VfsType SymlinkNode::getType() {
+	return VfsType::symlink;
+}
+
+FileStats SymlinkNode::getStats() {
+	std::cout << "\e[31mposix: Fix sysfs SymlinkNode::getStats()\e[39m" << std::endl;
+	return FileStats{};
+}
+
+COFIBER_ROUTINE(FutureMaybe<std::string>, SymlinkNode::readSymlink(), ([=] {
+	COFIBER_RETURN("../../devices/card0");
+}))
+
+// ----------------------------------------------------------------------------
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
+
+std::shared_ptr<Link> DirectoryNode::directMklink(std::string name) {
+	assert(_entries.find(name) == _entries.end());
+	auto node = std::make_shared<SymlinkNode>();
+	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	_entries.insert(link);
+	return link;
+}
 
 std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
@@ -124,14 +149,20 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 Object::Object(std::shared_ptr<Object> parent, std::string name)
 : _parent{std::move(parent)}, _name{std::move(name)} { }
 
+void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
+	assert(_dirLink);
+	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
+	dir->directMklink(std::move(name));
+}
+
 void Object::addObject() {
 	if(_parent) {
 		assert(_parent->_dirLink);
-		auto dir = static_cast<DirectoryNode *>(_parent->_dirLink->getTarget().get());
-		_dirLink = dir->directMkdir(_name);
+		auto parent_dir = static_cast<DirectoryNode *>(_parent->_dirLink->getTarget().get());
+		_dirLink = parent_dir->directMkdir(_name);
 	}else{
-		auto dir = static_cast<DirectoryNode *>(getSysfs()->getTarget().get());
-		_dirLink = dir->directMkdir(_name);
+		auto parent_dir = static_cast<DirectoryNode *>(getSysfs()->getTarget().get());
+		_dirLink = parent_dir->directMkdir(_name);
 	}
 }
 

@@ -71,7 +71,10 @@ async::result<void> populateRootView();
 
 ViewPath rootPath();
 
-FutureMaybe<ViewPath> resolve(ViewPath root, std::string name);
+using ResolveFlags = uint32_t;
+inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
+
+FutureMaybe<ViewPath> resolve(ViewPath root, std::string name, ResolveFlags flags = 0);
 
 FutureMaybe<std::shared_ptr<File>> open(ViewPath root, std::string name);
 
