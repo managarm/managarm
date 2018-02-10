@@ -613,11 +613,28 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 std::shared_ptr<sysfs::Object> cardObject;
 
+struct UeventAttribute : sysfs::Attribute {
+	static auto singleton() {
+		static UeventAttribute attr;
+		return &attr;
+	}
+
+private:
+	UeventAttribute()
+	: sysfs::Attribute("uevent") { }
+
+public:
+	virtual std::string show(sysfs::Object *) override {
+		throw std::runtime_error("UeventAttribute::show() is not implemented yet");
+	}
+};
+
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 	auto devs_object = std::make_shared<sysfs::Object>(nullptr, "devices");
 	devs_object->addObject();
 	cardObject = std::make_shared<sysfs::Object>(devs_object, "card0");
 	cardObject->addObject();
+	cardObject->createAttribute(UeventAttribute::singleton());
 
 	auto cls_object = std::make_shared<sysfs::Object>(nullptr, "class");
 	cls_object->addObject();

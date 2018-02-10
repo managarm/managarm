@@ -82,6 +82,22 @@ std::shared_ptr<FsNode> Link::getTarget() {
 }
 
 // ----------------------------------------------------------------------------
+// AttributeNode implementation.
+// ----------------------------------------------------------------------------
+
+AttributeNode::AttributeNode(Attribute *attr)
+: _attr{attr} { }
+
+VfsType AttributeNode::getType() {
+	return VfsType::regular;
+}
+
+FileStats AttributeNode::getStats() {
+	std::cout << "\e[31mposix: Fix sysfs AttributeNode::getStats()\e[39m" << std::endl;
+	return FileStats{};
+}
+
+// ----------------------------------------------------------------------------
 // SymlinkNode implementation.
 // ----------------------------------------------------------------------------
 
@@ -101,6 +117,14 @@ COFIBER_ROUTINE(FutureMaybe<std::string>, SymlinkNode::readSymlink(), ([=] {
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
+
+std::shared_ptr<Link> DirectoryNode::directMkattr(Attribute *attr) {
+	assert(_entries.find(attr->name()) == _entries.end());
+	auto node = std::make_shared<AttributeNode>(attr);
+	auto link = std::make_shared<Link>(shared_from_this(), attr->name(), std::move(node));
+	_entries.insert(link);
+	return link;
+}
 
 std::shared_ptr<Link> DirectoryNode::directMklink(std::string name) {
 	assert(_entries.find(name) == _entries.end());
@@ -143,11 +167,24 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 }))
 
 // ----------------------------------------------------------------------------
+// Attribute implementation
+// ----------------------------------------------------------------------------
+
+Attribute::Attribute(std::string name)
+: _name{std::move(name)} { }
+
+// ----------------------------------------------------------------------------
 // Object implementation
 // ----------------------------------------------------------------------------
 
 Object::Object(std::shared_ptr<Object> parent, std::string name)
 : _parent{std::move(parent)}, _name{std::move(name)} { }
+
+void Object::createAttribute(Attribute *attr) {
+	assert(_dirLink);
+	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
+	dir->directMkattr(attr);
+}
 
 void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
 	assert(_dirLink);

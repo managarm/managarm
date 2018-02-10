@@ -7,14 +7,18 @@
 
 namespace sysfs {
 
+struct LinkCompare;
+struct Link;
+struct DirectoryNode;
+
+struct Attribute;
+struct Object;
+struct Hierarchy;
+
 // ----------------------------------------------------------------------------
 // FS data structures.
 // This API is only intended for private use.
 // ----------------------------------------------------------------------------
-
-struct LinkCompare;
-struct Link;
-struct DirectoryNode;
 
 struct LinkCompare {
 	struct is_transparent { };
@@ -61,6 +65,16 @@ private:
 	std::shared_ptr<FsNode> target;
 };
 
+struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
+	AttributeNode(Attribute *attr);
+
+	VfsType getType() override;
+	FileStats getStats() override;
+
+private:
+	Attribute *_attr;
+};
+
 struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
 	SymlinkNode() = default;
 
@@ -76,6 +90,7 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 
 	DirectoryNode() = default;
 
+	std::shared_ptr<Link> directMkattr(Attribute *attr);
 	std::shared_ptr<Link> directMklink(std::string name);
 	std::shared_ptr<Link> directMkdir(std::string name);
 
@@ -93,13 +108,24 @@ private:
 // Subsystems should use this API to manage sysfs.
 // ----------------------------------------------------------------------------
 
-struct Object;
-struct Hierarchy;
+struct Attribute {
+	Attribute(std::string name);
+
+	const std::string &name() {
+		return _name;
+	}
+
+	virtual std::string show(Object *object) = 0;
+
+private:
+	const std::string _name;
+};
 
 // Object corresponds to Linux kobjects.
 struct Object {
 	Object(std::shared_ptr<Object> parent, std::string name);
 
+	void createAttribute(Attribute *attr);
 	void createSymlink(std::string name, std::shared_ptr<Object> target);
 
 	void addObject();
