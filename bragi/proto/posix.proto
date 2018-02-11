@@ -55,6 +55,8 @@ enum CntReqType {
 	// signalfd()-specific calls
 	SIGNALFD_CREATE = 32;
 
+	TIMERFD_CREATE = 33;
+
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
 };
