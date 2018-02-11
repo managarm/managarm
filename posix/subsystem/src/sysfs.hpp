@@ -69,7 +69,7 @@ struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
 	AttributeNode(Attribute *attr);
 
 	VfsType getType() override;
-	FileStats getStats() override;
+	FutureMaybe<FileStats> getStats() override;
 
 private:
 	Attribute *_attr;
@@ -79,7 +79,7 @@ struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
 	SymlinkNode() = default;
 
 	VfsType getType() override;
-	FileStats getStats() override;
+	FutureMaybe<FileStats> getStats() override;
 	FutureMaybe<std::string> readSymlink() override;
 
 private:
@@ -95,7 +95,7 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	std::shared_ptr<Link> directMkdir(std::string name);
 
 	VfsType getType() override;
-	FileStats getStats() override;
+	FutureMaybe<FileStats> getStats() override;
 	FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 

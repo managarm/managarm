@@ -22,10 +22,10 @@ private:
 		return VfsType::symlink;
 	}
 
-	FileStats getStats() override {
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs Symlink::getStats()\e[39m" << std::endl;
-		return FileStats{};
-	}
+		COFIBER_RETURN(FileStats{});
+	}))
 
 	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink() override, ([=] {
 		COFIBER_RETURN(_link);
@@ -45,10 +45,10 @@ private:
 		return _type;
 	}
 	
-	FileStats getStats() override {
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs DeviceFile::getStats()\e[39m" << std::endl;
-		return FileStats{};
-	}
+		COFIBER_RETURN(FileStats{});
+	}))
 
 	DeviceId readDevice() override {
 		return _id;
@@ -94,10 +94,10 @@ private:
 		return VfsType::directory;
 	}
 
-	FileStats getStats() override {
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs Directory::getStats()\e[39m" << std::endl;
-		return FileStats{};
-	}
+		COFIBER_RETURN(FileStats{});
+	}))
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			getLink(std::string name) override, ([=] {
@@ -170,7 +170,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FileStats getStats() override {
+	FutureMaybe<FileStats> getStats() override {
 		assert(!"Fix this");
 	}
 

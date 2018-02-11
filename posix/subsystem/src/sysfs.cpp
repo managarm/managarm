@@ -92,10 +92,10 @@ VfsType AttributeNode::getType() {
 	return VfsType::regular;
 }
 
-FileStats AttributeNode::getStats() {
+COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 	std::cout << "\e[31mposix: Fix sysfs AttributeNode::getStats()\e[39m" << std::endl;
-	return FileStats{};
-}
+	COFIBER_RETURN(FileStats{});
+}))
 
 // ----------------------------------------------------------------------------
 // SymlinkNode implementation.
@@ -105,10 +105,10 @@ VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
 }
 
-FileStats SymlinkNode::getStats() {
+COFIBER_ROUTINE(FutureMaybe<FileStats>, SymlinkNode::getStats(), ([=] {
 	std::cout << "\e[31mposix: Fix sysfs SymlinkNode::getStats()\e[39m" << std::endl;
-	return FileStats{};
-}
+	COFIBER_RETURN(FileStats{});
+}))
 
 COFIBER_ROUTINE(FutureMaybe<std::string>, SymlinkNode::readSymlink(), ([=] {
 	COFIBER_RETURN("../../devices/card0");
@@ -146,10 +146,10 @@ VfsType DirectoryNode::getType() {
 	return VfsType::directory;
 }
 
-FileStats DirectoryNode::getStats() {
+COFIBER_ROUTINE(FutureMaybe<FileStats>, DirectoryNode::getStats(), ([=] {
 	std::cout << "\e[31mposix: Fix sysfs Directory::getStats()\e[39m" << std::endl;
-	return FileStats{};
-}
+	COFIBER_RETURN(FileStats{});
+}))
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
 		DirectoryNode::open(std::shared_ptr<FsLink> link), ([=] {

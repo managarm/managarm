@@ -62,7 +62,7 @@ private:
 		return VfsType::regular;
 	}
 
-	FileStats getStats() override {
+	FutureMaybe<FileStats> getStats() override {
 		assert(!"Fix this");
 	}
 
@@ -108,7 +108,7 @@ private:
 		return VfsType::symlink;
 	}
 
-	FileStats getStats() override {
+	FutureMaybe<FileStats> getStats() override {
 		throw std::runtime_error("extern_fs: Fix Symlink::getStats()");
 	}
 
@@ -176,7 +176,7 @@ private:
 		return VfsType::directory;
 	}
 
-	FileStats getStats() override {
+	FutureMaybe<FileStats> getStats() override {
 		assert(!"Fix this");
 	}
 

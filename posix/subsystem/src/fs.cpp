@@ -16,7 +16,7 @@ VfsType FsNode::getType() {
 	throw std::runtime_error("Not implemented");
 }
 
-FileStats FsNode::getStats() {
+FutureMaybe<FileStats> FsNode::getStats() {
 	throw std::runtime_error("Not implemented");
 }
 

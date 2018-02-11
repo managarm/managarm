@@ -55,7 +55,7 @@ struct FsNode {
 	virtual VfsType getType();
 
 	// TODO: This should be async.
-	virtual FileStats getStats();
+	virtual FutureMaybe<FileStats> getStats();
 
 	//! Resolves a file in a directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);

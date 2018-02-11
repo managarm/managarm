@@ -326,7 +326,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
 			if(path.second) {
-				auto stats = path.second->getTarget()->getStats();
+				auto stats = COFIBER_AWAIT path.second->getTarget()->getStats();
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -468,7 +468,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			auto file = self->fileContext()->getFile(req.fd());
-			auto stats = file->associatedLink()->getTarget()->getStats();
+			auto stats = COFIBER_AWAIT file->associatedLink()->getTarget()->getStats();
 
 			helix::SendBuffer send_resp;
 
