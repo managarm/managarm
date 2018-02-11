@@ -133,6 +133,7 @@ enum {
 	DT_RPATH = 15,
 	DT_SYMBOLIC = 16,
 	DT_REL = 17,
+	DT_BIND_NOW = 24,
 	DT_INIT_ARRAY = 25,
 	DT_FINI_ARRAY = 26,
 	DT_INIT_ARRAYSZ = 27,
@@ -143,6 +144,7 @@ enum {
 	DT_FLAGS = 30,
 	DT_VERSYM = 0x6ffffff0,
 	DT_RELACOUNT = 0x6ffffff9,
+	DT_FLAGS_1 = 0x6ffffffb,
 	DT_VERDEF = 0x6ffffffc,
 	DT_VERDEFNUM = 0x6ffffffd,
 	DT_VERNEED = 0x6ffffffe,
@@ -150,8 +152,12 @@ enum {
 };
 
 enum {
+	// For DT_FLAGS.
 	DF_SYMBOLIC = 0x02,
-	DF_STATIC_TLS = 0x10
+	DF_STATIC_TLS = 0x10,
+
+	// For DT_FLAGS_1.
+	DF_1_NOW = 0x00000001
 };
 
 struct Elf64_Dyn {

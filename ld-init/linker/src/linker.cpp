@@ -591,6 +591,9 @@ void ObjectRepository::_parseDynamic(SharedObject *object) {
 		case DT_SYMBOLIC:
 			object->symbolicResolution = true;
 			break;
+		case DT_BIND_NOW:
+			object->eagerBinding = true;
+			break;
 		case DT_FLAGS:
 			if(dynamic->d_val & DF_SYMBOLIC)
 				object->symbolicResolution = true;
@@ -598,6 +601,14 @@ void ObjectRepository::_parseDynamic(SharedObject *object) {
 				object->haveStaticTls = true;
 			if(dynamic->d_val & ~(DF_SYMBOLIC | DF_STATIC_TLS))
 				frigg::infoLogger() << "\e[31mrtdl: DT_FLAGS(" << frigg::logHex(dynamic->d_val)
+						<< ") is not implemented correctly!\e[39m"
+						<< frigg::endLog;
+			break;
+		case DT_FLAGS_1:
+			if(dynamic->d_val & DF_1_NOW)
+				object->eagerBinding = true;
+			if(dynamic->d_val & ~(DF_1_NOW))
+				frigg::infoLogger() << "\e[31mrtdl: DT_FLAGS_1(" << frigg::logHex(dynamic->d_val)
 						<< ") is not implemented correctly!\e[39m"
 						<< frigg::endLog;
 			break;
@@ -647,7 +658,7 @@ SharedObject::SharedObject(const char *name, bool is_main_object, uint64_t objec
 		tlsSegmentSize(0), tlsAlignment(0), tlsImageSize(0), tlsImagePtr(nullptr),
 		hashTableOffset(0), symbolTableOffset(0), stringTableOffset(0),
 		lazyRelocTableOffset(0), lazyTableSize(0), lazyExplicitAddend(false),
-		symbolicResolution(false), haveStaticTls(false),
+		symbolicResolution(false), eagerBinding(false), haveStaticTls(false),
 		dependencies(*allocator),
 		tlsModel(TlsModel::null), tlsOffset(0),
 		globalRts(0), wasLinked(false),

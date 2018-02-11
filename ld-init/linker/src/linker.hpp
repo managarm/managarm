@@ -93,6 +93,7 @@ struct SharedObject {
 	bool lazyExplicitAddend;
 
 	bool symbolicResolution;
+	bool eagerBinding;
 	bool haveStaticTls;
 
 	// vector of dependencies
