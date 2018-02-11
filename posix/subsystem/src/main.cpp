@@ -23,6 +23,7 @@
 #include "socket.hpp"
 #include "subsystem/block.hpp"
 #include "sysfs.hpp"
+#include "tmp_fs.hpp"
 #include <posix.pb.h>
 
 bool traceRequests = false;
@@ -243,10 +244,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
 			assert(target.second);
-			if(req.fs_type() == "devtmpfs") {
-				target.first->mount(target.second, getDevtmpfs());	
-			}else if(req.fs_type() == "sysfs") {
+			if(req.fs_type() == "sysfs") {
 				target.first->mount(target.second, getSysfs());	
+			}else if(req.fs_type() == "devtmpfs") {
+				target.first->mount(target.second, getDevtmpfs());	
+			}else if(req.fs_type() == "tmpfs") {
+				target.first->mount(target.second, tmp_fs::createRoot());	
 			}else{
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
