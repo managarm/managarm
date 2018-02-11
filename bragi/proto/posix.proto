@@ -52,6 +52,9 @@ enum CntReqType {
 	EPOLL_CTL = 29;
 	EPOLL_WAIT = 30;
 
+	// signalfd()-specific calls
+	SIGNALFD_CREATE = 32;
+
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
 };

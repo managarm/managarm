@@ -20,6 +20,7 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
+#include "signalfd.hpp"
 #include "socket.hpp"
 #include "subsystem/block.hpp"
 #include "sysfs.hpp"
@@ -592,6 +593,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 					helix::action(&send_data, &event, sizeof(struct epoll_event)));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
+			helix::SendBuffer send_resp;
+
+			auto file = createSignalFile();
+			auto fd = self->fileContext()->attachFile(file);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{
