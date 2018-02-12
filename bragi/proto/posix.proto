@@ -75,6 +75,11 @@ enum FileType {
 	FT_UNKNOWN = 0;
 	FT_REGULAR = 1;
 	FT_DIRECTORY = 2;
+	FT_SYMLINK = 3;
+	FT_FIFO = 4;
+	FT_SOCKET = 5;
+	FT_CHAR_DEVICE = 6;
+	FT_BLOCK_DEVICE = 7;
 };
 
 message CntRequest {

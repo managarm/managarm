@@ -336,6 +336,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					resp.set_file_type(managarm::posix::FT_REGULAR); break;
 				case VfsType::directory:
 					resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+				case VfsType::charDevice:
+					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE); break;
+				case VfsType::blockDevice:
+					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE); break;
 				}
 
 				resp.set_inode_num(stats.inodeNumber);
@@ -507,6 +511,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				resp.set_file_type(managarm::posix::FT_REGULAR); break;
 			case VfsType::directory:
 				resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
+			case VfsType::charDevice:
+				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE); break;
+			case VfsType::blockDevice:
+				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE); break;
 			}
 
 			resp.set_inode_num(stats.inodeNumber);
