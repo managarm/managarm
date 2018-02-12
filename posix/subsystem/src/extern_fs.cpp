@@ -176,9 +176,10 @@ private:
 		return VfsType::directory;
 	}
 
-	FutureMaybe<FileStats> getStats() override {
-		assert(!"Fix this");
-	}
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+		std::cout << "\e[31mposix: Fix externfs Directory::getStats()\e[39m" << std::endl;
+		COFIBER_RETURN(FileStats{});
+	}))
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			mkdir(std::string name) override, ([=] {
