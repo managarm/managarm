@@ -121,7 +121,12 @@ void processCopyRelocations(SharedObject *object);
 struct RuntimeTlsMap {
 	RuntimeTlsMap();
 
-	size_t initialSize;
+	// Amount of initialLimit that has already been allocated.
+	size_t initialPtr;
+	
+	// Size of the inital TLS segment.
+	size_t initialLimit;
+
 	frigg::Vector<SharedObject *, Allocator> initialObjects;
 };
 
@@ -180,7 +185,7 @@ private:
 
 class Loader {
 public:
-	Loader(Scope *scope, TlsModel tls_model, uint64_t rts);
+	Loader(Scope *scope, bool is_initial_link, uint64_t rts);
 
 	void submitObject(SharedObject *object);
 
@@ -204,7 +209,7 @@ private:
 	struct Token { };
 
 	Scope *_globalScope;
-	TlsModel _tlsModel;
+	bool _isInitialLink;
 	uint64_t _linkRts;
 
 	frigg::Hashmap<SharedObject *, Token,

@@ -763,14 +763,14 @@ void doInitialize(SharedObject *object) {
 // --------------------------------------------------------
 
 RuntimeTlsMap::RuntimeTlsMap()
-: initialSize(0), initialObjects(*allocator) { }
+: initialPtr(0), initialLimit(0), initialObjects(*allocator) { }
 
 struct Tcb {
 	Tcb *selfPointer;
 };
 
 void allocateTcb() {
-	size_t fs_size = runtimeTlsMap->initialSize + sizeof(Tcb);
+	size_t fs_size = runtimeTlsMap->initialLimit + sizeof(Tcb);
 	char *fs_buffer = (char *)allocator->allocate(fs_size);
 	memset(fs_buffer, 0, fs_size);
 
@@ -778,11 +778,11 @@ void allocateTcb() {
 		SharedObject *object = runtimeTlsMap->initialObjects[i];
 		if(object->tlsModel != TlsModel::initial)
 			continue;
-		auto tls_ptr = fs_buffer + runtimeTlsMap->initialSize + object->tlsOffset;
+		auto tls_ptr = fs_buffer + runtimeTlsMap->initialLimit + object->tlsOffset;
 		memcpy(tls_ptr, object->tlsImagePtr, object->tlsImageSize);
 	}
 
-	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialSize);
+	auto tcb_ptr = (Tcb *)(fs_buffer + runtimeTlsMap->initialLimit);
 	tcb_ptr->selfPointer = tcb_ptr;
 	HEL_CHECK(helWriteFsBase(tcb_ptr));
 }
@@ -899,8 +899,8 @@ frigg::Optional<ObjectSymbol> Scope::resolveSymbol(ObjectSymbol r, ResolveFlags 
 // Loader
 // --------------------------------------------------------
 
-Loader::Loader(Scope *scope, TlsModel tls_model, uint64_t rts)
-: _globalScope(scope), _tlsModel(tls_model), _linkRts(rts),
+Loader::Loader(Scope *scope, bool is_initial_link, uint64_t rts)
+: _globalScope(scope), _isInitialLink(is_initial_link), _linkRts(rts),
 		_linkSet(frigg::DefaultHasher<SharedObject *>(), *allocator),
 		_linkBfs(*allocator),
 		_initQueue(*allocator) { }
@@ -966,37 +966,76 @@ void Loader::linkObjects() {
 }
 
 void Loader::_buildTlsMaps() {
-	// TODO: Implement dynamic TLS.
-	// TODO: Ensure that haveStaticTls is false for dynamic TLS!
-	if(_tlsModel == TlsModel::dynamic)
-		return;
+	if(_isInitialLink) {
+		assert(runtimeTlsMap->initialPtr == 0);
+		assert(runtimeTlsMap->initialLimit == 0);
 
-	assert(runtimeTlsMap->initialSize == 0);
+		assert(!_linkBfs.empty());
+		assert(_linkBfs.front()->isMainObject);
 
-	assert(!_linkBfs.empty());
-	assert(_linkBfs.front()->isMainObject);
+		for(auto it = _linkBfs.frontIter(); it.okay(); ++it) {
+			SharedObject *object = *it;
+			assert(object->tlsModel == TlsModel::null);
 
-	for(auto it = _linkBfs.frontIter(); it.okay(); ++it) {
-		SharedObject *object = *it;
-		assert(object->tlsModel == TlsModel::null);
-		
-		if(object->tlsSegmentSize == 0)
-			continue;
-		
-		runtimeTlsMap->initialSize += object->tlsSegmentSize;
-		assert(16 % object->tlsAlignment == 0);
-		size_t misalign = runtimeTlsMap->initialSize % object->tlsAlignment;
-		if(misalign)
-			runtimeTlsMap->initialSize += object->tlsAlignment - misalign;
-		object->tlsModel = TlsModel::initial;
-		object->tlsOffset = -runtimeTlsMap->initialSize;
-		runtimeTlsMap->initialObjects.push(object);
-		
-		if(verbose)
-			frigg::infoLogger() << "TLS of " << object->name
-					<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
-					<< ", size: " << object->tlsSegmentSize
-					<< ", alignment: " << object->tlsAlignment << frigg::endLog;
+			if(object->tlsSegmentSize == 0)
+				continue;
+
+			assert(16 % object->tlsAlignment == 0);
+			auto ptr = runtimeTlsMap->initialPtr += object->tlsSegmentSize;
+			size_t misalign = runtimeTlsMap->initialPtr % object->tlsAlignment;
+			if(misalign)
+				runtimeTlsMap->initialPtr += object->tlsAlignment - misalign;
+
+			object->tlsModel = TlsModel::initial;
+			object->tlsOffset = -runtimeTlsMap->initialPtr;
+			runtimeTlsMap->initialObjects.push(object);
+			
+			if(verbose)
+				frigg::infoLogger() << "TLS of " << object->name
+						<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
+						<< ", size: " << object->tlsSegmentSize
+						<< ", alignment: " << object->tlsAlignment << frigg::endLog;
+		}
+
+		// Reserve some additional space for future libraries.
+		runtimeTlsMap->initialLimit = runtimeTlsMap->initialPtr + 64;
+	}else{
+		for(auto it = _linkBfs.frontIter(); it.okay(); ++it) {
+			SharedObject *object = *it;
+			
+			if(object->tlsModel != TlsModel::null)
+				continue;
+			if(object->tlsSegmentSize == 0)
+				continue;
+
+			// There are some libraries (e.g. Mesa) that require static TLS even though
+			// they expect to be dynamically loaded.
+			if(object->haveStaticTls) {
+				assert(16 % object->tlsAlignment == 0);
+				auto ptr = runtimeTlsMap->initialPtr + object->tlsSegmentSize;
+				size_t misalign = ptr % object->tlsAlignment;
+				if(misalign)
+					ptr += object->tlsAlignment - misalign;
+
+				if(ptr > runtimeTlsMap->initialLimit)
+					frigg::panicLogger() << "rtdl: Static TLS space exhausted while while"
+							" allocating TLS for " << object->name << frigg::endLog;
+				runtimeTlsMap->initialPtr = ptr;
+
+				object->tlsModel = TlsModel::initial;
+				object->tlsOffset = -runtimeTlsMap->initialPtr;
+				runtimeTlsMap->initialObjects.push(object);
+				
+//				if(verbose)
+					frigg::infoLogger() << "TLS of " << object->name
+							<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
+							<< ", size: " << object->tlsSegmentSize
+							<< ", alignment: " << object->tlsAlignment << frigg::endLog;
+			}else{
+				// TODO: Implement dynamic TLS.
+				frigg::panicLogger() << "rtdl: Dynamic TLS is not supported" << frigg::endLog;
+			}
+		}
 	}
 }
 
@@ -1077,6 +1116,8 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 		assert(!symbol_index);
 		*((uint64_t *)rel_addr) = object->baseAddress + reloc->r_addend;
 	} break;
+	// DTPMOD and DTPOFF are dynamic TLS relocations (for __tls_get_addr()).
+	// TPOFF is a relocation to the initial TLS model.
 	case R_X86_64_DTPMOD64: {
 		assert(!reloc->r_addend);
 		if(symbol_index) {
@@ -1084,6 +1125,7 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 			*((uint64_t *)rel_addr) = (uint64_t)p->object();
 		}else{
 			// TODO: is this behaviour actually documented anywhere?
+			frigg::infoLogger() << "rtdl: Warning: DTPOFF64 with no symbol" << frigg::endLog;
 			*((uint64_t *)rel_addr) = (uint64_t)object;
 		}
 	} break;
@@ -1097,12 +1139,18 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 		if(symbol_index) {
 			assert(p);
 			assert(!reloc->r_addend);
-			assert(p->object()->tlsModel == TlsModel::initial);
+			if(p->object()->tlsModel != TlsModel::initial)
+				frigg::panicLogger() << "rtdl: In object " << object->name
+						<< ": Static TLS relocation to dynamically loaded object "
+						<< p->object()->name << frigg::endLog;
 			*((uint64_t *)rel_addr) = p->object()->tlsOffset + p->symbol()->st_value;
 		}else{
-			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol" << frigg::endLog;
 			assert(!reloc->r_addend);
-			assert(object->tlsModel == TlsModel::initial);
+			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol" << frigg::endLog;
+			if(object->tlsModel != TlsModel::initial)
+				frigg::panicLogger() << "rtdl: In object " << object->name
+						<< ": Static TLS relocation to dynamically loaded object "
+						<< object->name << frigg::endLog;
 			*((uint64_t *)rel_addr) = object->tlsOffset;
 		}
 	} break;

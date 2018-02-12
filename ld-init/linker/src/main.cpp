@@ -165,7 +165,7 @@ extern "C" void *interpreterMain(uintptr_t *entry_stack) {
 	auto executable = initialRepository->injectObjectFromPhdrs("(executable)", phdr_pointer,
 			phdr_entry_size, phdr_count, entry_pointer, 1);
 
-	Loader linker{globalScope.get(), TlsModel::initial, 1};
+	Loader linker{globalScope.get(), true, 1};
 	linker.submitObject(executable);
 	linker.linkObjects();
 	allocateTcb();
@@ -231,7 +231,7 @@ void *__dlapi_open(const char *file, int local) {
 		return nullptr;
 	}
 
-	Loader linker{globalScope.get(), TlsModel::dynamic, rts};
+	Loader linker{globalScope.get(), false, rts};
 	linker.submitObject(object);
 	linker.linkObjects();
 	linker.initObjects();
