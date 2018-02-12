@@ -34,7 +34,7 @@ int main() {
 	std::vector<char *> env;
 	env.push_back(const_cast<char *>("XDG_RUNTIME_DIR=/run"));
 	env.push_back(const_cast<char *>("MESA_GLSL_CACHE_DISABLE=1"));
-//	env.push_back(const_cast<char *>("MESA_DEBUG=1"));
+	env.push_back(const_cast<char *>("MESA_DEBUG=1"));
 //	env.push_back(const_cast<char *>("TGSI_PRINT_SANITY=1"));
 //	env.push_back(const_cast<char *>("SOFTPIPE_NO_RAST=1"));
 //	env.push_back(const_cast<char *>("SOFTPIPE_DUMP_FS=1"));

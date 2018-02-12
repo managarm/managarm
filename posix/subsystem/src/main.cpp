@@ -23,6 +23,7 @@
 #include "signalfd.hpp"
 #include "socket.hpp"
 #include "subsystem/block.hpp"
+#include "subsystem/drm.hpp"
 #include "sysfs.hpp"
 #include "timerfd.hpp"
 #include "tmp_fs.hpp"
@@ -722,6 +723,7 @@ int main() {
 
 	charRegistry.install(createHeloutDevice());
 	block_system::run();
+	drm_system::run();
 	runInit();
 
 	while(true)

@@ -8,7 +8,7 @@ $c_OBJECTS := device.o epoll.o exec.o file.o fs.o main.o process.o \
 $c_OBJECTS += devices/helout.o
 $c_OBJECTS += tmp_fs.o extern_fs.o
 $c_OBJECTS += posix.pb.o
-$c_OBJECTS += subsystem/block.o
+$c_OBJECTS += subsystem/block.o subsystem/drm.o
 # fs.pb.o is part of libfs_protocol.
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
 
