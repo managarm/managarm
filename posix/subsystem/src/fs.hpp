@@ -78,8 +78,9 @@ struct FsNode {
 	// TODO: Move this to the link instead of the inode?
 	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link);
 	
-	//! Reads the target of a symlink (symlinks only).
-	virtual FutureMaybe<std::string> readSymlink();
+	// Reads the target of a symlink (symlinks only).
+	// Returns illegalOperationTarget() by default.
+	virtual expected<std::string> readSymlink();
 
 	//! Read the major/minor device number (devices only).
 	virtual DeviceId readDevice();

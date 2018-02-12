@@ -97,6 +97,11 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+AttributeNode::open(std::shared_ptr<FsLink> link), ([=] {
+	throw std::runtime_error("AttributeNode::open() is not implemented");
+}))
+
 // ----------------------------------------------------------------------------
 // SymlinkNode implementation.
 // ----------------------------------------------------------------------------
@@ -110,7 +115,7 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, SymlinkNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::string>, SymlinkNode::readSymlink(), ([=] {
+COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(), ([=] {
 	COFIBER_RETURN("../../devices/card0");
 }))
 

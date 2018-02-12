@@ -112,7 +112,7 @@ private:
 		throw std::runtime_error("extern_fs: Fix Symlink::getStats()");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink() override, ([=] {
+	COFIBER_ROUTINE(expected<std::string>, readSymlink() override, ([=] {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

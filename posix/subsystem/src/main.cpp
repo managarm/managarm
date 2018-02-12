@@ -373,12 +373,36 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 			
-			// TODO: Return managarm::posix::Errors::ILLEGAL_ARGUMENTS if the file is not a link.
-
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
 					req.path(), resolveDontFollow);
-			if(path.second) {
-				auto target = COFIBER_AWAIT path.second->getTarget()->readSymlink();
+			if(!path.second) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&send_data, nullptr, 0));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				COFIBER_RETURN();
+			}
+
+			auto result = COFIBER_AWAIT path.second->getTarget()->readSymlink();
+			if(auto error = std::get_if<Error>(&result); error) {
+				assert(*error == Error::illegalOperationTarget);
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+						helix::action(&send_data, nullptr, 0));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				auto &target = std::get<std::string>(result);
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -387,16 +411,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
 						helix::action(&send_data, target.data(), target.size()));
-				COFIBER_AWAIT transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-			}else{
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&send_data, nullptr, 0));
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}

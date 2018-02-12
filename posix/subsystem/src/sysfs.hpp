@@ -70,6 +70,7 @@ struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
+	FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link) override;
 
 private:
 	Attribute *_attr;
@@ -80,7 +81,7 @@ struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<std::string> readSymlink() override;
+	expected<std::string> readSymlink() override;
 
 private:
 };

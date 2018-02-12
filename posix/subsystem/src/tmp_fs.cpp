@@ -27,7 +27,7 @@ private:
 		COFIBER_RETURN(FileStats{});
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::string>, readSymlink() override, ([=] {
+	COFIBER_ROUTINE(expected<std::string>, readSymlink() override, ([=] {
 		COFIBER_RETURN(_link);
 	}))
 

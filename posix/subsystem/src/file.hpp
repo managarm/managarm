@@ -1,6 +1,8 @@
 #ifndef POSIX_SUBSYSTEM_FILE_HPP
 #define POSIX_SUBSYSTEM_FILE_HPP
 
+#include <variant>
+
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
 #include <cofiber.hpp>
@@ -10,8 +12,13 @@
 struct FsLink;
 
 // TODO: Rename this enum as is not part of the VFS.
-enum VfsError {
-	success, eof
+enum class Error {
+	success,
+	eof,
+
+	// Indices that the given object does not support the operation
+	// (e.g. readSymlink() is called on a file that is not a link).
+	illegalOperationTarget
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -21,6 +28,9 @@ enum class VfsSeek {
 
 template<typename T>
 using FutureMaybe = async::result<T>;
+
+template<typename T>
+using expected = async::result<std::variant<Error, T>>;
 
 // ----------------------------------------------------------------------------
 // File class.
