@@ -28,6 +28,30 @@ struct LinkCompare {
 	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const;
 };
 
+struct AttributeFile : ProperFile {
+private:
+	static async::result<size_t> ptRead(std::shared_ptr<void> object,
+			void *buffer, size_t length);
+
+	static constexpr auto fileOperations = protocols::fs::FileOperations{}
+			.withRead(&ptRead);
+
+public:
+	static void serve(std::shared_ptr<AttributeFile> file);
+
+	explicit AttributeFile(std::shared_ptr<FsLink> link);
+
+	FutureMaybe<size_t> readSome(void *data, size_t max_length) override;
+	helix::BorrowedDescriptor getPassthroughLane() override;
+
+private:
+	helix::UniqueLane _passthrough;
+
+	bool _cached;
+	std::string _buffer;
+	size_t _offset;
+};
+
 struct DirectoryFile : ProperFile {
 private:
 	static async::result<protocols::fs::ReadEntriesResult>
@@ -45,6 +69,7 @@ public:
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
+	// TODO: Remove this and extract it from the associatedLink().
 	DirectoryNode *_node;
 
 	helix::UniqueLane _passthrough;
@@ -66,13 +91,16 @@ private:
 };
 
 struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
-	AttributeNode(Attribute *attr);
+	friend struct AttributeFile;
+
+	AttributeNode(Object *object, Attribute *attr);
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
 	FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link) override;
 
 private:
+	Object *_object;
 	Attribute *_attr;
 };
 
@@ -91,7 +119,7 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 
 	DirectoryNode() = default;
 
-	std::shared_ptr<Link> directMkattr(Attribute *attr);
+	std::shared_ptr<Link> directMkattr(Object *object, Attribute *attr);
 	std::shared_ptr<Link> directMklink(std::string name);
 	std::shared_ptr<Link> directMkdir(std::string name);
 

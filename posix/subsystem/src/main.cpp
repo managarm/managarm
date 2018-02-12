@@ -385,7 +385,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 						helix::action(&send_data, nullptr, 0));
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
-				COFIBER_RETURN();
+				continue;
 			}
 
 			auto result = COFIBER_AWAIT path.second->getTarget()->readSymlink();
@@ -687,7 +687,8 @@ private:
 
 public:
 	virtual std::string show(sysfs::Object *) override {
-		throw std::runtime_error("UeventAttribute::show() is not implemented yet");
+		std::cout << "\e[31mposix: uevent files are static\e[39m" << std::endl;
+		return std::string{"DEVNAME=dri/card0\n"};
 	}
 };
 

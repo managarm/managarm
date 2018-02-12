@@ -24,6 +24,49 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 }
 
 // ----------------------------------------------------------------------------
+// AttributeFile implementation.
+// ----------------------------------------------------------------------------
+
+async::result<size_t> AttributeFile::ptRead(std::shared_ptr<void> object,
+		void *buffer, size_t length) {
+	auto self = static_cast<AttributeFile *>(object.get());
+	return self->readSome(buffer, length);
+}
+
+void AttributeFile::serve(std::shared_ptr<AttributeFile> file) {
+//TODO:		assert(!file->_passthrough);
+
+	helix::UniqueLane lane;
+	std::tie(lane, file->_passthrough) = helix::createStream();
+	protocols::fs::servePassthrough(std::move(lane), file,
+			&fileOperations);
+}
+
+AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
+: ProperFile{std::move(link)}, _cached{false}, _offset{0} { }
+
+COFIBER_ROUTINE(FutureMaybe<size_t>, AttributeFile::readSome(void *data, size_t max_length), ([=] {
+	assert(max_length > 0);
+
+	if(!_cached) {
+		assert(!_offset);
+		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
+		_buffer = node->_attr->show(node->_object);
+		_cached = true;
+	}
+
+	assert(_offset <= _buffer.size());
+	size_t chunk = std::min(_buffer.size() - _offset, max_length);
+	memcpy(data, _buffer.data() + _offset, chunk);
+	_offset += chunk;
+	COFIBER_RETURN(chunk);
+}))
+
+helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {
+	return _passthrough;
+}
+
+// ----------------------------------------------------------------------------
 // DirectoryFile implementation.
 // ----------------------------------------------------------------------------
 
@@ -85,8 +128,8 @@ std::shared_ptr<FsNode> Link::getTarget() {
 // AttributeNode implementation.
 // ----------------------------------------------------------------------------
 
-AttributeNode::AttributeNode(Attribute *attr)
-: _attr{attr} { }
+AttributeNode::AttributeNode(Object *object, Attribute *attr)
+: _object{object}, _attr{attr} { }
 
 VfsType AttributeNode::getType() {
 	return VfsType::regular;
@@ -99,7 +142,9 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
 AttributeNode::open(std::shared_ptr<FsLink> link), ([=] {
-	throw std::runtime_error("AttributeNode::open() is not implemented");
+	auto file = std::make_shared<AttributeFile>(std::move(link));
+	AttributeFile::serve(file);
+	COFIBER_RETURN(std::move(file));
 }))
 
 // ----------------------------------------------------------------------------
@@ -123,9 +168,9 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(), ([=] {
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::directMkattr(Attribute *attr) {
+std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
-	auto node = std::make_shared<AttributeNode>(attr);
+	auto node = std::make_shared<AttributeNode>(object, attr);
 	auto link = std::make_shared<Link>(shared_from_this(), attr->name(), std::move(node));
 	_entries.insert(link);
 	return link;
@@ -188,7 +233,7 @@ Object::Object(std::shared_ptr<Object> parent, std::string name)
 void Object::createAttribute(Attribute *attr) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
-	dir->directMkattr(attr);
+	dir->directMkattr(this, attr);
 }
 
 void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
