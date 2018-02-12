@@ -442,24 +442,37 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
+		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			auto file = self->fileContext()->getFile(req.fd());
-
-			int resfd;
-			if(req.newfd() >= 0) {
-				self->fileContext()->attachFile(req.newfd(), file);
-				resfd = req.newfd();
-			}else{
-				throw std::runtime_error("Do not use DUP2 in this way");
-				resfd = self->fileContext()->attachFile(file);
-			}
+			assert(file);
+			
+			int newfd = self->fileContext()->attachFile(file);
 
 			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_passthrough;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(resfd);
+			resp.set_fd(newfd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
+			auto file = self->fileContext()->getFile(req.fd());
+			assert(file);
+
+			if(req.newfd() >= 0) {
+				self->fileContext()->attachFile(req.newfd(), file);
+			}else{
+				throw std::runtime_error("DUP2 requires a file descriptor >= 0");
+			}
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

@@ -40,6 +40,7 @@ enum CntReqType {
 	SEEK_EOF = 15;
 	MMAP = 16;
 	CLOSE = 5;
+	DUP = 34;
 	DUP2 = 6;
 	IS_TTY = 22;
 	TTY_NAME = 18;
