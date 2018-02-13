@@ -70,7 +70,6 @@ extern "C" [[ gnu::visibility("default") ]] void __rtdl_setupTcb() {
 extern "C" void *interpreterMain(uintptr_t *entry_stack) {
 	if(logEntryExit)
 		frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
-	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 	entryStack = entry_stack;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
@@ -214,7 +213,6 @@ void *__dlapi_get_tls(struct __abi_tls_entry *entry) {
 extern "C" [[gnu::visibility("default")]]
 void *__dlapi_open(const char *file, int local) {
 	// TODO: Thread-safety!
-	frigg::infoLogger() << "rtdl: __dlapi_open(" << file << ")" << frigg::endLog;
 	auto rts = rtsCounter++;
 	
 	if(local)
@@ -269,7 +267,6 @@ void *__dlapi_open(const char *file, int local) {
 extern "C" [[gnu::visibility("default")]]
 void *__dlapi_resolve(void *handle, const char *string) {
 	frigg::infoLogger() << "rtdl: __dlapi_resolve(" << string << ")" << frigg::endLog;
-	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 
 	assert(handle != reinterpret_cast<void *>(-1));
 
@@ -296,7 +293,6 @@ struct __dlapi_symbol {
 extern "C" [[gnu::visibility("default")]]
 int __dlapi_reverse(const void *ptr, __dlapi_symbol *info) {
 	frigg::infoLogger() << "rtdl: __dlapi_reverse(" << ptr << ")" << frigg::endLog;
-	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 
 	for(size_t i = 0; i < globalScope->_objects.size(); i++) {
 		auto object = globalScope->_objects[i];

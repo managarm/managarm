@@ -410,7 +410,7 @@ void ObjectRepository::_fetchFromPhdrs(SharedObject *object, void *phdr_pointer,
 		size_t phdr_entry_size, size_t phdr_count, void *entry_pointer) {
 	assert(object->isMainObject);
 	if(verbose)
-		frigg::infoLogger() << "Loading " << object->name << frigg::endLog;
+		frigg::infoLogger() << "rtdl: Loading " << object->name << frigg::endLog;
 	
 	object->entry = entry_pointer;
 
@@ -443,7 +443,7 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 	libraryBase += 0x1000000; // assume 16 MiB per library
 
 	if(verbose)
-		frigg::infoLogger() << "Loading " << object->name
+		frigg::infoLogger() << "rtdl: Loading " << object->name
 				<< " at " << (void *)object->baseAddress << frigg::endLog;
 
 	// read the elf file header
@@ -715,14 +715,13 @@ void processCopyRelocations(SharedObject *object) {
 void doInitialize(SharedObject *object) {
 	assert(object->wasLinked);
 	assert(!object->wasInitialized);
-	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 
 	// if the object has dependencies we initialize them first
 	for(size_t i = 0; i < object->dependencies.size(); i++)
 		assert(object->dependencies[i]->wasInitialized);
 
 	if(verbose)
-		frigg::infoLogger() << "Initialize " << object->name << frigg::endLog;
+		frigg::infoLogger() << "rtdl: Initialize " << object->name << frigg::endLog;
 	
 	// now initialize the actual object
 	typedef void (*InitFuncPtr) ();
@@ -749,16 +748,19 @@ void doInitialize(SharedObject *object) {
 		}
 	}
 
-	frigg::infoLogger() << "Running DT_INIT function" << frigg::endLog;
+	if(verbose)
+		frigg::infoLogger() << "rtdl: Running DT_INIT function" << frigg::endLog;
 	if(init_ptr != nullptr)
 		init_ptr();
 	
-	frigg::infoLogger() << "Running DT_INIT_ARRAY functions" << frigg::endLog;
+	if(verbose)
+		frigg::infoLogger() << "rtdl: Running DT_INIT_ARRAY functions" << frigg::endLog;
 	assert((array_size % sizeof(InitFuncPtr)) == 0);
 	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
 		init_array[i]();
 
-	frigg::infoLogger() << "Object initialization complete" << frigg::endLog;
+	if(verbose)
+		frigg::infoLogger() << "rtdl: Object initialization complete" << frigg::endLog;
 	object->wasInitialized = true;
 }
 
@@ -939,7 +941,7 @@ void Loader::linkObjects() {
 			continue;
 
 		if(verbose)
-			frigg::infoLogger() << "Linking " << (*it)->name << frigg::endLog;
+			frigg::infoLogger() << "rtdl: Linking " << (*it)->name << frigg::endLog;
 
 		assert(!(*it)->wasLinked);
 		(*it)->loadScope = _globalScope;
@@ -995,7 +997,7 @@ void Loader::_buildTlsMaps() {
 			runtimeTlsMap->initialObjects.push(object);
 			
 			if(verbose)
-				frigg::infoLogger() << "TLS of " << object->name
+				frigg::infoLogger() << "rtdl: TLS of " << object->name
 						<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
 						<< ", size: " << object->tlsSegmentSize
 						<< ", alignment: " << object->tlsAlignment << frigg::endLog;
@@ -1031,7 +1033,7 @@ void Loader::_buildTlsMaps() {
 				runtimeTlsMap->initialObjects.push(object);
 				
 //				if(verbose)
-					frigg::infoLogger() << "TLS of " << object->name
+					frigg::infoLogger() << "rtdl: TLS of " << object->name
 							<< " mapped to 0x" << frigg::logHex(object->tlsOffset)
 							<< ", size: " << object->tlsSegmentSize
 							<< ", alignment: " << object->tlsAlignment << frigg::endLog;
@@ -1097,7 +1099,7 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 						<< r.getString() << " in object " << object->name << frigg::endLog;
 			
 			if(verbose)
-				frigg::infoLogger() << "Unresolved weak load-time symbol "
+				frigg::infoLogger() << "rtdl: Unresolved weak load-time symbol "
 						<< r.getString() << " in object " << object->name << frigg::endLog;
 		}
 	}
@@ -1129,7 +1131,8 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 			*((uint64_t *)rel_addr) = (uint64_t)p->object();
 		}else{
 			// TODO: is this behaviour actually documented anywhere?
-			frigg::infoLogger() << "rtdl: Warning: DTPOFF64 with no symbol" << frigg::endLog;
+			frigg::infoLogger() << "rtdl: Warning: DTPOFF64 with no symbol"
+					" in object " << object->name << frigg::endLog;
 			*((uint64_t *)rel_addr) = (uint64_t)object;
 		}
 	} break;
@@ -1150,7 +1153,8 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 			*((uint64_t *)rel_addr) = p->object()->tlsOffset + p->symbol()->st_value;
 		}else{
 			assert(!reloc->r_addend);
-			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol" << frigg::endLog;
+			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol"
+					" in object " << object->name << frigg::endLog;
 			if(object->tlsModel != TlsModel::initial)
 				frigg::panicLogger() << "rtdl: In object " << object->name
 						<< ": Static TLS relocation to dynamically loaded object "
@@ -1221,11 +1225,11 @@ void Loader::_processLazyRelocations(SharedObject *object) {
 			frigg::Optional<ObjectSymbol> p = object->loadScope->resolveSymbol(r, 0);
 			if(!p) {
 				if(ELF64_ST_BIND(symbol->st_info) != STB_WEAK)
-					frigg::panicLogger() << "Unresolved JUMP_SLOT symbol "
+					frigg::panicLogger() << "rtdl: Unresolved JUMP_SLOT symbol "
 							<< r.getString() << " in object " << object->name << frigg::endLog;
 				
 				if(verbose)
-					frigg::infoLogger() << "Unresolved weak JUMP_SLOT symbol "
+					frigg::infoLogger() << "rtdl: Unresolved weak JUMP_SLOT symbol "
 							<< r.getString() << " in object " << object->name << frigg::endLog;
 				*((uint64_t *)rel_addr) = 0;
 			}else{
