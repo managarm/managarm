@@ -176,6 +176,7 @@ struct Scope {
 	frigg::Optional<ObjectSymbol> resolveSymbol(ObjectSymbol r, ResolveFlags flags);
 
 private:
+public: // TODO: Make this private again. (Was made public for __dlapi_reverse()).
 	frigg::Vector<SharedObject *, Allocator> _objects;
 };
 

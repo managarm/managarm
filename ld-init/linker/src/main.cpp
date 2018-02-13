@@ -70,6 +70,7 @@ extern "C" [[ gnu::visibility("default") ]] void __rtdl_setupTcb() {
 extern "C" void *interpreterMain(uintptr_t *entry_stack) {
 	if(logEntryExit)
 		frigg::infoLogger() << "Entering ld-init" << frigg::endLog;
+	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 	entryStack = entry_stack;
 	allocator.initialize(virtualAlloc);
 	runtimeTlsMap.initialize();
@@ -268,6 +269,9 @@ void *__dlapi_open(const char *file, int local) {
 extern "C" [[gnu::visibility("default")]]
 void *__dlapi_resolve(void *handle, const char *string) {
 	frigg::infoLogger() << "rtdl: __dlapi_resolve(" << string << ")" << frigg::endLog;
+	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
+
+	assert(handle != reinterpret_cast<void *>(-1));
 
 	frigg::Optional<ObjectSymbol> target;
 	if(handle) {
@@ -281,4 +285,52 @@ void *__dlapi_resolve(void *handle, const char *string) {
 	assert(target);
 	return reinterpret_cast<void *>(target->virtualAddress());
 }
+
+struct __dlapi_symbol {
+	const char *file;
+	void *base;
+	const char *symbol;
+	void *address;
+};
+
+extern "C" [[gnu::visibility("default")]]
+int __dlapi_reverse(const void *ptr, __dlapi_symbol *info) {
+	frigg::infoLogger() << "rtdl: __dlapi_reverse(" << ptr << ")" << frigg::endLog;
+	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
+
+	for(size_t i = 0; i < globalScope->_objects.size(); i++) {
+		auto object = globalScope->_objects[i];
+	
+		auto eligible = [&] (ObjectSymbol cand) {
+			if(cand.symbol()->st_shndx == SHN_UNDEF)
+				return false;
+
+			auto bind = ELF64_ST_BIND(cand.symbol()->st_info);
+			if(bind != STB_GLOBAL && bind != STB_WEAK)
+				return false;
+
+			return true;
+		};
+	
+		auto hash_table = (Elf64_Word *)(object->baseAddress + object->hashTableOffset);
+		auto num_symbols = hash_table[1];
+		for(size_t i = 0; i < num_symbols; i++) {
+			ObjectSymbol cand{object, (Elf64_Sym *)(object->baseAddress
+					+ object->symbolTableOffset + i * sizeof(Elf64_Sym))};
+			if(eligible(cand) && cand.virtualAddress() == reinterpret_cast<uintptr_t>(ptr)) {
+				frigg::infoLogger() << "rtdl: Found symbol " << cand.getString() << " in object "
+						<< object->name << frigg::endLog;
+				info->file = object->name;
+				info->base = reinterpret_cast<void *>(object->baseAddress);
+				info->symbol = cand.getString();
+				info->address = reinterpret_cast<void *>(cand.virtualAddress());
+				return 0;
+			}
+		}
+	}
+
+	frigg::panicLogger() << "rtdl: Could not find symbol in __dlapi_reverse()" << frigg::endLog;
+	return -1;
+}
+
 

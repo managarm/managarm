@@ -715,6 +715,7 @@ void processCopyRelocations(SharedObject *object) {
 void doInitialize(SharedObject *object) {
 	assert(object->wasLinked);
 	assert(!object->wasInitialized);
+	frigg::infoLogger() << "frame: " << __builtin_frame_address(0) << frigg::endLog;
 
 	// if the object has dependencies we initialize them first
 	for(size_t i = 0; i < object->dependencies.size(); i++)
@@ -748,13 +749,16 @@ void doInitialize(SharedObject *object) {
 		}
 	}
 
+	frigg::infoLogger() << "Running DT_INIT function" << frigg::endLog;
 	if(init_ptr != nullptr)
 		init_ptr();
 	
+	frigg::infoLogger() << "Running DT_INIT_ARRAY functions" << frigg::endLog;
 	assert((array_size % sizeof(InitFuncPtr)) == 0);
 	for(size_t i = 0; i < array_size / sizeof(InitFuncPtr); i++)
 		init_array[i]();
-	
+
+	frigg::infoLogger() << "Object initialization complete" << frigg::endLog;
 	object->wasInitialized = true;
 }
 
@@ -981,7 +985,7 @@ void Loader::_buildTlsMaps() {
 				continue;
 
 			assert(16 % object->tlsAlignment == 0);
-			auto ptr = runtimeTlsMap->initialPtr += object->tlsSegmentSize;
+			runtimeTlsMap->initialPtr += object->tlsSegmentSize;
 			size_t misalign = runtimeTlsMap->initialPtr % object->tlsAlignment;
 			if(misalign)
 				runtimeTlsMap->initialPtr += object->tlsAlignment - misalign;
