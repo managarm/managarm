@@ -171,7 +171,8 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 		if(info.modes[i].enabled) {
 			auto connector = std::make_shared<Connector>(this);
 			connector->setupWeakPtr(connector);
-			
+
+			connector->setupPossibleEncoders({_theEncoders[i].get()});
 			connector->setCurrentEncoder(_theEncoders[i].get());
 			connector->setCurrentStatus(1);
 			
