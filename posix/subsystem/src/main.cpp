@@ -566,11 +566,30 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
+			helix::SendBuffer send_resp;
+
+			assert(req.domain() == AF_UNIX);
+			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM);
+			assert(!req.protocol());
+
+			auto file = createUnixSocketFile();
+			auto fd = self->fileContext()->attachFile(file);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			helix::SendBuffer send_resp;
 
 			assert(req.domain() == AF_UNIX);
-			assert(req.socktype() == SOCK_DGRAM);
+			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM);
 			assert(!req.protocol());
 
 			auto pair = createUnixSocketPair();

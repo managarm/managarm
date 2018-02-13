@@ -46,6 +46,7 @@ enum CntReqType {
 	TTY_NAME = 18;
 	
 	// Socket-specific calls.
+	SOCKET = 35;
 	SOCKPAIR = 25;
 	
 	// epoll-specific calls.
