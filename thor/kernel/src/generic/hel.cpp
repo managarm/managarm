@@ -275,6 +275,8 @@ struct ObserveThreadWriter {
 			_result.observation = kHelObservePanic;
 		}else if(interrupt == kIntrBreakpoint) {
 			_result.observation = kHelObserveBreakpoint;
+		}else if(interrupt == kIntrGeneralFault) {
+			_result.observation = kHelObserveGeneralFault;
 		}else if(interrupt == kIntrPageFault) {
 			_result.observation = kHelObservePageFault;
 		}else if(interrupt >= kIntrSuperCall) {

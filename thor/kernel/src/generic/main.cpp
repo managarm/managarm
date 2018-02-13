@@ -599,6 +599,7 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	const char *name;
 	switch(fault) {
 	case kIntrBreakpoint: name = "breakpoint"; break;
+	case kIntrGeneralFault: name = "general"; break;
 	default:
 		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
 	}

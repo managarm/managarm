@@ -204,6 +204,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	case 3: {
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
+	case 13: {
+		handleOtherFault(image, kIntrGeneralFault);
+	} break;
 	case 14: {
 		uintptr_t address;
 		asm volatile ( "mov %%cr2, %0" : "=r" (address) );

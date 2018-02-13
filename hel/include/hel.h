@@ -168,6 +168,7 @@ enum HelObservation {
 	kHelObserveStop = 4,
 	kHelObservePanic = 3,
 	kHelObserveBreakpoint = 1,
+	kHelObserveGeneralFault = 5,
 	kHelObservePageFault = 2,
 	kHelObserveSuperCall = 0x80000000
 };

@@ -14,6 +14,7 @@ enum Interrupt {
 	kIntrPanic,
 	kIntrBreakpoint,
 	kIntrPageFault,
+	kIntrGeneralFault,
 	kIntrSuperCall = 0x80000000
 };
 
