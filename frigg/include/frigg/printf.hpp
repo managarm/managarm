@@ -10,6 +10,12 @@ namespace frigg FRIGG_VISIBILITY {
 
 template<typename P>
 void printf(P &printer, const char *format, va_list args) {
+	enum class SizeMod {
+		defaultSize,
+		longSize,
+		nativeSize
+	};
+
 	while(*format != 0) {
 		if(*format != '%') {
 			printer.print(*format);
@@ -92,9 +98,12 @@ void printf(P &printer, const char *format, va_list args) {
 			}
 		}
 		
-		bool l_prefix = false;
+		SizeMod szmod = SizeMod::defaultSize;
 		if(*format == 'l') {
-			l_prefix = true;
+			szmod = SizeMod::longSize;
+			++format;
+		}else if(*format == 'z') {
+			szmod = SizeMod::nativeSize;
 			++format;
 		}
 
@@ -109,13 +118,13 @@ void printf(P &printer, const char *format, va_list args) {
 			assert(!fill_zeros);
 			assert(!left_justify);
 			assert(minimum_width == 0);
-			assert(!l_prefix);
+			assert(szmod == SizeMod::defaultSize);
 			assert(!precision);
 			printer.print((char)va_arg(args, int));
 			break;
 		case 's': {
 			assert(!fill_zeros);
-			assert(!l_prefix);
+			assert(szmod == SizeMod::defaultSize);
 
 			auto s = va_arg(args, const char *);
 			if(!s)
@@ -141,9 +150,12 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'i': {
 			assert(!left_justify);
 			long number;
-			if(l_prefix) {
+			if(szmod == SizeMod::longSize) {
 				number = va_arg(args, long);
+			}else if(szmod == SizeMod::nativeSize) {
+				number = va_arg(args, intptr_t);
 			}else{
+				assert(szmod == SizeMod::defaultSize);
 				number = va_arg(args, int);
 			}
 			if(precision && *precision == 0 && !number) {
@@ -169,9 +181,10 @@ void printf(P &printer, const char *format, va_list args) {
 							precision ? *precision : 1, fill_zeros ? '0' : ' ');
 				}
 			};
-			if(l_prefix) {
+			if(szmod == SizeMod::longSize) {
 				print(va_arg(args, unsigned long));
 			}else{
+				assert(szmod == SizeMod::defaultSize);
 				print(va_arg(args, unsigned int));
 			}
 		} break;
@@ -186,15 +199,16 @@ void printf(P &printer, const char *format, va_list args) {
 							precision ? *precision : 1, fill_zeros ? '0' : ' ');
 				}
 			};
-			if(l_prefix) {
+			if(szmod == SizeMod::longSize) {
 				print(va_arg(args, unsigned long));
 			}else{
+				assert(szmod == SizeMod::defaultSize);
 				print(va_arg(args, unsigned int));
 			}
 		} break;
 		case 'X': {
 			assert(!left_justify);
-			assert(!l_prefix);
+			assert(szmod == SizeMod::defaultSize);
 			auto number = va_arg(args, unsigned int);
 			if(precision && *precision == 0 && !number) {
 				// print nothing in this case
@@ -206,10 +220,11 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'u': {
 			assert(!left_justify);
 			assert(!precision);
-			if(l_prefix) {
+			if(szmod == SizeMod::longSize) {
 				printUInt(printer, va_arg(args, unsigned long), 10, minimum_width,
 						1, fill_zeros ? '0' : ' ');
 			}else{
+				assert(szmod == SizeMod::defaultSize);
 				printUInt(printer, va_arg(args, unsigned int), 10, minimum_width,
 						1, fill_zeros ? '0' : ' ');
 			}
