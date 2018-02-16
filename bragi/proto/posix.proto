@@ -58,6 +58,7 @@ enum CntReqType {
 	SIGNALFD_CREATE = 32;
 
 	TIMERFD_CREATE = 33;
+	TIMERFD_SETTIME = 36;
 
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
@@ -124,6 +125,12 @@ message CntRequest {
 	
 	// used by EPOLL_CTL
 	optional uint64 cookie = 17;
+
+	optional uint64 time_secs = 18;
+	optional uint64 time_nanos = 19;
+	
+	optional uint64 interval_secs = 20;
+	optional uint64 interval_nanos = 21;
 }
 
 message SvrResponse {

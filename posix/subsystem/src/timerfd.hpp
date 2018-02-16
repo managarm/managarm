@@ -1,5 +1,12 @@
 
+#include <time.h>
+
 #include "file.hpp"
 
-std::shared_ptr<ProxyFile> createTimerFile();
+namespace timerfd {
+
+std::shared_ptr<ProxyFile> createFile();
+void setTime(File *file, struct timespec initial, struct timespec interval);
+
+} // namespace timerfd
 

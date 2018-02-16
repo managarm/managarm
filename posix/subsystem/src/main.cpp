@@ -29,8 +29,8 @@
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
-bool traceRequests = false;
-bool logPaths = true;
+bool logRequests = false;
+bool logPaths = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -113,6 +113,9 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			env_area.resize(gprs[8]);
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
 					gprs[7], gprs[8], env_area.data()));
+			
+			if(logPaths)
+				std::cout << "posix: execve path: " << path << std::endl;
 
 			// Parse both the arguments and the environment areas.
 			size_t k;
@@ -454,9 +457,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
-			self->fileContext()->closeFile(req.fd());
+			if(logRequests)
+				std::cout << "posix: CLOSE file descriptor " << req.fd() << std::endl;
 
 			helix::SendBuffer send_resp;
+
+			self->fileContext()->closeFile(req.fd());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -569,8 +575,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			helix::SendBuffer send_resp;
 
+			std::cout << "socktype: " << req.socktype() << std::endl;
 			assert(req.domain() == AF_UNIX);
-			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM);
+			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
+					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
 			auto file = createUnixSocketFile();
@@ -588,8 +596,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			helix::SendBuffer send_resp;
 
+			std::cout << "socktype: " << req.socktype() << std::endl;
 			assert(req.domain() == AF_UNIX);
-			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM);
+			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
+					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
 			auto pair = createUnixSocketPair();
@@ -659,12 +669,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
 			helix::SendBuffer send_resp;
 
-			auto file = createTimerFile();
+			auto file = timerfd::createFile();
 			auto fd = self->fileContext()->attachFile(file);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_SETTIME) {
+			helix::SendBuffer send_resp;
+
+			auto file = self->fileContext()->getFile(req.fd());
+			timerfd::setTime(file.get(), {req.time_secs(), req.time_nanos()},
+					{req.interval_secs(), req.interval_nanos()});
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
