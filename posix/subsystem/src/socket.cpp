@@ -1,5 +1,8 @@
 
 #include <string.h>
+#include <sys/epoll.h>
+#include <iostream>
+
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
@@ -15,7 +18,8 @@ struct Packet {
 
 // One direction of a socket.
 struct Pipe {
-	Pipe() = default;
+	Pipe()
+	: inSeq{0} { }
 
 	Pipe(const Pipe &) = delete;
 
@@ -23,18 +27,22 @@ struct Pipe {
 
 	std::deque<Packet> queue;
 	async::doorbell bell;
+	uint64_t inSeq;
 };
 
 // This is an actual socket.
 // During normal operation, exactly two files are attached to it.
 struct Socket {
-	Socket() = default;
+	Socket()
+	: currentSeq{1} { }
 
 	Socket(const Socket &) = delete;
 
 	Socket &operator= (const Socket &) = delete;
 
 	Pipe pipes[2];
+	async::doorbell seqBell;
+	uint64_t currentSeq;
 };
 
 struct OpenFile : ProxyFile {
@@ -45,38 +53,6 @@ private:
 
 	Pipe *_writePipe() {
 		return &_socket->pipes[_wh];
-	}
-
-public:
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
-		auto pipe = _readPipe();
-		while(pipe->queue.empty())
-			COFIBER_AWAIT pipe->bell.async_wait();
-		
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
-		auto packet = &pipe->queue.front();
-		auto size = packet->buffer.size();
-		assert(max_length >= size);
-		memcpy(data, packet->buffer.data(), size);
-		pipe->queue.pop_front();
-		COFIBER_RETURN(size);
-	}))
-	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
-		assert(_socket);
-
-		Packet packet;
-		packet.buffer.resize(length);
-		memcpy(packet.buffer.data(), data, length);
-
-		auto pipe = _writePipe();
-		pipe->queue.push_back(std::move(packet));
-		pipe->bell.ring();
-		COFIBER_RETURN();
-	}))
-
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
 	}
 
 	// ------------------------------------------------------------------------
@@ -114,6 +90,73 @@ public:
 	
 	OpenFile(std::shared_ptr<Socket> socket, int wh)
 	: ProxyFile{nullptr}, _socket{std::move(socket)}, _wh{wh} { }
+
+	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+		std::cout << "posix: Read from socket " << this << std::endl;
+
+		auto pipe = _readPipe();
+		while(pipe->queue.empty())
+			COFIBER_AWAIT pipe->bell.async_wait();
+		
+		std::cout << "posix: Completing read" << std::endl;
+		
+		// TODO: Truncate packets (for SOCK_DGRAM) here.
+		auto packet = &pipe->queue.front();
+		auto size = packet->buffer.size();
+		assert(max_length >= size);
+		memcpy(data, packet->buffer.data(), size);
+		pipe->queue.pop_front();
+		COFIBER_RETURN(size);
+	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
+		assert(_socket);
+		std::cout << "posix: Write to socket " << this << std::endl;
+
+		Packet packet;
+		packet.buffer.resize(length);
+		memcpy(packet.buffer.data(), data, length);
+
+		auto pipe = _writePipe();
+		pipe->queue.push_back(std::move(packet));
+		pipe->bell.ring();
+
+		auto seq = ++_socket->currentSeq;
+		pipe->inSeq = seq;
+		_socket->seqBell.ring();
+
+		COFIBER_RETURN();
+	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t in_seq) override, ([=] {
+		if(!_socket) {
+			std::cout << "posix: Fix poll() for unconnected sockets" << std::endl;
+			return;
+		}
+
+		assert(in_seq <= _socket->currentSeq);
+		while(in_seq == _socket->currentSeq)
+			COFIBER_AWAIT _socket->seqBell.async_wait();
+
+		// For now making sockets always writable is sufficient.
+		int edges = EPOLLOUT;
+		if(_readPipe()->inSeq > in_seq)
+			edges |= EPOLLIN;
+
+		int events = EPOLLOUT;
+		if(!_readPipe()->queue.empty())
+			events |= EPOLLIN;
+		
+		std::cout << "posix: poll(" << in_seq << ") on " << this
+				<< " returns (" << _socket->currentSeq
+				<< ", " << edges << ", " << events << ")" << std::endl;
+	
+		COFIBER_RETURN(PollResult(_socket->currentSeq, edges, events));
+	}))
+
+	helix::BorrowedDescriptor getPassthroughLane() override {
+		return _passthrough;
+	}
 
 private:
 	helix::UniqueLane _passthrough;
