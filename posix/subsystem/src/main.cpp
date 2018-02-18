@@ -29,7 +29,7 @@
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
-bool logRequests = false;
+bool logRequests = true;
 bool logPaths = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
@@ -619,7 +619,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			helix::SendBuffer send_resp;
 
-			auto file = createEpollFile();
+			auto file = epoll::createFile();
 			auto fd = self->fileContext()->attachFile(file);
 
 			managarm::posix::SvrResponse resp;
@@ -631,7 +631,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CTL) {
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_ADD) {
 			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
@@ -639,7 +639,43 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(epfile);
 			assert(file);
 
-			epollCtl(epfile.get(), file.get(), req.flags(), req.cookie());
+			epoll::addItem(epfile.get(), file.get(), req.flags(), req.cookie());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_MODIFY) {
+			helix::SendBuffer send_resp;
+
+			auto epfile = self->fileContext()->getFile(req.fd());
+			auto file = self->fileContext()->getFile(req.newfd());
+			assert(epfile);
+			assert(file);
+
+			epoll::modifyItem(epfile.get(), file.get(), req.flags(), req.cookie());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_DELETE) {
+			helix::SendBuffer send_resp;
+
+			auto epfile = self->fileContext()->getFile(req.fd());
+			auto file = self->fileContext()->getFile(req.newfd());
+			assert(epfile);
+			assert(file);
+
+			epoll::deleteItem(epfile.get(), file.get(), req.flags());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -650,12 +686,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_WAIT request" << std::endl;
+
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 			
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile);
-			auto event = COFIBER_AWAIT epollWait(epfile.get());
+			auto event = COFIBER_AWAIT epoll::wait(epfile.get());
+			
+			std::cout << "posix: epoll returns" << std::endl;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

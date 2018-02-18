@@ -51,7 +51,9 @@ enum CntReqType {
 	
 	// epoll-specific calls.
 	EPOLL_CREATE = 28;
-	EPOLL_CTL = 29;
+	EPOLL_ADD = 37;
+	EPOLL_MODIFY = 38;
+	EPOLL_DELETE = 39;
 	EPOLL_WAIT = 30;
 
 	// signalfd()-specific calls

@@ -3,9 +3,15 @@
 
 #include "file.hpp"
 
-std::shared_ptr<ProxyFile> createEpollFile();
+namespace epoll {
 
-void epollCtl(File *epfile, File *file, int flags, uint64_t cookie);
+std::shared_ptr<ProxyFile> createFile();
 
-async::result<struct epoll_event> epollWait(File *epfile);
+void addItem(File *epfile, File *file, int flags, uint64_t cookie);
+void modifyItem(File *epfile, File *file, int flags, uint64_t cookie);
+void deleteItem(File *epfile, File *file, int flags);
+
+async::result<struct epoll_event> wait(File *epfile);
+
+} // namespace epoll
 

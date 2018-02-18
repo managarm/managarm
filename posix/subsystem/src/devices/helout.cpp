@@ -24,6 +24,7 @@ private:
 	
 	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
 		// TODO: Signal that we are ready to accept output.
+		std::cout << "posix: poll() on helout" << std::endl;
 		if(!sequence) {
 			PollResult result{1, 0, 0};
 			COFIBER_RETURN(result);
