@@ -238,6 +238,13 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 			if(!link.isRelative())
 				current = root;
 			components.insert(components.begin(), link.begin(), link.end());
+		}else if(components.size() == 1
+				&& (flags & resolveCreate) && (flags & resolveExclusive)) {
+			assert(child.second->getTarget()->superblock());
+			auto node = COFIBER_AWAIT child.second->getTarget()->superblock()->createRegular();
+			auto link = COFIBER_AWAIT child.second->getTarget()->link(std::move(components.front()),
+					std::move(node));
+			COFIBER_RETURN(ViewPath(child.first, std::move(link)));
 		}else{
 			current = std::move(child);
 		}
@@ -246,8 +253,9 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 	COFIBER_RETURN(std::move(current));
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::string name), ([=] {
-	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name));
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::string name,
+		ResolveFlags resolve_flags), ([=] {
+	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name), resolve_flags);
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 

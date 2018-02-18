@@ -66,10 +66,6 @@ enum CntReqType {
 	HELFD_CLONE = 11;
 };
 
-enum OpenFlags {
-	CREAT = 1;
-};
-
 enum OpenMode {
 	REGULAR = 1;
 	HELFD = 2;
@@ -84,6 +80,11 @@ enum FileType {
 	FT_SOCKET = 5;
 	FT_CHAR_DEVICE = 6;
 	FT_BLOCK_DEVICE = 7;
+};
+
+enum OpenFlags {
+	OF_CREATE = 1;
+	OF_EXCLUSIVE = 2;
 };
 
 message CntRequest {

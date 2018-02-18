@@ -46,12 +46,27 @@ struct FsLink {
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
 };
 
+struct FsSuperblock {
+	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular() = 0;
+};
+
 // ----------------------------------------------------------------------------
 // FsNode class.
 // ----------------------------------------------------------------------------
 
 // Represents an inode on an actual file system (i.e. not in the VFS).
 struct FsNode {
+	// TODO: Remove this constructor once every FS has a superblock.
+	FsNode()
+	: _superblock{nullptr} { }
+	
+	FsNode(FsSuperblock *superblock)
+	: _superblock{superblock} { }
+
+	FsSuperblock *superblock() {
+		return _superblock;
+	}
+
 	virtual VfsType getType();
 
 	// TODO: This should be async.
@@ -86,6 +101,7 @@ struct FsNode {
 	virtual DeviceId readDevice();
 
 private:
+	FsSuperblock *_superblock;
 };
 
 #endif // POSIX_SUBSYSTEM_FS_HPP

@@ -30,7 +30,7 @@
 #include <posix.pb.h>
 
 bool logRequests = true;
-bool logPaths = false;
+bool logPaths = true;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -433,7 +433,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path());
+			ResolveFlags resolve_flags = 0;
+			if(req.flags() & managarm::posix::OF_CREATE)
+				resolve_flags |= resolveCreate;
+			if(req.flags() & managarm::posix::OF_EXCLUSIVE)
+				resolve_flags |= resolveExclusive;
+
+			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path(),
+					resolve_flags);
 			if(file) {
 				int fd = self->fileContext()->attachFile(file);
 
