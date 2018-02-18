@@ -223,6 +223,9 @@ void printf(P &printer, const char *format, va_list args) {
 			if(szmod == SizeMod::longSize) {
 				printUInt(printer, va_arg(args, unsigned long), 10, minimum_width,
 						1, fill_zeros ? '0' : ' ');
+			}else if(szmod == SizeMod::nativeSize) {
+				printUInt(printer, va_arg(args, size_t), 10, minimum_width,
+						1, fill_zeros ? '0' : ' ');
 			}else{
 				assert(szmod == SizeMod::defaultSize);
 				printUInt(printer, va_arg(args, unsigned int), 10, minimum_width,
