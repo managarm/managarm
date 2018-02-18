@@ -38,6 +38,10 @@ struct UniqueDescriptor {
 			HEL_CHECK(helCloseDescriptor(_handle));
 	}
 
+	explicit operator bool () {
+		return _handle != kHelNullHandle;
+	}
+
 	UniqueDescriptor &operator= (UniqueDescriptor other) {
 		swap(*this, other);
 		return *this;
@@ -49,6 +53,12 @@ struct UniqueDescriptor {
 
 	void release() {
 		_handle = kHelNullHandle;
+	}
+	
+	UniqueDescriptor dup() {
+		HelHandle new_handle;
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
+		return UniqueDescriptor(new_handle);
 	}
 
 private:

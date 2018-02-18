@@ -212,10 +212,14 @@ private:
 		auto self = static_cast<MemoryFile *>(object.get());
 		return self->writeAll(buffer, length);
 	}
+
+	static async::result<void> ptAllocate(std::shared_ptr<void> object,
+			int64_t offset, size_t size);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)
-			.withWrite(&ptWrite);
+			.withWrite(&ptWrite)
+			.withFallocate(&ptAllocate);
 
 public:
 	static void serve(std::shared_ptr<MemoryFile> file) {
@@ -227,8 +231,8 @@ public:
 				&fileOperations);
 	}
 
-	MemoryFile()
-	: ProperFile{nullptr} { }
+	MemoryFile(std::shared_ptr<FsLink> link)
+	: ProperFile{std::move(link)} { }
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(!"Fix MemoryFile::readSome");
@@ -237,6 +241,8 @@ public:
 	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
 		assert(!"Fix MemoryFile::writeAll");
 	}))
+
+	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t);
 	
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -247,6 +253,8 @@ private:
 };
 
 struct MemoryNode : FsNode {
+	friend struct MemoryFile;
+
 private:
 	VfsType getType() override {
 		return VfsType::regular;
@@ -258,7 +266,7 @@ private:
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
 			open(std::shared_ptr<FsLink> link) override, ([=] {
-		auto file = std::make_shared<MemoryFile>();
+		auto file = std::make_shared<MemoryFile>(std::move(link));
 		MemoryFile::serve(file);
 		COFIBER_RETURN(std::move(file));
 	}))
@@ -267,7 +275,29 @@ public:
 	MemoryNode() { }
 
 private:
+	helix::UniqueDescriptor _memory;
 };
+
+COFIBER_ROUTINE(async::result<void>, MemoryFile::ptAllocate(std::shared_ptr<void> object,
+		int64_t offset, size_t size), ([=] {
+	assert(!offset);
+
+	auto self = static_cast<MemoryFile *>(object.get());
+	auto node = static_cast<MemoryNode *>(self->associatedLink()->getTarget().get());
+	assert(!node->_memory);
+
+	HelHandle handle;
+	HEL_CHECK(helAllocateMemory(size, 0, &handle));
+	node->_memory = helix::UniqueDescriptor{handle};
+	COFIBER_RETURN();
+}))	
+
+COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, MemoryFile::accessMemory(off_t offset),
+		([=] {
+	assert(!offset);
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+	COFIBER_RETURN(node->_memory.dup());
+}))
 
 struct Superblock : FsSuperblock {
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>,
