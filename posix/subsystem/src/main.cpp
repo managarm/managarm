@@ -579,6 +579,35 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
+			if(logPaths)
+				std::cout << "posix: UNLINK path: " << req.path() << std::endl;
+			
+			helix::SendBuffer send_resp;
+			
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			if(path.second) {
+				auto owner = path.second->getOwner();
+				COFIBER_AWAIT owner->unlink(path.second->getName());
+			
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			helix::SendBuffer send_resp;
 

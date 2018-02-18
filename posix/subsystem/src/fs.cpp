@@ -40,6 +40,10 @@ FutureMaybe<std::shared_ptr<FsLink>> FsNode::mkdev(std::string, VfsType, DeviceI
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
+FutureMaybe<void> FsNode::unlink(std::string) {
+	throw std::runtime_error("unlink() is not implemented for this FsNode");
+}
+
 FutureMaybe<std::shared_ptr<ProperFile>> FsNode::open(std::shared_ptr<FsLink>) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }

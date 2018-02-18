@@ -137,6 +137,13 @@ private:
 		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<void>, unlink(std::string name) override, ([=] {
+		auto it = _entries.find(name);
+		assert(it != _entries.end());
+		_entries.erase(it);
+		COFIBER_RETURN();
+	}))
 
 public:
 	Directory(Superblock *superblock);

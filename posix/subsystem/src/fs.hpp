@@ -88,6 +88,8 @@ struct FsNode {
 	//! Creates a new device file (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mkdev(std::string name,
 			VfsType type, DeviceId id);
+	
+	virtual FutureMaybe<void> unlink(std::string name);
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?

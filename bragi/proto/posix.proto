@@ -44,7 +44,8 @@ enum CntReqType {
 	DUP2 = 6;
 	IS_TTY = 22;
 	TTY_NAME = 18;
-	
+	UNLINK = 40;
+
 	// Socket-specific calls.
 	SOCKET = 35;
 	SOCKPAIR = 25;
