@@ -213,12 +213,15 @@ private:
 		return self->writeAll(buffer, length);
 	}
 
+	static async::result<void> ptTruncate(std::shared_ptr<void> object, size_t size);
+
 	static async::result<void> ptAllocate(std::shared_ptr<void> object,
 			int64_t offset, size_t size);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)
 			.withWrite(&ptWrite)
+			.withTruncate(&ptTruncate)
 			.withFallocate(&ptAllocate);
 
 public:
@@ -272,11 +275,29 @@ private:
 	}))
 
 public:
-	MemoryNode() { }
+	MemoryNode()
+	: _areaSize{0}, _fileSize{0} { }
 
-private:
 	helix::UniqueDescriptor _memory;
+	size_t _areaSize;
+	size_t _fileSize;
 };
+
+COFIBER_ROUTINE(async::result<void>, MemoryFile::ptTruncate(std::shared_ptr<void> object,
+		size_t size), ([=] {
+	auto self = static_cast<MemoryFile *>(object.get());
+	auto node = static_cast<MemoryNode *>(self->associatedLink()->getTarget().get());
+	assert(node->_memory);
+
+	node->_fileSize = size;
+
+	if(size > node->_areaSize) {
+		size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
+		node->_areaSize = aligned_size;
+	}
+	COFIBER_RETURN();
+}))
 
 COFIBER_ROUTINE(async::result<void>, MemoryFile::ptAllocate(std::shared_ptr<void> object,
 		int64_t offset, size_t size), ([=] {
@@ -284,11 +305,23 @@ COFIBER_ROUTINE(async::result<void>, MemoryFile::ptAllocate(std::shared_ptr<void
 
 	auto self = static_cast<MemoryFile *>(object.get());
 	auto node = static_cast<MemoryNode *>(self->associatedLink()->getTarget().get());
-	assert(!node->_memory);
 
-	HelHandle handle;
-	HEL_CHECK(helAllocateMemory(size, 0, &handle));
-	node->_memory = helix::UniqueDescriptor{handle};
+	if(offset + size < node->_fileSize)
+		COFIBER_RETURN();
+
+	node->_fileSize = offset + size;
+
+	if(!node->_memory) {
+		HelHandle handle;
+		HEL_CHECK(helAllocateMemory(size, 0, &handle));
+		node->_memory = helix::UniqueDescriptor{handle};
+		node->_areaSize = size;
+	}else if(offset + size > node->_areaSize) {
+		size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
+		node->_areaSize = aligned_size;
+	}
+
 	COFIBER_RETURN();
 }))	
 

@@ -139,6 +139,20 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_memory.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
+		helix::SendBuffer send_resp;
+		
+		assert(file_ops->truncate);
+		COFIBER_AWAIT file_ops->truncate(file, req.size());
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
 		helix::SendBuffer send_resp;
 		

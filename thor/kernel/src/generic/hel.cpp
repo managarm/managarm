@@ -494,6 +494,28 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helResizeMemory(HelHandle handle, size_t new_size) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	
+	frigg::SharedPtr<Memory> memory;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<MemoryAccessDescriptor>())
+			return kHelErrBadDescriptor;
+		memory = wrapper->get<MemoryAccessDescriptor>().memory;
+	}
+
+	memory->resize(new_size);
+
+	return kHelErrNone;
+}
+
 HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
 	(void)flags;

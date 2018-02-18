@@ -42,6 +42,7 @@ enum CntReqType {
 	// TODO: Add a PT_ prefix to those requests.
 	READ = 2;
 	PT_READ_ENTRIES = 16;
+	PT_TRUNCATE = 20;
 	PT_FALLOCATE = 19;
 
 	WRITE = 3;

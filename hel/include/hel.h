@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 83,
+	kHelNumCalls = 84,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -26,6 +26,7 @@ enum {
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
+	kHelCallResizeMemory = 83,
 	kHelCallCreateManagedMemory = 64,
 	kHelCallAccessPhysical = 30,
 	kHelCallCreateSpace = 27,
@@ -299,6 +300,7 @@ HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorI
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle);
 HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,

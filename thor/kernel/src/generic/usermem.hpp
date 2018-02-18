@@ -121,6 +121,8 @@ struct Memory : MemoryBundle {
 		return _tag;
 	}
 
+	virtual void resize(size_t new_length);
+
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
 	// Prevents eviction of a range of memory.
@@ -185,6 +187,8 @@ struct AllocatedMemory : Memory {
 	AllocatedMemory(size_t length, size_t chunk_size = kPageSize,
 			size_t chunk_align = kPageSize);
 	~AllocatedMemory();
+
+	void resize(size_t new_length) override;
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 

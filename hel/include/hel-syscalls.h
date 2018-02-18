@@ -48,6 +48,12 @@ extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helResizeMemory(HelHandle handle,
+		size_t size) {
+	HelError error = helSyscall2(kHelCallResizeMemory, (HelWord)handle, (HelWord)size);
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(size_t size,
 		uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
 	HelWord back_handle;

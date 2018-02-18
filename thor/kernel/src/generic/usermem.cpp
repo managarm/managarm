@@ -113,6 +113,12 @@ void Memory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) 
 	frigg::panicLogger() << "Bundle does not support synchronous operations!" << frigg::endLog;
 }
 
+void Memory::resize(size_t new_length) {
+	(void)new_length;
+	frigg::panicLogger() << "Bundle does not support resize!" << frigg::endLog;
+}
+
+
 size_t Memory::getLength() {
 	switch(tag()) {
 	case MemoryTag::hardware: return static_cast<HardwareMemory *>(this)->getLength();
@@ -315,6 +321,13 @@ AllocatedMemory::~AllocatedMemory() {
 		if(_physicalChunks[i] != PhysicalAddr(-1))
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
 	}
+}
+
+void AllocatedMemory::resize(size_t new_length) {
+	assert(!(new_length % _chunkSize));
+	size_t num_chunks = new_length / _chunkSize;
+	assert(num_chunks >= _physicalChunks.size());
+	_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 }
 
 void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {

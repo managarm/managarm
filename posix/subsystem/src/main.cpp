@@ -236,9 +236,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				auto memory = COFIBER_AWAIT file->accessMemory(req.rel_offset());
 
 				// Perform the actual mapping.
+				// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
+				size_t size = (req.size() + 0xFFF) & ~size_t(0xFFF);
 				HEL_CHECK(helMapMemory(memory.getHandle(),
 						self->vmContext()->getSpace().getHandle(),
-						nullptr, 0 /*req.rel_offset()*/, req.size(), native_flags, &address));
+						nullptr, 0 /*req.rel_offset()*/, size, native_flags, &address));
 			}
 
 			managarm::posix::SvrResponse resp;

@@ -32,8 +32,8 @@ struct FileOperations {
 	constexpr FileOperations()
 	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
 			read{nullptr}, write{nullptr}, readEntries{nullptr},
-			accessMemory{nullptr}, fallocate{nullptr}, ioctl{nullptr},
-			poll{nullptr} { }
+			accessMemory{nullptr}, truncate{nullptr}, fallocate{nullptr},
+			ioctl{nullptr}, poll{nullptr} { }
 
 	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(std::shared_ptr<void> object,
 			int64_t offset)) {
@@ -69,6 +69,11 @@ struct FileOperations {
 		accessMemory = f;
 		return *this;
 	}
+	constexpr FileOperations &withTruncate(async::result<void> (*f)(std::shared_ptr<void> object,
+			size_t size)) {
+		truncate = f;
+		return *this;
+	}
 	constexpr FileOperations &withFallocate(async::result<void> (*f)(std::shared_ptr<void> object,
 			int64_t offset, size_t size)) {
 		fallocate = f;
@@ -93,6 +98,7 @@ struct FileOperations {
 	async::result<ReadEntriesResult> (*readEntries)(std::shared_ptr<void> object);
 	async::result<AccessMemoryResult>(*accessMemory)(std::shared_ptr<void> object,
 			uint64_t offset, size_t size);
+	async::result<void> (*truncate)(std::shared_ptr<void> object, size_t size);
 	async::result<void> (*fallocate)(std::shared_ptr<void> object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
