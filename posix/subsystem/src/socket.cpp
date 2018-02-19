@@ -14,6 +14,8 @@ namespace {
 struct Packet {
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
+
+	std::vector<std::shared_ptr<File>> files;
 };
 
 // One direction of a socket.
@@ -102,6 +104,7 @@ public:
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &pipe->queue.front();
+		assert(packet->files.empty());
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
@@ -126,6 +129,46 @@ public:
 		_socket->seqBell.ring();
 
 		COFIBER_RETURN();
+	}))
+
+	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length) override, ([=] {
+		std::cout << "posix: Read from socket " << this << std::endl;
+
+		auto pipe = _readPipe();
+		while(pipe->queue.empty())
+			COFIBER_AWAIT pipe->bell.async_wait();
+		
+		std::cout << "posix: Completing read" << std::endl;
+		
+		// TODO: Truncate packets (for SOCK_DGRAM) here.
+		auto packet = &pipe->queue.front();
+		auto size = packet->buffer.size();
+		assert(max_length >= size);
+		memcpy(data, packet->buffer.data(), size);
+		auto files = std::move(packet->files);
+		pipe->queue.pop_front();
+		COFIBER_RETURN(RecvResult(size, std::move(files)));
+	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
+			std::vector<std::shared_ptr<File>> files), ([=] {
+		assert(_socket);
+		std::cout << "posix: Write to socket " << this << std::endl;
+
+		Packet packet;
+		packet.buffer.resize(max_length);
+		memcpy(packet.buffer.data(), data, max_length);
+		packet.files = std::move(files);
+
+		auto pipe = _writePipe();
+		pipe->queue.push_back(std::move(packet));
+		pipe->bell.ring();
+
+		auto seq = ++_socket->currentSeq;
+		pipe->inSeq = seq;
+		_socket->seqBell.ring();
+
+		COFIBER_RETURN(max_length);
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t in_seq) override, ([=] {

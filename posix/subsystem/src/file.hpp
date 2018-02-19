@@ -9,6 +9,7 @@
 #include <cofiber/future.hpp>
 #include <hel.h>
 
+struct File;
 struct FsLink;
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -38,6 +39,8 @@ using expected = async::result<std::variant<Error, T>>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
 
+using RecvResult = std::pair<size_t, std::vector<std::shared_ptr<File>>>;
+
 struct File {
 	File(std::shared_ptr<FsLink> link)
 	: _link{std::move(link)} { }
@@ -53,6 +56,11 @@ struct File {
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
+	
+	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
+			std::vector<std::shared_ptr<File>> files);
+	
+	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
 
 	// poll() uses a sequence number mechansim for synchronization.
 	// Before returning, it waits until current-sequence > in-sequence.

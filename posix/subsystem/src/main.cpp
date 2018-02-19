@@ -654,6 +654,60 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SENDMSG) {
+			helix::RecvInline recv_data;
+			helix::SendBuffer send_resp;
+		
+			auto &&submit_data = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&recv_data));
+			COFIBER_AWAIT submit_data.async_wait();
+			HEL_CHECK(recv_data.error());
+			
+			auto sockfile = self->fileContext()->getFile(req.fd());
+			assert(sockfile);
+
+			std::vector<std::shared_ptr<File>> files;
+			for(int i = 0; i < req.fds_size(); i++) {
+				auto file = self->fileContext()->getFile(req.fds(i));
+				assert(file);
+				files.push_back(std::move(file));
+			}
+
+			auto bytes_written = COFIBER_AWAIT sockfile->sendMsg(recv_data.data(),
+					recv_data.length(), std::move(files));
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_size(bytes_written);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::RECVMSG) {
+			helix::SendBuffer send_resp;
+			helix::SendBuffer send_data;
+			
+			auto sockfile = self->fileContext()->getFile(req.fd());
+			assert(sockfile);
+
+			std::vector<char> buffer;
+			buffer.resize(req.size());
+			auto result = COFIBER_AWAIT sockfile->recvMsg(buffer.data(), req.size());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			for(auto &file : std::get<1>(result))
+				resp.add_fds(self->fileContext()->attachFile(std::move(file)));
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, buffer.data(), std::get<0>(result)));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			helix::SendBuffer send_resp;
 

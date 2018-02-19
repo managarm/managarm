@@ -49,6 +49,8 @@ enum CntReqType {
 	// Socket-specific calls.
 	SOCKET = 35;
 	SOCKPAIR = 25;
+	RECVMSG = 41;
+	SENDMSG = 42;
 	
 	// epoll-specific calls.
 	EPOLL_CREATE = 28;
@@ -127,6 +129,8 @@ message CntRequest {
 	optional int32 socktype = 15;
 	optional int32 protocol = 16;
 	
+	repeated int32 fds = 22;
+	
 	// used by EPOLL_CTL
 	optional uint64 cookie = 17;
 
@@ -139,6 +143,8 @@ message CntRequest {
 
 message SvrResponse {
 	optional int32 error = 3;
+
+	optional int64 size = 21;
 
 	// returned by GET_PID
 	optional int64 pid = 18;
