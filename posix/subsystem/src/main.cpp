@@ -246,6 +246,21 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
+			helix::SendBuffer send_resp;
+
+			auto address = COFIBER_AWAIT self->vmContext()->remapFile(
+					reinterpret_cast<void *>(req.address()), req.size(), req.new_size());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_offset(reinterpret_cast<uintptr_t>(address));
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
 			helix::SendBuffer send_resp;
 

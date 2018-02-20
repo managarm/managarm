@@ -23,6 +23,7 @@ enum CntReqType {
 	FORK = 8;
 	EXEC = 1;
 	VM_MAP = 26;
+	VM_REMAP = 43;
 	VM_UNMAP = 27;
 
 	MOUNT = 21;
@@ -123,6 +124,9 @@ message CntRequest {
 	// used by FORK
 	optional uint64 child_sp = 8;
 	optional uint64 child_ip = 9;
+	
+	optional uint64 address = 24;
+	optional uint32 new_size = 23;
 
 	// used by socket functions
 	optional int32 domain = 14;

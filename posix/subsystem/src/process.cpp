@@ -44,6 +44,7 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> 
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 			nullptr, 0 /*offset*/, aligned_size, native_flags, &pointer));
+//	std::cout << "posix: VM_MAP returns " << pointer << std::endl;
 
 	// Perform some sanity checking.
 	auto address = reinterpret_cast<uintptr_t>(pointer);
@@ -53,11 +54,55 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> 
 		assert(pred->first + pred->second.areaSize <= address);
 	}
 
+	// Construct the new area.
 	Area area;
-	area.areaSize = size;
+	area.areaSize = aligned_size;
 	area.nativeFlags = native_flags;
 	area.file = std::move(file);
 	area.offset = offset;
+	_areaTree.insert({address, std::move(area)});
+
+	COFIBER_RETURN(pointer);
+}))
+
+COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
+		size_t old_size, size_t new_size), ([=] {
+//	std::cout << "posix: Remapping " << old_pointer << std::endl;
+	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(old_pointer));
+	assert(it != _areaTree.end());
+	size_t aligned_old_size = (old_size + 0xFFF) & ~size_t(0xFFF);
+	assert(it->second.areaSize == aligned_old_size);
+	
+	auto memory = COFIBER_AWAIT it->second.file->accessMemory(it->second.offset);
+
+	// Perform the actual mapping.
+	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
+	size_t aligned_new_size = (new_size + 0xFFF) & ~size_t(0xFFF);
+	void *pointer;
+	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
+			nullptr, 0 /*offset*/, aligned_new_size, it->second.nativeFlags, &pointer));
+//	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
+
+	// TODO: Unmap the old area.
+	std::cout << "\e[35mposix: remapFile does not correctly unmap areas\e[39m" << std::endl;
+	//HEL_CHECK(helUnmapMemory(_space.getHandle(), old_pointer, aligned_old_size));
+	
+	// Construct the new area from the old one.
+	Area area;
+	area.areaSize = aligned_new_size;
+	area.nativeFlags = it->second.nativeFlags;
+	area.file = std::move(it->second.file);
+	area.offset = it->second.offset;
+	_areaTree.erase(it);
+
+	// Perform some sanity checking.
+	auto address = reinterpret_cast<uintptr_t>(pointer);
+	auto succ = _areaTree.lower_bound(address + aligned_new_size);
+	if(succ != _areaTree.begin()) {
+		auto pred = std::prev(succ);
+		assert(pred->first + pred->second.areaSize <= address);
+	}
+
 	_areaTree.insert({address, std::move(area)});
 
 	COFIBER_RETURN(pointer);

@@ -25,6 +25,8 @@ struct VmContext {
 	async::result<void *> mapFile(std::shared_ptr<File> file, intptr_t offset, size_t size,
 			uint32_t native_flags);
 
+	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
+
 private:
 	struct Area {
 		size_t areaSize;
