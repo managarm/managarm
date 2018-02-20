@@ -232,15 +232,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(helCloseDescriptor(memory));
 			}else{
 				auto file = self->fileContext()->getFile(req.fd());
-				assert(file);
-				auto memory = COFIBER_AWAIT file->accessMemory(req.rel_offset());
-
-				// Perform the actual mapping.
-				// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-				size_t size = (req.size() + 0xFFF) & ~size_t(0xFFF);
-				HEL_CHECK(helMapMemory(memory.getHandle(),
-						self->vmContext()->getSpace().getHandle(),
-						nullptr, 0 /*req.rel_offset()*/, size, native_flags, &address));
+				assert(file && "Illegal FD for VM_MAP");
+				address = COFIBER_AWAIT self->vmContext()->mapFile(std::move(file),
+						req.rel_offset(), req.size(), native_flags);
 			}
 
 			managarm::posix::SvrResponse resp;
@@ -483,7 +477,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			auto file = self->fileContext()->getFile(req.fd());
-			assert(file);
+			assert(file && "Illegal FD for DUP");
 			
 			int newfd = self->fileContext()->attachFile(file);
 
@@ -500,7 +494,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			auto file = self->fileContext()->getFile(req.fd());
-			assert(file);
+			assert(file && "Illegal FD for DUP2");
 
 			if(req.newfd() >= 0) {
 				self->fileContext()->attachFile(req.newfd(), file);
@@ -520,6 +514,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
 			auto file = self->fileContext()->getFile(req.fd());
+			assert(file && "Illegal FD for FSTAT");
 			auto stats = COFIBER_AWAIT file->associatedLink()->getTarget()->getStats();
 
 			helix::SendBuffer send_resp;
@@ -664,12 +659,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(recv_data.error());
 			
 			auto sockfile = self->fileContext()->getFile(req.fd());
-			assert(sockfile);
+			assert(sockfile && "Illegal FD for SENDMSG");
 
 			std::vector<std::shared_ptr<File>> files;
 			for(int i = 0; i < req.fds_size(); i++) {
 				auto file = self->fileContext()->getFile(req.fds(i));
-				assert(file);
+				assert(sockfile && "Illegal FD for SENDMSG cmsg");
 				files.push_back(std::move(file));
 			}
 
@@ -690,7 +685,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_data;
 			
 			auto sockfile = self->fileContext()->getFile(req.fd());
-			assert(sockfile);
+			assert(sockfile && "Illegal FD for SENDMSG");
 
 			std::vector<char> buffer;
 			buffer.resize(req.size());
@@ -728,8 +723,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
-			assert(epfile);
-			assert(file);
+			assert(epfile && "Illegal FD for EPOLL_ADD");
+			assert(file && "Illegal FD for EPOLL_ADD item");
 
 			epoll::addItem(epfile.get(), file.get(), req.flags(), req.cookie());
 
@@ -746,8 +741,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
-			assert(epfile);
-			assert(file);
+			assert(epfile && "Illegal FD for EPOLL_MODIFY");
+			assert(file && "Illegal FD for EPOLL_MODIFY item");
 
 			epoll::modifyItem(epfile.get(), file.get(), req.flags(), req.cookie());
 
@@ -764,8 +759,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
-			assert(epfile);
-			assert(file);
+			assert(epfile && "Illegal FD for EPOLL_DELETE");
+			assert(file && "Illegal FD for EPOLL_DELETE item");
 
 			epoll::deleteItem(epfile.get(), file.get(), req.flags());
 
@@ -785,7 +780,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_data;
 			
 			auto epfile = self->fileContext()->getFile(req.fd());
-			assert(epfile);
+			assert(epfile && "Illegal FD for EPOLL_WAIT");
 			auto event = COFIBER_AWAIT epoll::wait(epfile.get());
 			
 			std::cout << "posix: epoll returns" << std::endl;
@@ -818,6 +813,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			auto file = self->fileContext()->getFile(req.fd());
+			assert(file && "Illegal FD for TIMERFD_SETTIME");
 			timerfd::setTime(file.get(), {req.time_secs(), req.time_nanos()},
 					{req.interval_secs(), req.interval_nanos()});
 

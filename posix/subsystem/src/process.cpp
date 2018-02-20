@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/auxv.h>
 
+#include <cofiber.hpp>
 #include "common.hpp"
 #include "exec.hpp"
 #include "process.hpp"
@@ -28,9 +29,39 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	HelHandle space;
 	HEL_CHECK(helForkSpace(original->_space.getHandle(), &space));
 	context->_space = helix::UniqueDescriptor(space);
+	context->_areaTree = original->_areaTree; // Copy construction is sufficient here.
 
 	return context;
 }
+
+COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> file,
+		intptr_t offset, size_t size, uint32_t native_flags), ([=] {
+	auto memory = COFIBER_AWAIT file->accessMemory(offset);
+
+	// Perform the actual mapping.
+	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
+	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+	void *pointer;
+	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
+			nullptr, 0 /*offset*/, aligned_size, native_flags, &pointer));
+
+	// Perform some sanity checking.
+	auto address = reinterpret_cast<uintptr_t>(pointer);
+	auto succ = _areaTree.lower_bound(address + aligned_size);
+	if(succ != _areaTree.begin()) {
+		auto pred = std::prev(succ);
+		assert(pred->first + pred->second.areaSize <= address);
+	}
+
+	Area area;
+	area.areaSize = size;
+	area.nativeFlags = native_flags;
+	area.file = std::move(file);
+	area.offset = offset;
+	_areaTree.insert({address, std::move(area)});
+
+	COFIBER_RETURN(pointer);
+}))
 
 // ----------------------------------------------------------------------------
 // FsContext.
@@ -146,7 +177,10 @@ void FileContext::attachFile(int fd, std::shared_ptr<File> file) {
 }
 
 std::shared_ptr<File> FileContext::getFile(int fd) {
-	return _fileTable.at(fd);
+	auto file = _fileTable.find(fd);
+	if(file == _fileTable.end())
+		return std::shared_ptr<File>{};
+	return file->second;
 }
 
 void FileContext::closeFile(int fd) {

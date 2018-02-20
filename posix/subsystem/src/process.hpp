@@ -2,6 +2,7 @@
 #ifndef POSIX_SUBSYSTEM_PROCESS_HPP
 #define POSIX_SUBSYSTEM_PROCESS_HPP
 
+#include <map>
 #include <memory>
 #include <unordered_map>
 
@@ -20,8 +21,21 @@ struct VmContext {
 		return _space;
 	}
 
+	// TODO: Pass abstract instead of hel flags to this function?
+	async::result<void *> mapFile(std::shared_ptr<File> file, intptr_t offset, size_t size,
+			uint32_t native_flags);
+
 private:
+	struct Area {
+		size_t areaSize;
+		uint32_t nativeFlags;
+		std::shared_ptr<File> file;
+		intptr_t offset;
+	};
+
 	helix::UniqueDescriptor _space;
+
+	std::map<uintptr_t, Area> _areaTree;
 };
 
 struct FsContext {
