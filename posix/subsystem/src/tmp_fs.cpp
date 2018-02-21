@@ -311,16 +311,15 @@ COFIBER_ROUTINE(async::result<void>, MemoryFile::ptAllocate(std::shared_ptr<void
 
 	node->_fileSize = offset + size;
 
+	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 	if(!node->_memory) {
 		HelHandle handle;
-		HEL_CHECK(helAllocateMemory(size, 0, &handle));
+		HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
 		node->_memory = helix::UniqueDescriptor{handle};
-		node->_areaSize = size;
 	}else if(offset + size > node->_areaSize) {
-		size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
-		node->_areaSize = aligned_size;
 	}
+	node->_areaSize = aligned_size;
 
 	COFIBER_RETURN();
 }))	
