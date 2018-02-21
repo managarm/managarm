@@ -13,6 +13,7 @@ void printf(P &printer, const char *format, va_list args) {
 	enum class SizeMod {
 		defaultSize,
 		longSize,
+		hugeSize,
 		nativeSize
 	};
 
@@ -100,11 +101,16 @@ void printf(P &printer, const char *format, va_list args) {
 		
 		SizeMod szmod = SizeMod::defaultSize;
 		if(*format == 'l') {
-			szmod = SizeMod::longSize;
 			++format;
+			if(*format == 'l') {
+				++format;
+				szmod = SizeMod::hugeSize;
+			}else{
+				szmod = SizeMod::longSize;
+			}
 		}else if(*format == 'z') {
-			szmod = SizeMod::nativeSize;
 			++format;
+			szmod = SizeMod::nativeSize;
 		}
 
 		switch(*format) {
@@ -152,6 +158,8 @@ void printf(P &printer, const char *format, va_list args) {
 			long number;
 			if(szmod == SizeMod::longSize) {
 				number = va_arg(args, long);
+			}else if(szmod == SizeMod::hugeSize) {
+				number = va_arg(args, long long);
 			}else if(szmod == SizeMod::nativeSize) {
 				number = va_arg(args, intptr_t);
 			}else{
