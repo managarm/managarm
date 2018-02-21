@@ -29,8 +29,8 @@
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
-bool logRequests = true;
-bool logPaths = true;
+bool logRequests = false;
+bool logPaths = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -208,9 +208,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			// TODO: Validate mode and flags.
-			std::cout << "flags: " << req.flags() << std::endl;
 
-			uint32_t native_flags = kHelMapCopyOnWriteAtFork;
+			uint32_t native_flags = 0;
+			if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
+				native_flags |= kHelMapCopyOnWriteAtFork;
+				std::cout << "posix: Private mappings are not really supported" << std::endl;
+			}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
+				native_flags |= kHelMapShareAtFork;
+			}else{
+				throw std::runtime_error("posix: Handle illegal flags in VM_MAP");
+			}
+
 			if(req.mode() & PROT_READ)
 				native_flags |= kHelMapProtRead;
 			if(req.mode() & PROT_WRITE)
@@ -798,8 +806,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
 			auto event = COFIBER_AWAIT epoll::wait(epfile.get());
 			
-			std::cout << "posix: epoll returns" << std::endl;
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
