@@ -58,6 +58,7 @@ using PropertyType = std::variant<
 
 struct Event {
 	uint64_t cookie;
+	uint64_t timestamp;
 };
 
 struct Property {

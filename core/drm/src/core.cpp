@@ -458,6 +458,8 @@ drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 };
 
 void drm_core::File::postEvent(drm_core::Event event) {
+	HEL_CHECK(helGetClock(&event.timestamp));
+
 	if(_pendingEvents.empty())
 		++_eventSequence;
 	_pendingEvents.push_back(event);
@@ -479,6 +481,8 @@ COFIBER_ROUTINE(async::result<size_t>, drm_core::File::read(std::shared_ptr<void
 	out.base.type = DRM_EVENT_FLIP_COMPLETE;
 	out.base.length = sizeof(drm_event_vblank);
 	out.user_data = ev->cookie;
+	out.tv_sec = ev->timestamp / 1000000000;
+	out.tv_usec = (ev->timestamp % 1000000000) / 1000;
 
 	assert(length >= sizeof(drm_event_vblank));
 	memcpy(buffer, &out, sizeof(drm_event_vblank));
@@ -492,6 +496,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_core::File
 		uint64_t offset, size_t), ([=] {
 	auto self = std::static_pointer_cast<drm_core::File>(object);
 	auto mapping = self->_device->findMapping(offset);
+	assert(mapping.first == offset); // TODO: We can remove this assert once we fix VM_MAP.
 	auto mem = mapping.second->getMemory();
 	COFIBER_RETURN(std::make_pair(mem.first, mem.second + (offset - mapping.first)));
 }))
@@ -526,10 +531,14 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
 		
-		if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
+		if(req.drm_capability() == DRM_CAP_TIMESTAMP_MONOTONIC) {
+			resp.set_drm_value(1);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}else if(req.drm_capability() == DRM_CAP_DUMB_BUFFER) {
 			resp.set_drm_value(1);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}else{
+			std::cout << "core/drm: Unknown capability " << req.drm_capability() << std::endl;
 			resp.set_drm_value(0);
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
