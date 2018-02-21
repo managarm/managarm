@@ -12,6 +12,8 @@
 
 namespace {
 
+bool logEpoll = false;
+
 struct OpenFile : ProxyFile {
 	// ------------------------------------------------------------------------
 	// Internal API.
@@ -40,8 +42,9 @@ private:
 		// Level-triggered items stay pending until the event disappears.
 		if(!item->isPending && (std::get<1>(result) & item->eventMask)
 				&& (std::get<2>(result) & item->eventMask)) {
-			std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
-					<< ": Item becomes pending" << std::endl;
+			if(logEpoll)
+				std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
+						<< ": Item becomes pending" << std::endl;
 			// Note that we stop watching once an item becomes pending.
 			// We do this as we have to poll() again anyway before we report the item.
 			item->isPending = true;
@@ -50,10 +53,11 @@ private:
 		}else{
 			// Here, we assume that the lambda does not execute on the current stack.
 			// TODO: Use some callback queueing mechanism to ensure this.
-			std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
-					<< ": Item still not pending after poll()."
-					<< " Mask is " << item->eventMask << ", while "
-					<< std::get<2>(result) << " is active" << std::endl;
+			if(logEpoll)
+				std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
+						<< ": Item still not pending after poll()."
+						<< " Mask is " << item->eventMask << ", while "
+						<< std::get<2>(result) << " is active" << std::endl;
 			auto poll = item->file->poll(std::get<0>(result));
 			poll.then([item] (PollResult next_result) {
 				_awaitPoll(item, next_result);
@@ -67,8 +71,9 @@ public:
 	}
 
 	void addItem(File *file, int mask, uint64_t cookie) {
-		std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Adding item "
-				<< file << ". Mask is " << mask << std::endl;
+		if(logEpoll)
+			std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Adding item "
+					<< file << ". Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
 		assert(_fileMap.find(file) == _fileMap.end());
 		auto item = new Item{this, file, mask, cookie};
@@ -92,8 +97,9 @@ public:
 	}
 
 	COFIBER_ROUTINE(async::result<struct epoll_event>, waitForEvent(), ([=] {
-		std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Entering wait."
-				" There are " << _pendingQueue.size() << " pending items" << std::endl;
+		if(logEpoll)
+			std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Entering wait."
+					" There are " << _pendingQueue.size() << " pending items" << std::endl;
 		while(true) {
 			while(_pendingQueue.empty())
 				COFIBER_AWAIT _pendingBell.async_wait();
@@ -109,9 +115,10 @@ public:
 				assert(item->isPending);
 
 				auto result = COFIBER_AWAIT item->file->poll(0);	
-				std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Checking item."
-						" Mask is " << item->eventMask << ", while " << std::get<2>(result)
-						<< " is active" << std::endl;
+				if(logEpoll)
+					std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Checking item."
+							" Mask is " << item->eventMask << ", while " << std::get<2>(result)
+							<< " is active" << std::endl;
 				auto status = std::get<2>(result) & item->eventMask;
 				// TODO: In addition to watches without events,
 				// edge-triggered watches should be discarded here.

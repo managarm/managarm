@@ -11,6 +11,8 @@
 
 namespace {
 
+bool logTimerfd = false;
+
 struct OpenFile : ProxyFile {
 private:
 	struct Timer {
@@ -91,6 +93,7 @@ public:
 
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(max_length == sizeof(uint64_t));
+		assert(_expirations);
 
 		memcpy(data, &_expirations, sizeof(uint64_t));
 		_expirations = 0;
@@ -98,7 +101,8 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t in_seq) override, ([=] {
-		std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
+		if(logTimerfd)
+			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);
 		while(in_seq == _theSeq)
 			COFIBER_AWAIT _seqBell.async_wait();
@@ -148,6 +152,10 @@ void setTime(File *file, struct timespec initial, struct timespec interval) {
 	assert(initial.tv_sec >= 0 && initial.tv_nsec >= 0);
 	assert(interval.tv_sec >= 0 && interval.tv_nsec >= 0);
 
+	if(logTimerfd)
+		std::cout << "setTime() initial: " << initial.tv_sec << " + " << initial.tv_nsec
+				<< ", interval: " << interval.tv_sec << " + " << interval.tv_nsec << std::endl;
+
 	uint64_t initial_nanos;
 	if(__builtin_mul_overflow(initial.tv_sec, 1000000000, &initial_nanos)
 			|| __builtin_add_overflow(initial.tv_nsec, initial_nanos, &initial_nanos))
@@ -159,8 +167,7 @@ void setTime(File *file, struct timespec initial, struct timespec interval) {
 		throw std::runtime_error("Overflow in timerfd setup");
 
 	auto timerfd = static_cast<OpenFile *>(file);
-	// TODO: Check for overflow.
-//	timerfd->setTime(initial_nanos, interval_nanos);
+	timerfd->setTime(initial_nanos, interval_nanos);
 }
 
 } // namespace timerfd
