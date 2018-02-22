@@ -20,44 +20,11 @@ struct Packet {
 	std::vector<std::shared_ptr<File>> files;
 };
 
-// One direction of a socket.
-struct Pipe {
-	Pipe()
-	: inSeq{0} { }
-
-	Pipe(const Pipe &) = delete;
-
-	Pipe &operator= (const Pipe &) = delete;
-
-	std::deque<Packet> queue;
-	async::doorbell bell;
-	uint64_t inSeq;
-};
-
-// This is an actual socket.
-// During normal operation, exactly two files are attached to it.
-struct Socket {
-	Socket()
-	: currentSeq{1} { }
-
-	Socket(const Socket &) = delete;
-
-	Socket &operator= (const Socket &) = delete;
-
-	Pipe pipes[2];
-	async::doorbell seqBell;
-	uint64_t currentSeq;
-};
-
 struct OpenFile : File {
-private:
-	Pipe *_readPipe() {
-		return &_socket->pipes[!_wh];
-	}
-
-	Pipe *_writePipe() {
-		return &_socket->pipes[_wh];
-	}
+	enum class State {
+		null,
+		connected
+	};
 
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
@@ -80,6 +47,15 @@ private:
 			.withWrite(&ptWrite);
 
 public:
+	static void connectPair(OpenFile *a, OpenFile *b) {
+		assert(a->_state == State::null);
+		assert(b->_state == State::null);
+		a->_remote = b;
+		b->_remote = a;
+		a->_state = State::connected;
+		b->_state = State::connected;
+	}
+
 	static void serve(std::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
@@ -90,31 +66,29 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("un-socket")}, _wh{-1} { }
-	
-	OpenFile(std::shared_ptr<Socket> socket, int wh)
-	: File{StructName::get("un-socket")}, _socket{std::move(socket)}, _wh{wh} { }
+	: File{StructName::get("un-socket")}, _state{State::null}, _currentSeq{1}, _inSeq{0} { }
 
+public:
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
-		auto pipe = _readPipe();
-		while(pipe->queue.empty())
-			COFIBER_AWAIT pipe->bell.async_wait();
+		while(_recvQueue.empty())
+			COFIBER_AWAIT _statusBell.async_wait();
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
-		auto packet = &pipe->queue.front();
+		auto packet = &_recvQueue.front();
 		assert(packet->files.empty());
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
-		pipe->queue.pop_front();
+		_recvQueue.pop_front();
 		COFIBER_RETURN(size);
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
-		assert(_socket);
+		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;
 
@@ -122,38 +96,34 @@ public:
 		packet.buffer.resize(length);
 		memcpy(packet.buffer.data(), data, length);
 
-		auto pipe = _writePipe();
-		pipe->queue.push_back(std::move(packet));
-		pipe->bell.ring();
-
-		auto seq = ++_socket->currentSeq;
-		pipe->inSeq = seq;
-		_socket->seqBell.ring();
+		_remote->_recvQueue.push_back(std::move(packet));
+		_remote->_inSeq = ++_remote->_currentSeq;
+		_remote->_statusBell.ring();
 
 		COFIBER_RETURN();
 	}))
 
 	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length) override, ([=] {
+		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		auto pipe = _readPipe();
-		while(pipe->queue.empty())
-			COFIBER_AWAIT pipe->bell.async_wait();
+		while(_recvQueue.empty())
+			COFIBER_AWAIT _statusBell.async_wait();
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
-		auto packet = &pipe->queue.front();
+		auto packet = &_recvQueue.front();
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		auto files = std::move(packet->files);
-		pipe->queue.pop_front();
+		_recvQueue.pop_front();
 		COFIBER_RETURN(RecvResult(size, std::move(files)));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
 			std::vector<std::shared_ptr<File>> files), ([=] {
-		assert(_socket);
+		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -162,41 +132,32 @@ public:
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);
 
-		auto pipe = _writePipe();
-		pipe->queue.push_back(std::move(packet));
-		pipe->bell.ring();
-
-		auto seq = ++_socket->currentSeq;
-		pipe->inSeq = seq;
-		_socket->seqBell.ring();
+		_remote->_recvQueue.push_back(std::move(packet));
+		_remote->_inSeq = ++_remote->_currentSeq;
+		_remote->_statusBell.ring();
 
 		COFIBER_RETURN(max_length);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t in_seq) override, ([=] {
-		if(!_socket) {
-			std::cout << "posix: Fix poll() for unconnected sockets" << std::endl;
-			return;
-		}
-
-		assert(in_seq <= _socket->currentSeq);
-		while(in_seq == _socket->currentSeq)
-			COFIBER_AWAIT _socket->seqBell.async_wait();
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t past_seq) override, ([=] {
+		assert(past_seq <= _currentSeq);
+		while(past_seq == _currentSeq)
+			COFIBER_AWAIT _statusBell.async_wait();
 
 		// For now making sockets always writable is sufficient.
 		int edges = EPOLLOUT;
-		if(_readPipe()->inSeq > in_seq)
+		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
 		int events = EPOLLOUT;
-		if(!_readPipe()->queue.empty())
+		if(!_recvQueue.empty())
 			events |= EPOLLIN;
 		
-//		std::cout << "posix: poll(" << in_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _socket->currentSeq
+//		std::cout << "posix: poll(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
+//				<< " returns (" << _currentSeq
 //				<< ", " << edges << ", " << events << ")" << std::endl;
 	
-		COFIBER_RETURN(PollResult(_socket->currentSeq, edges, events));
+		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -206,10 +167,18 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 
-	// Socket this file is connected to.
-	// _wh is the index of the pipe this file writes to.
-	std::shared_ptr<Socket> _socket;
-	int _wh;
+	State _state;
+
+	// Status management for poll().
+	async::doorbell _statusBell;
+	uint64_t _currentSeq;
+	uint64_t _inSeq;
+	
+	// The actual receive queue of the socket.
+	std::deque<Packet> _recvQueue;
+
+	// For connected sockets, this is the socket we are connected to.
+	OpenFile *_remote;
 };
 
 } // anonymous namespace
@@ -221,11 +190,11 @@ std::shared_ptr<File> createUnixSocketFile() {
 }
 
 std::array<std::shared_ptr<File>, 2> createUnixSocketPair() {
-	auto socket = std::make_shared<Socket>();
-	auto file0 = std::make_shared<OpenFile>(socket, 0);
-	auto file1 = std::make_shared<OpenFile>(socket, 1);
+	auto file0 = std::make_shared<OpenFile>();
+	auto file1 = std::make_shared<OpenFile>();
 	OpenFile::serve(file0);
 	OpenFile::serve(file1);
+	OpenFile::connectPair(file0.get(), file1.get());
 	return {std::move(file0), std::move(file1)};
 }
 
