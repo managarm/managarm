@@ -7,9 +7,9 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
-#include "socket.hpp"
+#include "un-socket.hpp"
 
-namespace {
+namespace un_socket {
 
 bool logSockets = false;
 
@@ -181,15 +181,13 @@ private:
 	OpenFile *_remote;
 };
 
-} // anonymous namespace
-
-std::shared_ptr<File> createUnixSocketFile() {
+std::shared_ptr<File> createSocketFile() {
 	auto file = std::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);
 }
 
-std::array<std::shared_ptr<File>, 2> createUnixSocketPair() {
+std::array<std::shared_ptr<File>, 2> createSocketPair() {
 	auto file0 = std::make_shared<OpenFile>();
 	auto file1 = std::make_shared<OpenFile>();
 	OpenFile::serve(file0);
@@ -197,4 +195,6 @@ std::array<std::shared_ptr<File>, 2> createUnixSocketPair() {
 	OpenFile::connectPair(file0.get(), file1.get());
 	return {std::move(file0), std::move(file1)};
 }
+
+} // namespace un_socket
 

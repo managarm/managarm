@@ -21,10 +21,10 @@
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
 #include "signalfd.hpp"
-#include "socket.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
 #include "sysfs.hpp"
+#include "un-socket.hpp"
 #include "timerfd.hpp"
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
@@ -637,7 +637,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
-			auto file = createUnixSocketFile();
+			auto file = un_socket::createSocketFile();
 			auto fd = self->fileContext()->attachFile(file);
 
 			managarm::posix::SvrResponse resp;
@@ -658,7 +658,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
-			auto pair = createUnixSocketPair();
+			auto pair = un_socket::createSocketPair();
 			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair));
 			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair));
 
