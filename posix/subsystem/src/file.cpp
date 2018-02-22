@@ -39,6 +39,8 @@ FutureMaybe<off_t> File::seek(off_t, VfsSeek) {
 }
 
 FutureMaybe<PollResult> File::poll(uint64_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement poll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::poll()");
 }
 

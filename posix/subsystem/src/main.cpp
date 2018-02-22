@@ -14,6 +14,7 @@
 
 #include "common.hpp"
 #include "device.hpp"
+#include "nl-socket.hpp"
 #include "vfs.hpp"
 #include "process.hpp"
 #include "epoll.hpp"
@@ -631,13 +632,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			helix::SendBuffer send_resp;
 
-			std::cout << "socktype: " << req.socktype() << std::endl;
-			assert(req.domain() == AF_UNIX);
-			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
-					|| req.socktype() == SOCK_SEQPACKET);
-			assert(!req.protocol());
+			std::shared_ptr<File> file;
+			if(req.domain() == AF_UNIX) {
+				assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
+						|| req.socktype() == SOCK_SEQPACKET);
+				assert(!req.protocol());
 
-			auto file = un_socket::createSocketFile();
+				file = un_socket::createSocketFile();
+			}else if(req.domain() == AF_NETLINK) {
+				file = nl_socket::createSocketFile();
+			}else{
+				throw std::runtime_error("posix: Handle unknown protocol families");
+			}
+
 			auto fd = self->fileContext()->attachFile(file);
 
 			managarm::posix::SvrResponse resp;
@@ -652,7 +659,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			helix::SendBuffer send_resp;
 
-			std::cout << "socktype: " << req.socktype() << std::endl;
 			assert(req.domain() == AF_UNIX);
 			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
 					|| req.socktype() == SOCK_SEQPACKET);

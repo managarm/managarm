@@ -157,6 +157,10 @@ public:
 		throw std::runtime_error("Cannot read from epoll FD");
 	}))
 	
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
+		std::cout << "posix: Fix epoll::poll()" << std::endl;
+	}))
+	
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
