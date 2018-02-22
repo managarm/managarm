@@ -19,7 +19,7 @@ private:
 	std::map<std::pair<FsNode *, std::string>, std::weak_ptr<FsLink>> _activeLinks;
 };
 
-struct OpenFile : ProperFile {
+struct OpenFile : File {
 private:
 	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		assert(whence == VfsSeek::absolute);
@@ -50,7 +50,7 @@ private:
 
 public:
 	OpenFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link)
-	: ProperFile{std::move(link)}, _file{std::move(lane)} { }
+	: File{StructName::get("externfs.file"), std::move(link)}, _file{std::move(lane)} { }
 
 private:
 	protocols::fs::File _file;
@@ -66,7 +66,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link) override, ([=] {
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -303,7 +303,7 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	return context->internalizeLink(nullptr, std::string{}, link);
 }
 
-std::shared_ptr<ProperFile> createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
+std::shared_ptr<File> createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
 	return std::make_shared<OpenFile>(std::move(lane), std::move(link));
 }
 

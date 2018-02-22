@@ -28,7 +28,7 @@ struct LinkCompare {
 	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const;
 };
 
-struct AttributeFile : ProperFile {
+struct AttributeFile : File {
 private:
 	static async::result<size_t> ptRead(std::shared_ptr<void> object,
 			void *buffer, size_t length);
@@ -52,7 +52,7 @@ private:
 	size_t _offset;
 };
 
-struct DirectoryFile : ProperFile {
+struct DirectoryFile : File {
 private:
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(std::shared_ptr<void> object);
@@ -97,7 +97,7 @@ struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link) override;
+	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override;
 
 private:
 	Object *_object;
@@ -125,7 +125,7 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link) override;
+	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 
 private:

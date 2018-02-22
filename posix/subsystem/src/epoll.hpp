@@ -5,7 +5,7 @@
 
 namespace epoll {
 
-std::shared_ptr<ProxyFile> createFile();
+std::shared_ptr<File> createFile();
 
 void addItem(File *epfile, File *file, int flags, uint64_t cookie);
 void modifyItem(File *epfile, File *file, int flags, uint64_t cookie);

@@ -178,7 +178,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link) override, ([=] {
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
@@ -195,7 +195,7 @@ private:
 	std::string _path;
 };
 
-struct MemoryFile : ProperFile {
+struct MemoryFile : File {
 private:
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
@@ -235,7 +235,7 @@ public:
 	}
 
 	MemoryFile(std::shared_ptr<FsLink> link)
-	: ProperFile{std::move(link)} { }
+	: File{StructName::get("tmpfs.regular"), std::move(link)} { }
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(!"Fix MemoryFile::readSome");
@@ -267,7 +267,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link) override, ([=] {
 		auto file = std::make_shared<MemoryFile>(std::move(link));
 		MemoryFile::serve(file);

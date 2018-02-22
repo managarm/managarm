@@ -1,6 +1,6 @@
 
 #include "file.hpp"
 
-std::shared_ptr<ProxyFile> createUnixSocketFile();
-std::array<std::shared_ptr<ProxyFile>, 2> createUnixSocketPair();
+std::shared_ptr<File> createUnixSocketFile();
+std::array<std::shared_ptr<File>, 2> createUnixSocketPair();
 

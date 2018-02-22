@@ -93,7 +93,7 @@ struct FsNode {
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
-	virtual FutureMaybe<std::shared_ptr<ProperFile>> open(std::shared_ptr<FsLink> link);
+	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link);
 	
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.

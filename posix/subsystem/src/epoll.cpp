@@ -14,7 +14,7 @@ namespace {
 
 bool logEpoll = false;
 
-struct OpenFile : ProxyFile {
+struct OpenFile : File {
 	// ------------------------------------------------------------------------
 	// Internal API.
 	// ------------------------------------------------------------------------
@@ -43,8 +43,9 @@ private:
 		if(!item->isPending && (std::get<1>(result) & item->eventMask)
 				&& (std::get<2>(result) & item->eventMask)) {
 			if(logEpoll)
-				std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
-						<< ": Item becomes pending" << std::endl;
+				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
+						<< ": Item \e[1;34m" << item->file->structName()
+						<< "\e[0m becomes pending" << std::endl;
 			// Note that we stop watching once an item becomes pending.
 			// We do this as we have to poll() again anyway before we report the item.
 			item->isPending = true;
@@ -54,8 +55,9 @@ private:
 			// Here, we assume that the lambda does not execute on the current stack.
 			// TODO: Use some callback queueing mechanism to ensure this.
 			if(logEpoll)
-				std::cout << "posix.epoll \e[1;34m" << item->epoll->_structName << "\e[0m"
-						<< ": Item still not pending after poll()."
+				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
+						<< ": Item \e[1;34m" << item->file->structName()
+						<< "\e[0m still not pending after poll()."
 						<< " Mask is " << item->eventMask << ", while "
 						<< std::get<2>(result) << " is active" << std::endl;
 			auto poll = item->file->poll(std::get<0>(result));
@@ -72,8 +74,8 @@ public:
 
 	void addItem(File *file, int mask, uint64_t cookie) {
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Adding item "
-					<< file << ". Mask is " << mask << std::endl;
+			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
+					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
 		assert(_fileMap.find(file) == _fileMap.end());
 		auto item = new Item{this, file, mask, cookie};
@@ -87,18 +89,18 @@ public:
 	}
 	
 	void modifyItem(File *file, int mask, uint64_t cookie) {
-		std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Modifying item "
-				<< file << ". New mask is " << mask << std::endl;
+		std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
+				<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
 	}
 
 	void deleteItem(File *file, int mask) {
-		std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Deleting item "
-				<< file << std::endl;
+		std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
+				<< file->structName() << "\e[0m" << std::endl;
 	}
 
 	COFIBER_ROUTINE(async::result<struct epoll_event>, waitForEvent(), ([=] {
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Entering wait."
+			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
 					" There are " << _pendingQueue.size() << " pending items" << std::endl;
 		while(true) {
 			while(_pendingQueue.empty())
@@ -116,7 +118,8 @@ public:
 
 				auto result = COFIBER_AWAIT item->file->poll(0);	
 				if(logEpoll)
-					std::cout << "posix.epoll \e[1;34m" << _structName << "\e[0m: Checking item."
+					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
+							<< "\e[1;34m" << item->file->structName() << "\e[0m."
 							" Mask is " << item->eventMask << ", while " << std::get<2>(result)
 							<< " is active" << std::endl;
 				auto status = std::get<2>(result) & item->eventMask;
@@ -175,10 +178,9 @@ public:
 	}
 
 	OpenFile()
-	: ProxyFile{nullptr}, _structName{StructName::get("epoll")} { }
+	: File{StructName::get("epoll")} { }
 
 private:
-	StructName _structName;
 	helix::UniqueLane _passthrough;
 
 	// FIXME: This really has to map std::weak_ptrs or std::shared_ptrs.
@@ -192,7 +194,7 @@ private:
 
 namespace epoll {
 
-std::shared_ptr<ProxyFile> createFile() {
+std::shared_ptr<File> createFile() {
 	auto file = std::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);

@@ -43,7 +43,7 @@ void AttributeFile::serve(std::shared_ptr<AttributeFile> file) {
 }
 
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
-: ProperFile{std::move(link)}, _cached{false}, _offset{0} { }
+: File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
 
 COFIBER_ROUTINE(FutureMaybe<size_t>, AttributeFile::readSome(void *data, size_t max_length), ([=] {
 	assert(max_length > 0);
@@ -93,7 +93,7 @@ void DirectoryFile::serve(std::shared_ptr<DirectoryFile> file) {
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
-: ProperFile{std::move(link)},
+: File{StructName::get("sysfs.dir"), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
@@ -140,7 +140,7 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 AttributeNode::open(std::shared_ptr<FsLink> link), ([=] {
 	auto file = std::make_shared<AttributeFile>(std::move(link));
 	AttributeFile::serve(file);
@@ -201,7 +201,7 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, DirectoryNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<ProperFile>>,
+COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 		DirectoryNode::open(std::shared_ptr<FsLink> link), ([=] {
 	auto file = std::make_shared<DirectoryFile>(std::move(link));
 	DirectoryFile::serve(file);

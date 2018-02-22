@@ -29,6 +29,7 @@ int main() {
 	
 	std::vector<char *> args;
 	args.push_back(const_cast<char *>("acpi"));
+	args.push_back("--use-pixman");
 	args.push_back(nullptr);
 
 	std::vector<char *> env;

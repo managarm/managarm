@@ -1,3 +1,5 @@
+#ifndef POSIX_SUBSYSTEM_COMMON_HPP
+#define POSIX_SUBSYSTEM_COMMON_HPP
 
 #include <iostream>
 
@@ -25,3 +27,4 @@ private:
 	uint64_t _id;
 };
 
+#endif // POSIX_SUBSYSTEM_COMMON_HPP

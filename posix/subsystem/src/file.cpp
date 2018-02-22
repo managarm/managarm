@@ -24,12 +24,12 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length),
 	COFIBER_RETURN();
 }))
 
-FutureMaybe<size_t> File::sendMsg(const void *data, size_t max_length,
-		std::vector<std::shared_ptr<File>> files) {
+FutureMaybe<RecvResult> File::recvMsg(void *data, size_t max_length) {
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 
-FutureMaybe<RecvResult> File::recvMsg(void *data, size_t max_length) {
+FutureMaybe<size_t> File::sendMsg(const void *data, size_t max_length,
+		std::vector<std::shared_ptr<File>> files) {
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 

@@ -13,7 +13,7 @@ namespace {
 
 bool logTimerfd = false;
 
-struct OpenFile : ProxyFile {
+struct OpenFile : File {
 private:
 	struct Timer {
 		uint64_t initial;
@@ -89,7 +89,8 @@ public:
 	}
 
 	OpenFile()
-	: ProxyFile{nullptr}, _activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
+	: File{StructName::get("timerfd")},
+			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
 
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(max_length == sizeof(uint64_t));
@@ -142,7 +143,7 @@ private:
 
 namespace timerfd {
 
-std::shared_ptr<ProxyFile> createFile() {
+std::shared_ptr<File> createFile() {
 	auto file = std::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);

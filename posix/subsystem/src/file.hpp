@@ -8,6 +8,7 @@
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
 #include <hel.h>
+#include "common.hpp"
 
 struct File;
 struct FsLink;
@@ -41,9 +42,16 @@ using PollResult = std::tuple<uint64_t, int, int>;
 
 using RecvResult = std::pair<size_t, std::vector<std::shared_ptr<File>>>;
 
-struct File {
-	File(std::shared_ptr<FsLink> link)
-	: _link{std::move(link)} { }
+struct File {	
+	File(StructName struct_name)
+	: _structName{struct_name}, _link{nullptr} { }
+
+	File(StructName struct_name, std::shared_ptr<FsLink> link)
+	: _structName{struct_name}, _link{std::move(link)} { }
+
+	StructName structName() {
+		return _structName;
+	}
 
 	// This is the link that was used to open the file.
 	// Note that this might not be the only link that can be used
@@ -57,10 +65,10 @@ struct File {
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
 	
+	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
+	
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
 			std::vector<std::shared_ptr<File>> files);
-	
-	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
 
 	// poll() uses a sequence number mechansim for synchronization.
 	// Before returning, it waits until current-sequence > in-sequence.
@@ -78,22 +86,8 @@ struct File {
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:
+	StructName _structName;
 	const std::shared_ptr<FsLink> _link;
-};
-
-// This class represents files that are part of an actual file system.
-// Their operations are provided by that file system.
-struct ProperFile : File {
-	ProperFile(std::shared_ptr<FsLink> link)
-	: File{std::move(link)} { }
-};
-
-// Represents files that have a link in a file system but that
-// have operations that are provided externally.
-// This concerns mainly devices and UNIX sockets.
-struct ProxyFile : File {
-	ProxyFile(std::shared_ptr<FsLink> link)
-	: File{std::move(link)} { }
 };
 
 #endif // POSIX_SUBSYSTEM_FILE_HPP

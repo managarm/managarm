@@ -10,7 +10,7 @@
 
 namespace {
 
-struct OpenFile : ProxyFile {
+struct OpenFile : File {
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
@@ -35,7 +35,7 @@ public:
 	}
 
 	OpenFile()
-	: ProxyFile{nullptr} { }
+	: File{StructName::get("signalfd")} { }
 
 	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		throw std::runtime_error("read() from signalfd is not implemented");
@@ -55,7 +55,7 @@ private:
 
 } // anonymous namespace
 
-std::shared_ptr<ProxyFile> createSignalFile() {
+std::shared_ptr<File> createSignalFile() {
 	auto file = std::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);
