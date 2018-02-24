@@ -10,15 +10,15 @@
 #include "../util.hpp"
 #include "../vfs.hpp"
 
-namespace block_subsystem {
+namespace input_subsystem {
 
 namespace {
 
-id_allocator<uint32_t> minorAllocator;
+id_allocator<uint32_t> evdevAllocator;
 
 struct Subsystem {
 	Subsystem() {
-		minorAllocator.use_range(0);
+		evdevAllocator.use_range(64);
 	}
 } subsystem;
 
@@ -51,27 +51,24 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 
 	auto filter = mbus::Conjunction({
-		mbus::EqualsFilter("unix.devtype", "block")
+		mbus::EqualsFilter("unix.subsystem", "input")
 	});
 	
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		std::cout << "POSIX: Installing block device "
+		std::cout << "POSIX: Installing input device "
 				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
 
 		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
-		auto device = std::make_shared<Device>(VfsType::blockDevice,
+		auto device = std::make_shared<Device>(VfsType::charDevice,
 				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
-		// We use 8 here, the major for SCSI devices and allocate minors sequentially.
-		// Note that this is not really correct as the minor of a partition
-		// depends on the minor of the whole device (see Linux devices.txt documentation).
-		device->assignId({8, minorAllocator.allocate()});
-		blockRegistry.install(device);
+		device->assignId({13, evdevAllocator.allocate()});
+		charRegistry.install(device);
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
-} // namespace block_subsystem
+} // namespace input_subsystem
 

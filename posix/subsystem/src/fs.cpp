@@ -20,6 +20,10 @@ FutureMaybe<FileStats> FsNode::getStats() {
 	throw std::runtime_error("getStats() is not implemented for this FsNode");
 }
 
+std::shared_ptr<FsLink> FsNode::treeLink() {
+	throw std::runtime_error("treeLink() is not implemented for this FsNode");
+}
+
 FutureMaybe<std::shared_ptr<FsLink>> FsNode::getLink(std::string) {
 	throw std::runtime_error("getLink() is not implemented for this FsNode");
 }
@@ -48,7 +52,7 @@ FutureMaybe<std::shared_ptr<File>> FsNode::open(std::shared_ptr<FsLink>) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
 
-expected<std::string> FsNode::readSymlink() {
+expected<std::string> FsNode::readSymlink(FsLink *link) {
 	async::promise<std::variant<Error, std::string>> p;
 	p.set_value(Error::illegalOperationTarget);
 	return p.async_get();

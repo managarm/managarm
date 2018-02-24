@@ -30,7 +30,7 @@ private:
 		COFIBER_RETURN(FileStats{});
 	}))
 
-	COFIBER_ROUTINE(expected<std::string>, readSymlink() override, ([=] {
+	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
 		COFIBER_RETURN(_link);
 	}))
 
@@ -42,14 +42,14 @@ private:
 	std::string _link;
 };
 
-struct DeviceFile : FsNode {
+struct DeviceNode : FsNode {
 private:
 	VfsType getType() override {
 		return _type;
 	}
 	
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs DeviceFile::getStats()\e[39m" << std::endl;
+		std::cout << "\e[31mposix: Fix tmpfs DeviceNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
 	}))
 
@@ -58,7 +58,7 @@ private:
 	}
 
 public:
-	DeviceFile(VfsType type, DeviceId id)
+	DeviceNode(VfsType type, DeviceId id)
 	: _type(type), _id(id) {
 		assert(type == VfsType::charDevice || type == VfsType::blockDevice);
 	}
@@ -132,7 +132,7 @@ private:
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, mkdev(std::string name,
 			VfsType type, DeviceId id), ([=] {
 		assert(_entries.find(name) == _entries.end());
-		auto node = std::make_shared<DeviceFile>(type, id);
+		auto node = std::make_shared<DeviceNode>(type, id);
 		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
 		_entries.insert(link);
 		COFIBER_RETURN(link);

@@ -42,7 +42,9 @@ public:
 
 struct HeloutDevice : UnixDevice {
 	HeloutDevice()
-	: UnixDevice(VfsType::charDevice) { }
+	: UnixDevice(VfsType::charDevice) {
+		assignId({1, 255}); // This minor is not used by Linux.
+	}
 	
 	std::string getName() override {
 		return "helout";

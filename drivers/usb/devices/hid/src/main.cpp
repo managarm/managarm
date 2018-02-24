@@ -392,6 +392,29 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
+
+	// Create an mbus object for the device.
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+	
+	mbus::Properties mbus_descriptor{
+		{"unix.subsystem", mbus::StringItem{"input"}},
+		{"unix.devname", mbus::StringItem{"input/event0"}}
+	};
+
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		libevbackend::serveDevice(_eventDev, std::move(local_lane));
+
+		async::promise<helix::UniqueDescriptor> promise;
+		promise.set_value(std::move(remote_lane));
+		return promise.async_get();
+	});
+
+	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
+
+	// Read reports from the USB device.
 	std::vector<int> values;
 	values.resize(elements.size());
 	while(true) {

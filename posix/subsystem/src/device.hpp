@@ -11,7 +11,7 @@ struct DeviceOperations;
 
 struct UnixDevice {
 	UnixDevice(VfsType type)
-	: _type{type} { }
+	: _type{type}, _id{0, 0} { }
 
 	VfsType type() {
 		return _type;

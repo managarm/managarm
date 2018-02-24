@@ -233,7 +233,7 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 
 		if((!components.empty() || !(flags & resolveDontFollow))
 				&& child.second->getTarget()->getType() == VfsType::symlink) {
-			auto result = COFIBER_AWAIT child.second->getTarget()->readSymlink();
+			auto result = COFIBER_AWAIT child.second->getTarget()->readSymlink(child.second.get());
 			auto link = Path::decompose(std::get<std::string>(result));
 			if(!link.isRelative())
 				current = root;

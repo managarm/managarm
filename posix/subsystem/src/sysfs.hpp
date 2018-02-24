@@ -76,7 +76,7 @@ private:
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
-struct Link : FsLink {
+struct Link : FsLink, std::enable_shared_from_this<Link> {
 	explicit Link(std::shared_ptr<FsNode> owner,
 			std::string name, std::shared_ptr<FsNode> target);
 	
@@ -105,30 +105,34 @@ private:
 };
 
 struct SymlinkNode : FsNode, std::enable_shared_from_this<SymlinkNode> {
-	SymlinkNode() = default;
+	SymlinkNode(std::weak_ptr<Object> target);
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	expected<std::string> readSymlink() override;
+	expected<std::string> readSymlink(FsLink *link) override;
 
 private:
+	std::weak_ptr<Object> _target;
 };
 
 struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	friend struct DirectoryFile;
 
-	DirectoryNode() = default;
+	DirectoryNode();
 
 	std::shared_ptr<Link> directMkattr(Object *object, Attribute *attr);
-	std::shared_ptr<Link> directMklink(std::string name);
+	std::shared_ptr<Link> directMklink(std::string name, std::weak_ptr<Object> target);
 	std::shared_ptr<Link> directMkdir(std::string name);
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
+	std::shared_ptr<FsLink> treeLink() override;
+
 	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 
 private:
+	Link *_treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
 
@@ -153,6 +157,8 @@ private:
 // Object corresponds to Linux kobjects.
 struct Object {
 	Object(std::shared_ptr<Object> parent, std::string name);
+	
+	std::shared_ptr<DirectoryNode> directoryNode();
 
 	void createAttribute(Attribute *attr);
 	void createSymlink(std::string name, std::shared_ptr<Object> target);

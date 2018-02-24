@@ -6,6 +6,7 @@
 #include <sys/auxv.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/sysmacros.h>
 #include <iomanip>
 #include <iostream>
 
@@ -24,6 +25,7 @@
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
+#include "subsystem/input.hpp"
 #include "sysfs.hpp"
 #include "un-socket.hpp"
 #include "timerfd.hpp"
@@ -31,7 +33,7 @@
 #include <posix.pb.h>
 
 bool logRequests = false;
-bool logPaths = false;
+bool logPaths = true;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -360,18 +362,25 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
+				DeviceId devnum;
 				switch(path.second->getTarget()->getType()) {
 				case VfsType::regular:
 					resp.set_file_type(managarm::posix::FT_REGULAR); break;
 				case VfsType::directory:
 					resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
 				case VfsType::charDevice:
-					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE); break;
+					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
+					devnum = path.second->getTarget()->readDevice();
+					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+					break;
 				case VfsType::blockDevice:
-					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE); break;
+					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
+					devnum = path.second->getTarget()->readDevice();
+					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+					break;
 				}
 
-				resp.set_inode_num(stats.inodeNumber);
+				resp.set_fs_inode(stats.inodeNumber);
 				resp.set_mode(stats.mode);
 				resp.set_num_links(stats.numLinks);
 				resp.set_uid(stats.uid);
@@ -421,7 +430,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto result = COFIBER_AWAIT path.second->getTarget()->readSymlink();
+			auto result = COFIBER_AWAIT path.second->getTarget()->readSymlink(path.second.get());
 			if(auto error = std::get_if<Error>(&result); error) {
 				assert(*error == Error::illegalOperationTarget);
 
@@ -546,18 +555,25 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
+			DeviceId devnum;
 			switch(file->associatedLink()->getTarget()->getType()) {
 			case VfsType::regular:
 				resp.set_file_type(managarm::posix::FT_REGULAR); break;
 			case VfsType::directory:
 				resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
 			case VfsType::charDevice:
-				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE); break;
+				resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
+				devnum = file->associatedLink()->getTarget()->readDevice();
+				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+				break;
 			case VfsType::blockDevice:
-				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE); break;
+				resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
+				devnum = file->associatedLink()->getTarget()->readDevice();
+				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+				break;
 			}
 
-			resp.set_inode_num(stats.inodeNumber);
+			resp.set_fs_inode(stats.inodeNumber);
 			resp.set_mode(stats.mode);
 			resp.set_num_links(stats.numLinks);
 			resp.set_uid(stats.uid);
@@ -888,6 +904,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // --------------------------------------------------------
 
 std::shared_ptr<sysfs::Object> cardObject;
+std::shared_ptr<sysfs::Object> eventObject;
 
 struct UeventAttribute : sysfs::Attribute {
 	static auto singleton() {
@@ -900,24 +917,49 @@ private:
 	: sysfs::Attribute("uevent") { }
 
 public:
-	virtual std::string show(sysfs::Object *) override {
+	virtual std::string show(sysfs::Object *object) override {
 		std::cout << "\e[31mposix: uevent files are static\e[39m" << std::endl;
-		return std::string{"DEVNAME=dri/card0\n"};
+		if(object == cardObject.get()) {
+			return std::string{"DEVNAME=dri/card0\n"};
+		}else if(object == eventObject.get()) {
+			return std::string{"DEVNAME=input/event0\n"
+				"MAJOR=13\n"
+				"MINOR=64\n"};
+		}else{
+			throw std::runtime_error("posix: Unexpected object for UeventAttribute::show()");
+		}
 	}
 };
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 	auto devs_object = std::make_shared<sysfs::Object>(nullptr, "devices");
 	devs_object->addObject();
+
 	cardObject = std::make_shared<sysfs::Object>(devs_object, "card0");
 	cardObject->addObject();
 	cardObject->createAttribute(UeventAttribute::singleton());
 
+	eventObject = std::make_shared<sysfs::Object>(devs_object, "event0");
+	eventObject->addObject();
+	eventObject->createAttribute(UeventAttribute::singleton());
+
 	auto cls_object = std::make_shared<sysfs::Object>(nullptr, "class");
 	cls_object->addObject();
+	
 	auto drm_object = std::make_shared<sysfs::Object>(cls_object, "drm");
 	drm_object->addObject();
 	drm_object->createSymlink("card0", cardObject);
+
+	auto input_object = std::make_shared<sysfs::Object>(cls_object, "input");
+	input_object->addObject();
+	input_object->createSymlink("event0", eventObject);
+	
+	auto devnum_object = std::make_shared<sysfs::Object>(nullptr, "dev");
+	devnum_object->addObject();
+	
+	auto chardev_object = std::make_shared<sysfs::Object>(devnum_object, "char");
+	chardev_object->addObject();
+	chardev_object->createSymlink("13:64", eventObject);
 
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
@@ -927,8 +969,9 @@ int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
 	charRegistry.install(createHeloutDevice());
-	block_system::run();
-	drm_system::run();
+	block_subsystem::run();
+	drm_subsystem::run();
+	input_subsystem::run();
 	runInit();
 
 	while(true)

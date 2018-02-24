@@ -3,10 +3,10 @@
 
 #include <cofiber.hpp>
 
-namespace block_system {
+namespace block_subsystem {
 
 cofiber::no_future run();
 
-} // namespace block_system
+} // namespace block_subsystem
 
 #endif // POSIX_SUBSYSTEM_BLOCK_SYSTEM_HPP

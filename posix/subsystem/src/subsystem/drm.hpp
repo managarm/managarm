@@ -3,10 +3,10 @@
 
 #include <cofiber.hpp>
 
-namespace drm_system {
+namespace drm_subsystem {
 
 cofiber::no_future run();
 
-} // namespace drm_system
+} // namespace drm_subsystem
 
 #endif // POSIX_SUBSYSTEM_DRM_SYSTEM_HPP

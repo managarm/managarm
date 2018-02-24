@@ -151,6 +151,9 @@ AttributeNode::open(std::shared_ptr<FsLink> link), ([=] {
 // SymlinkNode implementation.
 // ----------------------------------------------------------------------------
 
+SymlinkNode::SymlinkNode(std::weak_ptr<Object> target)
+: _target{std::move(target)} { }
+
 VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
 }
@@ -160,8 +163,36 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, SymlinkNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
-COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(), ([=] {
-	COFIBER_RETURN("../../devices/card0");
+COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), ([=] {
+	auto object = _target.lock();
+	assert(object);
+	
+	std::string path;
+
+	// Walk from the target to the root to discover the path.
+	auto ref = object->directoryNode();
+	while(true) {
+		auto link = ref->treeLink();
+		if(!link)
+			break;
+		path = path.empty() ? link->getName() : link->getName() + "/" + path;
+		std::cout << "Path is now: " << path << std::endl;;
+		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+		std::cout << "ref is now " << ref.get() << std::endl;
+	}
+
+	// Walk from the symlink to the root to discover the number of ../ prefixes.
+	ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+	while(true) {
+		auto link = ref->treeLink();
+		if(!link)
+			break;
+		path = "../" + path;
+		std::cout << "Path is now: " << path << std::endl;;
+		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
+	}
+
+	COFIBER_RETURN(path);
 }))
 
 // ----------------------------------------------------------------------------
@@ -176,9 +207,9 @@ std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *att
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::directMklink(std::string name) {
+std::shared_ptr<Link> DirectoryNode::directMklink(std::string name, std::weak_ptr<Object> target) {
 	assert(_entries.find(name) == _entries.end());
-	auto node = std::make_shared<SymlinkNode>();
+	auto node = std::make_shared<SymlinkNode>(std::move(target));
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
 	return link;
@@ -187,10 +218,15 @@ std::shared_ptr<Link> DirectoryNode::directMklink(std::string name) {
 std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	assert(_entries.find(name) == _entries.end());
 	auto node = std::make_shared<DirectoryNode>();
+	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
+	the_node->_treeLink = link.get();
 	return link;
 }
+
+DirectoryNode::DirectoryNode()
+: _treeLink{nullptr} { }
 
 VfsType DirectoryNode::getType() {
 	return VfsType::directory;
@@ -200,6 +236,11 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, DirectoryNode::getStats(), ([=] {
 	std::cout << "\e[31mposix: Fix sysfs Directory::getStats()\e[39m" << std::endl;
 	COFIBER_RETURN(FileStats{});
 }))
+
+std::shared_ptr<FsLink> DirectoryNode::treeLink() {
+	// TODO: Even the root should return a valid link.
+	return _treeLink ? _treeLink->shared_from_this() : nullptr;
+}
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
 		DirectoryNode::open(std::shared_ptr<FsLink> link), ([=] {
@@ -230,6 +271,10 @@ Attribute::Attribute(std::string name)
 Object::Object(std::shared_ptr<Object> parent, std::string name)
 : _parent{std::move(parent)}, _name{std::move(name)} { }
 
+std::shared_ptr<DirectoryNode> Object::directoryNode() {
+	return std::static_pointer_cast<DirectoryNode>(_dirLink->getTarget());
+}
+
 void Object::createAttribute(Attribute *attr) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
@@ -239,7 +284,7 @@ void Object::createAttribute(Attribute *attr) {
 void Object::createSymlink(std::string name, std::shared_ptr<Object> target) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
-	dir->directMklink(std::move(name));
+	dir->directMklink(std::move(name), std::move(target));
 }
 
 void Object::addObject() {

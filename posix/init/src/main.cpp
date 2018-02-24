@@ -93,8 +93,18 @@ int main() {
 	if(!gfx_virtio) {
 		execve("/usr/bin/gfx_virtio", args.data(), env.data());
 	}else assert(gfx_virtio != -1);
+	
+	auto input_hid = fork();
+	if(!input_hid) {
+		execve("/usr/bin/hid", args.data(), env.data());
+	}else assert(input_hid != -1);
 
 	while(access("/dev/dri/card0", F_OK)) {
+		assert(errno == ENOENT);
+		sleep(1);
+	}
+
+	while(access("/dev/input/event0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
 	}

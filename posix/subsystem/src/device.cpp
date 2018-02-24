@@ -24,14 +24,11 @@ FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount() {
 // --------------------------------------------------------
 
 void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
-	DeviceId id{0, 1};
-	while(_devices.find(id) != _devices.end())
-		id.second++;
-	device->assignId(id);
+	assert(device->getId() != DeviceId(0, 0));
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	createDeviceNode(device->getName(), device->type(), id);
+	createDeviceNode(device->getName(), device->type(), device->getId());
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {

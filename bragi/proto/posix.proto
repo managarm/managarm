@@ -163,8 +163,11 @@ message SvrResponse {
 	optional int32 mode = 13;
 	
 	// returned by FSTAT
-	optional uint64 inode_num = 14;
-	
+	optional uint64 fs_devnum = 22;
+	optional uint64 fs_inode = 14;
+
+	optional uint64 ref_devnum = 23;
+
 	// returned by FSTAT
 	optional uint64 num_links = 17;
 	

@@ -72,6 +72,10 @@ struct FsNode {
 	// TODO: This should be async.
 	virtual FutureMaybe<FileStats> getStats();
 
+	// For directories only: Returns a pointer to the link
+	// that links this directory from its parent.
+	virtual std::shared_ptr<FsLink> treeLink();
+
 	//! Resolves a file in a directory (directories only).
 	virtual FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name);
 	
@@ -97,7 +101,7 @@ struct FsNode {
 	
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
-	virtual expected<std::string> readSymlink();
+	virtual expected<std::string> readSymlink(FsLink *link);
 
 	//! Read the major/minor device number (devices only).
 	virtual DeviceId readDevice();

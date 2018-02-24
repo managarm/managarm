@@ -7,11 +7,20 @@
 
 #include "../common.hpp"
 #include "../device.hpp"
+#include "../util.hpp"
 #include "../vfs.hpp"
 
-namespace drm_system {
+namespace drm_subsystem {
 
 namespace {
+
+id_allocator<uint32_t> minorAllocator;
+
+struct Subsystem {
+	Subsystem() {
+		minorAllocator.use_range(0);
+	}
+} subsystem;
 
 struct Device : UnixDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
@@ -54,11 +63,13 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		auto device = std::make_shared<Device>(VfsType::charDevice,
 				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
+		// The minor is only correct for card* devices but not for control* and render*.
+		device->assignId({226, minorAllocator.allocate()});
 		charRegistry.install(device);
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
 }))
 
-} // namespace drm_system
+} // namespace drm_subsystem
 
