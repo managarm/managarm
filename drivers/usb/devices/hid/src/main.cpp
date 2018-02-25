@@ -21,6 +21,10 @@
 #include "spec.hpp"
 #include "hid.hpp"
 
+namespace {
+	constexpr bool logRawValues = false;
+}
+
 int32_t signExtend(uint32_t x, int bits) {
 	assert(bits > 0);
 	auto m = uint32_t(1) << (bits - 1);
@@ -105,7 +109,13 @@ HidDevice::HidDevice() {
 }
 
 void HidDevice::translateToLinux(int page, int id, int value) {
-	if(page == pages::keyboard) {
+	if(page == pages::genericDesktop) {
+		// TODO: Distinguish between absolute and relative controls.
+		switch(id) {
+			case 0x30: _eventDev->emitEvent(EV_REL, REL_X, value); break;
+			case 0x31: _eventDev->emitEvent(EV_REL, REL_Y, value); break;
+		}
+	}else if(page == pages::keyboard) {
 		switch(id) {
 			case 0x04: _eventDev->emitEvent(EV_KEY, KEY_A, value); break;
 			case 0x05: _eventDev->emitEvent(EV_KEY, KEY_B, value); break;
@@ -421,15 +431,17 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		arch::dma_buffer report{device.bufferPool(), 4};
 		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
 		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), values);
-
-		for(int i = 0; i < values.size(); i++) {
-			/*
-			std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
-					<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
-			*/
-			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
+	
+		if(logRawValues) {
+			for(int i = 0; i < values.size(); i++)
+				std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
+						<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
+			std::cout << std::endl;
 		}
-		std::cout << std::endl;
+
+		for(int i = 0; i < values.size(); i++)
+			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
+		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 	}
 }))
 

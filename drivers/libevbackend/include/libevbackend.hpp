@@ -3,6 +3,7 @@
 #define LIBEVBACKEND_HPP
 
 #include <async/result.hpp>
+#include <async/doorbell.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
@@ -50,16 +51,15 @@ struct File {
 	// ------------------------------------------------------------------------
 	// File operations.
 	// ------------------------------------------------------------------------
-	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
-
+	
 	static async::result<protocols::fs::ReadResult>
 	read(std::shared_ptr<void> object, void *buffer, size_t length);
 
 	static async::result<void> write(std::shared_ptr<void> object,
 			const void *buffer, size_t length);
 
-	static async::result<protocols::fs::AccessMemoryResult>
-	accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
+	static async::result<protocols::fs::PollResult>
+	poll(std::shared_ptr<void> object, uint64_t past_seq);
 	
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -76,6 +76,8 @@ private:
 
 struct EventDevice {
 	friend struct File;
+
+	EventDevice();
 
 	void emitEvent(int type, int code, int value);
 
@@ -99,6 +101,9 @@ private:
 			&ReadRequest::hook
 		>
 	> _requests;
+
+	async::doorbell _statusBell;
+	uint64_t _currentSeq;
 };
 
 // --------------------------------------------

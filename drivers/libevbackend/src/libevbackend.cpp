@@ -1,11 +1,11 @@
 
+#include <linux/input.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/epoll.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
-
-#include <stdio.h>
-#include <string.h>
-#include <linux/input.h>
 
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
@@ -28,13 +28,9 @@ namespace libevbackend {
 // File implementation.
 // ----------------------------------------------------------------------------
 
-async::result<int64_t> File::seek(std::shared_ptr<void> object, int64_t offset) {
-	throw std::runtime_error("seek not yet implemented");
-}
-
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
 File::read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
-	std::shared_ptr<File> self = std::static_pointer_cast<File>(object);
+	auto self = static_cast<File *>(object.get());
 
 	if(self->_nonBlock && self->_device->_events.empty())
 		COFIBER_RETURN(protocols::fs::Error::wouldBlock);
@@ -52,12 +48,22 @@ async::result<void> File::write(std::shared_ptr<void>,
 	throw std::runtime_error("write not yet implemented");
 }
 
+COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
+File::poll(std::shared_ptr<void> object, uint64_t past_seq), ([=] {
+	auto self = static_cast<File *>(object.get());
+
+	assert(past_seq <= self->_device->_currentSeq);
+	while(self->_device->_currentSeq == past_seq)
+		COFIBER_AWAIT self->_device->_statusBell.async_wait();
+	
+	COFIBER_RETURN(protocols::fs::PollResult(self->_device->_currentSeq, EPOLLIN,
+			self->_device->_events.empty() ? 0 : EPOLLIN));
+}))
+
 constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withSeekAbs(&File::seek)
-	.withSeekRel(&File::seek)
-	.withSeekEof(&File::seek)
 	.withRead(&File::read)
-	.withWrite(&File::write);
+	.withWrite(&File::write)
+	.withPoll(&File::poll);
 
 helix::UniqueLane File::serve(std::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;
@@ -115,7 +121,18 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		}
 	}
 }))
-		
+
+EventDevice::EventDevice()
+: _currentSeq{1} { }
+
+void EventDevice::emitEvent(int type, int code, int value) {
+	auto event = new Event(type, code, value);
+	_events.push_back(*event);
+	_currentSeq++;
+	_statusBell.ring();
+	_processEvents();
+}
+
 void EventDevice::_processEvents() {
 	while(!_requests.empty() && !_events.empty()) {
 		auto req = &_requests.front();
@@ -127,7 +144,7 @@ void EventDevice::_processEvents() {
 		data.code = event->code;
 		data.value = event->value;
 
-		assert(req->maxLength == sizeof(input_event));
+		assert(req->maxLength >= sizeof(input_event));
 		memcpy(req->buffer, &data, sizeof(input_event));	
 		req->promise.set_value(sizeof(input_event));
 		
@@ -136,12 +153,6 @@ void EventDevice::_processEvents() {
 		delete req;
 		delete event;
 	}
-}
-
-void EventDevice::emitEvent(int type, int code, int value) {
-	auto event = new Event(type, code, value);
-	_events.push_back(*event);
-	_processEvents();
 }
 
 } // namespace libevbackend
