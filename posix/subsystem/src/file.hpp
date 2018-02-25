@@ -50,7 +50,8 @@ struct File {
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
 
-	static async::result<size_t> ptRead(std::shared_ptr<void> object,
+	static async::result<protocols::fs::ReadResult>
+	ptRead(std::shared_ptr<void> object,
 			void *buffer, size_t length);
 	
 	static async::result<void> ptWrite(std::shared_ptr<void> object,

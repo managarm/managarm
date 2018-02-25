@@ -32,24 +32,24 @@ async::result<int64_t> File::seek(std::shared_ptr<void> object, int64_t offset) 
 	throw std::runtime_error("seek not yet implemented");
 }
 
-async::result<size_t> File::read(std::shared_ptr<void> object, void *buffer, size_t length) {
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
+File::read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
 	std::shared_ptr<File> self = std::static_pointer_cast<File>(object);
-	
+
+	if(self->_nonBlock && self->_device->_events.empty())
+		COFIBER_RETURN(protocols::fs::Error::wouldBlock);
+
 	auto req = new ReadRequest(buffer, length);
 	self->_device->_requests.push_back(*req);
-	auto value = req->promise.async_get();
+	auto future = req->promise.async_get();
 	self->_device->_processEvents();
-	return value;
-}
+	auto value = COFIBER_AWAIT std::move(future);
+	COFIBER_RETURN(value);
+}))
 
-async::result<void> File::write(std::shared_ptr<void> object,
-		const void *buffer, size_t length) {
+async::result<void> File::write(std::shared_ptr<void>,
+		const void *, size_t) {
 	throw std::runtime_error("write not yet implemented");
-}
-
-async::result<protocols::fs::AccessMemoryResult>
-File::accessMemory(std::shared_ptr<void> object, uint64_t, size_t) {
-	throw std::runtime_error("accessMemory not yet implemented");
 }
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
@@ -57,8 +57,7 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekRel(&File::seek)
 	.withSeekEof(&File::seek)
 	.withRead(&File::read)
-	.withWrite(&File::write)
-	.withAccessMemory(&File::accessMemory);
+	.withWrite(&File::write);
 
 helix::UniqueLane File::serve(std::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;
@@ -69,7 +68,7 @@ helix::UniqueLane File::serve(std::shared_ptr<File> file) {
 }
 
 File::File(EventDevice *device, bool non_block)
-: _device{device} { }
+: _device{device}, _nonBlock{non_block} { }
 
 // ----------------------------------------------------------------------------
 // EventDevice implementation.

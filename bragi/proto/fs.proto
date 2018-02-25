@@ -9,6 +9,7 @@ enum Errors {
 	FILE_NOT_FOUND = 1;
 	END_OF_FILE = 2;
 	ILLEGAL_ARGUMENT = 4;
+	WOULD_BLOCK = 5;
 }
 
 enum FileType {

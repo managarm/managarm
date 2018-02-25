@@ -137,13 +137,15 @@ async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset) {
 	return p.async_get();
 }
 
-async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length) {
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
+read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
 	auto req = new ReadRequest(buffer, length);
 	recvRequests.push_back(*req);
-	auto value = req->promise.async_get();
+	auto future = req->promise.async_get();
 	processRecv();
-	return value;
-}
+	auto value = COFIBER_AWAIT std::move(future);
+	COFIBER_RETURN(value);
+}))
 
 async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
 	auto req = new WriteRequest(buffer, length);

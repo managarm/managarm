@@ -50,7 +50,7 @@ struct FileOperations {
 		seekEof = f;
 		return *this;
 	}
-	constexpr FileOperations &withRead(async::result<size_t> (*f)(std::shared_ptr<void> object,
+	constexpr FileOperations &withRead(async::result<ReadResult> (*f)(std::shared_ptr<void> object,
 			void *buffer, size_t length)) {
 		read = f;
 		return *this;
@@ -93,7 +93,7 @@ struct FileOperations {
 	async::result<int64_t> (*seekAbs)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekRel)(std::shared_ptr<void> object, int64_t offset);
 	async::result<int64_t> (*seekEof)(std::shared_ptr<void> object, int64_t offset);
-	async::result<size_t> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
+	async::result<ReadResult> (*read)(std::shared_ptr<void> object, void *buffer, size_t length);
 	async::result<void> (*write)(std::shared_ptr<void> object, const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(std::shared_ptr<void> object);
 	async::result<AccessMemoryResult>(*accessMemory)(std::shared_ptr<void> object,

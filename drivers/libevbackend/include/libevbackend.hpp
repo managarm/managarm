@@ -52,7 +52,8 @@ struct File {
 	// ------------------------------------------------------------------------
 	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
 
-	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
+	static async::result<protocols::fs::ReadResult>
+	read(std::shared_ptr<void> object, void *buffer, size_t length);
 
 	static async::result<void> write(std::shared_ptr<void> object,
 			const void *buffer, size_t length);

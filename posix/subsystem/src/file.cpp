@@ -13,11 +13,12 @@
 // File implementation.
 // --------------------------------------------------------
 
-async::result<size_t> File::ptRead(std::shared_ptr<void> object,
-		void *buffer, size_t length) {
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(std::shared_ptr<void> object,
+		void *buffer, size_t length), ([=] {
 	auto self = static_cast<File *>(object.get());
-	return self->readSome(buffer, length);
-}	
+	auto size = COFIBER_AWAIT self->readSome(buffer, length);
+	COFIBER_RETURN(size);
+}))
 
 async::result<void> File::ptWrite(std::shared_ptr<void> object,
 		const void *buffer, size_t length) {

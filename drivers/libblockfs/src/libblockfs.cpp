@@ -28,7 +28,7 @@ COFIBER_ROUTINE(async::result<int64_t>, seekAbs(std::shared_ptr<void> object,
 	COFIBER_RETURN(self->offset);
 }))
 
-COFIBER_ROUTINE(async::result<size_t>, read(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(std::shared_ptr<void> object,
 		void *buffer, size_t length), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();

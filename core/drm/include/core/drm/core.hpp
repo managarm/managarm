@@ -158,10 +158,15 @@ struct File {
 	File(std::shared_ptr<Device> device)
 	: _device(device), _eventSequence{1} { };
 	
-	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
-	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
+	static async::result<protocols::fs::ReadResult>
+	read(std::shared_ptr<void> object, void *buffer, size_t length);
+
+	static async::result<protocols::fs::AccessMemoryResult>
+	accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
+
 	static async::result<void> ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+
 	static async::result<protocols::fs::PollResult> poll(std::shared_ptr<void> object,
 			uint64_t sequence);
 

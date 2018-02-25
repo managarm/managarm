@@ -70,18 +70,29 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		std::string data;
 		data.resize(req.size());
 		assert(file_ops->read);
-		auto size = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
+		auto res = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
 		
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		auto error = std::get_if<Error>(&res);
+		if(error && *error == Error::wouldBlock) {
+			resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
 
-		auto ser = resp.SerializeAsString();
-		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&send_data, data.data(), size));
-		COFIBER_AWAIT transmit.async_wait();
-		HEL_CHECK(send_resp.error());
-		HEL_CHECK(send_data.error());
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else{
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+					helix::action(&send_data, data.data(), std::get<size_t>(res)));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
+		}
 	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
 		helix::RecvInline recv_buffer;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
