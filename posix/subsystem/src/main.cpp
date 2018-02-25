@@ -33,7 +33,7 @@
 #include <posix.pb.h>
 
 bool logRequests = false;
-bool logPaths = true;
+bool logPaths = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 

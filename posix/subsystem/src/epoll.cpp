@@ -49,6 +49,7 @@ private:
 			// We do this as we have to poll() again anyway before we report the item.
 			item->isPending = true;
 			self->_pendingQueue.push_back(*item);
+			self->_currentSeq++;
 			self->_pendingBell.ring();
 		}else{
 			// Here, we assume that the lambda does not execute on the current stack.
@@ -105,14 +106,9 @@ public:
 			while(_pendingQueue.empty())
 				COFIBER_AWAIT _pendingBell.async_wait();
 
-			// TODO: Stealing all elements might lead to undesirable effects
-			// if multiple thread query this epoll object.
-			boost::intrusive::list<Item> stolen;
-			stolen.splice(stolen.end(), _pendingQueue);
-
-			while(!stolen.empty()) {
-				auto item = &stolen.front();
-				stolen.pop_front();
+			while(!_pendingQueue.empty()) {
+				auto item = &_pendingQueue.front();
+				_pendingQueue.pop_front();
 				assert(item->isPending);
 
 				auto result = COFIBER_AWAIT item->file->poll(0);	
@@ -122,12 +118,9 @@ public:
 							" Mask is " << item->eventMask << ", while " << std::get<2>(result)
 							<< " is active" << std::endl;
 				auto status = std::get<2>(result) & item->eventMask;
-				// TODO: In addition to watches without events,
-				// edge-triggered watches should be discarded here.
-				if(status) {
-					_pendingQueue.push_back(*item);
-					_pendingBell.ring();
-				}else{
+
+				// Abort early (i.e before requeuing) if the item is not pending.
+				if(!status) {
 					item->isPending = false;
 
 					// Once an item is not pending anymore, we continue watching it.
@@ -135,10 +128,16 @@ public:
 					poll.then([item] (PollResult next_result) {
 						_awaitPoll(item, next_result);
 					});
+
+					continue;
 				}
 				
-				if(!status)
-					continue;
+				// We have to increment the sequence again as concurrent waiters
+				// might have seen an empty _pendingQueue
+				// TODO: Edge-triggered watches should not be requeued here.
+				_pendingQueue.push_back(*item);
+				_currentSeq++;
+				_pendingBell.ring();
 
 				struct epoll_event ev;
 				ev.events = status;
@@ -156,8 +155,12 @@ public:
 		throw std::runtime_error("Cannot read from epoll FD");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
-		std::cout << "posix: Fix epoll::poll()" << std::endl;
+	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t past_seq) override, ([=] {
+		assert(past_seq <= _currentSeq);
+		while(_currentSeq == past_seq)
+			COFIBER_AWAIT _pendingBell.async_wait();
+
+		COFIBER_RETURN(PollResult(_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN));
 	}))
 	
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -175,7 +178,7 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("epoll")} { }
+	: File{StructName::get("epoll")}, _currentSeq{1} { }
 
 private:
 	helix::UniqueLane _passthrough;
@@ -185,6 +188,7 @@ private:
 
 	boost::intrusive::list<Item> _pendingQueue;
 	async::doorbell _pendingBell;
+	uint64_t _currentSeq;
 };
 
 } // anonymous namespace
