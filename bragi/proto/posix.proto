@@ -89,6 +89,7 @@ enum FileType {
 enum OpenFlags {
 	OF_CREATE = 1;
 	OF_EXCLUSIVE = 2;
+	OF_NONBLOCK = 4;
 };
 
 message CntRequest {

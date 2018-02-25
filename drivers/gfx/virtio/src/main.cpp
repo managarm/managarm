@@ -55,6 +55,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			assert(!req.flags());
+
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
 			

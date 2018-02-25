@@ -12,6 +12,8 @@
 
 namespace libevbackend {
 
+struct EventDevice;
+
 // --------------------------------------------
 // Event
 // --------------------------------------------
@@ -44,11 +46,35 @@ struct ReadRequest {
 // EventDevice
 // --------------------------------------------
 
-struct EventDevice {
+struct File {
+	// ------------------------------------------------------------------------
+	// File operations.
+	// ------------------------------------------------------------------------
 	static async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset);
+
 	static async::result<size_t> read(std::shared_ptr<void> object, void *buffer, size_t length);
-	static async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length);
-	static async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
+
+	static async::result<void> write(std::shared_ptr<void> object,
+			const void *buffer, size_t length);
+
+	static async::result<protocols::fs::AccessMemoryResult>
+	accessMemory(std::shared_ptr<void> object, uint64_t, size_t);
+	
+	// ------------------------------------------------------------------------
+	// Public File API.
+	// ------------------------------------------------------------------------
+
+	static helix::UniqueLane serve(std::shared_ptr<File> file);
+
+	File(EventDevice *device, bool non_block);
+
+private:
+	EventDevice *_device;
+	bool _nonBlock;
+};
+
+struct EventDevice {
+	friend struct File;
 
 	void emitEvent(int type, int code, int value);
 

@@ -54,6 +54,9 @@ struct FsSuperblock {
 // FsNode class.
 // ----------------------------------------------------------------------------
 
+using SemanticFlags = uint32_t;
+inline constexpr SemanticFlags semanticNonBlock = 1;
+
 // Represents an inode on an actual file system (i.e. not in the VFS).
 struct FsNode {
 	// TODO: Remove this constructor once every FS has a superblock.
@@ -97,7 +100,8 @@ struct FsNode {
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
-	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link);
+	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags);
 	
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.

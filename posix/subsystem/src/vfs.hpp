@@ -79,6 +79,6 @@ inline constexpr ResolveFlags resolveExclusive = (1 << 3);
 FutureMaybe<ViewPath> resolve(ViewPath root, std::string name, ResolveFlags flags = 0);
 
 FutureMaybe<std::shared_ptr<File>> open(ViewPath root, std::string name,
-		ResolveFlags resolve_flags = 0);
+		ResolveFlags resolve_flags = 0, SemanticFlags semantic_flags = 0);
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP

@@ -5,33 +5,19 @@
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
-#include <protocols/fs/server.hpp>
 #include "signalfd.hpp"
 
 namespace {
 
 struct OpenFile : File {
-	// ------------------------------------------------------------------------
-	// File protocol adapters.
-	// ------------------------------------------------------------------------
-private:
-	static async::result<size_t> ptRead(std::shared_ptr<void> object,
-			void *buffer, size_t length) {
-		auto self = static_cast<OpenFile *>(object.get());
-		return self->readSome(buffer, length);
-	}
-	
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withRead(&ptRead);
-
 public:
 	static void serve(std::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), file,
-				&fileOperations);
+		protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+				&File::fileOperations);
 	}
 
 	OpenFile()

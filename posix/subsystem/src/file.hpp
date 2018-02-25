@@ -8,6 +8,7 @@
 #include <cofiber.hpp>
 #include <cofiber/future.hpp>
 #include <hel.h>
+#include <protocols/fs/server.hpp>
 #include "common.hpp"
 
 struct File;
@@ -38,11 +39,42 @@ using expected = async::result<std::variant<Error, T>>;
 // File class.
 // ----------------------------------------------------------------------------
 
+using ReadEntriesResult = std::optional<std::string>;
+
 using PollResult = std::tuple<uint64_t, int, int>;
 
 using RecvResult = std::pair<size_t, std::vector<std::shared_ptr<File>>>;
 
 struct File {	
+	// ------------------------------------------------------------------------
+	// File protocol adapters.
+	// ------------------------------------------------------------------------
+
+	static async::result<size_t> ptRead(std::shared_ptr<void> object,
+			void *buffer, size_t length);
+	
+	static async::result<void> ptWrite(std::shared_ptr<void> object,
+			const void *buffer, size_t length);
+
+	static async::result<protocols::fs::ReadEntriesResult>
+	ptReadEntries(std::shared_ptr<void> object);
+	
+	static async::result<void> ptTruncate(std::shared_ptr<void> object, size_t size);
+
+	static async::result<void> ptAllocate(std::shared_ptr<void> object,
+			int64_t offset, size_t size);
+	
+	static constexpr auto fileOperations = protocols::fs::FileOperations{}
+			.withRead(&ptRead)
+			.withWrite(&ptWrite)
+			.withReadEntries(&ptReadEntries)
+			.withTruncate(&ptTruncate)
+			.withFallocate(&ptAllocate);
+
+	// ------------------------------------------------------------------------
+	// Public File API.
+	// ------------------------------------------------------------------------
+
 	File(StructName struct_name)
 	: _structName{struct_name}, _link{nullptr} { }
 
@@ -63,12 +95,21 @@ struct File {
 	FutureMaybe<void> readExactly(void *data, size_t length);
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
+
 	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
-	
+
+	virtual FutureMaybe<void> writeAll(const void *data, size_t length);
+
+	virtual FutureMaybe<ReadEntriesResult> readEntries();
+
 	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
-	
+
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
 			std::vector<std::shared_ptr<File>> files);
+
+	virtual async::result<void> truncate(size_t size);
+
+	virtual async::result<void> allocate(int64_t offset, size_t size);
 
 	// poll() uses a sequence number mechansim for synchronization.
 	// Before returning, it waits until current-sequence > in-sequence.

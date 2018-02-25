@@ -31,14 +31,14 @@ struct Device : UnixDevice {
 		return _name;
 	}
 	
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override {
-		return openExternalDevice(_lane, std::move(link));
+	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
+		return openExternalDevice(_lane, std::move(link), semantic_flags);
 	}
 
 	FutureMaybe<std::shared_ptr<FsLink>> mount() {
 		return mountExternalDevice(_lane);
 	}
-
 
 private:
 	std::string _name;

@@ -29,13 +29,6 @@ struct LinkCompare {
 };
 
 struct AttributeFile : File {
-private:
-	static async::result<size_t> ptRead(std::shared_ptr<void> object,
-			void *buffer, size_t length);
-
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withRead(&ptRead);
-
 public:
 	static void serve(std::shared_ptr<AttributeFile> file);
 
@@ -53,19 +46,13 @@ private:
 };
 
 struct DirectoryFile : File {
-private:
-	static async::result<protocols::fs::ReadEntriesResult>
-	ptReadEntries(std::shared_ptr<void> object);
-
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-		.withReadEntries(&ptReadEntries);
-
 public:
 	static void serve(std::shared_ptr<DirectoryFile> file);
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
 	FutureMaybe<size_t> readSome(void *data, size_t max_length) override;
+	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -97,7 +84,8 @@ struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override;
+	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
 
 private:
 	Object *_object;
@@ -128,7 +116,8 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	FutureMaybe<FileStats> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) override;
+	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 
 private:

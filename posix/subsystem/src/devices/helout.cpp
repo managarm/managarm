@@ -51,7 +51,8 @@ struct HeloutDevice : UnixDevice {
 	}
 	
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link) override, ([=] {
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+		assert(!semantic_flags);
 		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
 	}))
 };

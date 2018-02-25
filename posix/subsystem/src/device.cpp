@@ -71,7 +71,13 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 // --------------------------------------------------------
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, openExternalDevice(helix::BorrowedLane lane,
-		std::shared_ptr<FsLink> link), ([=] {
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	assert(!(semantic_flags & ~(semanticNonBlock)));
+
+	uint32_t open_flags = 0;
+	if(semantic_flags & semanticNonBlock)
+		open_flags |= managarm::fs::OF_NONBLOCK;
+
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -79,6 +85,7 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, openExternalDevice(helix::Bo
 
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_OPEN);
+	req.set_flags(open_flags);
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),

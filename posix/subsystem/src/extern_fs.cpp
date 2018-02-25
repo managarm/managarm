@@ -67,7 +67,8 @@ private:
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link) override, ([=] {
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+		assert(!semantic_flags);
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;

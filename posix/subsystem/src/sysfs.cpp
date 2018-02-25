@@ -27,19 +27,13 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // AttributeFile implementation.
 // ----------------------------------------------------------------------------
 
-async::result<size_t> AttributeFile::ptRead(std::shared_ptr<void> object,
-		void *buffer, size_t length) {
-	auto self = static_cast<AttributeFile *>(object.get());
-	return self->readSome(buffer, length);
-}
-
 void AttributeFile::serve(std::shared_ptr<AttributeFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), file,
-			&fileOperations);
+	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+			&File::fileOperations);
 }
 
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
@@ -70,26 +64,13 @@ helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {
 // DirectoryFile implementation.
 // ----------------------------------------------------------------------------
 
-// TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
-COFIBER_ROUTINE(async::result<protocols::fs::ReadEntriesResult>,
-DirectoryFile::ptReadEntries(std::shared_ptr<void> object), ([=] {
-	auto self = static_cast<DirectoryFile *>(object.get());
-	if(self->_iter != self->_node->_entries.end()) {
-		auto name = (*self->_iter)->getName();
-		self->_iter++;
-		COFIBER_RETURN(name);
-	}else{
-		COFIBER_RETURN(std::nullopt);
-	}
-}))
-
 void DirectoryFile::serve(std::shared_ptr<DirectoryFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), file,
-			&fileOperations);
+	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+			&File::fileOperations);
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
@@ -100,6 +81,18 @@ DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
 FutureMaybe<size_t> DirectoryFile::readSome(void *data, size_t max_length) {
 	throw std::runtime_error("sysfs: DirectoryFile::readSome() is missing");
 }
+
+// TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
+COFIBER_ROUTINE(async::result<ReadEntriesResult>,
+DirectoryFile::readEntries(), ([=] {
+	if(_iter != _node->_entries.end()) {
+		auto name = (*_iter)->getName();
+		_iter++;
+		COFIBER_RETURN(name);
+	}else{
+		COFIBER_RETURN(std::nullopt);
+	}
+}))
 
 helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 	return _passthrough;
@@ -141,7 +134,9 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 }))
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-AttributeNode::open(std::shared_ptr<FsLink> link), ([=] {
+AttributeNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	assert(!semantic_flags);
+
 	auto file = std::make_shared<AttributeFile>(std::move(link));
 	AttributeFile::serve(file);
 	COFIBER_RETURN(std::move(file));
@@ -243,7 +238,9 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 }
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-		DirectoryNode::open(std::shared_ptr<FsLink> link), ([=] {
+		DirectoryNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	assert(!semantic_flags);
+
 	auto file = std::make_shared<DirectoryFile>(std::move(link));
 	DirectoryFile::serve(file);
 	COFIBER_RETURN(std::move(file));

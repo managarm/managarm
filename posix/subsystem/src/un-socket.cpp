@@ -6,7 +6,6 @@
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
-#include <protocols/fs/server.hpp>
 #include "un-socket.hpp"
 
 namespace un_socket {
@@ -26,26 +25,6 @@ struct OpenFile : File {
 		connected
 	};
 
-	// ------------------------------------------------------------------------
-	// File protocol adapters.
-	// ------------------------------------------------------------------------
-private:
-	static async::result<size_t> ptRead(std::shared_ptr<void> object,
-			void *buffer, size_t length) {
-		auto self = static_cast<OpenFile *>(object.get());
-		return self->readSome(buffer, length);
-	}
-	
-	static async::result<void> ptWrite(std::shared_ptr<void> object,
-			const void *buffer, size_t length) {
-		auto self = static_cast<OpenFile *>(object.get());
-		return self->writeAll(buffer, length);
-	}
-	
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withRead(&ptRead)
-			.withWrite(&ptWrite);
-
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_state == State::null);
@@ -61,8 +40,8 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), file,
-				&fileOperations);
+		protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+				&File::fileOperations);
 	}
 
 	OpenFile()
@@ -87,7 +66,7 @@ public:
 		COFIBER_RETURN(size);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
 		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;

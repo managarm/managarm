@@ -179,7 +179,8 @@ private:
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link) override, ([=] {
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+		assert(!semantic_flags);
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
@@ -196,34 +197,6 @@ private:
 };
 
 struct MemoryFile : File {
-private:
-	// ------------------------------------------------------------------------
-	// File protocol adapters.
-	// ------------------------------------------------------------------------
-private:
-	static async::result<size_t> ptRead(std::shared_ptr<void> object,
-			void *buffer, size_t length) {
-		auto self = static_cast<MemoryFile *>(object.get());
-		return self->readSome(buffer, length);
-	}
-	
-	static async::result<void> ptWrite(std::shared_ptr<void> object,
-			const void *buffer, size_t length) {
-		auto self = static_cast<MemoryFile *>(object.get());
-		return self->writeAll(buffer, length);
-	}
-
-	static async::result<void> ptTruncate(std::shared_ptr<void> object, size_t size);
-
-	static async::result<void> ptAllocate(std::shared_ptr<void> object,
-			int64_t offset, size_t size);
-	
-	static constexpr auto fileOperations = protocols::fs::FileOperations{}
-			.withRead(&ptRead)
-			.withWrite(&ptWrite)
-			.withTruncate(&ptTruncate)
-			.withFallocate(&ptAllocate);
-
 public:
 	static void serve(std::shared_ptr<MemoryFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -241,9 +214,13 @@ public:
 		assert(!"Fix MemoryFile::readSome");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
 		assert(!"Fix MemoryFile::writeAll");
 	}))
+	
+	FutureMaybe<void> truncate(size_t size) override;
+	
+	FutureMaybe<void> allocate(int64_t offset, size_t size) override;
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t);
 	
@@ -268,7 +245,8 @@ private:
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link) override, ([=] {
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+		assert(!semantic_flags);
 		auto file = std::make_shared<MemoryFile>(std::move(link));
 		MemoryFile::serve(file);
 		COFIBER_RETURN(std::move(file));
@@ -283,10 +261,8 @@ public:
 	size_t _fileSize;
 };
 
-COFIBER_ROUTINE(async::result<void>, MemoryFile::ptTruncate(std::shared_ptr<void> object,
-		size_t size), ([=] {
-	auto self = static_cast<MemoryFile *>(object.get());
-	auto node = static_cast<MemoryNode *>(self->associatedLink()->getTarget().get());
+COFIBER_ROUTINE(async::result<void>, MemoryFile::truncate(size_t size), ([=] {
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 	assert(node->_memory);
 
 	node->_fileSize = size;
@@ -299,12 +275,10 @@ COFIBER_ROUTINE(async::result<void>, MemoryFile::ptTruncate(std::shared_ptr<void
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(async::result<void>, MemoryFile::ptAllocate(std::shared_ptr<void> object,
-		int64_t offset, size_t size), ([=] {
+COFIBER_ROUTINE(async::result<void>, MemoryFile::allocate(int64_t offset, size_t size), ([=] {
 	assert(!offset);
 
-	auto self = static_cast<MemoryFile *>(object.get());
-	auto node = static_cast<MemoryNode *>(self->associatedLink()->getTarget().get());
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(offset + size < node->_fileSize)
 		COFIBER_RETURN();

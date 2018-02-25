@@ -6,7 +6,6 @@
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
-#include <protocols/fs/server.hpp>
 #include "common.hpp"
 #include "epoll.hpp"
 
@@ -165,20 +164,14 @@ public:
 		return _passthrough;
 	}
 
-	// ------------------------------------------------------------------------
-	// File protocol adapters.
-	// ------------------------------------------------------------------------
-private:
-	static constexpr auto fileOperations = protocols::fs::FileOperations{};
-
 public:
 	static void serve(std::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), file,
-				&fileOperations);
+		protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+				&File::fileOperations);
 	}
 
 	OpenFile()

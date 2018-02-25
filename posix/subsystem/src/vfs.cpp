@@ -254,28 +254,28 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 }))
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::string name,
-		ResolveFlags resolve_flags), ([=] {
+		ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
 	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name), resolve_flags);
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 
 	if(current.second->getTarget()->getType() == VfsType::regular) {
-		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second);
+		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
 		COFIBER_RETURN(std::move(file));
 	}else if(current.second->getTarget()->getType() == VfsType::directory) {
 		// TODO: Correctly reject opening directories when no O_DIRECTORY flag is set
 		// (see Open Group).
-		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second);
+		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
 		COFIBER_RETURN(std::move(file));
 	}else if(current.second->getTarget()->getType() == VfsType::charDevice) {
 		auto id = current.second->getTarget()->readDevice();
 		auto device = charRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second));
+		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second, semantic_flags));
 	}else{
 		assert(current.second->getTarget()->getType() == VfsType::blockDevice);
 		auto id = current.second->getTarget()->readDevice();
 		auto device = blockRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second));
+		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second, semantic_flags));
 	}
 }))
 

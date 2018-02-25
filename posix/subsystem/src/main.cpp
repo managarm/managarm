@@ -468,8 +468,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(req.flags() & managarm::posix::OF_EXCLUSIVE)
 				resolve_flags |= resolveExclusive;
 
+			SemanticFlags semantic_flags = 0;
+			if(req.flags() & managarm::posix::OF_NONBLOCK)
+				semantic_flags |= semanticNonBlock;
+
 			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path(),
-					resolve_flags);
+					resolve_flags, semantic_flags);
 			if(file) {
 				int fd = self->fileContext()->attachFile(file);
 

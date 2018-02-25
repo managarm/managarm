@@ -27,7 +27,8 @@ struct UnixDevice {
 
 	virtual std::string getName() = 0;
 
-	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link) = 0;
+	virtual FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) = 0;
 
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mount();
 
@@ -80,7 +81,7 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 // --------------------------------------------------------
 
 FutureMaybe<std::shared_ptr<File>> openExternalDevice(helix::BorrowedLane lane,
-		std::shared_ptr<FsLink> link);
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags);
 
 FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane);
 

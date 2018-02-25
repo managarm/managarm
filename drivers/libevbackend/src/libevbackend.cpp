@@ -24,35 +24,56 @@
 
 namespace libevbackend {
 
-async::result<int64_t> EventDevice::seek(std::shared_ptr<void> object, int64_t offset) {
+// ----------------------------------------------------------------------------
+// File implementation.
+// ----------------------------------------------------------------------------
+
+async::result<int64_t> File::seek(std::shared_ptr<void> object, int64_t offset) {
 	throw std::runtime_error("seek not yet implemented");
 }
 
-async::result<size_t> EventDevice::read(std::shared_ptr<void> object, void *buffer, size_t length) {
-	std::shared_ptr<EventDevice> device = std::static_pointer_cast<EventDevice>(object);
+async::result<size_t> File::read(std::shared_ptr<void> object, void *buffer, size_t length) {
+	std::shared_ptr<File> self = std::static_pointer_cast<File>(object);
 	
 	auto req = new ReadRequest(buffer, length);
-	device->_requests.push_back(*req);
+	self->_device->_requests.push_back(*req);
 	auto value = req->promise.async_get();
-	device->_processEvents();
+	self->_device->_processEvents();
 	return value;
 }
 
-async::result<void> EventDevice::write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> File::write(std::shared_ptr<void> object,
+		const void *buffer, size_t length) {
 	throw std::runtime_error("write not yet implemented");
 }
 
-async::result<protocols::fs::AccessMemoryResult> EventDevice::accessMemory(std::shared_ptr<void> object, uint64_t, size_t) {
+async::result<protocols::fs::AccessMemoryResult>
+File::accessMemory(std::shared_ptr<void> object, uint64_t, size_t) {
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withSeekAbs(&EventDevice::seek)
-	.withSeekRel(&EventDevice::seek)
-	.withSeekEof(&EventDevice::seek)
-	.withRead(&EventDevice::read)
-	.withWrite(&EventDevice::write)
-	.withAccessMemory(&EventDevice::accessMemory);
+	.withSeekAbs(&File::seek)
+	.withSeekRel(&File::seek)
+	.withSeekEof(&File::seek)
+	.withRead(&File::read)
+	.withWrite(&File::write)
+	.withAccessMemory(&File::accessMemory);
+
+helix::UniqueLane File::serve(std::shared_ptr<File> file) {
+	helix::UniqueLane local_lane, remote_lane;
+	std::tie(local_lane, remote_lane) = helix::createStream();
+	protocols::fs::servePassthrough(std::move(local_lane), file,
+			&fileOperations);
+	return std::move(remote_lane);
+}
+
+File::File(EventDevice *device, bool non_block)
+: _device{device} { }
+
+// ----------------------------------------------------------------------------
+// EventDevice implementation.
+// ----------------------------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
@@ -75,12 +96,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
+		
+			auto file = std::make_shared<File>(device.get(),
+					req.flags() & managarm::fs::OF_NONBLOCK);
+			auto remote_lane = File::serve(std::move(file));
 			
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::servePassthrough(std::move(local_lane), device,
-					&fileOperations);
-
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
