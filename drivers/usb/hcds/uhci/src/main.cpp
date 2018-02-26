@@ -939,6 +939,13 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	}
 	
 	if(front->numComplete == front->transfers.size()) {
+		// Make sure that all TDs transfer all their data.
+		for(size_t i = 0; i < front->numComplete; i++) {
+			auto &transfer = front->transfers[i];
+			assert((transfer.status.load() & td_status::actualLength)
+					== (transfer.token.load() & td_token::length));
+		}
+
 		//printf("Transfer complete!\n");
 		front->promise.set_value();
 
@@ -955,6 +962,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	}else{
 		auto status = front->transfers[front->numComplete].status.load();
 		if(!(status & td_status::active)) {
+			// TODO: This could also mean that the TD is not retired because of SPD.
+			// TODO: Unify this case with the transaction success case above.
 			assert(!(status & td_status::errorBits));
 			printf("Transfer error!\n");
 			_dump(front);

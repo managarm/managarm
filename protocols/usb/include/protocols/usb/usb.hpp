@@ -162,24 +162,5 @@ void walkConfiguration(std::string buffer, F functor) {
 	}
 }
 
-// ------------------------------------------------------------------
-// Contiguous Allocator.
-// ------------------------------------------------------------------
-
-#include <frigg/memory.hpp>
-
-struct ContiguousPolicy {
-public:
-	uintptr_t map(size_t length);
-	void unmap(uintptr_t address, size_t length);
-};
-
-using ContiguousAllocator = frigg::SlabAllocator<
-	ContiguousPolicy,
-	frigg::TicketLock
->;
-
-extern ContiguousAllocator contiguousAllocator;
-
 #endif // LIBUSB_USB_HPP
 

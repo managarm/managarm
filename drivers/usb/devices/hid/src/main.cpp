@@ -22,7 +22,10 @@
 #include "hid.hpp"
 
 namespace {
-	constexpr bool logRawValues = false;
+	constexpr bool logDescriptorParser = false;
+	constexpr bool logFields = false;
+	constexpr bool logRawPackets = false;
+	constexpr bool logFieldValues = false;
 }
 
 int32_t signExtend(uint32_t x, int bits) {
@@ -31,16 +34,27 @@ int32_t signExtend(uint32_t x, int bits) {
 	return (x ^ m) - m;
 }
 
-void interpret(std::vector<Field> fields, uint8_t *report, std::vector<int> &values) {
+void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
+		std::vector<int> &values) {
 	int k = 0;
 	unsigned int bit_offset = 0;
-	for(Field &f : fields) {
+	for(const Field &f : fields) {
 		auto fetch = [&] () {
+			assert(bit_offset + f.bitSize <= size * 8);
+
 			int b = bit_offset / 8;
-			uint32_t raw = uint32_t(report[b]) | (uint32_t(report[b + 1]) << 8)
-					| (uint32_t(report[b + 2]) << 16) | (uint32_t(report[b + 3]) << 24);
+			assert(b < size);
+			uint32_t word = uint32_t(report[b]);
+			if(b + 1 < size)
+				word |= uint32_t(report[b + 1]) << 8;
+			if(b + 2 < size)
+				word |= uint32_t(report[b + 2]) << 16;
+			if(b + 3 < size)
+				word |= uint32_t(report[b + 3]) << 24;
+
 			uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
-			uint32_t data = (raw >> (bit_offset % 8)) & mask;
+			uint32_t data = (word >> (bit_offset % 8)) & mask;
+//			std::cout << "bit_offset: " << bit_offset << ", data: " << data << std::endl;
 			bit_offset += f.bitSize;
 			return data;
 		};
@@ -249,6 +263,9 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			}
 		}
 	};
+	
+	if(logDescriptorParser)
+		printf("usb-hid: Parsing report descriptor:\n");
 
 	while(p < limit) {
 		uint8_t token = fetch(p, limit);
@@ -257,22 +274,26 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 		switch(token & 0xFC) {
 		// Main items
 		case 0xC0:
-			printf("End Collection: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     End Collection: 0x%x\n", data);
 			break;
 
 		case 0xA0:
-			printf("Collection: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Collection: 0x%x\n", data);
 			local = LocalState();
 			break;
 
 		case 0x80:
-			printf("Input: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Input: 0x%x\n", data);
 			generateFields(!(data & item::variable));
 			local = LocalState();
 			break;
 
 		case 0x90:
-			printf("Output: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Output: 0x%x\n", data);
 			if(!global.reportSize || !global.reportCount)
 				throw std::runtime_error("Missing Report Size/Count");
 				
@@ -287,59 +308,71 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 
 		// Global items
 		case 0x94:
-			printf("Report Count: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Report Count: 0x%x\n", data);
 			global.reportCount = data;
 			break;
 		
 		case 0x74:
-			printf("Report Size: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Report Size: 0x%x\n", data);
 			global.reportSize = data;
 			break;
 		
 		case 0x44:
-			printf("Physical Maximum: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Physical Maximum: 0x%x\n", data);
 			global.physicalMax = data;
 			break;
 	
 		case 0x34:
-			printf("Physical Minimum: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Physical Minimum: 0x%x\n", data);
 			global.physicalMin = data;
 			break;
 
 		case 0x24:
 			assert(size > 0);
 			global.logicalMax = std::make_pair(signExtend(data, size * 8), data);
-			printf("Logical Maximum: signed: %d, unsigned: %d\n", global.logicalMax.value().first,
-					global.logicalMax.value().second);
+			if(logDescriptorParser)
+				printf("usb-hid:     Logical Maximum: signed: %d, unsigned: %d\n",
+						global.logicalMax.value().first,
+						global.logicalMax.value().second);
 			break;
 		
 		case 0x14:
 			assert(size > 0);
 			global.logicalMin = std::make_pair(signExtend(data, size * 8), data);
-			printf("Logical Minimum: signed: %d, unsigned: %d\n", global.logicalMin.value().first,
-					global.logicalMin.value().second);
+			if(logDescriptorParser)
+				printf("usb-hid:     Logical Minimum: signed: %d, unsigned: %d\n",
+						global.logicalMin.value().first,
+						global.logicalMin.value().second);
 			break;
 		
 		case 0x04:
-			printf("Usage Page: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Usage Page: 0x%x\n", data);
 			global.usagePage = data;
 			break;
 
 		// Local items
 		case 0x28:
-			printf("Usage Maximum: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Usage Maximum: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
 			local.usageMax = data;
 			break;
 		
 		case 0x18:
-			printf("Usage Minimum: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Usage Minimum: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
 			local.usageMin = data;
 			break;
 			
 		case 0x08:
-			printf("Usage: 0x%x\n", data);
+			if(logDescriptorParser)
+				printf("usb-hid:     Usage: 0x%x\n", data);
 			assert(size < 4); // TODO: this would override the usage page
 			local.usage.push_back(data);
 			break;
@@ -356,13 +389,16 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
 	std::experimental::optional<int> in_endp_number;
+	size_t in_endp_pktsize;
+
 	std::experimental::optional<int> report_desc_index;
 	std::experimental::optional<int> report_desc_length;
 
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		if(type == descriptor_type::hid) {
-			auto desc = (HidDescriptor *)p;
-			assert(desc->length == sizeof(HidDescriptor) + (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
+			auto desc = static_cast<HidDescriptor *>(p);
+			assert(desc->length == sizeof(HidDescriptor)
+					+ (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 			
 			assert(info.interfaceNumber);
 			
@@ -373,8 +409,12 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 				report_desc_length = (int)desc->entries[i].descriptorLength;
 			}
 		}else if(type == descriptor_type::endpoint) {
+			auto desc = static_cast<EndpointDescriptor *>(p);
 			assert(!in_endp_number);
+
 			in_endp_number = info.endpointNumber.value();
+			in_endp_pktsize = desc->maxPacketSize;
+			std::cout << "max packet size is: " << in_endp_pktsize << std::endl;
 		}else{
 			printf("Unexpected descriptor type: %d!\n", type);
 		}
@@ -402,6 +442,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
+	assert(in_endp_pktsize == 4);
 
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
@@ -424,22 +465,40 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
 
+	if(logFields)
+		for(size_t i = 0; i < fields.size(); i++) {
+			std::cout << "Field " << i << ": [" << fields[i].arraySize
+					<< "]. Bit size: " << fields[i].bitSize
+					<< ", signed: " << fields[i].isSigned << std::endl;
+		}
+
 	// Read reports from the USB device.
 	std::vector<int> values;
 	values.resize(elements.size());
 	while(true) {
 		arch::dma_buffer report{device.bufferPool(), 4};
 		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
-		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), values);
+		
+		if(logRawPackets) {
+			std::cout << "usb-hid: Packet:";
+			std::cout << std::hex;
+			for(size_t i = 0; i < 4; i++)
+				std::cout << " " << (int)reinterpret_cast<uint8_t *>(report.data())[i];
+			std::cout << std::dec;
+			std::cout << std::dec << std::endl;
+		}
+
+		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), report.size(),
+				values);
 	
-		if(logRawValues) {
-			for(int i = 0; i < values.size(); i++)
+		if(logFieldValues) {
+			for(size_t i = 0; i < values.size(); i++)
 				std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
 						<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
 			std::cout << std::endl;
 		}
 
-		for(int i = 0; i < values.size(); i++)
+		for(size_t i = 0; i < values.size(); i++)
 			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 	}
