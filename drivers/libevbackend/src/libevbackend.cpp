@@ -29,18 +29,34 @@ namespace libevbackend {
 // ----------------------------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-File::read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
+File::read(std::shared_ptr<void> object, void *buffer, size_t max_size), ([=] {
 	auto self = static_cast<File *>(object.get());
 
 	if(self->_nonBlock && self->_device->_events.empty())
 		COFIBER_RETURN(protocols::fs::Error::wouldBlock);
 
-	auto req = new ReadRequest(buffer, length);
-	self->_device->_requests.push_back(*req);
-	auto future = req->promise.async_get();
-	self->_device->_processEvents();
-	auto value = COFIBER_AWAIT std::move(future);
-	COFIBER_RETURN(value);
+	while(self->_device->_events.empty())
+		COFIBER_AWAIT self->_device->_statusBell.async_wait();
+	
+	size_t written = 0;
+	while(!self->_device->_events.empty()
+			&& written + sizeof(input_event) <= max_size) {
+		auto event = &self->_device->_events.front();
+		self->_device->_events.pop_front();
+
+		input_event uev;
+		memset(&uev, 0, sizeof(input_event));
+		uev.type = event->type;
+		uev.code = event->code;
+		uev.value = event->value;
+
+		memcpy(reinterpret_cast<char *>(buffer) + written, &uev, sizeof(input_event));
+		written += sizeof(input_event);
+		delete event;
+	}
+	
+	assert(written);
+	COFIBER_RETURN(written);
 }))
 
 async::result<void> File::write(std::shared_ptr<void>,
@@ -130,29 +146,6 @@ void EventDevice::emitEvent(int type, int code, int value) {
 	_events.push_back(*event);
 	_currentSeq++;
 	_statusBell.ring();
-	_processEvents();
-}
-
-void EventDevice::_processEvents() {
-	while(!_requests.empty() && !_events.empty()) {
-		auto req = &_requests.front();
-		auto event = &_events.front();
-	
-		// TODO: fill in timeval 
-		input_event data;
-		data.type = event->type;	
-		data.code = event->code;
-		data.value = event->value;
-
-		assert(req->maxLength >= sizeof(input_event));
-		memcpy(req->buffer, &data, sizeof(input_event));	
-		req->promise.set_value(sizeof(input_event));
-		
-		_requests.pop_front();
-		_events.pop_front();
-		delete req;
-		delete event;
-	}
 }
 
 } // namespace libevbackend

@@ -30,20 +30,6 @@ struct Event {
 };
 
 // --------------------------------------------
-// ReadRequest
-// --------------------------------------------
-
-struct ReadRequest {
-	ReadRequest(void *buffer, size_t maxLength)
-	: buffer(buffer), maxLength(maxLength) { }
-
-	void *buffer;
-	size_t maxLength;
-	async::promise<size_t> promise;
-	boost::intrusive::list_member_hook<> hook;
-};
-
-// --------------------------------------------
 // EventDevice
 // --------------------------------------------
 
@@ -82,7 +68,8 @@ struct EventDevice {
 	void emitEvent(int type, int code, int value);
 
 private:
-	void _processEvents();
+	async::doorbell _statusBell;
+	uint64_t _currentSeq;
 
 	boost::intrusive::list<
 		Event,
@@ -92,18 +79,6 @@ private:
 			&Event::hook
 		>
 	> _events;
-
-	boost::intrusive::list<
-		ReadRequest,
-		boost::intrusive::member_hook<
-			ReadRequest,
-			boost::intrusive::list_member_hook<>,
-			&ReadRequest::hook
-		>
-	> _requests;
-
-	async::doorbell _statusBell;
-	uint64_t _currentSeq;
 };
 
 // --------------------------------------------
