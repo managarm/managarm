@@ -126,6 +126,8 @@ message CntRequest {
 	repeated Rect drm_clips = 36;
 
 	optional uint64 drm_cookie = 37;
+
+	optional int32 input_type = 40;
 }
 
 message SvrResponse {

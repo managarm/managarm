@@ -171,9 +171,7 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 		if(!link)
 			break;
 		path = path.empty() ? link->getName() : link->getName() + "/" + path;
-		std::cout << "Path is now: " << path << std::endl;;
 		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
-		std::cout << "ref is now " << ref.get() << std::endl;
 	}
 
 	// Walk from the symlink to the root to discover the number of ../ prefixes.
@@ -183,7 +181,6 @@ COFIBER_ROUTINE(expected<std::string>, SymlinkNode::readSymlink(FsLink *link), (
 		if(!link)
 			break;
 		path = "../" + path;
-		std::cout << "Path is now: " << path << std::endl;;
 		ref = std::static_pointer_cast<DirectoryNode>(link->getOwner());
 	}
 

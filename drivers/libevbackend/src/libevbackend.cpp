@@ -76,10 +76,73 @@ File::poll(std::shared_ptr<void> object, uint64_t past_seq), ([=] {
 			self->_device->_events.empty() ? 0 : EPOLLIN));
 }))
 
+COFIBER_ROUTINE(async::result<void>,
+File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation), ([object = std::move(object),
+		req = std::move(req), conversation = std::move(conversation)] {
+	auto self = static_cast<File *>(object.get());
+	if(req.command() == EVIOCGBIT(0, 0)) {
+		assert(req.size());
+		std::cout << "EVIOCGBIT()" << std::endl;
+
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_data;
+		managarm::fs::SvrResponse resp;
+
+		std::array<uint8_t, 4> bits;
+		memset(bits.data(), 0, bits.size());
+		bits[0] |= (1 << EV_REL);
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+	
+		auto ser = resp.SerializeAsString();
+		auto chunk = std::min(size_t(req.size()), bits.size());
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_data, bits.data(), chunk));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	}else if(req.command() == EVIOCGBIT(1, 0)) {
+		assert(req.size());
+		std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
+
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_data;
+		managarm::fs::SvrResponse resp;
+
+		std::array<uint8_t, 4> bits;
+		memset(bits.data(), 0, bits.size());
+		if(req.input_type() == EV_REL) {
+			bits[0] |= (1 << REL_X);
+			bits[0] |= (1 << REL_Y);
+		}
+
+		std::pair<const uint8_t *, size_t> p;
+		
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		p = {bits.data(), bits.size()};
+	
+		auto ser = resp.SerializeAsString();
+		auto chunk = std::min(size_t(req.size()), p.second);
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_data, p.first, chunk));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	}else{
+		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
+	}
+	COFIBER_RETURN();
+}))
+
+
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withRead(&File::read)
 	.withWrite(&File::write)
-	.withPoll(&File::poll);
+	.withPoll(&File::poll)
+	.withIoctl(&File::ioctl);
 
 helix::UniqueLane File::serve(std::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;

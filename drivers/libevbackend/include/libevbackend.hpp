@@ -46,6 +46,10 @@ struct File {
 
 	static async::result<protocols::fs::PollResult>
 	poll(std::shared_ptr<void> object, uint64_t past_seq);
+
+	static async::result<void>
+	ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+			helix::UniqueLane conversation);
 	
 	// ------------------------------------------------------------------------
 	// Public File API.
