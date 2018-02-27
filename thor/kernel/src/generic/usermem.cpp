@@ -839,14 +839,26 @@ PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
 
 bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	// TODO: We do not need to copy on read.
-//	assert(fault_flags & AddressSpace::kFaultWrite);
-	assert(!(fault_flags & AddressSpace::kFaultExecute));
+	if(fault_flags & AddressSpace::kFaultWrite)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
+			return false;
+	if(fault_flags & AddressSpace::kFaultExecute)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute))
+			return false;
+
+	uint32_t page_flags = 0;
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		page_flags |= page_access::write;
+	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		page_flags |= page_access::execute;
+	// TODO: Allow inaccessible mappings.
+	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	auto fault_page = fault_offset & ~(kPageSize - 1);
 	auto physical = _cowBundle->fetchRange(fault_page);
 	// TODO: Ensure that no racing threads still see the original page.
 	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
-			true, page_access::write);
+			true, page_flags);
 	return true;
 }
 
