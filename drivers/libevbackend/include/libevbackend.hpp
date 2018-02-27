@@ -69,11 +69,20 @@ struct EventDevice {
 
 	EventDevice();
 
+	void enableEvent(int type, int code);
+
 	void emitEvent(int type, int code, int value);
 
 private:
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
+
+	// Supported event bits.
+	// The array sizes come from Linux' EV_CNT, KEY_CNT, REL_CNT etc. macros (divided by 8)
+	// and can be extended if more event constants are added.
+	std::array<uint8_t, 4> _typeBits;
+	std::array<uint8_t, 96> _keyBits;
+	std::array<uint8_t, 2> _relBits;
 
 	boost::intrusive::list<
 		Event,

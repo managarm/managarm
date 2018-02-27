@@ -111,17 +111,14 @@ File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_data;
 		managarm::fs::SvrResponse resp;
 
-		std::array<uint8_t, 4> bits;
-		memset(bits.data(), 0, bits.size());
-		if(req.input_type() == EV_REL) {
-			bits[0] |= (1 << REL_X);
-			bits[0] |= (1 << REL_Y);
-		}
-
 		std::pair<const uint8_t *, size_t> p;
-		
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		p = {bits.data(), bits.size()};
+		if(req.input_type() == EV_REL) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
+		}else{
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			p = {nullptr, 0};
+		}
 	
 		auto ser = resp.SerializeAsString();
 		auto chunk = std::min(size_t(req.size()), p.second);
@@ -202,7 +199,25 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 }))
 
 EventDevice::EventDevice()
-: _currentSeq{1} { }
+: _currentSeq{1} {
+	memset(_typeBits.data(), 0, _typeBits.size());
+	memset(_keyBits.data(), 0, _keyBits.size());
+	memset(_relBits.data(), 0, _relBits.size());
+}
+
+void EventDevice::enableEvent(int type, int code) {
+	auto setBit = [] (uint8_t *array, size_t length, int bit) {
+		assert(bit / 8 < length);
+		array[bit / 8] |= (1 << (bit % 8));
+	};
+
+	if(type == EV_REL) {
+		setBit(_relBits.data(), _relBits.size(), code);
+	}else{
+		throw std::runtime_error("Unexpected event type");
+	}
+	setBit(_typeBits.data(), _typeBits.size(), type);
+}
 
 void EventDevice::emitEvent(int type, int code, int value) {
 	auto event = new Event(type, code, value);

@@ -465,6 +465,9 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
 
+	_eventDev->enableEvent(EV_REL, REL_X);
+	_eventDev->enableEvent(EV_REL, REL_Y);
+
 	if(logFields)
 		for(size_t i = 0; i < fields.size(); i++) {
 			std::cout << "Field " << i << ": [" << fields[i].arraySize
