@@ -168,6 +168,14 @@ void HidDevice::translateToLinux(int page, int id, int value) {
 			case 0x26: _eventDev->emitEvent(EV_KEY, KEY_9, value); break;
 			case 0x27: _eventDev->emitEvent(EV_KEY, KEY_0, value); break;
 		}
+	}else if(page == pages::button) {
+		if(value)
+			std::cout << "emit button" << std::endl;
+		switch(id) {
+			case 0x01: _eventDev->emitEvent(EV_KEY, BTN_LEFT, value); break;
+			case 0x02: _eventDev->emitEvent(EV_KEY, BTN_RIGHT, value); break;
+			case 0x03: _eventDev->emitEvent(EV_KEY, BTN_MIDDLE, value); break;
+		}
 	}
 }
 
@@ -467,6 +475,9 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 	_eventDev->enableEvent(EV_REL, REL_X);
 	_eventDev->enableEvent(EV_REL, REL_Y);
+	_eventDev->enableEvent(EV_KEY, BTN_LEFT);
+	_eventDev->enableEvent(EV_KEY, BTN_RIGHT);
+	_eventDev->enableEvent(EV_KEY, BTN_MIDDLE);
 
 	if(logFields)
 		for(size_t i = 0; i < fields.size(); i++) {

@@ -112,7 +112,10 @@ File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
 		managarm::fs::SvrResponse resp;
 
 		std::pair<const uint8_t *, size_t> p;
-		if(req.input_type() == EV_REL) {
+		if(req.input_type() == EV_KEY) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			p = {self->_device->_keyBits.data(), self->_device->_keyBits.size()};
+		}else if(req.input_type() == EV_REL) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
 		}else{
@@ -211,7 +214,9 @@ void EventDevice::enableEvent(int type, int code) {
 		array[bit / 8] |= (1 << (bit % 8));
 	};
 
-	if(type == EV_REL) {
+	if(type == EV_KEY) {
+		setBit(_keyBits.data(), _keyBits.size(), code);
+	}else if(type == EV_REL) {
 		setBit(_relBits.data(), _relBits.size(), code);
 	}else{
 		throw std::runtime_error("Unexpected event type");
