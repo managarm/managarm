@@ -181,7 +181,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 
 	for(auto entry : original->_fileTable) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
-		context->attachFile(entry.first, entry.second);
+		context->attachFile(entry.first, entry.second.file, entry.second.closeOnExec);
 	}
 
 	unsigned long mbus_upstream;
@@ -193,7 +193,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	return context;
 }
 
-int FileContext::attachFile(std::shared_ptr<File> file) {	
+int FileContext::attachFile(std::shared_ptr<File> file, bool close_on_exec) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
@@ -201,22 +201,22 @@ int FileContext::attachFile(std::shared_ptr<File> file) {
 	for(int fd = 0; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
-		_fileTable.insert({ fd, std::move(file) });
+		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 		_fileTableWindow[fd] = handle;
 		return fd;
 	}
 }
 
-void FileContext::attachFile(int fd, std::shared_ptr<File> file) {	
+void FileContext::attachFile(int fd, std::shared_ptr<File> file, bool close_on_exec) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
 
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
-		it->second = std::move(file);
+		it->second = {std::move(file), close_on_exec};
 	}else{
-		_fileTable.insert({ fd, std::move(file) });
+		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 	}
 	_fileTableWindow[fd] = handle;
 }
@@ -225,7 +225,7 @@ std::shared_ptr<File> FileContext::getFile(int fd) {
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
 		return std::shared_ptr<File>{};
-	return file->second;
+	return file->second.file;
 }
 
 void FileContext::closeFile(int fd) {
@@ -233,6 +233,17 @@ void FileContext::closeFile(int fd) {
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end())
 		_fileTable.erase(it);
+}
+
+void FileContext::closeOnExec() {
+	auto it = _fileTable.begin();
+	while(it != _fileTable.end()) {
+		if(it->second.closeOnExec) {
+			it = _fileTable.erase(it);
+		}else{
+			it++;
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -280,6 +291,15 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
 
+	void *exec_client_table;
+	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
+			exec_vm_context->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&exec_client_table));
+	
+	// TODO: We should only do this if the execute succeeds.
+	process->_fileContext->closeOnExec();
+
 	// Perform the exec() in a new VM context so that we
 	// can catch errors before trashing the calling process.
 	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(),
@@ -290,11 +310,9 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 
 	// "Commit" the exec() operation.
 	process->_vmContext = std::move(exec_vm_context);
-	
-	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
-			process->_vmContext->getSpace().getHandle(),
-			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
-			&process->_clientFileTable));
+	process->_clientFileTable = exec_client_table;
+
+	// TODO: execute() should return a stopped thread that we can start here.
 
 	COFIBER_RETURN();
 }))

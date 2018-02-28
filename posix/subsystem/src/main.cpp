@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/sysmacros.h>
+#include <sys/timerfd.h>
 #include <iomanip>
 #include <iostream>
 
@@ -843,9 +844,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
 			helix::SendBuffer send_resp;
+	
+			assert(!(req.flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)));
+			if(req.flags() & TFD_NONBLOCK)
+				std::cout << "\e[31mposix: timerfd(TFD_NONBLOCK)"
+						" is not implemented correctly\e[39m" << std::endl;
 
 			auto file = timerfd::createFile();
-			auto fd = self->fileContext()->attachFile(file);
+			auto fd = self->fileContext()->attachFile(file, req.flags() & TFD_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
