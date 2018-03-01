@@ -226,7 +226,13 @@ void EventDevice::enableEvent(int type, int code) {
 
 void EventDevice::emitEvent(int type, int code, int value) {
 	auto event = new Event(type, code, value);
-	_events.push_back(*event);
+	_emitted.push_back(*event);
+	_currentSeq++;
+	_statusBell.ring();
+}
+
+void EventDevice::notify() {
+	_events.splice(_events.begin(), _emitted);
 	_currentSeq++;
 	_statusBell.ring();
 }

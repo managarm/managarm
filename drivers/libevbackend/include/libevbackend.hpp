@@ -73,6 +73,8 @@ struct EventDevice {
 
 	void emitEvent(int type, int code, int value);
 
+	void notify();
+
 private:
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
@@ -83,6 +85,15 @@ private:
 	std::array<uint8_t, 4> _typeBits;
 	std::array<uint8_t, 96> _keyBits;
 	std::array<uint8_t, 2> _relBits;
+
+	boost::intrusive::list<
+		Event,
+		boost::intrusive::member_hook<
+			Event,
+			boost::intrusive::list_member_hook<>,
+			&Event::hook
+		>
+	> _emitted;
 
 	boost::intrusive::list<
 		Event,

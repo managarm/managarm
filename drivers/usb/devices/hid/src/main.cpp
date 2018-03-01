@@ -515,6 +515,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		for(size_t i = 0; i < values.size(); i++)
 			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
+		_eventDev->notify();
 	}
 }))
 
