@@ -462,6 +462,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
 
 			helix::SendBuffer send_resp;
+			
+			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
+					| managarm::posix::OF_EXCLUSIVE
+					| managarm::posix::OF_NONBLOCK
+					| managarm::posix::OF_CLOEXEC)));
 
 			ResolveFlags resolve_flags = 0;
 			if(req.flags() & managarm::posix::OF_CREATE)
@@ -476,7 +481,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path(),
 					resolve_flags, semantic_flags);
 			if(file) {
-				int fd = self->fileContext()->attachFile(file);
+				int fd = self->fileContext()->attachFile(file,
+						req.flags() & managarm::posix::OF_CLOEXEC);
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -516,8 +522,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for DUP");
+
+			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
 			
-			int newfd = self->fileContext()->attachFile(file);
+			int newfd = self->fileContext()->attachFile(file,
+					req.flags() & managarm::posix::OF_CLOEXEC);
 
 			helix::SendBuffer send_resp;
 
@@ -533,6 +542,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for DUP2");
+
+			assert(!req.flags());
 
 			if(req.newfd() >= 0) {
 				self->fileContext()->attachFile(req.newfd(), file);
@@ -653,6 +664,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			helix::SendBuffer send_resp;
 
+			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+			
+			if(req.flags() & SOCK_NONBLOCK)
+				std::cout << "\e[31mposix: socket(SOCK_NONBLOCK)"
+						" is not implemented correctly\e[39m" << std::endl;
+
 			std::shared_ptr<File> file;
 			if(req.domain() == AF_UNIX) {
 				assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
@@ -666,7 +683,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
 
-			auto fd = self->fileContext()->attachFile(file);
+			auto fd = self->fileContext()->attachFile(file,
+					req.flags() & SOCK_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -680,14 +698,22 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
 			helix::SendBuffer send_resp;
 
+			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+
+			if(req.flags() & SOCK_NONBLOCK)
+				std::cout << "\e[31mposix: socketpair(SOCK_NONBLOCK)"
+						" is not implemented correctly\e[39m" << std::endl;
+
 			assert(req.domain() == AF_UNIX);
 			assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
 					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
 			auto pair = un_socket::createSocketPair();
-			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair));
-			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair));
+			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair),
+					req.flags() & SOCK_CLOEXEC);
+			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair),
+					req.flags() & SOCK_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -755,9 +781,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			helix::SendBuffer send_resp;
-
+			
+			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			
 			auto file = epoll::createFile();
-			auto fd = self->fileContext()->attachFile(file);
+			auto fd = self->fileContext()->attachFile(file,
+					req.flags() & managarm::posix::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -880,9 +909,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 			helix::SendBuffer send_resp;
-
+			
+			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			
 			auto file = createSignalFile();
-			auto fd = self->fileContext()->attachFile(file);
+			auto fd = self->fileContext()->attachFile(file,
+					req.flags() & managarm::posix::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
