@@ -7,6 +7,8 @@
 #include "exec.hpp"
 #include "process.hpp"
 
+static bool logFileAttach = false;
+
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
 // ----------------------------------------------------------------------------
@@ -201,6 +203,10 @@ int FileContext::attachFile(std::shared_ptr<File> file, bool close_on_exec) {
 	for(int fd = 0; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
+
+		if(logFileAttach)
+			std::cout << "posix: Attaching FD " << fd << std::endl;
+
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 		_fileTableWindow[fd] = handle;
 		return fd;
@@ -211,6 +217,9 @@ void FileContext::attachFile(int fd, std::shared_ptr<File> file, bool close_on_e
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
+	
+	if(logFileAttach)
+		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
 
 	auto it = _fileTable.find(fd);
 	if(it != _fileTable.end()) {
@@ -229,16 +238,20 @@ std::shared_ptr<File> FileContext::getFile(int fd) {
 }
 
 void FileContext::closeFile(int fd) {
-	//std::cout << "Close " << fd << std::endl;
+	if(logFileAttach)
+		std::cout << "posix: Closing FD " << fd << std::endl;
 	auto it = _fileTable.find(fd);
-	if(it != _fileTable.end())
-		_fileTable.erase(it);
+	assert(it != _fileTable.end());
+
+	_fileTableWindow[fd] = 0;
+	_fileTable.erase(it);
 }
 
 void FileContext::closeOnExec() {
 	auto it = _fileTable.begin();
 	while(it != _fileTable.end()) {
 		if(it->second.closeOnExec) {
+			_fileTableWindow[it->first] = 0;
 			it = _fileTable.erase(it);
 		}else{
 			it++;
