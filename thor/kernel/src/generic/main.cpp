@@ -607,6 +607,9 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
 		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n"
 				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
+		
+		// TODO: We should kill the thread in this situation.
+		Thread::interruptCurrent(kIntrPanic, image);
 	}else{
 		Thread::interruptCurrent(fault, image);
 	}
@@ -667,8 +670,11 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallPanic: {
 		if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-			frigg::infoLogger() << "User space panic:" << frigg::endLog;
+			frigg::infoLogger() << "thor: User space panic:" << frigg::endLog;
 			helLog((const char *)arg0, (size_t)arg1);
+			
+			// TODO: We should kill the thread in this situation.
+			Thread::interruptCurrent(kIntrPanic, image);
 		}else{
 			Thread::interruptCurrent(kIntrPanic, image);
 		}
