@@ -230,6 +230,12 @@ void FileContext::attachFile(int fd, std::shared_ptr<File> file, bool close_on_e
 	_fileTableWindow[fd] = handle;
 }
 
+FileDescriptor FileContext::getDescriptor(int fd) {
+	auto file = _fileTable.find(fd);
+	assert(file != _fileTable.end());
+	return file->second;
+}
+
 std::shared_ptr<File> FileContext::getFile(int fd) {
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())

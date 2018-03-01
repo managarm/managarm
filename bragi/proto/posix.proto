@@ -46,6 +46,8 @@ enum CntReqType {
 	IS_TTY = 22;
 	TTY_NAME = 18;
 	UNLINK = 40;
+	FD_GET_FLAGS = 44;
+	FD_SET_FLAGS = 45;
 
 	// Socket-specific calls.
 	SOCKET = 35;
@@ -151,6 +153,8 @@ message SvrResponse {
 	optional int32 error = 3;
 
 	optional int64 size = 21;
+
+	optional int64 flags = 24;
 
 	// returned by GET_PID
 	optional int64 pid = 18;

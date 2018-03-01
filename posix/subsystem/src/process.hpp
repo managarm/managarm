@@ -52,13 +52,12 @@ private:
 	ViewPath _root;
 };
 
-struct FileContext {
-private:
-	struct Descriptor {
-		std::shared_ptr<File> file;
-		bool closeOnExec;
-	};
+struct FileDescriptor {
+	std::shared_ptr<File> file;
+	bool closeOnExec;
+};
 
+struct FileContext {
 public:
 	static std::shared_ptr<FileContext> create();
 	static std::shared_ptr<FileContext> clone(std::shared_ptr<FileContext> original);
@@ -75,6 +74,8 @@ public:
 
 	void attachFile(int fd, std::shared_ptr<File> file, bool close_on_exec = false);
 
+	FileDescriptor getDescriptor(int fd);
+
 	std::shared_ptr<File> getFile(int fd);
 
 	void closeFile(int fd);
@@ -89,7 +90,7 @@ private:
 	helix::UniqueDescriptor _universe;
 
 	// TODO: replace this by a tree that remembers gaps between keys.
-	std::unordered_map<int, Descriptor> _fileTable;
+	std::unordered_map<int, FileDescriptor> _fileTable;
 
 	helix::UniqueDescriptor _fileTableMemory;
 

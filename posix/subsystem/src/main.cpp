@@ -661,6 +661,24 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
+			helix::SendBuffer send_resp;
+			
+			auto descriptor = self->fileContext()->getDescriptor(req.fd());
+			
+			int flags = 0;
+			if(descriptor.closeOnExec)
+				flags |= O_CLOEXEC;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_flags(flags);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
 			helix::SendBuffer send_resp;
 
