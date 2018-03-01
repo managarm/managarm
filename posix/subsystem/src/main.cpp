@@ -860,7 +860,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
-			auto event = COFIBER_AWAIT epoll::wait(epfile.get());
+			struct epoll_event events[16];
+			auto k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+					std::min(req.size(), uint32_t(16)));
 			
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -868,7 +870,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, &event, sizeof(struct epoll_event)));
+					helix::action(&send_data, events, k * sizeof(struct epoll_event)));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {

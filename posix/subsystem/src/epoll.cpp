@@ -98,11 +98,15 @@ public:
 				<< file->structName() << "\e[0m" << std::endl;
 	}
 
-	COFIBER_ROUTINE(async::result<struct epoll_event>, waitForEvent(), ([=] {
+	COFIBER_ROUTINE(async::result<size_t>, waitForEvents(struct epoll_event *events,
+			size_t max_events), ([=] {
+		assert(max_events);
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
 					" There are " << _pendingQueue.size() << " pending items" << std::endl;
-		while(true) {
+		size_t k = 0;
+		boost::intrusive::list<Item> repoll_queue;
+		while(!k) {
 			while(_pendingQueue.empty())
 				COFIBER_AWAIT _pendingBell.async_wait();
 
@@ -133,18 +137,28 @@ public:
 				}
 				
 				// We have to increment the sequence again as concurrent waiters
-				// might have seen an empty _pendingQueue
+				// might have seen an empty _pendingQueue.
 				// TODO: Edge-triggered watches should not be requeued here.
-				_pendingQueue.push_back(*item);
-				_currentSeq++;
-				_pendingBell.ring();
+				repoll_queue.push_back(*item);
 
-				struct epoll_event ev;
-				ev.events = status;
-				ev.data.u64 = item->cookie;
-				COFIBER_RETURN(ev);
+				memset(events + k, 0, sizeof(struct epoll_event));
+				events[k].events = status;
+				events[k].data.u64 = item->cookie;
+
+				k++;
+				if(k == max_events)
+					break;
 			}
 		}
+
+		// Before returning, we have to reinsert the level-triggered events that we report.
+		if(!repoll_queue.empty()) {
+			_pendingQueue.splice(_pendingQueue.end(), repoll_queue);
+			_currentSeq++;
+			_pendingBell.ring();
+		}
+
+		COFIBER_RETURN(k);
 	}))
 
 	// ------------------------------------------------------------------------
@@ -216,9 +230,10 @@ void deleteItem(File *epfile, File *file, int flags) {
 	epoll->deleteItem(file, flags);
 }
 
-async::result<struct epoll_event> wait(File *epfile) {
+async::result<size_t> wait(File *epfile, struct epoll_event *events,
+		size_t max_events) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	return epoll->waitForEvent();
+	return epoll->waitForEvents(events, max_events);
 }
 
 } // namespace epoll
