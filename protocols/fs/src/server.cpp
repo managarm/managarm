@@ -82,6 +82,14 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(error && *error == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 

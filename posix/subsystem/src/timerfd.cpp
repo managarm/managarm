@@ -74,11 +74,11 @@ public:
 				&File::fileOperations);
 	}
 
-	OpenFile()
-	: File{StructName::get("timerfd")},
+	OpenFile(bool non_block)
+	: File{StructName::get("timerfd")}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
 
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(max_length == sizeof(uint64_t));
 		assert(_expirations);
 
@@ -114,6 +114,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	bool _nonBlock;
 
 	// Currently active timer.
 	Timer *_activeTimer;
@@ -129,8 +130,8 @@ private:
 
 namespace timerfd {
 
-std::shared_ptr<File> createFile() {
-	auto file = std::make_shared<OpenFile>();
+std::shared_ptr<File> createFile(bool non_block) {
+	auto file = std::make_shared<OpenFile>(non_block);
 	OpenFile::serve(file);
 	return std::move(file);
 }

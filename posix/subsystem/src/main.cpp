@@ -877,11 +877,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 	
 			assert(!(req.flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)));
-			if(req.flags() & TFD_NONBLOCK)
-				std::cout << "\e[31mposix: timerfd(TFD_NONBLOCK)"
-						" is not implemented correctly\e[39m" << std::endl;
 
-			auto file = timerfd::createFile();
+			auto file = timerfd::createFile(req.flags() & TFD_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(file, req.flags() & TFD_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;

@@ -34,7 +34,7 @@ public:
 
 	explicit AttributeFile(std::shared_ptr<FsLink> link);
 
-	FutureMaybe<size_t> readSome(void *data, size_t max_length) override;
+	expected<size_t> readSome(void *data, size_t max_length) override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -51,7 +51,7 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
-	FutureMaybe<size_t> readSome(void *data, size_t max_length) override;
+	expected<size_t> readSome(void *data, size_t max_length) override;
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 

@@ -210,7 +210,7 @@ public:
 	MemoryFile(std::shared_ptr<FsLink> link)
 	: File{StructName::get("tmpfs.regular"), std::move(link)} { }
 	
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(!"Fix MemoryFile::readSome");
 	}))
 	

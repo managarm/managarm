@@ -97,7 +97,7 @@ struct File {
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 
-	virtual FutureMaybe<size_t> readSome(void *data, size_t max_length) = 0;
+	virtual expected<size_t> readSome(void *data, size_t max_length);
 
 	virtual FutureMaybe<void> writeAll(const void *data, size_t length);
 

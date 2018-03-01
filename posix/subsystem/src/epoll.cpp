@@ -165,10 +165,6 @@ public:
 	// File implementation.
 	// ------------------------------------------------------------------------
 
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *, size_t) override, ([=] {
-		throw std::runtime_error("Cannot read from epoll FD");
-	}))
-	
 	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq)

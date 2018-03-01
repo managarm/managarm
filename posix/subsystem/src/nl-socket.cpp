@@ -48,7 +48,7 @@ public:
 	: File{StructName::get("nl-socket")}, _state{State::null}, _currentSeq{1}, _inSeq{0} { }
 
 public:
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;

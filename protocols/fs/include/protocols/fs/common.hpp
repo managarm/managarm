@@ -9,7 +9,8 @@ namespace fs {
 
 enum class Error {
 	none,
-	wouldBlock
+	wouldBlock,
+	illegalArguments
 };
 
 using ReadResult = std::variant<Error, size_t>;

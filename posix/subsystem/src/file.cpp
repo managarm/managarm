@@ -16,8 +16,13 @@
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(std::shared_ptr<void> object,
 		void *buffer, size_t length), ([=] {
 	auto self = static_cast<File *>(object.get());
-	auto size = COFIBER_AWAIT self->readSome(buffer, length);
-	COFIBER_RETURN(size);
+	auto result = COFIBER_AWAIT self->readSome(buffer, length);
+	auto error = std::get_if<Error>(&result);
+	if(error && *error == Error::illegalOperationTarget) {
+		COFIBER_RETURN(protocols::fs::Error::illegalArguments);
+	}else{
+		COFIBER_RETURN(std::get<size_t>(result));
+	}
 }))
 
 async::result<void> File::ptWrite(std::shared_ptr<void> object,
@@ -46,11 +51,17 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length),
 	size_t offset = 0;
 	while(offset < length) {
 		auto result = COFIBER_AWAIT readSome((char *)data + offset, length - offset);
-		assert(result > 0);
-		offset += result;
+		assert(std::get<size_t>(result) > 0);
+		offset += std::get<size_t>(result);
 	}
 
 	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(expected<size_t>, File::readSome(void *, size_t), ([=] {
+	std::cout << "\e[35mposix.epoll \e[1;34m" << structName()
+			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
+	COFIBER_RETURN(Error::illegalOperationTarget);
 }))
 
 FutureMaybe<void> File::writeAll(const void *, size_t) {

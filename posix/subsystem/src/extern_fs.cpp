@@ -27,7 +27,7 @@ private:
 		COFIBER_RETURN(offset);
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))
