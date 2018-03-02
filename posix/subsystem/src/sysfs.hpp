@@ -51,7 +51,6 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
-	expected<size_t> readSome(void *data, size_t max_length) override;
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 

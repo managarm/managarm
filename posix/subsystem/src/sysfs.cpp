@@ -78,10 +78,6 @@ DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
-expected<size_t> DirectoryFile::readSome(void *data, size_t max_length) {
-	throw std::runtime_error("sysfs: DirectoryFile::readSome() is missing");
-}
-
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 COFIBER_ROUTINE(async::result<ReadEntriesResult>,
 DirectoryFile::readEntries(), ([=] {

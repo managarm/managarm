@@ -19,14 +19,14 @@ namespace {
 
 struct Superblock;
 
-struct Symlink : FsNode {
+struct SymlinkNode : FsNode {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs Symlink::getStats()\e[39m" << std::endl;
+		std::cout << "\e[31mposix: Fix tmpfs SymlinkNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
 	}))
 
@@ -35,7 +35,7 @@ private:
 	}))
 
 public:
-	Symlink(std::string link)
+	SymlinkNode(std::string link)
 	: _link(std::move(link)) { }
 
 private:
@@ -68,8 +68,11 @@ private:
 	DeviceId _id;
 };
 
-struct MyLink : FsLink {
-private:
+struct Link : FsLink {
+public:
+	explicit Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
+	: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
+	
 	std::shared_ptr<FsNode> getOwner() override {
 		return owner;
 	}
@@ -82,25 +85,67 @@ private:
 		return target;
 	}
 
-public:
-	explicit MyLink(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
-	: owner(std::move(owner)), name(std::move(name)), target(std::move(target)) { }
-
+private:
 	std::shared_ptr<FsNode> owner;
 	std::string name;
 	std::shared_ptr<FsNode> target;
 };
 
-struct Directory : FsNode, std::enable_shared_from_this<Directory> {
+struct LinkCompare {
+	struct is_transparent { };
+
+	bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+		return link->getName() < name;
+	}
+	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+		return name < link->getName();
+	}
+
+	bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+		return a->getName() < b->getName();
+	}
+};
+
+struct DirectoryNode;
+
+struct DirectoryFile : File {
+public:
+	static void serve(std::shared_ptr<DirectoryFile> file);
+
+	explicit DirectoryFile(std::shared_ptr<FsLink> link);
+
+	FutureMaybe<ReadEntriesResult> readEntries() override;
+	helix::BorrowedDescriptor getPassthroughLane() override;
+
+private:
+	// TODO: Remove this and extract it from the associatedLink().
+	DirectoryNode *_node;
+
+	helix::UniqueLane _passthrough;
+	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
+};
+
+struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
+	friend struct DirectoryFile;
 private:
 	VfsType getType() override {
 		return VfsType::directory;
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs Directory::getStats()\e[39m" << std::endl;
+		std::cout << "\e[31mposix: Fix tmpfs DirectoryNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
 	}))
+
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+		assert(!semantic_flags);
+
+		auto file = std::make_shared<DirectoryFile>(std::move(link));
+		DirectoryFile::serve(file);
+		COFIBER_RETURN(std::move(file));
+	}))
+
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			getLink(std::string name) override, ([=] {
@@ -113,7 +158,7 @@ private:
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>, link(std::string name,
 			std::shared_ptr<FsNode> target) override, ([=] {
 		assert(_entries.find(name) == _entries.end());
-		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(target));
+		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
 		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
@@ -123,8 +168,8 @@ private:
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 			symlink(std::string name, std::string path), ([=] {
 		assert(_entries.find(name) == _entries.end());
-		auto node = std::make_shared<Symlink>(std::move(path));
-		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+		auto node = std::make_shared<SymlinkNode>(std::move(path));
+		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
@@ -133,7 +178,7 @@ private:
 			VfsType type, DeviceId id), ([=] {
 		assert(_entries.find(name) == _entries.end());
 		auto node = std::make_shared<DeviceNode>(type, id);
-		auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 		_entries.insert(link);
 		COFIBER_RETURN(link);
 	}))
@@ -146,25 +191,10 @@ private:
 	}))
 
 public:
-	Directory(Superblock *superblock);
+	DirectoryNode(Superblock *superblock);
 
 private:
-	struct Compare {
-		struct is_transparent { };
-
-		bool operator() (const std::shared_ptr<MyLink> &link, const std::string &name) const {
-			return link->name < name;
-		}
-		bool operator() (const std::string &name, const std::shared_ptr<MyLink> &link) const {
-			return name < link->name;
-		}
-
-		bool operator() (const std::shared_ptr<MyLink> &a, const std::shared_ptr<MyLink> &b) const {
-			return a->name < b->name;
-		}
-	};
-
-	std::set<std::shared_ptr<MyLink>, Compare> _entries;
+	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
 
 // TODO: Remove this class in favor of MemoryNode.
@@ -305,6 +335,40 @@ COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, MemoryFile::accessMemory(o
 	COFIBER_RETURN(node->_memory.dup());
 }))
 
+// ----------------------------------------------------------------------------
+// DirectoryFile implementation.
+// ----------------------------------------------------------------------------
+
+void DirectoryFile::serve(std::shared_ptr<DirectoryFile> file) {
+//TODO:		assert(!file->_passthrough);
+
+	helix::UniqueLane lane;
+	std::tie(lane, file->_passthrough) = helix::createStream();
+	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+			&File::fileOperations);
+}
+
+DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
+: File{StructName::get("sysfs.dir"), std::move(link)},
+		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
+		_iter{_node->_entries.begin()} { }
+
+// TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
+COFIBER_ROUTINE(async::result<ReadEntriesResult>,
+DirectoryFile::readEntries(), ([=] {
+	if(_iter != _node->_entries.end()) {
+		auto name = (*_iter)->getName();
+		_iter++;
+		COFIBER_RETURN(name);
+	}else{
+		COFIBER_RETURN(std::nullopt);
+	}
+}))
+
+helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
+	return _passthrough;
+}
+
 struct Superblock : FsSuperblock {
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>,
 			createRegular() override, ([=] {
@@ -313,14 +377,14 @@ struct Superblock : FsSuperblock {
 	}))
 };
 
-Directory::Directory(Superblock *superblock)
+DirectoryNode::DirectoryNode(Superblock *superblock)
 : FsNode{superblock} { }
 
 COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
-		Directory::mkdir(std::string name), ([=] {
+		DirectoryNode::mkdir(std::string name), ([=] {
 	assert(_entries.find(name) == _entries.end());
-	auto node = std::make_shared<Directory>(static_cast<Superblock *>(superblock()));
-	auto link = std::make_shared<MyLink>(shared_from_this(), std::move(name), std::move(node));
+	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
+	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
 	_entries.insert(link);
 	COFIBER_RETURN(link);
 }))
@@ -336,8 +400,8 @@ std::shared_ptr<FsNode> createMemoryNode(std::string path) {
 }
 
 std::shared_ptr<FsLink> createRoot() {
-	auto node = std::make_shared<Directory>(&globalSuperblock);
-	return std::make_shared<MyLink>(nullptr, std::string{}, std::move(node));
+	auto node = std::make_shared<DirectoryNode>(&globalSuperblock);
+	return std::make_shared<Link>(nullptr, std::string{}, std::move(node));
 }
 
 } // namespace tmp_fs
