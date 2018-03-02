@@ -81,7 +81,8 @@ struct SharedObject {
 	// TODO: read this from the PHDR
 	size_t tlsSegmentSize, tlsAlignment, tlsImageSize;
 	void *tlsImagePtr;
-	
+	bool tlsInitialized;
+
 	// symbol and string table of this shared object
 	uintptr_t hashTableOffset;
 	uintptr_t symbolTableOffset;
@@ -126,8 +127,6 @@ struct RuntimeTlsMap {
 	
 	// Size of the inital TLS segment.
 	size_t initialLimit;
-
-	frigg::Vector<SharedObject *, Allocator> initialObjects;
 };
 
 extern frigg::LazyInitializer<RuntimeTlsMap> runtimeTlsMap;
