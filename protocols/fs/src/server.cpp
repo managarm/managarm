@@ -14,7 +14,7 @@ namespace fs {
 
 namespace {
 
-COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file,
+COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
 		managarm::fs::CntRequest req, helix::UniqueLane conversation),
 		([file, file_ops, req = std::move(req), conversation = std::move(conversation)] () mutable {
@@ -214,7 +214,8 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 
 } // anonymous namespace
 
-COFIBER_ROUTINE(cofiber::no_future, servePassthrough(helix::UniqueLane p, std::shared_ptr<void> file,
+COFIBER_ROUTINE(cofiber::no_future,
+servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
 	while(true) {
 		helix::Accept accept;

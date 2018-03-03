@@ -102,9 +102,9 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
 }))
 
-COFIBER_ROUTINE(async::result<std::shared_ptr<void>>, open(std::shared_ptr<void> object), ([=] {
+COFIBER_ROUTINE(async::result<smarter::shared_ptr<void>>, open(std::shared_ptr<void> object), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	COFIBER_RETURN(std::make_shared<ext2fs::OpenFile>(self));
+	COFIBER_RETURN(smarter::make_shared<ext2fs::OpenFile>(self));
 }))
 
 COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> object), ([=] {

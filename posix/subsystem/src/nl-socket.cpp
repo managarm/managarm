@@ -16,7 +16,7 @@ struct Packet {
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
 
-	std::vector<std::shared_ptr<File>> files;
+	std::vector<smarter::shared_ptr<File>> files;
 };
 
 struct OpenFile : File {
@@ -35,12 +35,12 @@ public:
 		b->_state = State::connected;
 	}
 
-	static void serve(std::shared_ptr<OpenFile> file) {
+	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
 				&File::fileOperations);
 	}
 
@@ -101,7 +101,7 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
-			std::vector<std::shared_ptr<File>> files), ([=] {
+			std::vector<smarter::shared_ptr<File>> files), ([=] {
 		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -160,15 +160,15 @@ private:
 	OpenFile *_remote;
 };
 
-std::shared_ptr<File> createSocketFile() {
-	auto file = std::make_shared<OpenFile>();
+smarter::shared_ptr<File> createSocketFile() {
+	auto file = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);
 }
 
-std::array<std::shared_ptr<File>, 2> createSocketPair() {
-	auto file0 = std::make_shared<OpenFile>();
-	auto file1 = std::make_shared<OpenFile>();
+std::array<smarter::shared_ptr<File>, 2> createSocketPair() {
+	auto file0 = smarter::make_shared<OpenFile>();
+	auto file1 = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file0);
 	OpenFile::serve(file1);
 	OpenFile::connectPair(file0.get(), file1.get());

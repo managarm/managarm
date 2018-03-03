@@ -44,10 +44,10 @@ struct HeloutDevice : UnixDevice {
 		return "helout";
 	}
 	
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
-		COFIBER_RETURN(std::make_shared<HeloutFile>(std::move(link)));
+		COFIBER_RETURN(smarter::make_shared<HeloutFile>(std::move(link)));
 	}))
 };
 

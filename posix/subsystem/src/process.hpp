@@ -22,7 +22,7 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<void *> mapFile(std::shared_ptr<File> file, intptr_t offset, size_t size,
+	async::result<void *> mapFile(smarter::shared_ptr<File> file, intptr_t offset, size_t size,
 			uint32_t native_flags);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
@@ -33,7 +33,7 @@ private:
 	struct Area {
 		size_t areaSize;
 		uint32_t nativeFlags;
-		std::shared_ptr<File> file;
+		smarter::shared_ptr<File> file;
 		intptr_t offset;
 	};
 
@@ -55,7 +55,7 @@ private:
 };
 
 struct FileDescriptor {
-	std::shared_ptr<File> file;
+	smarter::shared_ptr<File> file;
 	bool closeOnExec;
 };
 
@@ -72,13 +72,13 @@ public:
 		return _fileTableMemory;
 	}
 	
-	int attachFile(std::shared_ptr<File> file, bool close_on_exec = false);
+	int attachFile(smarter::shared_ptr<File> file, bool close_on_exec = false);
 
-	void attachFile(int fd, std::shared_ptr<File> file, bool close_on_exec = false);
+	void attachFile(int fd, smarter::shared_ptr<File> file, bool close_on_exec = false);
 
 	FileDescriptor getDescriptor(int fd);
 
-	std::shared_ptr<File> getFile(int fd);
+	smarter::shared_ptr<File> getFile(int fd);
 
 	void closeFile(int fd);
 

@@ -25,7 +25,7 @@ struct ImageInfo {
 	size_t phdrCount;
 };
 
-COFIBER_ROUTINE(async::result<ImageInfo>, load(std::shared_ptr<File> file,
+COFIBER_ROUTINE(async::result<ImageInfo>, load(smarter::shared_ptr<File> file,
 		helix::BorrowedDescriptor space, uintptr_t base), ([=] {
 	assert(base % kPageSize == 0);
 	ImageInfo info;

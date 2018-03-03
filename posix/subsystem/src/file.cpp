@@ -77,7 +77,7 @@ FutureMaybe<RecvResult> File::recvMsg(void *, size_t) {
 }
 
 FutureMaybe<size_t> File::sendMsg(const void *, size_t,
-		std::vector<std::shared_ptr<File>>) {
+		std::vector<smarter::shared_ptr<File>>) {
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 

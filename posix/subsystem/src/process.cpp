@@ -36,7 +36,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 	return context;
 }
 
-COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> file,
+COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(smarter::shared_ptr<File> file,
 		intptr_t offset, size_t size, uint32_t native_flags), ([=] {	
 	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 
@@ -209,7 +209,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	return context;
 }
 
-int FileContext::attachFile(std::shared_ptr<File> file, bool close_on_exec) {	
+int FileContext::attachFile(smarter::shared_ptr<File> file, bool close_on_exec) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
@@ -227,7 +227,7 @@ int FileContext::attachFile(std::shared_ptr<File> file, bool close_on_exec) {
 	}
 }
 
-void FileContext::attachFile(int fd, std::shared_ptr<File> file, bool close_on_exec) {	
+void FileContext::attachFile(int fd, smarter::shared_ptr<File> file, bool close_on_exec) {	
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
@@ -250,10 +250,10 @@ FileDescriptor FileContext::getDescriptor(int fd) {
 	return file->second;
 }
 
-std::shared_ptr<File> FileContext::getFile(int fd) {
+smarter::shared_ptr<File> FileContext::getFile(int fd) {
 	auto file = _fileTable.find(fd);
 	if(file == _fileTable.end())
-		return std::shared_ptr<File>{};
+		return smarter::shared_ptr<File>{};
 	return file->second.file;
 }
 

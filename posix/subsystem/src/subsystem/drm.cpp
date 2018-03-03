@@ -31,7 +31,7 @@ struct Device : UnixDevice {
 		return _name;
 	}
 	
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openExternalDevice(_lane, std::move(link), semantic_flags);
 	}

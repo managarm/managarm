@@ -27,12 +27,12 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // AttributeFile implementation.
 // ----------------------------------------------------------------------------
 
-void AttributeFile::serve(std::shared_ptr<AttributeFile> file) {
+void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
 			&File::fileOperations);
 }
 
@@ -64,12 +64,12 @@ helix::BorrowedDescriptor AttributeFile::getPassthroughLane() {
 // DirectoryFile implementation.
 // ----------------------------------------------------------------------------
 
-void DirectoryFile::serve(std::shared_ptr<DirectoryFile> file) {
+void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
 			&File::fileOperations);
 }
 
@@ -129,11 +129,11 @@ COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
 	COFIBER_RETURN(FileStats{});
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 AttributeNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 	assert(!semantic_flags);
 
-	auto file = std::make_shared<AttributeFile>(std::move(link));
+	auto file = smarter::make_shared<AttributeFile>(std::move(link));
 	AttributeFile::serve(file);
 	COFIBER_RETURN(std::move(file));
 }))
@@ -230,11 +230,11 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 		DirectoryNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 	assert(!semantic_flags);
 
-	auto file = std::make_shared<DirectoryFile>(std::move(link));
+	auto file = smarter::make_shared<DirectoryFile>(std::move(link));
 	DirectoryFile::serve(file);
 	COFIBER_RETURN(std::move(file));
 }))

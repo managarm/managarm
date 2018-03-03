@@ -110,7 +110,7 @@ struct DirectoryNode;
 
 struct DirectoryFile : File {
 public:
-	static void serve(std::shared_ptr<DirectoryFile> file);
+	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
@@ -137,11 +137,11 @@ private:
 		COFIBER_RETURN(FileStats{});
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 		assert(!semantic_flags);
 
-		auto file = std::make_shared<DirectoryFile>(std::move(link));
+		auto file = smarter::make_shared<DirectoryFile>(std::move(link));
 		DirectoryFile::serve(file);
 		COFIBER_RETURN(std::move(file));
 	}))
@@ -208,7 +208,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		auto fd = ::open(_path.c_str(), O_RDONLY);
@@ -228,7 +228,7 @@ private:
 
 struct MemoryFile : File {
 public:
-	static void serve(std::shared_ptr<MemoryFile> file) {
+	static void serve(smarter::shared_ptr<MemoryFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
@@ -274,10 +274,10 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>,
+	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
-		auto file = std::make_shared<MemoryFile>(std::move(link));
+		auto file = smarter::make_shared<MemoryFile>(std::move(link));
 		MemoryFile::serve(file);
 		COFIBER_RETURN(std::move(file));
 	}))
@@ -339,12 +339,12 @@ COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, MemoryFile::accessMemory(o
 // DirectoryFile implementation.
 // ----------------------------------------------------------------------------
 
-void DirectoryFile::serve(std::shared_ptr<DirectoryFile> file) {
+void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
 			&File::fileOperations);
 }
 

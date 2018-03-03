@@ -743,7 +743,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "\e[31mposix: socket(SOCK_NONBLOCK)"
 						" is not implemented correctly\e[39m" << std::endl;
 
-			std::shared_ptr<File> file;
+			smarter::shared_ptr<File> file;
 			if(req.domain() == AF_UNIX) {
 				assert(req.socktype() == SOCK_DGRAM || req.socktype() == SOCK_STREAM
 						|| req.socktype() == SOCK_SEQPACKET);
@@ -816,7 +816,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
 
-			std::vector<std::shared_ptr<File>> files;
+			std::vector<smarter::shared_ptr<File>> files;
 			for(int i = 0; i < req.fds_size(); i++) {
 				auto file = self->fileContext()->getFile(req.fds(i));
 				assert(sockfile && "Illegal FD for SENDMSG cmsg");

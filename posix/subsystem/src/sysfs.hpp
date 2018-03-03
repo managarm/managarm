@@ -30,7 +30,7 @@ struct LinkCompare {
 
 struct AttributeFile : File {
 public:
-	static void serve(std::shared_ptr<AttributeFile> file);
+	static void serve(smarter::shared_ptr<AttributeFile> file);
 
 	explicit AttributeFile(std::shared_ptr<FsLink> link);
 
@@ -47,7 +47,7 @@ private:
 
 struct DirectoryFile : File {
 public:
-	static void serve(std::shared_ptr<DirectoryFile> file);
+	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
@@ -83,7 +83,7 @@ struct AttributeNode : FsNode, std::enable_shared_from_this<AttributeNode> {
 
 	VfsType getType() override;
 	FutureMaybe<FileStats> getStats() override;
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
 private:
@@ -115,7 +115,7 @@ struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	FutureMaybe<FileStats> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
-	FutureMaybe<std::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
+	FutureMaybe<smarter::shared_ptr<File>> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 	FutureMaybe<std::shared_ptr<FsLink>> getLink(std::string name) override;
 

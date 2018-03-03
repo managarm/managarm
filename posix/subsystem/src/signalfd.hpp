@@ -1,5 +1,5 @@
 
 #include "file.hpp"
 
-std::shared_ptr<File> createSignalFile();
+smarter::shared_ptr<File> createSignalFile();
 

@@ -253,18 +253,17 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 	COFIBER_RETURN(std::move(current));
 }))
 
-COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<File>>, open(ViewPath root, std::string name,
+COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>, open(ViewPath root, std::string name,
 		ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
 	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name), resolve_flags);
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 
+	// TODO: Correctly reject opening regular files when O_DIRECTORY flag is set.
 	if(current.second->getTarget()->getType() == VfsType::regular) {
 		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
 		COFIBER_RETURN(std::move(file));
 	}else if(current.second->getTarget()->getType() == VfsType::directory) {
-		// TODO: Correctly reject opening directories when no O_DIRECTORY flag is set
-		// (see Open Group).
 		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
 		COFIBER_RETURN(std::move(file));
 	}else if(current.second->getTarget()->getType() == VfsType::charDevice) {

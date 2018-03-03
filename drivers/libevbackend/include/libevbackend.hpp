@@ -55,7 +55,7 @@ struct File {
 	// Public File API.
 	// ------------------------------------------------------------------------
 
-	static helix::UniqueLane serve(std::shared_ptr<File> file);
+	static helix::UniqueLane serve(smarter::shared_ptr<File> file);
 
 	File(EventDevice *device, bool non_block);
 

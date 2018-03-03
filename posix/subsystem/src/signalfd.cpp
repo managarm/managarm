@@ -11,12 +11,12 @@ namespace {
 
 struct OpenFile : File {
 public:
-	static void serve(std::shared_ptr<OpenFile> file) {
+	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), std::shared_ptr<File>{file},
+		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
 				&File::fileOperations);
 	}
 
@@ -41,8 +41,8 @@ private:
 
 } // anonymous namespace
 
-std::shared_ptr<File> createSignalFile() {
-	auto file = std::make_shared<OpenFile>();
+smarter::shared_ptr<File> createSignalFile() {
+	auto file = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file);
 	return std::move(file);
 }

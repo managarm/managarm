@@ -43,7 +43,7 @@ using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
 
-using RecvResult = std::pair<size_t, std::vector<std::shared_ptr<File>>>;
+using RecvResult = std::pair<size_t, std::vector<smarter::shared_ptr<File>>>;
 
 struct File {	
 	// ------------------------------------------------------------------------
@@ -106,7 +106,7 @@ struct File {
 	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
 
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
-			std::vector<std::shared_ptr<File>> files);
+			std::vector<smarter::shared_ptr<File>> files);
 
 	virtual async::result<void> truncate(size_t size);
 

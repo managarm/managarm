@@ -143,7 +143,7 @@ constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withPoll(&File::poll)
 	.withIoctl(&File::ioctl);
 
-helix::UniqueLane File::serve(std::shared_ptr<File> file) {
+helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 	helix::UniqueLane local_lane, remote_lane;
 	std::tie(local_lane, remote_lane) = helix::createStream();
 	protocols::fs::servePassthrough(std::move(local_lane), file,
@@ -180,7 +180,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
 		
-			auto file = std::make_shared<File>(device.get(),
+			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OF_NONBLOCK);
 			auto remote_lane = File::serve(std::move(file));
 			
