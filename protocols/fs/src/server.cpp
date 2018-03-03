@@ -22,7 +22,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 
 		assert(file_ops->seekAbs);
-		auto offset = COFIBER_AWAIT(file_ops->seekAbs(file, req.rel_offset()));
+		auto offset = COFIBER_AWAIT(file_ops->seekAbs(file.get(), req.rel_offset()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -37,7 +37,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->seekRel);
-		auto offset = COFIBER_AWAIT(file_ops->seekRel(file, req.rel_offset()));
+		auto offset = COFIBER_AWAIT(file_ops->seekRel(file.get(), req.rel_offset()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -52,7 +52,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->seekEof);
-		auto offset = COFIBER_AWAIT(file_ops->seekEof(file, req.rel_offset()));
+		auto offset = COFIBER_AWAIT(file_ops->seekEof(file.get(), req.rel_offset()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -70,7 +70,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		std::string data;
 		data.resize(req.size());
 		assert(file_ops->read);
-		auto res = COFIBER_AWAIT(file_ops->read(file, &data[0], req.size()));
+		auto res = COFIBER_AWAIT(file_ops->read(file.get(), &data[0], req.size()));
 		
 		managarm::fs::SvrResponse resp;
 		auto error = std::get_if<Error>(&res);
@@ -109,7 +109,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		HEL_CHECK(recv_buffer.error());
 	
 		assert(file_ops->write);
-		COFIBER_AWAIT(file_ops->write(file, recv_buffer.data(), recv_buffer.length()));
+		COFIBER_AWAIT(file_ops->write(file.get(), recv_buffer.data(), recv_buffer.length()));
 		
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -124,7 +124,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->readEntries);
-		auto result = COFIBER_AWAIT(file_ops->readEntries(file));
+		auto result = COFIBER_AWAIT(file_ops->readEntries(file.get()));
 		
 		managarm::fs::SvrResponse resp;
 		if(result) {
@@ -145,7 +145,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		
 		// TODO: Fix the size.
 		assert(file_ops->accessMemory);
-		auto memory = COFIBER_AWAIT(file_ops->accessMemory(file, req.rel_offset(), 0));
+		auto memory = COFIBER_AWAIT(file_ops->accessMemory(file.get(), req.rel_offset(), 0));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -162,7 +162,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->truncate);
-		COFIBER_AWAIT file_ops->truncate(file, req.size());
+		COFIBER_AWAIT file_ops->truncate(file.get(), req.size());
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -176,7 +176,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->fallocate);
-		COFIBER_AWAIT file_ops->fallocate(file, req.rel_offset(), req.size());
+		COFIBER_AWAIT file_ops->fallocate(file.get(), req.rel_offset(), req.size());
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -188,12 +188,12 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(std::shared_ptr<void> file
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
 		assert(file_ops->ioctl);
-		COFIBER_AWAIT file_ops->ioctl(file, std::move(req), std::move(conversation));
+		COFIBER_AWAIT file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL) {
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->poll);
-		auto result = COFIBER_AWAIT(file_ops->poll(file, req.sequence()));
+		auto result = COFIBER_AWAIT(file_ops->poll(file.get(), req.sequence()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);

@@ -13,9 +13,9 @@
 // File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(void *object,
 		void *buffer, size_t length), ([=] {
-	auto self = static_cast<File *>(object.get());
+	auto self = static_cast<File *>(object);
 	auto result = COFIBER_AWAIT self->readSome(buffer, length);
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::illegalOperationTarget) {
@@ -25,25 +25,25 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(std::shar
 	}
 }))
 
-async::result<void> File::ptWrite(std::shared_ptr<void> object,
+async::result<void> File::ptWrite(void *object,
 		const void *buffer, size_t length) {
-	auto self = static_cast<File *>(object.get());
+	auto self = static_cast<File *>(object);
 	return self->writeAll(buffer, length);
 }
 
-async::result<ReadEntriesResult> File::ptReadEntries(std::shared_ptr<void> object) {
-	auto self = static_cast<File *>(object.get());
+async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
+	auto self = static_cast<File *>(object);
 	return self->readEntries();
 }
 
-async::result<void> File::ptTruncate(std::shared_ptr<void> object, size_t size) {
-	auto self = static_cast<File *>(object.get());
+async::result<void> File::ptTruncate(void *object, size_t size) {
+	auto self = static_cast<File *>(object);
 	return self->truncate(size);
 }
 
-async::result<void> File::ptAllocate(std::shared_ptr<void> object,
+async::result<void> File::ptAllocate(void *object,
 		int64_t offset, size_t size) {
-	auto self = static_cast<File *>(object.get());
+	auto self = static_cast<File *>(object);
 	return self->allocate(offset, size);
 }
 

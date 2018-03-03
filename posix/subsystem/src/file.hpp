@@ -51,19 +51,19 @@ struct File {
 	// ------------------------------------------------------------------------
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(std::shared_ptr<void> object,
-			void *buffer, size_t length);
+	ptRead(void *object, void *buffer, size_t length);
 	
-	static async::result<void> ptWrite(std::shared_ptr<void> object,
-			const void *buffer, size_t length);
+	static async::result<void>
+	ptWrite(void *object, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
-	ptReadEntries(std::shared_ptr<void> object);
+	ptReadEntries(void *object);
 	
-	static async::result<void> ptTruncate(std::shared_ptr<void> object, size_t size);
+	static async::result<void>
+	ptTruncate(void *object, size_t size);
 
-	static async::result<void> ptAllocate(std::shared_ptr<void> object,
-			int64_t offset, size_t size);
+	static async::result<void>
+	ptAllocate(void *object, int64_t offset, size_t size);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)

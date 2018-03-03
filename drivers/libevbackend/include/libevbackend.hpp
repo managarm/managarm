@@ -39,16 +39,16 @@ struct File {
 	// ------------------------------------------------------------------------
 	
 	static async::result<protocols::fs::ReadResult>
-	read(std::shared_ptr<void> object, void *buffer, size_t length);
-
-	static async::result<void> write(std::shared_ptr<void> object,
-			const void *buffer, size_t length);
-
-	static async::result<protocols::fs::PollResult>
-	poll(std::shared_ptr<void> object, uint64_t past_seq);
+	read(void *object, void *buffer, size_t length);
 
 	static async::result<void>
-	ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+	write(void *object, const void *buffer, size_t length);
+
+	static async::result<protocols::fs::PollResult>
+	poll(void *object, uint64_t past_seq);
+
+	static async::result<void>
+	ioctl(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 	
 	// ------------------------------------------------------------------------

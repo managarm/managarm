@@ -467,9 +467,9 @@ void drm_core::File::postEvent(drm_core::Event event) {
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-drm_core::File::read(std::shared_ptr<void> object,
+drm_core::File::read(void *object,
 		void *buffer, size_t length), ([=] {
-	auto self = std::static_pointer_cast<drm_core::File>(object);
+	auto self = static_cast<drm_core::File *>(object);
 
 	while(self->_pendingEvents.empty())
 		COFIBER_AWAIT self->_eventBell.async_wait();
@@ -493,19 +493,21 @@ drm_core::File::read(std::shared_ptr<void> object,
 	COFIBER_RETURN(sizeof(drm_event_vblank));
 }))
 
-COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>, drm_core::File::accessMemory(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
+drm_core::File::accessMemory(void *object,
 		uint64_t offset, size_t), ([=] {
-	auto self = std::static_pointer_cast<drm_core::File>(object);
+	auto self = static_cast<drm_core::File *>(object);
 	auto mapping = self->_device->findMapping(offset);
 	assert(mapping.first == offset); // TODO: We can remove this assert once we fix VM_MAP.
 	auto mem = mapping.second->getMemory();
 	COFIBER_RETURN(std::make_pair(mem.first, mem.second + (offset - mapping.first)));
 }))
 
-COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+COFIBER_ROUTINE(async::result<void>,
+drm_core::File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object), req = std::move(req),
 		conversation = std::move(conversation)] {
-	auto self = std::static_pointer_cast<drm_core::File>(object);
+	auto self = static_cast<drm_core::File *>(object);
 	if(req.command() == DRM_IOCTL_VERSION) {
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -866,9 +868,9 @@ COFIBER_ROUTINE(async::result<void>, drm_core::File::ioctl(std::shared_ptr<void>
 }))
 
 COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-		drm_core::File::poll(std::shared_ptr<void> object, uint64_t sequence),
+drm_core::File::poll(void *object, uint64_t sequence),
 		([object = std::move(object), sequence] {
-	auto self = std::static_pointer_cast<drm_core::File>(object);
+	auto self = static_cast<drm_core::File *>(object);
 
 	if(sequence > self->_eventSequence)
 		throw std::runtime_error("drm_core: Illegal poll() sequence");

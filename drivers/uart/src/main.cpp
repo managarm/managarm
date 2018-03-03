@@ -130,15 +130,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 	}
 }))
 	
-async::result<int64_t> seek(std::shared_ptr<void> object, int64_t offset) {
-	printf("\e[31muart: Fix seek()\e[39m\n");
-	async::promise<int64_t> p;
-	p.set_value(0);
-	return p.async_get();
-}
-
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
+read(void *, void *buffer, size_t length), ([=] {
 	auto req = new ReadRequest(buffer, length);
 	recvRequests.push_back(*req);
 	auto future = req->promise.async_get();
@@ -147,7 +140,7 @@ read(std::shared_ptr<void> object, void *buffer, size_t length), ([=] {
 	COFIBER_RETURN(value);
 }))
 
-async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> write(void *, const void *buffer, size_t length) {
 	auto req = new WriteRequest(buffer, length);
 	sendRequests.push_back(*req);
 	auto value = req->promise.async_get();
@@ -156,15 +149,12 @@ async::result<void> write(std::shared_ptr<void> object, const void *buffer, size
 	return value;
 }
 
-async::result<protocols::fs::AccessMemoryResult> accessMemory(std::shared_ptr<void> object,
+async::result<protocols::fs::AccessMemoryResult> accessMemory(void *,
 		uint64_t, size_t) {
 	throw std::runtime_error("accessMemory not yet implemented");
 }
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
-	.withSeekAbs(&seek)
-	.withSeekRel(&seek)
-	.withSeekEof(&seek)
 	.withRead(&read)
 	.withWrite(&write)
 	.withAccessMemory(&accessMemory);

@@ -21,16 +21,16 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-COFIBER_ROUTINE(async::result<int64_t>, seekAbs(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<int64_t>, seekAbs(void *object,
 		int64_t offset), ([=] {
-	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset = offset;
 	COFIBER_RETURN(self->offset);
 }))
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(std::shared_ptr<void> object,
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object,
 		void *buffer, size_t length), ([=] {
-	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+	auto self = static_cast<ext2fs::OpenFile *>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
 
 	assert(self->offset <= self->inode->fileSize);
@@ -59,13 +59,13 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(std::shared_ptr<v
 	COFIBER_RETURN(chunk_size);
 }))
 
-async::result<void> write(std::shared_ptr<void> object, const void *buffer, size_t length) {
+async::result<void> write(void *, const void *, size_t) {
 	throw std::runtime_error("write not implemented");
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
-		accessMemory(std::shared_ptr<void> object, uint64_t offset, size_t size), ([=] {
-	auto self = std::static_pointer_cast<ext2fs::OpenFile>(object);
+		accessMemory(void *object, uint64_t offset, size_t size), ([=] {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
 	assert(offset + size <= self->inode->fileSize);
 	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset));

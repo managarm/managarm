@@ -29,8 +29,8 @@ namespace libevbackend {
 // ----------------------------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-File::read(std::shared_ptr<void> object, void *buffer, size_t max_size), ([=] {
-	auto self = static_cast<File *>(object.get());
+File::read(void *object, void *buffer, size_t max_size), ([=] {
+	auto self = static_cast<File *>(object);
 
 	if(self->_nonBlock && self->_device->_events.empty())
 		COFIBER_RETURN(protocols::fs::Error::wouldBlock);
@@ -59,14 +59,13 @@ File::read(std::shared_ptr<void> object, void *buffer, size_t max_size), ([=] {
 	COFIBER_RETURN(written);
 }))
 
-async::result<void> File::write(std::shared_ptr<void>,
-		const void *, size_t) {
+async::result<void> File::write(void *, const void *, size_t) {
 	throw std::runtime_error("write not yet implemented");
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::PollResult>,
-File::poll(std::shared_ptr<void> object, uint64_t past_seq), ([=] {
-	auto self = static_cast<File *>(object.get());
+File::poll(void *object, uint64_t past_seq), ([=] {
+	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_device->_currentSeq);
 	while(self->_device->_currentSeq == past_seq)
@@ -77,10 +76,10 @@ File::poll(std::shared_ptr<void> object, uint64_t past_seq), ([=] {
 }))
 
 COFIBER_ROUTINE(async::result<void>,
-File::ioctl(std::shared_ptr<void> object, managarm::fs::CntRequest req,
+File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([object = std::move(object),
 		req = std::move(req), conversation = std::move(conversation)] {
-	auto self = static_cast<File *>(object.get());
+	auto self = static_cast<File *>(object);
 	if(req.command() == EVIOCGBIT(0, 0)) {
 		assert(req.size());
 		std::cout << "EVIOCGBIT()" << std::endl;
