@@ -1034,6 +1034,10 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	node->_shootNode.address = address;
 	node->_shootNode.size = length;
 
+	// Work around a deadlock if submitShootdown() invokes shotDown() immediately.
+	// TODO: This should probably be resolved by running shotDown() from some callback queue.
+	guard.unlock();
+
 	_pageSpace.submitShootdown(&node->_shootNode);
 }
 
