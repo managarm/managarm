@@ -5,7 +5,7 @@
 
 namespace epoll {
 
-smarter::shared_ptr<File> createFile();
+smarter::shared_ptr<File, FileHandle> createFile();
 
 void addItem(File *epfile, File *file, int flags, uint64_t cookie);
 void modifyItem(File *epfile, File *file, int flags, uint64_t cookie);

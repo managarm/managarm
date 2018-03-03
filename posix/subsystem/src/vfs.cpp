@@ -253,7 +253,7 @@ COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 	COFIBER_RETURN(std::move(current));
 }))
 
-COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>, open(ViewPath root, std::string name,
+COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, std::string name,
 		ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
 	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name), resolve_flags);
 	if(!current.second)

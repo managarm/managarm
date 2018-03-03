@@ -66,7 +66,7 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
+	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		helix::Offer offer;
@@ -92,8 +92,10 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
-		COFIBER_RETURN(smarter::make_shared<OpenFile>(pull_passthrough.descriptor(),
-				std::move(link)));
+
+		auto file = smarter::make_shared<OpenFile>(pull_passthrough.descriptor(),
+				std::move(link));
+		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
 public:
@@ -305,8 +307,9 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	return context->internalizeLink(nullptr, std::string{}, link);
 }
 
-smarter::shared_ptr<File> createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
-	return smarter::make_shared<OpenFile>(std::move(lane), std::move(link));
+smarter::shared_ptr<File, FileHandle>
+createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
+	return File::constructHandle(smarter::make_shared<OpenFile>(std::move(lane), std::move(link)));
 }
 
 } // namespace extern_fs

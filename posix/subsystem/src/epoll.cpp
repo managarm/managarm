@@ -250,10 +250,10 @@ private:
 
 namespace epoll {
 
-smarter::shared_ptr<File> createFile() {
+smarter::shared_ptr<File, FileHandle> createFile() {
 	auto file = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file);
-	return std::move(file);
+	return File::constructHandle(std::move(file));
 }
 
 void addItem(File *epfile, File *file, int flags, uint64_t cookie) {

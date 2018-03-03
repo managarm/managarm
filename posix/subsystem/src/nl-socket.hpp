@@ -3,8 +3,8 @@
 
 namespace nl_socket {
 
-smarter::shared_ptr<File> createSocketFile();
-std::array<smarter::shared_ptr<File>, 2> createSocketPair();
+smarter::shared_ptr<File, FileHandle> createSocketFile();
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair();
 
 } // namespace nl_socket
 

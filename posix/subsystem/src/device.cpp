@@ -70,7 +70,8 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 // External device helpers.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>, openExternalDevice(helix::BorrowedLane lane,
+COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 	assert(!(semantic_flags & ~(semanticNonBlock)));
 

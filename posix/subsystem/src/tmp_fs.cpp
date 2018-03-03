@@ -137,13 +137,13 @@ private:
 		COFIBER_RETURN(FileStats{});
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 		assert(!semantic_flags);
 
 		auto file = smarter::make_shared<DirectoryFile>(std::move(link));
 		DirectoryFile::serve(file);
-		COFIBER_RETURN(std::move(file));
+		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
 
@@ -208,8 +208,8 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
@@ -274,12 +274,12 @@ private:
 		assert(!"Fix this");
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<smarter::shared_ptr<File>>,
-			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		auto file = smarter::make_shared<MemoryFile>(std::move(link));
 		MemoryFile::serve(file);
-		COFIBER_RETURN(std::move(file));
+		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
 public:

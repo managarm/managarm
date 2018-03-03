@@ -13,6 +13,7 @@
 typedef int ProcessId;
 
 // TODO: This struct should store the process' VMAs once we implement them.
+// TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {
 	static std::shared_ptr<VmContext> create();
 	static std::shared_ptr<VmContext> clone(std::shared_ptr<VmContext> original);
@@ -22,8 +23,8 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<void *> mapFile(smarter::shared_ptr<File> file, intptr_t offset, size_t size,
-			uint32_t native_flags);
+	async::result<void *> mapFile(smarter::shared_ptr<File, FileHandle> file,
+			intptr_t offset, size_t size, uint32_t native_flags);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
@@ -33,7 +34,7 @@ private:
 	struct Area {
 		size_t areaSize;
 		uint32_t nativeFlags;
-		smarter::shared_ptr<File> file;
+		smarter::shared_ptr<File, FileHandle> file;
 		intptr_t offset;
 	};
 
@@ -55,7 +56,7 @@ private:
 };
 
 struct FileDescriptor {
-	smarter::shared_ptr<File> file;
+	smarter::shared_ptr<File, FileHandle> file;
 	bool closeOnExec;
 };
 
@@ -72,13 +73,13 @@ public:
 		return _fileTableMemory;
 	}
 	
-	int attachFile(smarter::shared_ptr<File> file, bool close_on_exec = false);
+	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
-	void attachFile(int fd, smarter::shared_ptr<File> file, bool close_on_exec = false);
+	void attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
 	FileDescriptor getDescriptor(int fd);
 
-	smarter::shared_ptr<File> getFile(int fd);
+	smarter::shared_ptr<File, FileHandle> getFile(int fd);
 
 	void closeFile(int fd);
 

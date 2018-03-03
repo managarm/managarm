@@ -16,7 +16,7 @@ struct Packet {
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
 
-	std::vector<smarter::shared_ptr<File>> files;
+	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 };
 
 struct OpenFile : File {
@@ -101,7 +101,7 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
-			std::vector<smarter::shared_ptr<File>> files), ([=] {
+			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 		assert(_state == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -160,19 +160,19 @@ private:
 	OpenFile *_remote;
 };
 
-smarter::shared_ptr<File> createSocketFile() {
+smarter::shared_ptr<File, FileHandle> createSocketFile() {
 	auto file = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file);
-	return std::move(file);
+	return File::constructHandle(std::move(file));
 }
 
-std::array<smarter::shared_ptr<File>, 2> createSocketPair() {
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair() {
 	auto file0 = smarter::make_shared<OpenFile>();
 	auto file1 = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file0);
 	OpenFile::serve(file1);
 	OpenFile::connectPair(file0.get(), file1.get());
-	return {std::move(file0), std::move(file1)};
+	return {File::constructHandle(std::move(file0)), File::constructHandle(std::move(file1))};
 }
 
 } // namespace nl_socket

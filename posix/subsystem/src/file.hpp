@@ -14,6 +14,10 @@
 struct File;
 struct FsLink;
 
+struct FileHandle { };
+
+using SharedFilePtr = smarter::shared_ptr<File, FileHandle>;
+
 // TODO: Rename this enum as is not part of the VFS.
 enum class Error {
 	success,
@@ -43,9 +47,13 @@ using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
 
-using RecvResult = std::pair<size_t, std::vector<smarter::shared_ptr<File>>>;
+using RecvResult = std::pair<size_t, std::vector<smarter::shared_ptr<File, FileHandle>>>;
 
-struct File {	
+struct DisposeFileHandle { };
+
+struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
+	friend struct smarter::crtp_counter<File, DisposeFileHandle>;
+public:
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
@@ -76,6 +84,12 @@ struct File {
 	// Public File API.
 	// ------------------------------------------------------------------------
 
+	static smarter::shared_ptr<File, FileHandle> constructHandle(smarter::shared_ptr<File> ptr) {
+		auto [file, object_ctr] = ptr.release();
+		file->setup(smarter::adopt_rc, object_ctr, 1);
+		return smarter::shared_ptr<File, FileHandle>{smarter::adopt_rc, file, file};
+	}
+
 	File(StructName struct_name)
 	: _structName{struct_name}, _link{nullptr} { }
 
@@ -86,6 +100,14 @@ struct File {
 		return _structName;
 	}
 
+	virtual void handleClose();
+
+private:
+	void dispose(DisposeFileHandle) {
+		handleClose();
+	}
+
+public:
 	// This is the link that was used to open the file.
 	// Note that this might not be the only link that can be used
 	// to reach the file's inode.
@@ -106,7 +128,7 @@ struct File {
 	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
 
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
-			std::vector<smarter::shared_ptr<File>> files);
+			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 
 	virtual async::result<void> truncate(size_t size);
 

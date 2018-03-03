@@ -48,7 +48,8 @@ FutureMaybe<void> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
 }
 
-FutureMaybe<smarter::shared_ptr<File>> FsNode::open(std::shared_ptr<FsLink>, SemanticFlags) {
+FutureMaybe<smarter::shared_ptr<File, FileHandle>>
+FsNode::open(std::shared_ptr<FsLink>, SemanticFlags) {
 	throw std::runtime_error("open() is not implemented for this FsNode");
 }
 

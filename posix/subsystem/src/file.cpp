@@ -64,6 +64,11 @@ COFIBER_ROUTINE(expected<size_t>, File::readSome(void *, size_t), ([=] {
 	COFIBER_RETURN(Error::illegalOperationTarget);
 }))
 
+void File::handleClose() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement handleClose()" << std::endl;
+}
+
 FutureMaybe<void> File::writeAll(const void *, size_t) {
 	throw std::runtime_error("posix: Object has no File::writeAll()");
 }
@@ -77,7 +82,7 @@ FutureMaybe<RecvResult> File::recvMsg(void *, size_t) {
 }
 
 FutureMaybe<size_t> File::sendMsg(const void *, size_t,
-		std::vector<smarter::shared_ptr<File>>) {
+		std::vector<smarter::shared_ptr<File, FileHandle>>) {
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 

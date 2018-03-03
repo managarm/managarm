@@ -41,9 +41,9 @@ private:
 
 } // anonymous namespace
 
-smarter::shared_ptr<File> createSignalFile() {
+smarter::shared_ptr<File, FileHandle> createSignalFile() {
 	auto file = smarter::make_shared<OpenFile>();
 	OpenFile::serve(file);
-	return std::move(file);
+	return File::constructHandle(std::move(file));
 }
 

@@ -130,10 +130,10 @@ private:
 
 namespace timerfd {
 
-smarter::shared_ptr<File> createFile(bool non_block) {
+smarter::shared_ptr<File, FileHandle> createFile(bool non_block) {
 	auto file = smarter::make_shared<OpenFile>(non_block);
 	OpenFile::serve(file);
-	return std::move(file);
+	return File::constructHandle(std::move(file));
 }
 
 void setTime(File *file, struct timespec initial, struct timespec interval) {
