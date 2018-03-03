@@ -165,7 +165,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			printf("\e[39m");
 			fflush(stdout);
 		}else if(observe.observation() == kHelObservePageFault) {
-			printf("\e[31mPage fault\n");
+			printf("\e[31mPage fault in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);

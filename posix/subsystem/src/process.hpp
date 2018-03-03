@@ -109,6 +109,10 @@ struct Process {
 	static async::result<void> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
+	std::string path() {
+		return _path;
+	}
+
 	std::shared_ptr<VmContext> vmContext() {
 		return _vmContext;
 	}
@@ -126,6 +130,7 @@ struct Process {
 	}
 
 private:
+	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;

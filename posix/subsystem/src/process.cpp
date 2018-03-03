@@ -286,6 +286,7 @@ void FileContext::closeOnExec() {
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
 	auto process = std::make_shared<Process>();
+	process->_path = path;
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
@@ -342,6 +343,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	serve(process, std::move(thread));
 
 	// "Commit" the exec() operation.
+	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
 	process->_clientFileTable = exec_client_table;
 
