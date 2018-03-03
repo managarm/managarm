@@ -18,36 +18,60 @@ struct OpenFile : File {
 	// Internal API.
 	// ------------------------------------------------------------------------
 private:
+	// Lifetime management: There are the following three state bits for each item.
+	// Items are deleted once all state bits are zero.
+	// Items must only be accessed while a precondition guarantees that
+	// at least one state bit is non-zero.
+	using State = uint32_t;
+	static constexpr State stateActive = 1;
+	static constexpr State statePolling = 2;
+	static constexpr State statePending = 4;
+
 	struct Item : boost::intrusive::list_base_hook<> {
 		Item(OpenFile *epoll, File *file, int mask, uint64_t cookie)
-		: epoll{epoll}, file{file}, eventMask{mask}, cookie{cookie},
-				isPending{false} { }
+		: epoll{epoll}, state{stateActive},
+				file{file}, eventMask{mask}, cookie{cookie} { }
+
+		OpenFile *epoll;
+		State state;
 
 		// Basic data of this item.
-		OpenFile *epoll;
 		File *file;
 		int eventMask;
 		uint64_t cookie;
-
-		// True iff this item is in the pending queue.
-		bool isPending;
 	};
 
 	static void _awaitPoll(Item *item, PollResult result) {
+		assert(item->state & statePolling);
 		auto self = item->epoll;
+
+		// Collect non-active items without polling again.
+		if(!(item->state & stateActive)) {
+			item->state &= ~statePolling;
+			if(!item->state)
+				delete item;
+			return;
+		}
+		
+		// TODO: Ignore items that are already pending.
+		// This will happen once we implement modifyItem().
+		assert(!(item->state & statePending));
 
 		// Note that items only become pending if there is an edge.
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
-		if(!item->isPending && (std::get<1>(result) & item->eventMask)
+		if((std::get<1>(result) & item->eventMask)
 				&& (std::get<2>(result) & item->eventMask)) {
 			if(logEpoll)
 				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
 						<< ": Item \e[1;34m" << item->file->structName()
 						<< "\e[0m becomes pending" << std::endl;
+
 			// Note that we stop watching once an item becomes pending.
 			// We do this as we have to poll() again anyway before we report the item.
-			item->isPending = true;
+			item->state &= ~statePolling;
+			item->state |= statePending;
+
 			self->_pendingQueue.push_back(*item);
 			self->_currentSeq++;
 			self->_pendingBell.ring();
@@ -80,6 +104,7 @@ public:
 		assert(_fileMap.find(file) == _fileMap.end());
 		auto item = new Item{this, file, mask, cookie};
 
+		item->state |= statePolling;
 		auto poll = item->file->poll(0);
 		poll.then([item] (PollResult result) {
 			_awaitPoll(item, result);
@@ -93,9 +118,16 @@ public:
 				<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
 	}
 
-	void deleteItem(File *file, int mask) {
-		std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
-				<< file->structName() << "\e[0m" << std::endl;
+	void deleteItem(File *file) {
+		if(logEpoll)
+			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
+					<< file->structName() << "\e[0m" << std::endl;
+		auto it = _fileMap.find(file);
+		assert(it != _fileMap.end());
+
+		it->second->state &= ~stateActive;
+		if(!it->second->state)
+			delete it->second;
 	}
 
 	COFIBER_ROUTINE(async::result<size_t>, waitForEvents(struct epoll_event *events,
@@ -113,7 +145,15 @@ public:
 			while(!_pendingQueue.empty()) {
 				auto item = &_pendingQueue.front();
 				_pendingQueue.pop_front();
-				assert(item->isPending);
+				assert(item->state & statePending);
+
+				// Collect non-alive items without returning them.
+				if(!(item->state & stateActive)) {
+					item->state &= ~statePending;
+					if(!item->state)
+						delete item;
+					continue;
+				}
 
 				auto result = COFIBER_AWAIT item->file->poll(0);	
 				if(logEpoll)
@@ -125,7 +165,12 @@ public:
 
 				// Abort early (i.e before requeuing) if the item is not pending.
 				if(!status) {
-					item->isPending = false;
+					// TODO: Once we implement modifyItem(), items can be both
+					// polling and pending at the same time. In this case, only poll
+					// if we are not already polling.
+					assert(!(item->state & statePolling));
+					item->state &= ~statePending;
+					item->state |= statePolling;
 
 					// Once an item is not pending anymore, we continue watching it.
 					auto poll = item->file->poll(std::get<0>(result));
@@ -222,8 +267,9 @@ void modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {
 }
 
 void deleteItem(File *epfile, File *file, int flags) {
+	assert(!flags);
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->deleteItem(file, flags);
+	epoll->deleteItem(file);
 }
 
 async::result<size_t> wait(File *epfile, struct epoll_event *events,
