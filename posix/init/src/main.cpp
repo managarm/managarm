@@ -89,7 +89,7 @@ int main() {
 	if(!modeset) {
 		putenv("XDG_RUNTIME_DIR=/run");
 		putenv("MESA_GLSL_CACHE_DISABLE=1");
-		putenv("MESA_DEBUG=1");
+//		putenv("MESA_DEBUG=1");
 //		putenv("TGSI_PRINT_SANITY=1");
 //		putenv("SOFTPIPE_NO_RAST=1");
 //		putenv("SOFTPIPE_DUMP_FS=1");

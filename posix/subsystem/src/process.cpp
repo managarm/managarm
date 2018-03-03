@@ -37,12 +37,13 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> file,
-		intptr_t offset, size_t size, uint32_t native_flags), ([=] {
+		intptr_t offset, size_t size, uint32_t native_flags), ([=] {	
+	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+
 	auto memory = COFIBER_AWAIT file->accessMemory(offset);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 			nullptr, 0 /*offset*/, aligned_size, native_flags, &pointer));
@@ -69,25 +70,25 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::mapFile(std::shared_ptr<File> 
 
 COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 		size_t old_size, size_t new_size), ([=] {
+	size_t aligned_old_size = (old_size + 0xFFF) & ~size_t(0xFFF);
+	size_t aligned_new_size = (new_size + 0xFFF) & ~size_t(0xFFF);
+
 //	std::cout << "posix: Remapping " << old_pointer << std::endl;
 	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(old_pointer));
 	assert(it != _areaTree.end());
-	size_t aligned_old_size = (old_size + 0xFFF) & ~size_t(0xFFF);
 	assert(it->second.areaSize == aligned_old_size);
 	
 	auto memory = COFIBER_AWAIT it->second.file->accessMemory(it->second.offset);
 
 	// Perform the actual mapping.
 	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-	size_t aligned_new_size = (new_size + 0xFFF) & ~size_t(0xFFF);
 	void *pointer;
 	HEL_CHECK(helMapMemory(memory.getHandle(), _space.getHandle(),
 			nullptr, 0 /*offset*/, aligned_new_size, it->second.nativeFlags, &pointer));
 //	std::cout << "posix: VM_REMAP returns " << pointer << std::endl;
 
-	// TODO: Unmap the old area.
-	std::cout << "\e[35mposix: remapFile does not correctly unmap areas\e[39m" << std::endl;
-	//HEL_CHECK(helUnmapMemory(_space.getHandle(), old_pointer, aligned_old_size));
+	// Unmap the old area.
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), old_pointer, aligned_old_size));
 	
 	// Construct the new area from the old one.
 	Area area;
@@ -109,6 +110,19 @@ COFIBER_ROUTINE(async::result<void *>, VmContext::remapFile(void *old_pointer,
 
 	COFIBER_RETURN(pointer);
 }))
+
+void VmContext::unmapFile(void *pointer, size_t size) {
+	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+
+	auto it = _areaTree.find(reinterpret_cast<uintptr_t>(pointer));
+	assert(it != _areaTree.end());
+	assert(it->second.areaSize == aligned_size);
+
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, aligned_size));
+
+	// Update our idea of the process' VM space.
+	_areaTree.erase(it);
+}
 
 // ----------------------------------------------------------------------------
 // FsContext.

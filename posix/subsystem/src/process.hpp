@@ -27,6 +27,8 @@ struct VmContext {
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
+	void unmapFile(void *pointer, size_t size);
+
 private:
 	struct Area {
 		size_t areaSize;
