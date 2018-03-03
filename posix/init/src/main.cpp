@@ -99,7 +99,8 @@ int main() {
 		//execve("/usr/bin/kmscube", args.data(), env.data());
 		//execve("/root/modeset-render", args.data(), env.data());
 		//execve("/root/modeset-double-buffered", args.data(), env.data());
-		execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
+		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
+		execl("/usr/bin/weston", "weston", nullptr);
 	}else assert(modeset != -1);
 }
 

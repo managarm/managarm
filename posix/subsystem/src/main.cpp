@@ -34,7 +34,7 @@
 #include <posix.pb.h>
 
 bool logRequests = false;
-bool logPaths = true;
+bool logPaths = false;
 
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
@@ -196,6 +196,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		managarm::posix::CntRequest req;
 		req.ParseFromArray(buffer, recv_req.actualLength());
 		if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
+			if(logRequests)
+				std::cout << "posix: GET_PID" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			std::cout << "\e[31mposix: Fix GET_PID\e[39m" << std::endl;
@@ -209,6 +212,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
+			if(logRequests)
+				std::cout << "posix: VM_MAP" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			// TODO: Validate mode and flags.
@@ -259,6 +265,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
+			if(logRequests)
+				std::cout << "posix: VM_REMAP" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto address = COFIBER_AWAIT self->vmContext()->remapFile(
@@ -274,6 +283,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::MOUNT) {
+			if(logRequests)
+				std::cout << "posix: MOUNT" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
@@ -303,6 +315,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
+			if(logRequests)
+				std::cout << "posix: CHROOT" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
@@ -328,6 +343,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::ACCESS) {
+			if(logRequests)
+				std::cout << "posix: ACCESS" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
@@ -520,6 +538,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
+			if(logRequests)
+				std::cout << "posix: DUP" << std::endl;
+
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for DUP");
 
@@ -540,6 +561,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
+			if(logRequests)
+				std::cout << "posix: DUP2" << std::endl;
+
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for DUP2");
 
@@ -562,6 +586,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FSTAT) {
+			if(logRequests)
+				std::cout << "posix: FSTAT" << std::endl;
+
 			auto file = self->fileContext()->getFile(req.fd());
 			assert(file && "Illegal FD for FSTAT");
 			auto stats = COFIBER_AWAIT file->associatedLink()->getTarget()->getStats();
@@ -608,6 +635,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
+			if(logRequests)
+				std::cout << "posix: IS_TTY" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			std::cout << "\e[31mposix: Fix IS_TTY\e[39m" << std::endl;
@@ -620,6 +650,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
+			if(logRequests)
+				std::cout << "posix: TTY_NAME" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
@@ -662,6 +695,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
+			if(logRequests)
+				std::cout << "posix: FD_GET_FLAGS" << std::endl;
+
 			helix::SendBuffer send_resp;
 			
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
@@ -680,6 +716,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKET) {
+			if(logRequests)
+				std::cout << "posix: SOCKET" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
@@ -714,6 +753,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SOCKPAIR) {
+			if(logRequests)
+				std::cout << "posix: SOCKPAIR" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			assert(!(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
@@ -744,6 +786,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SENDMSG) {
+			if(logRequests)
+				std::cout << "posix: SENDMSG" << std::endl;
+
 			helix::RecvInline recv_data;
 			helix::SendBuffer send_resp;
 		
@@ -775,6 +820,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::RECVMSG) {
+			if(logRequests)
+				std::cout << "posix: RECVMSG" << std::endl;
+
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 			
@@ -798,6 +846,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_CREATE" << std::endl;
+
 			helix::SendBuffer send_resp;
 			
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
@@ -816,6 +867,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_ADD) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_ADD" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
@@ -834,6 +888,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_MODIFY) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_MODIFY" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
@@ -852,6 +909,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_DELETE) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_DELETE" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
@@ -892,6 +952,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
+			if(logRequests)
+				std::cout << "posix: TIMERFD_CREATE" << std::endl;
+
 			helix::SendBuffer send_resp;
 	
 			assert(!(req.flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)));
@@ -909,6 +972,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_SETTIME) {
+			if(logRequests)
+				std::cout << "posix: TIMERFD_SETTIME" << std::endl;
+
 			helix::SendBuffer send_resp;
 
 			auto file = self->fileContext()->getFile(req.fd());
@@ -925,6 +991,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
+			if(logRequests)
+				std::cout << "posix: SIGNALFD_CREATE" << std::endl;
+
 			helix::SendBuffer send_resp;
 			
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));

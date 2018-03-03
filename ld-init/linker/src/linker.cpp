@@ -30,6 +30,7 @@
 uintptr_t libraryBase = 0x41000000;
 
 bool verbose = false;
+bool logBaseAddresses = false;
 bool eagerBinding = true;
 
 // This is the global "resolution timestamp" (RTS) counter.
@@ -442,7 +443,7 @@ void ObjectRepository::_fetchFromFile(SharedObject *object, int fd) {
 	// TODO: handle this dynamically
 	libraryBase += 0x1000000; // assume 16 MiB per library
 
-	if(verbose)
+	if(verbose || logBaseAddresses)
 		frigg::infoLogger() << "rtdl: Loading " << object->name
 				<< " at " << (void *)object->baseAddress << frigg::endLog;
 
