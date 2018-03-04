@@ -300,7 +300,7 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::BlockCacheEntry::initiate(FileSy
 	assert(entry->state == BlockCacheEntry::kStateInitial);
 	
 	entry->state = BlockCacheEntry::kStateLoading;
-	std::cout << "Fetching block " << block << " into cache" << std::endl;
+//	std::cout << "Fetching block " << block << " into cache" << std::endl;
 	COFIBER_AWAIT fs->device->readSectors(block * fs->sectorsPerBlock,
 			entry->buffer, fs->sectorsPerBlock);
 
