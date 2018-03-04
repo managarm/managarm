@@ -41,12 +41,14 @@ private:
 		uint64_t cookie;
 	};
 
-	static void _awaitPoll(Item *item, PollResult result) {
+	static void _awaitPoll(Item *item, std::variant<Error, PollResult> result_or_error) {
 		assert(item->state & statePolling);
 		auto self = item->epoll;
 
-		// Collect non-active items without polling again.
-		if(!(item->state & stateActive)) {
+		// Discard non-active and closed items.
+		auto error = std::get_if<Error>(&result_or_error);
+		if(!(item->state & stateActive) || error) {
+			assert(*error == Error::fileClosed);
 			item->state &= ~statePolling;
 			if(!item->state)
 				delete item;
@@ -60,6 +62,7 @@ private:
 		// Note that items only become pending if there is an edge.
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
+		auto result = std::get<PollResult>(result_or_error);
 		if((std::get<1>(result) & item->eventMask)
 				&& (std::get<2>(result) & item->eventMask)) {
 			if(logEpoll)
@@ -85,7 +88,7 @@ private:
 						<< " Mask is " << item->eventMask << ", while "
 						<< std::get<2>(result) << " is active" << std::endl;
 			auto poll = item->file->poll(std::get<0>(result));
-			poll.then([item] (PollResult next_result) {
+			poll.then([item] (std::variant<Error, PollResult> next_result) {
 				_awaitPoll(item, next_result);
 			});
 		}
@@ -106,7 +109,7 @@ public:
 
 		item->state |= statePolling;
 		auto poll = item->file->poll(0);
-		poll.then([item] (PollResult result) {
+		poll.then([item] (std::variant<Error, PollResult> result) {
 			_awaitPoll(item, result);
 		});
 
@@ -147,7 +150,7 @@ public:
 				_pendingQueue.pop_front();
 				assert(item->state & statePending);
 
-				// Collect non-alive items without returning them.
+				// Discard non-alive items without returning them.
 				if(!(item->state & stateActive)) {
 					item->state &= ~statePending;
 					if(!item->state)
@@ -155,15 +158,27 @@ public:
 					continue;
 				}
 
-				auto result = COFIBER_AWAIT item->file->poll(0);	
+				auto result_or_error = COFIBER_AWAIT item->file->poll(0);	
+		
+				// Discard closed items.
+				auto error = std::get_if<Error>(&result_or_error);
+				if(error) {
+					assert(*error == Error::fileClosed);
+					item->state &= ~statePending;
+					if(!item->state)
+						delete item;
+					continue;
+				}
+
+				auto result = std::get<PollResult>(result_or_error);
 				if(logEpoll)
 					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
 							<< "\e[1;34m" << item->file->structName() << "\e[0m."
 							" Mask is " << item->eventMask << ", while " << std::get<2>(result)
 							<< " is active" << std::endl;
-				auto status = std::get<2>(result) & item->eventMask;
 
 				// Abort early (i.e before requeuing) if the item is not pending.
+				auto status = std::get<2>(result) & item->eventMask;
 				if(!status) {
 					// TODO: Once we implement modifyItem(), items can be both
 					// polling and pending at the same time. In this case, only poll
@@ -174,7 +189,7 @@ public:
 
 					// Once an item is not pending anymore, we continue watching it.
 					auto poll = item->file->poll(std::get<0>(result));
-					poll.then([item] (PollResult next_result) {
+					poll.then([item] (std::variant<Error, PollResult> next_result) {
 						_awaitPoll(item, next_result);
 					});
 
@@ -210,7 +225,7 @@ public:
 	// File implementation.
 	// ------------------------------------------------------------------------
 
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq)
 			COFIBER_AWAIT _pendingBell.async_wait();

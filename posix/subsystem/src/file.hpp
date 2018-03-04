@@ -22,6 +22,7 @@ using SharedFilePtr = smarter::shared_ptr<File, FileHandle>;
 enum class Error {
 	success,
 	eof,
+	fileClosed,
 
 	// Indices that the given object does not support the operation
 	// (e.g. readSymlink() is called on a file that is not a link).
@@ -91,19 +92,24 @@ public:
 	}
 
 	File(StructName struct_name)
-	: _structName{struct_name}, _link{nullptr} { }
+	: _structName{struct_name}, _link{nullptr}, _isOpen{true} { }
 
 	File(StructName struct_name, std::shared_ptr<FsLink> link)
-	: _structName{struct_name}, _link{std::move(link)} { }
+	: _structName{struct_name}, _link{std::move(link)}, _isOpen{true} { }
 
 	StructName structName() {
 		return _structName;
+	}
+
+	bool isOpen() {
+		return _isOpen;
 	}
 
 	virtual void handleClose();
 
 private:
 	void dispose(DisposeFileHandle) {
+		_isOpen = false;
 		handleClose();
 	}
 
@@ -140,7 +146,7 @@ public:
 	// current-sequence is incremented each time an edge (i.e. an event bit
 	// transitions from clear to set) happens.
 	// TODO: This request should be cancelable.
-	virtual FutureMaybe<PollResult> poll(uint64_t sequence);
+	virtual expected<PollResult> poll(uint64_t sequence);
 
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory
@@ -152,6 +158,8 @@ public:
 private:
 	StructName _structName;
 	const std::shared_ptr<FsLink> _link;
+
+	bool _isOpen;
 };
 
 #endif // POSIX_SUBSYSTEM_FILE_HPP

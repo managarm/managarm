@@ -78,6 +78,12 @@ public:
 	: File{StructName::get("timerfd")}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
 
+	void handleClose() {
+		std::cout << "\e[31mposix: timerfd does not properly clean up its passthrough lane\e[39m"
+				<< std::endl;
+		_seqBell.ring();
+	}
+
 	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
 		assert(max_length == sizeof(uint64_t));
 		assert(_expirations);
@@ -87,12 +93,16 @@ public:
 		COFIBER_RETURN(sizeof(uint64_t));
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t in_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t in_seq) override, ([=] {
 		if(logTimerfd)
 			std::cout << "posix: timerfd::poll(" << in_seq << ")" << std::endl;
 		assert(in_seq <= _theSeq);
-		while(in_seq == _theSeq)
+		while(in_seq == _theSeq) {
+			if(!isOpen())
+				COFIBER_RETURN(Error::fileClosed);
+
 			COFIBER_AWAIT _seqBell.async_wait();
+		}
 
 		COFIBER_RETURN(PollResult(_theSeq, EPOLLIN, _expirations ? EPOLLIN : 0));
 	}))

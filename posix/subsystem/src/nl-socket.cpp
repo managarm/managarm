@@ -118,7 +118,7 @@ public:
 		COFIBER_RETURN(max_length);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq)
 			COFIBER_AWAIT _statusBell.async_wait();

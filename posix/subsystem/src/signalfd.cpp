@@ -27,7 +27,7 @@ public:
 		throw std::runtime_error("read() from signalfd is not implemented");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<PollResult>, poll(uint64_t sequence) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t sequence) override, ([=] {
 		std::cout << "posix: Fix signalfd::poll()" << std::endl;
 	}))
 
