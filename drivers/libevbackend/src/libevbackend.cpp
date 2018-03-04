@@ -88,17 +88,13 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		helix::SendBuffer send_data;
 		managarm::fs::SvrResponse resp;
 
-		std::array<uint8_t, 4> bits;
-		memset(bits.data(), 0, bits.size());
-		bits[0] |= (1 << EV_REL);
-
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 	
 		auto ser = resp.SerializeAsString();
-		auto chunk = std::min(size_t(req.size()), bits.size());
+		auto chunk = std::min(size_t(req.size()), self->_device->_typeBits.size());
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, bits.data(), chunk));
+			helix::action(&send_data, self->_device->_typeBits.data(), chunk));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
@@ -208,7 +204,7 @@ EventDevice::EventDevice()
 }
 
 void EventDevice::enableEvent(int type, int code) {
-	auto setBit = [] (uint8_t *array, size_t length, int bit) {
+	auto setBit = [] (uint8_t *array, size_t length, unsigned int bit) {
 		assert(bit / 8 < length);
 		array[bit / 8] |= (1 << (bit % 8));
 	};
