@@ -77,7 +77,7 @@ private:
 
 			self->_pendingQueue.push_back(*item);
 			self->_currentSeq++;
-			self->_pendingBell.ring();
+			self->_statusBell.ring();
 		}else{
 			// Here, we assume that the lambda does not execute on the current stack.
 			// TODO: Use some callback queueing mechanism to ensure this.
@@ -142,8 +142,11 @@ public:
 		size_t k = 0;
 		boost::intrusive::list<Item> repoll_queue;
 		while(!k) {
-			while(_pendingQueue.empty())
-				COFIBER_AWAIT _pendingBell.async_wait();
+			while(_pendingQueue.empty()) {
+				// TODO: Stop waiting in this case.
+				assert(isOpen());
+				COFIBER_AWAIT _statusBell.async_wait();
+			}
 
 			while(!_pendingQueue.empty()) {
 				auto item = &_pendingQueue.front();
@@ -215,7 +218,7 @@ public:
 		if(!repoll_queue.empty()) {
 			_pendingQueue.splice(_pendingQueue.end(), repoll_queue);
 			_currentSeq++;
-			_pendingBell.ring();
+			_statusBell.ring();
 		}
 
 		COFIBER_RETURN(k);
@@ -225,10 +228,17 @@ public:
 	// File implementation.
 	// ------------------------------------------------------------------------
 
+	void handleClose() override {
+		_statusBell.ring();
+		_serve.cancel();
+	}
+
 	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
-		while(_currentSeq == past_seq)
-			COFIBER_AWAIT _pendingBell.async_wait();
+		while(_currentSeq == past_seq) {
+			assert(isOpen()); // TODO: Return a poll error here.
+			COFIBER_AWAIT _statusBell.async_wait();
+		}
 
 		COFIBER_RETURN(PollResult(_currentSeq, EPOLLIN, _pendingQueue.empty() ? 0 : EPOLLIN));
 	}))
@@ -243,8 +253,8 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-				&File::fileOperations);
+		file->_serve = protocols::fs::servePassthrough(std::move(lane),
+				smarter::shared_ptr<File>{file}, &File::fileOperations);
 	}
 
 	OpenFile()
@@ -252,12 +262,13 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
 
 	// FIXME: This really has to map std::weak_ptrs or std::shared_ptrs.
 	std::unordered_map<File *, Item *> _fileMap;
 
 	boost::intrusive::list<Item> _pendingQueue;
-	async::doorbell _pendingBell;
+	async::doorbell _statusBell;
 	uint64_t _currentSeq;
 };
 
@@ -267,6 +278,7 @@ namespace epoll {
 
 smarter::shared_ptr<File, FileHandle> createFile() {
 	auto file = smarter::make_shared<OpenFile>();
+	file.ctr()->increment(); // TODO: This is a temporary hack until we fix item lifetime.
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }

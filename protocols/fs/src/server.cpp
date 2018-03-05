@@ -212,23 +212,37 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 	}
 }))
 
+COFIBER_ROUTINE(async::result<helix::UniqueLane>, doAccept(helix::BorrowedLane lane), ([=] {
+	helix::Accept accept;
+
+	auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
+			helix::action(&accept));
+	COFIBER_AWAIT initiate.async_wait();
+
+	// TODO: Handle end-of-lane correctly. Why does it even happen here?
+	if(accept.error() != kHelErrEndOfLane) {
+		HEL_CHECK(accept.error());
+		COFIBER_RETURN(accept.descriptor());
+	}
+}))
+
 } // anonymous namespace
 
-COFIBER_ROUTINE(cofiber::no_future,
+COFIBER_ROUTINE(async::cancelable_result<void>,
 servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
 	while(true) {
-		helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
+		auto status = COFIBER_YIELD doAccept(lane);
+		if(status.cancelled())
+			COFIBER_RETURN();
+		auto conversation = COFIBER_AWAIT status;
+		
+		auto &&header = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-		
-		auto conversation = accept.descriptor();
+		HEL_CHECK(recv_req.error());		
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());

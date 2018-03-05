@@ -115,7 +115,8 @@ struct NodeOperations {
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 };
 
-cofiber::no_future servePassthrough(helix::UniqueLane lane, smarter::shared_ptr<void> file,
+async::cancelable_result<void>
+servePassthrough(helix::UniqueLane lane, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops);
 
 cofiber::no_future serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
