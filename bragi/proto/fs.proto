@@ -128,6 +128,7 @@ message CntRequest {
 	optional uint64 drm_cookie = 37;
 
 	optional int32 input_type = 40;
+	optional int32 input_clock = 41;
 }
 
 message SvrResponse {

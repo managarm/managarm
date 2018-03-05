@@ -44,8 +44,15 @@ File::read(void *object, void *buffer, size_t max_size), ([=] {
 		auto event = &self->_device->_events.front();
 		self->_device->_events.pop_front();
 
+		// TODO: The time should be set when we enqueue the event.
+		struct timespec now;
+		if(clock_gettime(self->_clockId, &now))
+			throw std::runtime_error("clock_gettime() failed");
+
 		input_event uev;
 		memset(&uev, 0, sizeof(input_event));
+		uev.time.tv_sec = now.tv_sec;
+		uev.time.tv_usec = now.tv_nsec / 1000;
 		uev.type = event->type;
 		uev.code = event->code;
 		uev.value = event->value;
@@ -126,6 +133,26 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+	}else if(req.command() == EVIOSCLOCKID) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+
+		// TODO: Does this setting affect already queued events in Linux?
+		switch(req.input_clock()) {
+		case CLOCK_REALTIME:
+		case CLOCK_MONOTONIC:
+			self->_clockId = req.input_clock();
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			break;
+		default:
+			assert(!"Clock is not supported in libevbackend");
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("Unknown ioctl() with ID " + std::to_string(req.command()));
 	}
@@ -148,7 +175,7 @@ helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
 }
 
 File::File(EventDevice *device, bool non_block)
-: _device{device}, _nonBlock{non_block} { }
+: _device{device}, _nonBlock{non_block}, _clockId{CLOCK_MONOTONIC} { }
 
 // ----------------------------------------------------------------------------
 // EventDevice implementation.
@@ -225,7 +252,7 @@ void EventDevice::emitEvent(int type, int code, int value) {
 }
 
 void EventDevice::notify() {
-	_events.splice(_events.begin(), _emitted);
+	_events.splice(_events.end(), _emitted);
 	_currentSeq++;
 	_statusBell.ring();
 }

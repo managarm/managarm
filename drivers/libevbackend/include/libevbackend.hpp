@@ -62,6 +62,9 @@ struct File {
 private:
 	EventDevice *_device;
 	bool _nonBlock;
+
+	// Clock ID for input timestamps.
+	int _clockId;
 };
 
 struct EventDevice {
