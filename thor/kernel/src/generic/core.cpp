@@ -1,6 +1,11 @@
 
 #include "kernel.hpp"
 
+// This is required for virtual destructors. It should not be called though.
+void operator delete(void *, size_t) {
+	frigg::panicLogger() << "thor: operator delete() called" << frigg::endLog;
+}
+
 namespace thor {
 
 static int64_t nextAsyncId = 1;

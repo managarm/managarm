@@ -340,6 +340,8 @@ struct Mapping {
 	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
 
+	virtual ~Mapping() { }
+
 	AddressSpace *owner() {
 		return _owner;
 	}
@@ -380,7 +382,6 @@ private:
 struct NormalMapping : Mapping {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset);
-	~NormalMapping();
 
 	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 	resolveRange(ptrdiff_t offset, size_t size) override;
@@ -402,7 +403,6 @@ private:
 struct CowMapping : Mapping {
 	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<CowBundle> chain);
-	~CowMapping();
 
 	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 	resolveRange(ptrdiff_t offset, size_t size) override;
