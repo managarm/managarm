@@ -130,7 +130,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 				auto d = args_area.find(char(0), k);
 				assert(d != std::string::npos);
 				args.push_back(args_area.substr(k, d - k));
-				std::cout << "arg: " << args.back() << std::endl;
+//				std::cout << "arg: " << args.back() << std::endl;
 				k = d + 1;
 			}
 
@@ -140,7 +140,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 				auto d = env_area.find(char(0), k);
 				assert(d != std::string::npos);
 				env.push_back(env_area.substr(k, d - k));
-				std::cout << "env: " << env.back() << std::endl;
+//				std::cout << "env: " << env.back() << std::endl;
 				k = d + 1;
 			}
 

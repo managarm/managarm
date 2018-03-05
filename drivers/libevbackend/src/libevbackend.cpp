@@ -82,7 +82,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 	auto self = static_cast<File *>(object);
 	if(req.command() == EVIOCGBIT(0, 0)) {
 		assert(req.size());
-		std::cout << "EVIOCGBIT()" << std::endl;
+//		std::cout << "EVIOCGBIT()" << std::endl;
 
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_data;
@@ -100,7 +100,7 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOCGBIT(1, 0)) {
 		assert(req.size());
-		std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
+//		std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
 
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_data;
