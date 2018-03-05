@@ -89,6 +89,9 @@ private:
 	std::array<uint8_t, 96> _keyBits;
 	std::array<uint8_t, 2> _relBits;
 
+	// Current input state.
+	std::array<uint8_t, 96> _currentKeys;
+
 	boost::intrusive::list<
 		Event,
 		boost::intrusive::member_hook<

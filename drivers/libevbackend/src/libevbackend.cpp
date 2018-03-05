@@ -228,6 +228,8 @@ EventDevice::EventDevice()
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
+	
+	memset(_currentKeys.data(), 0, _currentKeys.size());
 }
 
 void EventDevice::enableEvent(int type, int code) {
@@ -247,6 +249,26 @@ void EventDevice::enableEvent(int type, int code) {
 }
 
 void EventDevice::emitEvent(int type, int code, int value) {
+	auto getBit = [] (uint8_t *array, size_t length, unsigned int bit) {
+		assert(bit / 8 < length);
+		return array[bit / 8] & (1 << (bit % 8));
+	};
+	auto putBit = [] (uint8_t *array, size_t length, unsigned int bit, bool value) {
+		assert(bit / 8 < length);
+		array[bit / 8] &= ~(1 << (bit % 8));
+		array[bit / 8] |= (((int)value) << (bit % 8));
+	};
+
+	// Filter out events that do not update the device state.
+	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
+		return;
+	if(type == EV_REL && !value)
+		return;
+
+	// Update the device state.
+	if(type == EV_KEY)
+		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
+
 	auto event = new Event(type, code, value);
 	_emitted.push_back(*event);
 }
