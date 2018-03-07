@@ -75,8 +75,9 @@ enum {
 	kHelErrIllegalArgs = 7,
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
-	kHelErrClosedLocally = 8,
-	kHelErrClosedRemotely = 9,
+	kHelErrClosedLocally = 8, // Deprecated name.
+	kHelErrEndOfLane = 9,
+	kHelErrClosedRemotely = 9, // Deprecated name.
 	kHelErrBufferTooSmall = 1,
 	kHelErrFault = 10,
 };

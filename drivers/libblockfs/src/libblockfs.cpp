@@ -102,9 +102,35 @@ COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared
 	COFIBER_RETURN((protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type}));
 }))
 
-COFIBER_ROUTINE(async::result<smarter::shared_ptr<void>>, open(std::shared_ptr<void> object), ([=] {
+COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> file,
+		helix::UniqueLane local_ctrl_, helix::UniqueLane local_pt_),
+		([file, local_ctrl = std::move(local_ctrl_), local_pt = std::move(local_pt_)] () mutable {
+	auto ctrl_result = protocols::fs::serveFile(std::move(local_ctrl),
+			file.get(), &fileOperations);
+	auto pt_result = protocols::fs::servePassthrough(std::move(local_pt),
+			file, &fileOperations);
+	
+	// Wait until the file is closed by the client.
+	COFIBER_AWAIT std::move(ctrl_result);
+
+	// Passthrough streams do not keep the file open.
+//	pt_result.cancel();
+//	COFIBER_AWAIT std::move(pt_result);
+	std::cout << "libblockfs: File closed!" << std::endl;
+}))
+
+COFIBER_ROUTINE(async::result<protocols::fs::OpenResult>,
+open(std::shared_ptr<void> object), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	COFIBER_RETURN(smarter::make_shared<ext2fs::OpenFile>(self));
+	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
+	
+	helix::UniqueLane local_ctrl, remote_ctrl;
+	helix::UniqueLane local_pt, remote_pt;
+	std::tie(local_ctrl, remote_ctrl) = helix::createStream();
+	std::tie(local_pt, remote_pt) = helix::createStream();
+	serve(file, std::move(local_ctrl), std::move(local_pt));
+
+	COFIBER_RETURN(protocols::fs::OpenResult(std::move(remote_ctrl), std::move(remote_pt)));
 }))
 
 COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> object), ([=] {
@@ -153,7 +179,7 @@ COFIBER_ROUTINE(cofiber::no_future, servePartition(helix::UniqueLane p),
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
-					&nodeOperations, &fileOperations);
+					&nodeOperations);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

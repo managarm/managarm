@@ -49,10 +49,17 @@ private:
 	}
 
 public:
-	OpenFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link)
-	: File{StructName::get("externfs.file"), std::move(link)}, _file{std::move(lane)} { }
+	OpenFile(helix::UniqueLane control, helix::UniqueLane lane, std::shared_ptr<FsLink> link)
+	: File{StructName::get("externfs.file"), std::move(link)},
+			_control{std::move(control)}, _file{std::move(lane)} { }
+
+	void handleClose() override {
+		// Close the control lane to inform the server that we closed the file.
+		_control = helix::UniqueLane{};
+	}
 
 private:
+	helix::UniqueLane _control;
 	protocols::fs::File _file;
 };
 
@@ -72,6 +79,7 @@ private:
 		helix::Offer offer;
 		helix::SendBuffer send_req;
 		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_ctrl;
 		helix::PullDescriptor pull_passthrough;
 
 		managarm::fs::CntRequest req;
@@ -82,19 +90,21 @@ private:
 				helix::action(&offer, kHelItemAncillary),
 				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
 				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_ctrl, kHelItemChain),
 				helix::action(&pull_passthrough));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_ctrl.error());
 		HEL_CHECK(pull_passthrough.error());
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		auto file = smarter::make_shared<OpenFile>(pull_passthrough.descriptor(),
-				std::move(link));
+		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
+				pull_passthrough.descriptor(), std::move(link));
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
@@ -309,7 +319,8 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 
 smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
-	return File::constructHandle(smarter::make_shared<OpenFile>(std::move(lane), std::move(link)));
+	return File::constructHandle(smarter::make_shared<OpenFile>(helix::UniqueLane{},
+			std::move(lane), std::move(link)));
 }
 
 } // namespace extern_fs

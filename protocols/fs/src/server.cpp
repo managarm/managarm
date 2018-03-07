@@ -228,6 +228,23 @@ COFIBER_ROUTINE(async::result<helix::UniqueLane>, doAccept(helix::BorrowedLane l
 
 } // anonymous namespace
 
+COFIBER_ROUTINE(async::result<void>,
+serveFile(helix::UniqueLane p, void *file,
+		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
+	while(true) {
+		helix::Accept accept;
+
+		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept));
+		COFIBER_AWAIT initiate.async_wait();
+
+		if(accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+
+		assert(!"No operations are defined yet for the non-passthrough protocol");
+	}
+}))
+
 COFIBER_ROUTINE(async::cancelable_result<void>,
 servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
@@ -251,8 +268,8 @@ servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_ptr<void> node,
-		const NodeOperations *node_ops, const FileOperations *file_ops),
-		([lane = std::move(p), node, node_ops, file_ops] {
+		const NodeOperations *node_ops),
+		([lane = std::move(p), node, node_ops] {
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
@@ -276,8 +293,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			if(std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
 				std::tie(local_lane, remote_lane) = helix::createStream();
-				serveNode(std::move(local_lane), std::move(std::get<0>(result)),
-						node_ops, file_ops);
+				serveNode(std::move(local_lane), std::move(std::get<0>(result)), node_ops);
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -315,14 +331,10 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
 			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
+			helix::PushDescriptor push_file;
+			helix::PushDescriptor push_pt;
 			
-			auto file = COFIBER_AWAIT node_ops->open(node);
-			assert(file);
-
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			servePassthrough(std::move(local_lane), std::move(file), file_ops);
+			auto result = COFIBER_AWAIT node_ops->open(node);
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -330,10 +342,12 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
+					helix::action(&push_file, std::get<0>(result), kHelItemChain),
+					helix::action(&push_pt, std::get<1>(result)));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
+			HEL_CHECK(push_file.error());
+			HEL_CHECK(push_pt.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_link;

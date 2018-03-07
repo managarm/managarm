@@ -25,9 +25,11 @@ enum class FileType {
 	symlink
 };
 
+using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
+
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
-using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
+using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
 
 struct FileOperations {
 	constexpr FileOperations()
@@ -110,17 +112,20 @@ struct NodeOperations {
 	async::result<GetLinkResult> (*getLink)(std::shared_ptr<void> object,
 			std::string name);
 
-	async::result<smarter::shared_ptr<void>> (*open)(std::shared_ptr<void> object);
+	async::result<OpenResult> (*open)(std::shared_ptr<void> object);
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 };
+
+async::result<void>
+serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops);
 
 async::cancelable_result<void>
 servePassthrough(helix::UniqueLane lane, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops);
 
 cofiber::no_future serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
-		const NodeOperations *node_ops, const FileOperations *file_ops);
+		const NodeOperations *node_ops);
 
 
 } } // namespace protocols::fs
