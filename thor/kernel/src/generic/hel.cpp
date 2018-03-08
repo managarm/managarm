@@ -1056,7 +1056,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		uintptr_t regs[2];
 		regs[0] = *thread->_executor.ip();
 		regs[1] = *thread->_executor.sp();
-		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15);
+		writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2);
 	}else if(set == kHelRegsGeneral) {
 		uintptr_t regs[15];
 		regs[0] = thread->_executor.general()->rax;
