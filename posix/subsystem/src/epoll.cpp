@@ -39,15 +39,22 @@ private:
 		File *file;
 		int eventMask;
 		uint64_t cookie;
+
+		expected<PollResult> pollFuture;
 	};
 
-	static void _awaitPoll(Item *item, std::variant<Error, PollResult> result_or_error) {
+	static void _awaitPoll(Item *item) {
 		assert(item->state & statePolling);
 		auto self = item->epoll;
 
+		// Release the future to free up memory.
+		assert(item->pollFuture.ready());
+		auto result_or_error = std::move(item->pollFuture.value());
+		item->pollFuture = expected<PollResult>{};
+
 		// Discard non-active and closed items.
 		auto error = std::get_if<Error>(&result_or_error);
-		if(!(item->state & stateActive) || error) {
+		if(error || !(item->state & stateActive)) {
 			assert(*error == Error::fileClosed);
 			item->state &= ~statePolling;
 			if(!item->state)
@@ -87,9 +94,9 @@ private:
 						<< "\e[0m still not pending after poll()."
 						<< " Mask is " << item->eventMask << ", while "
 						<< std::get<2>(result) << " is active" << std::endl;
-			auto poll = item->file->poll(std::get<0>(result));
-			poll.then([item] (std::variant<Error, PollResult> next_result) {
-				_awaitPoll(item, next_result);
+			item->pollFuture = item->file->poll(std::get<0>(result));
+			item->pollFuture.then([item] {
+				_awaitPoll(item);
 			});
 		}
 	}
@@ -108,9 +115,9 @@ public:
 		auto item = new Item{this, file, mask, cookie};
 
 		item->state |= statePolling;
-		auto poll = item->file->poll(0);
-		poll.then([item] (std::variant<Error, PollResult> result) {
-			_awaitPoll(item, result);
+		item->pollFuture = item->file->poll(0);
+		item->pollFuture.then([item] {
+			_awaitPoll(item);
 		});
 
 		_fileMap.insert({file, item});
@@ -133,7 +140,8 @@ public:
 			delete it->second;
 	}
 
-	COFIBER_ROUTINE(async::result<size_t>, waitForEvents(struct epoll_event *events,
+	COFIBER_ROUTINE(async::cancelable_result<size_t>,
+	waitForEvents(struct epoll_event *events,
 			size_t max_events), ([=] {
 		assert(max_events);
 		if(logEpoll)
@@ -191,9 +199,9 @@ public:
 					item->state |= statePolling;
 
 					// Once an item is not pending anymore, we continue watching it.
-					auto poll = item->file->poll(std::get<0>(result));
-					poll.then([item] (std::variant<Error, PollResult> next_result) {
-						_awaitPoll(item, next_result);
+					item->pollFuture = item->file->poll(std::get<0>(result));
+					item->pollFuture.then([item] {
+						_awaitPoll(item);
 					});
 
 					continue;
@@ -220,6 +228,10 @@ public:
 			_currentSeq++;
 			_statusBell.ring();
 		}
+		
+		if(logEpoll)
+			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Return from wait"
+					" with " << k << " items" << std::endl;
 
 		COFIBER_RETURN(k);
 	}))
@@ -299,7 +311,7 @@ void deleteItem(File *epfile, File *file, int flags) {
 	epoll->deleteItem(file);
 }
 
-async::result<size_t> wait(File *epfile, struct epoll_event *events,
+async::cancelable_result<size_t> wait(File *epfile, struct epoll_event *events,
 		size_t max_events) {
 	auto epoll = static_cast<OpenFile *>(epfile);
 	return epoll->waitForEvents(events, max_events);

@@ -62,7 +62,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		HEL_CHECK(observe.error());
 
 		if(observe.observation() == kHelObserveSuperCall + 1) {
-//			std::cout << "clientFileTable supercall" << std::endl;
+			if(logRequests)
+				std::cout << "posix: clientFileTable supercall" << std::endl;
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			gprs[4] = kHelErrNone;
@@ -70,7 +71,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 2) {
-//			std::cout << "fork supercall" << std::endl;
+			if(logRequests)
+				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
 	
 			HelHandle new_thread;
@@ -99,7 +101,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
 		}else if(observe.observation() == kHelObserveSuperCall + 3) {
-//			std::cout << "execve supercall" << std::endl;
+			if(logRequests)
+				std::cout << "posix: execve supercall" << std::endl;
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
@@ -118,7 +121,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadForeign(self->vmContext()->getSpace().getHandle(),
 					gprs[7], gprs[8], env_area.data()));
 			
-			if(logPaths)
+			if(logRequests || logPaths)
 				std::cout << "posix: execve path: " << path << std::endl;
 
 			// Parse both the arguments and the environment areas.
@@ -385,7 +388,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {	
-			if(logPaths)
+			if(logRequests || logPaths)
 				std::cout << "posix: STAT path: " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
@@ -444,7 +447,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::READLINK) {
-			if(logPaths)
+			if(logRequests || logPaths)
 				std::cout << "posix: READLINK path: " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
@@ -492,7 +495,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::OPEN) {	
-			if(logPaths)
+			if(logRequests || logPaths)
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
 
 			helix::SendBuffer send_resp;
@@ -682,7 +685,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::UNLINK) {
-			if(logPaths)
+			if(logRequests || logPaths)
 				std::cout << "posix: UNLINK path: " << req.path() << std::endl;
 			
 			helix::SendBuffer send_resp;
@@ -954,9 +957,23 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
+
 			struct epoll_event events[16];
-			auto k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-					std::min(req.size(), uint32_t(16)));
+			size_t k;
+			if(req.timeout() == -1) {
+				std::cout << "posix: Infinite epoll wait" << std::endl;
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+						std::min(req.size(), uint32_t(16)));
+			}else if(req.timeout() == 0) {
+				// Do not bother to set up a timer for zero timeouts.
+				std::cout << "posix: Wait on epoll with zero timeout" << std::endl;
+				auto result = epoll::wait(epfile.get(), events,
+						std::min(req.size(), uint32_t(16)));
+				result.cancel();
+				k = COFIBER_AWAIT std::move(result);
+			}else{
+				assert(!"posix: Implement real epoll timeouts");
+			}
 			
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

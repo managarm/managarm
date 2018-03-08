@@ -142,6 +142,9 @@ message CntRequest {
 	// used by EPOLL_CTL
 	optional uint64 cookie = 17;
 
+	// used by EPOLL_WAIT
+	optional int64 timeout = 25;
+
 	optional uint64 time_secs = 18;
 	optional uint64 time_nanos = 19;
 	
