@@ -241,6 +241,10 @@ public:
 				allocate();
 				++it;
 				assert(it == std::prev(_items.end()));
+				// Hack around the current queue limitations and change the queue head.
+				// We need this store (and all loads) to be atomic,
+				// but that should be fine on x86_64.
+				__atomic_store_n(&_items.front().queue->nextQueue, it->queue, __ATOMIC_RELAXED);
 				ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
 				continue;
 			}
