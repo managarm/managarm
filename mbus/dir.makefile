@@ -27,12 +27,12 @@ $($c_BINDIR)/mbus: $($c_OBJECT_PATHS) | $($c_BINDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # compile protobuf files
 $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # build protobuf files
 gen-$c: $($c_GENDIR)/mbus.pb.tag

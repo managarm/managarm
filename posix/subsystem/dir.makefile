@@ -32,20 +32,20 @@ $($c_BINDIR)/posix-subsystem: $($c_OBJECT_PATHS) | $($c_BINDIR)
 
 $($c_OBJDIR)/%.o: $($c_SRCDIR)/%.cpp | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 $($c_OBJDIR)/devices/%.o: $($c_SRCDIR)/devices/%.cpp | $($c_DEVICES_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 $($c_OBJDIR)/subsystem/%.o: $($c_SRCDIR)/subsystem/%.cpp | $($c_SUBSYSTEM_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # compile protobuf
 $($c_OBJDIR)/%.o: $($c_GENDIR)/%.cc | $($c_OBJDIR)
 	$($d_CXX) -c -o $@ $($d_CXXFLAGS) $<
-	$($d_CXX) $($d_CXXFLAGS) -MM -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
+	$($d_CXX) $($d_CXXFLAGS) -M -MP -MF $(@:%.o=%.d) -MT "$@" -MT "$(@:%.o=%.d)" $<
 
 # generate protobuf
 gen-$c: $($c_GENDIR)/posix.pb.tag $($c_GENDIR)/fs.pb.tag
