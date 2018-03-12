@@ -11,8 +11,8 @@ void addItem(File *epfile, File *file, int flags, uint64_t cookie);
 void modifyItem(File *epfile, File *file, int flags, uint64_t cookie);
 void deleteItem(File *epfile, File *file, int flags);
 
-async::cancelable_result<size_t> wait(File *epfile, struct epoll_event *events,
-		size_t max_events);
+async::result<size_t> wait(File *epfile, struct epoll_event *events,
+		size_t max_events, async::result<void> cancellation);
 
 } // namespace epoll
 

@@ -961,16 +961,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			struct epoll_event events[16];
 			size_t k;
 			if(req.timeout() == -1) {
-				std::cout << "posix: Infinite epoll wait" << std::endl;
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
-						std::min(req.size(), uint32_t(16)));
+						std::min(req.size(), uint32_t(16)), async::result<void>{});
 			}else if(req.timeout() == 0) {
 				// Do not bother to set up a timer for zero timeouts.
-				std::cout << "posix: Wait on epoll with zero timeout" << std::endl;
-				auto result = epoll::wait(epfile.get(), events,
-						std::min(req.size(), uint32_t(16)));
-				result.cancel();
-				k = COFIBER_AWAIT std::move(result);
+				async::promise<void> promise;
+				promise.set_value();
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+						std::min(req.size(), uint32_t(16)), promise.async_get());
 			}else{
 				assert(!"posix: Implement real epoll timeouts");
 			}

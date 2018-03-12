@@ -140,20 +140,26 @@ public:
 			delete it->second;
 	}
 
-	COFIBER_ROUTINE(async::cancelable_result<size_t>,
-	waitForEvents(struct epoll_event *events,
-			size_t max_events), ([=] {
+	COFIBER_ROUTINE(async::result<size_t>,
+	waitForEvents(struct epoll_event *events, size_t max_events,
+			async::result_reference<void> cancellation), ([=] {
 		assert(max_events);
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
 					" There are " << _pendingQueue.size() << " pending items" << std::endl;
 		size_t k = 0;
+		bool cancelled = false;
 		boost::intrusive::list<Item> repoll_queue;
-		while(!k) {
-			while(_pendingQueue.empty()) {
+		while(!k && !cancelled) {
+			while(_pendingQueue.empty() && !cancelled) {
 				// TODO: Stop waiting in this case.
 				assert(isOpen());
-				COFIBER_AWAIT _statusBell.async_wait();
+
+				auto future = _statusBell.async_wait();
+				cancelled = COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation};
+				if(cancelled)
+					_statusBell.cancel_async_wait(future);
+				COFIBER_AWAIT std::move(future);
 			}
 
 			while(!_pendingQueue.empty()) {
@@ -311,10 +317,10 @@ void deleteItem(File *epfile, File *file, int flags) {
 	epoll->deleteItem(file);
 }
 
-async::cancelable_result<size_t> wait(File *epfile, struct epoll_event *events,
-		size_t max_events) {
+async::result<size_t> wait(File *epfile, struct epoll_event *events,
+		size_t max_events, async::result<void> cancellation) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	return epoll->waitForEvents(events, max_events);
+	return epoll->waitForEvents(events, max_events, cancellation);
 }
 
 } // namespace epoll
