@@ -49,6 +49,9 @@ enum CntReqType {
 	PT_READ_ENTRIES = 16;
 	PT_TRUNCATE = 20;
 	PT_FALLOCATE = 19;
+	PT_BIND = 21;
+	PT_LISTEN = 23;
+	PT_CONNECT = 22;
 
 	WRITE = 3;
 	SEEK_ABS = 6;

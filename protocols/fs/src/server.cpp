@@ -206,6 +206,44 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 				helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+		helix::RecvInline recv_addr;
+		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_addr));
+		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(recv_addr.error());
+	
+		assert(file_ops->bind);
+		COFIBER_AWAIT(file_ops->bind(file.get(), recv_addr.data(), recv_addr.length()));
+		
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+		helix::RecvInline recv_addr;
+		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&recv_addr));
+		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(recv_addr.error());
+	
+		assert(file_ops->connect);
+		COFIBER_AWAIT(file_ops->connect(file.get(), recv_addr.data(), recv_addr.length()));
+		
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else{
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");

@@ -138,6 +138,11 @@ public:
 	
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
+	
+	COFIBER_ROUTINE(async::result<void>, bind(const void *, size_t) override, ([=] {
+		// Do nothing for now.
+		COFIBER_RETURN();
+	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

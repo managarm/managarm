@@ -19,20 +19,26 @@ struct Packet {
 	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 };
 
+struct OpenFile;
+OpenFile *uniqueBind;
+
 struct OpenFile : File {
 	enum class State {
 		null,
+		listening,
 		connected
 	};
 
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
-		assert(a->_state == State::null);
-		assert(b->_state == State::null);
+		assert(a->_currentState == State::null);
+		assert(b->_currentState == State::null);
 		a->_remote = b;
 		b->_remote = a;
-		a->_state = State::connected;
-		b->_state = State::connected;
+		a->_currentState = State::connected;
+		b->_currentState = State::connected;
+		a->_stateBell.ring();
+		b->_stateBell.ring();
 	}
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -45,11 +51,11 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("un-socket")}, _state{State::null}, _currentSeq{1}, _inSeq{0} { }
+	: File{StructName::get("un-socket")}, _currentState{State::null}, _currentSeq{1}, _inSeq{0} { }
 
 public:
 	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
-		assert(_state == State::connected);
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
@@ -67,7 +73,7 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
-		assert(_state == State::connected);
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;
 
@@ -83,7 +89,7 @@ public:
 	}))
 
 	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length) override, ([=] {
-		assert(_state == State::connected);
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -102,7 +108,7 @@ public:
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
-		assert(_state == State::connected);
+		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -118,6 +124,18 @@ public:
 		COFIBER_RETURN(max_length);
 	}))
 	
+	COFIBER_ROUTINE(async::result<AcceptResult>, accept() override, ([=] {
+		assert(!_acceptQueue.empty());
+		auto remote = std::move(_acceptQueue.front());
+		_acceptQueue.pop_front();
+
+		// Create a new socket and connect it to the queued one.
+		auto local = smarter::make_shared<OpenFile>();
+		OpenFile::serve(local);
+		connectPair(remote, local.get());
+		COFIBER_RETURN(File::constructHandle(std::move(local)));
+	}))
+	
 	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(past_seq == _currentSeq)
@@ -129,7 +147,7 @@ public:
 			edges |= EPOLLIN;
 
 		int events = EPOLLOUT;
-		if(!_recvQueue.empty())
+		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
 		
 //		std::cout << "posix: poll(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
@@ -138,7 +156,26 @@ public:
 	
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
+	
+	COFIBER_ROUTINE(async::result<void>, bind(const void *, size_t) override, ([=] {
+		assert(!uniqueBind);
+		uniqueBind = this;
+		COFIBER_RETURN();
+	}))
+	
+	COFIBER_ROUTINE(async::result<void>, connect(const void *, size_t) override, ([=] {
+		assert(uniqueBind);
+		uniqueBind->_acceptQueue.push_back(this);
+		uniqueBind->_inSeq = ++uniqueBind->_currentSeq;
+		uniqueBind->_statusBell.ring();
 
+		while(_currentState == State::null)
+			COFIBER_AWAIT _stateBell.async_wait();
+		assert(_currentState == State::connected);
+		std::cout << "posix: Connect returns" << std::endl;
+		COFIBER_RETURN();
+	}))
+	
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -146,13 +183,17 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 
-	State _state;
+	async::doorbell _stateBell;
+	State _currentState;
 
 	// Status management for poll().
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
 	
+	// TODO: Use weak_ptrs here!
+	std::deque<OpenFile *> _acceptQueue;
+
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
 

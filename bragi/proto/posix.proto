@@ -33,7 +33,6 @@ enum CntReqType {
 	FSTAT = 12;
 	READLINK = 31;
 	OPEN = 2;
-	CONNECT = 19;
 	READ = 3;
 	WRITE = 4;
 	SEEK_ABS = 13;
@@ -52,6 +51,7 @@ enum CntReqType {
 	// Socket-specific calls.
 	SOCKET = 35;
 	SOCKPAIR = 25;
+	ACCEPT = 19;
 	RECVMSG = 41;
 	SENDMSG = 42;
 	

@@ -804,6 +804,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::ACCEPT) {
+			if(logRequests)
+				std::cout << "posix: ACCEPT" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			auto sockfile = self->fileContext()->getFile(req.fd());
+			assert(sockfile && "Illegal FD for ACCEPT");
+
+			auto newfile = COFIBER_AWAIT sockfile->accept();
+			auto fd = self->fileContext()->attachFile(std::move(newfile));
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SENDMSG) {
 			if(logRequests)
 				std::cout << "posix: SENDMSG" << std::endl;

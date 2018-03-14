@@ -36,7 +36,8 @@ struct FileOperations {
 	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
 			read{nullptr}, write{nullptr}, readEntries{nullptr},
 			accessMemory{nullptr}, truncate{nullptr}, fallocate{nullptr},
-			ioctl{nullptr}, poll{nullptr} { }
+			ioctl{nullptr}, poll{nullptr},
+			bind{nullptr}, listen{nullptr}, connect{nullptr} { }
 
 	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(void *object,
 			int64_t offset)) {
@@ -92,6 +93,16 @@ struct FileOperations {
 		poll = f;
 		return *this;
 	}
+	constexpr FileOperations &withBind(async::result<void> (*f)(void *object,
+			const void *addr_ptr, size_t addr_length)) {
+		bind = f;
+		return *this;
+	}
+	constexpr FileOperations &withConnect(async::result<void> (*f)(void *object,
+			const void *addr_ptr, size_t addr_length)) {
+		connect = f;
+		return *this;
+	}
 
 	async::result<int64_t> (*seekAbs)(void *object, int64_t offset);
 	async::result<int64_t> (*seekRel)(void *object, int64_t offset);
@@ -106,6 +117,9 @@ struct FileOperations {
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence);
+	async::result<void> (*bind)(void *object, const void *addr_ptr, size_t addr_length);
+	async::result<void> (*listen)(void *object);
+	async::result<void> (*connect)(void *object, const void *addr_ptr, size_t addr_length);
 };
 
 struct NodeOperations {

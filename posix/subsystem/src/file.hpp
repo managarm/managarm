@@ -50,6 +50,8 @@ using PollResult = std::tuple<uint64_t, int, int>;
 
 using RecvResult = std::pair<size_t, std::vector<smarter::shared_ptr<File, FileHandle>>>;
 
+using AcceptResult = smarter::shared_ptr<File, FileHandle>;
+
 struct DisposeFileHandle { };
 
 struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
@@ -73,13 +75,21 @@ public:
 
 	static async::result<void>
 	ptAllocate(void *object, int64_t offset, size_t size);
+
+	static async::result<void>
+	ptBind(void *object, const void *addr_ptr, size_t addr_length);
+
+	static async::result<void>
+	ptConnect(void *object, const void *addr_ptr, size_t addr_length);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)
 			.withWrite(&ptWrite)
 			.withReadEntries(&ptReadEntries)
 			.withTruncate(&ptTruncate)
-			.withFallocate(&ptAllocate);
+			.withFallocate(&ptAllocate)
+			.withBind(&ptBind)
+			.withConnect(&ptConnect);
 
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -147,6 +157,12 @@ public:
 	// transitions from clear to set) happens.
 	// TODO: This request should be cancelable.
 	virtual expected<PollResult> poll(uint64_t sequence);
+	
+	virtual async::result<AcceptResult> accept();
+
+	virtual async::result<void> bind(const void *addr_ptr, size_t addr_length);
+
+	virtual async::result<void> connect(const void *addr_ptr, size_t addr_length);
 
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory
