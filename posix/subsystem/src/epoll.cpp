@@ -144,23 +144,19 @@ public:
 	waitForEvents(struct epoll_event *events, size_t max_events,
 			async::result_reference<void> cancellation), ([=] {
 		assert(max_events);
-		if(logEpoll)
+		if(logEpoll) {
+			auto cf = cancellation.get_awaitable() ? cancellation.get_awaitable()->ready() : false;
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
-					" There are " << _pendingQueue.size() << " pending items" << std::endl;
-		size_t k = 0;
-		bool cancelled = false;
-		boost::intrusive::list<Item> repoll_queue;
-		while(!k && !cancelled) {
-			while(_pendingQueue.empty() && !cancelled) {
-				// TODO: Stop waiting in this case.
-				assert(isOpen());
+					" There are " << _pendingQueue.size() << " pending items;"
+					" cancellation flag is " << (cf ? "set" : "clear") << std::endl;
+		}
 
-				auto future = _statusBell.async_wait();
-				cancelled = COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation};
-				if(cancelled)
-					_statusBell.cancel_async_wait(future);
-				COFIBER_AWAIT std::move(future);
-			}
+		size_t k = 0;
+		bool waiting = true;
+		boost::intrusive::list<Item> repoll_queue;
+		while(waiting) {
+			// TODO: Stop waiting in this case.
+			assert(isOpen());
 
 			while(!_pendingQueue.empty()) {
 				auto item = &_pendingQueue.front();
@@ -218,6 +214,7 @@ public:
 				// TODO: Edge-triggered watches should not be requeued here.
 				repoll_queue.push_back(*item);
 
+				assert(k < max_events);
 				memset(events + k, 0, sizeof(struct epoll_event));
 				events[k].events = status;
 				events[k].data.u64 = item->cookie;
@@ -226,6 +223,16 @@ public:
 				if(k == max_events)
 					break;
 			}
+
+			if(k)
+				break;
+
+			// Block and re-check if there are pending events.
+			auto future = _statusBell.async_wait();
+			waiting = COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation};
+			if(!waiting)
+				_statusBell.cancel_async_wait(future);
+			COFIBER_AWAIT std::move(future);
 		}
 
 		// Before returning, we have to reinsert the level-triggered events that we report.
