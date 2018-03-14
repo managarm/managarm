@@ -293,15 +293,19 @@ public:
 
 COFIBER_ROUTINE(async::result<void>, MemoryFile::truncate(size_t size), ([=] {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
-	assert(node->_memory);
 
 	node->_fileSize = size;
 
-	if(size > node->_areaSize) {
-		size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
+	if(!node->_memory) {
+		HelHandle handle;
+		HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
+		node->_memory = helix::UniqueDescriptor{handle};
+	}else if(size > node->_areaSize) {
 		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
-		node->_areaSize = aligned_size;
 	}
+	node->_areaSize = aligned_size;
+
 	COFIBER_RETURN();
 }))
 
