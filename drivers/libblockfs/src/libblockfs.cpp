@@ -30,13 +30,16 @@ COFIBER_ROUTINE(async::result<int64_t>, seekAbs(void *object,
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object,
 		void *buffer, size_t length), ([=] {
+	assert(length);
+
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	COFIBER_AWAIT self->inode->readyJump.async_wait();
 
 	assert(self->offset <= self->inode->fileSize);
 	auto remaining = self->inode->fileSize - self->offset;
 	auto chunk_size = std::min(length, remaining);
-	assert(chunk_size);
+	if(!chunk_size)
+		COFIBER_RETURN(0); // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = self->offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
