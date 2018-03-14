@@ -69,9 +69,10 @@ private:
 		return VfsType::regular;
 	}
 
-	FutureMaybe<FileStats> getStats() override {
-		assert(!"Fix this");
-	}
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+		std::cout << "\e[31mposix: Fix externfs Regular::getStats()\e[39m" << std::endl;
+		COFIBER_RETURN(FileStats{});
+	}))
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
