@@ -13,6 +13,11 @@
 #include "file.hpp"
 #include "fs.hpp"
 
+using ResolveFlags = uint32_t;
+inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
+inline constexpr ResolveFlags resolveCreate = (1 << 2);
+inline constexpr ResolveFlags resolveExclusive = (1 << 3);
+
 namespace _vfs_view {
 	struct MountView;
 };
@@ -67,15 +72,36 @@ private:
 
 using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 
+struct PathResolver {
+	void setup(ViewPath root, std::string string);
+
+	async::result<void> resolve(ResolveFlags flags);
+
+	std::string nextComponent() {
+		assert(!_components.empty());
+		return _components.front();
+	}
+	
+	std::shared_ptr<MountView> currentView() {
+		return _currentPath.first;
+	}
+
+	std::shared_ptr<FsLink> currentLink() {
+		return _currentPath.second;
+	}
+
+private:
+	ViewPath _rootPath;
+
+	std::deque<std::string> _components;
+	ViewPath _currentPath;
+};
+
 async::result<void> populateRootView();
 
 ViewPath rootPath();
 
-using ResolveFlags = uint32_t;
-inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
-inline constexpr ResolveFlags resolveCreate = (1 << 2);
-inline constexpr ResolveFlags resolveExclusive = (1 << 3);
-
+// TODO: Switch to PathResolver instead of using this function.
 FutureMaybe<ViewPath> resolve(ViewPath root, std::string name, ResolveFlags flags = 0);
 
 FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(ViewPath root, std::string name,

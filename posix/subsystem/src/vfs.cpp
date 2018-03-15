@@ -188,27 +188,86 @@ private:
 	std::vector<std::string> _components;
 };
 
-namespace {
+void PathResolver::setup(ViewPath root, std::string string) {
+	auto path = Path::decompose(std::move(string));
+	if(path.isRelative())
+		std::cout << "posix: Fix relative path resolution" << std::endl;
+	
+	_components = std::deque<std::string>(path.begin(), path.end());
+	_currentPath = std::move(root);
+}
 
-COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolveChild(ViewPath parent, std::string name), ([=] {
-	auto child = COFIBER_AWAIT parent.second->getTarget()->getLink(std::move(name));
-	if(!child)
-		COFIBER_RETURN((ViewPath{parent.first, nullptr})); // TODO: Return an error code.
-
-	auto mount = parent.first->getMount(child);
-	if(mount) {
-		if(debugResolve)
-			std::cout << "    It's a mount point" << std::endl;
-		auto origin = mount->getOrigin();
-		COFIBER_RETURN((ViewPath{std::move(mount), std::move(origin)}));
-	}else{
-		if(debugResolve)
-			std::cout << "    It's NOT a mount point" << std::endl;
-		COFIBER_RETURN((ViewPath{std::move(parent.first), std::move(child)}));
+COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), ([=] {
+	auto sn = StructName::get("path-resolve");
+	if(debugResolve) {
+		std::cout << "posix " << sn << ": Path resolution for '/";
+		for(auto it = _components.begin(); it != _components.end(); ++it) {
+			if(it != _components.begin())
+				std::cout << "/";
+			std::cout << *it;
+		}
+		std::cout << "'" << std::endl;
 	}
-}))
 
-} // anonymous namespace
+	while(!_components.empty()) {
+		auto name = _components.front();
+		_components.pop_front();
+		if(debugResolve)
+			std::cout << "posix " << sn << ":     Resolving '" << name << "'" << std::endl;
+
+		// Resolve the link into the directory.
+		auto child = COFIBER_AWAIT _currentPath.second->getTarget()->getLink(std::move(name));
+		if(!child) {
+			// TODO: Return an error code.
+			_currentPath = ViewPath{_currentPath.first, nullptr};
+			COFIBER_RETURN();
+		}
+
+		// Next, we might need to traverse mount boundaries.
+		ViewPath next;
+		if(auto mount = _currentPath.first->getMount(child); mount) {
+			if(debugResolve)
+				std::cout << "posix " << sn << ":     VFS path is a mount point" << std::endl;
+			next = ViewPath{std::move(mount), mount->getOrigin()};
+		}else{
+			next = ViewPath{_currentPath.first, std::move(child)};
+		}
+
+		// Finally, we might need to follow symlinks.
+		if(next.second->getTarget()->getType() == VfsType::symlink
+				&& !(_components.empty() && (flags & resolveDontFollow))) {
+			auto result = COFIBER_AWAIT next.second->getTarget()->readSymlink(next.second.get());
+			auto link = Path::decompose(std::get<std::string>(result));
+
+			if(debugResolve) {
+				std::cout << "posix " << sn << ":     Link target is a symlink to '"
+						<< (link.isRelative() ? "" : "/");
+				for(auto it = link.begin(); it != link.end(); ++it) {
+					if(it != link.begin())
+						std::cout << "/";
+					std::cout << *it;
+				}
+				std::cout << "'" << std::endl;
+			}
+
+			if(!link.isRelative())
+				_currentPath = _rootPath;
+			_components.insert(_components.begin(), link.begin(), link.end());
+		}else if(_components.size() == 1
+				&& (flags & resolveCreate) && (flags & resolveExclusive)) {
+			assert(next.second->getTarget()->superblock());
+			auto node = COFIBER_AWAIT next.second->getTarget()->superblock()->createRegular();
+			auto link = COFIBER_AWAIT next.second->getTarget()->link(std::move(_components.front()),
+					std::move(node));
+			_currentPath = ViewPath{next.first, std::move(link)};
+			COFIBER_RETURN();
+		}else{
+			_currentPath = std::move(next);
+		}
+	}
+
+	COFIBER_RETURN();
+}))
 
 ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
@@ -216,41 +275,10 @@ ViewPath rootPath() {
 
 COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
 		ResolveFlags flags), ([=] {
-	auto path = Path::decompose(std::move(name));
-
-	ViewPath current = root;
-	std::deque<std::string> components(path.begin(), path.end());
-
-	while(!components.empty()) {
-		auto name = components.front();
-		components.pop_front();
-		if(debugResolve)
-			std::cout << "Resolving " << name << std::endl;
-
-		auto child = COFIBER_AWAIT(resolveChild(current, std::move(name)));
-		if(!child.second)
-			COFIBER_RETURN(child); // TODO: Return an error code.
-
-		if((!components.empty() || !(flags & resolveDontFollow))
-				&& child.second->getTarget()->getType() == VfsType::symlink) {
-			auto result = COFIBER_AWAIT child.second->getTarget()->readSymlink(child.second.get());
-			auto link = Path::decompose(std::get<std::string>(result));
-			if(!link.isRelative())
-				current = root;
-			components.insert(components.begin(), link.begin(), link.end());
-		}else if(components.size() == 1
-				&& (flags & resolveCreate) && (flags & resolveExclusive)) {
-			assert(child.second->getTarget()->superblock());
-			auto node = COFIBER_AWAIT child.second->getTarget()->superblock()->createRegular();
-			auto link = COFIBER_AWAIT child.second->getTarget()->link(std::move(components.front()),
-					std::move(node));
-			COFIBER_RETURN(ViewPath(child.first, std::move(link)));
-		}else{
-			current = std::move(child);
-		}
-	}
-
-	COFIBER_RETURN(std::move(current));
+	PathResolver resolver;
+	resolver.setup(std::move(root), std::move(name));
+	COFIBER_AWAIT resolver.resolve(flags);
+	COFIBER_RETURN(ViewPath(resolver.currentView(), resolver.currentLink()));
 }))
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, std::string name,
