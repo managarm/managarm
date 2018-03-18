@@ -34,7 +34,7 @@
 #include <posix.pb.h>
 
 bool logRequests = false;
-bool logPaths = false;
+bool logPaths = true;
 
 std::map<
 	std::array<char, 16>,
@@ -405,6 +405,50 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}
+		}else if(req.request_type() == managarm::posix::CntReqType::MKDIR) {
+			if(logRequests)
+				std::cout << "posix: MKDIR" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), req.path());
+			COFIBER_AWAIT resolver.resolve(resolvePrefix);
+			assert(resolver.currentLink());
+
+			auto parent = resolver.currentLink()->getTarget();
+			parent->mkdir(resolver.nextComponent());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
+			if(logRequests)
+				std::cout << "posix: SYMLINK" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), req.path());
+			COFIBER_AWAIT resolver.resolve(resolvePrefix);
+			assert(resolver.currentLink());
+
+			auto parent = resolver.currentLink()->getTarget();
+			parent->symlink(resolver.nextComponent(), req.target_path());
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {	
 			if(logRequests || logPaths)
 				std::cout << "posix: STAT path: " << req.path() << std::endl;

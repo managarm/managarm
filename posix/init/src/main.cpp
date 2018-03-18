@@ -84,7 +84,13 @@ int main() {
 		assert(errno == ENOENT);
 		sleep(1);
 	}
+	
+	auto udev = fork();
+	if(!udev) {
+		execl("/usr/sbin/udevd", "udevd", nullptr);
+	}else assert(udev != -1);
 
+/*
 	auto modeset = fork();
 	if(!modeset) {
 		putenv("XDG_RUNTIME_DIR=/run");
@@ -102,5 +108,6 @@ int main() {
 		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
 		execl("/usr/bin/weston", "weston", nullptr);
 	}else assert(modeset != -1);
+*/
 }
 
