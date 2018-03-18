@@ -14,6 +14,7 @@
 #include "fs.hpp"
 
 using ResolveFlags = uint32_t;
+inline constexpr ResolveFlags resolvePrefix = (1 << 4);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
 inline constexpr ResolveFlags resolveCreate = (1 << 2);
 inline constexpr ResolveFlags resolveExclusive = (1 << 3);
@@ -75,7 +76,7 @@ using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 struct PathResolver {
 	void setup(ViewPath root, std::string string);
 
-	async::result<void> resolve(ResolveFlags flags);
+	async::result<void> resolve(ResolveFlags flags = 0);
 
 	std::string nextComponent() {
 		assert(!_components.empty());

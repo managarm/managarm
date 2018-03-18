@@ -209,7 +209,8 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 		std::cout << "'" << std::endl;
 	}
 
-	while(!_components.empty()) {
+	while(!_components.empty()
+			&& (!(flags & resolvePrefix) || _components.size() > 1)) {
 		auto name = _components.front();
 		_components.pop_front();
 		if(debugResolve)

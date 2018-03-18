@@ -69,7 +69,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 	// TODO: Do this at process creation time to avoid races.
 	std::array<char, 16> creds;
 	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
-	globalCredentialsMap.insert({creds, self});
+	auto res = globalCredentialsMap.insert({creds, self});
+	assert(res.second);
 
 	while(true) {
 		helix::Observe observe;

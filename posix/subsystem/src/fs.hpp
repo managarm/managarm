@@ -16,7 +16,7 @@
 using DeviceId = std::pair<int, int>;
 
 enum class VfsType {
-	null, directory, regular, symlink, charDevice, blockDevice
+	null, directory, regular, symlink, charDevice, blockDevice, socket, fifo
 };
 
 struct FileStats {
@@ -48,6 +48,7 @@ struct FsLink {
 
 struct FsSuperblock {
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular() = 0;
+	virtual FutureMaybe<std::shared_ptr<FsNode>> createSocket() = 0;
 };
 
 // ----------------------------------------------------------------------------

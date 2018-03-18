@@ -1,16 +1,26 @@
 
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/un.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "un-socket.hpp"
+#include "process.hpp"
+#include "vfs.hpp"
 
 namespace un_socket {
 
 bool logSockets = false;
+
+struct OpenFile;
+
+// This map associates bound sockets with FS nodes.
+// TODO: Use plain pointers instead of weak_ptrs and store a shared_ptr inside the OpenFile.
+std::map<std::weak_ptr<FsNode>, OpenFile *,
+		std::owner_less<std::weak_ptr<FsNode>>> globalBindMap;
 
 struct Packet {
 	// The actual octet data that the packet consists of.
@@ -18,9 +28,6 @@ struct Packet {
 
 	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 };
-
-struct OpenFile;
-OpenFile *uniqueBind;
 
 struct OpenFile : File {
 	enum class State {
@@ -157,17 +164,49 @@ public:
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
 	
-	COFIBER_ROUTINE(async::result<void>, bind(Process *, const void *, size_t) override, ([=] {
-		assert(!uniqueBind);
-		uniqueBind = this;
+	COFIBER_ROUTINE(async::result<void>,
+	bind(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
+		// Create a new socket node in the FS.
+		struct sockaddr_un sa;
+		assert(addr_length <= sizeof(struct sockaddr_un));
+		memcpy(&sa, addr_ptr, addr_length);
+
+		PathResolver resolver;
+		resolver.setup(process->fsContext()->getRoot(),
+				std::string{sa.sun_path, strnlen(sa.sun_path, 108)});
+		COFIBER_AWAIT resolver.resolve(resolvePrefix);
+		assert(resolver.currentLink());
+
+		auto superblock = resolver.currentLink()->getTarget()->superblock();
+		auto node = COFIBER_AWAIT superblock->createSocket();
+		COFIBER_AWAIT resolver.currentLink()->getTarget()->link(resolver.nextComponent(), node);
+
+		// Associate the current socket with the node.
+		auto res = globalBindMap.insert({std::weak_ptr<FsNode>{node}, this});
+		assert(res.second);
+
 		COFIBER_RETURN();
 	}))
 	
-	COFIBER_ROUTINE(async::result<void>, connect(Process *, const void *, size_t) override, ([=] {
-		assert(uniqueBind);
-		uniqueBind->_acceptQueue.push_back(this);
-		uniqueBind->_inSeq = ++uniqueBind->_currentSeq;
-		uniqueBind->_statusBell.ring();
+	COFIBER_ROUTINE(async::result<void>,
+	connect(Process *process, const void *addr_ptr, size_t addr_length) override, ([=] {
+		// Resolve the socket node in the FS.
+		struct sockaddr_un sa;
+		assert(addr_length <= sizeof(struct sockaddr_un));
+		memcpy(&sa, addr_ptr, addr_length);
+
+		PathResolver resolver;
+		resolver.setup(process->fsContext()->getRoot(),
+				std::string{sa.sun_path, strnlen(sa.sun_path, 108)});
+		COFIBER_AWAIT resolver.resolve();
+		assert(resolver.currentLink());
+
+		// Lookup the socket associated with the node.
+		auto node = resolver.currentLink()->getTarget();
+		auto server = globalBindMap.at(node);
+		server->_acceptQueue.push_back(this);
+		server->_inSeq = ++server->_currentSeq;
+		server->_statusBell.ring();
 
 		while(_currentState == State::null)
 			COFIBER_AWAIT _stateBell.async_wait();

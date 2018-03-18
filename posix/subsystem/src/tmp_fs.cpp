@@ -68,6 +68,18 @@ private:
 	DeviceId _id;
 };
 
+struct SocketNode : FsNode {
+private:
+	VfsType getType() override {
+		return VfsType::socket;
+	}
+	
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+		std::cout << "\e[31mposix: Fix tmpfs SocketNode::getStats()\e[39m" << std::endl;
+		COFIBER_RETURN(FileStats{});
+	}))
+};
+
 struct Link : FsLink {
 public:
 	explicit Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
@@ -374,9 +386,13 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 }
 
 struct Superblock : FsSuperblock {
-	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>,
-			createRegular() override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createRegular() override, ([=] {
 		auto node = std::make_shared<MemoryNode>();
+		COFIBER_RETURN(std::move(node));
+	}))
+	
+	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsNode>>, createSocket() override, ([=] {
+		auto node = std::make_shared<SocketNode>();
 		COFIBER_RETURN(std::move(node));
 	}))
 };
