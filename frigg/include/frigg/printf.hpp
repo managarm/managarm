@@ -253,6 +253,7 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'G':
 		case 'e':
 		case 'E':
+		case 'm':
 			printer.print("%f");
 			break;
 		default:
