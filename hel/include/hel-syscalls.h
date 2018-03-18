@@ -36,6 +36,12 @@ extern inline __attribute__ (( always_inline )) HelError helDescriptorInfo(HelHa
 	return helSyscall2(kHelCallDescriptorInfo, (HelWord)handle, (HelWord)info);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helGetCredentials(HelHandle handle,
+		uint32_t flags, char *credentials) {
+	return helSyscall3(kHelCallGetCredentials, (HelWord)handle, (HelWord)flags,
+			(HelWord)credentials);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(HelHandle handle) {
 	return helSyscall1(kHelCallCloseDescriptor, (HelWord)handle);
 };

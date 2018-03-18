@@ -139,5 +139,7 @@ private:
 	void *_clientFileTable;
 };
 
+std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
+
 #endif // POSIX_SUBSYSTEM_PROCESS_HPP
 

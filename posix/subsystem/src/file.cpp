@@ -6,8 +6,8 @@
 #include <cofiber/future.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
-
 #include "file.hpp"
+#include "process.hpp"
 
 // --------------------------------------------------------
 // File implementation.
@@ -47,14 +47,18 @@ async::result<void> File::ptAllocate(void *object,
 	return self->allocate(offset, size);
 }
 
-async::result<void> File::ptBind(void *object, const void *addr_ptr, size_t addr_length) {
+async::result<void> File::ptBind(void *object, const char *credentials,
+		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
-	return self->bind(addr_ptr, addr_length);
+	auto process = findProcessWithCredentials(credentials);
+	return self->bind(process.get(), addr_ptr, addr_length);
 }
 
-async::result<void> File::ptConnect(void *object, const void *addr_ptr, size_t addr_length) {
+async::result<void> File::ptConnect(void *object, const char *credentials,
+		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
-	return self->connect(addr_ptr, addr_length);
+	auto process = findProcessWithCredentials(credentials);
+	return self->connect(process.get(), addr_ptr, addr_length);
 }
 
 COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length), ([=] {
@@ -121,13 +125,13 @@ async::result<AcceptResult> File::accept() {
 	throw std::runtime_error("posix: Object has no File::accept()");
 }
 
-async::result<void> File::bind(const void *, size_t) {
+async::result<void> File::bind(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement bind()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::bind()");
 }
 
-async::result<void> File::connect(const void *, size_t) {
+async::result<void> File::connect(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement connect()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::connect()");

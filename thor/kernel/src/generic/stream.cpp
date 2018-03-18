@@ -24,6 +24,12 @@ static void transfer(frigg::SharedPtr<OfferBase> offer,
 	accept->complete(kErrSuccess, accept->_universe, frigg::move(lane));
 }
 
+static void transfer(frigg::SharedPtr<ImbueCredentialsBase> from,
+		frigg::SharedPtr<ExtractCredentialsBase> to) {
+	from->complete(kErrSuccess);
+	to->complete(kErrSuccess, from->credentials);
+}
+
 static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
 		frigg::SharedPtr<RecvInlineBase> to) {
 	auto buffer = frigg::move(from->buffer);
@@ -191,6 +197,16 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 					LaneDescriptor(frigg::move(lane1)));
 			
 			return LaneHandle(adoptLane, conversation, p);
+		}else if(ImbueCredentialsBase::classOf(*u)
+				&& ExtractCredentialsBase::classOf(*v)) {
+			transfer(frigg::staticPtrCast<ImbueCredentialsBase>(frigg::move(u)),
+					frigg::staticPtrCast<ExtractCredentialsBase>(frigg::move(v)));
+			return LaneHandle();
+		}else if(ImbueCredentialsBase::classOf(*v)
+				&& ExtractCredentialsBase::classOf(*u)) {
+			transfer(frigg::staticPtrCast<ImbueCredentialsBase>(frigg::move(v)),
+					frigg::staticPtrCast<ExtractCredentialsBase>(frigg::move(u)));
+			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvInlineBase::classOf(*v)) {
 			transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),

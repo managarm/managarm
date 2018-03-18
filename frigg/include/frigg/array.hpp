@@ -9,12 +9,16 @@ namespace frigg FRIGG_VISIBILITY {
 template<typename T, int n>
 class Array {
 public:
+	T *data() {
+		return _array;
+	}
+
 	T &operator[] (int i) {
-		return p_array[i];
+		return _array[i];
 	}
 
 private:
-	T p_array[n];
+	T _array[n];
 };
 
 } // namespace frigg

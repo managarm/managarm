@@ -109,6 +109,10 @@ public:
 			AbiParameters abi);
 	~Thread();
 
+	const char *credentials() {
+		return _credentials;
+	}
+
 	UserContext &getContext();
 	frigg::UnsafePtr<Universe> getUniverse();
 	frigg::UnsafePtr<AddressSpace> getAddressSpace();
@@ -170,6 +174,8 @@ private:
 
 	static void _blockLocked(frigg::LockGuard<Mutex> lock);
 
+	char _credentials[16];
+
 	Mutex _mutex;
 
 	RunState _runState;
@@ -191,8 +197,8 @@ private:
 public:
 	// TODO: This should be private.
 	Executor _executor;
-private:
 
+private:
 	frigg::SharedPtr<Universe> _universe;
 	frigg::SharedPtr<AddressSpace> _addressSpace;
 

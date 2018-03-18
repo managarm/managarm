@@ -365,6 +365,26 @@ private:
 	}
 };
 
+struct ExtractCredentials : Operation {
+	HelError error() {
+		return result()->error;
+	}
+
+	char *credentials() {
+		return result()->credentials;
+	}
+
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelCredentialsResult);
+	}
+
+private:
+	HelCredentialsResult *result() {
+		return reinterpret_cast<HelCredentialsResult *>(OperationBase::element());
+	}
+};
+
 struct RecvInline : Operation {
 	HelError error() {
 		return result()->error;
@@ -580,6 +600,13 @@ inline Item<Offer> action(Offer *operation, uint32_t flags = 0) {
 inline Item<Accept> action(Accept *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionAccept;
+	action.flags = flags;
+	return {operation, action};
+}
+
+inline Item<ExtractCredentials> action(ExtractCredentials *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionExtractCredentials;
 	action.flags = flags;
 	return {operation, action};
 }

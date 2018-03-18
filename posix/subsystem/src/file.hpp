@@ -13,6 +13,7 @@
 
 struct File;
 struct FsLink;
+struct Process;
 
 struct FileHandle { };
 
@@ -77,10 +78,12 @@ public:
 	ptAllocate(void *object, int64_t offset, size_t size);
 
 	static async::result<void>
-	ptBind(void *object, const void *addr_ptr, size_t addr_length);
+	ptBind(void *object, const char *credentials,
+			const void *addr_ptr, size_t addr_length);
 
 	static async::result<void>
-	ptConnect(void *object, const void *addr_ptr, size_t addr_length);
+	ptConnect(void *object, const char *credentials,
+			const void *addr_ptr, size_t addr_length);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)
@@ -160,9 +163,11 @@ public:
 	
 	virtual async::result<AcceptResult> accept();
 
-	virtual async::result<void> bind(const void *addr_ptr, size_t addr_length);
+	virtual async::result<void> bind(Process *process,
+			const void *addr_ptr, size_t addr_length);
 
-	virtual async::result<void> connect(const void *addr_ptr, size_t addr_length);
+	virtual async::result<void> connect(Process *process,
+			const void *addr_ptr, size_t addr_length);
 
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory

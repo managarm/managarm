@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 84,
+	kHelNumCalls = 85,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -23,6 +23,7 @@ enum {
 	kHelCallCreateUniverse = 62,
 	kHelCallTransferDescriptor = 66,
 	kHelCallDescriptorInfo = 32,
+	kHelCallGetCredentials = 84,
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallAllocateMemory = 2,
@@ -109,6 +110,8 @@ enum {
 enum {
 	kHelActionOffer = 5,
 	kHelActionAccept = 6,
+	kHelActionImbueCredentials = 8,
+	kHelActionExtractCredentials = 9,
 	kHelActionSendFromBuffer = 1,
 	kHelActionRecvInline = 7,
 	kHelActionRecvToBuffer = 3,
@@ -241,6 +244,12 @@ struct HelSimpleResult {
 	int reserved;
 };
 
+struct HelCredentialsResult {
+	HelError error;
+	int reserved;
+	char credentials[16];
+};
+
 struct HelManageResult {
 	HelError error;
 	int reserved;
@@ -298,6 +307,8 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 		HelHandle *out_handle);
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
+HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
+		char *credentials);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);

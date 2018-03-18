@@ -3,6 +3,8 @@
 
 namespace thor {
 
+static std::atomic<uint64_t> globalThreadId;
+
 namespace {
 	constexpr bool logTransitions = false;
 	constexpr bool logRunStates = false;
@@ -175,7 +177,11 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 		_pendingSignal(kSigNone), _runCount(1),
 		_executor{&_context, abi},
 		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
-//	frigg::infoLogger() << "[" << globalThreadId << "] New thread!" << frigg::endLog;
+	// TODO: Generate real UUIDs instead of ascending numbers.
+	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
+	memset(_credentials, 0, 16);
+	memcpy(_credentials + 8, &id, sizeof(uint64_t));
+
 	auto stream = createStream();
 	_superiorLane = frigg::move(stream.get<0>());
 	_inferiorLane = frigg::move(stream.get<1>());

@@ -94,12 +94,12 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withBind(async::result<void> (*f)(void *object,
-			const void *addr_ptr, size_t addr_length)) {
+			const char *, const void *addr_ptr, size_t addr_length)) {
 		bind = f;
 		return *this;
 	}
 	constexpr FileOperations &withConnect(async::result<void> (*f)(void *object,
-			const void *addr_ptr, size_t addr_length)) {
+			const char *, const void *addr_ptr, size_t addr_length)) {
 		connect = f;
 		return *this;
 	}
@@ -117,9 +117,11 @@ struct FileOperations {
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence);
-	async::result<void> (*bind)(void *object, const void *addr_ptr, size_t addr_length);
+	async::result<void> (*bind)(void *object, const char *credentials,
+			const void *addr_ptr, size_t addr_length);
 	async::result<void> (*listen)(void *object);
-	async::result<void> (*connect)(void *object, const void *addr_ptr, size_t addr_length);
+	async::result<void> (*connect)(void *object, const char *credentials,
+			const void *addr_ptr, size_t addr_length);
 };
 
 struct NodeOperations {

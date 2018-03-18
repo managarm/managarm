@@ -207,14 +207,18 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+		helix::ExtractCredentials extract_creds;
 		helix::RecvInline recv_addr;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&extract_creds, kHelItemChain),
 				helix::action(&recv_addr));
 		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_addr.error());
 	
 		assert(file_ops->bind);
-		COFIBER_AWAIT(file_ops->bind(file.get(), recv_addr.data(), recv_addr.length()));
+		COFIBER_AWAIT(file_ops->bind(file.get(), extract_creds.credentials(),
+				recv_addr.data(), recv_addr.length()));
 		
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;
@@ -226,14 +230,18 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+		helix::ExtractCredentials extract_creds;
 		helix::RecvInline recv_addr;
 		auto &&buff = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&extract_creds, kHelItemChain),
 				helix::action(&recv_addr));
 		COFIBER_AWAIT buff.async_wait();
+		HEL_CHECK(extract_creds.error());
 		HEL_CHECK(recv_addr.error());
 	
 		assert(file_ops->connect);
-		COFIBER_AWAIT(file_ops->connect(file.get(), recv_addr.data(), recv_addr.length()));
+		COFIBER_AWAIT(file_ops->connect(file.get(), extract_creds.credentials(),
+				recv_addr.data(), recv_addr.length()));
 		
 		helix::SendBuffer send_resp;
 		managarm::fs::SvrResponse resp;

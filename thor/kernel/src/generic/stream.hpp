@@ -2,6 +2,7 @@
 #define THOR_GENERIC_STREAM_HPP
 
 #include <atomic>
+#include <frigg/array.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/vector.hpp>
 #include "core.hpp"
@@ -32,6 +33,8 @@ struct StreamControl {
 		kTagNull,
 		kTagOffer,
 		kTagAccept,
+		kTagImbueCredentials,
+		kTagExtractCredentials,
 		kTagSendFromBuffer,
 		kTagRecvInline,
 		kTagRecvToBuffer,
@@ -86,6 +89,39 @@ using Accept = Realization<
 	void(Error, frigg::WeakPtr<Universe>, LaneDescriptor),
 	F
 >;
+
+struct ImbueCredentialsBase : StreamControl {
+	static bool classOf(const StreamControl &base) {
+		return base.tag() == kTagImbueCredentials;
+	}
+
+	explicit ImbueCredentialsBase(const char * credentials_)
+	: StreamControl(kTagImbueCredentials) {
+		memcpy(credentials.data(), credentials_, 16);
+	}
+
+	virtual void complete(Error error) = 0;
+
+	frigg::Array<char, 16> credentials;
+};
+
+template<typename F>
+using ImbueCredentials = Realization<ImbueCredentialsBase, void(Error), F>;
+
+struct ExtractCredentialsBase : StreamControl {
+	static bool classOf(const StreamControl &base) {
+		return base.tag() == kTagExtractCredentials;
+	}
+
+	explicit ExtractCredentialsBase()
+	: StreamControl(kTagExtractCredentials) { }
+
+	virtual void complete(Error error, frigg::Array<char, 16> credentials) = 0;
+};
+
+template<typename F>
+using ExtractCredentials = Realization<ExtractCredentialsBase,
+		void(Error, frigg::Array<char, 16>), F>;
 
 struct SendFromBufferBase : StreamControl {
 	static bool classOf(const StreamControl &base) {
@@ -194,6 +230,18 @@ struct Stream {
 	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, F functor) {
 		return _submitControl(lane, frigg::makeShared<Accept<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(universe)));
+	}
+	
+	template<typename F>
+	LaneHandle submitImbueCredentials(int lane, const char *credentials, F functor) {
+		return _submitControl(lane, frigg::makeShared<ImbueCredentials<F>>(*kernelAlloc,
+				frigg::move(functor), credentials));
+	}
+	
+	template<typename F>
+	LaneHandle submitExtractCredentials(int lane, F functor) {
+		return _submitControl(lane, frigg::makeShared<ExtractCredentials<F>>(*kernelAlloc,
+				frigg::move(functor)));
 	}
 
 	template<typename F>

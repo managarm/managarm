@@ -157,13 +157,13 @@ public:
 		COFIBER_RETURN(PollResult(_currentSeq, edges, events));
 	}))
 	
-	COFIBER_ROUTINE(async::result<void>, bind(const void *, size_t) override, ([=] {
+	COFIBER_ROUTINE(async::result<void>, bind(Process *, const void *, size_t) override, ([=] {
 		assert(!uniqueBind);
 		uniqueBind = this;
 		COFIBER_RETURN();
 	}))
 	
-	COFIBER_ROUTINE(async::result<void>, connect(const void *, size_t) override, ([=] {
+	COFIBER_ROUTINE(async::result<void>, connect(Process *, const void *, size_t) override, ([=] {
 		assert(uniqueBind);
 		uniqueBind->_acceptQueue.push_back(this);
 		uniqueBind->_inSeq = ++uniqueBind->_currentSeq;

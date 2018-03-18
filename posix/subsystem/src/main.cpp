@@ -36,6 +36,17 @@
 bool logRequests = false;
 bool logPaths = false;
 
+std::map<
+	std::array<char, 16>,
+	std::shared_ptr<Process>
+> globalCredentialsMap;
+
+std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
+	std::array<char, 16> creds;
+	memcpy(creds.data(), credentials, 16);
+	return globalCredentialsMap.at(creds);
+}
+
 cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
 
 void dumpRegisters(helix::BorrowedDescriptor thread) {
@@ -55,6 +66,11 @@ void dumpRegisters(helix::BorrowedDescriptor thread) {
 
 COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
+	// TODO: Do this at process creation time to avoid races.
+	std::array<char, 16> creds;
+	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
+	globalCredentialsMap.insert({creds, self});
+
 	while(true) {
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe, helix::Dispatcher::global());
@@ -79,6 +95,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helCreateThread(child->fileContext()->getUniverse().getHandle(),
 					child->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
 					0, 0, kHelThreadStopped, &new_thread));
+
 			serve(child, helix::UniqueDescriptor(new_thread));
 
 			// Copy registers from the current thread to the new one.

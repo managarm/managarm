@@ -160,6 +160,48 @@ private:
 	HelHandleResult _result;
 };
 
+struct ImbueCredentialsWriter {
+	ImbueCredentialsWriter(Error error)
+	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+			_result{translateError(error), 0} { }
+
+	ImbueCredentialsWriter(const ImbueCredentialsWriter &) = delete;
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelSimpleResult _result;
+};
+
+struct ExtractCredentialsWriter {
+	ExtractCredentialsWriter(Error error, frigg::Array<char, 16> credentials)
+	: _chunk{&_result, sizeof(HelCredentialsResult), nullptr},
+			_result{translateError(error), 0} {
+		memcpy(_result.credentials, credentials.data(), 16);
+	}
+
+	ExtractCredentialsWriter(const ExtractCredentialsWriter &) = delete;
+
+	QueueChunk *chunk() {
+		return &_chunk;
+	}
+
+	void link(QueueChunk *next) {
+		_chunk.link = next;
+	}
+
+private:
+	QueueChunk _chunk;
+	HelCredentialsResult _result;
+};
+
 struct SendStringWriter {
 	SendStringWriter(Error error)
 	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
@@ -296,6 +338,8 @@ private:
 using ItemWriter = frigg::Variant<
 	OfferWriter,
 	AcceptWriter,
+	ImbueCredentialsWriter,
+	ExtractCredentialsWriter,
 	SendStringWriter,
 	RecvInlineWriter,
 	RecvStringWriter,
@@ -445,6 +489,29 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
 	default:
 		assert(!"Illegal descriptor");
 	}
+
+	return kHelErrNone;
+}
+
+HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	assert(!flags);
+	
+	frigg::SharedPtr<Thread> thread;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}
+
+	writeUserMemory(credentials, thread->credentials(), 16);
 
 	return kHelErrNone;
 }
@@ -1274,6 +1341,17 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(branch);
+		} break;
+		case kHelActionImbueCredentials: {
+			using Token = SetResult<ImbueCredentialsWriter>;
+			target.getStream()->submitImbueCredentials(target.getLane(),
+					this_thread->credentials(),
+					Token(handler, i - 1));
+		} break;
+		case kHelActionExtractCredentials: {
+			using Token = SetResult<ExtractCredentialsWriter>;
+			target.getStream()->submitExtractCredentials(target.getLane(),
+					Token(handler, i - 1));
 		} break;
 		case kHelActionSendFromBuffer: {
 			using Token = SetResult<SendStringWriter>;

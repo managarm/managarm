@@ -6,7 +6,7 @@ $c_CXX = x86_64-managarm-g++
 $c_INCLUDES := -I$($c_HEADERDIR)
 
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
-$c_CXXFLAGS += -std=c++14 -Wall -fPIC -O2
+$c_CXXFLAGS += -std=c++17 -Wall -fPIC -O2
 
 $c_LIBS :=
 
