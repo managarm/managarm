@@ -70,6 +70,11 @@ enum CntReqType {
 	TIMERFD_CREATE = 33;
 	TIMERFD_SETTIME = 36;
 
+	// inotify()-specific calls
+	INOTIFY_CREATE = 48;
+	INOTIFY_ADD = 49;
+	INOTIFY_DELETE = 50;
+
 	HELFD_ATTACH = 10;
 	HELFD_CLONE = 11;
 };

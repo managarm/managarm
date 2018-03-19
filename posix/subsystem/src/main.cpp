@@ -23,6 +23,7 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
+#include "inotify.hpp"
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
@@ -1113,6 +1114,27 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
 			
 			auto file = createSignalFile();
+			auto fd = self->fileContext()->attachFile(file,
+					req.flags() & managarm::posix::OF_CLOEXEC);
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::INOTIFY_CREATE) {
+			if(logRequests)
+				std::cout << "posix: INOTIFY_CREATE" << std::endl;
+
+			helix::SendBuffer send_resp;
+			
+			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
+			
+			auto file = inotify::createFile();
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
 
