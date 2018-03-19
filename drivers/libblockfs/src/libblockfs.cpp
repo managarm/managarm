@@ -74,10 +74,17 @@ COFIBER_ROUTINE(async::result<protocols::fs::AccessMemoryResult>,
 	COFIBER_RETURN(std::make_pair(helix::BorrowedDescriptor{self->inode->frontalMemory}, offset));
 }))
 
+COFIBER_ROUTINE(async::result<protocols::fs::ReadEntriesResult>,
+readEntries(void *object), ([=] {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	COFIBER_RETURN(COFIBER_AWAIT self->readEntries());
+}))
+
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekAbs(&seekAbs)
 	.withRead(&read)
 	.withWrite(&write)
+	.withReadEntries(&readEntries)
 	.withAccessMemory(&accessMemory);
 
 COFIBER_ROUTINE(async::result<protocols::fs::GetLinkResult>, getLink(std::shared_ptr<void> object,

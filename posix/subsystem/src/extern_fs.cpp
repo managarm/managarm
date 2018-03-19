@@ -63,14 +63,14 @@ private:
 	protocols::fs::File _file;
 };
 
-struct Regular : FsNode {
+struct RegularNode : FsNode {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix externfs Regular::getStats()\e[39m" << std::endl;
+		std::cout << "\e[31mposix: Fix externfs RegularNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
 	}))
 
@@ -110,21 +110,21 @@ private:
 	}))
 
 public:
-	Regular(helix::UniqueLane lane)
+	RegularNode(helix::UniqueLane lane)
 	: _lane{std::move(lane)} { }
 
 private:
 	helix::UniqueLane _lane;
 };
 
-struct Symlink : FsNode {
+struct SymlinkNode : FsNode {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
 
 	FutureMaybe<FileStats> getStats() override {
-		throw std::runtime_error("extern_fs: Fix Symlink::getStats()");
+		throw std::runtime_error("extern_fs: Fix SymlinkNode::getStats()");
 	}
 
 	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
@@ -155,7 +155,7 @@ private:
 	}))
 
 public:
-	Symlink(helix::UniqueLane lane)
+	SymlinkNode(helix::UniqueLane lane)
 	: _lane{std::move(lane)} { }
 
 private:
@@ -185,14 +185,14 @@ private:
 	std::shared_ptr<FsNode> _target;
 };
 
-struct Directory : FsNode, std::enable_shared_from_this<Directory> {
+struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 private:
 	VfsType getType() override {
 		return VfsType::directory;
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix externfs Directory::getStats()\e[39m" << std::endl;
+		std::cout << "\e[31mposix: Fix externfs DirectoryNode::getStats()\e[39m" << std::endl;
 		COFIBER_RETURN(FileStats{});
 	}))
 
@@ -249,13 +249,13 @@ private:
 			std::shared_ptr<FsNode> child;
 			switch(resp.file_type()) {
 			case managarm::fs::FileType::DIRECTORY:
-				child = std::make_shared<Directory>(_context, pull_node.descriptor());
+				child = std::make_shared<DirectoryNode>(_context, pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::REGULAR:
-				child = std::make_shared<Regular>(pull_node.descriptor());
+				child = std::make_shared<RegularNode>(pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::SYMLINK:
-				child = std::make_shared<Symlink>(pull_node.descriptor());
+				child = std::make_shared<SymlinkNode>(pull_node.descriptor());
 				break;
 			default:
 				throw std::runtime_error("extern_fs: Unexpected file type");
@@ -268,8 +268,43 @@ private:
 		}
 	}))
 
+	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+			open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
+		assert(!semantic_flags);
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+		helix::PullDescriptor pull_ctrl;
+		helix::PullDescriptor pull_passthrough;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp, kHelItemChain),
+				helix::action(&pull_ctrl, kHelItemChain),
+				helix::action(&pull_passthrough));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(pull_ctrl.error());
+		HEL_CHECK(pull_passthrough.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
+				pull_passthrough.descriptor(), std::move(link));
+		COFIBER_RETURN(File::constructHandle(std::move(file)));
+	}))
+
 public:
-	Directory(Context *context, helix::UniqueLane lane)
+	DirectoryNode(Context *context, helix::UniqueLane lane)
 	: _context{context}, _lane{std::move(lane)} { }
 
 private:
@@ -311,7 +346,7 @@ std::shared_ptr<FsLink> Context::internalizeLink(FsNode *parent, std::string nam
 
 std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};
-	auto node = std::make_shared<Directory>(context, std::move(lane));
+	auto node = std::make_shared<DirectoryNode>(context, std::move(lane));
 	// FIXME: 2 is the ext2fs root inode.
 	auto intern = context->internalizeNode(2, node);
 	auto link = std::make_shared<Entry>(nullptr, intern);

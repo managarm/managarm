@@ -3,6 +3,7 @@
 #include <time.h>
 #include <experimental/optional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -315,6 +316,8 @@ struct FileSystem {
 
 struct OpenFile {
 	OpenFile(std::shared_ptr<Inode> inode);
+
+	async::result<std::optional<std::string>> readEntries();
 
 	std::shared_ptr<Inode> inode;
 	uint64_t offset;

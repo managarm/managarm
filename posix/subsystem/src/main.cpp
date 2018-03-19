@@ -406,8 +406,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				HEL_CHECK(send_resp.error());
 			}
 		}else if(req.request_type() == managarm::posix::CntReqType::MKDIR) {
-			if(logRequests)
-				std::cout << "posix: MKDIR" << std::endl;
+			if(logRequests || logPaths)
+				std::cout << "posix: MKDIR " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
 
@@ -428,8 +428,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SYMLINK) {
-			if(logRequests)
-				std::cout << "posix: SYMLINK" << std::endl;
+			if(logRequests || logPaths)
+				std::cout << "posix: SYMLINK " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
 

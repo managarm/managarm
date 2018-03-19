@@ -348,6 +348,38 @@ void FileSystem::BlockCache::finishEntry(BlockCacheEntry *entry) {
 OpenFile::OpenFile(std::shared_ptr<Inode> inode)
 : inode(inode), offset(0) { }
 
+COFIBER_ROUTINE(async::result<std::optional<std::string>>,
+OpenFile::readEntries(), ([=] {
+	COFIBER_AWAIT inode->readyJump.async_wait();
+	
+	assert(offset <= inode->fileSize);
+	if(offset == inode->fileSize)
+		COFIBER_RETURN(std::nullopt);
+
+	auto map_size = (inode->fileSize + 0xFFF) & ~size_t(0xFFF);
+
+	helix::LockMemory lock_memory;
+	auto &&submit = helix::submitLockMemory(helix::BorrowedDescriptor(inode->frontalMemory),
+			&lock_memory, 0, map_size, helix::Dispatcher::global());
+	COFIBER_AWAIT submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// TODO: Use a RAII mapping class to get rid of the mapping on return.
+	// map the page cache into the address space
+	void *window;
+	HEL_CHECK(helMapMemory(inode->frontalMemory, kHelNullHandle, nullptr, 0, map_size,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking, &window));
+
+	// Read the directory structure.
+	auto disk_entry = reinterpret_cast<DiskDirEntry *>((char *)window + offset);
+	assert(offset + sizeof(DiskDirEntry) <= inode->fileSize);
+	assert(offset + disk_entry->recordLength <= inode->fileSize);
+	offset += disk_entry->recordLength;
+//	std::cout << "libblockfs: Returning entry "
+//			<< std::string(disk_entry->name, disk_entry->nameLength) << std::endl;
+	COFIBER_RETURN(std::string(disk_entry->name, disk_entry->nameLength));
+}))
+
 // --------------------------------------------------------
 // Client
 // --------------------------------------------------------
