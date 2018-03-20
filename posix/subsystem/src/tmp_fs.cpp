@@ -395,6 +395,11 @@ struct Superblock : FsSuperblock {
 		auto node = std::make_shared<SocketNode>();
 		COFIBER_RETURN(std::move(node));
 	}))
+
+	COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>, rename(FsLink *source,
+			FsNode *directory, std::string name), ([=] {
+		std::cout << "\e[31mposix: Fix tmpfs Superblock::rename()\e[39m" << std::endl;
+	}))
 };
 
 DirectoryNode::DirectoryNode(Superblock *superblock)

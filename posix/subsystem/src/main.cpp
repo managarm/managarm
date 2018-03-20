@@ -450,6 +450,47 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::RENAME) {
+			if(logRequests || logPaths)
+				std::cout << "posix: RENAME " << req.path()
+						<< " to " << req.target_path() << std::endl;
+
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), req.path());
+			COFIBER_AWAIT resolver.resolve();
+			if(!resolver.currentLink()) {
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+			
+			PathResolver new_resolver;
+			new_resolver.setup(self->fsContext()->getRoot(), req.target_path());
+			COFIBER_AWAIT new_resolver.resolve(resolvePrefix);
+			assert(new_resolver.currentLink());
+
+			auto parent = resolver.currentLink()->getTarget();
+			auto directory = new_resolver.currentLink()->getTarget();
+			auto superblock = parent->superblock();
+			assert(superblock == directory->superblock());
+			superblock->rename(resolver.currentLink().get(),
+					directory.get(), new_resolver.nextComponent());
+
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {	
 			if(logRequests || logPaths)
 				std::cout << "posix: STAT path: " << req.path() << std::endl;
