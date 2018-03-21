@@ -2,6 +2,7 @@
 #define POSIX_SUBSYSTEM_FILE_HPP
 
 #include <variant>
+#include <string.h> // for hel.h
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>

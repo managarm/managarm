@@ -16,6 +16,7 @@
 
 #include "common.hpp"
 #include "device.hpp"
+#include "drvcore.hpp"
 #include "nl-socket.hpp"
 #include "vfs.hpp"
 #include "process.hpp"
@@ -858,7 +859,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 				file = un_socket::createSocketFile();
 			}else if(req.domain() == AF_NETLINK) {
-				file = nl_socket::createSocketFile();
+				assert(req.socktype() == SOCK_RAW || req.socktype() == SOCK_DGRAM);
+				file = nl_socket::createSocketFile(req.protocol());
 			}else{
 				throw std::runtime_error("posix: Handle unknown protocol families");
 			}
@@ -1272,6 +1274,8 @@ COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
+
+	drvcore::initialize();
 
 	charRegistry.install(createHeloutDevice());
 	block_subsystem::run();

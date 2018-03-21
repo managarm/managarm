@@ -7,6 +7,7 @@
 
 #include "../common.hpp"
 #include "../device.hpp"
+#include "../drvcore.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
 
@@ -61,6 +62,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				std::move(lane));
 		device->assignId({13, evdevAllocator.allocate()});
 		charRegistry.install(device);
+		drvcore::emitHotplug("add@/devices/event0\0ACTION=add\0DEVPATH=/devices/event0\0");
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));

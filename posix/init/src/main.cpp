@@ -69,26 +69,40 @@ int main() {
 	if(!gfx_virtio) {
 		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
-	
-	auto input_hid = fork();
-	if(!input_hid) {
-		execl("/usr/bin/hid", "hid", nullptr);
-	}else assert(input_hid != -1);
 
 	while(access("/dev/dri/card0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
 	}
 
+/*
 	while(access("/dev/input/event0", F_OK)) {
 		assert(errno == ENOENT);
 		sleep(1);
 	}
-	
+*/
+
 	auto udev = fork();
 	if(!udev) {
 		execl("/usr/sbin/udevd", "udevd", nullptr);
 	}else assert(udev != -1);
+
+	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
+		assert(errno == ENOENT);
+		sleep(1);
+	}
+	
+	auto input_hid = fork();
+	if(!input_hid) {
+		execl("/usr/bin/hid", "hid", nullptr);
+	}else assert(input_hid != -1);
+
+/*
+	auto udev_trigger_devs = fork();
+	if(!udev_trigger_devs) {
+		execl("/usr/bin/udevadm", "udevadm", "--trigger", "--action=add", nullptr);
+	}else assert(udev_trigger_devs != -1);
+*/
 
 /*
 	auto modeset = fork();
