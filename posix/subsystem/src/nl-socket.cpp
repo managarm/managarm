@@ -2,6 +2,7 @@
 #include <linux/netlink.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <iostream>
 #include <map>
 
@@ -15,6 +16,9 @@ namespace nl_socket {
 bool logSockets = true;
 
 struct Packet {
+	int senderPort;
+	int group;
+
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
 
@@ -76,21 +80,32 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length,
+			void *addr_ptr, size_t max_addr_length) override, ([=] {
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+		assert(max_addr_length >= sizeof(struct sockaddr_nl));
 
 		while(_recvQueue.empty())
 			COFIBER_AWAIT _statusBell.async_wait();
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
+		
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
 		auto files = std::move(packet->files);
+
+		struct sockaddr_nl sa;
+		memset(&sa, 0, sizeof(struct sockaddr_nl));
+		sa.nl_family = AF_NETLINK;
+		sa.nl_pid = packet->senderPort;
+		sa.nl_groups = packet->group ? (1 << (packet->group - 1)) : 0;
+		memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
+
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, std::move(files)));
+		COFIBER_RETURN(RecvResult(size, std::move(files), sizeof(struct sockaddr_nl)));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
@@ -200,6 +215,8 @@ OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
 void Group::broadcast(std::string buffer) {
 	for(auto socket : _subscriptions) {
 		Packet packet;
+		packet.senderPort = 0;
+		packet.group = 1;
 		packet.buffer.resize(buffer.size());
 		memcpy(packet.buffer.data(), buffer.data(), buffer.size());
 

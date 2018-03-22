@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <iostream>
+#include <sstream>
 
 #include <cofiber.hpp>
 #include <protocols/mbus/client.hpp>
@@ -62,7 +63,12 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				std::move(lane));
 		device->assignId({13, evdevAllocator.allocate()});
 		charRegistry.install(device);
-		drvcore::emitHotplug("add@/devices/event0\0ACTION=add\0DEVPATH=/devices/event0\0");
+
+		std::stringstream s;
+		s << "add@/devices/event0" << '\0';
+		s << "ACTION=add" << '\0';
+		s << "DEVPATH=/devices/event0" << '\0';
+		drvcore::emitHotplug(s.str());
 	});
 
 	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));

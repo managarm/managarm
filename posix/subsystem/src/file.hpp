@@ -50,7 +50,11 @@ using ReadEntriesResult = std::optional<std::string>;
 
 using PollResult = std::tuple<uint64_t, int, int>;
 
-using RecvResult = std::pair<size_t, std::vector<smarter::shared_ptr<File, FileHandle>>>;
+using RecvResult = std::tuple<
+	size_t,
+	std::vector<smarter::shared_ptr<File, FileHandle>>,
+	size_t
+>;
 
 using AcceptResult = smarter::shared_ptr<File, FileHandle>;
 
@@ -145,7 +149,8 @@ public:
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 
-	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length);
+	virtual FutureMaybe<RecvResult> recvMsg(void *data, size_t max_length,
+			void *addr_ptr, size_t max_addr_length);
 
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);

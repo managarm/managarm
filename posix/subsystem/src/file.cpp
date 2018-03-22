@@ -91,7 +91,7 @@ async::result<ReadEntriesResult> File::readEntries() {
 	throw std::runtime_error("posix: Object has no File::readEntries()");
 }
 
-FutureMaybe<RecvResult> File::recvMsg(void *, size_t) {
+FutureMaybe<RecvResult> File::recvMsg(void *, size_t, void *, size_t) {
 	throw std::runtime_error("posix: Object has no File::sendMsg()");
 }
 

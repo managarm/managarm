@@ -145,6 +145,8 @@ message CntRequest {
 	optional int32 socktype = 15;
 	optional int32 protocol = 16;
 	
+	optional uint64 addr_size = 26;
+	
 	repeated int32 fds = 22;
 	
 	// used by EPOLL_CTL

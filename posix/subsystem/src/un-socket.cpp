@@ -95,7 +95,8 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length,
+			void *, size_t) override, ([=] {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -110,7 +111,7 @@ public:
 		memcpy(data, packet->buffer.data(), size);
 		auto files = std::move(packet->files);
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, std::move(files)));
+		COFIBER_RETURN(RecvResult(size, std::move(files), 0));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
