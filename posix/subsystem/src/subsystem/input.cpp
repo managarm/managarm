@@ -68,6 +68,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		s << "add@/devices/event0" << '\0';
 		s << "ACTION=add" << '\0';
 		s << "DEVPATH=/devices/event0" << '\0';
+		s << "SUBSYSTEM=input" << '\0';
 		drvcore::emitHotplug(s.str());
 	});
 

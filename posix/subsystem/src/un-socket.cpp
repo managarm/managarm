@@ -125,7 +125,7 @@ public:
 		}
 
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, 0, std::move(ctrl.buffer())));
+		COFIBER_RETURN(RecvResult(size, 0, ctrl.buffer()));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,

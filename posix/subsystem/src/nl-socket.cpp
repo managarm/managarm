@@ -10,6 +10,7 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "nl-socket.hpp"
+#include "sockutil.hpp"
 
 namespace nl_socket {
 
@@ -79,7 +80,7 @@ public:
 
 	COFIBER_ROUTINE(FutureMaybe<RecvResult>,
 	recvMsg(Process *process, void *data, size_t max_length,
-			void *addr_ptr, size_t max_addr_length, size_t) override, ([=] {
+			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override, ([=] {
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		assert(max_addr_length >= sizeof(struct sockaddr_nl));
@@ -100,9 +101,17 @@ public:
 		sa.nl_pid = packet->senderPort;
 		sa.nl_groups = packet->group ? (1 << (packet->group - 1)) : 0;
 		memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
+		
+		CtrlBuilder ctrl{max_ctrl_length};
+
+		struct ucred creds;
+		memset(&creds, 0, sizeof(struct ucred));
+		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+			throw std::runtime_error("posix: Implement CMSG truncation");
+		ctrl.write<struct ucred>(creds);
 
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), std::vector<char>{}));
+		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
