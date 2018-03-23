@@ -1,12 +1,14 @@
 
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/socket.h>
 #include <sys/un.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
+#include "sockutil.hpp"
 #include "un-socket.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
@@ -95,8 +97,9 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length,
-			void *, size_t) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<RecvResult>,
+	recvMsg(Process *process, void *data, size_t max_length,
+			void *, size_t, size_t max_ctrl_length) override, ([=] {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -109,9 +112,20 @@ public:
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
-		auto files = std::move(packet->files);
+		
+		CtrlBuilder ctrl{max_ctrl_length};
+
+		if(!packet->files.empty()) {
+			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
+				for(auto &file : packet->files)
+					ctrl.write<int>(process->fileContext()->attachFile(std::move(file)));
+			}else{
+				throw std::runtime_error("posix: CMSG truncation is not implemented");
+			}
+		}
+
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, std::move(files), 0));
+		COFIBER_RETURN(RecvResult(size, 0, std::move(ctrl.buffer())));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,

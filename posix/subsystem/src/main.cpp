@@ -36,7 +36,7 @@
 #include <posix.pb.h>
 
 bool logRequests = false;
-bool logPaths = true;
+bool logPaths = false;
 
 std::map<
 	std::array<char, 16>,
@@ -972,6 +972,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
 			helix::SendBuffer send_addr;
+			helix::SendBuffer send_ctrl;
 			
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
@@ -980,20 +981,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			std::vector<char> address;
 			buffer.resize(req.size());
 			address.resize(req.addr_size());
-			auto result = COFIBER_AWAIT sockfile->recvMsg(buffer.data(), req.size(),
-					address.data(), req.addr_size());
+			auto result = COFIBER_AWAIT sockfile->recvMsg(self.get(), buffer.data(), req.size(),
+					address.data(), req.addr_size(), req.ctrl_size());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			for(auto &file : std::get<1>(result))
-				resp.add_fds(self->fileContext()->attachFile(std::move(file)));
-
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_addr, address.data(), std::get<2>(result), kHelItemChain),
-					helix::action(&send_data, buffer.data(), std::get<0>(result)));
+					helix::action(&send_addr, address.data(), std::get<1>(result), kHelItemChain),
+					helix::action(&send_data, buffer.data(), std::get<0>(result), kHelItemChain),
+					helix::action(&send_ctrl, std::get<2>(result).data(),
+							std::get<2>(result).size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {

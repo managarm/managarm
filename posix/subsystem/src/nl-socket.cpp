@@ -21,8 +21,6 @@ struct Packet {
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
-
-	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 };
 
 struct OpenFile : File {
@@ -56,7 +54,6 @@ public:
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
-		assert(packet->files.empty());
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
@@ -80,8 +77,9 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>, recvMsg(void *data, size_t max_length,
-			void *addr_ptr, size_t max_addr_length) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<RecvResult>,
+	recvMsg(Process *process, void *data, size_t max_length,
+			void *addr_ptr, size_t max_addr_length, size_t) override, ([=] {
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		assert(max_addr_length >= sizeof(struct sockaddr_nl));
@@ -95,7 +93,6 @@ public:
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
 		memcpy(data, packet->buffer.data(), size);
-		auto files = std::move(packet->files);
 
 		struct sockaddr_nl sa;
 		memset(&sa, 0, sizeof(struct sockaddr_nl));
@@ -105,7 +102,7 @@ public:
 		memcpy(addr_ptr, &sa, sizeof(struct sockaddr_nl));
 
 		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, std::move(files), sizeof(struct sockaddr_nl)));
+		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), std::vector<char>{}));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,

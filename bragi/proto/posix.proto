@@ -146,6 +146,7 @@ message CntRequest {
 	optional int32 protocol = 16;
 	
 	optional uint64 addr_size = 26;
+	optional uint64 ctrl_size = 27;
 	
 	repeated int32 fds = 22;
 	
