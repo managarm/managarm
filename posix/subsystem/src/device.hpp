@@ -68,6 +68,9 @@ private:
 extern UnixDeviceRegistry charRegistry;
 extern UnixDeviceRegistry blockRegistry;
 
+FutureMaybe<smarter::shared_ptr<File, FileHandle>> openDevice(VfsType type, DeviceId id,
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags);
+
 // --------------------------------------------------------
 // devtmpfs functions.
 // --------------------------------------------------------

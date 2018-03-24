@@ -37,6 +37,19 @@ std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
 	return *it;
 }
 
+COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
+openDevice(VfsType type, DeviceId id,
+		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
+	if(type == VfsType::charDevice) {
+		auto device = charRegistry.get(id);
+		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(link), semantic_flags));
+	}else{
+		assert(type == VfsType::blockDevice);
+		auto device = blockRegistry.get(id);
+		COFIBER_RETURN(COFIBER_AWAIT device->open(std::move(link), semantic_flags));
+	}
+}))
+
 // --------------------------------------------------------
 // devtmpfs functions.
 // --------------------------------------------------------

@@ -16,8 +16,6 @@
 using ResolveFlags = uint32_t;
 inline constexpr ResolveFlags resolvePrefix = (1 << 4);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
-inline constexpr ResolveFlags resolveCreate = (1 << 2);
-inline constexpr ResolveFlags resolveExclusive = (1 << 3);
 
 namespace _vfs_view {
 	struct MountView;

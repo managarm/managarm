@@ -610,18 +610,35 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					| managarm::posix::OF_NONBLOCK
 					| managarm::posix::OF_CLOEXEC)));
 
-			ResolveFlags resolve_flags = 0;
-			if(req.flags() & managarm::posix::OF_CREATE)
-				resolve_flags |= resolveCreate;
-			if(req.flags() & managarm::posix::OF_EXCLUSIVE)
-				resolve_flags |= resolveExclusive;
-
 			SemanticFlags semantic_flags = 0;
 			if(req.flags() & managarm::posix::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
+			
+			smarter::shared_ptr<File, FileHandle> file;
 
-			auto file = COFIBER_AWAIT open(self->fsContext()->getRoot(), req.path(),
-					resolve_flags, semantic_flags);
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), req.path());
+			if(req.flags() & managarm::posix::OF_CREATE) {
+				COFIBER_AWAIT resolver.resolve(resolvePrefix);
+				assert(resolver.currentLink());
+
+				auto directory = resolver.currentLink()->getTarget();
+				auto target = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
+				assert(!target); // TODO: Only check this for OF_EXCLUSIVE.
+
+				assert(directory->superblock());
+				auto node = COFIBER_AWAIT directory->superblock()->createRegular();
+				auto link = COFIBER_AWAIT directory->link(resolver.nextComponent(), node);
+				file = COFIBER_AWAIT node->open(std::move(link), semantic_flags);
+			}else{
+				COFIBER_AWAIT resolver.resolve();
+				
+				if(resolver.currentLink()) {
+					auto target = resolver.currentLink()->getTarget();
+					file = COFIBER_AWAIT target->open(resolver.currentLink(), semantic_flags);
+				}
+			}
+
 			if(file) {
 				int fd = self->fileContext()->attachFile(file,
 						req.flags() & managarm::posix::OF_CLOEXEC);

@@ -254,14 +254,6 @@ COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), 
 			if(!link.isRelative())
 				_currentPath = _rootPath;
 			_components.insert(_components.begin(), link.begin(), link.end());
-		}else if(_components.size() == 1
-				&& (flags & resolveCreate) && (flags & resolveExclusive)) {
-			assert(next.second->getTarget()->superblock());
-			auto node = COFIBER_AWAIT next.second->getTarget()->superblock()->createRegular();
-			auto link = COFIBER_AWAIT next.second->getTarget()->link(std::move(_components.front()),
-					std::move(node));
-			_currentPath = ViewPath{next.first, std::move(link)};
-			COFIBER_RETURN();
 		}else{
 			_currentPath = std::move(next);
 		}
@@ -288,22 +280,7 @@ COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, std::string name
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 
-	// TODO: Correctly reject opening regular files when O_DIRECTORY flag is set.
-	if(current.second->getTarget()->getType() == VfsType::regular) {
-		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
-		COFIBER_RETURN(std::move(file));
-	}else if(current.second->getTarget()->getType() == VfsType::directory) {
-		auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
-		COFIBER_RETURN(std::move(file));
-	}else if(current.second->getTarget()->getType() == VfsType::charDevice) {
-		auto id = current.second->getTarget()->readDevice();
-		auto device = charRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second, semantic_flags));
-	}else{
-		assert(current.second->getTarget()->getType() == VfsType::blockDevice);
-		auto id = current.second->getTarget()->readDevice();
-		auto device = blockRegistry.get(id);
-		COFIBER_RETURN(COFIBER_AWAIT device->open(current.second, semantic_flags));
-	}
+	auto file = COFIBER_AWAIT current.second->getTarget()->open(current.second, semantic_flags);
+	COFIBER_RETURN(std::move(file));
 }))
 

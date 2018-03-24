@@ -6,6 +6,7 @@
 #include <protocols/fs/client.hpp>
 #include <protocols/fs/server.hpp>
 #include "common.hpp"
+#include "device.hpp"
 #include "tmp_fs.hpp"
 
 // TODO: Remove dependency on those functions.
@@ -55,6 +56,11 @@ private:
 
 	DeviceId readDevice() override {
 		return _id;
+	}
+	
+	FutureMaybe<SharedFilePtr> open(std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
+		return openDevice(_type, _id, std::move(link), semantic_flags);
 	}
 
 public:
