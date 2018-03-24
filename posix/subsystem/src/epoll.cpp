@@ -11,7 +11,7 @@
 
 namespace {
 
-bool logEpoll = false;
+bool logEpoll = true;
 
 struct OpenFile : File {
 	// ------------------------------------------------------------------------

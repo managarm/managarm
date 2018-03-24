@@ -13,7 +13,7 @@ void printf(P &printer, const char *format, va_list args) {
 	enum class SizeMod {
 		defaultSize,
 		longSize,
-		hugeSize,
+		longLongSize,
 		nativeSize
 	};
 
@@ -104,7 +104,7 @@ void printf(P &printer, const char *format, va_list args) {
 			++format;
 			if(*format == 'l') {
 				++format;
-				szmod = SizeMod::hugeSize;
+				szmod = SizeMod::longLongSize;
 			}else{
 				szmod = SizeMod::longSize;
 			}
@@ -158,7 +158,7 @@ void printf(P &printer, const char *format, va_list args) {
 			long number;
 			if(szmod == SizeMod::longSize) {
 				number = va_arg(args, long);
-			}else if(szmod == SizeMod::hugeSize) {
+			}else if(szmod == SizeMod::longLongSize) {
 				number = va_arg(args, long long);
 			}else if(szmod == SizeMod::nativeSize) {
 				number = va_arg(args, intptr_t);
@@ -228,7 +228,10 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'u': {
 			assert(!left_justify);
 			assert(!precision);
-			if(szmod == SizeMod::longSize) {
+			if(szmod == SizeMod::longLongSize) {
+				printUInt(printer, va_arg(args, unsigned long long), 10, minimum_width,
+						1, fill_zeros ? '0' : ' ');
+			}else if(szmod == SizeMod::longSize) {
 				printUInt(printer, va_arg(args, unsigned long), 10, minimum_width,
 						1, fill_zeros ? '0' : ' ');
 			}else if(szmod == SizeMod::nativeSize) {

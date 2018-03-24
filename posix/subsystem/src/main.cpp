@@ -1106,10 +1106,13 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			auto epfile = self->fileContext()->getFile(req.fd());
 			assert(epfile && "Illegal FD for EPOLL_WAIT");
+			
+			if(req.timeout() > 0)
+				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
 
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() == -1) {
+			if(req.timeout() == -1 || req.timeout() > 0) {
 				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
 						std::min(req.size(), uint32_t(16)), async::result<void>{});
 			}else if(req.timeout() == 0) {
