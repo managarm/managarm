@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 #include <async/result.hpp>
 #include <cofiber.hpp>
@@ -23,6 +24,16 @@ enum class FileType {
 	directory,
 	regular,
 	symlink
+};
+
+struct FileStats {
+	int linkCount;
+	uint64_t fileSize;
+	uint32_t mode;
+	int uid, gid;
+	struct timespec accessTime;
+	struct timespec dataModifyTime;
+	struct timespec anyChangeTime;
 };
 
 using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
@@ -125,6 +136,8 @@ struct FileOperations {
 };
 
 struct NodeOperations {
+	async::result<FileStats> (*getStats)(std::shared_ptr<void> object);
+
 	async::result<GetLinkResult> (*getLink)(std::shared_ptr<void> object,
 			std::string name);
 

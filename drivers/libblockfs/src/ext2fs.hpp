@@ -194,10 +194,12 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	uint64_t fileSize; // file size in bytes
 	FileData fileData; // block references / small symlink data
 
-	uint32_t mode; // POSIX file mode
 	int numLinks; // number of links to this file
+	uint32_t mode; // POSIX file mode
 	int uid, gid;
-	struct timespec atime, mtime, ctime;
+	struct timespec accessTime;
+	struct timespec dataModifyTime;
+	struct timespec anyChangeTime;
 };
 
 // --------------------------------------------------------
@@ -255,47 +257,6 @@ struct FileSystem {
 		FileSystem &fs;
 	};
 
-/*	struct ReadInodeClosure {
-		ReadInodeClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode);
-
-		void operator() ();
-	
-	private:
-		void readSector();
-
-		FileSystem &ext2fs;
-		std::shared_ptr<Inode> inode;
-		char *sectorBuffer;
-	};
-
-	struct ReadDataClosure {
-		ReadDataClosure(FileSystem &ext2fs, std::shared_ptr<Inode> inode,
-				uint64_t block_offset, size_t num_blocks, void *buffer,
-				frigg::CallbackPtr<void()> callback);
-		
-		void operator() ();
-
-	private:
-		void inodeReady();
-		void readLevel1();
-		void readLevel0();
-		void readBlock();
-
-		FileSystem &ext2fs;
-		std::shared_ptr<Inode> inode;
-		uint64_t blockOffset;
-		size_t numBlocks;
-		void *buffer;
-		frigg::CallbackPtr<void()> callback;
-		
-		size_t blocksRead;
-		size_t chunkSize;
-		size_t indexLevel1;
-		size_t indexLevel0;
-		BlockCache::Ref refLevel1;
-		BlockCache::Ref refLevel0;
-	};*/
-
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockSize;
@@ -322,98 +283,6 @@ struct OpenFile {
 	std::shared_ptr<Inode> inode;
 	uint64_t offset;
 };
-
-/*
-struct Client {
-	Client(helx::EventHub &event_hub, FileSystem &fs);
-
-	void init(frigg::CallbackPtr<void()> callback);
-
-private:
-	struct ObjectHandler : public bragi_mbus::ObjectHandler {
-		ObjectHandler(Client &client);
-		
-		// inherited from bragi_mbus::ObjectHandler
-		void requireIf(bragi_mbus::ObjectId object_id,
-				frigg::CallbackPtr<void(HelHandle)> callback) override;
-
-		Client &client;
-	};
-
-	struct InitClosure {
-		InitClosure(Client &client, frigg::CallbackPtr<void()> callback);
-
-		void operator() ();
-
-	private:
-		void connected();
-		void registered(bragi_mbus::ObjectId object_id);
-
-		Client &client;
-		frigg::CallbackPtr<void()> callback;
-	};
-	
-	helx::EventHub &eventHub;
-	FileSystem &fs;
-	ObjectHandler objectHandler;
-	bragi_mbus::Connection mbusConnection;
-};
-
-struct Connection {
-	Connection(helx::EventHub &event_hub, FileSystem &fs, helx::Pipe pipe);
-
-	void operator() ();
-
-	FileSystem &getFs();
-	helx::Pipe &getPipe();
-
-	int attachOpenFile(OpenFile *handle);
-	OpenFile *getOpenFile(int handle);
-
-private:
-	void recvRequest(HelError error, int64_t msg_request, int64_t msg_seq, size_t length);
-
-	helx::EventHub &eventHub;
-	FileSystem &fs;
-	helx::Pipe pipe;
-
-	std::unordered_map<int, OpenFile *> fileHandles;
-	int nextHandle;
-	uint8_t buffer[128];
-};
-
-struct OpenClosure {
-	OpenClosure(Connection &connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-	void operator() ();
-
-	void processSegment();
-	void foundEntry(std::experimental::optional<DirEntry> number);
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
-
-	std::shared_ptr<Inode> directory;
-	std::string tailPath;
-};
-
-struct ReadClosure {
-	ReadClosure(Connection &connection, int64_t response_id,
-			managarm::fs::CntRequest request);
-
-	void operator() ();
-
-	void inodeReady();
-	void lockedMemory();
-
-	Connection &connection;
-	int64_t responseId;
-	managarm::fs::CntRequest request;
-
-	OpenFile *openFile;
-};*/
 
 } } // namespace blockfs::ext2fs
 

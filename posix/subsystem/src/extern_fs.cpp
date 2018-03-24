@@ -69,9 +69,43 @@ private:
 		return VfsType::regular;
 	}
 
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix externfs RegularNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
+	COFIBER_ROUTINE(async::result<FileStats>, getStats() override, ([=] {
+		helix::Offer offer;
+		helix::SendBuffer send_req;
+		helix::RecvInline recv_resp;
+
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_GET_STATS);
+
+		auto ser = req.SerializeAsString();
+		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+				helix::action(&offer, kHelItemAncillary),
+				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&recv_resp));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+		FileStats stats;
+		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
+		stats.fileSize = resp.file_size();
+		stats.numLinks = resp.num_links();
+		stats.mode = resp.mode();
+		stats.uid = resp.uid();
+		stats.gid = resp.gid();
+		stats.atimeSecs = resp.atime_secs();
+		stats.atimeNanos = resp.atime_nanos();
+		stats.ctimeSecs = resp.mtime_secs();
+		stats.atimeNanos = resp.mtime_nanos();
+		stats.ctimeSecs = resp.ctime_secs();
+		stats.atimeNanos = resp.ctime_nanos();
+
+		COFIBER_RETURN(stats);
 	}))
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -110,10 +144,11 @@ private:
 	}))
 
 public:
-	RegularNode(helix::UniqueLane lane)
-	: _lane{std::move(lane)} { }
+	RegularNode(uint64_t inode, helix::UniqueLane lane)
+	: _inode{inode}, _lane{std::move(lane)} { }
 
 private:
+	uint64_t _inode;
 	helix::UniqueLane _lane;
 };
 
@@ -146,6 +181,7 @@ private:
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
+		HEL_CHECK(recv_target.error());
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
@@ -252,7 +288,7 @@ private:
 				child = std::make_shared<DirectoryNode>(_context, pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::REGULAR:
-				child = std::make_shared<RegularNode>(pull_node.descriptor());
+				child = std::make_shared<RegularNode>(resp.id(), pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::SYMLINK:
 				child = std::make_shared<SymlinkNode>(pull_node.descriptor());

@@ -331,7 +331,32 @@ COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_p
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
-		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
+		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
+			helix::SendBuffer send_resp;
+			
+			assert(node_ops->getStats);
+			auto result = COFIBER_AWAIT node_ops->getStats(node);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_file_size(result.fileSize);
+			resp.set_num_links(result.linkCount);
+			resp.set_mode(result.mode);
+			resp.set_uid(result.uid);
+			resp.set_gid(result.gid);
+			resp.set_atime_secs(result.accessTime.tv_sec);
+			resp.set_atime_nanos(result.accessTime.tv_nsec);
+			resp.set_mtime_secs(result.dataModifyTime.tv_sec);
+			resp.set_mtime_nanos(result.dataModifyTime.tv_nsec);
+			resp.set_ctime_secs(result.anyChangeTime.tv_sec);
+			resp.set_ctime_nanos(result.anyChangeTime.tv_nsec);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_node;
 			

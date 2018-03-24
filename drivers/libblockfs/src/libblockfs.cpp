@@ -129,6 +129,24 @@ COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> 
 	std::cout << "libblockfs: File closed!" << std::endl;
 }))
 
+COFIBER_ROUTINE(async::result<protocols::fs::FileStats>,
+getStats(std::shared_ptr<void> object), ([=] {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	COFIBER_AWAIT self->readyJump.async_wait();
+
+	protocols::fs::FileStats stats;
+	stats.linkCount = self->numLinks;
+	stats.fileSize = self->fileSize;
+	stats.mode = self->mode;
+	stats.uid = self->uid;
+	stats.gid = self->gid;
+	stats.accessTime = self->accessTime;
+	stats.dataModifyTime = self->dataModifyTime;
+	stats.anyChangeTime = self->anyChangeTime;
+	
+	COFIBER_RETURN(stats);
+}))
+
 COFIBER_ROUTINE(async::result<protocols::fs::OpenResult>,
 open(std::shared_ptr<void> object), ([=] {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
@@ -153,6 +171,7 @@ COFIBER_ROUTINE(async::result<std::string>, readSymlink(std::shared_ptr<void> ob
 }))
 
 constexpr protocols::fs::NodeOperations nodeOperations{
+	&getStats,
 	&getLink,
 	&open,
 	&readSymlink
