@@ -53,6 +53,7 @@ enum CntReqType {
 	PT_BIND = 21;
 	PT_LISTEN = 23;
 	PT_CONNECT = 22;
+	PT_SOCKNAME = 24;
 
 	WRITE = 3;
 	SEEK_ABS = 6;

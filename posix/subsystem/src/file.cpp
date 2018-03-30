@@ -61,6 +61,11 @@ async::result<void> File::ptConnect(void *object, const char *credentials,
 	return self->connect(process.get(), addr_ptr, addr_length);
 }
 
+async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_addr_length) {
+	auto self = static_cast<File *>(object);
+	return self->sockname(addr_ptr, max_addr_length);
+}
+
 COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length), ([=] {
 	size_t offset = 0;
 	while(offset < length) {
@@ -135,6 +140,12 @@ async::result<void> File::connect(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement connect()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::connect()");
+}
+
+async::result<size_t> File::sockname(void *addr_ptr, size_t max_addr_length) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement sockname()" << std::endl;
+	throw std::runtime_error("posix: Object has no File::sockname()");
 }
 
 FutureMaybe<helix::UniqueDescriptor> File::accessMemory(off_t) {

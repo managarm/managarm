@@ -252,6 +252,28 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 				helix::action(&send_resp, ser.data(), ser.size()));
 		COFIBER_AWAIT transmit.async_wait();
 		HEL_CHECK(send_resp.error());
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_data;
+		
+		std::vector<char> addr;
+		addr.resize(req.size());
+		assert(file_ops->sockname);
+		auto actual_length = COFIBER_AWAIT(file_ops->sockname(file.get(),
+				addr.data(), req.size()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_file_size(actual_length);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+				helix::action(&send_data, addr.data(),
+						std::min(size_t(req.size()), actual_length)));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
 	}else{
 		throw std::runtime_error("libfs_protocol: Unexpected"
 				" request type in servePassthrough()");

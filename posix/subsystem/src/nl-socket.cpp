@@ -14,7 +14,12 @@
 
 namespace nl_socket {
 
+struct OpenFile;
+
 bool logSockets = true;
+
+int nextPort = -1;
+std::map<int, OpenFile *> globalPortMap;
 
 struct Packet {
 	int senderPort;
@@ -37,7 +42,7 @@ public:
 
 	OpenFile(int protocol)
 	: File{StructName::get("nl-socket")}, _protocol{protocol},
-			_currentSeq{1}, _inSeq{0} { }
+			_currentSeq{1}, _inSeq{0}, _socketPort{0} { }
 
 	void deliver(Packet packet) {
 		_recvQueue.push_back(std::move(packet));
@@ -116,20 +121,18 @@ public:
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
-		throw std::runtime_error("posix: Fix netlink send()");
-/*
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-
+/*
 		Packet packet;
 		packet.buffer.resize(max_length);
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);
 
 		_remote->deliver(std::move(packet));
-*/
 
 		COFIBER_RETURN(max_length);
+*/
 	}))
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
@@ -154,12 +157,21 @@ public:
 	}))
 	
 	async::result<void> bind(Process *, const void *, size_t) override;
+	
+	async::result<size_t> sockname(void *, size_t) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
 
 private:
+	void _associatePort() {
+		assert(!_socketPort);
+		_socketPort = nextPort--;
+		auto res = globalPortMap.insert({_socketPort, this});
+		assert(res.second);
+	}
+
 	int _protocol;
 	helix::UniqueLane _passthrough;
 
@@ -167,18 +179,18 @@ private:
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
+
+	int _socketPort;
 	
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
-
-	// For connected sockets, this is the socket we are connected to.
-	OpenFile *_remote;
 };
 
 struct Group {
 	friend struct OpenFile;
 
-	void broadcast(std::string buffer);
+	// Sends a copy of the given message to this group.
+	void carbonCopy(std::string buffer);
 
 private:
 	std::vector<OpenFile *> _subscriptions;
@@ -195,6 +207,9 @@ OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
 	struct sockaddr_nl sa;
 	assert(addr_length <= sizeof(struct sockaddr_nl));
 	memcpy(&sa, addr_ptr, addr_length);
+
+	assert(!sa.nl_pid);
+	_associatePort();
 
 	if(sa.nl_groups) {
 		for(int i = 0; i < 32; i++) {
@@ -214,11 +229,25 @@ OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
 	COFIBER_RETURN();
 }))
 
+COFIBER_ROUTINE(async::result<size_t>,
+OpenFile::sockname(void *addr_ptr, size_t max_addr_length), ([=] {
+	assert(_socketPort);
+
+	// TODO: Fill in nl_groups.
+	struct sockaddr_nl sa;
+	memset(&sa, 0, sizeof(struct sockaddr_nl));
+	sa.nl_family = AF_NETLINK;
+	sa.nl_pid = _socketPort;
+	memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_nl), max_addr_length));
+	
+	COFIBER_RETURN(sizeof(struct sockaddr_nl));
+}))
+
 // ----------------------------------------------------------------------------
 // Group implementation.
 // ----------------------------------------------------------------------------
 
-void Group::broadcast(std::string buffer) {
+void Group::carbonCopy(std::string buffer) {
 	for(auto socket : _subscriptions) {
 		Packet packet;
 		packet.senderPort = 0;
@@ -246,7 +275,7 @@ void broadcast(int proto_idx, int grp_idx, std::string buffer) {
 	auto it = globalGroupMap.find({proto_idx, grp_idx});
 	assert(it != globalGroupMap.end());
 	auto group = it->second.get();
-	group->broadcast(std::move(buffer));
+	group->carbonCopy(std::move(buffer));
 }
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol) {

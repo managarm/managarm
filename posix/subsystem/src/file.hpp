@@ -90,6 +90,9 @@ public:
 	ptConnect(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	
+	static async::result<size_t>
+	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
+	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withRead(&ptRead)
 			.withWrite(&ptWrite)
@@ -97,7 +100,8 @@ public:
 			.withTruncate(&ptTruncate)
 			.withFallocate(&ptAllocate)
 			.withBind(&ptBind)
-			.withConnect(&ptConnect);
+			.withConnect(&ptConnect)
+			.withSockname(&ptSockname);
 
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -174,6 +178,8 @@ public:
 
 	virtual async::result<void> connect(Process *process,
 			const void *addr_ptr, size_t addr_length);
+	
+	virtual async::result<size_t> sockname(void *addr_ptr, size_t max_addr_length);
 
 	// TODO: This should not depend on an offset.
 	// Due to missing support from the kernel, we currently need multiple memory

@@ -48,7 +48,7 @@ struct FileOperations {
 			read{nullptr}, write{nullptr}, readEntries{nullptr},
 			accessMemory{nullptr}, truncate{nullptr}, fallocate{nullptr},
 			ioctl{nullptr}, poll{nullptr},
-			bind{nullptr}, listen{nullptr}, connect{nullptr} { }
+			bind{nullptr}, listen{nullptr}, connect{nullptr}, sockname{nullptr} { }
 
 	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(void *object,
 			int64_t offset)) {
@@ -114,6 +114,11 @@ struct FileOperations {
 		connect = f;
 		return *this;
 	}
+	constexpr FileOperations &withSockname(async::result<size_t> (*f)(void *object,
+			void *addr_ptr, size_t max_addr_length)) {
+		sockname = f;
+		return *this;
+	}
 
 	async::result<int64_t> (*seekAbs)(void *object, int64_t offset);
 	async::result<int64_t> (*seekRel)(void *object, int64_t offset);
@@ -133,6 +138,7 @@ struct FileOperations {
 	async::result<void> (*listen)(void *object);
 	async::result<void> (*connect)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
+	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);
 };
 
 struct NodeOperations {
