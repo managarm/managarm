@@ -492,7 +492,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto superblock = resolver.currentLink()->getTarget()->superblock();
 			auto directory = new_resolver.currentLink()->getTarget();
 			assert(superblock == directory->superblock());
-			superblock->rename(resolver.currentLink().get(),
+			COFIBER_AWAIT superblock->rename(resolver.currentLink().get(),
 					directory.get(), new_resolver.nextComponent());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
