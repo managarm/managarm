@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <set>
 
+#include <helix/memory.hpp>
 #include <protocols/fs/client.hpp>
 #include <protocols/fs/server.hpp>
 #include "common.hpp"
@@ -223,7 +224,7 @@ private:
 	}
 
 	FutureMaybe<FileStats> getStats() override {
-		assert(!"Fix this");
+		throw std::runtime_error("posix: Fix tmpfs::InheritedNode stat");
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -256,15 +257,13 @@ public:
 	}
 
 	MemoryFile(std::shared_ptr<FsLink> link)
-	: File{StructName::get("tmpfs.regular"), std::move(link)} { }
+	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
 	
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
-		assert(!"Fix MemoryFile::readSome");
+	COFIBER_ROUTINE(expected<size_t>, readSome(void *, size_t) override, ([=] {
+		throw std::runtime_error("posix: Fix tmpfs::MemoryFile read");
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
-		assert(!"Fix MemoryFile::writeAll");
-	}))
+	async::result<void> writeAll(const void *data, size_t length) override;
 	
 	FutureMaybe<void> truncate(size_t size) override;
 	
@@ -278,18 +277,21 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	uint64_t _offset;
 };
 
 struct MemoryNode : FsNode {
 	friend struct MemoryFile;
 
-private:
+	MemoryNode()
+	: _areaSize{0}, _fileSize{0} { }
+
 	VfsType getType() override {
 		return VfsType::regular;
 	}
 
 	FutureMaybe<FileStats> getStats() override {
-		assert(!"Fix this");
+		throw std::runtime_error("posix: Fix tmpfs::MemoryNode stat");
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -300,57 +302,68 @@ private:
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
-public:
-	MemoryNode()
-	: _areaSize{0}, _fileSize{0} { }
+private:
+	void _resizeFile(size_t new_size) {
+		_fileSize = new_size;
+
+		size_t aligned_size = (new_size + 0xFFF) & ~size_t(0xFFF);
+		if(aligned_size <= _areaSize)
+			return;
+
+		if(_memory) {
+			HEL_CHECK(helResizeMemory(_memory.getHandle(), aligned_size));
+		}else{
+			HelHandle handle;
+			HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
+			_memory = helix::UniqueDescriptor{handle};
+		}
+
+		_mapping = helix::Mapping{_memory, 0, aligned_size};
+		_areaSize = aligned_size;
+	}
 
 	helix::UniqueDescriptor _memory;
+	helix::Mapping _mapping;
 	size_t _areaSize;
 	size_t _fileSize;
 };
 
-COFIBER_ROUTINE(async::result<void>, MemoryFile::truncate(size_t size), ([=] {
+COFIBER_ROUTINE(async::result<void>,
+MemoryFile::writeAll(const void *data, size_t length), ([=] {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	node->_fileSize = size;
+	if(_offset + length > node->_fileSize)
+		node->_resizeFile(_offset + length);
+	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, data, length);
+	_offset += length;
+	COFIBER_RETURN();
+}))	
 
-	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
-	if(!node->_memory) {
-		HelHandle handle;
-		HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
-		node->_memory = helix::UniqueDescriptor{handle};
-	}else if(size > node->_areaSize) {
-		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
-	}
-	node->_areaSize = aligned_size;
+COFIBER_ROUTINE(async::result<void>,
+MemoryFile::truncate(size_t size), ([=] {
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+
+	node->_resizeFile(size);
 
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(async::result<void>, MemoryFile::allocate(int64_t offset, size_t size), ([=] {
+COFIBER_ROUTINE(async::result<void>,
+MemoryFile::allocate(int64_t offset, size_t size), ([=] {
 	assert(!offset);
 
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	if(offset + size < node->_fileSize)
+	// TODO: Careful about overflow.
+	if(offset + size <= node->_fileSize)
 		COFIBER_RETURN();
-
-	node->_fileSize = offset + size;
-
-	size_t aligned_size = (size + 0xFFF) & ~size_t(0xFFF);
-	if(!node->_memory) {
-		HelHandle handle;
-		HEL_CHECK(helAllocateMemory(aligned_size, 0, &handle));
-		node->_memory = helix::UniqueDescriptor{handle};
-	}else if(offset + size > node->_areaSize) {
-		HEL_CHECK(helResizeMemory(node->_memory.getHandle(), aligned_size));
-	}
-	node->_areaSize = aligned_size;
+	node->_resizeFile(offset + size);
 
 	COFIBER_RETURN();
 }))	
 
-COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>, MemoryFile::accessMemory(off_t offset),
+COFIBER_ROUTINE(FutureMaybe<helix::UniqueDescriptor>,
+MemoryFile::accessMemory(off_t offset),
 		([=] {
 	assert(!offset);
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
@@ -402,8 +415,8 @@ struct Superblock : FsSuperblock {
 		COFIBER_RETURN(std::move(node));
 	}))
 
-	COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>, rename(FsLink *source,
-			FsNode *directory, std::string name), ([=] {
+	COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>, rename(FsLink *,
+			FsNode *, std::string), ([=] {
 		std::cout << "\e[31mposix: Fix tmpfs Superblock::rename()\e[39m" << std::endl;
 	}))
 };

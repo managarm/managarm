@@ -15,6 +15,7 @@ $(call install_header,hel.h)
 $(call install_header,hel-stubs.h)
 $(call install_header,hel-syscalls.h)
 $(call install_header,helix/ipc.hpp)
+$(call install_header,helix/memory.hpp)
 $(call install_header,helix/await.hpp)
 $(call compile_cxx,$($c_SRCDIR),$($c_OBJDIR))
 

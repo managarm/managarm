@@ -489,9 +489,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			COFIBER_AWAIT new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
-			auto parent = resolver.currentLink()->getTarget();
+			auto superblock = resolver.currentLink()->getTarget()->superblock();
 			auto directory = new_resolver.currentLink()->getTarget();
-			auto superblock = parent->superblock();
 			assert(superblock == directory->superblock());
 			superblock->rename(resolver.currentLink().get(),
 					directory.get(), new_resolver.nextComponent());
@@ -615,6 +614,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "posix: OPEN path: " << req.path()	<< std::endl;
 
 			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
 			
 			assert(!(req.flags() & ~(managarm::posix::OF_CREATE
 					| managarm::posix::OF_EXCLUSIVE
@@ -629,10 +629,20 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(), req.path());
-			std::cout << "posix: flags: " << req.flags() << std::endl;
 			if(req.flags() & managarm::posix::OF_CREATE) {
 				COFIBER_AWAIT resolver.resolve(resolvePrefix);
-				assert(resolver.currentLink());
+				if(!resolver.currentLink()) {
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+					auto ser = resp.SerializeAsString();
+					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+							helix::action(&send_resp, ser.data(), ser.size()));
+					COFIBER_AWAIT transmit.async_wait();
+					HEL_CHECK(send_resp.error());
+					continue;
+				}
+
+				std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto target = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
@@ -656,7 +666,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				int fd = self->fileContext()->attachFile(file,
 						req.flags() & managarm::posix::OF_CLOEXEC);
 
-				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fd(fd);
 
@@ -666,7 +675,6 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				COFIBER_AWAIT transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 			}else{
-				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 				auto ser = resp.SerializeAsString();
