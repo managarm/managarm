@@ -15,8 +15,11 @@
 namespace nl_socket {
 
 struct OpenFile;
+struct Group;
 
 bool logSockets = true;
+
+std::map<std::pair<int, int>, std::unique_ptr<Group>> globalGroupMap;
 
 int nextPort = -1;
 std::map<int, OpenFile *> globalPortMap;
@@ -119,21 +122,9 @@ public:
 		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
-		if(logSockets)
-			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-/*
-		Packet packet;
-		packet.buffer.resize(max_length);
-		memcpy(packet.buffer.data(), data, max_length);
-		packet.files = std::move(files);
-
-		_remote->deliver(std::move(packet));
-
-		COFIBER_RETURN(max_length);
-*/
-	}))
+	async::result<size_t> sendMsg(const void *data, size_t max_length,
+			const void *addr_ptr, size_t addr_length,
+			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
@@ -190,17 +181,65 @@ struct Group {
 	friend struct OpenFile;
 
 	// Sends a copy of the given message to this group.
-	void carbonCopy(std::string buffer);
+	void carbonCopy(const Packet &packet);
 
 private:
 	std::vector<OpenFile *> _subscriptions;
 };
 
-std::map<std::pair<int, int>, std::unique_ptr<Group>> globalGroupMap;
-
 // ----------------------------------------------------------------------------
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
+
+COFIBER_ROUTINE(async::result<size_t>, OpenFile::sendMsg(const void *data, size_t max_length,
+		const void *addr_ptr, size_t addr_length,
+		std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
+	if(logSockets)
+		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+	assert(addr_length == sizeof(struct sockaddr_nl));
+	assert(files.empty());
+
+	struct sockaddr_nl sa;
+	memcpy(&sa, addr_ptr, sizeof(struct sockaddr_nl));
+
+	int grp_idx = 0;
+	if(sa.nl_groups) {
+		// Linux allows multicast only to a single group at a time.
+		grp_idx = __builtin_ffs(sa.nl_groups);
+		assert(sa.nl_groups == (1 << (grp_idx - 1)));
+	}
+
+	// TODO: Associate port otherwise.
+	assert(_socketPort);
+
+	Packet packet;
+	packet.senderPort = _socketPort;
+	packet.group = grp_idx;
+	packet.buffer.resize(max_length);
+	memcpy(packet.buffer.data(), data, max_length);
+
+	// Carbon-copy to the message to a group.
+	if(grp_idx) {
+		auto it = globalGroupMap.find({_protocol, grp_idx});
+		assert(it != globalGroupMap.end());
+		auto group = it->second.get();
+		group->carbonCopy(packet);
+	}
+
+	// Netlink delivers the message per unicast.
+	// This is done even if the target address includes multicast groups.
+	if(sa.nl_pid) {
+		// Deliver to a user-mode socket.
+		auto it = globalPortMap.find(sa.nl_pid);
+		assert(it != globalPortMap.end());
+
+		it->second->deliver(std::move(packet));
+	}else{
+		// TODO: Deliver the message a listener function.
+	}
+
+	COFIBER_RETURN(max_length);
+}))
 
 COFIBER_ROUTINE(async::result<void>,
 OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length), ([=] {
@@ -247,16 +286,9 @@ OpenFile::sockname(void *addr_ptr, size_t max_addr_length), ([=] {
 // Group implementation.
 // ----------------------------------------------------------------------------
 
-void Group::carbonCopy(std::string buffer) {
-	for(auto socket : _subscriptions) {
-		Packet packet;
-		packet.senderPort = 0;
-		packet.group = 1;
-		packet.buffer.resize(buffer.size());
-		memcpy(packet.buffer.data(), buffer.data(), buffer.size());
-
-		socket->deliver(std::move(packet));
-	}
+void Group::carbonCopy(const Packet &packet) {
+	for(auto socket : _subscriptions)
+		socket->deliver(packet);
 }
 
 // ----------------------------------------------------------------------------
@@ -272,10 +304,16 @@ void configure(int protocol, int num_groups) {
 }
 
 void broadcast(int proto_idx, int grp_idx, std::string buffer) {
+	Packet packet;
+	packet.senderPort = 0;
+	packet.group = grp_idx;
+	packet.buffer.resize(buffer.size());
+	memcpy(packet.buffer.data(), buffer.data(), buffer.size());
+
 	auto it = globalGroupMap.find({proto_idx, grp_idx});
 	assert(it != globalGroupMap.end());
 	auto group = it->second.get();
-	group->carbonCopy(std::move(buffer));
+	group->carbonCopy(packet);
 }
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol) {

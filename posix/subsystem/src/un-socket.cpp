@@ -129,6 +129,7 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
+			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 		assert(_currentState == State::connected);
 		if(logSockets)

@@ -157,6 +157,7 @@ public:
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length);
 
 	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
+			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 
 	virtual async::result<void> truncate(size_t size);
