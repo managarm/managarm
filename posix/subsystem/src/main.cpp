@@ -412,6 +412,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "posix: MKDIR " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(), req.path());
@@ -419,9 +420,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(resolver.currentLink());
 
 			auto parent = resolver.currentLink()->getTarget();
+			if(COFIBER_AWAIT parent->getLink(resolver.nextComponent())) {
+				resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
 			parent->mkdir(resolver.nextComponent());
 
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
@@ -618,6 +629,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(), req.path());
+			std::cout << "posix: flags: " << req.flags() << std::endl;
 			if(req.flags() & managarm::posix::OF_CREATE) {
 				COFIBER_AWAIT resolver.resolve(resolvePrefix);
 				assert(resolver.currentLink());
@@ -630,6 +642,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				auto node = COFIBER_AWAIT directory->superblock()->createRegular();
 				auto link = COFIBER_AWAIT directory->link(resolver.nextComponent(), node);
 				file = COFIBER_AWAIT node->open(std::move(link), semantic_flags);
+				assert(file);
 			}else{
 				COFIBER_AWAIT resolver.resolve();
 				

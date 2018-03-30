@@ -63,7 +63,6 @@ void printf(P &printer, const char *format, va_list args) {
 
 		assert(!always_sign);
 		assert(!plus_becomes_space);
-		assert(!alt_conversion);
 
 		int minimum_width = 0;
 		if(*format == '*') {
@@ -117,12 +116,14 @@ void printf(P &printer, const char *format, va_list args) {
 		case '%':
 			assert(!fill_zeros);
 			assert(!left_justify);
+			assert(!alt_conversion);
 			assert(minimum_width == 0);
 			printer.print('%');
 			break;
 		case 'c':
 			assert(!fill_zeros);
 			assert(!left_justify);
+			assert(!alt_conversion);
 			assert(minimum_width == 0);
 			assert(szmod == SizeMod::defaultSize);
 			assert(!precision);
@@ -130,6 +131,7 @@ void printf(P &printer, const char *format, va_list args) {
 			break;
 		case 's': {
 			assert(!fill_zeros);
+			assert(!alt_conversion);
 			assert(szmod == SizeMod::defaultSize);
 
 			auto s = va_arg(args, const char *);
@@ -155,6 +157,7 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'd':
 		case 'i': {
 			assert(!left_justify);
+			assert(!alt_conversion);
 			long number;
 			if(szmod == SizeMod::longSize) {
 				number = va_arg(args, long);
@@ -181,6 +184,7 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'o': {
 			// TODO: Implement this correctly
 			assert(!left_justify);
+
 			auto print = [&] (auto number) {
 				if(precision && *precision == 0 && !number) {
 					// print nothing in this case
@@ -189,6 +193,10 @@ void printf(P &printer, const char *format, va_list args) {
 							precision ? *precision : 1, fill_zeros ? '0' : ' ');
 				}
 			};
+
+			if(alt_conversion)
+				printer.print('0');
+
 			if(szmod == SizeMod::longSize) {
 				print(va_arg(args, unsigned long));
 			}else{
@@ -199,6 +207,7 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'x': {
 			// TODO: Implement this correctly
 			assert(!left_justify);
+			assert(!alt_conversion);
 			auto print = [&] (auto number) {
 				if(precision && *precision == 0 && !number) {
 					// print nothing in this case
@@ -216,6 +225,7 @@ void printf(P &printer, const char *format, va_list args) {
 		} break;
 		case 'X': {
 			assert(!left_justify);
+			assert(!alt_conversion);
 			assert(szmod == SizeMod::defaultSize);
 			auto number = va_arg(args, unsigned int);
 			if(precision && *precision == 0 && !number) {
@@ -227,6 +237,7 @@ void printf(P &printer, const char *format, va_list args) {
 		} break;
 		case 'u': {
 			assert(!left_justify);
+			assert(!alt_conversion);
 			assert(!precision);
 			if(szmod == SizeMod::longLongSize) {
 				printUInt(printer, va_arg(args, unsigned long long), 10, minimum_width,
@@ -246,6 +257,7 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'p':
 			assert(!fill_zeros);
 			assert(!left_justify);
+			assert(!alt_conversion);
 			assert(minimum_width == 0);
 			printer.print("0x");
 			printUInt(printer, (uintptr_t)va_arg(args, void *), 16);

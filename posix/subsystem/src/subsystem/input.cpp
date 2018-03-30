@@ -69,6 +69,10 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		s << "ACTION=add" << '\0';
 		s << "DEVPATH=/devices/event0" << '\0';
 		s << "SUBSYSTEM=input" << '\0';
+		s << "DEVNAME=input/event0" << '\0';
+		s << "MAJOR=13" << '\0';
+		s << "MINOR=" << device->getId().second << '\0';
+		s << "SEQNUM=1" << '\0'; // TODO: This has to be an increasing number.
 		drvcore::emitHotplug(s.str());
 	});
 

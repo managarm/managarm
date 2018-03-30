@@ -380,48 +380,5 @@ OpenFile::readEntries(), ([=] {
 	COFIBER_RETURN(std::string(disk_entry->name, disk_entry->nameLength));
 }))
 
-COFIBER_ROUTINE(cofiber::no_future, processStatRequest(Connection *connection, int64_t response_id,
-		managarm::fs::CntRequest request), [=] () {
-	// wait until the requested inode is ready
-	auto open_file = connection->getOpenFile(request.fd());
-	if(!open_file->inode->isReady)
-		COFIBER_AWAIT WaitForInode(open_file->inode);
-
-	managarm::fs::SvrResponse response;
-	response.set_error(managarm::fs::Errors::SUCCESS);
-	
-	switch(open_file->inode->fileType) {
-	case kTypeRegular:
-		response.set_file_type(managarm::fs::FileType::REGULAR); break;
-	case kTypeDirectory:
-		response.set_file_type(managarm::fs::FileType::DIRECTORY); break;
-	case kTypeSymlink:
-		response.set_file_type(managarm::fs::FileType::SYMLINK); break;
-	default:
-		assert(!"Unexpected file type");
-	}
-	
-	response.set_inode_num(open_file->inode->number);
-	response.set_mode(open_file->inode->mode);
-	response.set_num_links(open_file->inode->numLinks);
-	response.set_uid(open_file->inode->uid);
-	response.set_gid(open_file->inode->gid);
-	response.set_file_size(open_file->inode->fileSize);
-
-	response.set_atime_secs(open_file->inode->atime.tv_sec);
-	response.set_atime_nanos(open_file->inode->atime.tv_nsec);
-	response.set_mtime_secs(open_file->inode->mtime.tv_sec);
-	response.set_mtime_nanos(open_file->inode->mtime.tv_nsec);
-	response.set_ctime_secs(open_file->inode->ctime.tv_sec);
-	response.set_ctime_nanos(open_file->inode->ctime.tv_nsec);
-
-	std::string serialized;
-	response.SerializeToString(&serialized);
-
-	HelError resp_error = COFIBER_AWAIT connection->getPipe().sendStringResp(serialized.data(), serialized.size(),
-			connection->getFs().eventHub, response_id, 0);
-	HEL_CHECK(resp_error);
-});
-
 } } // namespace blockfs::ext2fs
 
