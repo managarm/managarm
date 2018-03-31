@@ -128,7 +128,8 @@ public:
 		COFIBER_RETURN(RecvResult(size, 0, ctrl.buffer()));
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<size_t>, sendMsg(const void *data, size_t max_length,
+	COFIBER_ROUTINE(FutureMaybe<size_t>,
+	sendMsg(Process *, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 		assert(_currentState == State::connected);

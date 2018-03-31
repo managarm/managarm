@@ -112,7 +112,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 			// Setup post supercall registers in both threads and finally resume the threads.
 			gprs[4] = kHelErrNone;
-			gprs[5] = 1;
+			gprs[5] = child->pid();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			gprs[5] = 0;
@@ -224,10 +224,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			std::cout << "\e[31mposix: Fix GET_PID\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(1);
+			resp.set_pid(self->pid());
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -993,8 +992,9 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				files.push_back(std::move(file));
 			}
 
-			auto bytes_written = COFIBER_AWAIT sockfile->sendMsg(recv_data.data(),
-					recv_data.length(), recv_addr.data(), recv_addr.length(),
+			auto bytes_written = COFIBER_AWAIT sockfile->sendMsg(self.get(),
+					recv_data.data(), recv_data.length(),
+					recv_addr.data(), recv_addr.length(),
 					std::move(files));
 
 			managarm::posix::SvrResponse resp;

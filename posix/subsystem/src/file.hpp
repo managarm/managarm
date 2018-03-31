@@ -156,7 +156,7 @@ public:
 	virtual FutureMaybe<RecvResult> recvMsg(Process *process, void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length);
 
-	virtual FutureMaybe<size_t> sendMsg(const void *data, size_t max_length,
+	virtual FutureMaybe<size_t> sendMsg(Process *process, const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 

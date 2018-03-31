@@ -286,6 +286,13 @@ void FileContext::closeOnExec() {
 // Process.
 // ----------------------------------------------------------------------------
 
+// PID 1 is reserved for the init process, therefore we start at 2.
+int nextPid = 2;
+std::map<int, Process *> globalPidMap;
+
+Process::Process()
+: _pid{0}, _clientFileTable{nullptr} { }
+
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
 	auto process = std::make_shared<Process>();
@@ -298,6 +305,10 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
+	
+	assert(globalPidMap.find(1) == globalPidMap.end());
+	process->_pid = 1;
+	globalPidMap.insert({1, process.get()});
 
 	// TODO: Do not pass an empty argument vector?
 	auto thread = COFIBER_AWAIT execute(process->_fsContext->getRoot(), path,
@@ -320,6 +331,11 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
+	
+	int pid = nextPid++;
+	assert(globalPidMap.find(pid) == globalPidMap.end());
+	process->_pid = pid;
+	globalPidMap.insert({pid, process.get()});
 
 	return process;
 }

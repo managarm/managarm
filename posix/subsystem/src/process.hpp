@@ -110,6 +110,14 @@ struct Process {
 	static async::result<void> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
+public:
+	Process();
+
+	int pid() {
+		assert(_pid); // Do not return uninitialized information.
+	 	return _pid;
+	}
+
 	std::string path() {
 		return _path;
 	}
@@ -131,6 +139,7 @@ struct Process {
 	}
 
 private:
+	int _pid;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;

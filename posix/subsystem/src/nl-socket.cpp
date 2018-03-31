@@ -10,6 +10,7 @@
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
 #include "nl-socket.hpp"
+#include "process.hpp"
 #include "sockutil.hpp"
 
 namespace nl_socket {
@@ -25,8 +26,12 @@ int nextPort = -1;
 std::map<int, OpenFile *> globalPortMap;
 
 struct Packet {
+	// Sender netlink socket information.
 	int senderPort;
 	int group;
+
+	// Sender process information.
+	int senderPid;
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
@@ -114,6 +119,8 @@ public:
 
 		struct ucred creds;
 		memset(&creds, 0, sizeof(struct ucred));
+		creds.pid = packet->senderPid;
+
 		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
 			throw std::runtime_error("posix: Implement CMSG truncation");
 		ctrl.write<struct ucred>(creds);
@@ -122,7 +129,7 @@ public:
 		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
 	}))
 	
-	async::result<size_t> sendMsg(const void *data, size_t max_length,
+	async::result<size_t> sendMsg(Process *process, const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
 	
@@ -191,7 +198,8 @@ private:
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<size_t>, OpenFile::sendMsg(const void *data, size_t max_length,
+COFIBER_ROUTINE(async::result<size_t>,
+OpenFile::sendMsg(Process *process, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
 		std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 	if(logSockets)
@@ -213,6 +221,7 @@ COFIBER_ROUTINE(async::result<size_t>, OpenFile::sendMsg(const void *data, size_
 	assert(_socketPort);
 
 	Packet packet;
+	packet.senderPid = process->pid();
 	packet.senderPort = _socketPort;
 	packet.group = grp_idx;
 	packet.buffer.resize(max_length);
@@ -305,6 +314,7 @@ void configure(int protocol, int num_groups) {
 
 void broadcast(int proto_idx, int grp_idx, std::string buffer) {
 	Packet packet;
+	packet.senderPid = 0;
 	packet.senderPort = 0;
 	packet.group = grp_idx;
 	packet.buffer.resize(buffer.size());
