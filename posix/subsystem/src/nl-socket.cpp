@@ -50,7 +50,7 @@ public:
 
 	OpenFile(int protocol)
 	: File{StructName::get("nl-socket")}, _protocol{protocol},
-			_currentSeq{1}, _inSeq{0}, _socketPort{0} { }
+			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false} { }
 
 	void deliver(Packet packet) {
 		_recvQueue.push_back(std::move(packet));
@@ -117,13 +117,15 @@ public:
 		
 		CtrlBuilder ctrl{max_ctrl_length};
 
-		struct ucred creds;
-		memset(&creds, 0, sizeof(struct ucred));
-		creds.pid = packet->senderPid;
+		if(_passCreds) {
+			struct ucred creds;
+			memset(&creds, 0, sizeof(struct ucred));
+			creds.pid = packet->senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-			throw std::runtime_error("posix: Implement CMSG truncation");
-		ctrl.write<struct ucred>(creds);
+			if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+				throw std::runtime_error("posix: Implement CMSG truncation");
+			ctrl.write<struct ucred>(creds);
+		}
 
 		_recvQueue.pop_front();
 		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
@@ -132,6 +134,12 @@ public:
 	async::result<size_t> sendMsg(Process *process, const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
+	
+	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
+		assert(option == SO_PASSCRED);
+		_passCreds = value;
+		COFIBER_RETURN();
+	}));
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
@@ -182,6 +190,9 @@ private:
 	
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
+
+	// Socket options.
+	bool _passCreds;
 };
 
 struct Group {

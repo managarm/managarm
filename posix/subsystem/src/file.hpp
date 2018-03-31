@@ -81,6 +81,9 @@ public:
 
 	static async::result<void>
 	ptAllocate(void *object, int64_t offset, size_t size);
+	
+	static async::result<void>
+	ptSetOption(void *object, int option, int value);
 
 	static async::result<void>
 	ptBind(void *object, const char *credentials,
@@ -99,6 +102,7 @@ public:
 			.withReadEntries(&ptReadEntries)
 			.withTruncate(&ptTruncate)
 			.withFallocate(&ptAllocate)
+			.withSetOption(&ptSetOption)
 			.withBind(&ptBind)
 			.withConnect(&ptConnect)
 			.withSockname(&ptSockname);
@@ -171,7 +175,9 @@ public:
 	// transitions from clear to set) happens.
 	// TODO: This request should be cancelable.
 	virtual expected<PollResult> poll(uint64_t sequence);
-	
+
+	virtual async::result<void> setOption(int option, int value);
+
 	virtual async::result<AcceptResult> accept();
 
 	virtual async::result<void> bind(Process *process,

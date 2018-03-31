@@ -61,6 +61,7 @@ enum CntReqType {
 	SEEK_EOF = 8;
 
 	PT_IOCTL = 17;
+	PT_SET_OPTION = 25;
 
 	// Legacy API.
 	OPEN = 1;
@@ -95,8 +96,11 @@ message CntRequest {
 	// used by SEEK_ABS, SEEK_REL and SEEK_EOF
 	optional int64 rel_offset = 7;
 
-	// used by PT_IOCTL.
+	// used by PT_IOCTL, PT_SET_OPTION.
 	optional int64 command = 8;
+
+	// used by PT_SET_OPTION.
+	optional int32 value = 42;
 
 	// Sequence number for FILE_POLL.
 	optional uint64 sequence = 38;

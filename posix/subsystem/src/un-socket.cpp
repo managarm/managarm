@@ -25,6 +25,9 @@ std::map<std::weak_ptr<FsNode>, OpenFile *,
 		std::owner_less<std::weak_ptr<FsNode>>> globalBindMap;
 
 struct Packet {
+	// Sender process information.
+	int senderPid;
+
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
 
@@ -60,7 +63,8 @@ public:
 	}
 
 	OpenFile()
-	: File{StructName::get("un-socket")}, _currentState{State::null}, _currentSeq{1}, _inSeq{0} { }
+	: File{StructName::get("un-socket")}, _currentState{State::null},
+			_currentSeq{1}, _inSeq{0}, _remote{nullptr}, _passCreds{false} { }
 
 public:
 	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
@@ -87,6 +91,8 @@ public:
 			std::cout << "posix: Write to socket " << this << std::endl;
 
 		Packet packet;
+		assert(!"Fix senderPid in writeAll()");
+		packet.senderPid = 0;
 		packet.buffer.resize(length);
 		memcpy(packet.buffer.data(), data, length);
 
@@ -115,6 +121,16 @@ public:
 		
 		CtrlBuilder ctrl{max_ctrl_length};
 
+		if(_passCreds) {
+			struct ucred creds;
+			memset(&creds, 0, sizeof(struct ucred));
+			creds.pid = packet->senderPid;
+
+			if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+				throw std::runtime_error("posix: Implement CMSG truncation");
+			ctrl.write<struct ucred>(creds);
+		}
+
 		if(!packet->files.empty()) {
 			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
 				for(auto &file : packet->files)
@@ -129,7 +145,7 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>,
-	sendMsg(Process *, const void *data, size_t max_length,
+	sendMsg(Process *process, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 		assert(_currentState == State::connected);
@@ -137,6 +153,7 @@ public:
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		Packet packet;
+		packet.senderPid = process->pid();
 		packet.buffer.resize(max_length);
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);
@@ -147,6 +164,12 @@ public:
 
 		COFIBER_RETURN(max_length);
 	}))
+	
+	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
+		assert(option == SO_PASSCRED);
+		_passCreds = value;
+		COFIBER_RETURN();
+	}));
 	
 	COFIBER_ROUTINE(async::result<AcceptResult>, accept() override, ([=] {
 		assert(!_acceptQueue.empty());
@@ -255,6 +278,9 @@ private:
 
 	// For connected sockets, this is the socket we are connected to.
 	OpenFile *_remote;
+
+	// Socket options.
+	bool _passCreds;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile() {

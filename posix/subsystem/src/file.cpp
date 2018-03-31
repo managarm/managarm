@@ -47,6 +47,11 @@ async::result<void> File::ptAllocate(void *object,
 	return self->allocate(offset, size);
 }
 
+async::result<void> File::ptSetOption(void *object, int option, int value) {
+	auto self = static_cast<File *>(object);
+	return self->setOption(option, value);
+}
+
 async::result<void> File::ptBind(void *object, const char *credentials,
 		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
@@ -125,6 +130,12 @@ expected<PollResult> File::poll(uint64_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement poll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::poll()");
+}
+
+async::result<void> File::setOption(int, int) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement setOption()" << std::endl;
+	throw std::runtime_error("posix: Object has no File::setOption()");
 }
 
 async::result<AcceptResult> File::accept() {
