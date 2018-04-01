@@ -1259,64 +1259,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // main() function
 // --------------------------------------------------------
 
-std::shared_ptr<sysfs::Object> cardObject;
-std::shared_ptr<sysfs::Object> eventObject;
-
-struct UeventAttribute : sysfs::Attribute {
-	static auto singleton() {
-		static UeventAttribute attr;
-		return &attr;
-	}
-
-private:
-	UeventAttribute()
-	: sysfs::Attribute("uevent") { }
-
-public:
-	virtual std::string show(sysfs::Object *object) override {
-		std::cout << "\e[31mposix: uevent files are static\e[39m" << std::endl;
-		if(object == cardObject.get()) {
-			return std::string{"DEVNAME=dri/card0\n"};
-		}else if(object == eventObject.get()) {
-			return std::string{"DEVNAME=input/event0\n"
-				"MAJOR=13\n"
-				"MINOR=64\n"};
-		}else{
-			throw std::runtime_error("posix: Unexpected object for UeventAttribute::show()");
-		}
-	}
-};
-
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
-	auto devs_object = std::make_shared<sysfs::Object>(nullptr, "devices");
-	devs_object->addObject();
-
-	cardObject = std::make_shared<sysfs::Object>(devs_object, "card0");
-	cardObject->addObject();
-	cardObject->createAttribute(UeventAttribute::singleton());
-
-	eventObject = std::make_shared<sysfs::Object>(devs_object, "event0");
-	eventObject->addObject();
-	eventObject->createAttribute(UeventAttribute::singleton());
-
-	auto cls_object = std::make_shared<sysfs::Object>(nullptr, "class");
-	cls_object->addObject();
-	
-	auto drm_object = std::make_shared<sysfs::Object>(cls_object, "drm");
-	drm_object->addObject();
-	drm_object->createSymlink("card0", cardObject);
-
-	auto input_object = std::make_shared<sysfs::Object>(cls_object, "input");
-	input_object->addObject();
-	input_object->createSymlink("event0", eventObject);
-	
-	auto devnum_object = std::make_shared<sysfs::Object>(nullptr, "dev");
-	devnum_object->addObject();
-	
-	auto chardev_object = std::make_shared<sysfs::Object>(devnum_object, "char");
-	chardev_object->addObject();
-	chardev_object->createSymlink("13:64", eventObject);
-
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
 }))

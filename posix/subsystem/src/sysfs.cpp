@@ -46,7 +46,7 @@ AttributeFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<AttributeNode *>(associatedLink()->getTarget().get());
-		_buffer = node->_attr->show(node->_object);
+		_buffer = COFIBER_AWAIT node->_attr->show(node->_object);
 		_cached = true;
 	}
 
@@ -266,7 +266,7 @@ std::shared_ptr<DirectoryNode> Object::directoryNode() {
 	return std::static_pointer_cast<DirectoryNode>(_dirLink->getTarget());
 }
 
-void Object::createAttribute(Attribute *attr) {
+void Object::realizeAttribute(Attribute *attr) {
 	assert(_dirLink);
 	auto dir = static_cast<DirectoryNode *>(_dirLink->getTarget().get());
 	dir->directMkattr(this, attr);

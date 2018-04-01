@@ -136,7 +136,7 @@ struct Attribute {
 		return _name;
 	}
 
-	virtual std::string show(Object *object) = 0;
+	virtual async::result<std::string> show(Object *object) = 0;
 
 private:
 	const std::string _name;
@@ -145,10 +145,14 @@ private:
 // Object corresponds to Linux kobjects.
 struct Object {
 	Object(std::shared_ptr<Object> parent, std::string name);
-	
+
+	const std::string &name() {
+		return _name;
+	}
+
 	std::shared_ptr<DirectoryNode> directoryNode();
 
-	void createAttribute(Attribute *attr);
+	void realizeAttribute(Attribute *attr);
 	void createSymlink(std::string name, std::shared_ptr<Object> target);
 
 	void addObject();

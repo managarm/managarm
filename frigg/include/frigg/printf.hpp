@@ -226,13 +226,18 @@ void printf(P &printer, const char *format, va_list args) {
 		case 'X': {
 			assert(!left_justify);
 			assert(!alt_conversion);
-			assert(szmod == SizeMod::defaultSize);
-			auto number = va_arg(args, unsigned int);
-			if(precision && *precision == 0 && !number) {
-				// print nothing in this case
+			auto print = [&] (auto number) {
+				if(precision && *precision == 0 && !number) {
+					// print nothing in this case
+				}else{
+					printUInt(printer, number, 16, minimum_width,
+							precision ? *precision : 1, fill_zeros ? '0' : ' ');
+				}
+			};
+			if(szmod == SizeMod::longSize) {
+				print(va_arg(args, unsigned long));
 			}else{
-				printUInt(printer, number, 16, minimum_width,
-						precision ? *precision : 1, fill_zeros ? '0' : ' ');
+				print(va_arg(args, unsigned int));
 			}
 		} break;
 		case 'u': {

@@ -1,6 +1,7 @@
 #ifndef POSIX_SUBSYSTEM_VFS_HPP
 #define POSIX_SUBSYSTEM_VFS_HPP
 
+#include <string.h>
 #include <iostream>
 #include <set>
 

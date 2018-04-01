@@ -1,4 +1,5 @@
 
+#include <linux/input.h>
 #include <string.h>
 #include <iostream>
 #include <sstream>
@@ -11,6 +12,7 @@
 #include "../drvcore.hpp"
 #include "../util.hpp"
 #include "../vfs.hpp"
+#include "fs.pb.h"
 
 namespace input_subsystem {
 
@@ -24,9 +26,24 @@ struct Subsystem {
 	}
 } subsystem;
 
-struct Device : UnixDevice {
+struct CapabilityAttribute : sysfs::Attribute {
+	CapabilityAttribute(std::string name, int index, size_t bits)
+	: sysfs::Attribute{std::move(name)}, _index{index}, _bits{bits} { }
+
+	virtual async::result<std::string> show(sysfs::Object *object) override;
+
+private:
+	int _index;
+	size_t _bits;
+};
+
+CapabilityAttribute evCapability{"ev", 0, EV_MAX};
+CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
+CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
+
+struct Device : UnixDevice, drvcore::Device {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
-	: UnixDevice{type},
+	: UnixDevice{type}, drvcore::Device{nullptr, "event0", this},
 			_name{std::move(name)}, _lane{std::move(lane)} { }
 
 	std::string getName() override {
@@ -42,6 +59,60 @@ private:
 	std::string _name;
 	helix::UniqueLane _lane;
 };
+
+COFIBER_ROUTINE(async::result<std::string>, CapabilityAttribute::show(sysfs::Object *object), ([=] {
+	auto device = static_cast<Device *>(object);
+	auto file = COFIBER_AWAIT device->open(nullptr, 0);
+	auto lane = file->getPassthroughLane();
+
+	std::vector<uint64_t> buffer;
+	buffer.resize((_bits + 63) & ~size_t(63));
+
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::RecvBuffer recv_data;
+	
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::PT_IOCTL);
+	if(_index) {
+		req.set_command(EVIOCGBIT(1, 0));
+		req.set_input_type(_index);
+	}else{
+		req.set_command(EVIOCGBIT(0, 0));
+	}
+	req.set_size(buffer.size() * sizeof(uint64_t));
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&recv_data, buffer.data(), buffer.size() * sizeof(uint64_t)));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_data.error());
+	
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+	std::stringstream ss;
+	ss << std::hex;
+	bool suffix = false;
+	for(auto it = buffer.rbegin(); it != buffer.rend(); it++) {
+		if(!(*it) && !suffix)
+			continue;
+		if(it != buffer.rbegin())
+			ss << ' ';
+		ss << *it;
+		suffix = true;
+	}
+
+	COFIBER_RETURN(ss.str());
+}))
 
 } // anonymous namepsace
 
@@ -62,7 +133,16 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
 				std::move(lane));
 		device->assignId({13, evdevAllocator.allocate()});
+
 		charRegistry.install(device);
+		drvcore::installDevice(device);
+
+		// TODO: Do this before the device becomes visible in sysfs!
+		auto link = device->directoryNode()->directMkdir("capabilities");
+		auto caps = static_cast<sysfs::DirectoryNode *>(link->getTarget().get());
+		caps->directMkattr(device.get(), &evCapability);
+		caps->directMkattr(device.get(), &keyCapability);
+		caps->directMkattr(device.get(), &relCapability);
 
 		std::stringstream s;
 		s << "add@/devices/event0" << '\0';
