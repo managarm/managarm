@@ -39,7 +39,8 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
 
-COFIBER_ROUTINE(expected<size_t>, AttributeFile::readSome(void *data, size_t max_length), ([=] {
+COFIBER_ROUTINE(expected<size_t>,
+AttributeFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	assert(max_length > 0);
 
 	if(!_cached) {

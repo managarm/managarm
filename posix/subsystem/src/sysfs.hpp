@@ -34,7 +34,7 @@ public:
 
 	explicit AttributeFile(std::shared_ptr<FsLink> link);
 
-	expected<size_t> readSome(void *data, size_t max_length) override;
+	expected<size_t> readSome(Process *, void *data, size_t max_length) override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:

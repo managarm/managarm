@@ -40,6 +40,7 @@ COFIBER_ROUTINE(async::result<void>, File::seekAbsolute(int64_t offset), ([=] {
 COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_length), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
+	helix::ImbueCredentials imbue_creds;
 	helix::RecvBuffer recv_resp;
 	helix::RecvBuffer recv_data;
 
@@ -52,11 +53,13 @@ COFIBER_ROUTINE(async::result<size_t>, File::readSome(void *data, size_t max_len
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&imbue_creds, kHelItemChain),
 			helix::action(&recv_resp, buffer, 128, kHelItemChain),
 			helix::action(&recv_data, data, max_length));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
+	HEL_CHECK(imbue_creds.error());
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(recv_data.error());
 

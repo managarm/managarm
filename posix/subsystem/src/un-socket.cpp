@@ -67,7 +67,8 @@ public:
 			_currentSeq{1}, _inSeq{0}, _remote{nullptr}, _passCreds{false} { }
 
 public:
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
@@ -85,7 +86,8 @@ public:
 		COFIBER_RETURN(size);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<void>,
+	writeAll(Process *, const void *data, size_t length) override, ([=] {
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;

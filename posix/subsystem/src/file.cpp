@@ -13,10 +13,12 @@
 // File implementation.
 // --------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(void *object,
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
+File::ptRead(void *object, const char *credentials,
 		void *buffer, size_t length), ([=] {
 	auto self = static_cast<File *>(object);
-	auto result = COFIBER_AWAIT self->readSome(buffer, length);
+	auto process = findProcessWithCredentials(credentials);
+	auto result = COFIBER_AWAIT self->readSome(process.get(), buffer, length);
 	auto error = std::get_if<Error>(&result);
 	if(error && *error == Error::illegalOperationTarget) {
 		COFIBER_RETURN(protocols::fs::Error::illegalArguments);
@@ -25,10 +27,11 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, File::ptRead(void *obj
 	}
 }))
 
-async::result<void> File::ptWrite(void *object,
+async::result<void> File::ptWrite(void *object, const char *credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
-	return self->writeAll(buffer, length);
+	auto process = findProcessWithCredentials(credentials);
+	return self->writeAll(process.get(), buffer, length);
 }
 
 async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
@@ -71,10 +74,11 @@ async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_
 	return self->sockname(addr_ptr, max_addr_length);
 }
 
-COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length), ([=] {
+COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
+		void *data, size_t length), ([=] {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = COFIBER_AWAIT readSome((char *)data + offset, length - offset);
+		auto result = COFIBER_AWAIT readSome(process, (char *)data + offset, length - offset);
 		assert(std::get<size_t>(result) > 0);
 		offset += std::get<size_t>(result);
 	}
@@ -82,7 +86,7 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(void *data, size_t length),
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(expected<size_t>, File::readSome(void *, size_t), ([=] {
+COFIBER_ROUTINE(expected<size_t>, File::readSome(Process *, void *, size_t), ([=] {
 	std::cout << "\e[35mposix.epoll \e[1;34m" << structName()
 			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
 	COFIBER_RETURN(Error::illegalOperationTarget);
@@ -93,7 +97,7 @@ void File::handleClose() {
 			<< "\e[0m: Object does not implement handleClose()" << std::endl;
 }
 
-FutureMaybe<void> File::writeAll(const void *, size_t) {
+FutureMaybe<void> File::writeAll(Process *, const void *, size_t) {
 	throw std::runtime_error("posix: Object has no File::writeAll()");
 }
 

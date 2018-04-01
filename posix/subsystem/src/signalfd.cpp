@@ -23,7 +23,8 @@ public:
 	OpenFile()
 	: File{StructName::get("signalfd")} { }
 
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		throw std::runtime_error("read() from signalfd is not implemented");
 	}))
 	

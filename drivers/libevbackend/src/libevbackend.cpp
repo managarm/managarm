@@ -29,7 +29,7 @@ namespace libevbackend {
 // ----------------------------------------------------------------------------
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-File::read(void *object, void *buffer, size_t max_size), ([=] {
+File::read(void *object, const char *, void *buffer, size_t max_size), ([=] {
 	auto self = static_cast<File *>(object);
 
 	if(self->_nonBlock && self->_device->_events.empty())
@@ -66,7 +66,7 @@ File::read(void *object, void *buffer, size_t max_size), ([=] {
 	COFIBER_RETURN(written);
 }))
 
-async::result<void> File::write(void *, const void *, size_t) {
+async::result<void> File::write(void *, const char *, const void *, size_t) {
 	throw std::runtime_error("write not yet implemented");
 }
 

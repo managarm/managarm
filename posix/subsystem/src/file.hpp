@@ -68,10 +68,10 @@ public:
 	// ------------------------------------------------------------------------
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(void *object, void *buffer, size_t length);
+	ptRead(void *object, const char *credentials, void *buffer, size_t length);
 	
 	static async::result<void>
-	ptWrite(void *object, const void *buffer, size_t length);
+	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
@@ -147,13 +147,13 @@ public:
 		return _link;
 	}
 
-	FutureMaybe<void> readExactly(void *data, size_t length);
+	FutureMaybe<void> readExactly(Process *process, void *data, size_t length);
 
 	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
 
-	virtual expected<size_t> readSome(void *data, size_t max_length);
+	virtual expected<size_t> readSome(Process *process, void *data, size_t max_length);
 
-	virtual FutureMaybe<void> writeAll(const void *data, size_t length);
+	virtual FutureMaybe<void> writeAll(Process *process, const void *data, size_t length);
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 

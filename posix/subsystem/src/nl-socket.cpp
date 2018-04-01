@@ -59,7 +59,8 @@ public:
 	}
 
 public:
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		if(logSockets)
 			std::cout << "posix: Read from socket " << this << std::endl;
 
@@ -75,7 +76,8 @@ public:
 		COFIBER_RETURN(size);
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<void>, writeAll(const void *data, size_t length) override, ([=] {
+	COFIBER_ROUTINE(FutureMaybe<void>,
+	writeAll(Process *, const void *data, size_t length) override, ([=] {
 		throw std::runtime_error("posix: Fix netlink send()");
 /*
 		if(logSockets)

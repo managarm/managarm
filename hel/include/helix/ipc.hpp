@@ -365,6 +365,22 @@ private:
 	}
 };
 
+struct ImbueCredentials : Operation {
+	HelError error() {
+		return result()->error;
+	}
+
+	void parse(void *&ptr) override {
+		_element = ptr;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+	}
+
+private:
+	HelSimpleResult *result() {
+		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	}
+};
+
 struct ExtractCredentials : Operation {
 	HelError error() {
 		return result()->error;
@@ -600,6 +616,13 @@ inline Item<Offer> action(Offer *operation, uint32_t flags = 0) {
 inline Item<Accept> action(Accept *operation, uint32_t flags = 0) {
 	HelAction action;
 	action.type = kHelActionAccept;
+	action.flags = flags;
+	return {operation, action};
+}
+
+inline Item<ImbueCredentials> action(ImbueCredentials *operation, uint32_t flags = 0) {
+	HelAction action;
+	action.type = kHelActionImbueCredentials;
 	action.flags = flags;
 	return {operation, action};
 }

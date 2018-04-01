@@ -21,6 +21,11 @@ void serviceAccept(LaneHandle handle,
 	handle.getStream()->submitAccept(handle.getLane(), frigg::WeakPtr<Universe>(), callback);
 }
 
+void serviceExtractCreds(LaneHandle handle,
+		frigg::CallbackPtr<void(Error, frigg::Array<char, 16>)> callback) {
+	handle.getStream()->submitExtractCredentials(handle.getLane(), callback);
+}
+
 void serviceRecv(LaneHandle handle, void *buffer, size_t max_length,
 		frigg::CallbackPtr<void(Error, size_t)> callback) {
 	handle.getStream()->submitRecvBuffer(handle.getLane(),
@@ -53,10 +58,16 @@ namespace stdio {
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
 
 		void operator() () {
-			serviceRecvInline(_lane, CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
+			serviceExtractCreds(_lane, CALLBACK_MEMBER(this, &WriteClosure::onExtractCreds));
 		}
 
 	private:
+		void onExtractCreds(Error error, frigg::Array<char, 16>) {
+			assert(error == kErrSuccess);
+
+			serviceRecvInline(_lane, CALLBACK_MEMBER(this, &WriteClosure::onRecvData));
+		}
+
 		void onRecvData(Error error, frigg::UniqueMemory<KernelAlloc> data) {
 			assert(error == kErrSuccess);
 			
@@ -173,6 +184,13 @@ namespace initrd {
 				_buffer(*kernelAlloc), _payload(*kernelAlloc) { }
 
 		void operator() () {
+			serviceExtractCreds(_lane, CALLBACK_MEMBER(this, &ReadClosure::onExtractCreds));
+		}
+
+	private:
+		void onExtractCreds(Error error, frigg::Array<char, 16>) {
+			assert(error == kErrSuccess);
+
 			assert(_file->offset <= _file->module->getMemory()->getLength());
 			_payload.resize(frigg::min(size_t(_req.size()),
 					_file->module->getMemory()->getLength() - _file->offset));
@@ -191,7 +209,6 @@ namespace initrd {
 			});
 		}
 
-	private:
 		void onSendResp(Error error) {
 			assert(error == kErrSuccess);
 			

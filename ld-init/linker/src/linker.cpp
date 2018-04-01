@@ -201,7 +201,7 @@ void posixRead(int fd, void *data, size_t length) {
 
 	size_t offset = 0;
 	while(offset < length) {
-		HelAction actions[4];
+		HelAction actions[5];
 
 		managarm::fs::CntRequest<Allocator> req(*allocator);
 		req.set_req_type(managarm::fs::CntReqType::READ);
@@ -217,21 +217,25 @@ void posixRead(int fd, void *data, size_t length) {
 		actions[1].flags = kHelItemChain;
 		actions[1].buffer = ser.data();
 		actions[1].length = ser.size();
-		actions[2].type = kHelActionRecvInline;
+		actions[2].type = kHelActionImbueCredentials;
 		actions[2].flags = kHelItemChain;
-		actions[3].type = kHelActionRecvToBuffer;
-		actions[3].flags = 0;
-		actions[3].buffer = (char *)data + offset;
-		actions[3].length = length - offset;
-		HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0, 0));
+		actions[3].type = kHelActionRecvInline;
+		actions[3].flags = kHelItemChain;
+		actions[4].type = kHelActionRecvToBuffer;
+		actions[4].flags = 0;
+		actions[4].buffer = (char *)data + offset;
+		actions[4].length = length - offset;
+		HEL_CHECK(helSubmitAsync(lane, actions, 5, m.getQueue(), 0, 0));
 
 		auto element = m.dequeueSingle();
 		auto offer = parseSimple(element);
 		auto send_req = parseSimple(element);
+		auto imbue_creds = parseSimple(element);
 		auto recv_resp = parseInline(element);
 		auto recv_data = parseLength(element);
 		HEL_CHECK(offer->error);
 		HEL_CHECK(send_req->error);
+		HEL_CHECK(imbue_creds->error);
 		HEL_CHECK(recv_resp->error);
 		HEL_CHECK(recv_data->error);
 

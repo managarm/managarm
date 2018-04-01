@@ -10,7 +10,8 @@ namespace {
 
 struct HeloutFile : File {
 private:
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		(void)data;
 		(void)max_length;
 		assert(!"Not implemented");

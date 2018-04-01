@@ -66,12 +66,12 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withRead(async::result<ReadResult> (*f)(void *object,
-			void *buffer, size_t length)) {
+			const char *, void *buffer, size_t length)) {
 		read = f;
 		return *this;
 	}
 	constexpr FileOperations &withWrite(async::result<void> (*f)(void *object,
-			const void *buffer, size_t length)) {
+			const char *, const void *buffer, size_t length)) {
 		write = f;
 		return *this;
 	}
@@ -128,8 +128,10 @@ struct FileOperations {
 	async::result<int64_t> (*seekAbs)(void *object, int64_t offset);
 	async::result<int64_t> (*seekRel)(void *object, int64_t offset);
 	async::result<int64_t> (*seekEof)(void *object, int64_t offset);
-	async::result<ReadResult> (*read)(void *object, void *buffer, size_t length);
-	async::result<void> (*write)(void *object, const void *buffer, size_t length);
+	async::result<ReadResult> (*read)(void *object, const char *credentials,
+			void *buffer, size_t length);
+	async::result<void> (*write)(void *object, const char *credentials,
+			const void *buffer, size_t length);
 	async::result<ReadEntriesResult> (*readEntries)(void *object);
 	async::result<AccessMemoryResult>(*accessMemory)(void *object,
 			uint64_t offset, size_t size);

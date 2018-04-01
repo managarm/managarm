@@ -467,7 +467,7 @@ void drm_core::File::postEvent(drm_core::Event event) {
 }
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-drm_core::File::read(void *object,
+drm_core::File::read(void *object, const char *,
 		void *buffer, size_t length), ([=] {
 	auto self = static_cast<drm_core::File *>(object);
 

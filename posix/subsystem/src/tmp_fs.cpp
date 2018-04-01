@@ -243,11 +243,11 @@ public:
 	MemoryFile(std::shared_ptr<FsLink> link)
 	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
 	
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *, size_t) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>, readSome(Process *, void *, size_t) override, ([=] {
 		throw std::runtime_error("posix: Fix tmpfs::MemoryFile read");
 	}))
 	
-	async::result<void> writeAll(const void *data, size_t length) override;
+	async::result<void> writeAll(Process *, const void *data, size_t length) override;
 	
 	FutureMaybe<void> truncate(size_t size) override;
 	
@@ -348,7 +348,7 @@ MemoryNode::MemoryNode(Superblock *superblock)
 : FsNode{superblock}, _areaSize{0}, _fileSize{0} { }
 
 COFIBER_ROUTINE(async::result<void>,
-MemoryFile::writeAll(const void *data, size_t length), ([=] {
+MemoryFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(_offset + length > node->_fileSize)

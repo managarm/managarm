@@ -28,7 +28,7 @@ COFIBER_ROUTINE(async::result<int64_t>, seekAbs(void *object,
 	COFIBER_RETURN(self->offset);
 }))
 
-COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object,
+COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, const char *,
 		void *buffer, size_t length), ([=] {
 	assert(length);
 
@@ -62,7 +62,7 @@ COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object,
 	COFIBER_RETURN(chunk_size);
 }))
 
-async::result<void> write(void *, const void *, size_t) {
+async::result<void> write(void *, const char *, const void *, size_t) {
 	throw std::runtime_error("write not implemented");
 }
 

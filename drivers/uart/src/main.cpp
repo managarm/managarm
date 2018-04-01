@@ -131,7 +131,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleIrqs(), ([=] {
 }))
 	
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
-read(void *, void *buffer, size_t length), ([=] {
+read(void *, const char *, void *buffer, size_t length), ([=] {
 	auto req = new ReadRequest(buffer, length);
 	recvRequests.push_back(*req);
 	auto future = req->promise.async_get();
@@ -140,7 +140,7 @@ read(void *, void *buffer, size_t length), ([=] {
 	COFIBER_RETURN(value);
 }))
 
-async::result<void> write(void *, const void *buffer, size_t length) {
+async::result<void> write(void *, const char *, const void *buffer, size_t length) {
 	auto req = new WriteRequest(buffer, length);
 	sendRequests.push_back(*req);
 	auto value = req->promise.async_get();

@@ -39,10 +39,10 @@ struct File {
 	// ------------------------------------------------------------------------
 	
 	static async::result<protocols::fs::ReadResult>
-	read(void *object, void *buffer, size_t length);
+	read(void *object, const char *, void *buffer, size_t length);
 
 	static async::result<void>
-	write(void *object, const void *buffer, size_t length);
+	write(void *object, const char *, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::PollResult>
 	poll(void *object, uint64_t past_seq);

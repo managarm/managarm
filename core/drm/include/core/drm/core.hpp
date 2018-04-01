@@ -159,7 +159,7 @@ struct File {
 	: _device(device), _eventSequence{1} { };
 	
 	static async::result<protocols::fs::ReadResult>
-	read(void *object, void *buffer, size_t length);
+	read(void *object, const char *, void *buffer, size_t length);
 
 	static async::result<protocols::fs::AccessMemoryResult>
 	accessMemory(void *object, uint64_t, size_t);

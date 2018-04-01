@@ -27,7 +27,9 @@ private:
 		COFIBER_RETURN(offset);
 	}))
 
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		size_t length = COFIBER_AWAIT _file.readSome(data, max_length);
 		COFIBER_RETURN(length);
 	}))

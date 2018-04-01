@@ -84,7 +84,8 @@ public:
 		_seqBell.ring();
 	}
 
-	COFIBER_ROUTINE(expected<size_t>, readSome(void *data, size_t max_length) override, ([=] {
+	COFIBER_ROUTINE(expected<size_t>,
+	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		assert(max_length == sizeof(uint64_t));
 		assert(_expirations);
 
