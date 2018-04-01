@@ -243,11 +243,9 @@ public:
 	MemoryFile(std::shared_ptr<FsLink> link)
 	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
 	
-	COFIBER_ROUTINE(expected<size_t>, readSome(Process *, void *, size_t) override, ([=] {
-		throw std::runtime_error("posix: Fix tmpfs::MemoryFile read");
-	}))
+	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
 	
-	async::result<void> writeAll(Process *, const void *data, size_t length) override;
+	async::result<void> writeAll(Process *, const void *buffer, size_t length) override;
 	
 	FutureMaybe<void> truncate(size_t size) override;
 	
@@ -347,14 +345,30 @@ struct Superblock : FsSuperblock {
 MemoryNode::MemoryNode(Superblock *superblock)
 : FsNode{superblock}, _areaSize{0}, _fileSize{0} { }
 
+COFIBER_ROUTINE(expected<size_t>,
+MemoryFile::readSome(Process *, void *buffer, size_t max_length), ([=] {
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+
+	// TODO: Return end-of-file otherwise.
+	assert(_offset <= node->_fileSize);
+	auto chunk = std::min(node->_fileSize - _offset, max_length);
+
+	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
+	_offset += chunk;
+
+	COFIBER_RETURN(chunk);
+}))
+
 COFIBER_ROUTINE(async::result<void>,
-MemoryFile::writeAll(Process *, const void *data, size_t length), ([=] {
+MemoryFile::writeAll(Process *, const void *buffer, size_t length), ([=] {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(_offset + length > node->_fileSize)
 		node->_resizeFile(_offset + length);
-	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, data, length);
+
+	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
+
 	COFIBER_RETURN();
 }))	
 

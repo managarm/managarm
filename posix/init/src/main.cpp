@@ -97,6 +97,8 @@ int main() {
 		execl("/usr/bin/hid", "hid", nullptr);
 	}else assert(input_hid != -1);
 
+	sleep(3);
+
 /*
 	auto udev_trigger_devs = fork();
 	if(!udev_trigger_devs) {
@@ -104,7 +106,6 @@ int main() {
 	}else assert(udev_trigger_devs != -1);
 */
 
-/*
 	auto modeset = fork();
 	if(!modeset) {
 		putenv("XDG_RUNTIME_DIR=/run");
@@ -122,6 +123,5 @@ int main() {
 		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
 		execl("/usr/bin/weston", "weston", nullptr);
 	}else assert(modeset != -1);
-*/
 }
 

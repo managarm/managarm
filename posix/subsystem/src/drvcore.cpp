@@ -99,6 +99,7 @@ void installDevice(std::shared_ptr<Device> device) {
 	
 	// TODO: Do this before the object becomes visible in sysfs.
 	eventObject->realizeAttribute(UeventAttribute::singleton());
+	eventObject->createSymlink("subsystem", inputClassObject);
 	
 	inputClassObject->createSymlink(device->name(), eventObject);
 	globalCharObject->createSymlink("13:64", eventObject);
