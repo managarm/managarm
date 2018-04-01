@@ -87,14 +87,14 @@ public:
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<void>,
-	writeAll(Process *, const void *data, size_t length) override, ([=] {
+	writeAll(Process *process, const void *data, size_t length) override, ([=] {
+		assert(process);
 		assert(_currentState == State::connected);
 		if(logSockets)
 			std::cout << "posix: Write to socket " << this << std::endl;
 
 		Packet packet;
-		assert(!"Fix senderPid in writeAll()");
-		packet.senderPid = 0;
+		packet.senderPid = process->pid();
 		packet.buffer.resize(length);
 		memcpy(packet.buffer.data(), data, length);
 
