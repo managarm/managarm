@@ -32,6 +32,8 @@ struct Packet {
 	std::vector<char> buffer;
 
 	std::vector<smarter::shared_ptr<File, FileHandle>> files;
+
+	size_t offset = 0;
 };
 
 struct OpenFile : File {
@@ -78,6 +80,7 @@ public:
 		
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
+		assert(!packet->offset);
 		assert(packet->files.empty());
 		auto size = packet->buffer.size();
 		assert(max_length >= size);
@@ -97,6 +100,7 @@ public:
 		packet.senderPid = process->pid();
 		packet.buffer.resize(length);
 		memcpy(packet.buffer.data(), data, length);
+		packet.offset = 0;
 
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
@@ -115,11 +119,7 @@ public:
 		while(_recvQueue.empty())
 			COFIBER_AWAIT _statusBell.async_wait();
 		
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
-		auto size = packet->buffer.size();
-		assert(max_length >= size);
-		memcpy(data, packet->buffer.data(), size);
 		
 		CtrlBuilder ctrl{max_ctrl_length};
 
@@ -140,10 +140,18 @@ public:
 			}else{
 				throw std::runtime_error("posix: CMSG truncation is not implemented");
 			}
-		}
 
-		_recvQueue.pop_front();
-		COFIBER_RETURN(RecvResult(size, 0, ctrl.buffer()));
+			packet->files.clear();
+		}
+		
+		// TODO: Truncate packets (for SOCK_DGRAM) here.
+		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
+		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+		packet->offset += chunk;
+
+		if(packet->offset == packet->buffer.size())
+			_recvQueue.pop_front();
+		COFIBER_RETURN(RecvResult(chunk, 0, ctrl.buffer()));
 	}))
 	
 	COFIBER_ROUTINE(FutureMaybe<size_t>,
@@ -159,6 +167,7 @@ public:
 		packet.buffer.resize(max_length);
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);
+		packet.offset = 0;
 
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
