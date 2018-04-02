@@ -35,8 +35,8 @@
 #include "tmp_fs.hpp"
 #include <posix.pb.h>
 
-bool logRequests = true;
-bool logPaths = true;
+bool logRequests = false;
+bool logPaths = false;
 
 std::map<
 	std::array<char, 16>,

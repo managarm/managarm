@@ -37,8 +37,10 @@ struct Mapping {
 	}
 
 	~Mapping() {
-		if(_window)
-			assert(!"Unmap memory here!");
+		if(_window) {
+			auto aligned_size = (_size + (pageSize - 1)) & ~(pageSize - 1);
+			HEL_CHECK(helUnmapMemory(kHelNullHandle, _window, aligned_size));
+		}
 	}
 
 	Mapping &operator= (Mapping other) {
