@@ -51,6 +51,9 @@ enum CntReqType {
 	FD_GET_FLAGS = 44;
 	FD_SET_FLAGS = 45;
 
+	// FIFO- and pipe-specific calls.
+	PIPE_CREATE = 52;
+
 	// Socket-specific calls.
 	SOCKET = 35;
 	SOCKPAIR = 25;

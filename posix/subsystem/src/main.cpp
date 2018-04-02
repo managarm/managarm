@@ -24,6 +24,7 @@
 #include "exec.hpp"
 #include "extern_fs.hpp"
 #include "devices/helout.hpp"
+#include "fifo.hpp"
 #include "inotify.hpp"
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
@@ -870,6 +871,26 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(flags);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::PIPE_CREATE) {
+			if(logRequests)
+				std::cout << "posix: PIPE_CREATE" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			auto pair = fifo::createPair();
+			auto r_fd = self->fileContext()->attachFile(std::get<0>(pair));
+			auto w_fd = self->fileContext()->attachFile(std::get<1>(pair));
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.mutable_fds()->Add(r_fd);
+			resp.mutable_fds()->Add(w_fd);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
