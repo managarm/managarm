@@ -1360,6 +1360,28 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
 					Token(handler, i - 1));
 		} break;
+		case kHelActionSendFromBufferSg: {
+			using Token = SetResult<SendStringWriter>;
+			
+			size_t length = 0;
+			auto sglist = reinterpret_cast<HelSgItem *>(action.buffer);
+			for(size_t j = 0; j < action.length; j++) {
+				auto item = readUserObject(sglist + j);
+				length += item.length;
+			}
+
+			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, length);
+			size_t offset = 0;
+			for(size_t j = 0; j < action.length; j++) {
+				auto item = readUserObject(sglist + j);
+				readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
+						reinterpret_cast<char *>(item.buffer), item.length);
+				offset += item.length;
+			}
+
+			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
+					Token(handler, i - 1));
+		} break;
 		case kHelActionRecvInline: {
 			using Token = SetResult<RecvInlineWriter>;
 			auto space = this_thread->getAddressSpace().toShared();

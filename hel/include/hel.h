@@ -113,6 +113,7 @@ enum {
 	kHelActionImbueCredentials = 8,
 	kHelActionExtractCredentials = 9,
 	kHelActionSendFromBuffer = 1,
+	kHelActionSendFromBufferSg = 10,
 	kHelActionRecvInline = 7,
 	kHelActionRecvToBuffer = 3,
 	kHelActionPushDescriptor = 2,
@@ -122,6 +123,11 @@ enum {
 enum {
 	kHelItemChain = 1,
 	kHelItemAncillary = 2
+};
+
+struct HelSgItem {
+	void *buffer;
+	size_t length;
 };
 
 struct HelAction {
