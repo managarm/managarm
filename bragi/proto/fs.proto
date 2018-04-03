@@ -10,6 +10,7 @@ enum Errors {
 	END_OF_FILE = 2;
 	ILLEGAL_ARGUMENT = 4;
 	WOULD_BLOCK = 5;
+	SEEK_ON_PIPE = 6;
 }
 
 enum FileType {

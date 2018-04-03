@@ -28,6 +28,13 @@ COFIBER_ROUTINE(async::result<int64_t>, seekAbs(void *object,
 	COFIBER_RETURN(self->offset);
 }))
 
+COFIBER_ROUTINE(async::result<int64_t>, seekRel(void *object,
+		int64_t offset), ([=] {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	self->offset += offset;
+	COFIBER_RETURN(self->offset);
+}))
+
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>, read(void *object, const char *,
 		void *buffer, size_t length), ([=] {
 	assert(length);
@@ -82,6 +89,7 @@ readEntries(void *object), ([=] {
 
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withSeekAbs(&seekAbs)
+	.withSeekRel(&seekRel)
 	.withRead(&read)
 	.withWrite(&write)
 	.withReadEntries(&readEntries)

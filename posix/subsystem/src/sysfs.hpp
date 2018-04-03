@@ -34,6 +34,7 @@ public:
 
 	explicit AttributeFile(std::shared_ptr<FsLink> link);
 
+	async::result<off_t> seek(off_t offset, VfsSeek whence) override;
 	expected<size_t> readSome(Process *, void *data, size_t max_length) override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 

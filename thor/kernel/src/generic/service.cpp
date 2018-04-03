@@ -90,6 +90,30 @@ namespace stdio {
 
 		frigg::String<KernelAlloc> _buffer;
 	};
+	
+	struct SeekClosure {
+		SeekClosure(LaneHandle lane, fs::CntRequest<KernelAlloc> req)
+		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
+
+		void operator() () {
+			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+
+			resp.SerializeToString(&_buffer);
+			serviceSend(_lane, _buffer.data(), _buffer.size(),
+					CALLBACK_MEMBER(this, &SeekClosure::onSendResp));
+		}
+
+	private:
+		void onSendResp(Error error) {
+			assert(error == kErrSuccess);
+		}
+
+		LaneHandle _lane;
+		fs::CntRequest<KernelAlloc> _req;
+
+		frigg::String<KernelAlloc> _buffer;
+	};
 
 	struct RequestClosure {
 		RequestClosure(LaneHandle lane)
@@ -119,6 +143,10 @@ namespace stdio {
 
 			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
 				auto closure = frigg::construct<WriteClosure>(*kernelAlloc,
+						frigg::move(_requestLane), frigg::move(req));
+				(*closure)();
+			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+				auto closure = frigg::construct<SeekClosure>(*kernelAlloc,
 						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else{

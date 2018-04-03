@@ -66,6 +66,9 @@ public:
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
+	
+	static async::result<int64_t>
+	ptSeek(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
 	ptRead(void *object, const char *credentials, void *buffer, size_t length);
@@ -97,6 +100,7 @@ public:
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
 	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
+			.withSeekRel(&ptSeek)
 			.withRead(&ptRead)
 			.withWrite(&ptWrite)
 			.withReadEntries(&ptReadEntries)

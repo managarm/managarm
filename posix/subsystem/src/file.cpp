@@ -13,6 +13,11 @@
 // File implementation.
 // --------------------------------------------------------
 
+async::result<int64_t> File::ptSeek(void *object, int64_t offset) {
+	auto self = static_cast<File *>(object);
+	return self->seek(offset, VfsSeek::relative);
+}
+
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
 File::ptRead(void *object, const char *credentials,
 		void *buffer, size_t length), ([=] {
@@ -126,7 +131,8 @@ async::result<void> File::allocate(int64_t, size_t) {
 }
 
 FutureMaybe<off_t> File::seek(off_t, VfsSeek) {
-	// TODO: Return an error.
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement seek()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::seek()");
 }
 

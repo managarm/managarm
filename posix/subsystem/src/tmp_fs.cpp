@@ -243,6 +243,8 @@ public:
 	MemoryFile(std::shared_ptr<FsLink> link)
 	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
 	
+	async::result<off_t> seek(off_t delta, VfsSeek whence) override;
+
 	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
 	
 	async::result<void> writeAll(Process *, const void *buffer, size_t length) override;
@@ -344,6 +346,13 @@ struct Superblock : FsSuperblock {
 
 MemoryNode::MemoryNode(Superblock *superblock)
 : FsNode{superblock}, _areaSize{0}, _fileSize{0} { }
+
+COFIBER_ROUTINE(async::result<off_t>,
+MemoryFile::seek(off_t delta, VfsSeek whence), ([=] {
+	assert(whence == VfsSeek::relative);
+	_offset += delta;
+	COFIBER_RETURN(_offset);
+}))
 
 COFIBER_ROUTINE(expected<size_t>,
 MemoryFile::readSome(Process *, void *buffer, size_t max_length), ([=] {
