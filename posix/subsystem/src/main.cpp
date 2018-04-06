@@ -336,6 +336,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				target.first->mount(target.second, getDevtmpfs());	
 			}else if(req.fs_type() == "tmpfs") {
 				target.first->mount(target.second, tmp_fs::createRoot());	
+			}else if(req.fs_type() == "devpts") {
+				target.first->mount(target.second, pts::getFsRoot());	
 			}else{
 				assert(req.fs_type() == "ext2");
 				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());

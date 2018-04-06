@@ -16,7 +16,7 @@ int main() {
 	dup2(fd, STDOUT_FILENO);
 	dup2(fd, STDERR_FILENO);
 	printf("Starting posix-init\n");
-	
+
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
@@ -53,6 +53,11 @@ int main() {
 	if(mount("", "/realfs/dev", "devtmpfs", 0, ""))
 		throw std::runtime_error("mount() failed");
 	if(mount("", "/realfs/run", "tmpfs", 0, ""))
+		throw std::runtime_error("mount() failed");
+
+	if(mkdir("/dev/pts", 0620))
+		throw std::runtime_error("mkdir() failed");
+	if(mount("", "/realfs/dev/pts", "devpts", 0, ""))
 		throw std::runtime_error("mount() failed");
 
 	if(chroot("/realfs"))
