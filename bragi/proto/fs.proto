@@ -192,6 +192,8 @@ message SvrResponse {
 	optional int32 edges = 61;
 	optional int32 status = 62;
 
+	optional int32 pts_index = 63;
+
 	// drm
 	optional uint64 drm_value = 21;
 

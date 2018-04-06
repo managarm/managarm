@@ -26,6 +26,7 @@
 #include "devices/helout.hpp"
 #include "fifo.hpp"
 #include "inotify.hpp"
+#include "pts.hpp"
 #include "signalfd.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
@@ -1291,6 +1292,7 @@ int main() {
 	drvcore::initialize();
 
 	charRegistry.install(createHeloutDevice());
+	charRegistry.install(pts::createMasterDevice());
 	block_subsystem::run();
 	drm_subsystem::run();
 	input_subsystem::run();

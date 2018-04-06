@@ -8,6 +8,7 @@
 #include <helix/await.hpp>
 #include "file.hpp"
 #include "process.hpp"
+#include "fs.pb.h"
 
 // --------------------------------------------------------
 // File implementation.
@@ -77,6 +78,12 @@ async::result<void> File::ptConnect(void *object, const char *credentials,
 async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_addr_length) {
 	auto self = static_cast<File *>(object);
 	return self->sockname(addr_ptr, max_addr_length);
+}
+
+async::result<void> File::ptIoctl(void *object, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation) {
+	auto self = static_cast<File *>(object);
+	return self->ioctl(nullptr, std::move(req), std::move(conversation));
 }
 
 COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
@@ -175,5 +182,12 @@ async::result<size_t> File::sockname(void *addr_ptr, size_t max_addr_length) {
 FutureMaybe<helix::UniqueDescriptor> File::accessMemory(off_t) {
 	// TODO: Return an error.
 	throw std::runtime_error("posix: Object has no File::accessMemory()");
+}
+
+async::result<void> File::ioctl(Process *, managarm::fs::CntRequest,
+		helix::UniqueLane) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement ioctl()" << std::endl;
+	throw std::runtime_error("posix: Object has no File::ioctl()");
 }
 

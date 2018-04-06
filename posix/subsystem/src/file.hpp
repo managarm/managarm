@@ -99,6 +99,10 @@ public:
 	static async::result<size_t>
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
 	
+	static async::result<void> 
+	ptIoctl(void *object, managarm::fs::CntRequest req,
+			helix::UniqueLane conversation);
+	
 	static constexpr auto fileOperations = protocols::fs::FileOperations{}
 			.withSeekRel(&ptSeek)
 			.withRead(&ptRead)
@@ -109,7 +113,8 @@ public:
 			.withSetOption(&ptSetOption)
 			.withBind(&ptBind)
 			.withConnect(&ptConnect)
-			.withSockname(&ptSockname);
+			.withSockname(&ptSockname)
+			.withIoctl(&ptIoctl);
 
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -196,6 +201,9 @@ public:
 	// Due to missing support from the kernel, we currently need multiple memory
 	// objects per file for DRM device files.
 	virtual FutureMaybe<helix::UniqueDescriptor> accessMemory(off_t offset = 0);
+	
+	virtual async::result<void> ioctl(Process *process, managarm::fs::CntRequest req,
+			helix::UniqueLane conversation);
 
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 

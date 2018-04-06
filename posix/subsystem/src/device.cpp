@@ -28,7 +28,9 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	createDeviceNode(device->getName(), device->type(), device->getId());
+	auto name = device->getName();
+	if(!name.empty())
+		createDeviceNode(std::move(name), device->type(), device->getId());
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
