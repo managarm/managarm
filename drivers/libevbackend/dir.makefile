@@ -12,7 +12,7 @@ $c_INCLUDES := -I$($c_HEADERDIR) -iquote$($c_GENDIR) \
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++17 -Wall -Wextra -O2 -fPIC
 
-$c_LIBS :=-lcofiber -lfs_protocol -lhelix -lmbus_protocol -lusb_protocol \
+$c_LIBS :=-lcofiber -lfs_protocol -lhelix -lmbus -lusb_protocol \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $(call make_so,libevbackend.so,libevbackend.o)

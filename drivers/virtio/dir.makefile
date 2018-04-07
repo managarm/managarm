@@ -12,7 +12,7 @@ $c_INCLUDES := -iquote$($c_GENDIR) \
 $c_CXXFLAGS := $(CXXFLAGS) $($c_INCLUDES)
 $c_CXXFLAGS += -std=c++17 -Wall -Wextra -O2
 
-$c_block_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus_protocol -lblockfs -lvirtio_core \
+$c_block_LIBS := -lhelix -lcofiber -lhw_protocol -lmbus -lblockfs -lvirtio_core \
 	$(shell $($c_PKGCONF) --libs protobuf-lite)
 
 $c_net_LIBS := -lnet \

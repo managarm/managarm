@@ -1,7 +1,7 @@
 
 #include <string.h>
 
-#include "common.hpp"
+#include "../common.hpp"
 #include "helout.hpp"
 
 HelHandle __mlibc_getPassthrough(int fd);
