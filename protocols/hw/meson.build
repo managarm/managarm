@@ -1,0 +1,20 @@
+
+gen = generator(protoc,
+		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
+		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/hw/', 
+				'@INPUT@']) 
+
+hw_pb = gen.process('../../protocols/hw/hw.proto')
+hw_proto_inc = include_directories('include/')
+libhw_protocol = shared_library('libhw_protocol', ['src/client.cpp', hw_pb],
+		dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep],
+		include_directories: hw_proto_inc)
+
+hw_protocol_dep = declare_dependency(
+		link_with: libhw_protocol,
+		include_directories: hw_proto_inc)
+
+install_headers(
+		'include/protocols/hw/client.hpp',
+		subdir: 'protocols/hw/')
+

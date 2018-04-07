@@ -1,0 +1,22 @@
+
+gen = generator(protoc,
+		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
+		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../bragi/proto', 
+				'@INPUT@']) 
+
+fs_pb = gen.process('../../bragi/proto/fs.proto')
+posix_pb = gen.process('../../bragi/proto/posix.proto')
+
+posix_subsystem_inc = include_directories('../../frigg/include')
+
+executable('posix_subsystem', 
+		['src/device.cpp', 'src/devices/helout.cpp', 'src/drvcore.cpp', 'src/epoll.cpp',
+				'src/exec.cpp', 'src/extern_fs.cpp', 'src/fifo.cpp', 'src/file.cpp',
+				'src/file.cpp', 'src/fs.cpp', 'src/inotify.cpp', 'src/main.cpp',
+				'src/nl-socket.cpp', 'src/process.cpp', 'src/signalfd.cpp', 
+				'src/subsystem/block.cpp', 'src/subsystem/drm.cpp', 'src/subsystem/input.cpp',
+				'src/sysfs.cpp', 'src/timerfd.cpp', 'src/tmp_fs.cpp', 'src/un-socket.cpp',
+				'src/vfs.cpp', fs_pb, posix_pb],
+		dependencies: [lib_helix_dep, lib_cofiber_dep, proto_lite_dep, libmbus_protocol_dep, libfs_protocol_dep],
+		include_directories: posix_subsystem_inc)
+

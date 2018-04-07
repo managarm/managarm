@@ -2,7 +2,7 @@
 #include <string.h>
 
 #include "common.hpp"
-#include "devices/helout.hpp"
+#include "helout.hpp"
 
 HelHandle __mlibc_getPassthrough(int fd);
 
