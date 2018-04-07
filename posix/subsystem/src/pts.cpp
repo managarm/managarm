@@ -67,6 +67,9 @@ public:
 		return _ptsIndex;
 	}
 
+	expected<PollResult>
+	poll(uint64_t sequence) override;
+
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
 
@@ -251,6 +254,10 @@ MasterFile::MasterFile(std::shared_ptr<FsLink> link)
 	globalRootLink->rootNode()->linkDevice(std::to_string(_ptsIndex),
 			std::make_shared<DeviceNode>(_slaveDevice->getId()));
 }
+
+COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(uint64_t sequence), ([=] {
+	std::cout << "posix: Fix pts MasterFile::poll()" << std::endl;
+}))
 
 COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
 		helix::UniqueLane conversation), ([this, req = std::move(req),
