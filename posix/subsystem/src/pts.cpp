@@ -1,5 +1,8 @@
 
 #include <asm/ioctls.h>
+#include <sys/epoll.h>
+
+#include <async/doorbell.hpp>
 
 #include "file.hpp"
 #include "pts.hpp"
@@ -14,9 +17,37 @@ struct RootLink;
 struct DeviceNode;
 struct RootNode;
 
+bool logReadWrite = false;
+
 int nextPtsIndex = 0;
 
 extern std::shared_ptr<RootLink> globalRootLink;
+
+//-----------------------------------------------------------------------------
+
+struct Packet {
+	// The actual octet data that the packet consists of.
+	std::vector<char> buffer;
+
+	size_t offset = 0;
+};
+
+struct Channel {
+	Channel(int pts_index)
+	: ptsIndex{pts_index}, currentSeq{1}, masterInSeq{0}, slaveInSeq{0} { }
+
+	int ptsIndex;
+
+	// Status management for poll().
+	async::doorbell statusBell;
+	uint64_t currentSeq;
+	uint64_t masterInSeq;
+	uint64_t slaveInSeq;
+
+	// The actual queue of this pipe.
+	std::deque<Packet> masterQueue;
+	std::deque<Packet> slaveQueue;
+};
 
 //-----------------------------------------------------------------------------
 // Device and file structs.
@@ -37,7 +68,7 @@ struct MasterDevice : UnixDevice {
 };
 
 struct SlaveDevice : UnixDevice {
-	SlaveDevice(MasterFile *master_file);
+	SlaveDevice(std::shared_ptr<Channel> channel);
 	
 	std::string getName() override {
 		return std::string{};
@@ -47,7 +78,7 @@ struct SlaveDevice : UnixDevice {
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override;
 
 private:
-	MasterFile *_masterFile;
+	std::shared_ptr<Channel> _channel;
 };
 
 struct MasterFile : File {
@@ -62,10 +93,9 @@ public:
 	}
 
 	MasterFile(std::shared_ptr<FsLink> link);
-
-	int ptsIndex() {
-		return _ptsIndex;
-	}
+	
+	expected<size_t>
+	readSome(Process *, void *data, size_t max_length) override;
 
 	expected<PollResult>
 	poll(uint64_t sequence) override;
@@ -80,9 +110,7 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 
-	int _ptsIndex;
-
-	std::shared_ptr<SlaveDevice> _slaveDevice;
+	std::shared_ptr<Channel> _channel;
 };
 
 struct SlaveFile : File {
@@ -96,7 +124,16 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations);
 	}
 
-	SlaveFile(std::shared_ptr<FsLink> link);
+	SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel);
+	
+	expected<size_t>
+	readSome(Process *, void *data, size_t max_length) override;
+
+	FutureMaybe<void>
+	writeAll(Process *, const void *data, size_t length) override;
+
+	expected<PollResult>
+	poll(uint64_t sequence) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -104,6 +141,8 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+
+	std::shared_ptr<Channel> _channel;
 };
 
 //-----------------------------------------------------------------------------
@@ -247,16 +286,46 @@ MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), 
 
 MasterFile::MasterFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
-		_slaveDevice{std::make_shared<SlaveDevice>(this)} {
-	_ptsIndex = nextPtsIndex++;
-	charRegistry.install(_slaveDevice);
+		_channel{std::make_shared<Channel>(nextPtsIndex++)} {
+	auto slave_device = std::make_shared<SlaveDevice>(_channel);
+	charRegistry.install(std::move(slave_device));
 
-	globalRootLink->rootNode()->linkDevice(std::to_string(_ptsIndex),
-			std::make_shared<DeviceNode>(_slaveDevice->getId()));
+	globalRootLink->rootNode()->linkDevice(std::to_string(_channel->ptsIndex),
+			std::make_shared<DeviceNode>(DeviceId{136, _channel->ptsIndex}));
 }
 
-COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(uint64_t sequence), ([=] {
-	std::cout << "posix: Fix pts MasterFile::poll()" << std::endl;
+COFIBER_ROUTINE(expected<size_t>,
+MasterFile::readSome(Process *, void *data, size_t max_length), ([=] {
+	if(logReadWrite)
+		std::cout << "posix: Read from tty " << structName() << std::endl;
+
+	while(_channel->masterQueue.empty())
+		COFIBER_AWAIT _channel->statusBell.async_wait();
+	
+	auto packet = &_channel->masterQueue.front();
+	assert(!packet->offset);
+	auto size = packet->buffer.size();
+	assert(max_length >= size);
+	memcpy(data, packet->buffer.data(), size);
+	_channel->masterQueue.pop_front();
+	COFIBER_RETURN(size);
+}))
+
+COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(uint64_t past_seq), ([=] {
+		assert(past_seq <= _channel->currentSeq);
+		while(past_seq == _channel->currentSeq)
+			COFIBER_AWAIT _channel->statusBell.async_wait();
+
+		// For now making pts files always writable is sufficient.
+		int edges = EPOLLOUT;
+		if(_channel->masterInSeq > past_seq)
+			edges |= EPOLLIN;
+
+		int events = EPOLLOUT;
+		if(!_channel->masterQueue.empty())
+			events |= EPOLLIN;
+
+		COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
 }))
 
 COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
@@ -267,7 +336,7 @@ COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::
 		managarm::fs::SvrResponse resp;
 	
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_pts_index(_ptsIndex);
+		resp.set_pts_index(_channel->ptsIndex);
 		
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -284,20 +353,60 @@ COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::
 // SlaveDevice implementation.
 //-----------------------------------------------------------------------------
 
-SlaveDevice::SlaveDevice(MasterFile *master_file)
-: UnixDevice(VfsType::charDevice), _masterFile{master_file} {
-	assignId({136, _masterFile->ptsIndex()});
+SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
+: UnixDevice(VfsType::charDevice), _channel{std::move(channel)} {
+	assignId({136, _channel->ptsIndex});
 }
-
-SlaveFile::SlaveFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("pts.slave"), std::move(link), File::defaultPipeLikeSeek} { }
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
 	assert(!semantic_flags);
-	auto file = smarter::make_shared<SlaveFile>(std::move(link));
+	auto file = smarter::make_shared<SlaveFile>(std::move(link), _channel);
 	SlaveFile::serve(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));
+}))
+
+SlaveFile::SlaveFile(std::shared_ptr<FsLink> link, std::shared_ptr<Channel> channel)
+: File{StructName::get("pts.slave"), std::move(link), File::defaultPipeLikeSeek},
+		_channel{std::move(channel)} { }
+
+COFIBER_ROUTINE(expected<size_t>,
+SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
+	if(logReadWrite)
+		std::cout << "posix: Read from tty " << structName() << std::endl;
+
+	while(_channel->masterQueue.empty())
+		COFIBER_AWAIT _channel->statusBell.async_wait();
+	
+	auto packet = &_channel->masterQueue.front();
+	assert(!packet->offset);
+	auto size = packet->buffer.size();
+	assert(max_length >= size);
+	memcpy(data, packet->buffer.data(), size);
+	_channel->masterQueue.pop_front();
+	COFIBER_RETURN(size);
+}))
+
+
+COFIBER_ROUTINE(FutureMaybe<void>,
+SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
+	if(logReadWrite)
+		std::cout << "posix: Write to tty " << structName() << std::endl;
+
+	Packet packet;
+	packet.buffer.resize(length);
+	memcpy(packet.buffer.data(), data, length);
+	packet.offset = 0;
+
+	_channel->masterQueue.push_back(std::move(packet));
+	_channel->masterInSeq = ++_channel->currentSeq;
+	_channel->statusBell.ring();
+
+	COFIBER_RETURN();
+}))
+
+COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(uint64_t sequence), ([=] {
+	std::cout << "\e[31mposix: Fix pts SlaveFile::poll()\[e39m" << std::endl;
 }))
 
 //-----------------------------------------------------------------------------
