@@ -39,7 +39,7 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
 
-COFIBER_ROUTINE(async::result<off_t>,
+COFIBER_ROUTINE(expected<off_t>,
 AttributeFile::seek(off_t offset, VfsSeek whence), ([=] {
 	assert(whence == VfsSeek::relative && !offset);
 	COFIBER_RETURN(_offset);

@@ -36,6 +36,8 @@ struct FileStats {
 	struct timespec anyChangeTime;
 };
 
+using SeekResult = std::variant<Error, int64_t>;
+
 using AccessMemoryResult = std::pair<helix::BorrowedDescriptor, uint64_t>;
 
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
@@ -50,17 +52,17 @@ struct FileOperations {
 			ioctl{nullptr}, setOption{nullptr}, poll{nullptr},
 			bind{nullptr}, listen{nullptr}, connect{nullptr}, sockname{nullptr} { }
 
-	constexpr FileOperations &withSeekAbs(async::result<int64_t> (*f)(void *object,
+	constexpr FileOperations &withSeekAbs(async::result<SeekResult> (*f)(void *object,
 			int64_t offset)) {
 		seekAbs = f;
 		return *this;
 	}
-	constexpr FileOperations &withSeekRel(async::result<int64_t> (*f)(void *object,
+	constexpr FileOperations &withSeekRel(async::result<SeekResult> (*f)(void *object,
 			int64_t offset)) {
 		seekRel = f;
 		return *this;
 	}
-	constexpr FileOperations &withSeekEof(async::result<int64_t> (*f)(void *object,
+	constexpr FileOperations &withSeekEof(async::result<SeekResult> (*f)(void *object,
 			int64_t offset)) {
 		seekEof = f;
 		return *this;
@@ -125,9 +127,9 @@ struct FileOperations {
 		return *this;
 	}
 
-	async::result<int64_t> (*seekAbs)(void *object, int64_t offset);
-	async::result<int64_t> (*seekRel)(void *object, int64_t offset);
-	async::result<int64_t> (*seekEof)(void *object, int64_t offset);
+	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset);
+	async::result<SeekResult> (*seekRel)(void *object, int64_t offset);
+	async::result<SeekResult> (*seekEof)(void *object, int64_t offset);
 	async::result<ReadResult> (*read)(void *object, const char *credentials,
 			void *buffer, size_t length);
 	async::result<void> (*write)(void *object, const char *credentials,

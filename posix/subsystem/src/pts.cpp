@@ -246,7 +246,7 @@ MasterDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), 
 }))
 
 MasterFile::MasterFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("pts.master"), std::move(link)},
+: File{StructName::get("pts.master"), std::move(link), File::defaultPipeLikeSeek},
 		_slaveDevice{std::make_shared<SlaveDevice>(this)} {
 	_ptsIndex = nextPtsIndex++;
 	charRegistry.install(_slaveDevice);
@@ -290,7 +290,7 @@ SlaveDevice::SlaveDevice(MasterFile *master_file)
 }
 
 SlaveFile::SlaveFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("pts.slave"), std::move(link)} { }
+: File{StructName::get("pts.slave"), std::move(link), File::defaultPipeLikeSeek} { }
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 SlaveDevice::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {

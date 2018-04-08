@@ -21,14 +21,14 @@ ext2fs::FileSystem *fs;
 
 namespace {
 
-COFIBER_ROUTINE(async::result<int64_t>, seekAbs(void *object,
+COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>, seekAbs(void *object,
 		int64_t offset), ([=] {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset = offset;
 	COFIBER_RETURN(self->offset);
 }))
 
-COFIBER_ROUTINE(async::result<int64_t>, seekRel(void *object,
+COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>, seekRel(void *object,
 		int64_t offset), ([=] {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	self->offset += offset;

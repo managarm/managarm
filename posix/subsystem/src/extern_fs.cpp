@@ -21,7 +21,7 @@ private:
 
 struct OpenFile : File {
 private:
-	COFIBER_ROUTINE(FutureMaybe<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
+	COFIBER_ROUTINE(expected<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
 		assert(whence == VfsSeek::absolute);
 		COFIBER_AWAIT _file.seekAbsolute(offset);
 		COFIBER_RETURN(offset);

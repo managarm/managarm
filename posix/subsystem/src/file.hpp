@@ -28,7 +28,9 @@ enum class Error {
 
 	// Indices that the given object does not support the operation
 	// (e.g. readSymlink() is called on a file that is not a link).
-	illegalOperationTarget
+	illegalOperationTarget,
+
+	seekOnPipe
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -63,11 +65,14 @@ struct DisposeFileHandle { };
 struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
 	friend struct smarter::crtp_counter<File, DisposeFileHandle>;
 public:
+	using DefaultOps = uint32_t;
+	static inline constexpr DefaultOps defaultPipeLikeSeek = 1 << 1;
+
 	// ------------------------------------------------------------------------
 	// File protocol adapters.
 	// ------------------------------------------------------------------------
 	
-	static async::result<int64_t>
+	static async::result<protocols::fs::SeekResult>
 	ptSeek(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
@@ -126,11 +131,11 @@ public:
 		return smarter::shared_ptr<File, FileHandle>{smarter::adopt_rc, file, file};
 	}
 
-	File(StructName struct_name)
-	: _structName{struct_name}, _link{nullptr}, _isOpen{true} { }
+	File(StructName struct_name, DefaultOps default_ops = 0)
+	: _structName{struct_name}, _link{nullptr}, _defaultOps{default_ops}, _isOpen{true} { }
 
-	File(StructName struct_name, std::shared_ptr<FsLink> link)
-	: _structName{struct_name}, _link{std::move(link)}, _isOpen{true} { }
+	File(StructName struct_name, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
+	: _structName{struct_name}, _link{std::move(link)}, _defaultOps{default_ops}, _isOpen{true} { }
 
 	StructName structName() {
 		return _structName;
@@ -158,7 +163,7 @@ public:
 
 	FutureMaybe<void> readExactly(Process *process, void *data, size_t length);
 
-	virtual FutureMaybe<off_t> seek(off_t offset, VfsSeek whence);
+	virtual expected<off_t> seek(off_t offset, VfsSeek whence);
 
 	virtual expected<size_t> readSome(Process *process, void *data, size_t max_length);
 
@@ -210,6 +215,8 @@ public:
 private:
 	StructName _structName;
 	const std::shared_ptr<FsLink> _link;
+
+	DefaultOps _defaultOps;
 
 	bool _isOpen;
 };

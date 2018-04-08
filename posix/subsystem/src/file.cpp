@@ -14,10 +14,18 @@
 // File implementation.
 // --------------------------------------------------------
 
-async::result<int64_t> File::ptSeek(void *object, int64_t offset) {
+COFIBER_ROUTINE(async::result<protocols::fs::SeekResult>,
+File::ptSeek(void *object, int64_t offset), ([=] {
 	auto self = static_cast<File *>(object);
-	return self->seek(offset, VfsSeek::relative);
-}
+	auto result = COFIBER_AWAIT self->seek(offset, VfsSeek::relative);
+	auto error = std::get_if<Error>(&result);
+	if(error && *error == Error::seekOnPipe) {
+		COFIBER_RETURN(protocols::fs::Error::seekOnPipe);
+	}else{
+		assert(!error);
+		COFIBER_RETURN(std::get<off_t>(result));
+	}
+}))
 
 COFIBER_ROUTINE(async::result<protocols::fs::ReadResult>,
 File::ptRead(void *object, const char *credentials,
@@ -29,6 +37,7 @@ File::ptRead(void *object, const char *credentials,
 	if(error && *error == Error::illegalOperationTarget) {
 		COFIBER_RETURN(protocols::fs::Error::illegalArguments);
 	}else{
+		assert(!error);
 		COFIBER_RETURN(std::get<size_t>(result));
 	}
 }))
@@ -110,6 +119,8 @@ void File::handleClose() {
 }
 
 FutureMaybe<void> File::writeAll(Process *, const void *, size_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement writeAll()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::writeAll()");
 }
 
@@ -137,10 +148,16 @@ async::result<void> File::allocate(int64_t, size_t) {
 	throw std::runtime_error("posix: Object has no File::allocate()");
 }
 
-FutureMaybe<off_t> File::seek(off_t, VfsSeek) {
-	std::cout << "posix \e[1;34m" << structName()
-			<< "\e[0m: Object does not implement seek()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::seek()");
+expected<off_t> File::seek(off_t, VfsSeek) {
+	if(_defaultOps & defaultPipeLikeSeek) {
+		async::promise<std::variant<Error, off_t>> promise;
+		promise.set_value(Error::seekOnPipe);
+		return promise.async_get();
+	}else{
+		std::cout << "posix \e[1;34m" << structName()
+				<< "\e[0m: Object does not implement seek()" << std::endl;
+		throw std::runtime_error("posix: Object has no File::seek()");
+	}
 }
 
 expected<PollResult> File::poll(uint64_t) {

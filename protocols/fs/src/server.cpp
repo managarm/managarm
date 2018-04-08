@@ -22,11 +22,11 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		helix::SendBuffer send_resp;
 
 		assert(file_ops->seekAbs);
-		auto offset = COFIBER_AWAIT(file_ops->seekAbs(file.get(), req.rel_offset()));
+		auto result = COFIBER_AWAIT(file_ops->seekAbs(file.get(), req.rel_offset()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(offset);
+		resp.set_offset(std::get<int64_t>(result));
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -37,11 +37,17 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->seekRel);
-		auto offset = COFIBER_AWAIT(file_ops->seekRel(file.get(), req.rel_offset()));
+		auto result = COFIBER_AWAIT(file_ops->seekRel(file.get(), req.rel_offset()));
+		auto error = std::get_if<Error>(&result);
 		
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(offset);
+		if(error && *error == Error::seekOnPipe) {
+			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+		}else{
+			assert(!error);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_offset(std::get<int64_t>(result));
+		}
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -52,11 +58,11 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		helix::SendBuffer send_resp;
 		
 		assert(file_ops->seekEof);
-		auto offset = COFIBER_AWAIT(file_ops->seekEof(file.get(), req.rel_offset()));
+		auto result = COFIBER_AWAIT(file_ops->seekEof(file.get(), req.rel_offset()));
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_offset(offset);
+		resp.set_offset(std::get<int64_t>(result));
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -98,6 +104,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{
+			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
