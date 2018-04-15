@@ -1,8 +1,12 @@
 
 libarch_inc = include_directories('include/')
-shared_library('arch', 'src/dma_pool.cpp',
+libarch_lib = shared_library('arch', 'src/dma_pool.cpp',
 	include_directories: libarch_inc,
 	install: true)
+
+libarch_dep = declare_dependency(
+	link_with: libarch_lib,
+	include_directories: libarch_inc)
 
 install_headers(
 	'include/arch/bits.hpp',
