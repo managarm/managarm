@@ -133,6 +133,10 @@ public:
 	std::shared_ptr<FileContext> fileContext() {
 		return _fileContext;
 	}
+	
+	void *clientClkTrackerPage() {
+		return _clientClkTrackerPage;
+	}
 
 	void *clientFileTable() {
 		return _clientFileTable;
@@ -145,6 +149,7 @@ private:
 	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;
 
+	void *_clientClkTrackerPage;
 	void *_clientFileTable;
 };
 

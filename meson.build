@@ -11,6 +11,7 @@ lib_helix_dep = compiler.find_library('helix')
 lib_cofiber_dep = compiler.find_library('cofiber')
 
 subdir('libarch/')
+subdir('protocols/clock/')
 subdir('protocols/fs/')
 subdir('protocols/hw/')
 subdir('protocols/mbus/')
@@ -31,4 +32,6 @@ subdir('drivers/usb/hcds/ehci/')
 subdir('drivers/usb/devices/hid/')
 subdir('drivers/usb/devices/storage/')
 subdir('drivers/virtio/')
+
+subdir('drivers/clocktracker')
 

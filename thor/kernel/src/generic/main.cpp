@@ -481,11 +481,16 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		// Launch initial user space programs.
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
 		auto mbus_module = resolveModule("sbin/mbus");
+		auto clocktracker_module = resolveModule("sbin/clocktracker");
 		auto posix_module = resolveModule("sbin/posix-subsystem");
 		assert(mbus_module && mbus_module->type == MfsType::regular);
+		assert(clocktracker_module && clocktracker_module->type == MfsType::regular);
 		assert(posix_module && posix_module->type == MfsType::regular);
 		executeModule(static_cast<MfsRegular *>(mbus_module), mbus_stream.get<0>(), LaneHandle{});
-		executeModule(static_cast<MfsRegular *>(posix_module), LaneHandle{}, mbus_stream.get<1>());
+		executeModule(static_cast<MfsRegular *>(clocktracker_module),
+				LaneHandle{}, mbus_stream.get<1>());
+		executeModule(static_cast<MfsRegular *>(posix_module),
+				LaneHandle{}, mbus_stream.get<1>());
 
 		while(true)
 			KernelFiber::blockCurrent(frigg::CallbackPtr<bool()>{nullptr,

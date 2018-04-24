@@ -4,6 +4,7 @@
 
 #include <cofiber.hpp>
 #include "common.hpp"
+#include "clock.hpp"
 #include "exec.hpp"
 #include "process.hpp"
 
@@ -301,6 +302,10 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
 
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&process->_clientClkTrackerPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -327,6 +332,10 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
 
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&process->_clientClkTrackerPage));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -344,7 +353,12 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
 
+	void *exec_clk_tracker;
 	void *exec_client_table;
+	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
+			exec_vm_context->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
+			&exec_clk_tracker));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -364,6 +378,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
+	process->_clientClkTrackerPage = exec_clk_tracker;
 	process->_clientFileTable = exec_client_table;
 
 	// TODO: execute() should return a stopped thread that we can start here.

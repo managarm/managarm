@@ -15,6 +15,7 @@
 #include <protocols/mbus/client.hpp>
 
 #include "common.hpp"
+#include "clock.hpp"
 #include "device.hpp"
 #include "drvcore.hpp"
 #include "nl-socket.hpp"
@@ -88,6 +89,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			gprs[4] = kHelErrNone;
+			gprs[2] = reinterpret_cast<uintptr_t>(self->clientClkTrackerPage());
 			gprs[5] = reinterpret_cast<uintptr_t>(self->clientFileTable());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -1284,6 +1286,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 // --------------------------------------------------------
 
 COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
+	COFIBER_AWAIT clk::enumerateTracker();
 	COFIBER_AWAIT populateRootView();
 	Process::init("sbin/posix-init");
 }))

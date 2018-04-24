@@ -1,0 +1,22 @@
+
+syntax = "proto2";
+option optimize_for = LITE_RUNTIME;
+
+package managarm.clock;
+
+enum Error {
+	SUCCESS = 0;
+}
+
+enum CntReqType {
+	ACCESS_PAGE = 1;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+}
+
+message SvrResponse {
+	optional int32 error = 1;
+}
+

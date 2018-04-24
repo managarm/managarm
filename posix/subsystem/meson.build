@@ -7,10 +7,18 @@ gen = generator(protoc,
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 posix_pb = gen.process('../../bragi/proto/posix.proto')
 
+gen = generator(protoc,
+		output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
+		arguments: ['--cpp_out=@BUILD_DIR@', '--proto_path=@CURRENT_SOURCE_DIR@../../protocols/clock', 
+				'@INPUT@']) 
+
+clock_pb = gen.process('../../protocols/clock/clock.proto')
+
 posix_subsystem_inc = include_directories('../../frigg/include')
 
 executable('posix-subsystem',
-	['src/device.cpp',
+		['src/clock.cpp',
+		'src/device.cpp',
 		'src/devices/helout.cpp',
 		'src/drvcore.cpp',
 		'src/epoll.cpp',
@@ -33,6 +41,7 @@ executable('posix-subsystem',
 		'src/tmp_fs.cpp',
 		'src/un-socket.cpp',
 		'src/vfs.cpp',
+		clock_pb,
 		fs_pb,
 		posix_pb],
 	dependencies: [lib_helix_dep,
