@@ -38,6 +38,7 @@ struct Region {
 	int order;
 	uint64_t numRoots;
 	uint64_t buddyTree;
+	uint64_t buddyOverhead;
 	//uint64_t pageStructs;
 	uint64_t buddyMap;
 };
@@ -158,6 +159,7 @@ void setupRegionStructs() {
 		regions[i].order = order;
 		regions[i].numRoots = num_roots;
 		regions[i].buddyTree = table_paddr;
+		regions[i].buddyOverhead = overhead;
 
 		// Finally initialize the buddy tree.
 		auto table_ptr = reinterpret_cast<int8_t *>(table_paddr);
@@ -586,7 +588,8 @@ extern "C" void eirMain(MbInfo *mb_info) {
 		if(regions[i].regionType == RegionType::allocatable
 				|| regions[i].regionType == RegionType::skeletal)
 			frigg::infoLogger() << "        Buddy tree at " << (void *)regions[i].buddyTree
-					<< "." << frigg::endLog;
+					<< ", overhead: " << frigg::logHex(regions[i].buddyOverhead)
+					<< frigg::endLog;
 	}
 
 	// ------------------------------------------------------------------------
