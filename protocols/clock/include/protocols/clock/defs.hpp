@@ -5,8 +5,10 @@
 
 struct TrackerPage {
 	uint64_t seqlock;
-	uint64_t refClock;
-	uint64_t baseRealtime;
+	int32_t state;
+	int32_t padding;
+	int64_t refClock;
+	int64_t baseRealtime;
 };
 
 #endif // PROTOCOLS_CLOCK_DEFS_HPP

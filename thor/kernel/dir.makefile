@@ -22,7 +22,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch/x86/early_stubs.o arch/x86/stubs.o \
 	arch/x86/cpu.o arch/x86/entry.o \
 	arch/x86/ints.o arch/x86/pic.o arch/x86/system.o arch/x86/paging.o \
-	arch/x86/hpet.o \
+	arch/x86/hpet.o arch/x86/rtc.o \
 	arch/x86/embed_trampoline.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
 	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
@@ -258,7 +258,7 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 # Generate protobuf files.
 gen-$c: $($c_GENDIR)/posix.frigg_pb.hpp \
 	$($c_GENDIR)/fs.frigg_pb.hpp $($c_GENDIR)/mbus.frigg_pb.hpp \
-	$($c_GENDIR)/hw.frigg_pb.hpp
+	$($c_GENDIR)/hw.frigg_pb.hpp $($c_GENDIR)/clock.frigg_pb.hpp
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
@@ -271,4 +271,8 @@ $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/thor/%.proto | $($c_GENDIR)
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/hw/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/hw $<
+
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/clock/%.proto | $($c_GENDIR)
+	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/clock $<
 

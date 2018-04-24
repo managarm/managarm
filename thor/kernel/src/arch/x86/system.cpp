@@ -1,6 +1,7 @@
 
 #include "generic/kernel.hpp"
 #include "system/acpi/acpi.hpp"
+#include "rtc.hpp"
 
 namespace thor {
 
@@ -18,6 +19,7 @@ void initializeBasicSystem() {
 
 void initializeExtendedSystem() {
 	acpi::initializeExtendedSystem();
+	initializeRtc();
 }
 
 } // namespace thor

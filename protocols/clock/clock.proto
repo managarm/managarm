@@ -6,10 +6,13 @@ package managarm.clock;
 
 enum Error {
 	SUCCESS = 0;
+	ILLEGAL_REQUEST = 1;
 }
 
 enum CntReqType {
 	ACCESS_PAGE = 1;
+	
+	RTC_GET_TIME = 2;
 }
 
 message CntRequest {
@@ -18,5 +21,11 @@ message CntRequest {
 
 message SvrResponse {
 	optional int32 error = 1;
+
+	// Current time of the reference clock.
+	optional int64 ref_nanos = 2;
+
+	// Current time of the RTC.
+	optional int64 time_nanos = 3;
 }
 
