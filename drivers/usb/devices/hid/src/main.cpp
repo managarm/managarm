@@ -26,6 +26,67 @@ namespace {
 	constexpr bool logFields = false;
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
+	constexpr bool logInputCodes = true;
+}
+
+void setupInputTranslation(Element *element) {
+	auto setInput = [&] (int type, int code) {
+		element->inputType = type;
+		element->inputCode = code;
+	};
+
+	if(element->usagePage == pages::genericDesktop) {
+		// TODO: Distinguish between absolute and relative controls.
+		switch(element->usageId) {
+			case 0x30: setInput(EV_REL, REL_X); break;
+			case 0x31: setInput(EV_REL, REL_Y); break;
+		}
+	}else if(element->usagePage == pages::keyboard) {
+		switch(element->usageId) {
+			case 0x04: setInput(EV_KEY, KEY_A); break;
+			case 0x05: setInput(EV_KEY, KEY_B); break;
+			case 0x06: setInput(EV_KEY, KEY_C); break;
+			case 0x07: setInput(EV_KEY, KEY_D); break;
+			case 0x08: setInput(EV_KEY, KEY_E); break;
+			case 0x09: setInput(EV_KEY, KEY_F); break;
+			case 0x0A: setInput(EV_KEY, KEY_G); break;
+			case 0x0B: setInput(EV_KEY, KEY_H); break;
+			case 0x0C: setInput(EV_KEY, KEY_I); break;
+			case 0x0D: setInput(EV_KEY, KEY_J); break;
+			case 0x0E: setInput(EV_KEY, KEY_K); break;
+			case 0x0F: setInput(EV_KEY, KEY_L); break;
+			case 0x10: setInput(EV_KEY, KEY_M); break;
+			case 0x11: setInput(EV_KEY, KEY_N); break;
+			case 0x12: setInput(EV_KEY, KEY_O); break;
+			case 0x13: setInput(EV_KEY, KEY_P); break;
+			case 0x14: setInput(EV_KEY, KEY_Q); break;
+			case 0x15: setInput(EV_KEY, KEY_R); break;
+			case 0x16: setInput(EV_KEY, KEY_S); break;
+			case 0x17: setInput(EV_KEY, KEY_T); break;
+			case 0x18: setInput(EV_KEY, KEY_U); break;
+			case 0x19: setInput(EV_KEY, KEY_V); break;
+			case 0x1A: setInput(EV_KEY, KEY_W); break;
+			case 0x1B: setInput(EV_KEY, KEY_X); break;
+			case 0x1C: setInput(EV_KEY, KEY_Y); break;
+			case 0x1D: setInput(EV_KEY, KEY_Z); break;
+			case 0x1E: setInput(EV_KEY, KEY_1); break;
+			case 0x1F: setInput(EV_KEY, KEY_2); break;
+			case 0x20: setInput(EV_KEY, KEY_3); break;
+			case 0x21: setInput(EV_KEY, KEY_4); break;
+			case 0x22: setInput(EV_KEY, KEY_5); break;
+			case 0x23: setInput(EV_KEY, KEY_6); break;
+			case 0x24: setInput(EV_KEY, KEY_7); break;
+			case 0x25: setInput(EV_KEY, KEY_8); break;
+			case 0x26: setInput(EV_KEY, KEY_9); break;
+			case 0x27: setInput(EV_KEY, KEY_0); break;
+		}
+	}else if(element->usagePage == pages::button) {
+		switch(element->usageId) {
+			case 0x01: setInput(EV_KEY, BTN_LEFT); break;
+			case 0x02: setInput(EV_KEY, BTN_RIGHT); break;
+			case 0x03: setInput(EV_KEY, BTN_MIDDLE); break;
+		}
+	}
 }
 
 int32_t signExtend(uint32_t x, int bits) {
@@ -120,63 +181,6 @@ struct GlobalState {
 
 HidDevice::HidDevice() {
 	_eventDev = std::make_shared<libevbackend::EventDevice>();
-}
-
-void HidDevice::translateToLinux(int page, int id, int value) {
-	if(page == pages::genericDesktop) {
-		// TODO: Distinguish between absolute and relative controls.
-		switch(id) {
-			case 0x30: _eventDev->emitEvent(EV_REL, REL_X, value); break;
-			case 0x31: _eventDev->emitEvent(EV_REL, REL_Y, value); break;
-		}
-	}else if(page == pages::keyboard) {
-		switch(id) {
-			case 0x04: _eventDev->emitEvent(EV_KEY, KEY_A, value); break;
-			case 0x05: _eventDev->emitEvent(EV_KEY, KEY_B, value); break;
-			case 0x06: _eventDev->emitEvent(EV_KEY, KEY_C, value); break;
-			case 0x07: _eventDev->emitEvent(EV_KEY, KEY_D, value); break;
-			case 0x08: _eventDev->emitEvent(EV_KEY, KEY_E, value); break;
-			case 0x09: _eventDev->emitEvent(EV_KEY, KEY_F, value); break;
-			case 0x0A: _eventDev->emitEvent(EV_KEY, KEY_G, value); break;
-			case 0x0B: _eventDev->emitEvent(EV_KEY, KEY_H, value); break;
-			case 0x0C: _eventDev->emitEvent(EV_KEY, KEY_I, value); break;
-			case 0x0D: _eventDev->emitEvent(EV_KEY, KEY_J, value); break;
-			case 0x0E: _eventDev->emitEvent(EV_KEY, KEY_K, value); break;
-			case 0x0F: _eventDev->emitEvent(EV_KEY, KEY_L, value); break;
-			case 0x10: _eventDev->emitEvent(EV_KEY, KEY_M, value); break;
-			case 0x11: _eventDev->emitEvent(EV_KEY, KEY_N, value); break;
-			case 0x12: _eventDev->emitEvent(EV_KEY, KEY_O, value); break;
-			case 0x13: _eventDev->emitEvent(EV_KEY, KEY_P, value); break;
-			case 0x14: _eventDev->emitEvent(EV_KEY, KEY_Q, value); break;
-			case 0x15: _eventDev->emitEvent(EV_KEY, KEY_R, value); break;
-			case 0x16: _eventDev->emitEvent(EV_KEY, KEY_S, value); break;
-			case 0x17: _eventDev->emitEvent(EV_KEY, KEY_T, value); break;
-			case 0x18: _eventDev->emitEvent(EV_KEY, KEY_U, value); break;
-			case 0x19: _eventDev->emitEvent(EV_KEY, KEY_V, value); break;
-			case 0x1A: _eventDev->emitEvent(EV_KEY, KEY_W, value); break;
-			case 0x1B: _eventDev->emitEvent(EV_KEY, KEY_X, value); break;
-			case 0x1C: _eventDev->emitEvent(EV_KEY, KEY_Y, value); break;
-			case 0x1D: _eventDev->emitEvent(EV_KEY, KEY_Z, value); break;
-			case 0x1E: _eventDev->emitEvent(EV_KEY, KEY_1, value); break;
-			case 0x1F: _eventDev->emitEvent(EV_KEY, KEY_2, value); break;
-			case 0x20: _eventDev->emitEvent(EV_KEY, KEY_3, value); break;
-			case 0x21: _eventDev->emitEvent(EV_KEY, KEY_4, value); break;
-			case 0x22: _eventDev->emitEvent(EV_KEY, KEY_5, value); break;
-			case 0x23: _eventDev->emitEvent(EV_KEY, KEY_6, value); break;
-			case 0x24: _eventDev->emitEvent(EV_KEY, KEY_7, value); break;
-			case 0x25: _eventDev->emitEvent(EV_KEY, KEY_8, value); break;
-			case 0x26: _eventDev->emitEvent(EV_KEY, KEY_9, value); break;
-			case 0x27: _eventDev->emitEvent(EV_KEY, KEY_0, value); break;
-		}
-	}else if(page == pages::button) {
-		if(value)
-			std::cout << "emit button" << std::endl;
-		switch(id) {
-			case 0x01: _eventDev->emitEvent(EV_KEY, BTN_LEFT, value); break;
-			case 0x02: _eventDev->emitEvent(EV_KEY, BTN_RIGHT, value); break;
-			case 0x03: _eventDev->emitEvent(EV_KEY, BTN_MIDDLE, value); break;
-		}
-	}
 }
 
 void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit) {
@@ -450,7 +454,6 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
-	assert(in_endp_pktsize == 4);
 
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
@@ -473,11 +476,14 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
 
-	_eventDev->enableEvent(EV_REL, REL_X);
-	_eventDev->enableEvent(EV_REL, REL_Y);
-	_eventDev->enableEvent(EV_KEY, BTN_LEFT);
-	_eventDev->enableEvent(EV_KEY, BTN_RIGHT);
-	_eventDev->enableEvent(EV_KEY, BTN_MIDDLE);
+	// 
+	for(size_t i = 0; i < elements.size(); i++) {
+		auto element = &elements[i];
+		setupInputTranslation(element);
+		if(element->inputType < 0)
+			continue;
+		_eventDev->enableEvent(element->inputType, element->inputCode);
+	}
 
 	if(logFields)
 		for(size_t i = 0; i < fields.size(); i++) {
@@ -490,7 +496,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	std::vector<int> values;
 	values.resize(elements.size());
 	while(true) {
-		arch::dma_buffer report{device.bufferPool(), 4};
+		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
 		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
 		
 		if(logRawPackets) {
@@ -512,8 +518,18 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 			std::cout << std::endl;
 		}
 
-		for(size_t i = 0; i < values.size(); i++)
-			translateToLinux(elements[i].usagePage, elements[i].usageId, values[i]);
+		if(logInputCodes)
+			std::cout << "Reporting input event" << std::endl;
+		for(size_t i = 0; i < values.size(); i++) {
+			auto element = &elements[i];
+			if(element->inputType < 0)
+				continue;
+			if(logInputCodes)
+				std::cout << "    inputType: " << element->inputType
+						<< ", inputCode: " << element->inputCode
+						<< ", value: " << values[i] << std::endl;
+			_eventDev->emitEvent(element->inputType, element->inputCode, values[i]);
+		}
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 		_eventDev->notify();
 	}

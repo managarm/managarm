@@ -239,7 +239,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_MAP) {
 			if(logRequests)
-				std::cout << "posix: VM_MAP" << std::endl;
+				std::cout << "posix: VM_MAP size: " << (void *)req.size() << std::endl;
 
 			helix::SendBuffer send_resp;
 
@@ -310,7 +310,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
 			if(logRequests)
-				std::cout << "posix: VM_UNMAP" << std::endl;
+				std::cout << "posix: VM_UNMAP address: " << (void *)req.address()
+						<< ", size: " << (void *)req.size() << std::endl;
 
 			helix::SendBuffer send_resp;
 
@@ -651,6 +652,16 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto target = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
+				if((req.flags() & managarm::posix::OF_EXCLUSIVE) && target) {
+					resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
+
+					auto ser = resp.SerializeAsString();
+					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+							helix::action(&send_resp, ser.data(), ser.size()));
+					COFIBER_AWAIT transmit.async_wait();
+					HEL_CHECK(send_resp.error());
+					continue;
+				}
 				assert(!target); // TODO: Only check this for OF_EXCLUSIVE.
 
 				assert(directory->superblock());
