@@ -7,6 +7,8 @@
 
 namespace frigg FRIGG_VISIBILITY {
 
+constexpr bool logSlab = false;
+
 inline int nextPower(uint64_t n) {
 	uint64_t u = n;
 
@@ -102,8 +104,8 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 
 	if(length <= (uintptr_t(1) << kMaxPower)) {
 		int power = nextPower(length);
-		assert(length <= (uintptr_t(1) << power));
-		assert(power <= kMaxPower);
+		FRIGG_ASSERT(length <= (uintptr_t(1) << power));
+		FRIGG_ASSERT(power <= kMaxPower);
 		if(power < kMinPower)
 			power = kMinPower;
 		
@@ -115,7 +117,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::allocate(size_t length) {
 		}
 		
 		FreeChunk *chunk = p_freeList[index];
-		assert(chunk != nullptr);
+		FRIGG_ASSERT(chunk != nullptr);
 		p_freeList[index] = chunk->nextChunk;
 		//infoLogger() << "[slab] alloc " << chunk << frigg::endLog;
 		return chunk;
@@ -162,8 +164,8 @@ void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_leng
 				//infoLogger() << "[slab] realloc " << new_pointer << frigg::endLog;
 				return new_pointer;
 			}else{
-				assert(current->type == kTypeLarge);
-				assert(address == current->baseAddress);
+				FRIGG_ASSERT(current->type == kTypeLarge);
+				FRIGG_ASSERT(address == current->baseAddress);
 				
 				if(new_length < current->length)
 					return pointer;
@@ -182,7 +184,7 @@ void *SlabAllocator<VirtualAlloc, Mutex>::realloc(void *pointer, size_t new_leng
 		current = current->right;
 	}
 
-	assert(!"Pointer is not part of any virtual area");
+	FRIGG_ASSERT(!"Pointer is not part of any virtual area");
 	__builtin_unreachable();
 }
 
@@ -192,7 +194,8 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 	
 	if(!pointer)
 		return;
-	//infoLogger() << "[slab] free " << pointer << frigg::endLog;
+	if(logSlab)
+		infoLogger() << "[slab] free() on " << pointer << frigg::endLog;
 
 	uintptr_t address = (uintptr_t)pointer;
 
@@ -203,21 +206,23 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 				&& address < current->baseAddress + current->length) {
 			if(current->type == kTypeSlab) {
 				int index = current->power - kMinPower;
-				assert(current->power <= kMaxPower);
+				FRIGG_ASSERT(current->power <= kMaxPower);
 				size_t item_size = size_t(1) << current->power;
-				assert(((address - current->baseAddress) % item_size) == 0);
-//				infoLogger() << "[" << pointer
-//						<< "] Small free from varea " << current << endLog;
+				FRIGG_ASSERT(((address - current->baseAddress) % item_size) == 0);
+				if(logSlab)
+					infoLogger() << "[" << pointer
+							<< "] Small free from varea " << current << endLog;
 
 				auto chunk = new (pointer) FreeChunk();
 				chunk->nextChunk = p_freeList[index];
 				p_freeList[index] = chunk;
 				return;
 			}else{
-				assert(current->type == kTypeLarge);
-				assert(address == current->baseAddress);
-//				infoLogger() << "[" << pointer
-//						<< "] Large free from varea " << current << endLog;
+				FRIGG_ASSERT(current->type == kTypeLarge);
+				FRIGG_ASSERT(address == current->baseAddress);
+				if(logSlab)
+					infoLogger() << "[" << pointer
+							<< "] Large free from varea " << current << endLog;
 				
 				// remove the virtual area from the area-list
 				if(previous) {
@@ -238,7 +243,10 @@ void SlabAllocator<VirtualAlloc, Mutex>::free(void *pointer) {
 		current = current->right;
 	}
 
-	assert(!"Pointer is not part of any virtual area");
+	if(logSlab)
+		frigg::infoLogger() << "[slab] Pointer is not part of any virtual area" << frigg::endLog;
+
+	FRIGG_ASSERT(!"Pointer is not part of any virtual area");
 }
 
 template<typename VirtualAlloc, typename Mutex>
@@ -247,13 +255,16 @@ auto SlabAllocator<VirtualAlloc, Mutex>::allocateNewArea(AreaType type, size_t a
 //	frigg::infoLogger() << "Allocate new area for " << (void *)area_size << frigg::endLog;
 
 	// allocate virtual memory for the chunk
-	assert((area_size % kPageSize) == 0);
+	FRIGG_ASSERT((area_size % kPageSize) == 0);
 	uintptr_t address = p_virtAllocator.map(area_size + kVirtualAreaPadding);
 	p_usedPages += (area_size + kVirtualAreaPadding) / kPageSize;
 	
 	// setup the virtual area descriptor
 	auto area = new ((void *)address) VirtualArea(type,
 			address + kVirtualAreaPadding, area_size);
+	if(logSlab)
+		infoLogger() << "[slab] New area start: " << (void *)area->baseAddress
+				<< ", size: " << (void *)area->length << endLog;
 	area->right = p_root;
 	p_root = area;
 
@@ -262,14 +273,14 @@ auto SlabAllocator<VirtualAlloc, Mutex>::allocateNewArea(AreaType type, size_t a
 
 template<typename VirtualAlloc, typename Mutex>
 void SlabAllocator<VirtualAlloc, Mutex>::fillSlabArea(VirtualArea *area, int power) {
-	assert(area->type == kTypeSlab && area->power == 0);
+	FRIGG_ASSERT(area->type == kTypeSlab && area->power == 0);
 	area->power = power;
 
 	// setup the free chunks in the new area
 	size_t item_size = uintptr_t(1) << power;
 	size_t num_items = area->length / item_size;
-	assert(num_items > 0);
-	assert((area->length % item_size) == 0);
+	FRIGG_ASSERT(num_items > 0);
+	FRIGG_ASSERT((area->length % item_size) == 0);
 
 	int index = power - kMinPower;
 	for(size_t i = 0; i < num_items; i++) {

@@ -18,6 +18,9 @@ FRIGG_VISIBILITY void __assert_fail(const char *assertion,
 
 #define assert(c) do { if(!(c)) __assert_fail(#c, __FILE__, __LINE__, __func__); } while(0)
 
+#define FRIGG_ASSERT(c) \
+	do { if(!(c)) __assert_fail(#c, __FILE__, __LINE__, __func__); } while(0)
+
 #ifdef __cplusplus
 }
 #endif
@@ -25,7 +28,22 @@ FRIGG_VISIBILITY void __assert_fail(const char *assertion,
 #elif defined(FRIGG_HAVE_LIBC)
 #	include <assert.h>
 #	include <string.h>
-#else
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+FRIGG_VISIBILITY void __frigg_assert_fail(const char *assertion,
+		const char *file, unsigned int line, const char *function);
+
+#define FRIGG_ASSERT(c) \
+	do { if(!(c)) __frigg_assert_fail(#c, __FILE__, __LINE__, __func__); } while(0)
+
+#ifdef __cplusplus
+}
+#endif
+
+#else // no FRIGG_NO_LIBC or FRIGG_HAVE_LIBC
 #	error "Define either FRIGG_HAVE_LIBC or FRIGG_NO_LIBC"
 #endif // FRIGG_NO_LIBC
 
