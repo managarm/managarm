@@ -245,7 +245,16 @@ void Thread::invoke() {
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
 	_runState = kRunActive;
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this << " is activated" << frigg::endLog;
+		frigg::infoLogger() << "thor: "
+				<< " " << _credentials[0] << " " << _credentials[1]
+				<< " " << _credentials[2] << " " << _credentials[3]
+				<< " " << _credentials[4] << " " << _credentials[5]
+				<< " " << _credentials[6] << " " << _credentials[7]
+				<< " " << _credentials[8] << " " << _credentials[9]
+				<< " " << _credentials[10] << " " << _credentials[11]
+				<< " " << _credentials[12] << " " << _credentials[13]
+				<< " " << _credentials[14] << " " << _credentials[15]
+				<< " is activated" << frigg::endLog;
 
 	lock.unlock();
 

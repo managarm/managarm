@@ -1459,6 +1459,18 @@ HelError helFutexWait(int *pointer, int expected) {
 		return expected == v;
 	}, &blocker);
 
+/*
+	frigg::infoLogger() << "thor: "
+			<< " " << this_thread->credentials()[0] << " " << this_thread->credentials()[1]
+			<< " " << this_thread->credentials()[2] << " " << this_thread->credentials()[3]
+			<< " " << this_thread->credentials()[4] << " " << this_thread->credentials()[5]
+			<< " " << this_thread->credentials()[6] << " " << this_thread->credentials()[7]
+			<< " " << this_thread->credentials()[8] << " " << this_thread->credentials()[9]
+			<< " " << this_thread->credentials()[10] << " " << this_thread->credentials()[11]
+			<< " " << this_thread->credentials()[12] << " " << this_thread->credentials()[13]
+			<< " " << this_thread->credentials()[14] << " " << this_thread->credentials()[15]
+			<< " Thread blocked on futex" << frigg::endLog;
+*/
 	Thread::blockCurrentWhile([&] {
 		return !blocker.check();
 	});

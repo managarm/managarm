@@ -594,6 +594,7 @@ PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 		_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 		_managed->progressLoads();
 
+//		frigg::infoLogger() << "thor: Thread blocked on memory read" << frigg::endLog;
 		Thread::blockCurrentWhile([&] {
 			return !complete.load(std::memory_order_acquire);
 		});
