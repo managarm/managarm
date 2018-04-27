@@ -97,6 +97,9 @@ public:
 	expected<size_t>
 	readSome(Process *, void *data, size_t max_length) override;
 
+	FutureMaybe<void>
+	writeAll(Process *, const void *data, size_t length) override;
+
 	expected<PollResult>
 	poll(uint64_t sequence) override;
 
@@ -311,21 +314,38 @@ MasterFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	COFIBER_RETURN(size);
 }))
 
+COFIBER_ROUTINE(FutureMaybe<void>,
+MasterFile::writeAll(Process *, const void *data, size_t length), ([=] {
+	if(logReadWrite)
+		std::cout << "posix: Write to tty " << structName() << std::endl;
+
+	Packet packet;
+	packet.buffer.resize(length);
+	memcpy(packet.buffer.data(), data, length);
+	packet.offset = 0;
+
+	_channel->slaveQueue.push_back(std::move(packet));
+	_channel->slaveInSeq = ++_channel->currentSeq;
+	_channel->statusBell.ring();
+
+	COFIBER_RETURN();
+}))
+
 COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(uint64_t past_seq), ([=] {
-		assert(past_seq <= _channel->currentSeq);
-		while(past_seq == _channel->currentSeq)
-			COFIBER_AWAIT _channel->statusBell.async_wait();
+	assert(past_seq <= _channel->currentSeq);
+	while(past_seq == _channel->currentSeq)
+		COFIBER_AWAIT _channel->statusBell.async_wait();
 
-		// For now making pts files always writable is sufficient.
-		int edges = EPOLLOUT;
-		if(_channel->masterInSeq > past_seq)
-			edges |= EPOLLIN;
+	// For now making pts files always writable is sufficient.
+	int edges = EPOLLOUT;
+	if(_channel->masterInSeq > past_seq)
+		edges |= EPOLLIN;
 
-		int events = EPOLLOUT;
-		if(!_channel->masterQueue.empty())
-			events |= EPOLLIN;
+	int events = EPOLLOUT;
+	if(!_channel->masterQueue.empty())
+		events |= EPOLLIN;
 
-		COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
+	COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
 }))
 
 COFIBER_ROUTINE(async::result<void>, MasterFile::ioctl(Process *, managarm::fs::CntRequest req,
@@ -375,15 +395,15 @@ SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 
-	while(_channel->masterQueue.empty())
+	while(_channel->slaveQueue.empty())
 		COFIBER_AWAIT _channel->statusBell.async_wait();
 	
-	auto packet = &_channel->masterQueue.front();
+	auto packet = &_channel->slaveQueue.front();
 	assert(!packet->offset);
 	auto size = packet->buffer.size();
 	assert(max_length >= size);
 	memcpy(data, packet->buffer.data(), size);
-	_channel->masterQueue.pop_front();
+	_channel->slaveQueue.pop_front();
 	COFIBER_RETURN(size);
 }))
 
@@ -405,8 +425,21 @@ SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(uint64_t sequence), ([=] {
-	std::cout << "\e[31mposix: Fix pts SlaveFile::poll()\[e39m" << std::endl;
+COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(uint64_t past_seq), ([=] {
+	assert(past_seq <= _channel->currentSeq);
+	while(past_seq == _channel->currentSeq)
+		COFIBER_AWAIT _channel->statusBell.async_wait();
+
+	// For now making pts files always writable is sufficient.
+	int edges = EPOLLOUT;
+	if(_channel->slaveInSeq > past_seq)
+		edges |= EPOLLIN;
+
+	int events = EPOLLOUT;
+	if(!_channel->slaveQueue.empty())
+		events |= EPOLLIN;
+
+	COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
 }))
 
 //-----------------------------------------------------------------------------
