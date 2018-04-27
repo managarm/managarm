@@ -59,7 +59,7 @@ struct MasterDevice : UnixDevice {
 		assignId({5, 2});
 	}
 	
-	std::string getName() override {
+	std::string nodePath() override {
 		return "ptmx";
 	}
 	
@@ -70,7 +70,7 @@ struct MasterDevice : UnixDevice {
 struct SlaveDevice : UnixDevice {
 	SlaveDevice(std::shared_ptr<Channel> channel);
 	
-	std::string getName() override {
+	std::string nodePath() override {
 		return std::string{};
 	}
 	

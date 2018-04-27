@@ -25,7 +25,7 @@ struct UnixDevice {
 		return _id;
 	}
 
-	virtual std::string getName() = 0;
+	virtual std::string nodePath() = 0;
 
 	virtual FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) = 0;

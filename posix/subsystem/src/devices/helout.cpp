@@ -41,7 +41,7 @@ struct HeloutDevice : UnixDevice {
 		assignId({1, 255}); // This minor is not used by Linux.
 	}
 	
-	std::string getName() override {
+	std::string nodePath() override {
 		return "helout";
 	}
 	

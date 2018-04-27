@@ -27,7 +27,7 @@ struct Device : UnixDevice {
 	: UnixDevice{type},
 			_name{std::move(name)}, _lane{std::move(lane)} { }
 
-	std::string getName() override {
+	std::string nodePath() override {
 		return _name;
 	}
 	

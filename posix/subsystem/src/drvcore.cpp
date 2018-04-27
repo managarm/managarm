@@ -1,5 +1,6 @@
 
 #include <linux/netlink.h>
+#include <sstream>
 
 #include "drvcore.hpp"
 #include "nl-socket.hpp"
@@ -14,7 +15,6 @@ std::shared_ptr<sysfs::Object> globalBlockObject;
 std::shared_ptr<sysfs::Object> inputClassObject;
 
 std::shared_ptr<sysfs::Object> cardObject;
-std::shared_ptr<sysfs::Object> eventObject;
 
 sysfs::Object *devicesObject() {
 	assert(globalDevicesObject);
@@ -25,6 +25,23 @@ sysfs::Object *classObject() {
 	assert(globalClassObject);
 	return globalClassObject.get();
 }
+
+struct Card0UeventAttribute : sysfs::Attribute {
+	static auto singleton() {
+		static Card0UeventAttribute attr;
+		return &attr;
+	}
+
+private:
+	Card0UeventAttribute()
+	: sysfs::Attribute("uevent") { }
+
+public:
+	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {
+		assert(object == cardObject.get());
+		COFIBER_RETURN(std::string{"DEVNAME=dri/card0\n"});
+	}))
+};
 
 struct UeventAttribute : sysfs::Attribute {
 	static auto singleton() {
@@ -38,16 +55,17 @@ private:
 
 public:
 	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {
-		std::cout << "\e[31mposix: uevent files are static\e[39m" << std::endl;
-		if(object == cardObject.get()) {
-			COFIBER_RETURN(std::string{"DEVNAME=dri/card0\n"});
-		}else if(eventObject && object == eventObject.get()) {
-			COFIBER_RETURN(std::string{"DEVNAME=input/event0\n"
-				"MAJOR=13\n"
-				"MINOR=64\n"});
-		}else{
-			throw std::runtime_error("posix: Unexpected object for UeventAttribute::show()");
+		auto device = static_cast<Device *>(object);
+
+		std::stringstream ss;
+		if(auto unix_dev = device->unixDevice(); unix_dev) {
+			auto node_path = unix_dev->nodePath();
+			if(!node_path.empty())
+				ss << "DEVNAME=" << node_path << '\n';
+			ss << "MAJOR=" << unix_dev->getId().first << '\n';
+			ss << "MINOR=" << unix_dev->getId().second << '\n';
 		}
+		COFIBER_RETURN(ss.str());
 	}))
 };
 
@@ -82,7 +100,7 @@ void initialize() {
 	
 	cardObject = std::make_shared<sysfs::Object>(globalDevicesObject, "card0");
 	cardObject->addObject();
-	cardObject->realizeAttribute(UeventAttribute::singleton());
+	cardObject->realizeAttribute(Card0UeventAttribute::singleton());
 
 	auto drm_object = std::make_shared<sysfs::Object>(globalClassObject, "drm");
 	drm_object->addObject();
@@ -93,16 +111,20 @@ void initialize() {
 }
 
 void installDevice(std::shared_ptr<Device> device) {
-	eventObject = device;
-
-	eventObject->addObject();
+	device->addObject();
 	
 	// TODO: Do this before the object becomes visible in sysfs.
-	eventObject->realizeAttribute(UeventAttribute::singleton());
-	eventObject->createSymlink("subsystem", inputClassObject);
+	device->realizeAttribute(UeventAttribute::singleton());
+	device->createSymlink("subsystem", inputClassObject);
 	
-	inputClassObject->createSymlink(device->name(), eventObject);
-	globalCharObject->createSymlink("13:64", eventObject);
+	inputClassObject->createSymlink(device->name(), device);
+	
+	if(auto unix_dev = device->unixDevice(); unix_dev) {
+		std::stringstream id_ss;
+		id_ss << unix_dev->getId().first << ":" << unix_dev->getId().second;
+		assert(unix_dev->type() == VfsType::charDevice);
+		globalCharObject->createSymlink(id_ss.str(), device);
+	}
 }
 
 void emitHotplug(std::string buffer) {

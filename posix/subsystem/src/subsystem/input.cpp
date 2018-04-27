@@ -22,7 +22,7 @@ id_allocator<uint32_t> evdevAllocator;
 
 struct Subsystem {
 	Subsystem() {
-		evdevAllocator.use_range(64);
+		evdevAllocator.use_range(0);
 	}
 } subsystem;
 
@@ -42,12 +42,12 @@ CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
 CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
 
 struct Device : UnixDevice, drvcore::Device {
-	Device(VfsType type, std::string name, helix::UniqueLane lane)
-	: UnixDevice{type}, drvcore::Device{nullptr, "event0", this},
-			_name{std::move(name)}, _lane{std::move(lane)} { }
+	Device(VfsType type, int index, helix::UniqueLane lane)
+	: UnixDevice{type}, drvcore::Device{nullptr, "event" + std::to_string(index), this},
+			_index{index}, _lane{std::move(lane)} { }
 
-	std::string getName() override {
-		return _name;
+	std::string nodePath() override {
+		return "input/event" + std::to_string(_index);
 	}
 	
 	FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(std::shared_ptr<FsLink> link,
@@ -56,7 +56,7 @@ struct Device : UnixDevice, drvcore::Device {
 	}
 
 private:
-	std::string _name;
+	int _index;
 	helix::UniqueLane _lane;
 };
 
@@ -125,16 +125,17 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 	
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
-		std::cout << "POSIX: Installing input device "
-				<< std::get<mbus::StringItem>(properties.at("unix.devname")).value << std::endl;
+		int index = evdevAllocator.allocate();
+		std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 
 		auto lane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
 		auto device = std::make_shared<Device>(VfsType::charDevice,
-				std::get<mbus::StringItem>(properties.at("unix.devname")).value,
-				std::move(lane));
-		device->assignId({13, evdevAllocator.allocate()});
+				index, std::move(lane));
+		device->assignId({13, 64 + index}); // evdev devices start at minor 64.
 
+		std::cout << "before charRegistry.install()" << std::endl;
 		charRegistry.install(device);
+		std::cout << "after charRegistry.install()" << std::endl;
 		drvcore::installDevice(device);
 
 		// TODO: Do this before the device becomes visible in sysfs!
@@ -144,15 +145,18 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		caps->directMkattr(device.get(), &keyCapability);
 		caps->directMkattr(device.get(), &relCapability);
 
+		// TODO: This should be handled in drvcore.
+		static int seqnum = 1;
+
 		std::stringstream s;
-		s << "add@/devices/event0" << '\0';
+		s << "add@/devices/event" << index << '\0';
 		s << "ACTION=add" << '\0';
-		s << "DEVPATH=/devices/event0" << '\0';
+		s << "DEVPATH=/devices/event" << index << '\0';
 		s << "SUBSYSTEM=input" << '\0';
-		s << "DEVNAME=input/event0" << '\0';
+		s << "DEVNAME=input/event" << index << '\0';
 		s << "MAJOR=13" << '\0';
 		s << "MINOR=" << device->getId().second << '\0';
-		s << "SEQNUM=1" << '\0'; // TODO: This has to be an increasing number.
+		s << "SEQNUM=" << seqnum++ << '\0'; // TODO: This has to be an increasing number.
 		drvcore::emitHotplug(s.str());
 	});
 

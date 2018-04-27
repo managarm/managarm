@@ -28,9 +28,9 @@ void UnixDeviceRegistry::install(std::shared_ptr<UnixDevice> device) {
 	// TODO: Ensure that the insert succeeded.
 	_devices.insert(device);
 
-	auto name = device->getName();
-	if(!name.empty())
-		createDeviceNode(std::move(name), device->type(), device->getId());
+	auto node_path = device->nodePath();
+	if(!node_path.empty())
+		createDeviceNode(std::move(node_path), device->type(), device->getId());
 }
 
 std::shared_ptr<UnixDevice> UnixDeviceRegistry::get(DeviceId id) {
@@ -72,7 +72,10 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 			break;
 		}else{
 			assert(s > k);
-			auto link = COFIBER_AWAIT node->mkdir(path.substr(k, s - k));
+			std::shared_ptr<FsLink> link;
+			link = COFIBER_AWAIT node->getLink(path.substr(k, s - k));
+			if(!link)
+				link = COFIBER_AWAIT node->mkdir(path.substr(k, s - k));
 			k = s + 1;
 			node = link->getTarget();
 		}

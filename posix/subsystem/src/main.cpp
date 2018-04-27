@@ -651,24 +651,33 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				std::cout << "posix: Creating file " << req.path() << std::endl;
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto target = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
-				if((req.flags() & managarm::posix::OF_EXCLUSIVE) && target) {
-					resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
+				auto tail = COFIBER_AWAIT directory->getLink(resolver.nextComponent());
+				if(tail) {
+					if(req.flags() & managarm::posix::OF_EXCLUSIVE) {
+						resp.set_error(managarm::posix::Errors::ALREADY_EXISTS);
 
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size()));
-					COFIBER_AWAIT transmit.async_wait();
-					HEL_CHECK(send_resp.error());
-					continue;
+						auto ser = resp.SerializeAsString();
+						auto &&transmit = helix::submitAsync(conversation,
+								helix::Dispatcher::global(),
+								helix::action(&send_resp, ser.data(), ser.size()));
+						COFIBER_AWAIT transmit.async_wait();
+						HEL_CHECK(send_resp.error());
+						continue;
+					}else{
+						file = COFIBER_AWAIT tail->getTarget()->open(std::move(tail),
+								semantic_flags);
+						assert(file);
+					}
+				}else{
+					assert(directory->superblock());
+					auto node = COFIBER_AWAIT directory->superblock()->createRegular();
+					// Due to races, link() can fail here.
+					// TODO: Implement a version of link() that eithers links the new node
+					// or returns the current node without failing.
+					auto link = COFIBER_AWAIT directory->link(resolver.nextComponent(), node);
+					file = COFIBER_AWAIT node->open(std::move(link), semantic_flags);
+					assert(file);
 				}
-				assert(!target); // TODO: Only check this for OF_EXCLUSIVE.
-
-				assert(directory->superblock());
-				auto node = COFIBER_AWAIT directory->superblock()->createRegular();
-				auto link = COFIBER_AWAIT directory->link(resolver.nextComponent(), node);
-				file = COFIBER_AWAIT node->open(std::move(link), semantic_flags);
-				assert(file);
 			}else{
 				COFIBER_AWAIT resolver.resolve();
 				
