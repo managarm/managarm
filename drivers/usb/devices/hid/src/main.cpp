@@ -160,7 +160,6 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 
 	for(const Field &f : fields) {
 		if(f.type == FieldType::padding) {
-			assert(!f.isSigned);
 			for(int i = 0; i < f.arraySize; i++)
 				fetch(f.bitSize, false);
 			continue;
@@ -501,8 +500,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	mbus::Properties mbus_descriptor{
-		{"unix.subsystem", mbus::StringItem{"input"}},
-		{"unix.devname", mbus::StringItem{"input/event0"}}
+		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
 
 	auto handler = mbus::ObjectHandler{}

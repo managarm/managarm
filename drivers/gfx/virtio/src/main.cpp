@@ -184,6 +184,10 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 			std::vector<drm_mode_modeinfo> supported_modes;
 			drm_core::addDmtModes(supported_modes, info.modes[i].rect.width,
 					info.modes[i].rect.height);
+			std::sort(supported_modes.begin(), supported_modes.end(),
+					[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
+				return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
+			});
 			connector->setModeList(supported_modes);
 
 			_activeConnectors[i] = connector;
@@ -295,8 +299,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 			_state[i]->height = mode_info.vdisplay;
 			_state[i]->width = mode_info.hdisplay;
 			
-			if(_state[i]->width <= 0 || _state[i]->height <= 0 
-					|| _state[i]->width > 1024 || _state[i]->height > 768)
+			// TODO: Check max dimensions: _state[i]->width > 1024 || _state[i]->height > 768
+			if(_state[i]->width <= 0 || _state[i]->height <= 0)
 				return false;
 			if(!_state[i]->fb)
 				return false;
