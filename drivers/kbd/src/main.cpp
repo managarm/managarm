@@ -16,11 +16,9 @@
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <libevbackend.hpp>
-#include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "spec.hpp"
-#include "fs.pb.h"
 
 arch::io_space base;
 	
@@ -173,9 +171,11 @@ void handleKeyboardData(uint8_t data) {
 	}else if(escapeStatus == kStatusE1Second) {
 		assert((e1Buffer & 0x80) == (data & 0x80));
 		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->notify();
 		escapeStatus = kStatusNormal;
 	}else if(escapeStatus == kStatusE0) {
 		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->notify();
 		escapeStatus = kStatusNormal;
 	}else{
 		assert(escapeStatus == kStatusNormal);
@@ -189,6 +189,7 @@ void handleKeyboardData(uint8_t data) {
 		}
 		
 		kbdEvntDev->emitEvent(EV_KEY, scanNormal(data & 0x7F), pressed);
+		kbdEvntDev->notify();
 	}
 }
 
@@ -212,8 +213,8 @@ enum MouseByte {
 
 MouseState mouseState = kMouseData;
 MouseByte mouseByte = kMouseByte0;
-uint8_t byte0 = 0;
-uint8_t byte1 = 0;
+unsigned int byte0 = 0;
+unsigned int byte1 = 0;
 
 void handleMouseData(uint8_t data) {
 	if(mouseState == kMouseWaitForAck) {
@@ -223,34 +224,27 @@ void handleMouseData(uint8_t data) {
 		assert(mouseState == kMouseData);
 
 		if(mouseByte == kMouseByte0) {
-			if(data == 0xFA) { // acknowledge
-				// do nothing for now
-			}else{
-				byte0 = data;
-				assert(byte0 & 8);
-				mouseByte = kMouseByte1;
-			}
+			assert(data & 8);
+			byte0 = data;
+			mouseByte = kMouseByte1;
 		}else if(mouseByte == kMouseByte1) {
 			byte1 = data;
 			mouseByte = kMouseByte2;
 		}else{
 			assert(mouseByte == kMouseByte2);
-			uint8_t byte2 = data;
-			if(byte0 & 4) {
-				printf("MMB\n");
-			}
-			if(byte0 & 2) {
-				printf("RMB\n");
-			}
-			if(byte0 & 1) {
-				printf("LMB\n");
-			}
+			unsigned int byte2 = data;
 			
-			int movement_x = (byte0 & 16) ? -(256 - byte1) : byte1;
-			int movement_y = (byte0 & 32) ? 256 - byte2 : -byte2;
+			int movement_x = byte1 - ((byte0 << 4) & 0x100);
+			int movement_y = byte2 - ((byte0 << 3) & 0x100);
 		
 			mouseEvntDev->emitEvent(EV_REL, REL_X, movement_x);
-			mouseEvntDev->emitEvent(EV_REL, REL_Y, movement_y);
+			mouseEvntDev->emitEvent(EV_REL, REL_Y, -movement_y);
+			mouseEvntDev->emitEvent(EV_KEY, BTN_LEFT, byte0 & 1);
+			mouseEvntDev->emitEvent(EV_KEY, BTN_RIGHT, byte0 & 2);
+			mouseEvntDev->emitEvent(EV_KEY, BTN_MIDDLE, byte0 & 4);
+			mouseEvntDev->emitEvent(EV_SYN, SYN_REPORT, 0);
+			mouseEvntDev->notify();
+			
 			mouseByte = kMouseByte0;
 		}
 	}
@@ -268,50 +262,131 @@ void sendByte(uint8_t data) {
 }
 
 void readDeviceData() {
-	uint8_t status = base.load(kbd_register::command);
-	if(!(status & 0x01))
-		return;
-	
-	uint8_t data = base.load(kbd_register::data);
-	if(status & 0x20) {
-		handleMouseData(data);
-	}else{
-		handleKeyboardData(data);
+	uint8_t status;
+	while((status = base.load(kbd_register::command)) & 0x01) {
+		uint8_t data = base.load(kbd_register::data);
+		if(status & 0x20) {
+			handleMouseData(data);
+		}else{
+			handleKeyboardData(data);
+		}
 	}
 }
 
 COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {	
+	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(kbdIrq, &await_irq, helix::Dispatcher::global());
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(kbdIrq, &await_irq,
+				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
+		//std::cout << "ps2-hid: Keyboard IRQ" << std::endl;
 		
 		readDeviceData();
+		
+		// TODO: Only ack if the IRQ was from the PS/2 controller.
+		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), 0, sequence));
 	}
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, handleMouseIrqs(), ([=] {	
+	uint64_t sequence = 0;
 	while(true) {
-		helix::AwaitIrq await_irq;
-		auto &&submit = helix::submitAwaitIrq(mouseIrq, &await_irq, helix::Dispatcher::global());
+		helix::AwaitEvent await_irq;
+		auto &&submit = helix::submitAwaitEvent(mouseIrq, &await_irq,
+				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT submit.async_wait();
 		HEL_CHECK(await_irq.error());
+		sequence = await_irq.sequence();
+		//std::cout << "ps2-hid: Mouse IRQ" << std::endl;
 		
 		readDeviceData();
+		
+		// TODO: Only ack if the IRQ was from the PS/2 controller.
+		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), 0, sequence));
 	}
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
+	kbdEvntDev->enableEvent(EV_KEY, KEY_A);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_B);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_C);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_D);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_E);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_F);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_G);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_H);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_I);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_J);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_K);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_L);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_M);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_N);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_O);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_P);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_Q);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_R);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_S);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_T);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_U);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_V);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_W);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_X);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_Y);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_Z);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_1);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_2);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_3);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_4);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_5);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_6);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_7);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_8);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_9);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_0);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_ENTER);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_ESC);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_BACKSPACE);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_TAB);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_SPACE);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_MINUS);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_EQUAL);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTBRACE);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTBRACE);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_BACKSLASH);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_SEMICOLON);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_COMMA);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_DOT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_SLASH);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_HOME);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_PAGEUP);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_DELETE);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_END);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_PAGEDOWN);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_DOWN);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_UP);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTCTRL);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTSHIFT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTALT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_LEFTMETA);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTCTRL);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTSHIFT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTALT);
+	kbdEvntDev->enableEvent(EV_KEY, KEY_RIGHTMETA);
+
 	// Create an mbus object for the partition.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
-	std::unordered_map<std::string, std::string> descriptor {
-		{ "unix.devtype", "block" },
-		{ "unix.devname", "event0" },
+	mbus::Properties descriptor{
+		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
-	auto object = COFIBER_AWAIT root.createObject("kbd", descriptor,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+	
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(kbdEvntDev, std::move(local_lane));
@@ -320,18 +395,26 @@ COFIBER_ROUTINE(cofiber::no_future, runKbd(), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
+
+	COFIBER_AWAIT root.createObject("ps2kbd", descriptor, std::move(handler));
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
+	mouseEvntDev->enableEvent(EV_REL, REL_X);
+	mouseEvntDev->enableEvent(EV_REL, REL_Y);
+	mouseEvntDev->enableEvent(EV_KEY, BTN_LEFT);
+	mouseEvntDev->enableEvent(EV_KEY, BTN_RIGHT);
+	mouseEvntDev->enableEvent(EV_KEY, BTN_MIDDLE);
+
 	// Create an mbus object for the partition.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
-	std::unordered_map<std::string, std::string> descriptor {
-		{ "unix.devtype", "block" },
-		{ "unix.devname", "event1" },
+	mbus::Properties descriptor{
+		{"unix.subsystem", mbus::StringItem{"input"}}
 	};
-	auto object = COFIBER_AWAIT root.createObject("mouse", descriptor,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
+	
+	auto handler = mbus::ObjectHandler{}
+	.withBind([=] () -> async::result<helix::UniqueDescriptor> {
 		helix::UniqueLane local_lane, remote_lane;
 		std::tie(local_lane, remote_lane) = helix::createStream();
 		libevbackend::serveDevice(mouseEvntDev, std::move(local_lane));
@@ -340,10 +423,12 @@ COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
 		promise.set_value(std::move(remote_lane));
 		return promise.async_get();
 	});
+
+	COFIBER_AWAIT root.createObject("ps2mouse", descriptor, std::move(handler));
 }))
 
 int main() {
-	printf("Starting ps/2\n");
+	std::cout << "ps2-hid: Starting driver" << std::endl;
 	
 	HelHandle kbd_handle;
 	HEL_CHECK(helAccessIrq(1, &kbd_handle));
@@ -385,6 +470,8 @@ int main() {
 
 	runKbd();
 	runMouse();
+
+	std::cout << "ps2-hid: mbus objects are ready" << std::endl;
 
 	handleKbdIrqs();
 	handleMouseIrqs();
