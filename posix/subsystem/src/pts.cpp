@@ -399,12 +399,13 @@ SlaveFile::readSome(Process *, void *data, size_t max_length), ([=] {
 		COFIBER_AWAIT _channel->statusBell.async_wait();
 	
 	auto packet = &_channel->slaveQueue.front();
-	assert(!packet->offset);
-	auto size = packet->buffer.size();
-	assert(max_length >= size);
-	memcpy(data, packet->buffer.data(), size);
-	_channel->slaveQueue.pop_front();
-	COFIBER_RETURN(size);
+	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
+	assert(chunk);
+	memcpy(data, packet->buffer.data() + packet->offset, chunk);
+	packet->offset += chunk;
+	if(packet->offset == packet->buffer.size())
+		_channel->slaveQueue.pop_front();
+	COFIBER_RETURN(chunk);
 }))
 
 

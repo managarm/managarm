@@ -24,6 +24,8 @@
 
 namespace libevbackend {
 
+bool logCodes = false;
+
 // ----------------------------------------------------------------------------
 // File implementation.
 // ----------------------------------------------------------------------------
@@ -258,7 +260,7 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		array[bit / 8] &= ~(1 << (bit % 8));
 		array[bit / 8] |= (((int)value) << (bit % 8));
 	};
-
+	
 	// Filter out events that do not update the device state.
 	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
 		return;
@@ -270,6 +272,9 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
 
 	auto event = new Event(type, code, value);
+	if(logCodes)
+		std::cout << "Event type: " << type << ", code: " << code
+				<< ", value: " << value << std::endl;
 	_emitted.push_back(*event);
 }
 

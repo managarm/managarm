@@ -136,7 +136,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 		}else if(type == descriptor_type::interface) {
-			assert(!intf_number);
+			if(intf_number) {
+				std::cout << "usb-storage: Ignoring interface "
+						<< info.interfaceNumber.value() << std::endl;
+				return;
+			}
 			intf_number = info.interfaceNumber.value();
 			
 			assert(!intf_class);

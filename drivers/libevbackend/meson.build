@@ -6,7 +6,7 @@ gen = generator(protoc,
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 
 libevbackend_driver_inc = include_directories('include/')
-libevbackend_driver = shared_library('libevbackend', ['src/libevbackend.cpp', fs_pb],
+libevbackend_driver = shared_library('evbackend', ['src/libevbackend.cpp', fs_pb],
 	dependencies: [lib_cofiber_dep, libfs_protocol_dep, lib_helix_dep, libmbus_protocol_dep,
 		libusb_protocol_dep, proto_lite_dep],
 	include_directories: libevbackend_driver_inc,

@@ -26,7 +26,7 @@ namespace {
 	constexpr bool logFields = false;
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
-	constexpr bool logInputCodes = true;
+	constexpr bool logInputCodes = false;
 }
 
 void setupInputTranslation(Element *element) {
@@ -79,6 +79,37 @@ void setupInputTranslation(Element *element) {
 			case 0x25: setInput(EV_KEY, KEY_8); break;
 			case 0x26: setInput(EV_KEY, KEY_9); break;
 			case 0x27: setInput(EV_KEY, KEY_0); break;
+			case 0x28: setInput(EV_KEY, KEY_ENTER); break;
+			case 0x29: setInput(EV_KEY, KEY_ESC); break;
+			case 0x2A: setInput(EV_KEY, KEY_BACKSPACE); break;
+			case 0x2B: setInput(EV_KEY, KEY_TAB); break;
+			case 0x2C: setInput(EV_KEY, KEY_SPACE); break;
+			case 0x2D: setInput(EV_KEY, KEY_MINUS); break;
+			case 0x2E: setInput(EV_KEY, KEY_EQUAL); break;
+			case 0x2F: setInput(EV_KEY, KEY_LEFTBRACE); break;
+			case 0x30: setInput(EV_KEY, KEY_RIGHTBRACE); break;
+			case 0x31: setInput(EV_KEY, KEY_BACKSLASH); break;
+			case 0x33: setInput(EV_KEY, KEY_SEMICOLON); break;
+			case 0x36: setInput(EV_KEY, KEY_COMMA); break;
+			case 0x37: setInput(EV_KEY, KEY_DOT); break;
+			case 0x38: setInput(EV_KEY, KEY_SLASH); break;
+			case 0x4A: setInput(EV_KEY, KEY_HOME); break;
+			case 0x4B: setInput(EV_KEY, KEY_PAGEUP); break;
+			case 0x4C: setInput(EV_KEY, KEY_DELETE); break;
+			case 0x4D: setInput(EV_KEY, KEY_END); break;
+			case 0x4E: setInput(EV_KEY, KEY_PAGEDOWN); break;
+			case 0x4F: setInput(EV_KEY, KEY_RIGHT); break;
+			case 0x50: setInput(EV_KEY, KEY_LEFT); break;
+			case 0x51: setInput(EV_KEY, KEY_DOWN); break;
+			case 0x52: setInput(EV_KEY, KEY_UP); break;
+			case 0xE0: setInput(EV_KEY, KEY_LEFTCTRL); break;
+			case 0xE1: setInput(EV_KEY, KEY_LEFTSHIFT); break;
+			case 0xE2: setInput(EV_KEY, KEY_LEFTALT); break;
+			case 0xE3: setInput(EV_KEY, KEY_LEFTMETA); break;
+			case 0xE4: setInput(EV_KEY, KEY_RIGHTCTRL); break;
+			case 0xE5: setInput(EV_KEY, KEY_RIGHTSHIFT); break;
+			case 0xE6: setInput(EV_KEY, KEY_RIGHTALT); break;
+			case 0xE7: setInput(EV_KEY, KEY_RIGHTMETA); break;
 		}
 	}else if(element->usagePage == pages::button) {
 		switch(element->usageId) {
@@ -96,33 +127,42 @@ int32_t signExtend(uint32_t x, int bits) {
 }
 
 void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
-		std::vector<int> &values) {
-	int k = 0;
+		std::vector<std::pair<bool, int32_t>> &values) {
+	int k = 0; // Offset of the value that we're generating.
+
 	unsigned int bit_offset = 0;
-	for(const Field &f : fields) {
-		auto fetch = [&] () {
-			assert(bit_offset + f.bitSize <= size * 8);
+	auto fetch = [&] (unsigned int bit_size, bool is_signed) -> int32_t {
+		assert(bit_offset + bit_size <= size * 8);
 
-			int b = bit_offset / 8;
-			assert(b < size);
-			uint32_t word = uint32_t(report[b]);
-			if(b + 1 < size)
-				word |= uint32_t(report[b + 1]) << 8;
-			if(b + 2 < size)
-				word |= uint32_t(report[b + 2]) << 16;
-			if(b + 3 < size)
-				word |= uint32_t(report[b + 3]) << 24;
+		unsigned int b = bit_offset / 8;
+		assert(b < size);
+		uint32_t word = uint32_t(report[b]);
+		if(b + 1 < size)
+			word |= uint32_t(report[b + 1]) << 8;
+		if(b + 2 < size)
+			word |= uint32_t(report[b + 2]) << 16;
+		if(b + 3 < size)
+			word |= uint32_t(report[b + 3]) << 24;
 
-			uint32_t mask = (uint32_t(1) << f.bitSize) - 1;
-			uint32_t data = (word >> (bit_offset % 8)) & mask;
-//			std::cout << "bit_offset: " << bit_offset << ", data: " << data << std::endl;
-			bit_offset += f.bitSize;
+		uint32_t mask = (uint32_t(1) << bit_size) - 1;
+		uint32_t raw = (word >> (bit_offset % 8)) & mask;
+//			std::cout << "bit_offset: " << bit_offset << ", raw: " << raw << std::endl;
+		bit_offset += bit_size;
+
+		if(is_signed) {
+			return signExtend(raw, bit_size);
+		}else{
+			auto data = static_cast<int32_t>(raw);
+			assert(data >= 0);
 			return data;
-		};
+		}
+	};
 
+	for(const Field &f : fields) {
 		if(f.type == FieldType::padding) {
+			assert(!f.isSigned);
 			for(int i = 0; i < f.arraySize; i++)
-				fetch();
+				fetch(f.bitSize, false);
 			continue;
 		}
 
@@ -131,27 +171,26 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 		if(f.type == FieldType::array) {
 			assert(!f.isSigned);
 			for(int i = 0; i < f.dataMax - f.dataMin + 1; i++)
-				values[k + i] = 0;
+				values[k + i] = {true, 0};
 			
 			for(int i = 0; i < f.arraySize; i++) {
-				auto data = fetch();
+				auto data = fetch(f.bitSize, false);
 				if(!(data >= f.dataMin && data <= f.dataMax))
 					continue;
 
-				values[k + data - f.dataMin] = 1;
+				values[k + data - f.dataMin] = {true, 1};
 			}
 			k += f.dataMax - f.dataMin + 1;
 		}else{
 			assert(f.type == FieldType::variable);
-			auto data = fetch();
-			if(f.isSigned) {
-				values[k] = signExtend(data, f.bitSize);
-			}else{
-				values[k] = data;
-			}
+			auto data = fetch(f.bitSize, f.isSigned);
+			if(data >= f.dataMin && data <= f.dataMax)
+				values[k] = {true, data};
 			k++;
 		}
 	}
+
+	assert(bit_offset == size * 8);
 }
 
 uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
@@ -173,8 +212,8 @@ struct GlobalState {
 	std::experimental::optional<uint16_t> usagePage;
 	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMin;
 	std::experimental::optional<std::pair<int32_t, uint32_t>> logicalMax;
-	std::experimental::optional<int> reportSize;
-	std::experimental::optional<int> reportCount;
+	std::experimental::optional<unsigned int> reportSize;
+	std::experimental::optional<unsigned int> reportCount;
 	std::experimental::optional<int> physicalMin;
 	std::experimental::optional<int> physicalMax;
 };
@@ -204,7 +243,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			field.arraySize = global.reportCount.value();
 			fields.push_back(field);
 		}else if(!array) {
-			for(int i = 0; i < global.reportCount.value(); i++) {
+			for(unsigned int i = 0; i < global.reportCount.value(); i++) {
 				uint16_t actual_id;
 				if(local.usage.empty()) {
 					actual_id = local.usageMin.value() + i;
@@ -266,7 +305,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 			field.arraySize = global.reportCount.value();
 			fields.push_back(field);
 
-			for(int i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
+			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
@@ -400,55 +439,58 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		int intf_num), ([=] {
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 
+	std::vector<size_t> report_descs;
 	std::experimental::optional<int> in_endp_number;
 	size_t in_endp_pktsize;
 
-	std::experimental::optional<int> report_desc_index;
-	std::experimental::optional<int> report_desc_length;
-
+//	std::cout << "usb-hid: Device configuration:" << std::endl;
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		if(type == descriptor_type::hid) {
+//		std::cout << "    Descriptor: " << type << std::endl;
+		if(type == descriptor_type::hid) {	
+			if(info.configNumber.value() != config_num
+					|| info.interfaceNumber.value() != intf_num)
+				return;
+
 			auto desc = static_cast<HidDescriptor *>(p);
 			assert(desc->length == sizeof(HidDescriptor)
 					+ (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
 			
-			assert(info.interfaceNumber);
-			
 			for(size_t i = 0; i < desc->numDescriptors; i++) {
 				assert(desc->entries[i].descriptorType == descriptor_type::report);
-				assert(!report_desc_index);
-				report_desc_index = 0;
-				report_desc_length = (int)desc->entries[i].descriptorLength;
+				report_descs.push_back(desc->entries[i].descriptorLength);
 			}
 		}else if(type == descriptor_type::endpoint) {
+			if(info.configNumber.value() != config_num
+					|| info.interfaceNumber.value() != intf_num)
+				return;
+
 			auto desc = static_cast<EndpointDescriptor *>(p);
 			assert(!in_endp_number);
 
 			in_endp_number = info.endpointNumber.value();
 			in_endp_pktsize = desc->maxPacketSize;
-			std::cout << "max packet size is: " << in_endp_pktsize << std::endl;
-		}else{
-			printf("Unexpected descriptor type: %d!\n", type);
 		}
 	});
-	
-	arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
-	get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
-			| setup_type::toHost;
-	get_descriptor->request = request_type::getDescriptor;
-	get_descriptor->value = (descriptor_type::report << 8) | report_desc_index.value();
-	get_descriptor->index = intf_num;
-	get_descriptor->length = report_desc_length.value();
 
-	arch::dma_buffer buffer{device.bufferPool(), report_desc_length.value()};
+	// Parse all report descriptors.
+	for(size_t i = 0; i < report_descs.size(); i++) {
+		arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
+		get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
+				| setup_type::toHost;
+		get_descriptor->request = request_type::getDescriptor;
+		get_descriptor->value = (descriptor_type::report << 8) | i;
+		get_descriptor->index = intf_num;
+		get_descriptor->length = report_descs[i];
 
-	COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
-			get_descriptor, buffer});
-	
-	auto p = reinterpret_cast<uint8_t *>(buffer.data());
-	auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_desc_length.value();
+		arch::dma_buffer buffer{device.bufferPool(), report_descs[i]};
 
-	parseReportDescriptor(device, p, limit);
+		COFIBER_AWAIT device.transfer(ControlTransfer{kXferToHost,
+				get_descriptor, buffer});
+		
+		auto p = reinterpret_cast<uint8_t *>(buffer.data());
+		auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_descs[i];
+		parseReportDescriptor(device, p, limit);
+	}
 	
 	auto config = COFIBER_AWAIT device.useConfiguration(config_num);
 	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
@@ -476,7 +518,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 
 	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
 
-	// 
+	// Report supported input codes to the evdev core.
 	for(size_t i = 0; i < elements.size(); i++) {
 		auto element = &elements[i];
 		setupInputTranslation(element);
@@ -493,7 +535,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		}
 
 	// Read reports from the USB device.
-	std::vector<int> values;
+	std::vector<std::pair<bool, int32_t>> values;
 	values.resize(elements.size());
 	while(true) {
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
@@ -504,17 +546,19 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 			std::cout << std::hex;
 			for(size_t i = 0; i < 4; i++)
 				std::cout << " " << (int)reinterpret_cast<uint8_t *>(report.data())[i];
-			std::cout << std::dec;
 			std::cout << std::dec << std::endl;
 		}
 
+		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
 		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), report.size(),
 				values);
 	
 		if(logFieldValues) {
 			for(size_t i = 0; i < values.size(); i++)
-				std::cout << "usagePage: " << elements[i].usagePage << ", usageId: 0x" << std::hex
-						<< elements[i].usageId << std::dec << ", value: " << values[i] << std::endl;
+				if(values[i].first)
+					std::cout << "usagePage: " << elements[i].usagePage
+							<< ", usageId: 0x" << std::hex << elements[i].usageId << std::dec
+							<< ", value: " << values[i].second << std::endl;
 			std::cout << std::endl;
 		}
 
@@ -524,11 +568,13 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 			auto element = &elements[i];
 			if(element->inputType < 0)
 				continue;
+			if(!values[i].first)
+				continue;
 			if(logInputCodes)
 				std::cout << "    inputType: " << element->inputType
 						<< ", inputCode: " << element->inputCode
-						<< ", value: " << values[i] << std::endl;
-			_eventDev->emitEvent(element->inputType, element->inputCode, values[i]);
+						<< ", value: " << values[i].second << std::endl;
+			_eventDev->emitEvent(element->inputType, element->inputCode, values[i].second);
 		}
 		_eventDev->emitEvent(EV_SYN, SYN_REPORT, 0);
 		_eventDev->notify();
@@ -549,7 +595,11 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 		}else if(type == descriptor_type::interface) {
-			assert(!intf_number);
+			if(intf_number) {
+				std::cout << "usb-hid: Ignoring interface "
+						<< info.interfaceNumber.value() << std::endl;
+				return;
+			}
 			intf_number = info.interfaceNumber.value();
 			
 			auto desc = (InterfaceDescriptor *)p;

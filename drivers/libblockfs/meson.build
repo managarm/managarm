@@ -6,7 +6,7 @@ gen = generator(protoc,
 fs_pb = gen.process('../../bragi/proto/fs.proto')
 
 libblockfs_driver_inc = include_directories('include/')
-libblockfs_driver = shared_library('libblockfs', ['src/libblockfs.cpp', 'src/gpt.cpp',
+libblockfs_driver = shared_library('blockfs', ['src/libblockfs.cpp', 'src/gpt.cpp',
 		'src/ext2fs.cpp', fs_pb],
 	dependencies: [lib_helix_dep, libfs_protocol_dep, libmbus_protocol_dep,
 		lib_cofiber_dep, proto_lite_dep],

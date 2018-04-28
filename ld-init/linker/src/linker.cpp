@@ -30,6 +30,7 @@
 uintptr_t libraryBase = 0x41000000;
 
 bool verbose = false;
+bool stillSlightlyVerbose = false;
 bool logBaseAddresses = false;
 bool eagerBinding = true;
 
@@ -1144,8 +1145,9 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 			*((uint64_t *)rel_addr) = (uint64_t)p->object();
 		}else{
 			// TODO: is this behaviour actually documented anywhere?
-			frigg::infoLogger() << "rtdl: Warning: DTPOFF64 with no symbol"
-					" in object " << object->name << frigg::endLog;
+			if(stillSlightlyVerbose)
+				frigg::infoLogger() << "rtdl: Warning: DTPOFF64 with no symbol"
+						" in object " << object->name << frigg::endLog;
 			*((uint64_t *)rel_addr) = (uint64_t)object;
 		}
 	} break;
@@ -1166,8 +1168,9 @@ void Loader::_processRela(SharedObject *object, Elf64_Rela *reloc) {
 			*((uint64_t *)rel_addr) = p->object()->tlsOffset + p->symbol()->st_value;
 		}else{
 			assert(!reloc->r_addend);
-			frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol"
-					" in object " << object->name << frigg::endLog;
+			if(stillSlightlyVerbose)
+				frigg::infoLogger() << "rtdl: Warning: TPOFF64 with no symbol"
+						" in object " << object->name << frigg::endLog;
 			if(object->tlsModel != TlsModel::initial)
 				frigg::panicLogger() << "rtdl: In object " << object->name
 						<< ": Static TLS relocation to dynamically loaded object "
