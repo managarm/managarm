@@ -137,6 +137,8 @@ public:
 	File(StructName struct_name, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
 	: _structName{struct_name}, _link{std::move(link)}, _defaultOps{default_ops}, _isOpen{true} { }
 
+	virtual ~File();
+
 	StructName structName() {
 		return _structName;
 	}

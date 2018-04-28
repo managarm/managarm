@@ -55,6 +55,10 @@ public:
 	: File{StructName::get("externfs.file"), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)} { }
 
+	~OpenFile() {
+		// It's not necessary to do any cleanup here.
+	}
+
 	void handleClose() override {
 		// Close the control lane to inform the server that we closed the file.
 		_control = helix::UniqueLane{};

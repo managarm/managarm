@@ -132,9 +132,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(smarter::shared_ptr<ext2fs::OpenFile> 
 	COFIBER_AWAIT std::move(ctrl_result);
 
 	// Passthrough streams do not keep the file open.
-//	pt_result.cancel();
-//	COFIBER_AWAIT std::move(pt_result);
-	std::cout << "libblockfs: File closed!" << std::endl;
+	pt_result.cancel();
+	COFIBER_AWAIT std::move(pt_result);
 }))
 
 COFIBER_ROUTINE(async::result<protocols::fs::FileStats>,
