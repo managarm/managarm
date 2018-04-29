@@ -157,6 +157,7 @@ AttributeNode::open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags),
 	assert(!semantic_flags);
 
 	auto file = smarter::make_shared<AttributeFile>(std::move(link));
+	file->setupWeakFile(file);
 	AttributeFile::serve(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));
 }))
@@ -258,6 +259,7 @@ COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 	assert(!semantic_flags);
 
 	auto file = smarter::make_shared<DirectoryFile>(std::move(link));
+	file->setupWeakFile(file);
 	DirectoryFile::serve(file);
 	COFIBER_RETURN(File::constructHandle(std::move(file)));
 }))

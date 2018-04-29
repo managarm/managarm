@@ -341,6 +341,7 @@ void broadcast(int proto_idx, int grp_idx, std::string buffer) {
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol) {
 	auto file = smarter::make_shared<OpenFile>(protocol);
+	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }

@@ -28,15 +28,16 @@ private:
 	static constexpr State statePending = 4;
 
 	struct Item : boost::intrusive::list_base_hook<> {
-		Item(OpenFile *epoll, File *file, int mask, uint64_t cookie)
+		Item(smarter::shared_ptr<OpenFile> epoll,
+				smarter::shared_ptr<File> file, int mask, uint64_t cookie)
 		: epoll{epoll}, state{stateActive},
-				file{file}, eventMask{mask}, cookie{cookie} { }
+				file{std::move(file)}, eventMask{mask}, cookie{cookie} { }
 
-		OpenFile *epoll;
+		smarter::shared_ptr<OpenFile> epoll;
 		State state;
 
 		// Basic data of this item.
-		File *file;
+		smarter::shared_ptr<File> file;
 		int eventMask;
 		uint64_t cookie;
 
@@ -45,7 +46,7 @@ private:
 
 	static void _awaitPoll(Item *item) {
 		assert(item->state & statePolling);
-		auto self = item->epoll;
+		auto self = item->epoll.get();
 
 		// Release the future to free up memory.
 		assert(item->pollFuture.ready());
@@ -103,16 +104,17 @@ private:
 
 public:
 	~OpenFile() {
-		assert(!"close() does not work correctly for epoll files");
+		assert(!"epoll destruction is untested");
 	}
 
-	void addItem(File *file, int mask, uint64_t cookie) {
+	void addItem(smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
 					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
-		assert(_fileMap.find(file) == _fileMap.end());
-		auto item = new Item{this, file, mask, cookie};
+		assert(_fileMap.find(file.get()) == _fileMap.end());
+		auto item = new Item{smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
+				std::move(file), mask, cookie};
 
 		item->state |= statePolling;
 		item->pollFuture = item->file->poll(0);
@@ -120,7 +122,7 @@ public:
 			_awaitPoll(item);
 		});
 
-		_fileMap.insert({file, item});
+		_fileMap.insert({item->file.get(), item});
 	}
 	
 	void modifyItem(File *file, int mask, uint64_t cookie) {
@@ -254,6 +256,8 @@ public:
 	// ------------------------------------------------------------------------
 
 	void handleClose() override {
+		std::cout << "\e[31mposix: handleClose() does not finalize epoll items\e[39m"
+				<< std::endl;
 		_statusBell.ring();
 		_serve.cancel();
 	}
@@ -303,14 +307,14 @@ namespace epoll {
 
 smarter::shared_ptr<File, FileHandle> createFile() {
 	auto file = smarter::make_shared<OpenFile>();
-	file.ctr()->increment(); // TODO: This is a temporary hack until we fix item lifetime.
+	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }
 
-void addItem(File *epfile, File *file, int flags, uint64_t cookie) {
+void addItem(File *epfile, smarter::shared_ptr<File> file, int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->addItem(file, flags, cookie);
+	epoll->addItem(std::move(file), flags, cookie);
 }
 
 void modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {

@@ -159,6 +159,7 @@ private:
 		assert(!semantic_flags);
 
 		auto file = smarter::make_shared<DirectoryFile>(std::move(link));
+		file->setupWeakFile(file);
 		DirectoryFile::serve(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
@@ -281,6 +282,7 @@ struct MemoryNode : FsNode {
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		auto file = smarter::make_shared<MemoryFile>(std::move(link));
+		file->setupWeakFile(file);
 		MemoryFile::serve(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))

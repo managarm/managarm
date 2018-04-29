@@ -146,6 +146,7 @@ private:
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(link));
+		file->setupWeakFile(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
@@ -342,6 +343,7 @@ private:
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(link));
+		file->setupWeakFile(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 
@@ -397,8 +399,10 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 
 smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<FsLink> link) {
-	return File::constructHandle(smarter::make_shared<OpenFile>(helix::UniqueLane{},
-			std::move(lane), std::move(link)));
+	auto file = smarter::make_shared<OpenFile>(helix::UniqueLane{},
+			std::move(lane), std::move(link));
+	file->setupWeakFile(file);
+	return File::constructHandle(std::move(file));
 }
 
 } // namespace extern_fs

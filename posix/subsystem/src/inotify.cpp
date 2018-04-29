@@ -46,6 +46,7 @@ private:
 
 smarter::shared_ptr<File, FileHandle> createFile() {
 	auto file = smarter::make_shared<OpenFile>();
+	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }

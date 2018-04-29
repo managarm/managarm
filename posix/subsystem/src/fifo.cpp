@@ -137,6 +137,8 @@ std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair() {
 	auto channel = std::make_shared<Channel>();
 	auto r_file = smarter::make_shared<ReaderFile>();
 	auto w_file = smarter::make_shared<WriterFile>();
+	r_file->setupWeakFile(r_file);
+	w_file->setupWeakFile(w_file);
 	r_file->connect(channel);
 	w_file->connect(channel);
 	ReaderFile::serve(r_file);

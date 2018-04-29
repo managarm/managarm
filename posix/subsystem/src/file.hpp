@@ -139,6 +139,16 @@ public:
 
 	virtual ~File();
 
+// TODO: Make this protected:
+	void setupWeakFile(smarter::weak_ptr<File> ptr) {
+		_weakPtr = std::move(ptr);
+	}
+
+public:
+	const smarter::weak_ptr<File> &weakFile() {
+		return _weakPtr;
+	}
+
 	StructName structName() {
 		return _structName;
 	}
@@ -215,6 +225,7 @@ public:
 	virtual helix::BorrowedDescriptor getPassthroughLane() = 0;
 
 private:
+	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
 	const std::shared_ptr<FsLink> _link;
 

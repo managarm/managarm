@@ -189,6 +189,7 @@ public:
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>();
+		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
 		COFIBER_RETURN(File::constructHandle(std::move(local)));
@@ -296,6 +297,7 @@ private:
 
 smarter::shared_ptr<File, FileHandle> createSocketFile() {
 	auto file = smarter::make_shared<OpenFile>();
+	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }
@@ -303,6 +305,8 @@ smarter::shared_ptr<File, FileHandle> createSocketFile() {
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair() {
 	auto file0 = smarter::make_shared<OpenFile>();
 	auto file1 = smarter::make_shared<OpenFile>();
+	file0->setupWeakFile(file0);
+	file1->setupWeakFile(file1);
 	OpenFile::serve(file0);
 	OpenFile::serve(file1);
 	OpenFile::connectPair(file0.get(), file1.get());

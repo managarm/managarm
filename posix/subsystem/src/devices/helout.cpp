@@ -49,6 +49,7 @@ struct HeloutDevice : UnixDevice {
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override, ([=] {
 		assert(!semantic_flags);
 		auto file = smarter::make_shared<HeloutFile>(std::move(link));
+		file->setupWeakFile(file);
 		COFIBER_RETURN(File::constructHandle(std::move(file)));
 	}))
 };

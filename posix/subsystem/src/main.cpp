@@ -1124,7 +1124,10 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			assert(epfile && "Illegal FD for EPOLL_ADD");
 			assert(file && "Illegal FD for EPOLL_ADD item");
 
-			epoll::addItem(epfile.get(), file.get(), req.flags(), req.cookie());
+			auto locked = file->weakFile().lock();
+			assert(locked);
+			epoll::addItem(epfile.get(), std::move(locked),
+					req.flags(), req.cookie());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

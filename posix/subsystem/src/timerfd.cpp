@@ -143,6 +143,7 @@ namespace timerfd {
 
 smarter::shared_ptr<File, FileHandle> createFile(bool non_block) {
 	auto file = smarter::make_shared<OpenFile>(non_block);
+	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }
