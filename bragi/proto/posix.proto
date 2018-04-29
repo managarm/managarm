@@ -33,6 +33,7 @@ enum CntReqType {
 	SYMLINK = 47;
 	RENAME = 51;
 	STAT = 23;
+	LSTAT = 53;
 	FSTAT = 12;
 	READLINK = 31;
 	OPEN = 2;

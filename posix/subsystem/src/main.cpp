@@ -508,33 +508,42 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::STAT) {	
+		}else if(req.request_type() == managarm::posix::CntReqType::STAT
+				|| req.request_type() == managarm::posix::CntReqType::LSTAT) {	
 			if(logRequests || logPaths)
 				std::cout << "posix: STAT path: " << req.path() << std::endl;
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
-			if(path.second) {
-				auto stats = COFIBER_AWAIT path.second->getTarget()->getStats();
+			PathResolver resolver;
+			resolver.setup(self->fsContext()->getRoot(), req.path());
+			if(req.request_type() == managarm::posix::STAT) {
+				COFIBER_AWAIT resolver.resolve();
+			}else{
+				assert(req.request_type() == managarm::posix::LSTAT);
+				COFIBER_AWAIT resolver.resolve(resolveDontFollow);
+			}
+
+			if(resolver.currentLink()) {
+				auto stats = COFIBER_AWAIT resolver.currentLink()->getTarget()->getStats();
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				DeviceId devnum;
-				switch(path.second->getTarget()->getType()) {
+				switch(resolver.currentLink()->getTarget()->getType()) {
 				case VfsType::regular:
 					resp.set_file_type(managarm::posix::FT_REGULAR); break;
 				case VfsType::directory:
 					resp.set_file_type(managarm::posix::FT_DIRECTORY); break;
 				case VfsType::charDevice:
 					resp.set_file_type(managarm::posix::FT_CHAR_DEVICE);
-					devnum = path.second->getTarget()->readDevice();
+					devnum = resolver.currentLink()->getTarget()->readDevice();
 					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
 					break;
 				case VfsType::blockDevice:
 					resp.set_file_type(managarm::posix::FT_BLOCK_DEVICE);
-					devnum = path.second->getTarget()->readDevice();
+					devnum = resolver.currentLink()->getTarget()->readDevice();
 					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
 					break;
 				}
