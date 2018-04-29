@@ -193,8 +193,9 @@ void PathResolver::setup(ViewPath root, std::string string) {
 	if(path.isRelative())
 		std::cout << "posix: Fix relative path resolution" << std::endl;
 	
+	_rootPath = std::move(root);
 	_components = std::deque<std::string>(path.begin(), path.end());
-	_currentPath = std::move(root);
+	_currentPath = _rootPath;
 }
 
 COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), ([=] {

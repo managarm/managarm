@@ -814,8 +814,6 @@ Mapping *CowMapping::copyOnWrite(AddressSpace *dest_space) {
 }
 
 void CowMapping::install(bool overwrite) {
-	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite);
-	
 	// For now we just unmap everything. TODO: Map available pages.
 	for(size_t progress = 0; progress < length(); progress += kPageSize) {
 		VirtualAddr vaddr = address() + progress;
