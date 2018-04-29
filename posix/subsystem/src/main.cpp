@@ -177,17 +177,17 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;
 		}else if(observe.observation() == kHelObservePanic) {
-			printf("\e[35mUser space panic\n");
+			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
 		}else if(observe.observation() == kHelObserveBreakpoint) {
-			printf("\e[35mBreakpoint\n");
+			printf("\e[35mBreakpoint in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
 		}else if(observe.observation() == kHelObserveGeneralFault) {
-			printf("\e[31mGeneral fault\n");
+			printf("\e[31mGeneral fault in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
