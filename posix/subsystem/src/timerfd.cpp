@@ -70,18 +70,21 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-				&File::fileOperations);
+		file->_serve = protocols::fs::servePassthrough(std::move(lane),
+				smarter::shared_ptr<File>{file}, &File::fileOperations);
 	}
 
 	OpenFile(bool non_block)
 	: File{StructName::get("timerfd")}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{1} { }
 
+	~OpenFile() {
+		// Nothing to do here.
+	}
+
 	void handleClose() {
-		std::cout << "\e[31mposix: timerfd does not properly clean up its passthrough lane\e[39m"
-				<< std::endl;
 		_seqBell.ring();
+		_serve.cancel();
 	}
 
 	COFIBER_ROUTINE(expected<size_t>,
@@ -125,6 +128,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
 	bool _nonBlock;
 
 	// Currently active timer.

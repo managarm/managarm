@@ -54,8 +54,16 @@ private:
 		item->pollFuture = expected<PollResult>{};
 
 		// Discard non-active and closed items.
+		if(!(item->state & stateActive)) {
+			item->state &= ~statePolling;
+			// TODO: We might have polling + pending items in the future.
+			assert(!item->state);
+			delete item;
+			return;
+		}
+
 		auto error = std::get_if<Error>(&result_or_error);
-		if(error || !(item->state & stateActive)) {
+		if(error) {
 			assert(*error == Error::fileClosed);
 			item->state &= ~statePolling;
 			if(!item->state)
