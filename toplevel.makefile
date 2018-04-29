@@ -10,7 +10,6 @@ $(call include_dir,ld-init/linker)
 $(call include_dir,drivers/libcompose)
 $(call include_dir,drivers/libterminal)
 $(call include_dir,drivers/vga_terminal)
-$(call include_dir,drivers/kbd)
 #$(call include_dir,drivers/bochs_vga)
 #$(call include_dir,drivers/ata)
 

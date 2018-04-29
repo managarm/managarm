@@ -1,6 +1,8 @@
 
 #include <asm/ioctls.h>
+#include <termios.h>
 #include <sys/epoll.h>
+#include <sstream>
 
 #include <async/doorbell.hpp>
 
@@ -18,6 +20,7 @@ struct DeviceNode;
 struct RootNode;
 
 bool logReadWrite = false;
+bool logAttrs = false;
 
 int nextPtsIndex = 0;
 
@@ -34,9 +37,32 @@ struct Packet {
 
 struct Channel {
 	Channel(int pts_index)
-	: ptsIndex{pts_index}, currentSeq{1}, masterInSeq{0}, slaveInSeq{0} { }
+	: ptsIndex{pts_index}, currentSeq{1}, masterInSeq{0}, slaveInSeq{0} {
+		auto ctrl = [] (char c) -> char { // Convert ^X to X.
+			return c - 64;
+		};
+
+		memset(&activeSettings, 0, sizeof(struct termios));
+		// cflag: Linux also stores a baud rate here.
+		// lflag: Linux additionally sets ECHOCTL, ECHOKE (which we do not have).
+		activeSettings.c_iflag = ICRNL | IXON;
+		activeSettings.c_oflag = OPOST | ONLCR;
+		activeSettings.c_cflag = CS8 | CREAD | HUPCL;
+		activeSettings.c_lflag = ECHO | ECHOE | ECHOK | ISIG | ICANON | IEXTEN;
+		activeSettings.c_cc[VINTR] = ctrl('C');
+		activeSettings.c_cc[VEOF] = ctrl('D');
+		activeSettings.c_cc[VKILL] = ctrl('U');
+		activeSettings.c_cc[VSTART] = ctrl('Q');
+		activeSettings.c_cc[VSTOP] = ctrl('S');
+		activeSettings.c_cc[VSUSP] = ctrl('Z');
+		activeSettings.c_cc[VQUIT] = ctrl('\\');
+		activeSettings.c_cc[VERASE] = 127; // DEL character.
+		activeSettings.c_cc[VMIN] = 1;
+	}
 
 	int ptsIndex;
+
+	struct termios activeSettings;
 
 	// Status management for poll().
 	async::doorbell statusBell;
@@ -137,6 +163,9 @@ public:
 
 	expected<PollResult>
 	poll(uint64_t sequence) override;
+
+	async::result<void>
+	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -414,9 +443,26 @@ SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	if(logReadWrite)
 		std::cout << "posix: Write to tty " << structName() << std::endl;
 
+	// Perform output processing.
+	std::stringstream ss;
+	for(size_t i = 0; i < length; i++) {
+		char c;
+		memcpy(&c, reinterpret_cast<const char *>(data) + i, 1);
+		if((_channel->activeSettings.c_oflag & ONLCR) && c == '\n') {
+//			std::cout << "Mapping NL -> CR,NL" << std::endl;
+			ss << "\r\n";
+		}else{
+//			std::cout << "c: " << (int)c << std::endl;
+			ss << c;
+		}
+	}
+
+	// TODO: This is very inefficient.
+	auto str = ss.str();
+
 	Packet packet;
-	packet.buffer.resize(length);
-	memcpy(packet.buffer.data(), data, length);
+	packet.buffer.resize(str.size());
+	memcpy(packet.buffer.data(), str.data(), str.size());
 	packet.offset = 0;
 
 	_channel->masterQueue.push_back(std::move(packet));
@@ -441,6 +487,74 @@ COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(uint64_t past_seq), ([=] {
 		events |= EPOLLIN;
 
 	COFIBER_RETURN(PollResult(_channel->currentSeq, edges, events));
+}))
+
+COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::CntRequest req,
+		helix::UniqueLane conversation), ([this, req = std::move(req),
+			conversation = std::move(conversation)] {
+	if(req.command() == TCGETS) {
+		helix::SendBuffer send_resp;
+		helix::SendBuffer send_attrs;
+		managarm::fs::SvrResponse resp;
+		struct termios attrs;
+		
+		std::cout << std::hex << "posix: TCGETS request" << std::endl;
+
+		// Element-wise copy to avoid information leaks in padding.
+		memset(&attrs, 0, sizeof(struct termios));
+		attrs.c_iflag = _channel->activeSettings.c_iflag;
+		attrs.c_oflag = _channel->activeSettings.c_oflag;
+		attrs.c_cflag = _channel->activeSettings.c_cflag;
+		attrs.c_lflag = _channel->activeSettings.c_lflag;
+		for(int i = 0; i < NCCS; i++)
+			attrs.c_cc[i] = _channel->activeSettings.c_cc[i];
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_attrs, &attrs, sizeof(struct termios)));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_attrs.error());
+	}else if(req.command() == TCSETS) {
+		helix::RecvBuffer recv_attrs;
+		helix::SendBuffer send_resp;
+		struct termios attrs;
+		managarm::fs::SvrResponse resp;
+
+		auto &&in_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&recv_attrs, &attrs, sizeof(struct termios)));
+		COFIBER_AWAIT in_transmit.async_wait();
+		HEL_CHECK(recv_attrs.error());
+
+		if(logAttrs) {
+			std::cout << std::hex << "posix: TCSETS request\n"
+					<< "    iflag: 0x" << attrs.c_iflag << '\n'
+					<< "    oflag: 0x" << attrs.c_oflag << '\n'
+					<< "    cflag: 0x" << attrs.c_cflag << '\n'
+					<< "    lflag: 0x" << attrs.c_lflag << '\n';
+			for(int i = 0; i < NCCS; i++) {
+				std::cout << std::dec << "   cc[" << i << "]: 0x"
+						<< std::hex << (int)attrs.c_cc[i];
+				if(i + 1 < NCCS)
+					std::cout << '\n';
+			}
+			std::cout << std::dec << std::endl;
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		
+		auto ser = resp.SerializeAsString();
+		auto &&out_transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT out_transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else{
+		throw std::runtime_error("posix: Unknown ioctl() with ID " + std::to_string(req.command()));
+	}
+	COFIBER_RETURN();
 }))
 
 //-----------------------------------------------------------------------------
