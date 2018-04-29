@@ -1,5 +1,7 @@
 
 #include <async/jump.hpp>
+#include <helix/memory.hpp>
+#include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "clock.hpp"
@@ -13,6 +15,7 @@ async::jump foundTracker;
 
 helix::UniqueLane trackerLane;
 helix::UniqueDescriptor globalTrackerPageMemory;
+helix::Mapping trackerPageMapping;
 
 COFIBER_ROUTINE(cofiber::no_future, fetchTrackerPage(), ([=] {
 	helix::Offer offer;
@@ -39,6 +42,8 @@ COFIBER_ROUTINE(cofiber::no_future, fetchTrackerPage(), ([=] {
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::clock::Error::SUCCESS);
 	globalTrackerPageMemory = pull_memory.descriptor();
+	
+	trackerPageMapping = helix::Mapping{globalTrackerPageMemory, 0, 0x1000};
 	
 	foundTracker.trigger();
 }))
@@ -68,5 +73,19 @@ COFIBER_ROUTINE(async::result<void>, enumerateTracker(), ([] {
 	COFIBER_AWAIT foundTracker.async_wait();
 	COFIBER_RETURN();
 }))
+
+struct timespec getRealtime() {
+	auto page = reinterpret_cast<TrackerPage *>(trackerPageMapping.get());
+	
+	uint64_t now;
+	HEL_CHECK(helGetClock(&now));
+
+	int64_t realtime = page->baseRealtime + (now - page->refClock);
+
+	struct timespec result;
+	result.tv_sec = realtime / 1'000'000'000;
+	result.tv_nsec = realtime % 1'000'000'000;
+	return result;
+}
 
 } // namespace clk

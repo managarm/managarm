@@ -1,6 +1,7 @@
 
 #include <string.h>
 
+#include "clock.hpp"
 #include "common.hpp"
 #include "device.hpp"
 #include "sysfs.hpp"
@@ -132,8 +133,23 @@ VfsType AttributeNode::getType() {
 }
 
 COFIBER_ROUTINE(FutureMaybe<FileStats>, AttributeNode::getStats(), ([=] {
-	std::cout << "\e[31mposix: Fix sysfs AttributeNode::getStats()\e[39m" << std::endl;
-	COFIBER_RETURN(FileStats{});
+	// TODO: Store a file creation time.
+	auto now = clk::getRealtime();
+	
+	FileStats stats;
+	stats.inodeNumber = 0; // FIXME
+	stats.numLinks = 1;
+	stats.fileSize = 4096; // Same as in Linux.
+	stats.mode = _attr->writable() ? 0666 : 0444; // TODO: Some files can be written.
+	stats.uid = 0;
+	stats.gid = 0;
+	stats.atimeSecs = now.tv_sec;
+	stats.atimeNanos = now.tv_nsec;
+	stats.mtimeSecs = now.tv_sec;
+	stats.mtimeNanos = now.tv_nsec;
+	stats.ctimeSecs = now.tv_sec;
+	stats.ctimeNanos = now.tv_nsec;
+	COFIBER_RETURN(stats);
 }))
 
 COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -258,8 +274,8 @@ COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
 // Attribute implementation
 // ----------------------------------------------------------------------------
 
-Attribute::Attribute(std::string name)
-: _name{std::move(name)} { }
+Attribute::Attribute(std::string name, bool writable)
+: _name{std::move(name)}, _writable{writable} { }
 
 // ----------------------------------------------------------------------------
 // Object implementation

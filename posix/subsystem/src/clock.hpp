@@ -10,6 +10,8 @@ helix::BorrowedDescriptor trackerPageMemory();
 
 async::result<void> enumerateTracker();
 
+struct timespec getRealtime();
+
 } // namespace clk
 
 #endif // POSIX_SUBSYSTEM_CLOCK_HPP

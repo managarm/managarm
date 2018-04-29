@@ -131,16 +131,21 @@ private:
 // ----------------------------------------------------------------------------
 
 struct Attribute {
-	Attribute(std::string name);
+	Attribute(std::string name, bool writable);
 
 	const std::string &name() {
 		return _name;
+	}
+
+	bool writable() {
+		return _writable;
 	}
 
 	virtual async::result<std::string> show(Object *object) = 0;
 
 private:
 	const std::string _name;
+	bool _writable;
 };
 
 // Object corresponds to Linux kobjects.

@@ -28,7 +28,7 @@ struct Subsystem {
 
 struct CapabilityAttribute : sysfs::Attribute {
 	CapabilityAttribute(std::string name, int index, size_t bits)
-	: sysfs::Attribute{std::move(name)}, _index{index}, _bits{bits} { }
+	: sysfs::Attribute{std::move(name), false}, _index{index}, _bits{bits} { }
 
 	virtual async::result<std::string> show(sysfs::Object *object) override;
 
@@ -133,9 +133,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 				index, std::move(lane));
 		device->assignId({13, 64 + index}); // evdev devices start at minor 64.
 
-		std::cout << "before charRegistry.install()" << std::endl;
 		charRegistry.install(device);
-		std::cout << "after charRegistry.install()" << std::endl;
 		drvcore::installDevice(device);
 
 		// TODO: Do this before the device becomes visible in sysfs!

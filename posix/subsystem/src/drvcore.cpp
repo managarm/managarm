@@ -34,7 +34,7 @@ struct Card0UeventAttribute : sysfs::Attribute {
 
 private:
 	Card0UeventAttribute()
-	: sysfs::Attribute("uevent") { }
+	: sysfs::Attribute("uevent", true) { }
 
 public:
 	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {
@@ -51,7 +51,7 @@ struct UeventAttribute : sysfs::Attribute {
 
 private:
 	UeventAttribute()
-	: sysfs::Attribute("uevent") { }
+	: sysfs::Attribute("uevent", true) { }
 
 public:
 	virtual COFIBER_ROUTINE(async::result<std::string>, show(sysfs::Object *object) override, ([=] {

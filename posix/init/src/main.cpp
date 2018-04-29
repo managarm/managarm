@@ -89,7 +89,7 @@ int main() {
 
 	auto udev = fork();
 	if(!udev) {
-		execl("/usr/sbin/udevd", "udevd", "--debug", nullptr);
+		execl("/usr/sbin/udevd", "udevd", nullptr);
 	}else assert(udev != -1);
 
 	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
