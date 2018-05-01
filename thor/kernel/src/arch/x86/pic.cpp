@@ -337,6 +337,8 @@ void setupIoApic(PhysicalAddr address) {
 		globalIrqSlots[i]->link(pin);
 	}
 
+	// TODO: Re-enable this.
+/*
 	KernelFiber::run([=] {
 		while(true) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
@@ -345,6 +347,7 @@ void setupIoApic(PhysicalAddr address) {
 			fiberSleep(500000000);
 		}
 	});
+*/
 }
 
 /*

@@ -12,6 +12,10 @@ enum class ScheduleState {
 	active
 };
 
+// This needs to store a large timeframe.
+// For now, store it as 55.8 0 signed integer nanoseconds.
+using Progress = int64_t;
+
 struct ScheduleEntity {
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
@@ -27,11 +31,18 @@ struct ScheduleEntity {
 
 	ScheduleState state;
 	int priority;
+	
+	frg::pairing_heap_hook<ScheduleEntity> hook;
 
-	uint64_t _baseTime;
+	uint64_t _refClock;
 	uint64_t _runTime;
 
-	frg::pairing_heap_hook<ScheduleEntity> hook;
+	// Scheduler::_systemProgress value at some slice T.
+	// Invariant: This entity's state did not change since T.
+	Progress refProgress;
+
+	// Unfairness value at slice T.
+	Progress baseUnfairness;
 };
 
 struct ScheduleGreater {
@@ -59,11 +70,25 @@ struct Scheduler {
 
 	void setPriority(ScheduleEntity *entity, int priority);
 
+	Progress liveUnfairness(const ScheduleEntity *entity);
+	int64_t liveRuntime(const ScheduleEntity *entity);
+
 	bool wantSchedule();
 
 	[[ noreturn ]] void reschedule();
 
 private:
+	void _unschedule();
+	void _schedule();
+
+private:
+	void _updateSystemProgress();
+
+	void _updateCurrentEntity();
+	void _updateWaitingEntity(ScheduleEntity *entity);
+
+	void _updateEntityStats(ScheduleEntity *entity);
+
 	// Updates the current value of _scheduleFlag.
 	void _refreshFlag();
 
@@ -82,7 +107,15 @@ private:
 		ScheduleGreater
 	> _waitQueue;
 
-	size_t _numActive;
+	size_t _numWaiting;
+
+	// The last tick at which the scheduler's state (i.e. progress) was updated.
+	// In our model this is the time point at which slice T started.
+	uint64_t _refClock;
+
+	// This variables stores sum{t = 0, ... T} w(t)/n(t).
+	// This allows us to easily track u_p(T) for all waiting processes.
+	Progress _systemProgress;
 };
 
 // ----------------------------------------------------------------------------
