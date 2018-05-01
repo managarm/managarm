@@ -372,6 +372,7 @@ void StandardPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
+//	std::cout << "core-virtio: " << getpid() << " _processIrqs() " << std::endl;
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
@@ -381,11 +382,21 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		_isrSpace().load(PCI_ISR);
+//		std::cout << "core-virtio: " << getpid() << " Got IRQ #" << sequence << std::endl;
+		auto isr = _isrSpace().load(PCI_ISR);
+		if(!(isr & 3)) {
+//			std::cout << "core-virtio: " << getpid() << " But it's not for me" << std::endl;
+			continue;
+		}
 
+//		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
-		for(auto &queue : _queues)
-			queue->processInterrupt();
+		
+		if(isr & 2)
+			std::cout << "core-virtio: Configuration change" << std::endl;
+		if(isr & 1)
+			for(auto &queue : _queues)
+				queue->processInterrupt();
 	}
 }))
 
