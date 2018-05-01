@@ -8,8 +8,8 @@ constexpr bool logNextBest = false;
 constexpr bool logUpdates = false;
 
 bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
-//	if(a->priority != b->priority)
-//		return a->priority > b->priority; // Prefer larger priority.
+	if(a->priority != b->priority)
+		return a->priority > b->priority; // Prefer larger priority.
 	return a->baseUnfairness > b->baseUnfairness; // Prefer greater unfairness.
 }
 

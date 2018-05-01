@@ -67,6 +67,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 int main() {
 	printf("Starting virtio-block driver\n");
 
+//	HEL_CHECK(helSetPriority(kHelThisThread, 3));
+
 	observeDevices();
 
 	while(true)

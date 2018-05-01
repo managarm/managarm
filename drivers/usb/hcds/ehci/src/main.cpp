@@ -965,6 +965,8 @@ int main() {
 	std::cout << "ehci: Starting driver";
 	std::cout << " (compiled on " __DATE__ " " __TIME__ ")" << std::endl;
 
+//	HEL_CHECK(helSetPriority(kHelThisThread, 2));
+
 	observeControllers();
 
 	while(true)

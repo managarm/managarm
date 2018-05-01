@@ -1048,6 +1048,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 
 int main() {
 	printf("uhci: Starting driver\n");
+
+//	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 	
 	observeControllers();
 

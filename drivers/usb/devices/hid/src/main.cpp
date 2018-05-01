@@ -636,6 +636,8 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 int main() {
 	printf("Starting hid (usb-)driver\n");
 
+//	HEL_CHECK(helSetPriority(kHelThisThread, 2));
+
 	observeDevices();
 
 	while(true)

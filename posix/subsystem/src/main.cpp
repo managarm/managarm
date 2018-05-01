@@ -1326,6 +1326,8 @@ COFIBER_ROUTINE(cofiber::no_future, runInit(), ([] {
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
+//	HEL_CHECK(helSetPriority(kHelThisThread, 1));
+
 	drvcore::initialize();
 
 	charRegistry.install(createHeloutDevice());
