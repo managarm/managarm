@@ -2,6 +2,7 @@
 #define THOR_GENERIC_SCHEDULE_HPP
 
 #include <frg/list.hpp>
+#include <frg/pairing_heap.hpp>
 
 namespace thor {
 
@@ -12,6 +13,8 @@ enum class ScheduleState {
 };
 
 struct ScheduleEntity {
+	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
+
 	ScheduleEntity();
 
 	ScheduleEntity(const ScheduleEntity &) = delete;
@@ -23,8 +26,18 @@ struct ScheduleEntity {
 	[[ noreturn ]] virtual void invoke() = 0;
 
 	ScheduleState state;
+	int priority;
 
-	frg::default_list_hook<ScheduleEntity> hook;
+	uint64_t _baseTime;
+	uint64_t _runTime;
+
+	frg::pairing_heap_hook<ScheduleEntity> hook;
+};
+
+struct ScheduleGreater {
+	bool operator() (const ScheduleEntity *a, const ScheduleEntity *b) {
+		return !ScheduleEntity::scheduleBefore(a, b);
+	}
 };
 
 struct Scheduler {
@@ -44,6 +57,8 @@ struct Scheduler {
 
 	void suspend(ScheduleEntity *entity);
 
+	void setPriority(ScheduleEntity *entity, int priority);
+
 	bool wantSchedule();
 
 	[[ noreturn ]] void reschedule();
@@ -56,15 +71,18 @@ private:
 	bool _scheduleFlag;
 
 	ScheduleEntity *_current;
-
-	frg::intrusive_list<
+	
+	frg::pairing_heap<
 		ScheduleEntity,
 		frg::locate_member<
 			ScheduleEntity,
-			frg::default_list_hook<ScheduleEntity>,
+			frg::pairing_heap_hook<ScheduleEntity>,
 			&ScheduleEntity::hook
-		>
+		>,
+		ScheduleGreater
 	> _waitQueue;
+
+	size_t _numActive;
 };
 
 // ----------------------------------------------------------------------------

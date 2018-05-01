@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 85,
+	kHelNumCalls = 86,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -44,6 +44,7 @@ enum {
 	kHelCallLoadahead = 49,
 	
 	kHelCallCreateThread = 67,
+	kHelCallSetPriority = 85,
 	kHelCallYield = 34,
 	kHelCallSubmitObserve = 74,
 	kHelCallResume = 61,
@@ -344,6 +345,7 @@ HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t l
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
 HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
 		struct HelQueue *queue, uintptr_t context);

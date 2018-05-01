@@ -172,6 +172,11 @@ extern inline __attribute__ (( always_inline )) HelError helYield() {
 	return helSyscall0(kHelCallYield);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helSetPriority(HelHandle handle,
+		int priority) {
+	return helSyscall2(kHelCallSetPriority, (HelWord)handle, (HelWord)priority);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helSubmitObserve(HelHandle handle,
 		struct HelQueue *queue, uintptr_t context) {
 	return helSyscall3(kHelCallSubmitObserve, (HelWord)handle, (HelWord)queue, (HelWord)context);

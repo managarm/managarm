@@ -3,15 +3,23 @@
 
 namespace thor {
 
+constexpr bool logScheduling = false;
+
+bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
+//	if(a->priority != b->priority)
+//		return a->priority > b->priority; // Prefer larger priority.
+	return a->_runTime < b->_runTime; // Prefer smaller runtime.
+}
+
 ScheduleEntity::ScheduleEntity()
-: state{ScheduleState::null} { }
+: state{ScheduleState::null}, priority(0), _baseTime{0}, _runTime{0} { }
 
 ScheduleEntity::~ScheduleEntity() {
 	assert(state == ScheduleState::null);
 }
 
 Scheduler::Scheduler()
-: _scheduleFlag{false}, _current{nullptr} { }
+: _scheduleFlag{false}, _current{nullptr}, _numActive{0} { }
 
 void Scheduler::attach(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::null);
@@ -27,31 +35,45 @@ void Scheduler::resume(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "resume " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::attached);
 	entity->state = ScheduleState::active;
-	_waitQueue.push_back(entity);
-
-	_refreshFlag();
+	_waitQueue.push(entity);
+	_numActive++;
 }
 
 void Scheduler::suspend(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::active);
 	if(entity != _current) {
-		assert(entity->hook.in_list);
-		_waitQueue.erase(_waitQueue.iterator_to(entity));
+		frigg::infoLogger() << "Entering remove" << frigg::endLog;
+		_waitQueue.remove(entity);
+		frigg::infoLogger() << "OK" << frigg::endLog;
 	}
 	entity->state = ScheduleState::attached;
-	
-	_refreshFlag();
+	_numActive--;
+}
+
+void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
+	// Otherwise, we would have to remove-reinsert into the queue.
+	assert(_current == entity);
+
+	entity->priority = priority;
 }
 
 bool Scheduler::wantSchedule() {
+	_refreshFlag();
 	return _scheduleFlag;
 }
 
 void Scheduler::reschedule() {
-	if(_current && _current->state == ScheduleState::active)
-		_waitQueue.push_back(_current);
-	_current = nullptr;
+	assert(haveTimer());
+	auto now = currentNanos();
+
+	if(_current) {
+		_current->_runTime += now - _current->_baseTime;
+
+		if(_current->state == ScheduleState::active)
+			_waitQueue.push(_current);
+		_current = nullptr;
+	}
 
 	if(_waitQueue.empty()) {
 		suspendSelf();
@@ -59,11 +81,21 @@ void Scheduler::reschedule() {
 	}
 
 	assert(!_waitQueue.empty());
-	auto entity = _waitQueue.pop_front();
+	auto entity = _waitQueue.top();
+	_waitQueue.pop();
 	assert(entity->state == ScheduleState::active);
-	_current = entity;
 
-	_refreshFlag();
+	if(logScheduling)
+		frigg::infoLogger() << "Running entity with priority: " << entity->priority
+				<< ", run time: " << entity->_runTime
+				<< " (" << _numActive << " active threads)" << frigg::endLog;
+//	if(!_waitQueue.empty())
+//		frigg::infoLogger() << "    New top has priority: " << _waitQueue.top()->priority
+//				<< ", run time: " << _waitQueue.top()->runTime << frigg::endLog;
+
+	entity->_baseTime = now;
+	_current = entity;
+	_scheduleFlag = false;
 
 	entity->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
@@ -71,7 +103,24 @@ void Scheduler::reschedule() {
 }
 
 void Scheduler::_refreshFlag() {
-	_scheduleFlag = !_waitQueue.empty();
+	if(_waitQueue.empty()) {
+		_scheduleFlag = false;
+		return;
+	}
+
+	if(_current) {
+		assert(haveTimer());
+		auto now = currentNanos();
+		_current->_runTime += now - _current->_baseTime;
+		_current->_baseTime = now;
+
+		if(ScheduleEntity::scheduleBefore(_current, _waitQueue.top())) {
+			_scheduleFlag = false;
+			return;
+		}
+	}
+
+	_scheduleFlag = true;
 }
 
 frigg::LazyInitializer<Scheduler> schedulerSingleton;

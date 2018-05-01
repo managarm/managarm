@@ -114,9 +114,12 @@ void IrqPin::acknowledge(uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	assert(sequence <= _currentSequence);
-	if(sequence < _currentSequence || _sequenceWasAcked)
-		return;
+	// Commit ef3927ac1f introduced a check against the input sequence number here.
+	// It is not clear what the purpose of this check is; certainly, it can lead to
+	// missing ACKs for shared IRQs.
+//	assert(sequence <= _currentSequence);
+//	if(sequence < _currentSequence || _sequenceWasAcked)
+//		return;
 	_sequenceWasAcked = true;
 
 	if(_currentSequence < _raiseSequence) {
