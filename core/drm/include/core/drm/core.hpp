@@ -11,6 +11,7 @@
 #include <async/doorbell.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <helix/memory.hpp>
 
 #include "id-allocator.hpp"
 #include "range-allocator.hpp"
@@ -155,9 +156,8 @@ public:
 };
 
 struct File {
-	File(std::shared_ptr<Device> device)
-	: _device(device), _eventSequence{1} { };
-	
+	File(std::shared_ptr<Device> device);
+
 	static async::result<protocols::fs::ReadResult>
 	read(void *object, const char *, void *buffer, size_t length);
 
@@ -179,6 +179,10 @@ struct File {
 
 	void postEvent(Event event);
 
+	helix::BorrowedDescriptor statusPageMemory() {
+		return _statusPage.getMemory();
+	}
+
 private:
 	cofiber::no_future _retirePageFlip(std::unique_ptr<Configuration> config,
 			uint64_t cookie);
@@ -195,6 +199,8 @@ private:
 	std::deque<Event> _pendingEvents;
 	uint64_t _eventSequence;
 	async::doorbell _eventBell;
+
+	protocols::fs::StatusPageProvider _statusPage;
 };
 
 struct Configuration {

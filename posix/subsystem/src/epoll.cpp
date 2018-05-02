@@ -125,7 +125,7 @@ public:
 				std::move(file), mask, cookie};
 
 		item->state |= statePolling;
-		item->pollFuture = item->file->poll(0);
+		item->pollFuture = item->file->checkStatus();
 		item->pollFuture.then([item] {
 			_awaitPoll(item);
 		});
@@ -181,7 +181,7 @@ public:
 					continue;
 				}
 
-				auto result_or_error = COFIBER_AWAIT item->file->poll(0);	
+				auto result_or_error = COFIBER_AWAIT item->file->checkStatus();	
 		
 				// Discard closed items.
 				auto error = std::get_if<Error>(&result_or_error);

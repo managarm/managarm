@@ -168,6 +168,10 @@ expected<PollResult> File::poll(uint64_t) {
 	throw std::runtime_error("posix: Object has no File::poll()");
 }
 
+expected<PollResult> File::checkStatus() {
+	return poll(0);
+}
+
 async::result<void> File::setOption(int, int) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement setOption()" << std::endl;

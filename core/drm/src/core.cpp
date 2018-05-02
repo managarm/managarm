@@ -21,6 +21,7 @@
 #include <frigg/memory.hpp>
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
+#include <protocols/fs/defs.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
@@ -426,6 +427,11 @@ const void *drm_core::Blob::data() {
 // File
 // ----------------------------------------------------------------
 
+drm_core::File::File(std::shared_ptr<Device> device)
+: _device(device), _eventSequence{1} {
+	_statusPage.update(_eventSequence, 0);
+};
+
 void drm_core::File::attachFrameBuffer(std::shared_ptr<drm_core::FrameBuffer> frame_buffer) {
 	_frameBuffers.push_back(frame_buffer);
 }
@@ -460,8 +466,10 @@ drm_core::BufferObject *drm_core::File::resolveHandle(uint32_t handle) {
 void drm_core::File::postEvent(drm_core::Event event) {
 	HEL_CHECK(helGetClock(&event.timestamp));
 
-	if(_pendingEvents.empty())
+	if(_pendingEvents.empty()) {
 		++_eventSequence;
+		_statusPage.update(_eventSequence, EPOLLIN);
+	}
 	_pendingEvents.push_back(event);
 	_eventBell.ring();
 }
@@ -489,6 +497,8 @@ drm_core::File::read(void *object, const char *,
 	memcpy(buffer, &out, sizeof(drm_event_vblank));
 	
 	self->_pendingEvents.pop_front();
+	if(self->_pendingEvents.empty())
+		self->_statusPage.update(self->_eventSequence, 0);
 
 	COFIBER_RETURN(sizeof(drm_event_vblank));
 }))

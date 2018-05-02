@@ -367,6 +367,21 @@ servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 	}
 }))
 
+StatusPageProvider::StatusPageProvider() {
+	// Allocate and map our stauts page.
+	size_t page_size = 4096;
+	HelHandle handle;
+	HEL_CHECK(helAllocateMemory(page_size, 0, &handle));
+	_memory = helix::UniqueDescriptor{handle};
+	_mapping = helix::Mapping{_memory, 0, page_size};
+}
+
+void StatusPageProvider::update(uint64_t sequence, int status) {
+	auto page = reinterpret_cast<protocols::fs::StatusPage *>(_mapping.get());
+	__atomic_store_n(&page->sequence, sequence, __ATOMIC_RELAXED);
+	__atomic_store_n(&page->status, status, __ATOMIC_RELAXED);
+}
+
 COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_ptr<void> node,
 		const NodeOperations *node_ops),
 		([lane = std::move(p), node, node_ops] {

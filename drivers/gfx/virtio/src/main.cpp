@@ -58,7 +58,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 			assert(!req.flags());
 
 			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
+			helix::PushDescriptor push_pt;
+			helix::PushDescriptor push_page;
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -68,14 +69,17 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
+					helix::action(&push_pt, remote_lane, kHelItemChain),
+					helix::action(&push_page, file->statusPageMemory()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
+			HEL_CHECK(push_pt.error());
+			HEL_CHECK(push_page.error());
 		}else{
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}

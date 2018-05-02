@@ -48,6 +48,10 @@ struct Mapping {
 		return *this;
 	}
 
+	explicit operator bool () {
+		return _window;
+	}
+
 	void *get() {
 		return reinterpret_cast<char *>(_window) + (_offset & (pageSize - 1));
 	}

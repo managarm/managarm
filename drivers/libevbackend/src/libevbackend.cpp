@@ -45,6 +45,8 @@ File::read(void *object, const char *, void *buffer, size_t max_size), ([=] {
 			&& written + sizeof(input_event) <= max_size) {
 		auto event = &self->_device->_events.front();
 		self->_device->_events.pop_front();
+		if(self->_device->_events.empty())
+			self->_device->_statusPage.update(self->_device->_currentSeq, 0);
 
 		// TODO: The time should be set when we enqueue the event.
 		struct timespec now;
@@ -203,7 +205,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
+			helix::PushDescriptor push_pt;
+			helix::PushDescriptor push_page;
 		
 			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OF_NONBLOCK);
@@ -211,14 +214,17 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 			
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
+					helix::action(&push_pt, remote_lane, kHelItemChain),
+					helix::action(&push_page, device->statusPageMemory()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
+			HEL_CHECK(push_pt.error());
+			HEL_CHECK(push_page.error());
 		}else{
 			throw std::runtime_error("Invalid serveDevice request!");
 		}
@@ -227,6 +233,8 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<EventDevice> dev
 
 EventDevice::EventDevice()
 : _currentSeq{1} {
+	_statusPage.update(_currentSeq, 0);
+
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
@@ -281,6 +289,7 @@ void EventDevice::emitEvent(int type, int code, int value) {
 void EventDevice::notify() {
 	_events.splice(_events.end(), _emitted);
 	_currentSeq++;
+	_statusPage.update(_currentSeq, EPOLLIN);
 	_statusBell.ring();
 }
 

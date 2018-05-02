@@ -78,7 +78,12 @@ struct EventDevice {
 
 	void notify();
 
+	helix::BorrowedDescriptor statusPageMemory() {
+		return _statusPage.getMemory();
+	}
+
 private:
+	protocols::fs::StatusPageProvider _statusPage;
 	async::doorbell _statusBell;
 	uint64_t _currentSeq;
 

@@ -9,7 +9,9 @@
 #include <async/result.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
+#include <helix/memory.hpp>
 #include <protocols/fs/common.hpp>
+#include <protocols/fs/defs.hpp>
 #include <smarter.hpp>
 
 namespace managarm::fs {
@@ -149,6 +151,20 @@ struct FileOperations {
 	async::result<void> (*connect)(void *object, const char *credentials,
 			const void *addr_ptr, size_t addr_length);
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length);
+};
+
+struct StatusPageProvider {
+	StatusPageProvider();
+
+	helix::BorrowedDescriptor getMemory() {
+		return _memory;
+	}
+
+	void update(uint64_t sequence, int status);
+
+private:
+	helix::UniqueDescriptor _memory;
+	helix::Mapping _mapping;
 };
 
 struct NodeOperations {

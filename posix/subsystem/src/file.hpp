@@ -202,6 +202,9 @@ public:
 	// TODO: This request should be cancelable.
 	virtual expected<PollResult> poll(uint64_t sequence);
 
+	// Like poll, but only checks the current state. Does not return edges.
+	virtual expected<PollResult> checkStatus();
+
 	virtual async::result<void> setOption(int option, int value);
 
 	virtual async::result<AcceptResult> accept();

@@ -29,6 +29,10 @@ enum OpenFlags {
 	OF_NONBLOCK = 1;
 }
 
+enum FileCaps {
+	FC_STATUS_PAGE = 1;
+}
+
 enum CntReqType {
 	NONE = 0;
 
@@ -157,6 +161,8 @@ message SvrResponse {
 	
 	// returned by FSTAT
 	optional int32 mode = 13;
+	
+	optional uint32 caps = 64;
 	
 	// returned by FSTAT
 	optional uint64 inode_num = 14;
