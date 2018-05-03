@@ -1125,6 +1125,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 						16, promise.async_get());
 			}else{
 				assert(!"posix: Implement real epoll timeouts");
+				__builtin_unreachable();
 			}
 
 			managarm::posix::SvrResponse resp;
@@ -1253,6 +1254,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 						std::min(req.size(), uint32_t(16)), promise.async_get());
 			}else{
 				assert(!"posix: Implement real epoll timeouts");
+				__builtin_unreachable();
 			}
 			
 			managarm::posix::SvrResponse resp;

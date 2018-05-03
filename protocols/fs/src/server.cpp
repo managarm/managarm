@@ -347,13 +347,16 @@ serveFile(helix::UniqueLane p, void *file,
 
 COFIBER_ROUTINE(async::cancelable_result<void>,
 servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
-		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] {
+		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] () mutable {
 	while(true) {
 		helix::RecvInline recv_req;
 
 		auto status = COFIBER_YIELD doAccept(lane);
-		if(status.cancelled())
+		if(status.cancelled()) {
+			// TODO: This is only necessary because of a bug in async::cancelable_result!
+			file = nullptr;
 			COFIBER_RETURN();
+		}
 		auto conversation = COFIBER_AWAIT status;
 		
 		auto &&header = helix::submitAsync(conversation, helix::Dispatcher::global(),

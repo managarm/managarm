@@ -112,7 +112,7 @@ private:
 
 public:
 	~OpenFile() {
-		assert(!"epoll destruction is untested");
+		// Nothing to do here.
 	}
 
 	void addItem(smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
@@ -144,10 +144,13 @@ public:
 					<< file->structName() << "\e[0m" << std::endl;
 		auto it = _fileMap.find(file);
 		assert(it != _fileMap.end());
+		auto item = it->second;
+		assert(item->state & stateActive);
 
-		it->second->state &= ~stateActive;
-		if(!it->second->state)
-			delete it->second;
+		_fileMap.erase(it);
+		item->state &= ~stateActive;
+		if(!item->state)
+			delete item;
 	}
 
 	COFIBER_ROUTINE(async::result<size_t>,
@@ -264,8 +267,28 @@ public:
 	// ------------------------------------------------------------------------
 
 	void handleClose() override {
-		std::cout << "\e[31mposix: handleClose() does not finalize epoll items\e[39m"
-				<< std::endl;
+		auto it = _fileMap.begin();
+		while(it != _fileMap.end()) {
+			auto item = it->second;
+			assert(item->state & stateActive);
+
+			it = _fileMap.erase(it);
+			item->state &= ~stateActive;
+
+			if(item->state & statePolling)
+				std::cout << "\e[31mposix: handleClose() does not cancel epoll polling\e[39m"
+						<< std::endl;
+
+			if(item->state & statePending) {
+				auto qit = _pendingQueue.iterator_to(*item);
+				_pendingQueue.erase(qit);
+				item->state &= ~statePending;
+			}
+
+			if(!item->state)
+				delete item;
+		}
+
 		_statusBell.ring();
 		_serve.cancel();
 	}

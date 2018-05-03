@@ -10,6 +10,12 @@
 #include "process.hpp"
 #include "fs.pb.h"
 
+namespace {
+
+constexpr bool logDestruction = false;
+
+} // anonymous namespace
+
 // --------------------------------------------------------
 // File implementation.
 // --------------------------------------------------------
@@ -107,7 +113,12 @@ COFIBER_ROUTINE(FutureMaybe<void>, File::readExactly(Process *process,
 	COFIBER_RETURN();
 }))
 
-File::~File() { }
+File::~File() {
+	// Nothing to do here.
+	if(logDestruction)
+		std::cout << "\e[37mposix \e[1;34m" << structName()
+				<< "\e[0m\e[37m: File was destructed\e[39m" << std::endl;
+}
 
 COFIBER_ROUTINE(expected<size_t>, File::readSome(Process *, void *, size_t), ([=] {
 	std::cout << "\e[35mposix \e[1;34m" << structName()
