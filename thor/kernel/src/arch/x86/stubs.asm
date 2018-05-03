@@ -182,6 +182,12 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 .section .text.stubs
 .global \name
 \name:
+	# Swap GS if we interrupted user-space.
+	testl $3, 8(%rsp)
+	jz 1f
+	swapgs
+1:
+
 	push %rbp
 	push %r15
 	push %r14
@@ -216,6 +222,13 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	pop %r14
 	pop %r15
 	pop %rbp
+
+	# Restore GS.
+	testl $3, 8(%rsp)
+	jz 1f
+	swapgs
+1:
+
 	iretq
 .endm
 
@@ -245,6 +258,7 @@ MAKE_IRQ_STUB thorRtIsrIrq22, 22
 MAKE_IRQ_STUB thorRtIsrIrq23, 23
 
 MAKE_IPI_STUB thorRtIpiShootdown, onPlatformShootdown
+MAKE_IPI_STUB thorRtPreemption, onPlatformPreemption
 
 # ---------------------------------------------------------
 # Syscall stubs

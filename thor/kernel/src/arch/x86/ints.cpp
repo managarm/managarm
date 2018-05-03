@@ -46,7 +46,7 @@ extern "C" void thorRtIsrIrq22();
 extern "C" void thorRtIsrIrq23();
 
 extern "C" void thorRtIpiShootdown();
-
+extern "C" void thorRtPreemption();
 
 namespace thor {
 
@@ -158,6 +158,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 1);
 	
 	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
+	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
@@ -171,6 +172,7 @@ bool inStub(uintptr_t ip) {
 void handlePageFault(FaultImageAccessor image, uintptr_t address);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, int number);
+void handlePreemption(IrqImageAccessor image);
 void handleSyscall(SyscallImageAccessor image);
 
 void handleDebugFault(FaultImageAccessor image) {
@@ -233,6 +235,24 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	disableUserAccess();
 
 	handleIrq(image, number);
+}
+
+extern "C" void onPlatformPreemption(IrqImageAccessor image) {
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "Preemption IRQ"
+				" in stub section, cs: 0x" << frigg::logHex(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
+	uint16_t cs = *image.cs();
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+
+	assert(!irqMutex().nesting());
+	disableUserAccess();
+
+	acknowledgeIrq(0);
+
+	handlePreemption(image);
 }
 
 extern "C" void onPlatformSyscall(SyscallImageAccessor image) {

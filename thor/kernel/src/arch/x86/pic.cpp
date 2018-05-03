@@ -82,7 +82,7 @@ void initLocalApicPerCpu() {
 			| apicSpuriousSwEnable(true));
 	
 	// setup a timer interrupt for scheduling
-	uint32_t schedule_vector = 0x82;
+	uint32_t schedule_vector = 0xFF;
 	picBase.store(lApicLvtTimer, apicLvtVector(schedule_vector));
 }
 

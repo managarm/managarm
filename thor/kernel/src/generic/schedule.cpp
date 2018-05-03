@@ -10,7 +10,8 @@ constexpr bool logUpdates = false;
 bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
 	if(a->priority != b->priority)
 		return a->priority > b->priority; // Prefer larger priority.
-	return a->baseUnfairness > b->baseUnfairness; // Prefer greater unfairness.
+	return a->baseUnfairness - a->refProgress
+			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
 
 ScheduleEntity::ScheduleEntity()
@@ -136,8 +137,16 @@ void Scheduler::reschedule() {
 	}
 
 	_schedule();
-
 	assert(_current);
+
+	if(!_waitQueue.empty()) {
+		// TODO: Impose a minimum slice length.
+		// TODO: Only preempt if the priorities are the same.
+		auto slice = liveUnfairness(_current) - liveUnfairness(_waitQueue.top());
+		assert(slice >= 0);
+		preemptThisCpu(slice);
+	}
+
 	_current->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
 	__builtin_unreachable();

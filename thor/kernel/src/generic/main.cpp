@@ -642,6 +642,26 @@ void handleIrq(IrqImageAccessor image, int number) {
 	}
 }
 
+void handlePreemption(IrqImageAccessor image) {
+	assert(!intsAreEnabled());
+
+	if(logEveryIrq)
+		frigg::infoLogger() << "Preemption IRQ" << frigg::endLog;
+
+	if(image.inPreemptibleDomain() && localScheduler()->wantSchedule()) {
+		if(image.inThreadDomain()) {
+			Thread::deferCurrent(image);
+		}else if(image.inFiberDomain()) {
+			// TODO: For now we do not defer kernel fibers.
+		}else{
+			assert(image.inIdleDomain());
+			runDetached([] {
+				localScheduler()->reschedule();
+			});
+		}
+	}
+}
+
 extern "C" void thorImplementNoThreadIrqs() {
 	assert(!"Implement no-thread IRQ stubs");
 }
