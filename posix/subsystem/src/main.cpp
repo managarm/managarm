@@ -1092,6 +1092,54 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 							std::get<2>(result).size()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
+			if(logRequests)
+				std::cout << "posix: EPOLL_CALL" << std::endl;
+
+			helix::SendBuffer send_resp;
+			
+			auto epfile = epoll::createFile();
+			assert(req.fds_size() == req.events_size());
+			for(int i = 0; i < req.fds_size(); i++) {
+				auto file = self->fileContext()->getFile(req.fds(i));
+				assert(file && "Illegal FD for EPOLL_ADD item");
+				auto locked = file->weakFile().lock();
+				assert(locked);
+				epoll::addItem(epfile.get(), std::move(locked),
+						req.events(i), i);
+			}
+			
+			if(req.timeout() > 0)
+				std::cout << "posix: Ignoring non-zero EPOLL_WAIT timeout" << std::endl;
+
+			struct epoll_event events[16];
+			size_t k;
+			if(req.timeout() == -1 || req.timeout() > 0) {
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+						16, async::result<void>{});
+			}else if(req.timeout() == 0) {
+				// Do not bother to set up a timer for zero timeouts.
+				async::promise<void> promise;
+				promise.set_value();
+				k = COFIBER_AWAIT epoll::wait(epfile.get(), events,
+						16, promise.async_get());
+			}else{
+				assert(!"posix: Implement real epoll timeouts");
+			}
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			for(int i = 0; i < req.fds_size(); i++)
+				resp.add_events(0);
+			for(size_t m = 0; m < k; m++)
+				resp.set_events(events[m].data.u32, events[m].events);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			if(logRequests)
 				std::cout << "posix: EPOLL_CREATE" << std::endl;

@@ -63,6 +63,7 @@ enum CntReqType {
 	SENDMSG = 42;
 	
 	// epoll-specific calls.
+	EPOLL_CALL = 54;
 	EPOLL_CREATE = 28;
 	EPOLL_ADD = 37;
 	EPOLL_MODIFY = 38;
@@ -153,6 +154,7 @@ message CntRequest {
 	optional uint64 ctrl_size = 27;
 	
 	repeated int32 fds = 22;
+	repeated int32 events = 28;
 	
 	// used by EPOLL_CTL
 	optional uint64 cookie = 17;
@@ -217,5 +219,6 @@ message SvrResponse {
 	optional string path = 19;
 	
 	repeated int32 fds = 20;
+	repeated int32 events = 25;
 }
 
