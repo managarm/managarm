@@ -32,7 +32,7 @@ void Thread::deferCurrent() {
 	if(forkExecutor(&this_thread->_executor)) {
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			lock.unlock();
-			globalScheduler().reschedule();
+			localScheduler()->reschedule();
 		}, std::move(lock));
 	}
 }
@@ -51,7 +51,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		globalScheduler().reschedule();
+		localScheduler()->reschedule();
 	}, std::move(lock));
 }
 
@@ -77,10 +77,10 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		globalWorkQueue().post(observe);
 	}
 
-	globalScheduler().suspend(this_thread.get());
+	Scheduler::suspend(this_thread.get());
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		globalScheduler().reschedule();
+		localScheduler()->reschedule();
 	}, std::move(lock));
 }
 
@@ -103,10 +103,10 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 		globalWorkQueue().post(observe);
 	}
 
-	globalScheduler().suspend(this_thread.get());
+	Scheduler::suspend(this_thread.get());
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
-		globalScheduler().reschedule();
+		localScheduler()->reschedule();
 	}, std::move(lock));
 }
 
@@ -135,10 +135,10 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		}
 
 		assert(!intsAreEnabled());
-		globalScheduler().suspend(this_thread.get());
+		Scheduler::suspend(this_thread.get());
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			lock.unlock();
-			globalScheduler().reschedule();
+			localScheduler()->reschedule();
 		}, std::move(lock));
 	}
 }
@@ -154,7 +154,7 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frigg::endLog;
-	globalScheduler().resume(thread.get());
+	Scheduler::resume(thread.get());
 }
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
@@ -167,7 +167,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)thread.get()
 				<< " is suspended (via resume)" << frigg::endLog;
-	globalScheduler().resume(thread.get());
+	Scheduler::resume(thread.get());
 }
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,
@@ -198,7 +198,7 @@ void Thread::destruct() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	globalScheduler().detach(this);
+	Scheduler::unassociate(this);
 
 	while(!_observeQueue.empty()) {
 		auto observe = _observeQueue.pop_front();
@@ -276,12 +276,12 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 
 	assert(!intsAreEnabled());
 	if(forkExecutor(&this_thread->_executor)) {
-		globalScheduler().suspend(this_thread.get());
+		Scheduler::suspend(this_thread.get());
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			// TODO: exit the current thread.
 			lock.unlock();
 
-			globalScheduler().reschedule();
+			localScheduler()->reschedule();
 		}, frigg::move(lock));
 	}
 }

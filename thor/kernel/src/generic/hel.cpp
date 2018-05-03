@@ -1033,7 +1033,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(flags & kHelThreadTrapsAreFatal)
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 
-	globalScheduler().attach(new_thread.get());
+	Scheduler::associate(new_thread.get(), localScheduler());
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(new_thread);
 
@@ -1067,7 +1067,7 @@ HelError helSetPriority(HelHandle handle, int priority) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 
-	globalScheduler().setPriority(thread.get(), priority);
+	Scheduler::setPriority(thread.get(), priority);
 
 	return kHelErrNone;
 }

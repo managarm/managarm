@@ -530,10 +530,8 @@ void secondaryMain(StatusBlock *status_block) {
 	initializeThisProcessor();
 	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
 
-	while(true) { }
-//	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
-//	ScheduleGuard schedule_guard(scheduleLock.get());
-//	doSchedule(frigg::move(schedule_guard));
+	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
+	localScheduler()->reschedule();
 }
 
 void bootSecondary(unsigned int apic_id) {

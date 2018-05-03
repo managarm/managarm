@@ -6,6 +6,8 @@
 
 namespace thor {
 
+struct Scheduler;
+
 enum class ScheduleState {
 	null,
 	attached,
@@ -17,6 +19,8 @@ enum class ScheduleState {
 using Progress = int64_t;
 
 struct ScheduleEntity {
+	friend struct Scheduler;
+
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
 	ScheduleEntity();
@@ -28,6 +32,10 @@ struct ScheduleEntity {
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
 
 	[[ noreturn ]] virtual void invoke() = 0;
+
+private:
+	frigg::TicketLock _associationMutex;
+	Scheduler *_scheduler;
 
 	ScheduleState state;
 	int priority;
@@ -52,24 +60,20 @@ struct ScheduleGreater {
 };
 
 struct Scheduler {
+	static void associate(ScheduleEntity *entity, Scheduler *scheduler);
+	static void unassociate(ScheduleEntity *entity);
+
+	static void setPriority(ScheduleEntity *entity, int priority);
+
+	static void resume(ScheduleEntity *entity);
+	static void suspend(ScheduleEntity *entity);
+
 	Scheduler();
 
 	Scheduler(const Scheduler &) = delete;
 
-	~Scheduler() = delete;
-	
 	Scheduler &operator= (const Scheduler &) = delete;
-
-	void attach(ScheduleEntity *entity);
 	
-	void detach(ScheduleEntity *entity);
-
-	void resume(ScheduleEntity *entity);
-
-	void suspend(ScheduleEntity *entity);
-
-	void setPriority(ScheduleEntity *entity, int priority);
-
 	Progress liveUnfairness(const ScheduleEntity *entity);
 	int64_t liveRuntime(const ScheduleEntity *entity);
 
@@ -142,9 +146,9 @@ private:
 	> _queue;
 };
 
-WorkQueue &globalWorkQueue();
+Scheduler *localScheduler();
 
-Scheduler &globalScheduler();
+WorkQueue &globalWorkQueue();
 
 } // namespace thor
 

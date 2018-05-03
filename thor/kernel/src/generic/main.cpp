@@ -287,7 +287,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	thread.control().increment();
 	thread.control().increment();
 
-	globalScheduler().attach(thread.get());
+	Scheduler::associate(thread.get(), localScheduler());
 	Thread::resumeOther(thread);
 }
 
@@ -498,7 +498,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
-	globalScheduler().reschedule();
+	localScheduler()->reschedule();
 }
 
 extern "C" void handleStubInterrupt() {
@@ -628,7 +628,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 
 	globalIrqSlots[number]->raise();
 
-	if(image.inPreemptibleDomain() && globalScheduler().wantSchedule()) {
+	if(image.inPreemptibleDomain() && localScheduler()->wantSchedule()) {
 		if(image.inThreadDomain()) {
 			Thread::deferCurrent(image);
 		}else if(image.inFiberDomain()) {
@@ -636,7 +636,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 		}else{
 			assert(image.inIdleDomain());
 			runDetached([] {
-				globalScheduler().reschedule();
+				localScheduler()->reschedule();
 			});
 		}
 	}

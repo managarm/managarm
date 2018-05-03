@@ -21,70 +21,80 @@ ScheduleEntity::~ScheduleEntity() {
 	assert(state == ScheduleState::null);
 }
 
-Scheduler::Scheduler()
-: _scheduleFlag{false}, _current{nullptr},
-		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
-
-void Scheduler::attach(ScheduleEntity *entity) {
+void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 	assert(entity->state == ScheduleState::null);
+	entity->_scheduler = scheduler;
 	entity->state = ScheduleState::attached;
 }
 
-void Scheduler::detach(ScheduleEntity *entity) {
+void Scheduler::unassociate(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::attached);
+	entity->_scheduler = nullptr;
 	entity->state = ScheduleState::null;
+}
+
+void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
+	// Otherwise, we would have to remove-reinsert into the queue.
+	auto self = entity->_scheduler;
+	assert(self);
+	assert(entity == self->_current);
+
+	entity->priority = priority;
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "resume " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::attached);
-	assert(entity != _current); // TODO: The other case is untested.
 
-	_updateSystemProgress();
+	auto self = entity->_scheduler;
+	assert(self);
+	assert(entity != self->_current); // TODO: The other case is untested.
+
+	self->_updateSystemProgress();
 
 	// Update the unfairness reference on resume.
-	if(_current)
-		_updateCurrentEntity();
-	if(entity != _current) {
-		entity->refProgress = _systemProgress;
-		entity->_refClock = _refClock;
+	if(self->_current)
+		self->_updateCurrentEntity();
+	if(entity != self->_current) {
+		entity->refProgress = self->_systemProgress;
+		entity->_refClock = self->_refClock;
 	}
 	entity->state = ScheduleState::active;
 	
-	if(entity != _current) {
-		_waitQueue.push(entity);
-		_numWaiting++;
+	if(entity != self->_current) {
+		self->_waitQueue.push(entity);
+		self->_numWaiting++;
 	}
 }
 
 void Scheduler::suspend(ScheduleEntity *entity) {
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::active);
-	assert(entity == _current); // TODO: The other case is untested.
 	
-	_updateSystemProgress();
+	auto self = entity->_scheduler;
+	assert(self);
+	assert(entity == self->_current); // TODO: The other case is untested.
+	
+	self->_updateSystemProgress();
 
 	// Update the unfairness on suspend.
-	if(_current)
-		_updateCurrentEntity();
-	if(entity != _current) {
-		_updateWaitingEntity(entity);
-		_updateEntityStats(entity);
+	if(self->_current)
+		self->_updateCurrentEntity();
+	if(entity != self->_current) {
+		self->_updateWaitingEntity(entity);
+		self->_updateEntityStats(entity);
 	}
 	entity->state = ScheduleState::attached;
 
-	if(entity != _current) {
-		_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
-		_numWaiting--;
+	if(entity != self->_current) {
+		self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
+		self->_numWaiting--;
 	}
 }
 
-void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
-	// Otherwise, we would have to remove-reinsert into the queue.
-	assert(_current == entity);
-
-	entity->priority = priority;
-}
+Scheduler::Scheduler()
+: _scheduleFlag{false}, _current{nullptr},
+		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
 
 Progress Scheduler::liveUnfairness(const ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);
@@ -250,19 +260,11 @@ void Scheduler::_refreshFlag() {
 	_scheduleFlag = true;
 }
 
-frigg::LazyInitializer<Scheduler> schedulerSingleton;
-
-Scheduler &globalScheduler() {
-	if(!schedulerSingleton)
-		schedulerSingleton.initialize();
-	return *schedulerSingleton;
-}
-
 // ----------------------------------------------------------------------------
 
 void WorkQueue::post(Tasklet *tasklet) {
 	if(_queue.empty())
-		globalScheduler().resume(this);
+		Scheduler::resume(this);
 
 	_queue.push_back(tasklet);
 }
@@ -274,7 +276,7 @@ void WorkQueue::invoke() {
 		// We suspend the WorkQueue before invoking the tasklet. This way we do not call
 		// resume() before suspend() if the last tasklet inserts another tasklet to this queue.
 		if(_queue.empty())
-			globalScheduler().suspend(this);
+			Scheduler::suspend(this);
 
 		tasklet->run();
 	}
@@ -282,7 +284,7 @@ void WorkQueue::invoke() {
 	// Note that we are currently running in the schedule context. Thus runDetached() trashes
 	// our own stack. We need to be careful not to access it in the callback.
 	runDetached([] {
-		globalScheduler().reschedule();
+		localScheduler()->reschedule();
 	});
 }
 
@@ -291,9 +293,13 @@ frigg::LazyInitializer<WorkQueue> workQueueSingleton;
 WorkQueue &globalWorkQueue() {
 	if(!workQueueSingleton) {
 		workQueueSingleton.initialize();
-		globalScheduler().attach(workQueueSingleton.get());
+		Scheduler::associate(workQueueSingleton.get(), localScheduler());
 	}
 	return *workQueueSingleton;
+}
+
+Scheduler *localScheduler() {
+	return &getCpuData()->scheduler;
 }
 
 frigg::UnsafePtr<Thread> getCurrentThread() {

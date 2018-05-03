@@ -5,6 +5,7 @@
 #include <frigg/variant.hpp>
 #include "error.hpp"
 #include "../arch/x86/cpu.hpp"
+#include "schedule.hpp"
 
 namespace thor {
 
@@ -42,6 +43,7 @@ struct CpuData : public PlatformCpuData {
 	CpuData();
 
 	IrqMutex irqMutex;
+	Scheduler scheduler;
 	KernelFiber *activeFiber;
 };
 

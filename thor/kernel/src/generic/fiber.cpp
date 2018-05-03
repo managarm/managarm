@@ -14,11 +14,11 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	
 	this_fiber->_blocked = true;
 	getCpuData()->activeFiber = nullptr;
-	globalScheduler().suspend(this_fiber);
+	Scheduler::suspend(this_fiber);
 
 	if(forkExecutor(&this_fiber->_executor)) {
 		runDetached([] {
-			globalScheduler().reschedule();
+			localScheduler()->reschedule();
 		});
 	}
 	
@@ -45,8 +45,8 @@ void KernelFiber::run(UniqueKernelStack stack, void (*function)(void *), void *a
 	params.argument = (uintptr_t)argument;
 
 	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
-	globalScheduler().attach(fiber);
-	globalScheduler().resume(fiber);
+	Scheduler::associate(fiber, localScheduler());
+	Scheduler::resume(fiber);
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
@@ -62,7 +62,7 @@ void KernelFiber::unblock() {
 		return;
 	
 	_blocked = false;
-	globalScheduler().resume(this);
+	Scheduler::resume(this);
 }
 
 KernelFiber *thisFiber() {
