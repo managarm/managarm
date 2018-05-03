@@ -17,7 +17,8 @@ uint64_t localTicks();
 
 void calibrateApicTimer();
 
-void preemptThisCpu(uint64_t slice_nanos);
+void armPreemption(uint64_t nanos);
+void disarmPreemption();
 
 void acknowledgeIpi();
 

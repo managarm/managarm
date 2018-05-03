@@ -106,13 +106,20 @@ void calibrateApicTimer() {
 	frigg::infoLogger() << "Local elapsed ticks: " << elapsed << frigg::endLog;
 }
 
-void preemptThisCpu(uint64_t slice_nano) {
+void armPreemption(uint64_t nanos) {
 	assert(apicTicksPerMilli > 0);
+	assert(nanos > 0);
 	
-	uint64_t ticks = (slice_nano / 1000000) * apicTicksPerMilli;
-	if(ticks == 0)
-		ticks = 1;
+	uint64_t ticks;
+	auto of = __builtin_mul_overflow(nanos, apicTicksPerMilli, &ticks);
+	assert(!of);
+	ticks /= 1'000'000;
 	picBase.store(lApicInitCount, ticks);
+}
+
+void disarmPreemption() {
+	assert(apicTicksPerMilli > 0);
+	picBase.store(lApicInitCount, 0);
 }
 
 void acknowledgeIpi() {

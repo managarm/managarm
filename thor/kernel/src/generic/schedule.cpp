@@ -6,10 +6,13 @@ namespace thor {
 constexpr bool logScheduling = false;
 constexpr bool logNextBest = false;
 constexpr bool logUpdates = false;
+constexpr bool logTimeSlice = false;
+
+int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
+	return b->priority - a->priority; // Prefer larger priority.
+}
 
 bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
-	if(a->priority != b->priority)
-		return a->priority > b->priority; // Prefer larger priority.
 	return a->baseUnfairness - a->refProgress
 			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
@@ -65,6 +68,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	if(entity != self->_current) {
 		self->_waitQueue.push(entity);
 		self->_numWaiting++;
+		self->_updatePreemption();
 	}
 }
 
@@ -90,6 +94,7 @@ void Scheduler::suspend(ScheduleEntity *entity) {
 	if(entity != self->_current) {
 		self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
 		self->_numWaiting--;
+		self->_updatePreemption();
 	}
 }
 
@@ -129,6 +134,8 @@ void Scheduler::reschedule() {
 	if(_current)
 		_unschedule();
 	
+	_sliceClock = _refClock;
+	
 	if(_waitQueue.empty()) {
 		if(logScheduling)
 			frigg::infoLogger() << "System is idle" << frigg::endLog;
@@ -139,13 +146,7 @@ void Scheduler::reschedule() {
 	_schedule();
 	assert(_current);
 
-	if(!_waitQueue.empty()) {
-		// TODO: Impose a minimum slice length.
-		// TODO: Only preempt if the priorities are the same.
-		auto slice = liveUnfairness(_current) - liveUnfairness(_waitQueue.top());
-		assert(slice >= 0);
-		preemptThisCpu(slice);
-	}
+	_updatePreemption();
 
 	_current->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
@@ -217,13 +218,43 @@ void Scheduler::_updateSystemProgress() {
 		_systemProgress += delta_time * fixedInverse(n);
 }
 
+// TODO: Integrate this function and the _refreshFlag() function.
+void Scheduler::_updatePreemption() {
+	// It does not make sense to preempt if there is no active thread.
+	if(!_current || _current->state != ScheduleState::active)
+		return; // Hope for thread switch.
+
+	if(_waitQueue.empty()) {
+		disarmPreemption();
+		return;
+	}
+
+	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
+		return; // Hope for thread switch.
+	}else if(po < 0) {
+		// Disable preemption if we have higher priority.
+		disarmPreemption();
+		return;
+	}
+
+	auto diff = liveUnfairness(_current) - liveUnfairness(_waitQueue.top());
+	if(diff < 0)
+		return; // Hope for thread switch.
+
+	auto slice = frigg::max(diff / 256, sliceGranularity);
+	if(logTimeSlice)
+		frigg::infoLogger() << "Scheduling time slice: "
+				<< slice / 1000 << " us" << frigg::endLog;
+	armPreemption(slice);
+}
+
 void Scheduler::_updateCurrentEntity() {
 	assert(_current);
 
 	auto delta_progress = _systemProgress - _current->refProgress;
 	if(logUpdates)
 		frigg::infoLogger() << "Running thread unfairness decreases by: "
-				<< ((_numWaiting * delta_progress) / 256) / (1000)
+				<< ((_numWaiting * delta_progress) / 256) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frigg::endLog;
 	_current->baseUnfairness -= _numWaiting * delta_progress;
 	_current->refProgress = _systemProgress;
@@ -235,7 +266,7 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 
 	if(logUpdates)
 		frigg::infoLogger() << "Waiting thread unfairness increases by: "
-				<< ((_systemProgress - entity->refProgress) / 256) / (1000)
+				<< ((_systemProgress - entity->refProgress) / 256) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frigg::endLog;
 	entity->baseUnfairness += _systemProgress - entity->refProgress;
 	entity->refProgress = _systemProgress;
@@ -260,7 +291,13 @@ void Scheduler::_refreshFlag() {
 		// Update the unfairness so that scheduleBefore() is correct.
 		_updateCurrentEntity();
 
-		if(ScheduleEntity::scheduleBefore(_current, _waitQueue.top())) {
+		if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po) {
+			_scheduleFlag = po > 0;
+			return;
+		}
+
+		if(_refClock - _sliceClock < sliceGranularity
+				|| ScheduleEntity::scheduleBefore(_current, _waitQueue.top())) {
 			_scheduleFlag = false;
 			return;
 		}

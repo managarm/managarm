@@ -624,10 +624,11 @@ void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 
 	if(logEveryIrq)
-		frigg::infoLogger() << "IRQ #" << number << frigg::endLog;
+		frigg::infoLogger() << "thor: IRQ #" << number << frigg::endLog;
 
 	globalIrqSlots[number]->raise();
 
+	// TODO: Can this function actually be called from non-preemptible domains?
 	if(image.inPreemptibleDomain() && localScheduler()->wantSchedule()) {
 		if(image.inThreadDomain()) {
 			Thread::deferCurrent(image);
@@ -646,8 +647,9 @@ void handlePreemption(IrqImageAccessor image) {
 	assert(!intsAreEnabled());
 
 	if(logEveryIrq)
-		frigg::infoLogger() << "Preemption IRQ" << frigg::endLog;
+		frigg::infoLogger() << "thor: Preemption IRQ" << frigg::endLog;
 
+	// TODO: Can this function actually be called from non-preemptible domains?
 	if(image.inPreemptibleDomain() && localScheduler()->wantSchedule()) {
 		if(image.inThreadDomain()) {
 			Thread::deferCurrent(image);

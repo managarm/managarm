@@ -21,6 +21,7 @@ using Progress = int64_t;
 struct ScheduleEntity {
 	friend struct Scheduler;
 
+	static int orderPriority(const ScheduleEntity *a, const ScheduleEntity *b);
 	static bool scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b);
 
 	ScheduleEntity();
@@ -55,11 +56,16 @@ private:
 
 struct ScheduleGreater {
 	bool operator() (const ScheduleEntity *a, const ScheduleEntity *b) {
+		if(int po = ScheduleEntity::orderPriority(a, b); po)
+			return -po;
 		return !ScheduleEntity::scheduleBefore(a, b);
 	}
 };
 
 struct Scheduler {
+	// Minimum length of a preemption time slice in ns.
+	static constexpr int64_t sliceGranularity = 1'000'000;
+
 	static void associate(ScheduleEntity *entity, Scheduler *scheduler);
 	static void unassociate(ScheduleEntity *entity);
 
@@ -87,6 +93,7 @@ private:
 
 private:
 	void _updateSystemProgress();
+	void _updatePreemption();
 
 	void _updateCurrentEntity();
 	void _updateWaitingEntity(ScheduleEntity *entity);
@@ -116,6 +123,9 @@ private:
 	// The last tick at which the scheduler's state (i.e. progress) was updated.
 	// In our model this is the time point at which slice T started.
 	uint64_t _refClock;
+
+	// Start of the current timeslice.
+	uint64_t _sliceClock;
 
 	// This variables stores sum{t = 0, ... T} w(t)/n(t).
 	// This allows us to easily track u_p(T) for all waiting processes.
