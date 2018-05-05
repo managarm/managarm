@@ -76,11 +76,24 @@ COFIBER_ROUTINE(async::result<void>, enumerateTracker(), ([] {
 
 struct timespec getRealtime() {
 	auto page = reinterpret_cast<TrackerPage *>(trackerPageMapping.get());
-	
+
+	// Start the seqlock read.
+	auto seqlock = __atomic_load_n(&page->seqlock, __ATOMIC_ACQUIRE);
+	assert(!(seqlock & 1));
+
+	// Perform the actual loads.
+	auto ref = __atomic_load_n(&page->refClock, __ATOMIC_RELAXED);
+	auto base = __atomic_load_n(&page->baseRealtime, __ATOMIC_RELAXED);
+
+	// Finish the seqlock read.
+	__atomic_thread_fence(__ATOMIC_ACQUIRE);
+	assert(__atomic_load_n(&page->seqlock, __ATOMIC_RELAXED) == seqlock);
+
+	// Calculate the current time.
 	uint64_t now;
 	HEL_CHECK(helGetClock(&now));
 
-	int64_t realtime = page->baseRealtime + (now - page->refClock);
+	int64_t realtime = base + (now - ref);
 
 	struct timespec result;
 	result.tv_sec = realtime / 1'000'000'000;
