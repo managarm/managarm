@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <iostream>
 
 #include <helix/ipc.hpp>
@@ -381,8 +382,19 @@ StatusPageProvider::StatusPageProvider() {
 
 void StatusPageProvider::update(uint64_t sequence, int status) {
 	auto page = reinterpret_cast<protocols::fs::StatusPage *>(_mapping.get());
+
+	// State the seqlock write.
+	auto seqlock = __atomic_load_n(&page->seqlock, __ATOMIC_RELAXED);
+	assert(!(seqlock & 1));
+	__atomic_store_n(&page->seqlock, seqlock + 1, __ATOMIC_RELAXED);
+	__atomic_thread_fence(__ATOMIC_RELEASE);
+
+	// Perform the actual update.
 	__atomic_store_n(&page->sequence, sequence, __ATOMIC_RELAXED);
 	__atomic_store_n(&page->status, status, __ATOMIC_RELAXED);
+
+	// Complete the seqlock write.
+	__atomic_store_n(&page->seqlock, seqlock + 2, __ATOMIC_RELEASE);
 }
 
 COFIBER_ROUTINE(cofiber::no_future, serveNode(helix::UniqueLane p, std::shared_ptr<void> node,

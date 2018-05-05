@@ -94,6 +94,8 @@ COFIBER_ROUTINE(async::result<void>, createDeviceNode(std::string path,
 
 namespace {
 
+constexpr bool logStatusSeqlock = false;
+
 struct DeviceFile : File {
 private:
 	COFIBER_ROUTINE(expected<off_t>, seek(off_t offset, VfsSeek whence) override, ([=] {
@@ -122,9 +124,29 @@ private:
 		}
 
 		auto page = reinterpret_cast<protocols::fs::StatusPage *>(_statusMapping.get());
+
+		// Start the seqlock read.
+		auto seqlock = __atomic_load_n(&page->seqlock, __ATOMIC_ACQUIRE);
+		if(seqlock & 1) {
+			if(logStatusSeqlock)
+				std::cout << "posix: Status page update in progess."
+						" Fallback to poll(0)." << std::endl;
+			return poll(0);
+		}
+
+		// Perform the actual loads.
 		auto sequence = __atomic_load_n(&page->sequence, __ATOMIC_RELAXED);
 		auto status = __atomic_load_n(&page->status, __ATOMIC_RELAXED);
-		
+
+		// Finish the seqlock read.
+		__atomic_thread_fence(__ATOMIC_ACQUIRE);
+		if(__atomic_load_n(&page->seqlock, __ATOMIC_RELAXED) != seqlock) {
+			if(logStatusSeqlock)
+				std::cout << "posix: Stale data from status page."
+						" Fallback to poll(0)." << std::endl;
+			return poll(0);
+		}
+
 		// TODO: Return a full edge mask or edges since sequence zero.
 		async::promise<std::variant<Error, PollResult>> promise;
 		promise.set_value(PollResult{sequence, status, status});
