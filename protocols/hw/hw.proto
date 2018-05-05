@@ -23,6 +23,8 @@ enum CntReqType {
 	STORE_PCI_SPACE = 5;
 	LOAD_PCI_CAPABILITY = 6;
 	STORE_PCI_CAPABILITY = 7;
+	
+	PM_RESET = 8;
 }
 
 message PciBar {

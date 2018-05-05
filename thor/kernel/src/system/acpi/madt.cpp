@@ -10,6 +10,7 @@
 #include "../../arch/x86/pic.hpp"
 #include "../../generic/kernel_heap.hpp"
 #include "../../system/pci/pci.hpp"
+#include "pm-interface.hpp"
 
 extern "C" {
 #include <acpi.h>
@@ -807,6 +808,8 @@ void initializeExtendedSystem() {
 
 	bootOtherProcessors();
 	enumerateSystemBusses();
+
+	initializePmInterface();
 	
 	frigg::infoLogger() << "thor: System configuration complete." << frigg::endLog;
 }

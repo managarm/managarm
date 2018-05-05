@@ -11,6 +11,7 @@
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
+#include <async/jump.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
@@ -20,11 +21,59 @@
 #include <protocols/mbus/client.hpp>
 
 #include "fs.pb.h"
+#include "hw.pb.h"
 #include "libevbackend.hpp"
 
 namespace libevbackend {
 
 bool logCodes = false;
+
+namespace {
+
+async::jump pmFound;
+helix::UniqueLane pmLane;
+
+COFIBER_ROUTINE(cofiber::no_future, issueReset(), ([=] {
+	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
+
+	auto filter = mbus::Conjunction({
+		mbus::EqualsFilter("class", "pm-interface")
+	});
+	
+	auto handler = mbus::ObserverHandler{}
+	.withAttach([] (mbus::Entity entity, mbus::Properties properties) {
+		pmLane = helix::UniqueLane(COFIBER_AWAIT entity.bind());
+		pmFound.trigger();
+	});
+
+	COFIBER_AWAIT root.linkObserver(std::move(filter), std::move(handler));
+	COFIBER_AWAIT pmFound.async_wait();
+	
+	// Send the actual request.
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::PM_RESET);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(pmLane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	throw std::runtime_error("Return from PM_RESET request");
+}))
+
+} // anonymous namespace
 
 // ----------------------------------------------------------------------------
 // File implementation.
@@ -276,8 +325,19 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		return;
 
 	// Update the device state.
-	if(type == EV_KEY)
+	if(type == EV_KEY) {
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
+
+		static bool resetSent = false;
+		if(!resetSent
+				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTCTRL)
+				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTALT)
+				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_DELETE)) {
+			std::cout << "drivers/libevbackend: Issuing CTRL+ALT+DEL reset" << std::endl;
+			issueReset();
+			resetSent = true;
+		}
+	}
 
 	auto event = new Event(type, code, value);
 	if(logCodes)
