@@ -26,6 +26,7 @@ constexpr unsigned int rtcHours = 0x04;
 constexpr unsigned int rtcDay = 0x07;
 constexpr unsigned int rtcMonth = 0x08;
 constexpr unsigned int rtcYear = 0x09;
+constexpr unsigned int rtcStatusA = 0x0A;
 constexpr unsigned int rtcStatusB = 0x0B;
 
 uint8_t readCmos(unsigned int offset) {
@@ -37,6 +38,13 @@ uint8_t readCmos(unsigned int offset) {
 int64_t getCmosTime() {
 	const uint64_t nanoPrefix = 1e9;
 	
+	// Wait until the RTC update-in-progress bit gets set and reset.
+	while(!(readCmos(rtcStatusA) & 0x80))
+		fiberSleep(1'000);
+	while(readCmos(rtcStatusA) & 0x80)
+		frigg::pause();
+
+	// Perform the actual RTC read.
 	bool status_b = readCmos(rtcStatusB);
 
 	auto decodeRtc = [&] (uint8_t raw) -> int64_t {
