@@ -110,18 +110,29 @@ using SignalInfo = std::variant<
 	UserSignal
 >;
 
+using SignalFlags = uint32_t;
+
+inline constexpr SignalFlags signalInfo = (1 << 0);
+inline constexpr SignalFlags signalOnce = (1 << 1);
+inline constexpr SignalFlags signalReentrant = (1 << 2);
+
+struct SignalHandler {
+	SignalFlags flags;
+	uint64_t mask;
+	uintptr_t handlerIp;
+	uintptr_t restorerIp;
+};
+
 struct SignalContext {
 private:
 	struct SignalSlot {
-		uintptr_t handler;
-		uintptr_t restorer;
 	};
 
 public:
 	static std::shared_ptr<SignalContext> create();
 	static std::shared_ptr<SignalContext> clone(std::shared_ptr<SignalContext> original);
 
-	void setSignalHandler(int number, uintptr_t handler, uintptr_t restorer);
+	SignalHandler changeHandler(int number, SignalHandler handler);
 	
 	void restoreSignal(helix::BorrowedDescriptor thread);
 	
@@ -129,6 +140,7 @@ public:
 			helix::BorrowedDescriptor thread);
 
 private:
+	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
 };
 

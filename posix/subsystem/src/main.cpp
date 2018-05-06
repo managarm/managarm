@@ -939,16 +939,46 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
 
-			assert(!(req.flags() & ~(SA_SIGINFO)));
-			assert(!req.sig_mask());
+			if(req.flags() & ~(SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART)) {
+				std::cout << "\e[31mposix: Unknown SIG_ACTION flags: 0x"
+						<< std::hex << req.flags()
+						<< std::dec << "\e[39m" << std::endl;
+				assert(!"Flags not implemented");
+			}
 
-			self->signalContext()->setSignalHandler(req.sig_number(),
-					req.sig_handler(), req.sig_restorer());
+			SignalHandler handler;
+			handler.flags = 0;
+			handler.mask = req.sig_mask();
+			handler.handlerIp = req.sig_handler();
+			handler.restorerIp = req.sig_restorer();
+
+			if(req.flags() & SA_SIGINFO)
+				handler.flags |= signalInfo;
+			if(req.flags() & SA_RESETHAND)
+				handler.flags |= signalOnce;
+			if(req.flags() & SA_NODEFER)
+				handler.flags |= signalReentrant;
+			if(req.flags() & SA_RESTART)
+				std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
+
+			auto saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
+
+			int saved_flags = 0;
+			if(saved_handler.flags & signalInfo)
+				saved_flags |= SA_SIGINFO;
+			if(saved_handler.flags & signalOnce)
+				saved_flags |= SA_RESETHAND;
+			if(saved_handler.flags & signalReentrant)
+				saved_flags |= SA_NODEFER;
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_flags(saved_flags);
+			resp.set_sig_mask(saved_handler.mask);
+			resp.set_sig_handler(saved_handler.handlerIp);
+			resp.set_sig_restorer(saved_handler.restorerIp);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

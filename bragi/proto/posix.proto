@@ -230,5 +230,10 @@ message SvrResponse {
 	
 	repeated int32 fds = 20;
 	repeated int32 events = 25;
+	
+	// Signal-specific stuff.
+	optional uint64 sig_mask = 26;
+	optional uint64 sig_handler = 27;
+	optional uint64 sig_restorer = 28;
 }
 

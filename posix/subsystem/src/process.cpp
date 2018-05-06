@@ -311,10 +311,9 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	return std::make_shared<SignalContext>();
 }
 
-void SignalContext::setSignalHandler(int number, uintptr_t handler, uintptr_t restorer) {
+SignalHandler SignalContext::changeHandler(int number, SignalHandler handler) {
 	assert(number < 64);
-	_slots[number].handler = handler;
-	_slots[number].restorer = restorer;
+	return std::exchange(_handlers[number], handler);
 }
 
 // We follow a similar model as Linux. The linux layout is a follows:
@@ -354,16 +353,21 @@ void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
 		helix::BorrowedDescriptor thread) {
 	assert(number < 64);
 
+	SignalHandler handler = _handlers[number];
+	assert(!(handler.flags & signalOnce));
+
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
-	sf.returnAddress = _slots[number].restorer;
+	sf.returnAddress = _handlers[number].restorerIp;
 
-	// TODO: Only do this if SA_SIGINFO is set.
-	sf.info.si_signo = number;
-	std::visit(CompileSignalInfo{&sf.info}, info);
+	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
+	if(handler.flags & signalInfo) {
+		sf.info.si_signo = number;
+		std::visit(CompileSignalInfo{&sf.info}, info);
+	}
 
 	// Setup the stack frame.
 	uintptr_t nsp = sf.pcrs[kHelRegSp] - 128;
@@ -387,7 +391,7 @@ void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
 	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
 	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
 
-	sf.pcrs[kHelRegIp] = _slots[number].handler;
+	sf.pcrs[kHelRegIp] = _handlers[number].handlerIp;
 	sf.pcrs[kHelRegSp] = frame;
 	
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
