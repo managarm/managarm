@@ -93,11 +93,12 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>,
-	recvMsg(Process *process, void *data, size_t max_length,
+	COFIBER_ROUTINE(expected<RecvResult>,
+	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override, ([=] {
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+		assert(!flags);
 		assert(max_addr_length >= sizeof(struct sockaddr_nl));
 
 		while(_recvQueue.empty())
@@ -133,7 +134,8 @@ public:
 		COFIBER_RETURN(RecvResult(size, sizeof(struct sockaddr_nl), ctrl.buffer()));
 	}))
 	
-	async::result<size_t> sendMsg(Process *process, const void *data, size_t max_length,
+	expected<size_t> sendMsg(Process *process, MsgFlags flags,
+			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
 	
@@ -211,12 +213,13 @@ private:
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-COFIBER_ROUTINE(async::result<size_t>,
-OpenFile::sendMsg(Process *process, const void *data, size_t max_length,
+COFIBER_ROUTINE(expected<size_t>,
+OpenFile::sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
 		std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 	if(logSockets)
 		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+	assert(!flags);
 	assert(addr_length == sizeof(struct sockaddr_nl));
 	assert(files.empty());
 

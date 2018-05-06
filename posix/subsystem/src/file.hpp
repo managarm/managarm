@@ -30,7 +30,9 @@ enum class Error {
 	// (e.g. readSymlink() is called on a file that is not a link).
 	illegalOperationTarget,
 
-	seekOnPipe
+	seekOnPipe,
+
+	wouldBlock
 };
 
 // TODO: Rename this enum as is not part of the VFS.
@@ -43,6 +45,13 @@ using FutureMaybe = async::result<T>;
 
 template<typename T>
 using expected = async::result<std::variant<Error, T>>;
+
+// ----------------------------------------------------------------------------
+
+using MsgFlags = uint32_t;
+
+inline constexpr MsgFlags msgNoWait = (1 << 1);
+inline constexpr MsgFlags msgCloseOnExec = (1 << 2);
 
 // ----------------------------------------------------------------------------
 // File class.
@@ -183,10 +192,12 @@ public:
 
 	virtual FutureMaybe<ReadEntriesResult> readEntries();
 
-	virtual FutureMaybe<RecvResult> recvMsg(Process *process, void *data, size_t max_length,
+	virtual expected<RecvResult> recvMsg(Process *process, MsgFlags flags,
+			void *data, size_t max_length,
 			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length);
 
-	virtual FutureMaybe<size_t> sendMsg(Process *process, const void *data, size_t max_length,
+	virtual expected<size_t> sendMsg(Process *process, MsgFlags flags,
+			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files);
 

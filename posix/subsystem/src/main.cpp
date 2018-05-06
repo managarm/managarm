@@ -1040,6 +1040,19 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
 
+			MsgFlags flags = 0;
+			if(req.flags() & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL)) {
+				std::cout << "\e[31mposix: Unknown SENDMSG flags: 0x" << std::hex << req.flags()
+						<< std::dec << "\e[39m" << std::endl;
+				assert(!"Flags not implemented");
+			}
+			if(req.flags() & MSG_DONTWAIT)
+				flags |= msgNoWait;
+			if(req.flags() & MSG_CMSG_CLOEXEC)
+				flags |= msgCloseOnExec;
+			if(req.flags() & MSG_NOSIGNAL)
+				std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
+
 			std::vector<smarter::shared_ptr<File, FileHandle>> files;
 			for(int i = 0; i < req.fds_size(); i++) {
 				auto file = self->fileContext()->getFile(req.fds(i));
@@ -1047,14 +1060,14 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				files.push_back(std::move(file));
 			}
 
-			auto bytes_written = COFIBER_AWAIT sockfile->sendMsg(self.get(),
+			auto result_or_error = COFIBER_AWAIT sockfile->sendMsg(self.get(), flags,
 					recv_data.data(), recv_data.length(),
 					recv_addr.data(), recv_addr.length(),
 					std::move(files));
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_size(bytes_written);
+			resp.set_size(std::get<size_t>(result_or_error));
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -1072,15 +1085,41 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for SENDMSG");
+
+			MsgFlags flags = 0;
+			if(req.flags() & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC)) {
+				std::cout << "\e[31mposix: Unknown RECVMSG flags: 0x" << std::hex << req.flags()
+						<< std::dec << "\e[39m" << std::endl;
+				assert(!"Flags not implemented");
+			}
+			if(req.flags() & MSG_DONTWAIT)
+				flags |= msgNoWait;
+			if(req.flags() & MSG_CMSG_CLOEXEC)
+				flags |= msgCloseOnExec;
 			
 			std::vector<char> buffer;
 			std::vector<char> address;
 			buffer.resize(req.size());
 			address.resize(req.addr_size());
-			auto result = COFIBER_AWAIT sockfile->recvMsg(self.get(), buffer.data(), req.size(),
+			auto result_or_error = COFIBER_AWAIT sockfile->recvMsg(self.get(), flags,
+					buffer.data(), req.size(),
 					address.data(), req.addr_size(), req.ctrl_size());
-
+			
 			managarm::posix::SvrResponse resp;
+
+			auto error = std::get_if<Error>(&result_or_error);
+			if(error && *error == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::WOULD_BLOCK);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			auto result = std::get<RecvResult>(result_or_error);
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();

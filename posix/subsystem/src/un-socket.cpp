@@ -109,12 +109,19 @@ public:
 		COFIBER_RETURN();
 	}))
 
-	COFIBER_ROUTINE(FutureMaybe<RecvResult>,
-	recvMsg(Process *process, void *data, size_t max_length,
+	COFIBER_ROUTINE(expected<RecvResult>,
+	recvMsg(Process *process, MsgFlags flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override, ([=] {
 		assert(_currentState == State::connected);
+		assert(!(flags & ~(msgNoWait | msgCloseOnExec)));
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+		
+		if(_recvQueue.empty() && (flags & msgNoWait)) {
+			if(logSockets)
+				std::cout << "posix: UNIX socket would block" << std::endl;
+			COFIBER_RETURN(Error::wouldBlock);
+		}
 
 		while(_recvQueue.empty())
 			COFIBER_AWAIT _statusBell.async_wait();
@@ -136,7 +143,8 @@ public:
 		if(!packet->files.empty()) {
 			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
 				for(auto &file : packet->files)
-					ctrl.write<int>(process->fileContext()->attachFile(std::move(file)));
+					ctrl.write<int>(process->fileContext()->attachFile(std::move(file),
+							flags & msgCloseOnExec));
 			}else{
 				throw std::runtime_error("posix: CMSG truncation is not implemented");
 			}
@@ -154,13 +162,16 @@ public:
 		COFIBER_RETURN(RecvResult(chunk, 0, ctrl.buffer()));
 	}))
 	
-	COFIBER_ROUTINE(FutureMaybe<size_t>,
-	sendMsg(Process *process, const void *data, size_t max_length,
+	COFIBER_ROUTINE(expected<size_t>,
+	sendMsg(Process *process, MsgFlags flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files), ([=] {
 		assert(_currentState == State::connected);
+		assert(!(flags & ~(msgNoWait)));
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		// We ignore msgNoWait here as we never block anyway.
 
 		Packet packet;
 		packet.senderPid = process->pid();

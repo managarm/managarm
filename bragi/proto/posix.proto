@@ -15,6 +15,7 @@ enum Errors {
 	NO_SUCH_FD = 5;
 	END_OF_FILE = 7;
 	BAD_FD = 8;
+	WOULD_BLOCK = 10;
 }
 
 enum CntReqType {

@@ -141,11 +141,12 @@ async::result<ReadEntriesResult> File::readEntries() {
 	throw std::runtime_error("posix: Object has no File::readEntries()");
 }
 
-FutureMaybe<RecvResult> File::recvMsg(Process *, void *, size_t, void *, size_t, size_t) {
+expected<RecvResult> File::recvMsg(Process *, MsgFlags, void *, size_t,
+		void *, size_t, size_t) {
 	throw std::runtime_error("posix: Object has no File::recvMsg()");
 }
 
-FutureMaybe<size_t> File::sendMsg(Process *, const void *, size_t,
+expected<size_t> File::sendMsg(Process *, MsgFlags, const void *, size_t,
 		const void *, size_t,
 		std::vector<smarter::shared_ptr<File, FileHandle>>) {
 	std::cout << "posix \e[1;34m" << structName()
