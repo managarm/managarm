@@ -302,57 +302,68 @@ void SignalContext::setSignalHandler(int number, uintptr_t handler, uintptr_t re
 	_slots[number].restorer = restorer;
 }
 
-struct SignalStack {
+// We follow a similar model as Linux. The linux layout is a follows:
+// struct rt_sigframe. Placed at the top of the stack.
+//     struct ucontext. Part of struct rt_sigframe.
+//         struct sigcontext. Part of struct ucontext.
+//             Actually stores the registers.
+//             Stores a pointer to the FPU state.
+// FPU state is store at a higher (undefined) position on the stack.
+
+// This is our signal frame, similar to Linux' struct rt_sigframe.
+struct SignalFrame {
+	uint64_t returnAddress; // Address for 'ret' instruction.
 	uintptr_t gprs[15];
 	uintptr_t pcrs[2];
 };
 
 void SignalContext::restoreSignal(helix::BorrowedDescriptor thread) {
-	uintptr_t gprs[15];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-	auto info_address = gprs[kHelRegR12];
+	uintptr_t pcrs[15];
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
+	auto frame = pcrs[kHelRegSp] - 8;
 
-	std::cout << "posix: Restoring post-signal stack from " << (void *)info_address << std::endl;
+	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
 
-	SignalStack ss;
-	HEL_CHECK(helLoadForeign(thread.getHandle(), info_address,
-			sizeof(SignalStack), &ss));
+	SignalFrame sf;
+	HEL_CHECK(helLoadForeign(thread.getHandle(), frame,
+			sizeof(SignalFrame), &sf));
 	
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 	HEL_CHECK(helResume(thread.getHandle()));
 }
 
 void SignalContext::raiseSynchronousSignal(int number, helix::BorrowedDescriptor thread) {
 	assert(number < 64);
 
-	SignalStack ss;
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+	SignalFrame sf;
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
-	uintptr_t nsp = ss.pcrs[kHelRegSp] - 128;
+	sf.returnAddress = _slots[number].restorer;
 
-	// Store the current register stack on the stack.	
-	auto info_address = nsp = (nsp & ~(alignof(SignalStack) - 1)) - sizeof(SignalStack);
-	HEL_CHECK(helStoreForeign(thread.getHandle(), info_address,
-			sizeof(SignalStack), &ss));
+	// Setup the stack frame.
+	uintptr_t nsp = sf.pcrs[kHelRegSp] - 128;
+
+	auto alignFrame = [&] (size_t size) -> uintptr_t {
+		nsp = ((nsp - size) & ~uintptr_t(15)) - 8;
+		return nsp;
+	};
+
+	// Store the current register stack on the stack.
+	assert(alignof(SignalFrame) == 8);
+	auto frame = alignFrame(sizeof(SignalFrame));
+	HEL_CHECK(helStoreForeign(thread.getHandle(), frame,
+			sizeof(SignalFrame), &sf));
 	
-	std::cout << "posix: Saving pre-signal stack to " << (void *)info_address << std::endl;
-
-	// Store the return address (i.e. signal restorer) on the stack.
-	uint64_t restorer = _slots[number].restorer;
-	auto frame_address = nsp = (nsp & ~uintptr_t(15)) - 8;
-	HEL_CHECK(helStoreForeign(thread.getHandle(), frame_address,
-			sizeof(uint64_t), &restorer));
+	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
 
 	// Setup the new register image and resume.
-	ss.gprs[kHelRegR12] = info_address;
-
-	ss.pcrs[kHelRegIp] = _slots[number].handler;
-	ss.pcrs[kHelRegSp] = nsp;
+	sf.pcrs[kHelRegIp] = _slots[number].handler;
+	sf.pcrs[kHelRegSp] = frame;
 	
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 	HEL_CHECK(helResume(thread.getHandle()));
 }
 
