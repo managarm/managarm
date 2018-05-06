@@ -101,6 +101,15 @@ private:
 	HelHandle _clientMbusLane;
 };
 
+struct UserSignal {
+	int pid;
+	int uid;
+};
+
+using SignalInfo = std::variant<
+	UserSignal
+>;
+
 struct SignalContext {
 private:
 	struct SignalSlot {
@@ -116,7 +125,8 @@ public:
 	
 	void restoreSignal(helix::BorrowedDescriptor thread);
 	
-	void raiseSynchronousSignal(int number, helix::BorrowedDescriptor thread);
+	void raiseSynchronousSignal(int number, SignalInfo info,
+			helix::BorrowedDescriptor thread);
 
 private:
 	SignalSlot _slots[64];

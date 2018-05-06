@@ -1,4 +1,5 @@
 
+#include <signal.h>
 #include <string.h>
 #include <sys/auxv.h>
 
@@ -287,6 +288,20 @@ void FileContext::closeOnExec() {
 // SignalContext.
 // ----------------------------------------------------------------------------
 
+namespace {
+
+struct CompileSignalInfo {
+	void operator() (const UserSignal &info) const {
+		//si->si_code = SI_USER;
+		si->si_pid = info.pid;
+		si->si_uid = info.uid;
+	}
+
+	siginfo_t *si;
+};
+
+} // anonymous namespace
+
 std::shared_ptr<SignalContext> SignalContext::create() {
 	return std::make_shared<SignalContext>();
 }
@@ -308,6 +323,7 @@ void SignalContext::setSignalHandler(int number, uintptr_t handler, uintptr_t re
 //         struct sigcontext. Part of struct ucontext.
 //             Actually stores the registers.
 //             Stores a pointer to the FPU state.
+//     siginfo_t. Part of struct rt_sigframe.
 // FPU state is store at a higher (undefined) position on the stack.
 
 // This is our signal frame, similar to Linux' struct rt_sigframe.
@@ -315,6 +331,7 @@ struct SignalFrame {
 	uint64_t returnAddress; // Address for 'ret' instruction.
 	uintptr_t gprs[15];
 	uintptr_t pcrs[2];
+	siginfo_t info;
 };
 
 void SignalContext::restoreSignal(helix::BorrowedDescriptor thread) {
@@ -333,14 +350,20 @@ void SignalContext::restoreSignal(helix::BorrowedDescriptor thread) {
 	HEL_CHECK(helResume(thread.getHandle()));
 }
 
-void SignalContext::raiseSynchronousSignal(int number, helix::BorrowedDescriptor thread) {
+void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
+		helix::BorrowedDescriptor thread) {
 	assert(number < 64);
 
 	SignalFrame sf;
+	memset(&sf, 0, sizeof(SignalFrame));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
 	sf.returnAddress = _slots[number].restorer;
+
+	// TODO: Only do this if SA_SIGINFO is set.
+	sf.info.si_signo = number;
+	std::visit(CompileSignalInfo{&sf.info}, info);
 
 	// Setup the stack frame.
 	uintptr_t nsp = sf.pcrs[kHelRegSp] - 128;
@@ -359,6 +382,11 @@ void SignalContext::raiseSynchronousSignal(int number, helix::BorrowedDescriptor
 	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
 
 	// Setup the new register image and resume.
+	// TODO: Linux sets rdx to the ucontext.
+	sf.gprs[kHelRegRdi] = number;
+	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
+	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
+
 	sf.pcrs[kHelRegIp] = _slots[number].handler;
 	sf.pcrs[kHelRegSp] = frame;
 	

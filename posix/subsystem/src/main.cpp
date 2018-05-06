@@ -196,7 +196,10 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			gprs[kHelRegRdi] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			self->signalContext()->raiseSynchronousSignal(number, thread);
+			UserSignal info;
+			info.pid = self->pid();
+			info.uid = 0;
+			self->signalContext()->raiseSynchronousSignal(number, info, thread);
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
@@ -936,7 +939,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
 
-			assert(!req.flags());
+			assert(!(req.flags() & ~(SA_SIGINFO)));
 			assert(!req.sig_mask());
 
 			self->signalContext()->setSignalHandler(req.sig_number(),
