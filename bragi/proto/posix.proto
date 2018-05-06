@@ -53,6 +53,9 @@ enum CntReqType {
 	FD_GET_FLAGS = 44;
 	FD_SET_FLAGS = 45;
 
+	// Signal-specific calls.
+	SIG_ACTION = 55;
+
 	// FIFO- and pipe-specific calls.
 	PIPE_CREATE = 52;
 
@@ -145,6 +148,12 @@ message CntRequest {
 	
 	optional uint64 address = 24;
 	optional uint32 new_size = 23;
+
+	// Signal-specific stuff.
+	optional uint64 sig_number = 29;
+	optional uint64 sig_mask = 30;
+	optional uint64 sig_handler = 31;
+	optional uint64 sig_restorer = 32;
 
 	// used by socket functions
 	optional int32 domain = 14;

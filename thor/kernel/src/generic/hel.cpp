@@ -835,9 +835,14 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<AddressSpaceDescriptor>())
+		if(wrapper->is<AddressSpaceDescriptor>()) {
+			space = wrapper->get<AddressSpaceDescriptor>().space;
+		}else if(wrapper->is<ThreadDescriptor>()) {
+			auto thread = wrapper->get<ThreadDescriptor>().thread;
+			space = thread->getAddressSpace().toShared();
+		}else{
 			return kHelErrBadDescriptor;
-		space = wrapper->get<AddressSpaceDescriptor>().space;
+		}
 	}
 
 	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
@@ -845,6 +850,40 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 			(void *)address, length);
 	enableUserAccess();
 	accessor.load(0, buffer, length);
+	disableUserAccess();
+
+	return kHelErrNone;
+}
+
+HelError helStoreForeign(HelHandle handle, uintptr_t address,
+		size_t length, const void *buffer) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	
+	frigg::SharedPtr<AddressSpace> space;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(wrapper->is<AddressSpaceDescriptor>()) {
+			space = wrapper->get<AddressSpaceDescriptor>().space;
+		}else if(wrapper->is<ThreadDescriptor>()) {
+			auto thread = wrapper->get<ThreadDescriptor>().thread;
+			space = thread->getAddressSpace().toShared();
+		}else{
+			return kHelErrBadDescriptor;
+		}
+	}
+
+	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
+	auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
+			(void *)address, length);
+	enableUserAccess();
+	auto error = accessor.write(0, buffer, length);
+	assert(!error);
 	disableUserAccess();
 
 	return kHelErrNone;

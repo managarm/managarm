@@ -777,6 +777,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLoadForeign((HelHandle)arg0, (uintptr_t)arg1,
 				(size_t)arg2, (void *)arg3);
 	} break;
+	case kHelCallStoreForeign: {
+		*image.error() = helStoreForeign((HelHandle)arg0, (uintptr_t)arg1,
+				(size_t)arg2, (const void *)arg3);
+	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
 		*image.error() = helMemoryInfo((HelHandle)arg0, &size);

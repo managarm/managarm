@@ -284,6 +284,79 @@ void FileContext::closeOnExec() {
 }
 
 // ----------------------------------------------------------------------------
+// SignalContext.
+// ----------------------------------------------------------------------------
+
+std::shared_ptr<SignalContext> SignalContext::create() {
+	return std::make_shared<SignalContext>();
+}
+
+std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContext> original) {
+	std::cout << "\e[31mposix: SignalContext is not cloned correctly\e[39m" << std::endl;
+	return std::make_shared<SignalContext>();
+}
+
+void SignalContext::setSignalHandler(int number, uintptr_t handler, uintptr_t restorer) {
+	assert(number < 64);
+	_slots[number].handler = handler;
+	_slots[number].restorer = restorer;
+}
+
+struct SignalStack {
+	uintptr_t gprs[15];
+	uintptr_t pcrs[2];
+};
+
+void SignalContext::restoreSignal(helix::BorrowedDescriptor thread) {
+	uintptr_t gprs[15];
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+	auto info_address = gprs[kHelRegR12];
+
+	std::cout << "posix: Restoring post-signal stack from " << (void *)info_address << std::endl;
+
+	SignalStack ss;
+	HEL_CHECK(helLoadForeign(thread.getHandle(), info_address,
+			sizeof(SignalStack), &ss));
+	
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+	HEL_CHECK(helResume(thread.getHandle()));
+}
+
+void SignalContext::raiseSynchronousSignal(int number, helix::BorrowedDescriptor thread) {
+	assert(number < 64);
+
+	SignalStack ss;
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+
+	uintptr_t nsp = ss.pcrs[kHelRegSp] - 128;
+
+	// Store the current register stack on the stack.	
+	auto info_address = nsp = (nsp & ~(alignof(SignalStack) - 1)) - sizeof(SignalStack);
+	HEL_CHECK(helStoreForeign(thread.getHandle(), info_address,
+			sizeof(SignalStack), &ss));
+	
+	std::cout << "posix: Saving pre-signal stack to " << (void *)info_address << std::endl;
+
+	// Store the return address (i.e. signal restorer) on the stack.
+	uint64_t restorer = _slots[number].restorer;
+	auto frame_address = nsp = (nsp & ~uintptr_t(15)) - 8;
+	HEL_CHECK(helStoreForeign(thread.getHandle(), frame_address,
+			sizeof(uint64_t), &restorer));
+
+	// Setup the new register image and resume.
+	ss.gprs[kHelRegR12] = info_address;
+
+	ss.pcrs[kHelRegIp] = _slots[number].handler;
+	ss.pcrs[kHelRegSp] = nsp;
+	
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &ss.gprs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &ss.pcrs));
+	HEL_CHECK(helResume(thread.getHandle()));
+}
+
+// ----------------------------------------------------------------------------
 // Process.
 // ----------------------------------------------------------------------------
 
@@ -301,6 +374,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
+	process->_signalContext = SignalContext::create();
 
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
@@ -331,6 +405,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
+	process->_signalContext = SignalContext::clone(original->_signalContext);
 
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),

@@ -1,4 +1,3 @@
-
 #ifndef POSIX_SUBSYSTEM_PROCESS_HPP
 #define POSIX_SUBSYSTEM_PROCESS_HPP
 
@@ -102,6 +101,27 @@ private:
 	HelHandle _clientMbusLane;
 };
 
+struct SignalContext {
+private:
+	struct SignalSlot {
+		uintptr_t handler;
+		uintptr_t restorer;
+	};
+
+public:
+	static std::shared_ptr<SignalContext> create();
+	static std::shared_ptr<SignalContext> clone(std::shared_ptr<SignalContext> original);
+
+	void setSignalHandler(int number, uintptr_t handler, uintptr_t restorer);
+	
+	void restoreSignal(helix::BorrowedDescriptor thread);
+	
+	void raiseSynchronousSignal(int number, helix::BorrowedDescriptor thread);
+
+private:
+	SignalSlot _slots[64];
+};
+
 struct Process {
 	static async::result<std::shared_ptr<Process>> init(std::string path);
 
@@ -122,6 +142,7 @@ public:
 		return _path;
 	}
 
+	// TODO: The following three function do not need to return shared_ptrs.
 	std::shared_ptr<VmContext> vmContext() {
 		return _vmContext;
 	}
@@ -132,6 +153,10 @@ public:
 	
 	std::shared_ptr<FileContext> fileContext() {
 		return _fileContext;
+	}
+
+	SignalContext *signalContext() {
+		return _signalContext.get();
 	}
 	
 	void *clientClkTrackerPage() {
@@ -148,6 +173,7 @@ private:
 	std::shared_ptr<VmContext> _vmContext;
 	std::shared_ptr<FsContext> _fsContext;
 	std::shared_ptr<FileContext> _fileContext;
+	std::shared_ptr<SignalContext> _signalContext;
 
 	void *_clientClkTrackerPage;
 	void *_clientFileTable;
@@ -156,4 +182,3 @@ private:
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
 
 #endif // POSIX_SUBSYSTEM_PROCESS_HPP
-

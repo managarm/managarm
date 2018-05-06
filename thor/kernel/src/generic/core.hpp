@@ -105,7 +105,7 @@ inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size
 	}
 }
 
-inline Error ForeignSpaceAccessor::write(size_t offset, void *pointer, size_t size) {
+inline Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	AddressSpace::Guard guard(&_space->lock);
 	

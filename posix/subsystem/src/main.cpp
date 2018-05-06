@@ -176,6 +176,27 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			printf("\e[35mThread exited\e[39m\n");
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;
+		}else if(observe.observation() == kHelObserveSuperCall + 6) {
+			if(logRequests)
+				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
+			
+			self->signalContext()->restoreSignal(thread);
+		}else if(observe.observation() == kHelObserveSuperCall + 5) {
+			if(logRequests)
+				std::cout << "posix: SIG_KILL supercall" << std::endl;
+			
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			auto pid = gprs[kHelRegRsi];
+			auto number = gprs[kHelRegRdx];
+			assert(pid == self->pid());
+
+			// Clear the error code.
+			// TODO: This should only happen is raising succeeds. Move it somewhere else?
+			gprs[kHelRegRdi] = 0;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			self->signalContext()->raiseSynchronousSignal(number, thread);
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
@@ -905,6 +926,26 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(flags);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
+			if(logRequests)
+				std::cout << "posix: SIG_ACTION" << std::endl;
+
+			assert(!req.flags());
+			assert(!req.sig_mask());
+
+			self->signalContext()->setSignalHandler(req.sig_number(),
+					req.sig_handler(), req.sig_restorer());
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

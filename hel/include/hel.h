@@ -192,6 +192,27 @@ enum HelRegisterSets {
 	kHelRegsDebug = 4
 };
 
+enum HelRegisterIndex {
+	kHelRegRax = 0,
+	kHelRegRbx = 1,
+	kHelRegRcx = 2,
+	kHelRegRdx = 3,
+	kHelRegRdi = 4,
+	kHelRegRsi = 5,
+	kHelRegR8 = 6,
+	kHelRegR9 = 7,
+	kHelRegR10 = 8,
+	kHelRegR11 = 9,
+	kHelRegR12 = 10,
+	kHelRegR13 = 11,
+	kHelRegR14 = 12,
+	kHelRegR15 = 13,
+	kHelRegRbp = 14,
+	
+	kHelRegIp = 0,
+	kHelRegSp = 1
+};
+
 enum HelMessageFlags {
 	kHelRequest = 1,
 	kHelResponse = 2

@@ -51,7 +51,7 @@ struct ForeignSpaceAccessor {
 	}
 
 	void load(size_t offset, void *pointer, size_t size);
-	Error write(size_t offset, void *pointer, size_t size);
+	Error write(size_t offset, const void *pointer, size_t size);
 
 private:
 	frigg::SharedPtr<AddressSpace> _space;
