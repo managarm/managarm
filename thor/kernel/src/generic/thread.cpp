@@ -65,7 +65,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	assert(this_thread->_runState == kRunActive);
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is interrupted" << frigg::endLog;
+				<< " is (synchronously) interrupted" << frigg::endLog;
 	this_thread->_runState = kRunInterrupted;
 	saveExecutor(&this_thread->_executor, image);
 
@@ -93,7 +93,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_runState = kRunInterrupted;
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is interrupted" << frigg::endLog;
+				<< " is (synchronously) interrupted" << frigg::endLog;
 	saveExecutor(&this_thread->_executor, image);
 
 	while(!this_thread->_observeQueue.empty()) {
@@ -122,15 +122,16 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	
 	if(this_thread->_pendingSignal == kSigStop) {
 		this_thread->_runState = kRunInterrupted;
+		this_thread->_pendingSignal = kSigNone;
 		if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " is interrupted" << frigg::endLog;
+					<< " is (asynchronously) interrupted" << frigg::endLog;
 		saveExecutor(&this_thread->_executor, image);
 
 		while(!this_thread->_observeQueue.empty()) {
 			auto observe = this_thread->_observeQueue.pop_front();
 			observe->error = Error::kErrSuccess;
-			observe->interrupt = kIntrStop;
+			observe->interrupt = kIntrRequested;
 			globalWorkQueue().post(observe);
 		}
 
@@ -155,6 +156,16 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 		frigg::infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frigg::endLog;
 	Scheduler::resume(thread.get());
+}
+
+void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&thread->_mutex);
+
+	// TODO: Perform the interrupt immediately if possible.
+
+	assert(thread->_pendingSignal == kSigNone);
+	thread->_pendingSignal = kSigStop;
 }
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
@@ -228,14 +239,6 @@ frigg::UnsafePtr<Universe> Thread::getUniverse() {
 }
 frigg::UnsafePtr<AddressSpace> Thread::getAddressSpace() {
 	return _addressSpace;
-}
-
-void Thread::signalStop() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	assert(_pendingSignal == kSigNone);
-	_pendingSignal = kSigStop;
 }
 
 void Thread::invoke() {

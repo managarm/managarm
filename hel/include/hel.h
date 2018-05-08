@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 86,
+	kHelNumCalls = 87,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -47,6 +47,7 @@ enum {
 	kHelCallSetPriority = 85,
 	kHelCallYield = 34,
 	kHelCallSubmitObserve = 74,
+	kHelCallInterruptThread = 86,
 	kHelCallResume = 61,
 	kHelCallLoadRegisters = 75,
 	kHelCallStoreRegisters = 76,
@@ -177,7 +178,7 @@ enum HelThreadFlags {
 
 enum HelObservation {
 	kHelObserveNull = 0,
-	kHelObserveStop = 4,
+	kHelObserveInterrupt = 4,
 	kHelObservePanic = 3,
 	kHelObserveBreakpoint = 1,
 	kHelObserveGeneralFault = 5,
@@ -370,6 +371,7 @@ HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
 HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
 		struct HelQueue *queue, uintptr_t context);
+HEL_C_LINKAGE HelError helInterruptThread(HelHandle handle);
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
 HEL_C_LINKAGE HelError helLoadRegisters(HelHandle handle, int set, void *image); 
 HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *image);

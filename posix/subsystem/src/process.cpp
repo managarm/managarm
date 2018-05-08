@@ -307,13 +307,27 @@ std::shared_ptr<SignalContext> SignalContext::create() {
 }
 
 std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContext> original) {
-	std::cout << "\e[31mposix: SignalContext is not cloned correctly\e[39m" << std::endl;
-	return std::make_shared<SignalContext>();
+	auto context = std::make_shared<SignalContext>();
+
+	// Copy the current signal handler table.
+	for(int sn = 0; sn < 64; sn++)
+		context->_handlers[sn] = original->_handlers[sn];
+		
+	return context;
 }
 
-SignalHandler SignalContext::changeHandler(int number, SignalHandler handler) {
-	assert(number < 64);
-	return std::exchange(_handlers[number], handler);
+SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
+	assert(sn < 64);
+	return std::exchange(_handlers[sn], handler);
+}
+
+void SignalContext::issueSignal(int sn, SignalInfo info) {
+	assert(sn < 64);
+	auto item = new SignalItem;
+	item->info = info;
+
+	_slots[sn].asyncQueue.push_back(*item);
+	_raiseBell.ring();
 }
 
 // We follow a similar model as Linux. The linux layout is a follows:
@@ -333,27 +347,25 @@ struct SignalFrame {
 	siginfo_t info;
 };
 
-void SignalContext::restoreSignal(helix::BorrowedDescriptor thread) {
-	uintptr_t pcrs[15];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
-	auto frame = pcrs[kHelRegSp] - 8;
+COFIBER_ROUTINE(async::result<void>, SignalContext::awaitRaise(), ([=] {
+	COFIBER_AWAIT _raiseBell.async_wait();
+	COFIBER_RETURN();
+}));
 
-	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
+void SignalContext::raiseContext(helix::BorrowedDescriptor thread) {
+	int sn;
+	for(sn = 0; sn < 64; sn++) {
+		if(!_slots[sn].asyncQueue.empty())
+			break;
+	}
+	if(sn == 64)
+		return;
 
-	SignalFrame sf;
-	HEL_CHECK(helLoadForeign(thread.getHandle(), frame,
-			sizeof(SignalFrame), &sf));
-	
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
-	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
-	HEL_CHECK(helResume(thread.getHandle()));
-}
+	assert(!_slots[sn].asyncQueue.empty());
+	auto item = &_slots[sn].asyncQueue.front();
+	_slots[sn].asyncQueue.pop_front();
 
-void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
-		helix::BorrowedDescriptor thread) {
-	assert(number < 64);
-
-	SignalHandler handler = _handlers[number];
+	SignalHandler handler = _handlers[sn];
 	assert(!(handler.flags & signalOnce));
 
 	SignalFrame sf;
@@ -361,12 +373,12 @@ void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
-	sf.returnAddress = _handlers[number].restorerIp;
+	sf.returnAddress = _handlers[sn].restorerIp;
 
 	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
 	if(handler.flags & signalInfo) {
-		sf.info.si_signo = number;
-		std::visit(CompileSignalInfo{&sf.info}, info);
+		sf.info.si_signo = sn;
+		std::visit(CompileSignalInfo{&sf.info}, item->info);
 	}
 
 	// Setup the stack frame.
@@ -387,16 +399,32 @@ void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
 
 	// Setup the new register image and resume.
 	// TODO: Linux sets rdx to the ucontext.
-	sf.gprs[kHelRegRdi] = number;
+	sf.gprs[kHelRegRdi] = sn;
 	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
 	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
 
-	sf.pcrs[kHelRegIp] = _handlers[number].handlerIp;
+	sf.pcrs[kHelRegIp] = _handlers[sn].handlerIp;
 	sf.pcrs[kHelRegSp] = frame;
 	
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
-	HEL_CHECK(helResume(thread.getHandle()));
+
+	delete item;
+}
+
+void SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
+	uintptr_t pcrs[15];
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
+	auto frame = pcrs[kHelRegSp] - 8;
+
+	std::cout << "posix: Restoring post-signal stack from " << (void *)frame << std::endl;
+
+	SignalFrame sf;
+	HEL_CHECK(helLoadForeign(thread.getHandle(), frame,
+			sizeof(SignalFrame), &sf));
+	
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 }
 
 // ----------------------------------------------------------------------------
@@ -404,8 +432,15 @@ void SignalContext::raiseSynchronousSignal(int number, SignalInfo info,
 // ----------------------------------------------------------------------------
 
 // PID 1 is reserved for the init process, therefore we start at 2.
-int nextPid = 2;
-std::map<int, Process *> globalPidMap;
+ProcessId nextPid = 2;
+std::map<ProcessId, Process *> globalPidMap;
+
+std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
+	auto it = globalPidMap.find(pid);
+	if(it == globalPidMap.end())
+		return nullptr;
+	return it->second->shared_from_this();
+}
 
 Process::Process()
 : _pid{0}, _clientFileTable{nullptr} { }
@@ -459,7 +494,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
 			&process->_clientFileTable));
 	
-	int pid = nextPid++;
+	ProcessId pid = nextPid++;
 	assert(globalPidMap.find(pid) == globalPidMap.end());
 	process->_pid = pid;
 	globalPidMap.insert({pid, process.get()});

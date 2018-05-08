@@ -180,7 +180,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 			
-			self->signalContext()->restoreSignal(thread);
+			self->signalContext()->restoreContext(thread);
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 5) {
 			if(logRequests)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
@@ -188,8 +189,9 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			uintptr_t gprs[15];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto pid = gprs[kHelRegRsi];
-			auto number = gprs[kHelRegRdx];
-			assert(pid == self->pid());
+			auto sn = gprs[kHelRegRdx];
+
+			auto target = Process::findProcess(pid);
 
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
@@ -199,7 +201,13 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			self->signalContext()->raiseSynchronousSignal(number, info, thread);
+			target->signalContext()->issueSignal(sn, info);
+			
+			self->signalContext()->raiseContext(thread);
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveInterrupt) {
+			self->signalContext()->raiseContext(thread);
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
@@ -226,9 +234,20 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 	}
 }))
 
+COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> self,
+		helix::BorrowedDescriptor thread), ([=] {
+	while(true) {
+		std::cout << "Waiting for raise in " << self->pid() << std::endl;
+		COFIBER_AWAIT self->signalContext()->awaitRaise();
+		std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
+		HEL_CHECK(helInterruptThread(thread.getHandle()));
+	}
+}))
+
 COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
 	observe(self, lane);
+	interruptThread(self, lane);
 
 	while(true) {
 		helix::Accept accept;

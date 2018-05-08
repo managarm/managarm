@@ -311,8 +311,8 @@ struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, Interrupt interrupt)
 	: chunk{&_result, sizeof(HelObserveResult), nullptr},
 			_result{translateError(error), 0, 0} {
-		if(interrupt == kIntrStop) {
-			_result.observation = kHelObserveStop;
+		if(interrupt == kIntrRequested) {
+			_result.observation = kHelObserveInterrupt;
 		}else if(interrupt == kIntrPanic) {
 			_result.observation = kHelObservePanic;
 		}else if(interrupt == kIntrBreakpoint) {
@@ -1112,8 +1112,6 @@ HelError helSetPriority(HelHandle handle, int priority) {
 }
 
 HelError helYield() {
-	assert(!intsAreEnabled());
-
 	Thread::deferCurrent();
 
 	return kHelErrNone;
@@ -1139,6 +1137,28 @@ HelError helSubmitObserve(HelHandle handle, HelQueue *queue, uintptr_t context) 
 	// TODO: protect the thread with a lock!
 	PostEvent<ObserveThreadWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
 	thread->submitObserve(frigg::move(functor));
+
+	return kHelErrNone;
+}
+
+HelError helInterruptThread(HelHandle handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<Thread> thread;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}	
+
+	Thread::interruptOther(thread);
 
 	return kHelErrNone;
 }

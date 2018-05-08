@@ -10,7 +10,7 @@ namespace thor {
 
 enum Interrupt {
 	kIntrNull,
-	kIntrStop,
+	kIntrRequested,
 	kIntrPanic,
 	kIntrBreakpoint,
 	kIntrPageFault,
@@ -76,7 +76,7 @@ public:
 		}
 	}
 
-	// state transitions that apply to the current thread only.
+	// State transitions that apply to the current thread only.
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
@@ -84,7 +84,8 @@ public:
 	
 	static void raiseSignals(SyscallImageAccessor image);
 
-	// state transitions that apply to arbitrary threads.
+	// State transitions that apply to arbitrary threads.
+	// TODO: interruptOther() needs an Interrupt argument.
 	static void unblockOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
 	static void resumeOther(frigg::UnsafePtr<Thread> thread);
@@ -124,9 +125,6 @@ public:
 	LaneHandle superiorLane() {
 		return _superiorLane;
 	}
-
-	void signalStop();
-
 
 	template<typename F>
 	void submitObserve(F functor) {
@@ -186,7 +184,7 @@ private:
 	// tick in which this thread transitioned to the active state
 	uint64_t _activationTick;
 
-	// This is set by signalStop() and polled by raiseSignals().
+	// This is set by interruptOther() and polled by raiseSignals().
 	Signal _pendingSignal;
 
 	// Number of references that keep this thread running.

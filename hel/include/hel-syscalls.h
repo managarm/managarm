@@ -182,6 +182,10 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitObserve(HelHan
 	return helSyscall3(kHelCallSubmitObserve, (HelWord)handle, (HelWord)queue, (HelWord)context);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helInterruptThread(HelHandle handle) {
+	return helSyscall1(kHelCallInterruptThread, (HelWord)handle);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helResume(HelHandle handle) {
 	return helSyscall1(kHelCallResume, (HelWord)handle);
 };

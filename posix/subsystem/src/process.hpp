@@ -6,6 +6,8 @@
 #include <unordered_map>
 
 #include <async/result.hpp>
+#include <async/doorbell.hpp>
+#include <boost/intrusive/list.hpp>
 
 #include "vfs.hpp"
 
@@ -125,26 +127,50 @@ struct SignalHandler {
 
 struct SignalContext {
 private:
+	struct SignalItem {
+		SignalInfo info;
+		boost::intrusive::list_member_hook<> queueHook;
+	};
+
 	struct SignalSlot {
+		boost::intrusive::list<
+			SignalItem,
+			boost::intrusive::member_hook<
+				SignalItem,
+				boost::intrusive::list_member_hook<>,
+				&SignalItem::queueHook>
+		> asyncQueue;
 	};
 
 public:
 	static std::shared_ptr<SignalContext> create();
 	static std::shared_ptr<SignalContext> clone(std::shared_ptr<SignalContext> original);
 
-	SignalHandler changeHandler(int number, SignalHandler handler);
+	SignalHandler changeHandler(int sn, SignalHandler handler);
+
+	void issueSignal(int sn, SignalInfo info);
+
+	// ------------------------------------------------------------------------
+	// Signal context manipulation.
+	// ------------------------------------------------------------------------
+
+	async::result<void> awaitRaise();
 	
-	void restoreSignal(helix::BorrowedDescriptor thread);
-	
-	void raiseSynchronousSignal(int number, SignalInfo info,
-			helix::BorrowedDescriptor thread);
+	void raiseContext(helix::BorrowedDescriptor thread);
+
+	void restoreContext(helix::BorrowedDescriptor thread);
 
 private:
 	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
+	
+	async::doorbell _raiseBell;
+//	uint64_t _;
 };
 
-struct Process {
+struct Process : std::enable_shared_from_this<Process> {
+	static std::shared_ptr<Process> findProcess(ProcessId pid);
+
 	static async::result<std::shared_ptr<Process>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
