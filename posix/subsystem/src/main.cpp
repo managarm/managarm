@@ -1173,8 +1173,12 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				flags |= msgNoWait;
 			if(req.flags() & MSG_CMSG_CLOEXEC)
 				flags |= msgCloseOnExec;
-			if(req.flags() & MSG_NOSIGNAL)
-				std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
+			if(req.flags() & MSG_NOSIGNAL) {
+				static bool warned = false;
+				if(!warned)
+					std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
+				warned = true;
+			}
 
 			std::vector<smarter::shared_ptr<File, FileHandle>> files;
 			for(int i = 0; i < req.fds_size(); i++) {
