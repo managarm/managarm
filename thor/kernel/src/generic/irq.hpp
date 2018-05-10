@@ -107,7 +107,7 @@ public:
 
 	void kick();
 
-	void acknowledge(uint64_t sequence);
+	void acknowledge();
 
 	void warnIfPending();
 
@@ -131,8 +131,8 @@ private:
 	IrqStrategy _strategy;
 
 	uint64_t _raiseSequence;
-	uint64_t _currentSequence;
-	bool _sequenceWasAcked;
+	uint64_t _sinkSequence;
+	bool _wasAcked;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().
@@ -167,7 +167,9 @@ public:
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 	
-	void acknowledge(uint64_t sequence);
+	void kick();
+	
+	void acknowledge();
 	
 private:
 	// Must be protected against IRQs.

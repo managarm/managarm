@@ -1616,7 +1616,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	return kHelErrNone;
 }
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
-	assert(!flags);
+	assert(!(flags & ~(kHelAckKick)));
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1634,7 +1634,12 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	irq->acknowledge(sequence);
+	if(flags & kHelAckKick) {
+		irq->acknowledge();
+	}else{
+		assert(!flags);
+		irq->acknowledge();
+	}
 
 	return kHelErrNone;
 }

@@ -330,6 +330,10 @@ enum HelIrqFlags {
 	kHelIrqManualAcknowledge = 2
 };
 
+enum HelAckFlags {
+	kHelAckKick = 1
+};
+
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));

@@ -32,7 +32,7 @@ IrqPin *IrqSink::getPin() {
 
 IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
-		_raiseSequence{0}, _currentSequence{0}, _sequenceWasAcked{true} { }
+		_raiseSequence{0}, _sinkSequence{0}, _wasAcked{true} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -44,8 +44,8 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 
 	_strategy = program(mode, polarity);
 	_raiseSequence = 0;
-	_currentSequence = 0;
-	_sequenceWasAcked = true;
+	_sinkSequence = 0;
+	_wasAcked = true;
 }
 
 void IrqPin::raise() {
@@ -59,27 +59,27 @@ void IrqPin::raise() {
 				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
+	auto active = !_wasAcked;
 	_raiseSequence++;
+	_wasAcked = false;
 
-	if(_sequenceWasAcked) {
-		_sequenceWasAcked = false;
-		_currentSequence = _raiseSequence;
-
+	if(active) {
+		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
+		// TODO: If the IRQ is edge-triggered we lose an edge here!
+		frigg::infoLogger() << "\e[35mthor: Ignoring already active IRQ " << _name
+				<< "\e[39m" << frigg::endLog;
+	}else{
+		_sinkSequence = _raiseSequence;
 		auto status = _callSinks();
 		if(status & irq_status::handled) {
-			_sequenceWasAcked = true;
+			_wasAcked = true;
 		}else{
 			_raiseClock = currentNanos();
 			_warnedAfterPending = false;
 		}
-	}else{
-		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
-		// TODO: If the IRQ is edge-triggered we lose an edge here!
-		frigg::infoLogger() << "\e[35mthor: Ignoring already latched IRQ " << _name
-				<< "\e[39m" << frigg::endLog;
 	}
-
-	if(!_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+	
+	if(!_wasAcked && _strategy == IrqStrategy::maskThenEoi)
 		mask();
 
 	sendEoi();
@@ -89,28 +89,21 @@ void IrqPin::kick() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_sequenceWasAcked)
+	if(_wasAcked)
 		return;
-	_sequenceWasAcked = true;
+	_wasAcked = true;
 
-	if(_currentSequence < _raiseSequence) {
-		_sequenceWasAcked = false;
-		_currentSequence = _raiseSequence;
-
-		auto status = _callSinks();
-		if(status & irq_status::handled) {
-			_sequenceWasAcked = true;
-		}else{
-			_raiseClock = currentNanos();
-			_warnedAfterPending = false;
-		}
+	// Avoid losing IRQs that were ignored in raise() as 'already active'.
+	if(_sinkSequence < _raiseSequence) {
+		_sinkSequence = _raiseSequence;
+		_callSinks();
 	}
 
-	if(_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+	if(_strategy == IrqStrategy::maskThenEoi)
 		unmask();
 }
 
-void IrqPin::acknowledge(uint64_t sequence) {
+void IrqPin::acknowledge() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -118,24 +111,20 @@ void IrqPin::acknowledge(uint64_t sequence) {
 	// It is not clear what the purpose of this check is; certainly, it can lead to
 	// missing ACKs for shared IRQs.
 //	assert(sequence <= _currentSequence);
-//	if(sequence < _currentSequence || _sequenceWasAcked)
+//	if(sequence < _currentSequence || _wasAcked)
 //		return;
-	_sequenceWasAcked = true;
 
-	if(_currentSequence < _raiseSequence) {
-		_sequenceWasAcked = false;
-		_currentSequence = _raiseSequence;
+	if(_wasAcked)
+		return;
+	_wasAcked = true;
 
-		auto status = _callSinks();
-		if(status & irq_status::handled) {
-			_sequenceWasAcked = true;
-		}else{
-			_raiseClock = currentNanos();
-			_warnedAfterPending = false;
-		}
+	// Avoid losing IRQs that were ignored in raise() as 'already active'.
+	if(_sinkSequence < _raiseSequence) {
+		_sinkSequence = _raiseSequence;
+		_callSinks();
 	}
 
-	if(_sequenceWasAcked && _strategy == IrqStrategy::maskThenEoi)
+	if(_strategy == IrqStrategy::maskThenEoi)
 		unmask();
 }
 
@@ -143,7 +132,7 @@ void IrqPin::warnIfPending() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(!_sequenceWasAcked && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
+	if(!_wasAcked && currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
 		frigg::infoLogger() << "\e[35mthor: Pending IRQ " << _name << " has not been acked"
 				" for more than one second.\e[39m" << frigg::endLog;
 		_warnedAfterPending = true;
@@ -157,7 +146,7 @@ IrqStatus IrqPin::_callSinks() {
 
 	auto status = irq_status::null;
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it)
-		status |= (*it)->raise(_currentSequence);
+		status |= (*it)->raise(_sinkSequence);
 	return status;
 }
 
@@ -184,6 +173,7 @@ IrqStatus IrqObject::raise(uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
+	assert(sequence > _currentSequence);
 	_currentSequence = sequence;
 
 	while(!_waitQueue.empty()) {
@@ -206,8 +196,12 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 	}
 }
 
-void IrqObject::acknowledge(uint64_t sequence) {
-	getPin()->acknowledge(sequence);
+void IrqObject::kick() {
+	getPin()->kick();
+}
+
+void IrqObject::acknowledge() {
+	getPin()->acknowledge();
 }
 
 } // namespace thor
