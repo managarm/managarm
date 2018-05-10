@@ -40,6 +40,7 @@
 
 bool logRequests = false;
 bool logPaths = false;
+bool logSignals = true;
 
 std::map<
 	std::array<char, 16>,
@@ -176,14 +177,38 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			printf("\e[35mThread exited\e[39m\n");
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;
-		}else if(observe.observation() == kHelObserveSuperCall + 6) {
+		}else if(observe.observation() == kHelObserveSuperCall + 7) {
 			if(logRequests)
+				std::cout << "posix: SIG_MASK supercall" << std::endl;
+			
+			uintptr_t gprs[15];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			auto mode = gprs[kHelRegRsi];
+			auto mask = gprs[kHelRegRdx];
+
+			uint64_t former = self->signalMask();
+			if(mode == SIG_SETMASK) {
+				self->setSignalMask(mask);
+			}else if(mode == SIG_BLOCK) {
+				self->setSignalMask(former | mask);
+			}else if(mode == SIG_UNBLOCK) {
+				self->setSignalMask(former & ~mask);
+			}else{
+				assert(!mode);
+			}
+
+			gprs[kHelRegRdi] = 0;
+			gprs[kHelRegRsi] = former;
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + 6) {
+			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 			
 			self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + 5) {
-			if(logRequests)
+			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 			
 			uintptr_t gprs[15];
@@ -203,10 +228,14 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			info.uid = 0;
 			target->signalContext()->issueSignal(sn, info);
 			
-			self->signalContext()->raiseContext(thread);
+			auto active = self->signalContext()->fetchSignal(~self->signalMask());
+			if(active)
+				self->signalContext()->raiseContext(active, thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
-			self->signalContext()->raiseContext(thread);
+			auto active = self->signalContext()->fetchSignal(~self->signalMask());
+			if(active)
+				self->signalContext()->raiseContext(active, thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mUser space panic in process %s\n", self->path().c_str());
@@ -236,9 +265,10 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
+	uint64_t sequence = 0;
 	while(true) {
 		std::cout << "Waiting for raise in " << self->pid() << std::endl;
-		COFIBER_AWAIT self->signalContext()->awaitRaise();
+		sequence = COFIBER_AWAIT self->signalContext()->pollSignal(sequence, UINT64_C(-1));
 		std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}

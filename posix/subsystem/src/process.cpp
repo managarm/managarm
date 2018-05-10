@@ -302,6 +302,9 @@ struct CompileSignalInfo {
 
 } // anonymous namespace
 
+SignalContext::SignalContext()
+: _currentSeq{1}, _activeSet{0} { }
+
 std::shared_ptr<SignalContext> SignalContext::create() {
 	return std::make_shared<SignalContext>();
 }
@@ -324,10 +327,47 @@ SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 void SignalContext::issueSignal(int sn, SignalInfo info) {
 	assert(sn < 64);
 	auto item = new SignalItem;
+	item->signalNumber = sn;
 	item->info = info;
 
 	_slots[sn].asyncQueue.push_back(*item);
-	_raiseBell.ring();
+	_activeSet |= (UINT64_C(1) << sn);
+	++_currentSeq;
+	_signalBell.ring();
+}
+
+COFIBER_ROUTINE(async::result<uint64_t>,
+SignalContext::pollSignal(uint64_t in_seq, uint64_t mask), ([=] {
+	assert(in_seq <= _currentSeq);
+
+	while(in_seq == _currentSeq)
+		COFIBER_AWAIT _signalBell.async_wait();
+
+	// Wait until one of the requested signals becomes active.
+	while(!(_activeSet & mask))
+		COFIBER_AWAIT _signalBell.async_wait();
+
+	COFIBER_RETURN(_currentSeq);
+}));
+
+SignalItem *SignalContext::fetchSignal(uint64_t mask) {
+	int sn;
+	for(sn = 0; sn < 64; sn++) {
+		if(!(mask & (UINT64_C(1) << sn)))
+			continue;
+		if(!_slots[sn].asyncQueue.empty())
+			break;
+	}
+	if(sn == 64)
+		return nullptr;
+
+	assert(!_slots[sn].asyncQueue.empty());
+	auto item = &_slots[sn].asyncQueue.front();
+	_slots[sn].asyncQueue.pop_front();
+	if(_slots[sn].asyncQueue.empty())
+		_activeSet &= ~(UINT64_C(1) << sn);
+
+	return item;
 }
 
 // We follow a similar model as Linux. The linux layout is a follows:
@@ -347,25 +387,8 @@ struct SignalFrame {
 	siginfo_t info;
 };
 
-COFIBER_ROUTINE(async::result<void>, SignalContext::awaitRaise(), ([=] {
-	COFIBER_AWAIT _raiseBell.async_wait();
-	COFIBER_RETURN();
-}));
-
-void SignalContext::raiseContext(helix::BorrowedDescriptor thread) {
-	int sn;
-	for(sn = 0; sn < 64; sn++) {
-		if(!_slots[sn].asyncQueue.empty())
-			break;
-	}
-	if(sn == 64)
-		return;
-
-	assert(!_slots[sn].asyncQueue.empty());
-	auto item = &_slots[sn].asyncQueue.front();
-	_slots[sn].asyncQueue.pop_front();
-
-	SignalHandler handler = _handlers[sn];
+void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thread) {
+	SignalHandler handler = _handlers[item->signalNumber];
 	assert(!(handler.flags & signalOnce));
 
 	SignalFrame sf;
@@ -373,11 +396,11 @@ void SignalContext::raiseContext(helix::BorrowedDescriptor thread) {
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &sf.pcrs));
 
-	sf.returnAddress = _handlers[sn].restorerIp;
+	sf.returnAddress = handler.restorerIp;
 
 	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
 	if(handler.flags & signalInfo) {
-		sf.info.si_signo = sn;
+		sf.info.si_signo = item->signalNumber;
 		std::visit(CompileSignalInfo{&sf.info}, item->info);
 	}
 
@@ -399,11 +422,11 @@ void SignalContext::raiseContext(helix::BorrowedDescriptor thread) {
 
 	// Setup the new register image and resume.
 	// TODO: Linux sets rdx to the ucontext.
-	sf.gprs[kHelRegRdi] = sn;
+	sf.gprs[kHelRegRdi] = item->signalNumber;
 	sf.gprs[kHelRegRsi] = frame + offsetof(SignalFrame, info);
 	sf.gprs[kHelRegRax] = 0; // Number of variable arguments.
 
-	sf.pcrs[kHelRegIp] = _handlers[sn].handlerIp;
+	sf.pcrs[kHelRegIp] = handler.handlerIp;
 	sf.pcrs[kHelRegSp] = frame;
 	
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &sf.gprs));
@@ -454,6 +477,9 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 	process->_fileContext = FileContext::create();
 	process->_signalContext = SignalContext::create();
 
+	// The initial signal mask allows all signals.
+	process->_signalMask = 0;
+
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -485,6 +511,9 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->_signalContext = SignalContext::clone(original->_signalContext);
 
+	// Signal masks are copied on fork().
+	process->_signalMask = original->_signalMask;
+
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -506,12 +535,12 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 		std::string path, std::vector<std::string> args, std::vector<std::string> env), ([=] {
 	auto exec_vm_context = VmContext::create();
 
-	void *exec_clk_tracker;
+	void *exec_clk_tracker_page;
 	void *exec_client_table;
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
-			&exec_clk_tracker));
+			&exec_clk_tracker_page));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapDropAtFork,
@@ -531,7 +560,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
-	process->_clientClkTrackerPage = exec_clk_tracker;
+	process->_clientClkTrackerPage = exec_clk_tracker_page;
 	process->_clientFileTable = exec_client_table;
 
 	// TODO: execute() should return a stopped thread that we can start here.

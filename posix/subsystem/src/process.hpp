@@ -125,13 +125,14 @@ struct SignalHandler {
 	uintptr_t restorerIp;
 };
 
+struct SignalItem {
+	int signalNumber;
+	SignalInfo info;
+	boost::intrusive::list_member_hook<> queueHook;
+};
+
 struct SignalContext {
 private:
-	struct SignalItem {
-		SignalInfo info;
-		boost::intrusive::list_member_hook<> queueHook;
-	};
-
 	struct SignalSlot {
 		boost::intrusive::list<
 			SignalItem,
@@ -146,17 +147,21 @@ public:
 	static std::shared_ptr<SignalContext> create();
 	static std::shared_ptr<SignalContext> clone(std::shared_ptr<SignalContext> original);
 
+	SignalContext();
+
 	SignalHandler changeHandler(int sn, SignalHandler handler);
 
 	void issueSignal(int sn, SignalInfo info);
 
+	async::result<uint64_t> pollSignal(uint64_t in_seq, uint64_t mask);
+
+	SignalItem *fetchSignal(uint64_t mask);
+
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
-
-	async::result<void> awaitRaise();
 	
-	void raiseContext(helix::BorrowedDescriptor thread);
+	void raiseContext(SignalItem *item, helix::BorrowedDescriptor thread);
 
 	void restoreContext(helix::BorrowedDescriptor thread);
 
@@ -164,8 +169,9 @@ private:
 	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
 	
-	async::doorbell _raiseBell;
-//	uint64_t _;
+	async::doorbell _signalBell;
+	uint64_t _currentSeq;
+	uint64_t _activeSet;
 };
 
 struct Process : std::enable_shared_from_this<Process> {
@@ -207,6 +213,14 @@ public:
 		return _signalContext.get();
 	}
 	
+	void setSignalMask(uint64_t mask) {
+		_signalMask = mask;
+	}
+
+	uint64_t signalMask() {
+		return _signalMask;
+	}
+
 	void *clientClkTrackerPage() {
 		return _clientClkTrackerPage;
 	}
@@ -223,6 +237,9 @@ private:
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
 
+	uint64_t _signalMask;
+
+	void *_clientThreadPage;
 	void *_clientClkTrackerPage;
 	void *_clientFileTable;
 };
