@@ -118,7 +118,14 @@ inline constexpr SignalFlags signalInfo = (1 << 0);
 inline constexpr SignalFlags signalOnce = (1 << 1);
 inline constexpr SignalFlags signalReentrant = (1 << 2);
 
+enum class SignalDisposition {
+	none,
+	ignore,
+	handle
+};
+
 struct SignalHandler {
+	SignalDisposition disposition;
 	SignalFlags flags;
 	uint64_t mask;
 	uintptr_t handlerIp;

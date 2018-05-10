@@ -82,8 +82,11 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
-		HEL_CHECK(observe.error());
+		
+		if(observe.error() == kHelErrThreadTerminated)
+			COFIBER_RETURN();
 
+		HEL_CHECK(observe.error());
 		if(observe.observation() == kHelObserveSuperCall + 1) {
 			if(logRequests)
 				std::cout << "posix: clientFileTable supercall" << std::endl;
@@ -216,7 +219,17 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			auto pid = gprs[kHelRegRsi];
 			auto sn = gprs[kHelRegRdx];
 
-			auto target = Process::findProcess(pid);
+			std::shared_ptr<Process> target;
+			if(!pid) {
+				std::cout << "\e[31mposix: SIG_KILL(0) should target "
+						"the whole process group\e[39m" << std::endl;
+				std::cout << "posix: SIG_KILL on PID " << self->pid() << std::endl;
+				target = self;
+			}else{
+				std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
+				target = Process::findProcess(pid);
+				assert(target);
+			}
 
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
@@ -996,6 +1009,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			}
 
 			SignalHandler handler;
+			handler.disposition = SignalDisposition::handle;
 			handler.flags = 0;
 			handler.mask = req.sig_mask();
 			handler.handlerIp = req.sig_handler();

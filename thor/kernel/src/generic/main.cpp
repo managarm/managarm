@@ -820,6 +820,9 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helSubmitObserve((HelHandle)arg0,
 				(HelQueue *)arg1, (uintptr_t)arg2);
 	} break;
+	case kHelCallKillThread: {
+		*image.error() = helKillThread((HelHandle)arg0);
+	} break;
 	case kHelCallInterruptThread: {
 		*image.error() = helInterruptThread((HelHandle)arg0);
 	} break;

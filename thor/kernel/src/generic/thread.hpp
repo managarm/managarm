@@ -87,14 +87,16 @@ public:
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
 	static void unblockOther(frigg::UnsafePtr<Thread> thread);
+	static void killOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
 	static void resumeOther(frigg::UnsafePtr<Thread> thread);
 
-	// these signals let the thread change its RunState.
-	// do not confuse them with POSIX signals!
+	// These signals let the thread change its RunState.
+	// Do not confuse them with POSIX signals!
+	// TODO: Interrupt signals should be queued.
 	enum Signal {
 		kSigNone,
-		kSigStop
+		kSigInterrupt
 	};
 
 	enum Flags : uint32_t {
@@ -168,6 +170,9 @@ private:
 		// the thread was manually stopped from userspace.
 		// it is not scheduled.
 		kRunInterrupted,
+
+		// Thread exited or was killed.
+		kRunTerminated
 	};
 
 	static void _blockLocked(frigg::LockGuard<Mutex> lock);
@@ -185,6 +190,7 @@ private:
 	uint64_t _activationTick;
 
 	// This is set by interruptOther() and polled by raiseSignals().
+	bool _pendingKill;
 	Signal _pendingSignal;
 
 	// Number of references that keep this thread running.

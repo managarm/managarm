@@ -489,7 +489,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		managarm::fs::SvrResponse resp;
 		struct termios attrs;
 		
-		std::cout << std::hex << "posix: TCGETS request" << std::endl;
+		std::cout << "posix: TCGETS request" << std::endl;
 
 		// Element-wise copy to avoid information leaks in padding.
 		memset(&attrs, 0, sizeof(struct termios));
@@ -521,7 +521,7 @@ COFIBER_ROUTINE(async::result<void>, SlaveFile::ioctl(Process *, managarm::fs::C
 		HEL_CHECK(recv_attrs.error());
 
 		if(logAttrs) {
-			std::cout << std::hex << "posix: TCSETS request\n"
+			std::cout << "posix: TCSETS request\n"
 					<< "    iflag: 0x" << attrs.c_iflag << '\n'
 					<< "    oflag: 0x" << attrs.c_oflag << '\n'
 					<< "    cflag: 0x" << attrs.c_cflag << '\n'

@@ -306,7 +306,13 @@ SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 
 std::shared_ptr<SignalContext> SignalContext::create() {
-	return std::make_shared<SignalContext>();
+	auto context = std::make_shared<SignalContext>();
+
+	// All signals use their default disposition.
+	for(int sn = 0; sn < 64; sn++)
+		context->_handlers[sn].disposition = SignalDisposition::none;
+
+	return context;
 }
 
 std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContext> original) {
@@ -390,6 +396,14 @@ struct SignalFrame {
 void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thread) {
 	SignalHandler handler = _handlers[item->signalNumber];
 	assert(!(handler.flags & signalOnce));
+
+	if(handler.disposition == SignalDisposition::none) {
+		std::cout << "posix: Thread killed as the result of a signal" << std::endl;
+		HEL_CHECK(helKillThread(thread.getHandle()));
+		return;
+	}
+
+	assert(handler.disposition == SignalDisposition::handle);
 
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));

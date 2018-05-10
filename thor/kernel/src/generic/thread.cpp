@@ -120,12 +120,35 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				<< frigg::endLog;
 	assert(this_thread->_runState == kRunActive);
 	
-	if(this_thread->_pendingSignal == kSigStop) {
+	if(this_thread->_pendingKill) {
+		this_thread->_runState = kRunTerminated;
+	//	if(logRunStates)
+			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " was (asynchronously) killed" << frigg::endLog;
+		saveExecutor(&this_thread->_executor, image);
+
+		while(!this_thread->_observeQueue.empty()) {
+			auto observe = this_thread->_observeQueue.pop_front();
+			observe->error = Error::kErrThreadExited;
+			observe->interrupt = kIntrNull;
+			globalWorkQueue().post(observe);
+		}
+
+		assert(!intsAreEnabled());
+		Scheduler::suspend(this_thread.get());
+		runDetached([] (frigg::LockGuard<Mutex> lock) {
+			lock.unlock();
+			localScheduler()->reschedule();
+		}, std::move(lock));
+		return;
+	}
+	
+	if(this_thread->_pendingSignal == kSigInterrupt) {
 		this_thread->_runState = kRunInterrupted;
 		this_thread->_pendingSignal = kSigNone;
-		if(logRunStates)
+	//	if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " is (asynchronously) interrupted" << frigg::endLog;
+					<< " was (asynchronously) interrupted" << frigg::endLog;
 		saveExecutor(&this_thread->_executor, image);
 
 		while(!this_thread->_observeQueue.empty()) {
@@ -158,14 +181,23 @@ void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
 	Scheduler::resume(thread.get());
 }
 
+void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&thread->_mutex);
+
+	// TODO: Perform the kill immediately if possible.
+
+	thread->_pendingKill = true;
+}
+
 void Thread::interruptOther(frigg::UnsafePtr<Thread> thread) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
 
 	// TODO: Perform the interrupt immediately if possible.
 
-	assert(thread->_pendingSignal == kSigNone);
-	thread->_pendingSignal = kSigStop;
+//	assert(thread->_pendingSignal == kSigNone);
+	thread->_pendingSignal = kSigInterrupt;
 }
 
 void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
@@ -185,7 +217,7 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 		frigg::SharedPtr<AddressSpace> address_space, AbiParameters abi)
 : flags(0), _runState(kRunInterrupted),
 		_numTicks(0), _activationTick(0),
-		_pendingSignal(kSigNone), _runCount(1),
+		_pendingKill{false}, _pendingSignal(kSigNone), _runCount(1),
 		_executor{&_context, abi},
 		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
 	// TODO: Generate real UUIDs instead of ascending numbers.
@@ -205,7 +237,7 @@ Thread::~Thread() {
 
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
-	frigg::infoLogger() << "\e[31mShutting down thread\e[39m" << frigg::endLog;
+	frigg::infoLogger() << "\e[31mthor: Shutting down thread\e[39m" << frigg::endLog;
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -227,7 +259,13 @@ void Thread::doSubmitObserve(ObserveBase *observe) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	_observeQueue.push_back(observe);
+	if(_runState != kRunTerminated) {
+		_observeQueue.push_back(observe);
+	}else{
+		observe->error = Error::kErrThreadExited;
+		observe->interrupt = kIntrNull;
+		globalWorkQueue().post(observe);
+	}
 }
 
 UserContext &Thread::getContext() {
