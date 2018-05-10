@@ -53,7 +53,20 @@ struct KernelFiber : ScheduleEntity {
 		run(std::move(stack), frame, target);
 	}
 
+	template<typename F>
+	static KernelFiber *post(F functor) {
+		auto frame = [] (void *argument) {
+			auto object = reinterpret_cast<F *>(argument);
+			(*object)();
+			exitCurrent();
+		};
+		auto stack = UniqueKernelStack::make();
+		auto target = stack.embed<F>(functor);
+		return post(std::move(stack), frame, target);
+	}
+
 	static void run(UniqueKernelStack stack, void (*function)(void *), void *argument);
+	static KernelFiber *post(UniqueKernelStack stack, void (*function)(void *), void *argument);
 
 	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
 

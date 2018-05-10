@@ -297,6 +297,8 @@ extern "C" void frg_panic(const char *cstring) {
 	frigg::panicLogger() << "frg: Panic! " << cstring << frigg::endLog;
 }
 
+frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+
 extern "C" void thorMain(PhysicalAddr info_paddr) {
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
@@ -342,6 +344,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	frigg::infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frigg::endLog;
 
+	earlyFibers.initialize(*kernelAlloc);
+
 	for(int i = 0; i < 24; i++)
 		globalIrqSlots[i].initialize();
 
@@ -360,6 +364,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 	// Continue the system initialization.
 	initializeBasicSystem();
+
+	for(auto it = earlyFibers->begin(); it != earlyFibers->end(); ++it)
+		Scheduler::resume(*it);
 
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.

@@ -39,7 +39,8 @@ void KernelFiber::exitCurrent() {
 //	frigg::panicLogger() << "Fiber exited" << frigg::endLog;
 }
 
-void KernelFiber::run(UniqueKernelStack stack, void (*function)(void *), void *argument) {
+void KernelFiber::run(UniqueKernelStack stack,
+		void (*function)(void *), void *argument) {
 	AbiParameters params;
 	params.ip = (uintptr_t)function;
 	params.argument = (uintptr_t)argument;
@@ -47,6 +48,17 @@ void KernelFiber::run(UniqueKernelStack stack, void (*function)(void *), void *a
 	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
 	Scheduler::associate(fiber, localScheduler());
 	Scheduler::resume(fiber);
+}
+
+KernelFiber *KernelFiber::post(UniqueKernelStack stack,
+		void (*function)(void *), void *argument) {
+	AbiParameters params;
+	params.ip = (uintptr_t)function;
+	params.argument = (uintptr_t)argument;
+
+	auto fiber = frigg::construct<KernelFiber>(*kernelAlloc, std::move(stack), params);
+	Scheduler::associate(fiber, localScheduler());
+	return fiber;
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)

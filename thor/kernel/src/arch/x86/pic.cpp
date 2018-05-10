@@ -11,6 +11,8 @@
 
 namespace thor {
 
+extern frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
+
 arch::bit_register<uint32_t> lApicId(0x0020);
 arch::scalar_register<uint32_t> lApicEoi(0x00B0);
 arch::bit_register<uint32_t> lApicSpurious(0x00F0);
@@ -344,17 +346,14 @@ void setupIoApic(PhysicalAddr address) {
 		globalIrqSlots[i]->link(pin);
 	}
 
-	// TODO: Re-enable this.
-/*
-	KernelFiber::run([=] {
+	earlyFibers->push(KernelFiber::post([=] {
 		while(true) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
 				apic->accessPin(i)->warnIfPending();
 
 			fiberSleep(500000000);
 		}
-	});
-*/
+	}));
 }
 
 /*

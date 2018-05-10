@@ -26,6 +26,7 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
+//	frigg::infoLogger() << "associate " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
 	entity->state = ScheduleState::attached;
