@@ -26,6 +26,7 @@
 
 namespace libevbackend {
 
+bool logConfiguration = false;
 bool logCodes = false;
 bool logRequests = false;
 
@@ -218,7 +219,8 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		if(logRequests)
 			std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
 
-		assert(req.input_type() < self->_device->_absoluteSlots.size());
+		assert(static_cast<size_t>(req.input_type())
+				< self->_device->_absoluteSlots.size());
 		auto slot = &self->_device->_absoluteSlots[req.input_type()];
 		resp.set_input_value(slot->value);
 		resp.set_input_min(slot->minimum);
@@ -320,7 +322,7 @@ EventDevice::EventDevice()
 }
 
 void EventDevice::setAbsoluteDetails(int code, int minimum, int maximum) {
-	assert(code < _absoluteSlots.size());
+	assert(static_cast<size_t>(code) < _absoluteSlots.size());
 	_absoluteSlots[code].minimum = minimum;
 	_absoluteSlots[code].maximum = maximum;
 }
@@ -330,8 +332,9 @@ void EventDevice::enableEvent(int type, int code) {
 		assert(bit / 8 < length);
 		array[bit / 8] |= (1 << (bit % 8));
 	};
-	std::cout << "drivers/libevbackend: Enabling event " << type << "." << code
-			<< std::endl;
+	if(logConfiguration)
+		std::cout << "drivers/libevbackend: Enabling event " << type << "." << code
+				<< std::endl;
 
 	if(type == EV_KEY) {
 		setBit(_keyBits.data(), _keyBits.size(), code);
