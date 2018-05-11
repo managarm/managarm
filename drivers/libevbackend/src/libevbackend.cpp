@@ -27,6 +27,7 @@
 namespace libevbackend {
 
 bool logCodes = false;
+bool logRequests = false;
 
 namespace {
 
@@ -142,7 +143,8 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 	auto self = static_cast<File *>(object);
 	if(req.command() == EVIOCGBIT(0, 0)) {
 		assert(req.size());
-//		std::cout << "EVIOCGBIT()" << std::endl;
+		if(logRequests)
+			std::cout << "EVIOCGBIT()" << std::endl;
 
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_data;
@@ -160,7 +162,8 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		HEL_CHECK(send_data.error());
 	}else if(req.command() == EVIOCGBIT(1, 0)) {
 		assert(req.size());
-//		std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
+		if(logRequests)
+			std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
 
 		helix::SendBuffer send_resp;
 		helix::SendBuffer send_data;
@@ -173,6 +176,9 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		}else if(req.input_type() == EV_REL) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
+		}else if(req.input_type() == EV_ABS) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			p = {self->_device->_absBits.data(), self->_device->_absBits.size()};
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			p = {nullptr, 0};
@@ -200,6 +206,26 @@ File::ioctl(void *object, managarm::fs::CntRequest req,
 		default:
 			assert(!"Clock is not supported in libevbackend");
 		}
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+			helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == EVIOCGABS(0)) {
+		helix::SendBuffer send_resp;
+		managarm::fs::SvrResponse resp;
+		if(logRequests)
+			std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
+
+		assert(req.input_type() < self->_device->_absoluteSlots.size());
+		auto slot = &self->_device->_absoluteSlots[req.input_type()];
+		resp.set_input_value(slot->value);
+		resp.set_input_min(slot->minimum);
+		resp.set_input_max(slot->maximum);
+		resp.set_input_fuzz(0);
+		resp.set_input_flat(0);
+		resp.set_input_resolution(1);
 
 		auto ser = resp.SerializeAsString();
 		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -287,8 +313,16 @@ EventDevice::EventDevice()
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
+	memset(_absBits.data(), 0, _absBits.size());
 	
 	memset(_currentKeys.data(), 0, _currentKeys.size());
+	memset(_absoluteSlots.data(), 0, _absoluteSlots.size() * sizeof(AbsoluteSlot));
+}
+
+void EventDevice::setAbsoluteDetails(int code, int minimum, int maximum) {
+	assert(code < _absoluteSlots.size());
+	_absoluteSlots[code].minimum = minimum;
+	_absoluteSlots[code].maximum = maximum;
 }
 
 void EventDevice::enableEvent(int type, int code) {
@@ -296,11 +330,15 @@ void EventDevice::enableEvent(int type, int code) {
 		assert(bit / 8 < length);
 		array[bit / 8] |= (1 << (bit % 8));
 	};
+	std::cout << "drivers/libevbackend: Enabling event " << type << "." << code
+			<< std::endl;
 
 	if(type == EV_KEY) {
 		setBit(_keyBits.data(), _keyBits.size(), code);
 	}else if(type == EV_REL) {
 		setBit(_relBits.data(), _relBits.size(), code);
+	}else if(type == EV_ABS) {
+		setBit(_absBits.data(), _absBits.size(), code);
 	}else{
 		throw std::runtime_error("Unexpected event type");
 	}
@@ -323,20 +361,26 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		return;
 	if(type == EV_REL && !value)
 		return;
+	if(type == EV_ABS && value == _absoluteSlots[code].value)
+		return;
 
 	// Update the device state.
 	if(type == EV_KEY) {
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
+	}else if(type == EV_ABS) {
+		_absoluteSlots[code].value = value;
+	}
 
-		static bool resetSent = false;
-		if(!resetSent
-				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTCTRL)
-				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTALT)
-				&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_DELETE)) {
-			std::cout << "drivers/libevbackend: Issuing CTRL+ALT+DEL reset" << std::endl;
-			issueReset();
-			resetSent = true;
-		}
+	// Handle magic key sequences in the driver.  This ensure that all devices implement
+	// the same magic keys. It is also more reliable than implementing this in a second process.
+	static bool resetSent = false;
+	if(!resetSent
+			&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTCTRL)
+			&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_LEFTALT)
+			&& getBit(_currentKeys.data(), _currentKeys.size(), KEY_DELETE)) {
+		std::cout << "drivers/libevbackend: Issuing CTRL+ALT+DEL reset" << std::endl;
+		issueReset();
+		resetSent = true;
 	}
 
 	auto event = new Event(type, code, value);

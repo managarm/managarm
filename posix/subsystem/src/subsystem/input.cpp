@@ -40,6 +40,7 @@ private:
 CapabilityAttribute evCapability{"ev", 0, EV_MAX};
 CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
 CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
+CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
 struct Device : UnixDevice, drvcore::Device {
 	Device(VfsType type, int index, helix::UniqueLane lane)
@@ -142,6 +143,7 @@ COFIBER_ROUTINE(cofiber::no_future, run(), ([] {
 		caps->directMkattr(device.get(), &evCapability);
 		caps->directMkattr(device.get(), &keyCapability);
 		caps->directMkattr(device.get(), &relCapability);
+		caps->directMkattr(device.get(), &absCapability);
 
 		// TODO: This should be handled in drvcore.
 		static int seqnum = 1;

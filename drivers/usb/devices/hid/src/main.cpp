@@ -22,7 +22,7 @@
 #include "hid.hpp"
 
 namespace {
-	constexpr bool logDescriptorParser = true;
+	constexpr bool logDescriptorParser = false;
 	constexpr bool logFields = false;
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
@@ -37,11 +37,19 @@ void setupInputTranslation(Element *element) {
 
 	if(element->usagePage == pages::genericDesktop) {
 		// TODO: Distinguish between absolute and relative controls.
-		switch(element->usageId) {
-			case 0x30: setInput(EV_REL, REL_X); break;
-			case 0x31: setInput(EV_REL, REL_Y); break;
+		if(element->isAbsolute) {
+			switch(element->usageId) {
+				case 0x30: setInput(EV_ABS, ABS_X); break;
+				case 0x31: setInput(EV_ABS, ABS_Y); break;
+			}
+		}else{
+			switch(element->usageId) {
+				case 0x30: setInput(EV_REL, REL_X); break;
+				case 0x31: setInput(EV_REL, REL_Y); break;
+			}
 		}
 	}else if(element->usagePage == pages::keyboard) {
+//		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x04: setInput(EV_KEY, KEY_A); break;
 			case 0x05: setInput(EV_KEY, KEY_B); break;
@@ -112,6 +120,7 @@ void setupInputTranslation(Element *element) {
 			case 0xE7: setInput(EV_KEY, KEY_RIGHTMETA); break;
 		}
 	}else if(element->usagePage == pages::button) {
+//		assert(element->isAbsolute);
 		switch(element->usageId) {
 			case 0x01: setInput(EV_KEY, BTN_LEFT); break;
 			case 0x02: setInput(EV_KEY, BTN_RIGHT); break;
@@ -192,15 +201,6 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 	assert(bit_offset == size * 8);
 }
 
-uint32_t fetch(uint8_t *&p, void *limit, int n = 1) {
-	uint32_t x = 0;
-	for(int i = 0; i < n; i++) {
-		x = (x << 8) | *p++;
-		assert(p <= limit);
-	}
-	return x;
-}
-
 struct LocalState {
 	std::vector<uint32_t> usage;
 	std::experimental::optional<uint32_t> usageMin;
@@ -225,7 +225,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 	LocalState local;
 	GlobalState global;
 	
-	auto generateFields = [&] (bool array) {
+	auto generateFields = [&] (bool array, bool relative) {
 		if(!global.reportSize || !global.reportCount)
 			throw std::runtime_error("Missing Report Size/Count");
 			
@@ -271,10 +271,14 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				Element element;
 				element.usageId = actual_id;
 				element.usagePage = global.usagePage.value();
-				//element.isAbsolute = true;
+				element.logicalMin = field.dataMin;
+				element.logicalMax = field.dataMax;
+				element.isAbsolute = !relative;
 				elements.push_back(element);
 			}
 		}else{
+			assert(!relative);
+
 			if(!global.logicalMin || !global.logicalMax)
 				throw std::runtime_error("logicalMin or logicalMax not set");
 			
@@ -308,7 +312,8 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 				Element element;
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
-				//element.isAbsolute = true;
+				element.logicalMin = 0;
+				element.logicalMax = 1;
 				elements.push_back(element);
 			}
 		}
@@ -317,10 +322,20 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 	if(logDescriptorParser)
 		printf("usb-hid: Parsing report descriptor:\n");
 
+	auto fetch = [&] (int n) -> uint32_t {
+		assert(p + n <= limit);
+		uint32_t x = 0;
+		for(int i = 0; i < n; i++)
+			x |= (*p++ << (i * 8));
+		return x;
+	};
+
 	while(p < limit) {
-		uint8_t token = fetch(p, limit);
-		int size = (token & 0x03) == 3 ? 4 : (token & 0x03);
-		uint32_t data = fetch(p, limit, size);
+		uint8_t token = fetch(1);
+		int size = 0;
+		if(token & 0x03)
+			size = (1 << ((token & 0x03) - 1));
+		uint32_t data = fetch(size);
 		switch(token & 0xFC) {
 		// Main items
 		case 0xC0:
@@ -337,7 +352,7 @@ void HidDevice::parseReportDescriptor(Device device, uint8_t *p, uint8_t* limit)
 		case 0x80:
 			if(logDescriptorParser)
 				printf("usb-hid:     Input: 0x%x\n", data);
-			generateFields(!(data & item::variable));
+			generateFields(!(data & item::variable), data & item::relative);
 			local = LocalState();
 			break;
 
@@ -490,11 +505,25 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		auto limit = reinterpret_cast<uint8_t *>(buffer.data()) + report_descs[i];
 		parseReportDescriptor(device, p, limit);
 	}
-	
-	auto config = COFIBER_AWAIT device.useConfiguration(config_num);
-	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 
-	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
+	// Report supported input codes to the evdev core.
+	for(size_t i = 0; i < elements.size(); i++) {
+		auto element = &elements[i];
+		setupInputTranslation(element);
+		if(element->inputType < 0)
+			continue;
+		if(element->inputType == EV_ABS)
+			_eventDev->setAbsoluteDetails(element->inputCode,
+					element->logicalMin, element->logicalMax);
+		_eventDev->enableEvent(element->inputType, element->inputCode);
+	}
+
+	if(logFields)
+		for(size_t i = 0; i < fields.size(); i++) {
+			std::cout << "Field " << i << ": [" << fields[i].arraySize
+					<< "]. Bit size: " << fields[i].bitSize
+					<< ", signed: " << fields[i].isSigned << std::endl;
+		}
 
 	// Create an mbus object for the device.
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
@@ -515,22 +544,10 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	});
 
 	COFIBER_AWAIT root.createObject("input_hid", mbus_descriptor, std::move(handler));
-
-	// Report supported input codes to the evdev core.
-	for(size_t i = 0; i < elements.size(); i++) {
-		auto element = &elements[i];
-		setupInputTranslation(element);
-		if(element->inputType < 0)
-			continue;
-		_eventDev->enableEvent(element->inputType, element->inputCode);
-	}
-
-	if(logFields)
-		for(size_t i = 0; i < fields.size(); i++) {
-			std::cout << "Field " << i << ": [" << fields[i].arraySize
-					<< "]. Bit size: " << fields[i].bitSize
-					<< ", signed: " << fields[i].isSigned << std::endl;
-		}
+	
+	auto config = COFIBER_AWAIT device.useConfiguration(config_num);
+	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
+	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 
 	// Read reports from the USB device.
 	std::vector<std::pair<bool, int32_t>> values;
@@ -540,10 +557,10 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
 		auto length = COFIBER_AWAIT endp.transfer(transfer);
-		std::cout << "usb-hid: Report size: " << length
-				<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
 		
 		if(logRawPackets) {
+			std::cout << "usb-hid: Report size: " << length
+					<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
 			std::cout << "usb-hid: Packet:";
 			std::cout << std::hex;
 			for(size_t i = 0; i < 4; i++)

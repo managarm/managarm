@@ -68,9 +68,19 @@ private:
 };
 
 struct EventDevice {
+	struct AbsoluteSlot {
+		int minimum;
+		int maximum;
+
+		int value;
+	};
+
+public:
 	friend struct File;
 
 	EventDevice();
+
+	void setAbsoluteDetails(int code, int minimum, int maximum);
 
 	void enableEvent(int type, int code);
 
@@ -93,9 +103,11 @@ private:
 	std::array<uint8_t, 4> _typeBits;
 	std::array<uint8_t, 96> _keyBits;
 	std::array<uint8_t, 2> _relBits;
+	std::array<uint8_t, 8> _absBits;
 
-	// Current input state.
+	// Input details and current input state.
 	std::array<uint8_t, 96> _currentKeys;
+	std::array<AbsoluteSlot, 8> _absoluteSlots;
 
 	boost::intrusive::list<
 		Event,

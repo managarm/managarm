@@ -23,7 +23,8 @@ namespace pages {
 }
 
 namespace item {
-	constexpr uint32_t variable = 0x02;
+	constexpr uint32_t variable = (1 << 1);
+	constexpr uint32_t relative = (1 << 2);
 }
 
 struct HidDescriptor : public DescriptorBase {

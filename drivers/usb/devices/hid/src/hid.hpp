@@ -38,6 +38,8 @@ struct Element {
 
 	uint32_t usageId;
 	uint16_t usagePage;
+	int32_t logicalMin;
+	int32_t logicalMax;
 	bool isAbsolute;
 
 	int inputType;

@@ -247,4 +247,11 @@ message SvrResponse {
 	optional string drm_driver_name = 57;
 	optional string drm_driver_date = 58;
 	optional string drm_driver_desc = 59;
+	
+	optional int32 input_value = 65;
+	optional int32 input_min = 66;
+	optional int32 input_max = 67;
+	optional int32 input_fuzz = 68;
+	optional int32 input_flat = 69;
+	optional int32 input_resolution = 70;
 }
