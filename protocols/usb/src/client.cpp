@@ -58,8 +58,8 @@ struct EndpointState : EndpointData {
 	:_lane(std::move(lane)) { }
 	
 	async::result<void> transfer(ControlTransfer info) override;
-	async::result<void> transfer(InterruptTransfer info) override;
-	async::result<void> transfer(BulkTransfer info) override;
+	async::result<size_t> transfer(InterruptTransfer info) override;
+	async::result<size_t> transfer(BulkTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -242,7 +242,7 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(ControlTransfer inf
 	throw std::runtime_error("endpoint control transfer not implemented");
 }))
 
-COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer info),
+COFIBER_ROUTINE(async::result<size_t>, EndpointState::transfer(InterruptTransfer info),
 		([=] {
 	if(info.flags == kXferToDevice) {
 		throw std::runtime_error("xfer to device not implemented");
@@ -257,6 +257,7 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer i
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST);
 		req.set_length(info.buffer.size());
+		req.set_allow_short(info.allowShortPackets);
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -273,14 +274,15 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(InterruptTransfer i
 		managarm::usb::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
-		COFIBER_RETURN();
+		COFIBER_RETURN(recv_data.actualLength());
 	}
 }))
 
-COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
+COFIBER_ROUTINE(async::result<size_t>, EndpointState::transfer(BulkTransfer info),
 		([=] {
 	if(info.flags == kXferToDevice) {
 		assert(info.flags == kXferToDevice);
+		assert(!info.allowShortPackets);
 	
 		helix::Offer offer;
 		helix::SendBuffer send_req;
@@ -306,7 +308,7 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 		managarm::usb::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
-		COFIBER_RETURN();
+		COFIBER_RETURN(resp.size());
 	}else{
 		assert(info.flags == kXferToHost);
 	
@@ -318,6 +320,7 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST);
 		req.set_length(info.buffer.size());
+		req.set_allow_short(info.allowShortPackets);
 		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -334,7 +337,7 @@ COFIBER_ROUTINE(async::result<void>, EndpointState::transfer(BulkTransfer info),
 		managarm::usb::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::usb::Errors::SUCCESS);
-		COFIBER_RETURN();
+		COFIBER_RETURN(recv_data.actualLength());
 	}
 }))
 

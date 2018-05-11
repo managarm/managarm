@@ -27,18 +27,20 @@ struct ControlTransfer {
 
 struct InterruptTransfer {
 	InterruptTransfer(XferFlags flags, arch::dma_buffer_view buffer)
-	: flags{flags}, buffer{buffer} { }
+	: flags{flags}, buffer{buffer}, allowShortPackets{false} { }
 
 	XferFlags flags;
 	arch::dma_buffer_view buffer;
+	bool allowShortPackets;
 };
 
 struct BulkTransfer {
 	BulkTransfer(XferFlags flags, arch::dma_buffer_view buffer)
-	: flags{flags}, buffer{buffer} { }
+	: flags{flags}, buffer{buffer}, allowShortPackets{false} { }
 
 	XferFlags flags;
 	arch::dma_buffer_view buffer;
+	bool allowShortPackets;
 };
 
 enum class PipeType {
@@ -51,8 +53,8 @@ enum class PipeType {
 
 struct EndpointData {
 	virtual async::result<void> transfer(ControlTransfer info) = 0;
-	virtual async::result<void> transfer(InterruptTransfer info) = 0;
-	virtual async::result<void> transfer(BulkTransfer info) = 0;
+	virtual async::result<size_t> transfer(InterruptTransfer info) = 0;
+	virtual async::result<size_t> transfer(BulkTransfer info) = 0;
 };
 
 
@@ -60,8 +62,8 @@ struct Endpoint {
 	Endpoint(std::shared_ptr<EndpointData> state);
 	
 	async::result<void> transfer(ControlTransfer info) const;
-	async::result<void> transfer(InterruptTransfer info) const;
-	async::result<void> transfer(BulkTransfer info) const;
+	async::result<size_t> transfer(InterruptTransfer info) const;
+	async::result<size_t> transfer(BulkTransfer info) const;
 
 private:
 	std::shared_ptr<EndpointData> _state;

@@ -39,9 +39,13 @@ message CntRequest {
 	optional int32 alternative = 9;
 
 	optional int32 pipetype = 10;
+
+	optional bool allow_short = 11;
 }
 
 message SvrResponse {
 	optional Errors error = 1;
+
+	optional int64 size = 2;
 }
 

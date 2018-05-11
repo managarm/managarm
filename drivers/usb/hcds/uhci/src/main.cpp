@@ -129,11 +129,11 @@ async::result<void> EndpointState::transfer(ControlTransfer info) {
 	__builtin_unreachable();
 }
 
-async::result<void> EndpointState::transfer(InterruptTransfer info) {
+async::result<size_t> EndpointState::transfer(InterruptTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
-async::result<void> EndpointState::transfer(BulkTransfer info) {
+async::result<size_t> EndpointState::transfer(BulkTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
@@ -789,10 +789,10 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto transaction = _buildControl(address, pipe, info.flags,
 			info.setup, info.buffer,  endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	return transaction->voidPromise.async_get();
 }
 
-async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 		InterruptTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -801,16 +801,17 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->inStates[pipe];
 	}else{
 		assert(type == PipeType::out);
+		assert(!info.allowShortPackets);
 		endpoint = &device->outStates[pipe];
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize, info.allowShortPackets);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
 
-async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 		BulkTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -819,11 +820,12 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 		endpoint = &device->inStates[pipe];
 	}else{
 		assert(type == PipeType::out);
+		assert(!info.allowShortPackets);
 		endpoint = &device->outStates[pipe];
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize, info.allowShortPackets);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -863,7 +865,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 }
 
 auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
+		arch::dma_buffer_view buffer, size_t max_packet_size,
+		bool allow_short_packet) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
@@ -873,6 +876,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
 		assert(chunk);
+		// TODO: Only set detectShort bit if allow_short_packet is true?
 		transfers[i].status.store(td_status::active(true)
 				| td_status::completionIrq(i + 1 == num_data)
 				| td_status::detectShort(true));
@@ -886,7 +890,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		progress += chunk;
 	}
 
-	return new Transaction{std::move(transfers)};
+	return new Transaction{std::move(transfers), allow_short_packet};
 }
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
@@ -894,7 +898,7 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 	auto transaction = _buildControl(address, pipe, info.flags,
 			info.setup, info.buffer, max_packet_size);
 	_linkTransaction(queue, transaction);
-	return transaction->promise.async_get();
+	return transaction->voidPromise.async_get();
 }
 
 // ----------------------------------------------------------------
@@ -939,15 +943,29 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	}
 	
 	if(front->numComplete == front->transfers.size()) {
+		auto decodeLength = [] (size_t n) -> size_t {
+			if(n == 0x7FF)
+				return 0;
+			assert(n <= 0x4FF);
+			return n + 1;
+		};
+
 		// Make sure that all TDs transfer all their data.
+		size_t total_length = 0;
 		for(size_t i = 0; i < front->numComplete; i++) {
 			auto &transfer = front->transfers[i];
-			assert((transfer.status.load() & td_status::actualLength)
-					== (transfer.token.load() & td_token::length));
+			auto n = transfer.status.load() & td_status::actualLength;
+			if(!front->allowShortPackets || i + 1 < front->numComplete) {
+				if(n != (transfer.token.load() & td_token::length))
+					throw std::runtime_error("uhci: Short packet not allowed");
+			}
+
+			total_length += decodeLength(n);
 		}
 
 		//printf("Transfer complete!\n");
-		front->promise.set_value();
+		front->promise.set_value(total_length);
+		front->voidPromise.set_value();
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();

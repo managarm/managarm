@@ -22,7 +22,7 @@
 #include "hid.hpp"
 
 namespace {
-	constexpr bool logDescriptorParser = false;
+	constexpr bool logDescriptorParser = true;
 	constexpr bool logFields = false;
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
@@ -537,7 +537,11 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	values.resize(elements.size());
 	while(true) {
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
-		COFIBER_AWAIT endp.transfer(InterruptTransfer{XferFlags::kXferToHost, report});
+		InterruptTransfer transfer{XferFlags::kXferToHost, report};
+		transfer.allowShortPackets = true;
+		auto length = COFIBER_AWAIT endp.transfer(transfer);
+		std::cout << "usb-hid: Report size: " << length
+				<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
 		
 		if(logRawPackets) {
 			std::cout << "usb-hid: Packet:";
@@ -548,8 +552,8 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		}
 
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
-		interpret(fields, reinterpret_cast<uint8_t *>(report.data()), report.size(),
-				values);
+		interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
+				length, values);
 	
 		if(logFieldValues) {
 			for(size_t i = 0; i < values.size(); i++)

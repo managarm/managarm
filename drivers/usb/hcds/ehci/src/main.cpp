@@ -158,11 +158,11 @@ async::result<void> EndpointState::transfer(ControlTransfer info) {
 	__builtin_unreachable();
 }
 
-async::result<void> EndpointState::transfer(InterruptTransfer info) {
+async::result<size_t> EndpointState::transfer(InterruptTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
-async::result<void> EndpointState::transfer(BulkTransfer info) {
+async::result<size_t> EndpointState::transfer(BulkTransfer info) {
 	return _controller->transfer(_device, _type, _endpoint, info);
 }
 
@@ -547,10 +547,10 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer,  endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
-	return transaction->promise.async_get();
+	return transaction->voidPromise.async_get();
 }
 
-async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 		InterruptTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -568,7 +568,7 @@ async::result<void> Controller::transfer(int address, PipeType type, int pipe,
 	return transaction->promise.async_get();
 }
 
-async::result<void> Controller::transfer(int address, PipeType type, int pipe,
+async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 		BulkTransfer info) {
 	// TODO: Ensure pipe type matches transfer direction.
 	auto device = &_activeDevices[address];
@@ -715,7 +715,7 @@ async::result<void> Controller::_directTransfer(ControlTransfer info,
 	auto transaction = _buildControl(info.flags,
 			info.setup, info.buffer, max_packet_size);
 	_linkTransaction(queue, transaction);
-	return transaction->promise.async_get();
+	return transaction->voidPromise.async_get();
 }
 
 // ------------------------------------------------------------------------
@@ -785,7 +785,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	if(current == active->transfers.size()) {
 		if(logSubmits)
 			std::cout << "Transfer complete!" << std::endl;
-		active->promise.set_value();
+		active->promise.set_value(0); // FIXME: This is just wrong.
+		active->voidPromise.set_value();
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();

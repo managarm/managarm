@@ -33,7 +33,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 
 			// FIXME: Fill in the correct DMA pool.
 			arch::dma_buffer buffer{nullptr, req.length()};
-			COFIBER_AWAIT endpoint.transfer(InterruptTransfer{XferFlags::kXferToHost, buffer});
+			InterruptTransfer transfer{XferFlags::kXferToHost, buffer};
+			transfer.allowShortPackets = req.allow_short();
+			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -41,7 +43,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, buffer.data(), buffer.size()));
+					helix::action(&send_data, buffer.data(), length));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
@@ -56,10 +58,12 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			COFIBER_AWAIT payload.async_wait();
 			HEL_CHECK(recv_buffer.error());
 		
-			COFIBER_AWAIT endpoint.transfer(BulkTransfer{XferFlags::kXferToDevice, buffer});	
+			BulkTransfer transfer{XferFlags::kXferToDevice, buffer};
+			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
+			resp.set_size(length);
 			
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -72,8 +76,9 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 
 			// FIXME: Fill in the correct DMA pool.
 			arch::dma_buffer buffer{nullptr, req.length()};
-			COFIBER_AWAIT endpoint.transfer(BulkTransfer{XferFlags::kXferToHost, 
-					buffer});
+			BulkTransfer transfer{XferFlags::kXferToHost, buffer};
+			transfer.allowShortPackets = req.allow_short();
+			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -81,7 +86,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, buffer.data(), buffer.size()));
+					helix::action(&send_data, buffer.data(), length));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());

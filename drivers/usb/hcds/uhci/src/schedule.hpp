@@ -105,12 +105,16 @@ private:
 	};
 
 	struct Transaction : ScheduleItem {
-		explicit Transaction(arch::dma_array<TransferDescriptor> transfers)
-		: transfers{std::move(transfers)}, numComplete{0} { }
+		explicit Transaction(arch::dma_array<TransferDescriptor> transfers,
+				bool allow_short_packets = false)
+		: transfers{std::move(transfers)}, numComplete{0},
+				allowShortPackets{allow_short_packets} { }
 		
 		arch::dma_array<TransferDescriptor> transfers;
 		size_t numComplete;
-		async::promise<void> promise;
+		bool allowShortPackets;
+		async::promise<size_t> promise;
+		async::promise<void> voidPromise;
 	};
 
 	struct QueueEntity : ScheduleItem {
@@ -156,12 +160,13 @@ public:
 			arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
 			size_t max_packet_size);
 	static Transaction *_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-			arch::dma_buffer_view buffer, size_t max_packet_size);
+			arch::dma_buffer_view buffer, size_t max_packet_size,
+			bool allow_short_packets);
 
 public:
 	async::result<void> transfer(int address, int pipe, ControlTransfer info);
-	async::result<void> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
-	async::result<void> transfer(int address, PipeType type, int pipe, BulkTransfer info);
+	async::result<size_t> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
+	async::result<size_t> transfer(int address, PipeType type, int pipe, BulkTransfer info);
 
 private:
 	async::result<void> _directTransfer(int address, int pipe, ControlTransfer info,
@@ -259,8 +264,8 @@ struct EndpointState : EndpointData {
 			int device, PipeType type, int endpoint);
 
 	async::result<void> transfer(ControlTransfer info) override;
-	async::result<void> transfer(InterruptTransfer info) override;
-	async::result<void> transfer(BulkTransfer info) override;
+	async::result<size_t> transfer(InterruptTransfer info) override;
+	async::result<size_t> transfer(BulkTransfer info) override;
 
 private:
 	std::shared_ptr<Controller> _controller;

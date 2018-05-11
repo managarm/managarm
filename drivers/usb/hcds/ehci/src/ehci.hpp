@@ -63,7 +63,8 @@ struct Controller : std::enable_shared_from_this<Controller> {
 		
 		arch::dma_array<TransferDescriptor> transfers;
 		size_t numComplete;
-		async::promise<void> promise;
+		async::promise<size_t> promise;
+		async::promise<void> voidPromise;
 	};
 
 	struct QueueEntity : AsyncItem {
@@ -113,8 +114,8 @@ public:
 
 
 	async::result<void> transfer(int address, int pipe, ControlTransfer info);
-	async::result<void> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
-	async::result<void> transfer(int address, PipeType type, int pipe, BulkTransfer info);
+	async::result<size_t> transfer(int address, PipeType type, int pipe, InterruptTransfer info);
+	async::result<size_t> transfer(int address, PipeType type, int pipe, BulkTransfer info);
 
 private:
 	async::result<void> _directTransfer(ControlTransfer info,
@@ -221,8 +222,8 @@ struct EndpointState : EndpointData {
 			int device, PipeType type, int endpoint);
 
 	async::result<void> transfer(ControlTransfer info) override;
-	async::result<void> transfer(InterruptTransfer info) override;
-	async::result<void> transfer(BulkTransfer info) override;
+	async::result<size_t> transfer(InterruptTransfer info) override;
+	async::result<size_t> transfer(BulkTransfer info) override;
 
 private:
 	std::shared_ptr<Controller> _controller;
