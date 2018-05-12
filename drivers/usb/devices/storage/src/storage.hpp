@@ -18,6 +18,7 @@ struct [[ gnu::packed ]] CommandBlockWrapper {
 	uint8_t cmdLength;
 	uint8_t cmdData[16];
 };
+static_assert(sizeof(CommandBlockWrapper) == 31);
 
 struct [[ gnu::packed ]] CommandStatusWrapper {
 	uint32_t signature;
@@ -25,6 +26,7 @@ struct [[ gnu::packed ]] CommandStatusWrapper {
 	uint32_t dataResidue;
 	uint8_t status;
 };
+static_assert(sizeof(CommandStatusWrapper) == 13);
 
 namespace scsi {
 

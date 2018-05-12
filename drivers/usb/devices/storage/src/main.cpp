@@ -17,6 +17,13 @@
 
 #include "storage.hpp"
 
+namespace {
+	constexpr bool logSteps = false;
+
+	// I own a USB key that does not support the READ6 command. ~AvdG
+	constexpr bool enableRead6 = false;
+}
+
 COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf_num), ([=] {
 	auto descriptor = COFIBER_AWAIT _usbDevice.configurationDescriptor();
 
@@ -56,7 +63,7 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 			cbw.flags = 0x80; // Direction: Device-to-host.
 			cbw.lun = 0;
 
-			if(req->sector <= 0x1FFFFF) {
+			if(enableRead6 && req->sector <= 0x1FFFFF) {
 				scsi::Read6 command;
 				memset(&command, 0, sizeof(scsi::Read6));
 				command.opCode = 0x08;
@@ -86,20 +93,33 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 
 			// TODO: Respect USB device DMA requirements.
 
+			if(logSteps)
+				std::cout << "block-usb: Sending CBW" << std::endl;
 			COFIBER_AWAIT endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
 
+			if(logSteps)
+				std::cout << "block-usb: Exchanging data" << std::endl;
 			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}});
 
 			CommandStatusWrapper csw;
+			if(logSteps)
+				std::cout << "block-usb: Receiving CSW" << std::endl;
 			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
 
+			if(logSteps)
+				std::cout << "block-usb: Request complete" << std::endl;
 			assert(csw.signature == Signatures::kSignCsw);
 			assert(csw.tag == 1);
 			assert(!csw.dataResidue);
-			assert(!csw.status);
+			if(csw.status) {
+				std::cout << "block-usb: Error status 0x"
+						<< std::hex << (unsigned int)csw.status << std::dec
+						<<  " in CSW" << std::endl;
+				throw std::runtime_error("block-usb: Giving up");
+			}
 
 			req->promise.set_value();
 			_queue.pop_front();
@@ -128,6 +148,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
 	std::experimental::optional<int> intf_class;
+	std::experimental::optional<int> intf_subclass;
 	std::experimental::optional<int> intf_protocol;
 
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
@@ -137,25 +158,32 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 			config_number = info.configNumber.value();
 		}else if(type == descriptor_type::interface) {
 			if(intf_number) {
-				std::cout << "usb-storage: Ignoring interface "
+				std::cout << "block-usb: Ignoring interface "
 						<< info.interfaceNumber.value() << std::endl;
 				return;
 			}
 			intf_number = info.interfaceNumber.value();
 			
 			assert(!intf_class);
+			assert(!intf_subclass);
 			assert(!intf_protocol);
 			auto desc = (InterfaceDescriptor *)p;
 			intf_class = desc->interfaceClass;
+			intf_subclass = desc->interfaceSubClass;
 			intf_protocol = desc->interfaceProtocoll;
 		}
 	});
 
-	std::cout << "intf_class: " << intf_class.value() << ", intf_protocol: " << intf_protocol.value() << std::endl;
-	if(intf_class.value() != 0x08 || intf_protocol.value() != 0x50)
+	std::cout << "block-usb: Device class: 0x" << std::hex << intf_class.value()
+			<< ", subclass: 0x" << intf_subclass.value()
+			<< ", protocol: 0x" << intf_protocol.value()
+			<< std::dec << std::endl;
+	if(intf_class.value() != 0x08
+			|| intf_subclass.value() != 0x06
+			|| intf_protocol.value() != 0x50)
 		return;
 
-	std::cout << "storage: Detected USB device" << std::endl;
+	std::cout << "block-usb: Detected USB device" << std::endl;
 
 	auto storage_device = new StorageDevice(device);
 	storage_device->run(config_number.value(), intf_number.value());
@@ -184,7 +212,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	std::cout << "storage: Starting USB driver" << std::endl;
+	std::cout << "block-usb: Starting driver" << std::endl;
 
 	observeDevices();
 

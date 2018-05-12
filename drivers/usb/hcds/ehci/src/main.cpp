@@ -25,8 +25,8 @@
 #include "spec.hpp"
 #include "ehci.hpp"
 
-static const bool logIrqs = false;
-static const bool logSubmits = false;
+static const bool logIrqs = true;
+static const bool logSubmits = true;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
@@ -247,14 +247,19 @@ void Controller::_checkPorts() {
 
 		if(sc & portsc::enableChange) {
 			// EHCI specifies that enableChange is only set on port error.
-			assert(!(sc & portsc::enableStatus));
-			port_space.store(port_regs::sc, portsc::enableChange(true));
-			std::cout << "ehci: Port " << i << " disabled due to error." << std::endl;
+			port_space.store(port_regs::sc, portsc::enableChange(true)
+					| portsc::portOwner(sc & portsc::portOwner));
+			if(!(sc & portsc::enableStatus)) {
+				std::cout << "ehci: Port " << i << " disabled due to error" << std::endl;
+			}else{
+				std::cout << "ehci: Spurious portsc::enableChange" << std::endl;
+			}
 		}
 		
 		if(sc & portsc::connectChange) {
 			// TODO: Be careful to set the correct bits (e.g. suspend once we support it).
-			port_space.store(port_regs::sc, portsc::connectChange(true));
+			port_space.store(port_regs::sc, portsc::connectChange(true)
+					| portsc::portOwner(sc & portsc::portOwner));
 			if(sc & portsc::connectStatus) {
 				if((sc & portsc::lineStatus) == 1) {
 					std::cout << "ehci: Device on port " << i << " is low-speed" << std::endl;
@@ -366,8 +371,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
-	std::cout << "ehci: Fix IRQ kicking!" << std::endl;
-	//HEL_CHECK(helAcknowledgeIrq(_irq.getHandle()));
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
 
 	uint64_t sequence = 0;
 	while(true) {
@@ -382,8 +386,6 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		if(logIrqs)
 			std::cout << "ehci: IRQ fired (sequence: " << sequence << ")." << std::endl;
 
-		// _updateFrame();
-
 		auto status = _operational.load(op_regs::usbsts);
 		assert(!(status & usbsts::hostError));
 		if(!(status & usbsts::transactionIrq)
@@ -397,7 +399,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 				usbsts::transactionIrq(status & usbsts::transactionIrq)
 				| usbsts::errorIrq(status & usbsts::errorIrq)
 				| usbsts::portChange(status & usbsts::portChange));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, 0));
 		
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {
@@ -512,7 +514,7 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 	head->flags.store(qh_flags::deviceAddr(address)
 			| qh_flags::endpointNumber(pipe)
 			| qh_flags::endpointSpeed(0x02)
-			| qh_flags::dataToggleCtrl(type == PipeType::control)
+			| qh_flags::loadDataToggle(type == PipeType::control)
 			| qh_flags::maxPacketLength(packet_size));
 	head->mask.store(qh_mask::interruptScheduleMask(0x00)
 			| qh_mask::multiplier(0x01));
@@ -830,7 +832,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::resetPort(int number), ([=] {
 	HEL_CHECK(helGetClock(&tick));
 
 	helix::AwaitClock await_clock;
-	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50000000,
+	auto &&submit = helix::submitAwaitClock(&await_clock, tick + 50'000'000,
 			helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(await_clock.error());

@@ -414,15 +414,16 @@ Controller::Controller(arch::io_space base, helix::UniqueIrq irq)
 }
 
 void Controller::initialize() {
-	auto initial_status = _base.load(op_regs::status);
-	assert(!(initial_status & status::transactionIrq));
-	assert(!(initial_status & status::errorIrq));
-	
-	// host controller reset.
+	// Host controller reset.
 	_base.store(op_regs::command, command::hostReset(true));
 	while((_base.load(op_regs::command) & command::hostReset) != 0) { }
 
-	// setup the frame list.
+	// TODO: What is the rationale of this check?
+	auto initial_status = _base.load(op_regs::status);
+	assert(!(initial_status & status::transactionIrq));
+	assert(!(initial_status & status::errorIrq));
+
+	// Setup the frame list.
 	HelHandle list_handle;
 	HEL_CHECK(helAllocateMemory(4096, 0, &list_handle));
 	void *list_mapping;
@@ -435,14 +436,14 @@ void Controller::initialize() {
 		list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
 	}
 
-	// pass the frame list to the controller and run it.
+	// Pass the frame list to the controller and run it.
 	uintptr_t list_physical;
 	HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
 	assert((list_physical % 0x1000) == 0);
 	_base.store(op_regs::frameListBase, list_physical);
 	_base.store(op_regs::command, command::runStop(true));
 	
-	// enable interrupts.
+	// Enable interrupts.
 	_base.store(op_regs::irqEnable, irq::timeout(true) | irq::resume(true)
 			| irq::transaction(true) | irq::shortPacket(true));
 
