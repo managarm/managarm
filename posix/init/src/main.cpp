@@ -33,10 +33,15 @@ int main() {
 		execl("/sbin/virtio-block", "virtio-block", nullptr);
 	}else assert(virtio != -1);
 
-	auto storage = fork();
-	if(!storage) {
-		execl("/sbin/storage", "storage", nullptr);
-	}else assert(storage != -1);
+	auto block_ata = fork();
+	if(!block_ata) {
+		execl("/sbin/block-ata", "block-ata", nullptr);
+	}else assert(block_ata != -1);
+
+	auto block_usb = fork();
+	if(!block_usb) {
+		execl("/sbin/storage", "block-usb", nullptr);
+	}else assert(block_usb != -1);
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
 	while(access("/dev/sda0", F_OK)) {

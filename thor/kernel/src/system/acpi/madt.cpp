@@ -791,6 +791,7 @@ void initializeExtendedSystem() {
 	commitIrq(resolveIrq(4));
 	commitIrq(resolveIrq(9));
 	commitIrq(resolveIrq(12));
+	commitIrq(resolveIrq(14));
 	
 	frigg::infoLogger() << "thor: Entering ACPI mode." << frigg::endLog;
 	ACPICA_CHECK(AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION));
