@@ -336,7 +336,21 @@ ACPI_STATUS AcpiOsReadPciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
 
 ACPI_STATUS AcpiOsWritePciConfiguration(ACPI_PCI_ID *target, UINT32 offset,
 		UINT64 value, UINT32 width) {
-	NOT_IMPLEMENTED();
+	assert(!target->Segment);
+	switch(width) {
+	case 8:
+		writePciByte(target->Bus, target->Device, target->Function, offset, value);
+		break;
+	case 16:
+		writePciHalf(target->Bus, target->Device, target->Function, offset, value);
+		break;
+	case 32:
+		writePciWord(target->Bus, target->Device, target->Function, offset, value);
+		break;
+	default:
+		frigg::panicLogger() << "Unexpected PCI access width" << frigg::endLog;
+	}
+	return AE_OK;
 }
 
 // --------------------------------------------------------
