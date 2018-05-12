@@ -28,6 +28,11 @@ CowBundle::CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
 }
 
+PhysicalAddr CowBundle::peekRange(uintptr_t) {
+	assert(!"This should never be called");
+	__builtin_unreachable();
+}
+
 PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 	assert(!(offset & (kPageSize - 1)));
 
@@ -624,7 +629,10 @@ void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) 
 
 ExteriorBundleView::ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
 		ptrdiff_t view_offset, size_t view_size)
-: _bundle{frigg:move(bundle)}, _viewOffset{view_offset}, _viewSize{view_size} { }
+: _bundle{frigg:move(bundle)}, _viewOffset{view_offset}, _viewSize{view_size} {
+	assert(!(_viewOffset & (kPageSize - 1)));
+	assert(!(_viewSize & (kPageSize - 1)));
+}
 
 frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 ExteriorBundleView::resolveRange(ptrdiff_t offset, size_t size) {
@@ -693,26 +701,23 @@ Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 // --------------------------------------------------------
 
 NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-		MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset)
-: Mapping{owner, address, length, flags}, _memory{frigg::move(memory)}, _offset{offset} { }
+		MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset)
+: Mapping{owner, address, length, flags}, _view{frigg::move(view)}, _offset{offset} { }
 
 frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 NormalMapping::resolveRange(ptrdiff_t offset, size_t size) {
 	assert(offset + size <= length());
-	return frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>{_memory.get(), _offset + offset,
-			frigg::min(size, length() - offset)};
+	return _view->resolveRange(_offset + offset, frigg::min(size, length() - offset));
 }
 
 Mapping *NormalMapping::shareMapping(AddressSpace *dest_space) {
 	// TODO: Always keep the exact flags?
 	return frigg::construct<NormalMapping>(*kernelAlloc, dest_space,
-			address(), length(), flags(), _memory, _offset);
+			address(), length(), flags(), _view, _offset);
 }
 
 Mapping *NormalMapping::copyOnWrite(AddressSpace *dest_space) {
-	auto chain = frigg::makeShared<CowBundle>(*kernelAlloc, 
-			frigg::makeShared<ExteriorBundleView>(*kernelAlloc, _memory, 0, _memory->getLength()),
-			 _offset, length());
+	auto chain = frigg::makeShared<CowBundle>(*kernelAlloc, _view, _offset, length());
 	return frigg::construct<CowMapping>(*kernelAlloc, dest_space,
 			address(), length(), flags(), frigg::move(chain));
 }
@@ -731,7 +736,9 @@ void NormalMapping::install(bool overwrite) {
 		//if(flags() & MappingFlags::dontRequireBacking)
 		//	grab_flags |= kGrabDontRequireBacking;
 
-		PhysicalAddr physical = _memory->peekRange(_offset + progress);
+		auto range = _view->resolveRange(_offset + progress, kPageSize);
+		assert(range.get<2>() >= kPageSize);
+		PhysicalAddr physical = range.get<0>()->peekRange(range.get<1>());
 
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
@@ -758,10 +765,12 @@ PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
 	//if(flags() & MappingFlags::dontRequireBacking)
 	//	grab_flags |= kGrabDontRequireBacking;
 
-	return _memory->fetchRange(_offset + disp);
+	auto range = _view->resolveRange(_offset + disp, kPageSize);
+	assert(range.get<2>() >= kPageSize);
+	return range.get<0>()->fetchRange(range.get<1>());
 }
 
-bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
+bool NormalMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	if(fault_flags & AddressSpace::kFaultWrite)
 		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
 			return false;
@@ -777,9 +786,13 @@ bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	auto page = disp & ~(kPageSize - 1);
-	auto physical = _memory->fetchRange(_offset + page);
-	auto vaddr = address() + page;
+	auto fault_page = fault_offset & ~(kPageSize - 1);
+	auto vaddr = address() + fault_page;
+
+	auto range = _view->resolveRange(_offset + fault_page, kPageSize);
+	assert(range.get<2>() >= kPageSize);
+	auto physical = range.get<0>()->fetchRange(range.get<1>());
+
 	// TODO: This can actually happen!
 	assert(!owner()->_pageSpace.isMapped(vaddr));
 	owner()->_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
@@ -855,6 +868,7 @@ bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	auto fault_page = fault_offset & ~(kPageSize - 1);
+
 	auto physical = _cowBundle->fetchRange(fault_page);
 	// TODO: Ensure that no racing threads still see the original page.
 	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
@@ -883,7 +897,7 @@ void AddressSpace::setupDefaultMappings() {
 }
 
 void AddressSpace::map(Guard &guard,
-		frigg::UnsafePtr<Memory> memory, VirtualAddr address,
+		frigg::UnsafePtr<VirtualView> view, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
 	assert(length);
@@ -939,7 +953,7 @@ void AddressSpace::map(Guard &guard,
 		mapping_flags |= MappingFlags::dontRequireBacking;
 
 	auto mapping = frigg::construct<NormalMapping>(*kernelAlloc, this, target, length,
-			static_cast<MappingFlags>(mapping_flags), memory.toShared(), offset);
+			static_cast<MappingFlags>(mapping_flags), view.toShared(), offset);
 	
 	// Install the new mapping object.
 	_mappings.insert(mapping);

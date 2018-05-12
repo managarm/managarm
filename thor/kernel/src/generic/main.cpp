@@ -122,12 +122,15 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 			Memory::transfer(memory.get(), phdr.p_vaddr - virt_address,
 					image.get(), phdr.p_offset, phdr.p_filesz);
 
+			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+					frigg::move(memory), 0, virt_length);
+
 			VirtualAddr actual_address;
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
 
-				space->map(space_guard, memory, base + virt_address, 0, virt_length,
+				space->map(space_guard, frigg::move(view), base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite,
 						&actual_address);
@@ -135,7 +138,7 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
 
-				space->map(space_guard, memory, base + virt_address, 0, virt_length,
+				space->map(space_guard, frigg::move(view), base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute,
 						&actual_address);
@@ -189,13 +192,15 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
 	auto stack_memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, stack_size);
+	auto stack_view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			stack_memory, 0, stack_size);
 
 	VirtualAddr stack_base;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
 
-		space->map(space_guard, stack_memory, 0, 0, stack_size,
+		space->map(space_guard, frigg::move(stack_view), 0, 0, stack_size,
 				AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
 					| AddressSpace::kMapProtWrite,
 				&stack_base);
@@ -754,6 +759,12 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallAccessPhysical: {
 		HelHandle handle;
 		*image.error() = helAccessPhysical((uintptr_t)arg0, (size_t)arg1, &handle);
+		*image.out0() = handle;
+	} break;
+	case kHelCallCreateSliceView: {
+		HelHandle handle;
+		*image.error() = helCreateSliceView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
+				(uint32_t)arg3, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCreateSpace: {

@@ -70,7 +70,7 @@ namespace {
 				descriptor = IoDescriptor{device->bars[index].io};
 			}else{
 				assert(device->bars[index].type == PciDevice::kBarMemory);
-				descriptor = MemoryAccessDescriptor{device->bars[index].memory};
+				descriptor = MemoryBundleDescriptor{device->bars[index].memory};
 			}
 			
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);

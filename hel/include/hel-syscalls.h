@@ -79,6 +79,15 @@ extern inline __attribute__ (( always_inline )) HelError helAccessPhysical(uintp
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCreateSliceView(HelHandle bundle,
+		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
+	HelWord hel_handle;
+	HelError error = helSyscall4_1(kHelCallCreateSliceView, (HelWord)bundle,
+			(HelWord)offset, (HelWord)size, (HelWord)flags, &hel_handle);
+	*handle = (HelHandle)hel_handle;
+	return error;
+};
+
 extern inline __attribute__ (( always_inline )) HelError helCreateSpace(HelHandle *handle) {
 	HelWord handle_word;
 	HelError error = helSyscall0_1(kHelCallCreateSpace, &handle_word);

@@ -78,7 +78,11 @@ private:
 	F _functor;
 };
 
-struct MemoryBundle {
+struct MemoryBundle {	
+	// Optimistically returns the physical memory that backs a range of memory.
+	// Result stays valid until the range is evicted.
+	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
+
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
@@ -96,6 +100,7 @@ struct CowBundle : MemoryBundle {
 
 	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
 
+	PhysicalAddr peekRange(uintptr_t offset) override;
 	PhysicalAddr fetchRange(uintptr_t offset) override;
 
 private:
@@ -129,10 +134,6 @@ struct Memory : MemoryBundle {
 	// Does NOT ensure that this range is present before the call returns.
 	virtual void acquire(uintptr_t offset, size_t length) = 0;
 	virtual void release(uintptr_t offset, size_t length) = 0;
-	
-	// Optimistically returns the physical memory that backs a range of memory.
-	// Result stays valid until the range is evicted.
-	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
 
 	size_t getLength();
 
@@ -381,7 +382,7 @@ private:
 
 struct NormalMapping : Mapping {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<Memory> memory, uintptr_t offset);
+			MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset);
 
 	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 	resolveRange(ptrdiff_t offset, size_t size) override;
@@ -396,7 +397,7 @@ struct NormalMapping : Mapping {
 	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
-	frigg::SharedPtr<Memory> _memory;
+	frigg::SharedPtr<VirtualView> _view;
 	size_t _offset;
 };
 
@@ -491,7 +492,7 @@ public:
 
 	void setupDefaultMappings();
 
-	void map(Guard &guard, frigg::UnsafePtr<Memory> memory,
+	void map(Guard &guard, frigg::UnsafePtr<VirtualView> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	

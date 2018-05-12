@@ -5,11 +5,20 @@ namespace thor {
 // Memory related descriptors
 // --------------------------------------------------------
 
-struct MemoryAccessDescriptor {
-	MemoryAccessDescriptor(frigg::SharedPtr<Memory> memory)
+struct VirtualView;
+
+struct MemoryBundleDescriptor {
+	MemoryBundleDescriptor(frigg::SharedPtr<Memory> memory)
 	: memory(frigg::move(memory)) { }
 
 	frigg::SharedPtr<Memory> memory;
+};
+
+struct VirtualViewDescriptor {
+	VirtualViewDescriptor(frigg::SharedPtr<VirtualView> view)
+	: view(frigg::move(view)) { }
+
+	frigg::SharedPtr<VirtualView> view;
 };
 
 struct AddressSpaceDescriptor {
@@ -127,7 +136,8 @@ struct IoDescriptor {
 // --------------------------------------------------------
 
 typedef frigg::Variant<
-	MemoryAccessDescriptor,
+	MemoryBundleDescriptor,
+	VirtualViewDescriptor,
 	AddressSpaceDescriptor,
 	UniverseDescriptor,
 	ThreadDescriptor,

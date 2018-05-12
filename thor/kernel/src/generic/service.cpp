@@ -276,7 +276,7 @@ namespace initrd {
 			assert(error == kErrSuccess);
 
 			_lane.getStream()->submitPushDescriptor(_lane.getLane(),
-					MemoryAccessDescriptor(_file->module->getMemory()),
+					MemoryBundleDescriptor(_file->module->getMemory()),
 					CALLBACK_MEMBER(this, &MapClosure::onSendHandle));
 		}
 		
@@ -412,11 +412,13 @@ namespace initrd {
 		Process(frigg::SharedPtr<Thread> thread)
 		: _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
+			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+					fileTableMemory, 0, 0x1000);
 
 			auto irq_lock = frigg::guard(&irqMutex());
 			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
 
-			_thread->getAddressSpace()->map(space_guard, fileTableMemory, 0, 0, 0x1000,
+			_thread->getAddressSpace()->map(space_guard, frigg::move(view), 0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
 		}

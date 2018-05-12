@@ -558,7 +558,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryAccessDescriptor(frigg::move(memory)));
+				MemoryBundleDescriptor(frigg::move(memory)));
 	}
 
 	return kHelErrNone;
@@ -576,9 +576,9 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryAccessDescriptor>())
+		if(!wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
 	memory->resize(new_size);
@@ -604,9 +604,9 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*backing_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryAccessDescriptor(frigg::move(backing_memory)));
+				MemoryBundleDescriptor(frigg::move(backing_memory)));
 		*frontal_handle = this_universe->attachDescriptor(universe_guard,
-				MemoryAccessDescriptor(frigg::move(frontal_memory)));
+				MemoryBundleDescriptor(frigg::move(frontal_memory)));
 	}
 
 	return kHelErrNone;
@@ -625,7 +625,42 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryAccessDescriptor(frigg::move(memory)));
+				MemoryBundleDescriptor(frigg::move(memory)));
+	}
+
+	return kHelErrNone;
+}
+
+HelError helCreateSliceView(HelHandle bundle_handle,
+		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
+	assert(!flags);
+	assert((offset % kPageSize) == 0);
+	assert((size % kPageSize) == 0);
+
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	
+	frigg::SharedPtr<Memory> bundle;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, bundle_handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<MemoryBundleDescriptor>())
+			return kHelErrBadDescriptor;
+		bundle = wrapper->get<MemoryBundleDescriptor>().memory;
+	}
+
+	auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+			frigg::move(bundle), offset, size);
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		*handle = this_universe->attachDescriptor(universe_guard,
+				VirtualViewDescriptor(frigg::move(view)));
 	}
 
 	return kHelErrNone;
@@ -701,7 +736,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<VirtualView> view;
 	frigg::SharedPtr<AddressSpace> space;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -710,9 +745,16 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, memory_handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		if(memory_wrapper->is<VirtualViewDescriptor>()) {
+			view = memory_wrapper->get<VirtualViewDescriptor>().view;
+		}else if(memory_wrapper->is<MemoryBundleDescriptor>()) {
+			auto memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+			auto bundle_length = memory->getLength();
+			view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+					frigg::move(memory), 0, bundle_length);
+		}else{
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
+		}
 		
 		if(space_handle == kHelNullHandle) {
 			space = this_thread->getAddressSpace().toShared();
@@ -758,7 +800,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
 
-		space->map(space_guard, memory, (VirtualAddr)pointer, offset, length,
+		space->map(space_guard, view, (VirtualAddr)pointer, offset, length,
 				map_flags, &actual_address);
 	}
 
@@ -904,9 +946,9 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
-		if(!wrapper->is<MemoryAccessDescriptor>())
+		if(!wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
 	*size = memory->getLength();
@@ -925,9 +967,9 @@ HelError helSubmitManageMemory(HelHandle handle, HelQueue *queue, uintptr_t cont
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 	
 	PostEvent<ManageMemoryWriter> functor{this_thread->getAddressSpace().toShared(),
@@ -956,9 +998,9 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
 
@@ -980,9 +1022,9 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
 	PostEvent<LockMemoryWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
@@ -1010,9 +1052,9 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 		auto memory_wrapper = this_universe->getDescriptor(universe_guard, handle);
 		if(!memory_wrapper)
 			return kHelErrNoDescriptor;
-		if(!memory_wrapper->is<MemoryAccessDescriptor>())
+		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
-		memory = memory_wrapper->get<MemoryAccessDescriptor>().memory;
+		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
 	}
 
 /*	auto handle_load = frigg::makeShared<AsyncInitiateLoad>(*kernelAlloc,
