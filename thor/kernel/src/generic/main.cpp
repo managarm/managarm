@@ -12,6 +12,7 @@ namespace thor {
 
 static constexpr bool logInitialization = false;
 static constexpr bool logEveryIrq = false;
+static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
 
 bool debugToVga = false;
@@ -658,7 +659,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 void handlePreemption(IrqImageAccessor image) {
 	assert(!intsAreEnabled());
 
-	if(logEveryIrq)
+	if(logPreemptionIrq)
 		frigg::infoLogger() << "thor: Preemption IRQ" << frigg::endLog;
 
 	// TODO: Can this function actually be called from non-preemptible domains?

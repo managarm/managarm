@@ -346,14 +346,16 @@ void setupIoApic(PhysicalAddr address) {
 		globalIrqSlots[i]->link(pin);
 	}
 
+/*
 	earlyFibers->push(KernelFiber::post([=] {
 		while(true) {
 			for(size_t i = 0; i < apic->pinCount(); ++i)
 				apic->accessPin(i)->warnIfPending();
 
-			fiberSleep(500000000);
+			fiberSleep(500'000'000);
 		}
 	}));
+*/
 }
 
 /*

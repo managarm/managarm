@@ -36,7 +36,7 @@ namespace timer_bits {
 };
 
 enum : uint64_t {
-	kFemtosPerNano = 1000000,
+	kFemtosPerNano = 1'000'000,
 	kFemtosPerMicro = kFemtosPerNano * 1000,
 	kFemtosPerMilli = kFemtosPerMicro * 1000,
 	kFemtosPerSecond = kFemtosPerMilli * 1000
@@ -62,14 +62,20 @@ struct HpetDevice : IrqSink {
 private:
 	using Mutex = frigg::TicketLock;
 
-	static constexpr bool log = false;
+	static constexpr bool logTimers = false;
+	static constexpr bool logProgress = false;
+	static constexpr bool logIrqs = false;
 
 public:
 	void installTimer(PrecisionTimerNode *timer) {
-		if(log)
-			frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline << frigg::endLog;
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
+
+		if(logTimers) {
+			auto current = hpetBase.load(mainCounter);
+			frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline
+					<< " (counter is " << current << ")" << frigg::endLog;
+		}
 
 		_timerQueue.push(timer);
 		_progress();
@@ -78,7 +84,7 @@ public:
 	IrqStatus raise(uint64_t sequence) override {
 		(void)sequence;
 
-		if(log)
+		if(logIrqs)
 			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
@@ -87,7 +93,7 @@ public:
 
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
-		if(log)
+		if(logIrqs)
 			frigg::infoLogger() << "hpet: Handler completed." << frigg::endLog;
 		return irq_status::handled;
 	}
@@ -99,7 +105,7 @@ private:
 		auto current = hpetBase.load(mainCounter);
 		do {
 			// Process all timers that elapsed in the past.
-			if(log)
+			if(logProgress)
 				frigg::infoLogger() << "hpet: Processing timers until " << current << frigg::endLog;
 			while(true) {
 				if(_timerQueue.empty())
@@ -110,7 +116,7 @@ private:
 
 				auto timer = _timerQueue.top();
 				_timerQueue.pop();
-				if(log)
+				if(logProgress)
 					frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
 				timer->onElapse();
 			}
@@ -227,7 +233,7 @@ uint64_t durationToTicks(uint64_t seconds,
 	return (seconds * kFemtosPerSecond) / hpetPeriod
 			+ (millis * kFemtosPerMilli) / hpetPeriod
 			+ (micros * kFemtosPerMicro) / hpetPeriod
-			+ (nanos * kFemtosPerNano) / hpetPeriod;
+			+ (nanos / (hpetPeriod / kFemtosPerNano));
 }
 
 void installTimer(PrecisionTimerNode *timer) {
