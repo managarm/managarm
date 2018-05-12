@@ -146,6 +146,17 @@ UniqueKernelStack::~UniqueKernelStack() {
 }
 
 // --------------------------------------------------------
+// FaultImageAccessor
+// --------------------------------------------------------
+
+bool FaultImageAccessor::allowUserPages() {
+	assert(inKernelDomain());
+	if(!getCpuData()->haveSmap)
+		return true;
+	return *rflags() & (uint32_t(1) << 18);
+}
+
+// --------------------------------------------------------
 // Executor
 // --------------------------------------------------------
 

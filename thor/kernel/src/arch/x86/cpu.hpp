@@ -136,11 +136,7 @@ struct FaultImageAccessor {
 		}
 	}
 
-	bool allowUserPages() {
-		// TODO: Return true if SMAP is disabled.
-		assert(inKernelDomain());
-		return *rflags() & (uint32_t(1) << 18);
-	}
+	bool allowUserPages();
 
 private:
 	// note: this struct is accessed from assembly.
