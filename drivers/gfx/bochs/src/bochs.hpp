@@ -35,9 +35,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	
 	struct BufferObject : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
 		BufferObject(GfxDevice *device, size_t alignment, size_t size,
-				uintptr_t offset, ptrdiff_t displacement)
-		: _device{device}, _alignment{alignment}, _size{size},
-				_offset{offset}, _displacement{displacement} { };
+				uintptr_t offset, ptrdiff_t displacement);
 		
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
@@ -52,6 +50,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		size_t _size;
 		uintptr_t _offset;
 		ptrdiff_t _displacement;
+		helix::UniqueDescriptor _memoryView;
 	};
 
 	struct Connector : drm_core::Connector {

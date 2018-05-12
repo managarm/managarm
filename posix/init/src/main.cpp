@@ -69,16 +69,16 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-	/*
-	auto gfx_bochs = fork();
-	if(!gfx_bochs) {
-		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
-	}else assert(gfx_bochs != -1);
-	*/
+	
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
 		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
+	
+	auto gfx_bochs = fork();
+	if(!gfx_bochs) {
+		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
+	}else assert(gfx_bochs != -1);
 
 	while(access("/dev/dri/card0", F_OK)) {
 		assert(errno == ENOENT);
@@ -133,7 +133,7 @@ int main() {
 
 		//execve("/root/unixsock", args.data(), env.data());
 		//execve("/root/test-libudev", args.data(), env.data());
-		//execve("/usr/bin/kmscube", args.data(), env.data());
+//		execl("/usr/bin/kmscube", "kmscube", nullptr);
 		//execve("/root/modeset-render", args.data(), env.data());
 		//execve("/root/modeset-double-buffered", args.data(), env.data());
 		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);

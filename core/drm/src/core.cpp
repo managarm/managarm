@@ -510,6 +510,7 @@ drm_core::File::accessMemory(void *object,
 	auto mapping = self->_device->findMapping(offset);
 	assert(mapping.first == offset); // TODO: We can remove this assert once we fix VM_MAP.
 	auto mem = mapping.second->getMemory();
+	assert(!mem.second);
 	COFIBER_RETURN(std::make_pair(mem.first, mem.second + (offset - mapping.first)));
 }))
 

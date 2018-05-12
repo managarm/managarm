@@ -165,6 +165,7 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 		// TODO: Fix the size.
 		assert(file_ops->accessMemory);
 		auto memory = COFIBER_AWAIT(file_ops->accessMemory(file.get(), req.rel_offset(), 0));
+		assert(!memory.second);
 		
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);

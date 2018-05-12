@@ -30,10 +30,16 @@
 #include "bochs.hpp"
 #include <fs.pb.h>
 
+namespace {
+	constexpr bool logBuffers = false;
+	constexpr bool logCommits = false;
+}
+
 constexpr auto fileOperations = protocols::fs::FileOperations{}
 	.withRead(&drm_core::File::read)
 	.withAccessMemory(&drm_core::File::accessMemory)
-	.withIoctl(&drm_core::File::ioctl);
+	.withIoctl(&drm_core::File::ioctl)
+	.withPoll(&drm_core::File::poll);
 
 COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device> device,
 		helix::UniqueLane p), ([device = std::move(device), lane = std::move(p)] {
@@ -54,8 +60,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			assert(!req.flags());
+
 			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_node;
+			helix::PushDescriptor push_pt;
+			helix::PushDescriptor push_page;
 			
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -65,14 +74,17 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_caps(managarm::fs::FC_STATUS_PAGE);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_node, remote_lane));
+					helix::action(&push_pt, remote_lane, kHelItemChain),
+					helix::action(&push_page, file->statusPageMemory()));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
+			HEL_CHECK(push_pt.error());
+			HEL_CHECK(push_page.error());
 		}else{
 			throw std::runtime_error("Invalid request in serveDevice()");
 		}
@@ -116,6 +128,7 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] {
 	registerObject(_primaryPlane.get());
 	
 	_theEncoder->setCurrentCrtc(_theCrtc.get());
+	_theConnector->setupPossibleEncoders({_theEncoder.get()});
 	_theConnector->setCurrentEncoder(_theEncoder.get());
 	_theConnector->setCurrentStatus(1);
 	_theEncoder->setupPossibleCrtcs({_theCrtc.get()});
@@ -194,10 +207,19 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto pitch = bytes_pp * best_ppitch;
 	auto alignment = std::lcm(pitch, page_size);
 	auto size = ((pitch * height) + (page_size - 1)) & ~(page_size - 1);
+	if(logBuffers)
+		std::cout << "gfx-bochs: Preparing " << bpp << "-bpp "
+				<< width << "x" << height << " buffer."
+				" Computed pixel pitch: " << best_ppitch << std::endl;
 
 	auto offset = _vramAllocator.allocate(alignment + size);
+	auto displacement = alignment - (offset % alignment);
+	if(logBuffers)
+		std::cout << "gfx-bochs: Allocating buffer of size " << (void *)size
+				<< " at " << (void *)offset
+				<< ", displacement is: " << (void *)displacement << std::endl;
 	auto buffer = std::make_shared<BufferObject>(this, alignment, size,
-			offset, alignment - (offset % alignment));
+			offset, displacement);
 
 	auto mapping = installMapping(buffer.get());
 	buffer->setupMapping(mapping);
@@ -209,17 +231,32 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // ----------------------------------------------------------------
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment) {
+	drm_mode_modeinfo current_mode;
+	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
+	if(_device->_theCrtc->currentMode())
+		memcpy(&current_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
+	
+	_width = current_mode.hdisplay;
+	_height = current_mode.vdisplay;
+	_mode = _device->_theCrtc->currentMode();
+
 	for(auto &assign: assignment) {
 		if(assign.property == _device->srcWProperty()) {
+			assert(assign.property->validate(assign));
+
 			_width = assign.intValue;
 		}else if(assign.property == _device->srcHProperty()) {
+			assert(assign.property->validate(assign));
+
 			_height = assign.intValue;
 		}else if(assign.property == _device->fbIdProperty()) {
+			assert(assign.property->validate(assign));
+
 			auto fb = assign.objectValue->asFrameBuffer();
-			if(!fb)
-				return false;
 			_fb = static_cast<GfxDevice::FrameBuffer *>(fb);
 		}else if(assign.property == _device->modeIdProperty()) {
+			assert(assign.property->validate(assign));
+
 			_mode = assign.blobValue; 
 			if(_mode) {
 				drm_mode_modeinfo mode_info;
@@ -247,9 +284,10 @@ void GfxDevice::Configuration::dispose() {
 }
 
 void GfxDevice::Configuration::commit() {
+	if(logCommits)
+		std::cout << "gfx-bochs: Committing configuration" << std::endl;
 	drm_mode_modeinfo last_mode;
 	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-
 	if(_device->_theCrtc->currentMode())
 		memcpy(&last_mode, _device->_theCrtc->currentMode()->data(), sizeof(drm_mode_modeinfo));
 	
@@ -282,6 +320,9 @@ void GfxDevice::Configuration::commit() {
 
 		// The offset registers have to be written while the device is enabled!
 		assert(!(_fb->getBufferObject()->getAddress() % (_fb->getPixelPitch() * 4)));
+		if(logCommits)
+			std::cout << "gfx-bochs: Flip to buffer at "
+					<< (void *)_fb->getBufferObject()->getAddress() << std::endl;
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offX);
 		_device->_operational.store(regs::data, 0);	
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::offY);
@@ -291,6 +332,8 @@ void GfxDevice::Configuration::commit() {
 		_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
 		_device->_operational.store(regs::data, enable_bits::noMemClear | enable_bits::lfb);
 	}
+
+	complete();
 }
 
 // ----------------------------------------------------------------
@@ -358,6 +401,19 @@ GfxDevice::Plane::Plane(GfxDevice *device)
 // GfxDevice: BufferObject.
 // ----------------------------------------------------------------
 
+GfxDevice::BufferObject::BufferObject(GfxDevice *device, size_t alignment, size_t size,
+		uintptr_t offset, ptrdiff_t displacement)
+: _device{device}, _alignment{alignment}, _size{size},
+		_offset{offset}, _displacement{displacement} {
+	assert(!((_offset + _displacement) % 0x1000));
+	assert(!((_offset + _displacement) % _alignment));
+
+	HelHandle handle;
+	HEL_CHECK(helCreateSliceView(_device->_videoRam.getHandle(),
+			_offset + _displacement, _size, 0, &handle));
+	_memoryView = helix::UniqueDescriptor{handle};
+};
+
 std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
 }
@@ -367,8 +423,7 @@ size_t GfxDevice::BufferObject::getSize() {
 }
 	
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor(_device->_videoRam),
-			_offset + _displacement);
+	return std::make_pair(helix::BorrowedDescriptor{_memoryView}, 0);
 }
 
 size_t GfxDevice::BufferObject::getAlignment() {
@@ -401,7 +456,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
 	
 	mbus::Properties descriptor{
-		{"unix.devtype", mbus::StringItem{"block"}},
+		{"unix.subsystem", mbus::StringItem{"drm"}},
 		{"unix.devname", mbus::StringItem{"dri/card0"}}
 	};
 
