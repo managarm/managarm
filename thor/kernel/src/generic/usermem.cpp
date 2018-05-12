@@ -497,6 +497,7 @@ PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
 	assert(index < _managed->physicalPages.size());
 	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+		assert(physical != PhysicalAddr(-1));
 		
 		PageAccessor accessor{generalWindow, physical};
 		memset(accessor.get(), 0, kPageSize);
@@ -777,7 +778,7 @@ bool NormalMapping::handleFault(VirtualAddr disp, uint32_t fault_flags) {
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 	auto page = disp & ~(kPageSize - 1);
-	auto physical = _memory->fetchRange(page);
+	auto physical = _memory->fetchRange(_offset + page);
 	auto vaddr = address() + page;
 	// TODO: This can actually happen!
 	assert(!owner()->_pageSpace.isMapped(vaddr));
