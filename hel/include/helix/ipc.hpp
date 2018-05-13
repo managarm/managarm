@@ -135,18 +135,6 @@ struct Irq { };
 using UniqueIrq = UniqueResource<Irq>;
 using BorrowedIrq = BorrowedResource<Irq>;
 
-struct QueuePtr {
-	explicit QueuePtr(HelQueue *queue)
-	: _queue(queue) { }
-
-	HelQueue *get() {
-		return _queue;
-	}
-
-private:
-	HelQueue *_queue;
-};
-
 struct ElementPtr {
 	explicit ElementPtr(void *queue)
 	: _queue(queue) { }
@@ -211,10 +199,10 @@ public:
 	
 	Dispatcher &operator= (const Dispatcher &) = delete;
 
-	QueuePtr acquire() {
+	HelHandle acquire() {
 		if(_items.empty())
 			allocate();
-		return QueuePtr(_items.front().queue);
+		return _handle;
 	}
 
 	void dispatch() {
@@ -277,11 +265,14 @@ private:
 					&e, kHelQueueHasNext, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
 			assert(s);
 			HEL_CHECK(helFutexWake((int *)&_items.back().queue->userState));
+		}else{
+			HEL_CHECK(helCreateQueue(queue, 0, &_handle));
 		}
 
 		_items.emplace_back(queue);
 	}
 
+	HelHandle _handle;
 	std::list<Item> _items;
 };
 
@@ -542,7 +533,7 @@ struct Submission : private Context {
 	Submission(AwaitClock *operation,
 			uint64_t counter, Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitAwaitClock(counter, dispatcher.acquire().get(),
+		HEL_CHECK(helSubmitAwaitClock(counter, dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
@@ -550,7 +541,7 @@ struct Submission : private Context {
 			Dispatcher &dispatcher)
 	: _result(operation) {
 		HEL_CHECK(helSubmitManageMemory(memory.getHandle(),
-				dispatcher.acquire().get(),
+				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
@@ -558,7 +549,7 @@ struct Submission : private Context {
 			uintptr_t offset, size_t size, Dispatcher &dispatcher)
 	: _result(operation) {
 		HEL_CHECK(helSubmitLockMemory(memory.getHandle(), offset, size,
-				dispatcher.acquire().get(),
+				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
@@ -566,7 +557,7 @@ struct Submission : private Context {
 			Dispatcher &dispatcher)
 	: _result(operation) {
 		HEL_CHECK(helSubmitObserve(thread.getHandle(),
-				dispatcher.acquire().get(),
+				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
@@ -574,7 +565,7 @@ struct Submission : private Context {
 			uint64_t sequence, Dispatcher &dispatcher)
 	: _result(operation) {
 		HEL_CHECK(helSubmitAwaitEvent(descriptor.getHandle(), sequence,
-				dispatcher.acquire().get(),
+				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
 
@@ -684,7 +675,7 @@ struct Transmission : private Context {
 	: _results(results) {
 		auto context = static_cast<Context *>(this);
 		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions.data(), sizeof...(I),
-				dispatcher.acquire().get(),
+				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context), 0));
 	}
 

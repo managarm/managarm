@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 89,
+	kHelNumCalls = 90,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -25,6 +25,8 @@ enum {
 	kHelCallDescriptorInfo = 32,
 	kHelCallGetCredentials = 84,
 	kHelCallCloseDescriptor = 20,
+
+	kHelCallCreateQueue = 89,
 
 	kHelCallAllocateMemory = 2,
 	kHelCallResizeMemory = 83,
@@ -347,6 +349,8 @@ HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 		char *credentials);
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
+HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle);
+
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
@@ -368,10 +372,10 @@ HEL_C_LINKAGE HelError helStoreForeign(HelHandle handle, uintptr_t address,
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
-		struct HelQueue *queue, uintptr_t context);
+		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length);
 HEL_C_LINKAGE HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
-		struct HelQueue *queue, uintptr_t context);
+		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length);
 
 HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_space,
@@ -379,7 +383,7 @@ HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_spa
 HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
 HEL_C_LINKAGE HelError helYield();
 HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
-		struct HelQueue *queue, uintptr_t context);
+		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helKillThread(HelHandle handle);
 HEL_C_LINKAGE HelError helInterruptThread(HelHandle handle);
 HEL_C_LINKAGE HelError helResume(HelHandle handle);
@@ -388,11 +392,11 @@ HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		struct HelQueue *queue, uintptr_t context);
+		HelHandle queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
-		size_t count, struct HelQueue *queue, uintptr_t context, uint32_t flags);
+		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
@@ -400,7 +404,7 @@ HEL_C_LINKAGE HelError helFutexWake(int *pointer);
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		struct HelQueue *queue, uintptr_t context);
+		HelHandle queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);

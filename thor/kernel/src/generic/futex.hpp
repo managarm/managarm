@@ -122,12 +122,12 @@ struct QueueChunk {
 };
 
 struct QueueNode {
-	friend struct QueueSpace;
+	friend struct UserQueue;
 
 	QueueNode()
 	: _context{0}, _chunk{nullptr} { }
 
-	// Users of QueueSpace::submit() have to set this up first.
+	// Users of UserQueue::submit() have to set this up first.
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
@@ -144,41 +144,10 @@ private:
 	frg::default_list_hook<QueueNode> _queueNode;
 };
 
-struct QueueSpace {
+struct UserQueue : private FutexNode {
+private:
 	using Address = uintptr_t;
 
-public:
-	QueueSpace()
-	: _slots(frigg::DefaultHasher<Address>(), *kernelAlloc) { }
-
-	void submit(frigg::UnsafePtr<AddressSpace> space, Address address, QueueNode *element);
-
-private:
-	using Mutex = frigg::TicketLock;
-
-	struct Slot : FutexNode {
-		Slot(QueueSpace *manager, frigg::UnsafePtr<AddressSpace> space,
-				Address address)
-		: manager{manager}, space{space}, address{address}, waitInFutex{false} { }
-
-		void onWake() override;
-
-		QueueSpace *manager;
-		frigg::UnsafePtr<AddressSpace> space;
-		Address address;
-
-		bool waitInFutex;
-
-		frg::intrusive_list<
-			QueueNode,
-			frg::locate_member<
-				QueueNode,
-				frg::default_list_hook<QueueNode>,
-				&QueueNode::_queueNode
-			>
-		> queue;
-	};
-	
 	using NodeList = frg::intrusive_list<
 		QueueNode,
 		frg::locate_member<
@@ -188,19 +157,39 @@ private:
 		>
 	>;
 
-	void _progress(Slot *slot);
-	bool _progressFront(Slot *slot, Address &successor, NodeList &migrate_list);
+	using Mutex = frigg::TicketLock;
 
-	// TODO: use a scalable hash table with fine-grained locks to
-	// improve the scalability of the futex algorithm.
+public:
+	UserQueue(frigg::SharedPtr<AddressSpace> space, void *head);
+
+	UserQueue(const UserQueue &) = delete;
+
+	UserQueue &operator= (const UserQueue &) = delete;
+
+	void submit(QueueNode *node);
+
+private:
+	void onWake() override;
+
+	void _progress();
+	bool _progressFront(Address &successor);
+
+private:
+	frigg::SharedPtr<AddressSpace> _space;
+	void *_head;
+
 	Mutex _mutex;
 
-	frigg::Hashmap<
-		Address,
-		Slot,
-		frigg::DefaultHasher<Address>,
-		KernelAlloc
-	> _slots;
+	bool _waitInFutex;
+
+	frg::intrusive_list<
+		QueueNode,
+		frg::locate_member<
+			QueueNode,
+			frg::default_list_hook<QueueNode>,
+			&QueueNode::_queueNode
+		>
+	> _nodeQueue;
 };
 
 } // namespace thor

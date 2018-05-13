@@ -748,6 +748,12 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCloseDescriptor((HelHandle)arg0);
 	} break;
 
+	case kHelCallCreateQueue: {
+		HelHandle handle;
+		*image.error() = helCreateQueue((HelQueue *)arg0, (uint32_t)arg1, &handle);
+		*image.out0() = handle;
+	} break;
+
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
 		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1, &handle);
@@ -813,14 +819,14 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitManageMemory: {
 		*image.error() = helSubmitManageMemory((HelHandle)arg0,
-				(HelQueue *)arg1, (uintptr_t)arg2);
+				(HelHandle)arg1, (uintptr_t)arg2);
 	} break;
 	case kHelCallCompleteLoad: {
 		*image.error() = helCompleteLoad((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
 	} break;
 	case kHelCallSubmitLockMemory: {
 		*image.error() = helSubmitLockMemory((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
-				(HelQueue *)arg3, (uintptr_t)arg4);
+				(HelHandle)arg3, (uintptr_t)arg4);
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
@@ -843,7 +849,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitObserve: {
 		*image.error() = helSubmitObserve((HelHandle)arg0,
-				(HelQueue *)arg1, (uintptr_t)arg2);
+				(HelHandle)arg1, (uintptr_t)arg2);
 	} break;
 	case kHelCallKillThread: {
 		*image.error() = helKillThread((HelHandle)arg0);
@@ -870,7 +876,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitAwaitClock: {
 		*image.error() = helSubmitAwaitClock((uint64_t)arg0,
-				(HelQueue *)arg1, (uintptr_t)arg2);
+				(HelHandle)arg1, (uintptr_t)arg2);
 	} break;
 
 	case kHelCallCreateStream: {
@@ -882,7 +888,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitAsync: {
 		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
-				(size_t)arg2, (HelQueue *)arg3, (uintptr_t)arg4, (uint32_t)arg5);
+				(size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4, (uint32_t)arg5);
 	} break;
 	
 	case kHelCallFutexWait: {
@@ -902,7 +908,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitAwaitEvent: {
 		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
-				(HelQueue *)arg2, (uintptr_t)arg3);
+				(HelHandle)arg2, (uintptr_t)arg3);
 	} break;
 
 	case kHelCallAccessIo: {

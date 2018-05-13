@@ -75,19 +75,18 @@ public:
 		P _writer;
 	};
 
-	PostEvent(frigg::SharedPtr<AddressSpace> space, void *queue, uintptr_t context)
-	: _space(frigg::move(space)), _queue(queue), _context(context) { }
+	PostEvent(frigg::SharedPtr<UserQueue> queue, uintptr_t context)
+	: _queue(frigg::move(queue)), _context(context) { }
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
 		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
 				_context, frigg::forward<Args>(args)...);
-		_space->queueSpace.submit(_space, (uintptr_t)_queue, wrapper);
+		_queue->submit(wrapper);
 	}
 
 private:
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_queue;
+	frigg::SharedPtr<UserQueue> _queue;
 	uintptr_t _context;
 };
 
@@ -355,10 +354,10 @@ struct MsgHandler : QueueNode {
 	friend struct SetResult;
 
 public:
-	MsgHandler(size_t num_items, frigg::SharedPtr<AddressSpace> space,
-			void *queue, uintptr_t context)
+	MsgHandler(size_t num_items, frigg::SharedPtr<UserQueue> queue,
+			uintptr_t context)
 	: _numItems(num_items), _results(frigg::constructN<ItemWriter>(*kernelAlloc, num_items)),
-			_numComplete(0), _space(frigg::move(space)), _queue(queue) {
+			_numComplete(0), _queue(frigg::move(queue)) {
 		setupContext(context);
 	}
 
@@ -381,7 +380,7 @@ private:
 		
 		assert(_numItems);
 		setupChunk(chunk(0));
-		_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
+		_queue->submit(this);
 	}
 	
 	void complete() override {
@@ -392,8 +391,7 @@ private:
 	ItemWriter *_results;
 	std::atomic<unsigned int> _numComplete;
 
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_queue;
+	frigg::SharedPtr<UserQueue> _queue;
 };
 
 template<typename W>
@@ -528,6 +526,24 @@ HelError helCloseDescriptor(HelHandle handle) {
 
 	if(!this_universe->detachDescriptor(universe_guard, handle))
 		return kHelErrNoDescriptor;
+
+	return kHelErrNone;
+}
+
+HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
+	assert(!flags);
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto queue = frigg::makeShared<UserQueue>(*kernelAlloc,
+			this_thread->getAddressSpace().toShared(), head);
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		*handle = this_universe->attachDescriptor(universe_guard,
+				QueueDescriptor(frigg::move(queue)));
+	}
 
 	return kHelErrNone;
 }
@@ -955,11 +971,12 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	return kHelErrNone;
 }
 
-HelError helSubmitManageMemory(HelHandle handle, HelQueue *queue, uintptr_t context) {
+HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<UserQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -970,10 +987,16 @@ HelError helSubmitManageMemory(HelHandle handle, HelQueue *queue, uintptr_t cont
 		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
 		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+		
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 	
-	PostEvent<ManageMemoryWriter> functor{this_thread->getAddressSpace().toShared(),
-			queue, context};
+	PostEvent<ManageMemoryWriter> functor{frigg::move(queue), context};
 	auto manage = frigg::makeShared<Manage<PostEvent<ManageMemoryWriter>>>(*kernelAlloc,
 			frigg::move(functor));
 	{
@@ -1010,11 +1033,12 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 }
 
 HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
-		HelQueue *queue, uintptr_t context) {
+		HelHandle queue_handle, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Memory> memory;
+	frigg::SharedPtr<UserQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1025,9 +1049,16 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		if(!memory_wrapper->is<MemoryBundleDescriptor>())
 			return kHelErrBadDescriptor;
 		memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	PostEvent<LockMemoryWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
+	PostEvent<LockMemoryWriter> functor{frigg::move(queue), context};
 	auto initiate = frigg::makeShared<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
 			offset, size, frigg::move(functor));
 	{
@@ -1162,11 +1193,12 @@ HelError helYield() {
 	return kHelErrNone;
 }
 
-HelError helSubmitObserve(HelHandle handle, HelQueue *queue, uintptr_t context) {
+HelError helSubmitObserve(HelHandle handle, HelHandle queue_handle, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	frigg::SharedPtr<Thread> thread;
+	frigg::SharedPtr<UserQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1177,10 +1209,17 @@ HelError helSubmitObserve(HelHandle handle, HelQueue *queue, uintptr_t context) 
 		if(!thread_wrapper->is<ThreadDescriptor>())
 			return kHelErrBadDescriptor;
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 	
 	// TODO: protect the thread with a lock!
-	PostEvent<ObserveThreadWriter> functor{this_thread->getAddressSpace().toShared(), queue, context};
+	PostEvent<ObserveThreadWriter> functor{frigg::move(queue), context};
 	thread->submitObserve(frigg::move(functor));
 
 	return kHelErrNone;
@@ -1374,18 +1413,18 @@ HelError helGetClock(uint64_t *counter) {
 	return kHelErrNone;
 }
 
-HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t context) {
+HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context) {
 	struct Closure : PrecisionTimerNode, QueueNode {
-		static void issue(uint64_t ticks, frigg::SharedPtr<AddressSpace> space,
-				void *queue, uintptr_t context) {
+		static void issue(uint64_t ticks, frigg::SharedPtr<UserQueue> queue,
+				uintptr_t context) {
 			auto node = frigg::construct<Closure>(*kernelAlloc, ticks,
-					frigg::move(space), queue, context);
+					frigg::move(queue), context);
 			installTimer(node);
 		}
 
-		explicit Closure(uint64_t ticks, frigg::SharedPtr<AddressSpace> the_space,
-				void *queue, uintptr_t context)
-		: PrecisionTimerNode{ticks}, space{frigg::move(the_space)}, queue{queue},
+		explicit Closure(uint64_t ticks, frigg::SharedPtr<UserQueue> the_queue,
+				uintptr_t context)
+		: PrecisionTimerNode{ticks}, queue{frigg::move(the_queue)},
 				chunk{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
@@ -1393,23 +1432,36 @@ HelError helSubmitAwaitClock(uint64_t counter, HelQueue *queue, uintptr_t contex
 		}
 
 		void onElapse() override {
-			space->queueSpace.submit(space, (uintptr_t)queue, this);
+			queue->submit(this);
 		}
 
 		void complete() override {
 			frigg::destruct(*kernelAlloc, this);
 		}
 
-		frigg::SharedPtr<AddressSpace> space;
-		void *queue;
+		frigg::SharedPtr<UserQueue> queue;
 		QueueChunk chunk;
 		HelSimpleResult result;
 	};
-	
+
 	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<UserQueue> queue;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
+	}
 
 	auto ticks = durationToTicks(0, 0, 0, counter);
-	Closure::issue(ticks, this_thread->getAddressSpace().toShared(), queue, context);
+	Closure::issue(ticks, frigg::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -1433,34 +1485,44 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
 }
 
 HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
-		HelQueue *queue, uintptr_t context, uint32_t flags) {
+		HelHandle queue_handle, uintptr_t context, uint32_t flags) {
 	(void)flags;
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	
+
 	// TODO: check userspace page access rights
-	
+
 	LaneHandle lane;
-	if(handle == kHelThisThread) {
-		lane = this_thread->inferiorLane();
-	}else{
+	frigg::SharedPtr<UserQueue> queue;
+	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
-		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		if(wrapper->is<LaneDescriptor>()) {
-			lane = wrapper->get<LaneDescriptor>().handle;
-		}else if(wrapper->is<ThreadDescriptor>()) {
-			lane = wrapper->get<ThreadDescriptor>().thread->superiorLane();
+		if(handle == kHelThisThread) {
+			lane = this_thread->inferiorLane();
 		}else{
-			return kHelErrBadDescriptor;
+			auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+			if(!wrapper)
+				return kHelErrNoDescriptor;
+			if(wrapper->is<LaneDescriptor>()) {
+				lane = wrapper->get<LaneDescriptor>().handle;
+			}else if(wrapper->is<ThreadDescriptor>()) {
+				lane = wrapper->get<ThreadDescriptor>().thread->superiorLane();
+			}else{
+				return kHelErrBadDescriptor;
+			}
 		}
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
 	auto handler = frigg::construct<MsgHandler>(*kernelAlloc, count,
-			this_thread->getAddressSpace().toShared(), queue, context);
+			frigg::move(queue), context);
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
 	stack.push(frigg::move(lane));
@@ -1686,20 +1748,18 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	return kHelErrNone;
 }
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelQueue *queue, uintptr_t context) {
+		HelHandle queue_handle, uintptr_t context) {
 	struct Closure : AwaitIrqNode, QueueNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
-				frigg::SharedPtr<AddressSpace> space,
-				void *queue, uintptr_t context) {
+				frigg::SharedPtr<UserQueue> queue, intptr_t context) {
 			auto node = frigg::construct<Closure>(*kernelAlloc,
-					frigg::move(space), queue, context);
+					frigg::move(queue), context);
 			irq->submitAwait(node, sequence);
 		}
 
 	public:
-		explicit Closure(frigg::SharedPtr<AddressSpace> space,
-				void *queue, uintptr_t context)
-		: _space{frigg::move(space)}, _queue{queue},
+		explicit Closure(frigg::SharedPtr<UserQueue> the_queue, uintptr_t context)
+		: _queue{frigg::move(the_queue)},
 				chunk{&result, sizeof(HelEventResult), nullptr} {
 			setupContext(context);
 			setupChunk(&chunk);
@@ -1708,7 +1768,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		void onRaise(Error error, uint64_t sequence) override {
 			result.error = translateError(error);
 			result.sequence = sequence;
-			_space->queueSpace.submit(_space, (uintptr_t)_queue, this);
+			_queue->submit(this);
 		}
 
 		void complete() override {
@@ -1716,8 +1776,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 	private:
-		frigg::SharedPtr<AddressSpace> _space;
-		void *_queue;
+		frigg::SharedPtr<UserQueue> _queue;
 		QueueChunk chunk;
 		HelEventResult result;
 	};
@@ -1726,6 +1785,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<IrqObject> irq;
+	frigg::SharedPtr<UserQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1736,10 +1796,17 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		if(!irq_wrapper->is<IrqDescriptor>())
 			return kHelErrBadDescriptor;
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
+
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
 	Closure::issue(frigg::move(irq), sequence,
-			this_thread->getAddressSpace().toShared(), queue, context);
+			frigg::move(queue), context);
 
 	return kHelErrNone;
 }

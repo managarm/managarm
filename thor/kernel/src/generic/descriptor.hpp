@@ -1,11 +1,26 @@
 
 namespace thor {
 
+struct UserQueue;
+struct VirtualView;
+
+struct QueueDescriptor {
+	QueueDescriptor(frigg::SharedPtr<UserQueue> queue)
+	: queue(frigg::move(queue)) { }
+
+	frigg::SharedPtr<UserQueue> queue;
+};
+
+struct UniverseDescriptor {
+	UniverseDescriptor(frigg::SharedPtr<Universe> universe)
+	: universe(frigg::move(universe)) { }
+
+	frigg::SharedPtr<Universe> universe;
+};
+
 // --------------------------------------------------------
 // Memory related descriptors
 // --------------------------------------------------------
-
-struct VirtualView;
 
 struct MemoryBundleDescriptor {
 	MemoryBundleDescriptor(frigg::SharedPtr<Memory> memory)
@@ -31,13 +46,6 @@ struct AddressSpaceDescriptor {
 // --------------------------------------------------------
 // Threading related descriptors
 // --------------------------------------------------------
-
-struct UniverseDescriptor {
-	UniverseDescriptor(frigg::SharedPtr<Universe> universe)
-	: universe(frigg::move(universe)) { }
-
-	frigg::SharedPtr<Universe> universe;
-};
 
 struct ThreadDescriptor {
 	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
@@ -136,10 +144,11 @@ struct IoDescriptor {
 // --------------------------------------------------------
 
 typedef frigg::Variant<
+	UniverseDescriptor,
+	QueueDescriptor,
 	MemoryBundleDescriptor,
 	VirtualViewDescriptor,
 	AddressSpaceDescriptor,
-	UniverseDescriptor,
 	ThreadDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,

@@ -510,7 +510,6 @@ public:
 	Lock lock;
 	
 	Futex futexSpace;
-	QueueSpace queueSpace;
 
 private:
 	

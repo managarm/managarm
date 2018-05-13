@@ -31,71 +31,53 @@ struct ElementStruct {
 
 } // anonymous namespace
 
-void QueueSpace::Slot::onWake() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&manager->_mutex);
+// ----------------------------------------------------------------------------
+// UserQueue
+// ----------------------------------------------------------------------------
 
-	waitInFutex = false;
-	manager->_progress(this);
-}
+UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *head)
+: _space{frigg::move(space)}, _head{head}, _waitInFutex{false} { }
 
-void QueueSpace::submit(frigg::UnsafePtr<AddressSpace> space, Address address,
-		QueueNode *node) {
+void UserQueue::submit(QueueNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	auto it = _slots.get(address);
-	if(!it) {
-		_slots.insert(address, Slot{this, space, address});
-		it = _slots.get(address);
-	}
-
 	assert(!node->_queueNode.in_list);
 //	frigg::infoLogger() << "[" << this << "] push " << node << frigg::endLog;
-	it->queue.push_back(node);
-
-	_progress(it);
+	_nodeQueue.push_back(node);
+	_progress();
 }
 
-void QueueSpace::_progress(Slot *slot) {
-	while(!slot->queue.empty()) {
+void UserQueue::onWake() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	_waitInFutex = false;
+	_progress();
+}
+
+void UserQueue::_progress() {
+	while(!_nodeQueue.empty()) {
 		Address successor = 0;
-		NodeList migrate_list;
-		if(!_progressFront(slot, successor, migrate_list))
+		if(!_progressFront(successor))
 			return;
 
-		if(successor) {
-			// Allocate a new slot and migrate all existing nodes.
-			auto it = _slots.get(successor);
-			if(!it) {
-				_slots.insert(successor, Slot{this, slot->space, successor});
-				it = _slots.get(successor);
-			}
-
-			assert(!migrate_list.empty());
-			while(!migrate_list.empty()) {
-//				frigg::infoLogger() << "[" << this << "] migrate "
-//						<< migrate_list.back() << frigg::endLog;
-				it->queue.push_front(migrate_list.pop_back());
-				assert(it->queue.front()->_queueNode.in_list);
-			}
-
-			slot = it;
-		}
+		if(successor)
+			_head = reinterpret_cast<void *>(successor);
 	}
 }
 
-bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrate_list) {
-	assert(!slot->queue.empty());
-	auto address = slot->address;
+bool UserQueue::_progressFront(Address &successor) {
+	assert(!_nodeQueue.empty());
+	auto address = reinterpret_cast<Address>(_head);
 
 	size_t length = 0;
-	for(auto chunk = slot->queue.front()->_chunk; chunk; chunk = chunk->link)
+	for(auto chunk = _nodeQueue.front()->_chunk; chunk; chunk = chunk->link)
 		length += (chunk->size + 7) & ~size_t(7);
 	assert(length % 8 == 0);
-	auto context = slot->queue.front()->_context;
+	auto context = _nodeQueue.front()->_context;
 
-	auto pin = ForeignSpaceAccessor{slot->space.toShared(), address, sizeof(QueueStruct)};
+	auto pin = ForeignSpaceAccessor{_space, address, sizeof(QueueStruct)};
 	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
 	auto ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
 	auto us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
@@ -103,7 +85,7 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 
 	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
 
-	if(slot->waitInFutex)
+	if(_waitInFutex)
 		return false;
 
 	// First we traverse the nextQueue list until we find a queue that
@@ -116,22 +98,16 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 			if(!(ue & kQueueHasNext)) {
 				// We need checkSubmitWait() to avoid a deadlock that is triggered
 				// by taking locks in onWake().
-				slot->waitInFutex = slot->space->futexSpace.checkSubmitWait(address
+				_waitInFutex = _space->futexSpace.checkSubmitWait(address
 						+ offsetof(QueueStruct, userState), [&] {
 					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
 					return ue == v;
-				}, slot);
-				return !slot->waitInFutex;
+				}, this);
+				return !_waitInFutex;
 			}
 
 			// Finally we move to the next queue.
 			successor = Address(*next.get());
-			while(!slot->queue.empty()) {
-//				frigg::infoLogger() << "[" << this << "] erase "
-//						<< slot->queue.front() << frigg::endLog;
-				assert(slot->queue.front()->_queueNode.in_list);
-				migrate_list.push_back(slot->queue.pop_front());
-			}
 			return true;
 		}else{
 			// Set the kQueueWantNext bit. If this happens we will usually
@@ -140,14 +116,14 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 			if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 					__ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
 				if(ke & kQueueWaiters)
-					slot->space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
+					_space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
 			}
 		}
 	}
 
 	unsigned int offset = (ke & kQueueTail);
 
-	auto ez = ForeignSpaceAccessor::acquire(slot->space.toShared(),
+	auto ez = ForeignSpaceAccessor::acquire(_space,
 			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
 			sizeof(ElementStruct));
 
@@ -158,9 +134,9 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 	assert(!err);
 	
 //	frigg::infoLogger() << "[" << this << "] finish " << slot->queue.front() << frigg::endLog;
-	auto node = slot->queue.pop_front();
+	auto node = _nodeQueue.pop_front();
 
-	auto accessor = ForeignSpaceAccessor::acquire(slot->space.toShared(),
+	auto accessor = ForeignSpaceAccessor::acquire(_space,
 			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset
 					+ sizeof(ElementStruct)),
 			length);
@@ -182,12 +158,12 @@ bool QueueSpace::_progressFront(Slot *slot, Address &successor, NodeList &migrat
 		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
 				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
 			if(ke & kQueueWaiters)
-				slot->space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
+				_space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
 			break;
 		}
 	}
 
-	return !slot->queue.empty();
+	return !_nodeQueue.empty();
 }
 
 } // namespace thor
