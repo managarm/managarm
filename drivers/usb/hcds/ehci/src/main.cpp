@@ -27,6 +27,7 @@
 
 static const bool logIrqs = true;
 static const bool logSubmits = true;
+static const bool debugLinking = true;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
@@ -285,7 +286,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	assert(!_addressStack.empty());
 	auto address = _addressStack.front();
 	_addressStack.pop();
-	
+
+	std::cout << "ehci: Setting device address" << std::endl;
+
 	arch::dma_object<SetupPacket> set_address{&schedulePool};
 	set_address->type = setup_type::targetDevice | setup_type::byStandard
 			| setup_type::toDevice;
@@ -300,6 +303,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	queue->setAddress(address);
 
 	// Enquire the maximum packet size of the default control pipe.
+	std::cout << "ehci: Getting device descriptor header" << std::endl;
+
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
 	get_header->type = setup_type::targetDevice | setup_type::byStandard
 			| setup_type::toHost;
@@ -316,6 +321,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
 	
 	// Read the rest of the device descriptor.
+	std::cout << "ehci: Getting full device descriptor" << std::endl;
+
 	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
 	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
 			| setup_type::toHost;
@@ -376,7 +383,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	uint64_t sequence = 0;
 	while(true) {
 		if(logIrqs)
-			std::cout << "ehci: Awaiting IRQ." << std::endl;
+			std::cout << "ehci: Awaiting IRQ" << std::endl;
 		helix::AwaitEvent await_irq;
 		auto &&submit = helix::submitAwaitEvent(_irq, &await_irq,
 				sequence, helix::Dispatcher::global());
@@ -384,14 +391,17 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		HEL_CHECK(await_irq.error());
 		sequence = await_irq.sequence();
 		if(logIrqs)
-			std::cout << "ehci: IRQ fired (sequence: " << sequence << ")." << std::endl;
+			std::cout << "ehci: IRQ fired (sequence: " << sequence << ")" << std::endl;
 
 		auto status = _operational.load(op_regs::usbsts);
 		assert(!(status & usbsts::hostError));
 		if(!(status & usbsts::transactionIrq)
 				&& !(status & usbsts::errorIrq)
-			 	&& !(status & usbsts::portChange))
+			 	&& !(status & usbsts::portChange)) {
+			if(logIrqs)
+				std::cout << "ehci: IRQ is not from this controller" << std::endl;
 			continue;
+		}
 
 		if(status & usbsts::errorIrq)
 			printf("ehci: Error interrupt\n");
@@ -404,13 +414,13 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {
 			if(logIrqs)
-				std::cout << "ehci: Processing transfers." << std::endl;
+				std::cout << "ehci: Processing transfers" << std::endl;
 			_progressSchedule();
 		}
 		
 		if(status & usbsts::portChange) {
 			if(logIrqs)
-				std::cout << "ehci: Checking ports." << std::endl;
+				std::cout << "ehci: Checking ports" << std::endl;
 			_checkPorts();
 		}
 	}
@@ -522,6 +532,11 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 	head->nextTd.store(qh_nextTd::terminate(true));
 	head->altTd.store(qh_altTd::terminate(true));
 	head->status.store(qh_status::active(false));
+	head->bufferPtr0.store(qh_buffer::bufferPtr(0));
+	head->bufferPtr1.store(qh_buffer::bufferPtr(0));
+	head->bufferPtr2.store(qh_buffer::bufferPtr(0));
+	head->bufferPtr3.store(qh_buffer::bufferPtr(0));
+	head->bufferPtr4.store(qh_buffer::bufferPtr(0));
 }
 
 bool Controller::QueueEntity::getReclaim() {
@@ -638,7 +653,7 @@ auto Controller::_buildControl(XferFlags dir,
 			| td_status::interruptOnComplete(true)
 			| td_status::dataToggle(true));
 
-	return new Transaction{std::move(transfers)};
+	return new Transaction{std::move(transfers), buffer.size()};
 }
 
 auto Controller::_buildInterruptOrBulk(XferFlags dir,
@@ -708,7 +723,7 @@ auto Controller::_buildInterruptOrBulk(XferFlags dir,
 	}
 	assert(progress == buffer.size());
 
-	return new Transaction{std::move(transfers)};
+	return new Transaction{std::move(transfers), buffer.size()};
 }
 
 
@@ -747,12 +762,27 @@ void Controller::_linkAsync(QueueEntity *entity) {
 }
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
+	assert(transaction->transfers.size());
+
 	if(queue->transactions.empty()) {
 		if(logSubmits)
 			std::cout << "ehci: Linking in _linkTransaction" << std::endl;
 		assert(queue->head->nextTd.load() & td_ptr::terminate);
-		queue->head->nextTd.store(qh_nextTd::nextTd(
-				schedulePointer(&transaction->transfers[0]))); 
+		auto current = (queue->head->curTd.load() & qh_curTd::curTd);
+		auto pointer = schedulePointer(&transaction->transfers[0]);
+		queue->head->nextTd.store(qh_nextTd::nextTd(pointer));
+
+		if(debugLinking) {
+			std::cout << "ehci: Waiting for AdvanceQueue" << std::endl;
+			uint32_t update;
+			do {
+				update = (queue->head->curTd.load() & qh_curTd::curTd);
+				usleep(1'000);
+			} while(current == update);
+
+			// TODO: We could ensure that the new TD pointer is part of the transaction.
+			std::cout << "ehci: AdvanceQueue to new transaction" << std::endl;
+		}
 	}
 
 	queue->transactions.push_back(*transaction);
@@ -772,22 +802,27 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 	auto active = &entity->transactions.front();
 	while(active->numComplete < active->transfers.size()) {
-		auto &transfer = active->transfers[active->numComplete];
-		if((transfer.status.load() & td_status::active)
-				|| (transfer.status.load() & td_status::halted)
-				|| (transfer.status.load() & td_status::transactionError)
-				|| (transfer.status.load() & td_status::babbleDetected)
-				|| (transfer.status.load() & td_status::dataBufferError))
+		auto transfer = &active->transfers[active->numComplete];
+		if((transfer->status.load() & td_status::active)
+				|| (transfer->status.load() & td_status::halted)
+				|| (transfer->status.load() & td_status::transactionError)
+				|| (transfer->status.load() & td_status::babbleDetected)
+				|| (transfer->status.load() & td_status::dataBufferError))
 			break;
 
+		auto lost = (transfer->status.load() & td_status::totalBytes);
+		assert(!lost); // TODO: Support short packets.
+
 		active->numComplete++;
+		active->lostSize += lost;
 	}
 
 	auto current = active->numComplete;
 	if(current == active->transfers.size()) {
 		if(logSubmits)
-			std::cout << "Transfer complete!" << std::endl;
-		active->promise.set_value(0); // FIXME: This is just wrong.
+			std::cout << "ehci: Transfer complete!" << std::endl;
+		assert(active->fullSize >= active->lostSize);
+		active->promise.set_value(active->fullSize - active->lostSize);
 		active->voidPromise.set_value();
 
 		// Clean up the Queue.

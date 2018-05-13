@@ -58,11 +58,14 @@ struct Controller : std::enable_shared_from_this<Controller> {
 	};
 
 	struct Transaction : AsyncItem {
-		explicit Transaction(arch::dma_array<TransferDescriptor> transfers)
-		: transfers{std::move(transfers)}, numComplete{0} { }
+		explicit Transaction(arch::dma_array<TransferDescriptor> transfers, size_t size)
+		: transfers{std::move(transfers)}, fullSize{size},
+				numComplete{0}, lostSize{0} { }
 		
 		arch::dma_array<TransferDescriptor> transfers;
+		size_t fullSize;
 		size_t numComplete;
+		size_t lostSize; // Size lost in short packets.
 		async::promise<size_t> promise;
 		async::promise<void> voidPromise;
 	};
