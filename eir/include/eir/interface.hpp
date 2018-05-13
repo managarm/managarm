@@ -19,6 +19,15 @@ struct EirModule {
 	EirSize nameLength;
 };
 
+struct EirFramebuffer {
+	EirPtr fbAddress;
+	EirSize fbPitch;
+	EirSize fbWidth;
+	EirSize fbHeight;
+	EirSize fbBpp;
+	EirSize fbType;
+};
+
 struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
@@ -28,5 +37,7 @@ struct EirInfo {
 
 	EirSize numModules;
 	EirPtr moduleInfo;
+
+	EirFramebuffer frameBuffer;
 };
 

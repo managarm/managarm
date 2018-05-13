@@ -25,6 +25,8 @@ enum CntReqType {
 	STORE_PCI_CAPABILITY = 7;
 	
 	PM_RESET = 8;
+
+	GET_FB_INFO = 9;
 }
 
 message PciBar {
@@ -55,5 +57,11 @@ message SvrResponse {
 	repeated PciBar bars = 2;
 	repeated PciCapability capabilities = 4;
 	optional uint32 word = 3;
+
+	optional uint64 fb_pitch = 6;
+	optional uint64 fb_width = 7;
+	optional uint64 fb_height = 8;
+	optional uint64 fb_bpp = 9;
+	optional uint64 fb_type = 10;
 }
 

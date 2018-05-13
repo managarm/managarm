@@ -485,6 +485,7 @@ enum MbInfoFlags {
 	kMbInfoBootDevice = 2,
 	kMbInfoCommandLine = 4,
 	kMbInfoModules = 8,
+	kMbInfoFramebuffer = 12,
 	kMbInfoSymbols = 16,
 	kMbInfoMemoryMap = 32
 };
@@ -510,6 +511,14 @@ struct MbInfo {
 	uint32_t stringSection;
 	uint32_t memoryMapLength;
 	void *memoryMapPtr;
+	uint32_t padding[9];
+	uint64_t fbAddr;
+	uint32_t fbPitch;
+	uint32_t fbWidth;
+	uint32_t fbHeight;
+	uint8_t fbBpp;
+	uint8_t fbType;
+	uint8_t colorInfo[6];
 };
 
 struct MbMemoryMap {
@@ -622,6 +631,7 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
+	memset(info_ptr, 0, sizeof(EirInfo));
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == 0x40000000);
 	info_ptr->signature = eirSignatureValue;
@@ -659,6 +669,16 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	}
 	info_ptr->numModules = mb_info->numModules - 1;
 	info_ptr->moduleInfo = mapBootstrapData(modules);
+	
+	if((mb_info->flags & kMbInfoFramebuffer) != 0) {
+		auto framebuf = &info_ptr->frameBuffer;
+		framebuf->fbAddress = mb_info->fbAddr;
+		framebuf->fbPitch = mb_info->fbPitch;
+		framebuf->fbWidth = mb_info->fbWidth;
+		framebuf->fbHeight = mb_info->fbHeight;
+		framebuf->fbBpp = mb_info->fbBpp;
+		framebuf->fbType = mb_info->fbType;
+	}
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;
 	eirRtEnterKernel(eirPml4Pointer, kernel_entry,

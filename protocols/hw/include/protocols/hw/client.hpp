@@ -30,11 +30,20 @@ struct PciInfo {
 	std::vector<Capability> caps;
 };
 
+struct FbInfo {
+	uint64_t pitch;
+	uint64_t width;
+	uint64_t height;
+	uint64_t bpp;
+	uint64_t type;
+};
+
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
 	
 	async::result<PciInfo> getPciInfo();
+	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessIrq();
 	

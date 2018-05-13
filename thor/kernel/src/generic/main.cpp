@@ -7,6 +7,8 @@
 #include "fiber.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
+#include "../system/fb.hpp"
+
 
 namespace thor {
 
@@ -377,6 +379,10 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	KernelFiber::run([=] () mutable {
 		// Complete the system initialization.
 		initializeExtendedSystem();
+
+		initializeFb(info->frameBuffer.fbAddress, info->frameBuffer.fbPitch,
+				info->frameBuffer.fbWidth, info->frameBuffer.fbHeight,
+				info->frameBuffer.fbBpp, info->frameBuffer.fbType);
 
 		// Parse the initrd image.
 		auto modules = reinterpret_cast<EirModule *>(info->moduleInfo);

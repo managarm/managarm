@@ -48,7 +48,8 @@ executable('posix-subsystem',
 		lib_cofiber_dep,
 		proto_lite_dep,
 		libmbus_protocol_dep,
-		libfs_protocol_dep],
+		libfs_protocol_dep,
+		clock_protocol_dep],
 	include_directories: posix_subsystem_inc,
 	install: true)
 
