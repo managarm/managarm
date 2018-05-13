@@ -23,6 +23,17 @@ public:
 
 extern BochsSink infoSink;
 
+struct LogHandler {
+	virtual void printChar(char c) = 0;
+
+	frg::default_list_hook<LogHandler> hook;
+};
+
+void enableLogHandler(LogHandler *sink);
+
+size_t currentLogSequence();
+void copyLogMessage(size_t sequence, char *text);
+
 // --------------------------------------------------------
 // Kernel data types
 // --------------------------------------------------------

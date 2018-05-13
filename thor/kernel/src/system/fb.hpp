@@ -11,4 +11,3 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 
 #endif // THOR_SRC_SYSTEM_FB
 
-

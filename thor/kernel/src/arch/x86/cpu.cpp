@@ -55,6 +55,31 @@ extern bool debugToVga;
 extern bool debugToSerial;
 extern bool debugToBochs;
 
+struct LogMessage {
+	char text[100];
+};
+
+size_t currentLogLength;
+LogMessage logQueue[1024];
+size_t logHead;
+
+size_t currentLogSequence() {
+	return logHead;
+}
+
+void copyLogMessage(size_t sequence, char *text) {
+	memcpy(text, logQueue[sequence % 1024].text, 100);
+}
+
+frigg::LazyInitializer<frg::intrusive_list<
+	LogHandler,
+	frg::locate_member<
+		LogHandler,
+		frg::default_list_hook<LogHandler>,
+		&LogHandler::hook
+	>
+>> globalLogList;
+
 void setupDebugging() {
 	if(debugToSerial) {
 		auto base = arch::global_io.subspace(0x3F8);
@@ -67,12 +92,38 @@ void setupDebugging() {
 		// Configure: 8 data bits, 1 stop bit, no parity.
 		base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));
 	}
+
+	globalLogList.initialize();
+}
+
+void enableLogHandler(LogHandler *sink) {
+	globalLogList->push_back(sink);
 }
 
 void BochsSink::print(char c) {
-// --------------------------------------------------------
-// Text-mode video output
-// --------------------------------------------------------
+	if(c == '\n') {
+		currentLogLength = 0;
+		logHead++;
+		memset(logQueue[logHead % 1024].text, 0, 100);
+	}else {
+		logQueue[logHead % 1024].text[currentLogLength] = c;
+		currentLogLength++;
+	}
+	
+	if(currentLogLength >= 100) {
+		currentLogLength = 0;
+		logHead++;
+		memset(logQueue[logHead % 1024].text, 0, 100);
+	}
+
+	for(auto it = globalLogList->begin(); it != globalLogList->end(); ++it) {
+		(*it)->printChar(c);
+	}
+
+	// --------------------------------------------------------
+	// Text-mode video output
+	// --------------------------------------------------------
+	
 	if(debugToVga) {
 		if(c == '\n') {
 			advanceY();

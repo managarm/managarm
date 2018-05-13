@@ -1,14 +1,20 @@
 
 #include <frigg/debug.hpp>
 #include <arch/io_space.hpp>
+#include "../arch/x86/cpu.hpp"
 #include "../arch/x86/hpet.hpp"
 #include "../generic/fiber.hpp"
 #include "../generic/io.hpp"
 #include "../generic/kernel_heap.hpp"
 #include "../generic/service_helpers.hpp"
+
 #include "fb.hpp"
+#include "boot-screen.hpp"
+
 #include <mbus.frigg_pb.hpp>
 #include <hw.frigg_pb.hpp>
+
+extern unsigned char vga_font[];
 
 namespace thor {
 
@@ -25,6 +31,7 @@ struct FbInfo {
 	uint64_t bpp;
 	uint64_t type;
 	
+	void *window;
 	frigg::SharedPtr<Memory> memory;
 };
 
@@ -50,9 +57,7 @@ bool handleReq(LaneHandle lane, FbInfo *info) {
 		resp.SerializeToString(&ser);
 		fiberSend(branch, ser.data(), ser.size());
 	}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-		AnyDescriptor descriptor;
-		assert(device->bars[index].type == PciDevice::kBarMemory);
-		descriptor = MemoryAccessDescriptor{info->memory};
+		MemoryBundleDescriptor descriptor{info->memory};
 		
 		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -134,6 +139,93 @@ void handleBind(LaneHandle object_lane, FbInfo *fbinfo) {
 
 } // anonymous namespace
 
+// ------------------------------------------------------------------------
+// window handling
+// ------------------------------------------------------------------------
+
+constexpr size_t fontHeight = 16;
+constexpr size_t fontWidth = 8;
+
+constexpr uint32_t rgb(int r, int g, int b) {
+	return (r << 16) | (g << 8) | b;
+}
+
+constexpr uint32_t rgbColor[16] = {
+	rgb(1, 1, 1),
+	rgb(222, 56, 43),
+	rgb(57, 181, 74),
+	rgb(255, 199, 6),
+	rgb(0, 111, 184),
+	rgb(118, 38, 113),
+	rgb(44, 181, 233),
+	rgb(204, 204, 204),
+	rgb(128, 128, 128),
+	rgb(255, 0, 0),
+	rgb(0, 255, 0),
+	rgb(255, 255, 0),
+	rgb(0, 0, 255),
+	rgb(255, 0, 255),
+	rgb(0, 255, 255),
+	rgb(255, 255, 255) 
+};
+constexpr uint32_t defaultBg = rgb(25, 25, 112);
+
+struct FbDisplay : TextDisplay {
+	FbDisplay(void *window, unsigned int width, uint64_t pitch, unsigned int height)
+	:_window(window), _width(width), _pitch(pitch), _height(height) {
+		clearScreen(defaultBg);
+	}
+	
+	void setChar(unsigned int x, unsigned int y, char c, int fg, int bg) override;
+	int getWidth() override;
+	int getHeight() override;
+
+private:
+	void setPixel(unsigned int x, unsigned int y, uint32_t color);
+	void clearScreen(uint32_t color);
+
+	void *_window;
+	unsigned int _width;
+	uint64_t _pitch;
+	unsigned int _height;
+};
+
+void FbDisplay::setChar(unsigned int x, unsigned int y, char c,
+		int fg, int bg) {
+	unsigned int val;
+	for(size_t i = 0; i < fontHeight; i++) {
+		val = vga_font[(c - 32) * fontHeight + i];
+		for(size_t j = 0; j < fontWidth; j++) {
+			if(val & (1 << ((fontWidth - 1) - j))) {
+				setPixel(x * fontWidth + j, y * fontHeight + i, rgbColor[fg]);
+			}else {
+				setPixel(x * fontWidth + j, y * fontHeight + i, (bg < 0) ? defaultBg : rgbColor[bg]); 
+			}
+		}
+	}
+}
+
+int FbDisplay::getWidth() {
+	return _width / fontWidth;
+}
+
+int FbDisplay::getHeight() {
+	return _height / fontHeight;
+}
+
+void FbDisplay::setPixel(unsigned int x, unsigned int y, uint32_t color) {
+	memcpy(reinterpret_cast<char *>(_window)
+			+ y * _pitch + x * sizeof(uint32_t), &color, sizeof(uint32_t));
+}
+
+void FbDisplay::clearScreen(uint32_t color) {
+	for(size_t y = 0; y < _height; y++) {
+		for(size_t x = 0; x < _width; x++) {
+			setPixel(x, y, color);
+		}
+	}
+}
+
 void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 		uint64_t height, uint64_t bpp, uint64_t type) {
 	auto fb_info = frigg::construct<FbInfo>(*kernelAlloc);
@@ -143,11 +235,24 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 	fb_info->height = height;
 	fb_info->bpp = bpp;
 	fb_info->type = type;
+
+	auto window_size = (height * pitch + (kPageSize - 1)) & ~(kPageSize - 1);
+	assert(window_size <= 0x1'000'000);
+	fb_info->window = KernelVirtualMemory::global().allocate(0x1'000'000);
+	for(size_t pg = 0; pg < window_size; pg += kPageSize)
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(fb_info->window) + pg,
+				address + pg, page_access::write);
 	
 	assert(!(address & (kPageSize - 1)));
 	fb_info->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 			address & ~(kPageSize - 1),
 			(height * pitch + (kPageSize - 1)) & ~(kPageSize - 1));	
+
+	auto display = frigg::construct<FbDisplay>(*kernelAlloc, fb_info->window,
+			fb_info->width, fb_info->pitch, fb_info->height);
+	auto bootScreen = frigg::construct<BootScreen>(*kernelAlloc, display);
+
+	enableLogHandler(bootScreen);
 
 	// Create a fiber to manage requests to the FB mbus object.
 	KernelFiber::run([=] {
