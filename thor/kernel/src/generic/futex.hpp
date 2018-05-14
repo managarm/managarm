@@ -115,31 +115,31 @@ private:
 	> _slots;
 };
 
-struct QueueChunk {
+struct QueueSource {
 	void *pointer;
 	size_t size;
-	const QueueChunk *link;
+	const QueueSource *link;
 };
 
 struct QueueNode {
 	friend struct UserQueue;
 
 	QueueNode()
-	: _context{0}, _chunk{nullptr} { }
+	: _context{0}, _source{nullptr} { }
 
 	// Users of UserQueue::submit() have to set this up first.
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
-	void setupChunk(QueueChunk *chunk) {
-		_chunk = chunk;
+	void setupSource(QueueSource *source) {
+		_source = source;
 	}
 
 	virtual void complete();
 	
 private:
 	uintptr_t _context;
-	const QueueChunk *_chunk;
+	const QueueSource *_source;
 
 	frg::default_list_hook<QueueNode> _queueNode;
 };

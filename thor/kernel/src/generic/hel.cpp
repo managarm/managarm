@@ -64,7 +64,7 @@ public:
 		Wrapper(uintptr_t context, Args &&... args)
 		: _writer{frigg::forward<Args>(args)...} {
 			setupContext(context);
-			setupChunk(&_writer.chunk);
+			setupSource(&_writer.source);
 		}
 
 		void complete() override {
@@ -92,10 +92,10 @@ private:
 
 struct ManageMemoryWriter {
 	ManageMemoryWriter(Error error, uintptr_t offset, size_t length)
-	: chunk{&_result, sizeof(HelManageResult), nullptr},
+	: source{&_result, sizeof(HelManageResult), nullptr},
 			_result{translateError(error), 0, offset, length} { }
 
-	QueueChunk chunk;
+	QueueSource source;
 
 private:
 	HelManageResult _result;
@@ -103,10 +103,10 @@ private:
 
 struct LockMemoryWriter {
 	LockMemoryWriter(Error error)
-	: chunk{&_result, sizeof(HelSimpleResult), nullptr},
+	: source{&_result, sizeof(HelSimpleResult), nullptr},
 			_result{translateError(error), 0} { }
 
-	QueueChunk chunk;
+	QueueSource source;
 
 private:
 	HelSimpleResult _result;
@@ -114,27 +114,27 @@ private:
 
 struct OfferWriter {
 	OfferWriter(Error error)
-	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+	: _source{&_result, sizeof(HelSimpleResult), nullptr},
 			_result{translateError(error), 0} { }
 
 	OfferWriter(const OfferWriter &) = delete;
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelSimpleResult _result;
 };
 
 struct AcceptWriter {
 	AcceptWriter(Error error, frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane)
-	: _chunk{&_result, sizeof(HelHandleResult), nullptr},
+	: _source{&_result, sizeof(HelHandleResult), nullptr},
 			_result{translateError(error), 0, kHelNullHandle} {
 		if(weak_universe) {
 			auto universe = weak_universe.grab();
@@ -147,76 +147,76 @@ struct AcceptWriter {
 		}
 	}
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelHandleResult _result;
 };
 
 struct ImbueCredentialsWriter {
 	ImbueCredentialsWriter(Error error)
-	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+	: _source{&_result, sizeof(HelSimpleResult), nullptr},
 			_result{translateError(error), 0} { }
 
 	ImbueCredentialsWriter(const ImbueCredentialsWriter &) = delete;
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelSimpleResult _result;
 };
 
 struct ExtractCredentialsWriter {
 	ExtractCredentialsWriter(Error error, frigg::Array<char, 16> credentials)
-	: _chunk{&_result, sizeof(HelCredentialsResult), nullptr},
+	: _source{&_result, sizeof(HelCredentialsResult), nullptr},
 			_result{translateError(error), 0} {
 		memcpy(_result.credentials, credentials.data(), 16);
 	}
 
 	ExtractCredentialsWriter(const ExtractCredentialsWriter &) = delete;
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelCredentialsResult _result;
 };
 
 struct SendStringWriter {
 	SendStringWriter(Error error)
-	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+	: _source{&_result, sizeof(HelSimpleResult), nullptr},
 			_result{translateError(error), 0} { }
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelSimpleResult _result;
 };
 
@@ -227,61 +227,61 @@ struct RecvInlineWriter {
 			_result{translateError(error), 0, buffer.size()},
 			_buffer(frigg::move(buffer)) { }
 
-	QueueChunk *chunk() {
+	QueueSource *source() {
 		return &_resultChunk;
 	}
 
-	void link(QueueChunk *next) {
+	void link(QueueSource *next) {
 		_bufferChunk.link = next;
 	}
 
 private:
-	QueueChunk _resultChunk;
-	QueueChunk _bufferChunk;
+	QueueSource _resultChunk;
+	QueueSource _bufferChunk;
 	HelInlineResultNoFlex _result;
 	frigg::UniqueMemory<KernelAlloc> _buffer;
 };
 
 struct RecvStringWriter {
 	RecvStringWriter(Error error, size_t length)
-	: _chunk{&_result, sizeof(HelLengthResult), nullptr},
+	: _source{&_result, sizeof(HelLengthResult), nullptr},
 			_result{translateError(error), 0, length} { }
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelLengthResult _result;
 };
 
 struct PushDescriptorWriter {
 	PushDescriptorWriter(Error error)
-	: _chunk{&_result, sizeof(HelSimpleResult), nullptr},
+	: _source{&_result, sizeof(HelSimpleResult), nullptr},
 			_result{translateError(error), 0} { }
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelSimpleResult _result;
 };
 
 struct PullDescriptorWriter {
 	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> weak_universe,
 			AnyDescriptor descriptor)
-	: _chunk{&_result, sizeof(HelHandleResult), nullptr},
+	: _source{&_result, sizeof(HelHandleResult), nullptr},
 			_result{translateError(error), 0, kHelNullHandle} {
 		if(weak_universe) {
 			auto universe = weak_universe.grab();
@@ -294,22 +294,22 @@ struct PullDescriptorWriter {
 		}
 	}
 
-	QueueChunk *chunk() {
-		return &_chunk;
+	QueueSource *source() {
+		return &_source;
 	}
 
-	void link(QueueChunk *next) {
-		_chunk.link = next;
+	void link(QueueSource *next) {
+		_source.link = next;
 	}
 
 private:
-	QueueChunk _chunk;
+	QueueSource _source;
 	HelHandleResult _result;
 };
 
 struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, Interrupt interrupt)
-	: chunk{&_result, sizeof(HelObserveResult), nullptr},
+	: source{&_result, sizeof(HelObserveResult), nullptr},
 			_result{translateError(error), 0, 0} {
 		if(interrupt == kIntrNull) {
 			_result.observation = kHelObserveNull;
@@ -331,7 +331,7 @@ struct ObserveThreadWriter {
 		}
 	}
 
-	QueueChunk chunk;
+	QueueSource source;
 
 private:
 	HelObserveResult _result;
@@ -363,23 +363,23 @@ public:
 
 private:
 	void submit() {
-		auto chunk = [this] (int index) {
+		auto source = [this] (int index) {
 			return _results[index].apply([&] (auto &item) {
-				return item.chunk();
+				return item.source();
 			});
 		};
 		
-		auto link = [this] (int index, QueueChunk *next) {
+		auto link = [this] (int index, QueueSource *next) {
 			return _results[index].apply([&] (auto &item) {
 				return item.link(next);
 			});
 		};
 		
 		for(size_t i = 1; i < _numItems; ++i)
-			link(i - 1, chunk(i));
+			link(i - 1, source(i));
 		
 		assert(_numItems);
-		setupChunk(chunk(0));
+		setupSource(source(0));
 		_queue->submit(this);
 	}
 	
@@ -1436,10 +1436,10 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		explicit Closure(uint64_t ticks, frigg::SharedPtr<UserQueue> the_queue,
 				uintptr_t context)
 		: PrecisionTimerNode{ticks}, queue{frigg::move(the_queue)},
-				chunk{&result, sizeof(HelSimpleResult), nullptr},
+				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
-			setupChunk(&chunk);
+			setupSource(&source);
 		}
 
 		void onElapse() override {
@@ -1451,7 +1451,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		frigg::SharedPtr<UserQueue> queue;
-		QueueChunk chunk;
+		QueueSource source;
 		HelSimpleResult result;
 	};
 
@@ -1771,9 +1771,9 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	public:
 		explicit Closure(frigg::SharedPtr<UserQueue> the_queue, uintptr_t context)
 		: _queue{frigg::move(the_queue)},
-				chunk{&result, sizeof(HelEventResult), nullptr} {
+				source{&result, sizeof(HelEventResult), nullptr} {
 			setupContext(context);
-			setupChunk(&chunk);
+			setupSource(&source);
 		}
 
 		void onRaise(Error error, uint64_t sequence) override {
@@ -1788,7 +1788,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	private:
 		frigg::SharedPtr<UserQueue> _queue;
-		QueueChunk chunk;
+		QueueSource source;
 		HelEventResult result;
 	};
 	

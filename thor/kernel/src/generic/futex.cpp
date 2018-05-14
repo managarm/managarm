@@ -72,8 +72,8 @@ bool UserQueue::_progressFront(Address &successor) {
 	auto address = reinterpret_cast<Address>(_head);
 
 	size_t length = 0;
-	for(auto chunk = _nodeQueue.front()->_chunk; chunk; chunk = chunk->link)
-		length += (chunk->size + 7) & ~size_t(7);
+	for(auto source = _nodeQueue.front()->_source; source; source = source->link)
+		length += (source->size + 7) & ~size_t(7);
 	assert(length % 8 == 0);
 	auto context = _nodeQueue.front()->_context;
 
@@ -141,9 +141,9 @@ bool UserQueue::_progressFront(Address &successor) {
 					+ sizeof(ElementStruct)),
 			length);
 	size_t disp = 0;
-	for(auto chunk = node->_chunk; chunk; chunk = chunk->link) {
-		accessor.write(disp, chunk->pointer, chunk->size);
-		disp += (chunk->size + 7) & ~size_t(7);
+	for(auto source = node->_source; source; source = source->link) {
+		accessor.write(disp, source->pointer, source->size);
+		disp += (source->size + 7) & ~size_t(7);
 	}
 
 	node->complete();
