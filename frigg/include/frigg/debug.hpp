@@ -3,6 +3,7 @@
 #define FRIGG_DEBUG_HPP
 
 #include <frigg/macros.hpp>
+#include <frigg/algorithm.hpp>
 #include <frigg/support.hpp>
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
@@ -116,18 +117,13 @@ struct Print<P, T *> {
 };
 
 template<typename P, typename T,
-		typename E = typename P::IsPrinter>
-P operator<< (P &&printer, T object) {
+		typename = typename frigg::RemoveRef<P>::type::IsPrinter>
+P &&operator<< (P &&printer, T object) {
 	Print<P, T>::print(printer, object);
-	return printer;
+	return frigg::forward<P>(printer);
 }
 
-template<typename P, typename T,
-		typename E = typename P::IsPrinter>
-P &operator<< (P &printer, T object) {
-	Print<P, T>::print(printer, object);
-	return printer;
-}
+struct MakePrinter { };
 
 template<typename Sink>
 class DefaultLogger {
@@ -171,6 +167,33 @@ public:
 	public:
 		struct IsPrinter { };
 
+		friend void swap(Printer &u, Printer &v) {
+			using frigg::swap;
+			swap(u._valid, v._valid);
+		}
+
+		Printer(MakePrinter)
+		: _valid{true} {
+			friggBeginLog();
+		}
+
+		Printer()
+		: _valid{false} { }
+
+		Printer(const Printer &) = delete;
+		
+		Printer(Printer &&other)
+		: Printer{} {
+			swap(*this, other);
+		}
+
+		~Printer() {
+			if(_valid)
+				friggEndLog();
+		}
+
+		Printer &operator= (const Printer &) = delete;
+
 		inline void print(char c) {
 			friggPrintCritical(c);
 		}
@@ -184,10 +207,13 @@ public:
 		inline void finish() {
 			friggPrintCritical('\n');
 		}
+	
+	private:
+		bool _valid;
 	};
 
 	inline Printer operator() () {
-		return Printer();
+		return Printer{MakePrinter{}};
 	}
 };
 
@@ -196,6 +222,33 @@ public:
 	class Printer {
 	public:
 		struct IsPrinter { };
+
+		friend void swap(Printer &u, Printer &v) {
+			using frigg::swap;
+			swap(u._valid, v._valid);
+		}
+
+		Printer(MakePrinter)
+		: _valid{true} {
+			friggBeginLog();
+		}
+
+		Printer()
+		: _valid{false} { }
+
+		Printer(const Printer &) = delete;
+		
+		Printer(Printer &&other)
+		: Printer{} {
+			swap(*this, other);
+		}
+
+		~Printer() {
+			if(_valid)
+				friggEndLog();
+		}
+
+		Printer &operator= (const Printer &) = delete;
 
 		inline void print(char c) {
 			friggPrintCritical(c);
@@ -211,11 +264,14 @@ public:
 			friggPrintCritical('\n');
 			friggPanic();
 		}
+	
+	private:
+		bool _valid;
 	};
 
 	inline Printer operator() () {
 		friggPrintCritical("Panic!\n");
-		return Printer();
+		return Printer{MakePrinter{}};
 	}
 };
 

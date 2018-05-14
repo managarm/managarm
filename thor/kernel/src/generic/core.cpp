@@ -185,7 +185,7 @@ AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
 
 frigg::Optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
 	assert(guard.protects(&lock));
-	
+
 	return _descriptorMap.remove(handle);
 }
 
@@ -194,6 +194,18 @@ frigg::Optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle h
 // --------------------------------------------------------
 // Frigg glue functions
 // --------------------------------------------------------
+
+frigg::TicketLock logLock;
+
+void friggBeginLog() {
+	thor::irqMutex().lock();
+	logLock.lock();
+}
+
+void friggEndLog() {
+	logLock.unlock();
+	thor::irqMutex().unlock();
+}
 
 void friggPrintCritical(char c) {
 	thor::infoSink.print(c);

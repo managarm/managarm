@@ -192,6 +192,9 @@ void BochsSink::print(const char *str) {
 
 BochsSink infoSink;
 
+void friggBeginLog() { }
+void friggEndLog() { }
+
 void friggPrintCritical(char c) {
 	infoSink.print(c);
 }

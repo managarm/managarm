@@ -23,6 +23,9 @@ void InfoSink::print(const char *str) {
 
 InfoSink infoSink;
 
+void friggBeginLog() { }
+void friggEndLog() { }
+
 void friggPrintCritical(char c) {
 	infoSink.print(c);
 }
