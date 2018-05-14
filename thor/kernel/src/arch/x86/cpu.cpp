@@ -100,26 +100,9 @@ void enableLogHandler(LogHandler *sink) {
 	globalLogList->push_back(sink);
 }
 
-void BochsSink::print(char c) {
-	if(c == '\n') {
-		currentLogLength = 0;
-		logHead++;
-		memset(logQueue[logHead % 1024].text, 0, 100);
-	}else {
-		logQueue[logHead % 1024].text[currentLogLength] = c;
-		currentLogLength++;
-	}
-	
-	if(currentLogLength >= 100) {
-		currentLogLength = 0;
-		logHead++;
-		memset(logQueue[logHead % 1024].text, 0, 100);
-	}
+namespace {
 
-	for(auto it = globalLogList->begin(); it != globalLogList->end(); ++it) {
-		(*it)->printChar(c);
-	}
-
+void callLegacy(char c) {
 	// --------------------------------------------------------
 	// Text-mode video output
 	// --------------------------------------------------------
@@ -165,6 +148,77 @@ void BochsSink::print(char c) {
 	// --------------------------------------------------------
 	if(debugToBochs)
 		frigg::arch_x86::ioOutByte(0xE9, c);
+}
+
+} // anonymous namespace
+
+constexpr int maximalCsiLength = 16;
+char csiBuffer[maximalCsiLength];
+int csiState;
+int csiLength;
+
+void BochsSink::print(char c) {
+	auto doesFit = [] (int n) -> bool {
+		return currentLogLength + n < 100;
+	};
+
+	auto cutOff = [] () {
+		currentLogLength = 0;
+		logHead++;
+		memset(logQueue[logHead % 1024].text, 0, 100);
+		callLegacy('\n');
+	};
+
+	auto emit = [] (char c) {
+		logQueue[logHead % 1024].text[currentLogLength] = c;
+		currentLogLength++;
+		callLegacy(c);
+	};
+
+	if(!csiState) {
+		if(c == '\x1B') {
+			csiState = 1;
+		}else if(c == '\n' || !doesFit(1)) {
+			cutOff();
+		}else{
+			emit(c);
+		}
+	}else if(csiState == 1) {
+		if(c == '[') {
+			csiState = 2;
+		}else{
+			if(!doesFit(2)) {
+				cutOff();
+			}else{
+				emit('\x1B');
+				emit(c);
+			}
+			csiState = 0;
+		}
+	}else{
+		// This is csiState == 2.
+		if((c >= '0' && c <= '9') || (c == ';')) {
+			if(csiLength < maximalCsiLength)
+				csiBuffer[csiLength] = c;
+			csiLength++;
+		}else{
+			if(csiLength >= maximalCsiLength || !doesFit(3 + csiLength)) {
+				cutOff();
+			}else{
+				emit('\x1B');
+				emit('[');
+				for(int i = 0; i < csiLength; i++)
+					emit(csiBuffer[i]);
+				emit(c);
+			}
+			csiState = 0;
+			csiLength = 0;
+		}
+	}
+
+	for(auto it = globalLogList->begin(); it != globalLogList->end(); ++it) {
+		(*it)->printChar(c);
+	}
 }
 
 void BochsSink::print(const char *str) {

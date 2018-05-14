@@ -4,39 +4,47 @@
 
 namespace thor {
 
+BootScreen::BootScreen(TextDisplay *display)
+: _display{display}, _bottomSequence{0} {
+	_width = _display->getWidth();
+	_height = _display->getHeight();
+}
+
 void BootScreen::printChar(char c) {
-	if(_y >= _display->getHeight()) {
-		for(size_t y = 0; y < _display->getHeight() - 1; y++) {
-			char text[100];
-			copyLogMessage(currentLogSequence() - _display->getHeight() + y, text);
-			for(size_t x = 0; x < 100 && x < _display->getWidth(); x++) {
-				if(!text[x]) {
-					_display->setChar(x, y, ' ', _fg, _bg);
-				}else {
-					_display->setChar(x, y, text[x], _fg, _bg);
-				}
+	auto displayLine = [&] (uint64_t seq, int i) {
+		char text[100];
+		copyLogMessage(seq, text);
+		
+		int k = 0;
+		while(k < frigg::min(100, _width) && text[k])
+			k++;
+		_display->setChars(0, i, text, k, _fg, _bg);
+		_display->setBlanks(k, i, frigg::min(100, _width) - k, _bg);
+	};
 
-			}
+	if(auto cs = currentLogSequence(); _bottomSequence < cs) {
+		// Fully redraw the first _height - 1 lines.
+		for(int i = 1; i < _height; i++) {
+			if(cs < static_cast<uint64_t>(i))
+				break;
+			displayLine(cs - i, _height - 1 - i);
 		}
-		for(size_t x = 0; x < _display->getWidth(); x++) {
-			_display->setChar(x, _display->getHeight() - 1, ' ', _fg, _bg);
-		}
 
-		_y = _display->getHeight() - 1;
+		// Clear the last line.
+		_bottomSequence = cs;
+		_display->setBlanks(0, _height - 1, frigg::min(100, _width), _bg);
+		_drawLength = 0;
 	}
 
-	if(c == '\n') {
-		_y++;
-		_x = 0;
-		return;
-	}
-
-	_display->setChar(_x, _y, c, _fg, _bg);
-	_x++;
-	if(_x >= _display->getWidth()) {
-		_x = 0;
-		_y++;
-	}
+	// Partially draw the last line.
+	char text[100];
+	copyLogMessage(_bottomSequence, text);
+	
+	int k = 0;
+	while(_drawLength + k < frigg::min(100, _width) && text[_drawLength + k])
+		k++;
+	_display->setChars(_drawLength, _height - 1, text + _drawLength, k, _fg, _bg);
+	_drawLength += k;
 }
 
 void BootScreen::printString(const char *string) {

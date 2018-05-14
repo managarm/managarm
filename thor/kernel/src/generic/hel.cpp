@@ -413,8 +413,19 @@ private:
 };
 
 HelError helLog(const char *string, size_t length) {
-	for(size_t i = 0; i < length; i++)
-		infoSink.print(readUserObject<char>(string + i));
+	size_t offset = 0;
+	while(offset < length) {
+		auto chunk = frigg::min(length - offset, size_t{100});
+
+		char buffer[100];
+		readUserArray(string + offset, buffer, chunk);
+		{
+			auto p = frigg::infoLogger();
+			for(size_t i = 0; i < chunk; i++)
+				p.print(buffer[i]);
+		}
+		offset += chunk;
+	}
 
 	return kHelErrNone;
 }

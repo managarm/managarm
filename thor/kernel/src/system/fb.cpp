@@ -14,7 +14,7 @@
 #include <mbus.frigg_pb.hpp>
 #include <hw.frigg_pb.hpp>
 
-extern unsigned char vga_font[];
+extern uint8_t fontBitmap[];
 
 namespace thor {
 
@@ -171,39 +171,28 @@ constexpr uint32_t rgbColor[16] = {
 constexpr uint32_t defaultBg = rgb(25, 25, 112);
 
 struct FbDisplay : TextDisplay {
-	FbDisplay(void *window, unsigned int width, uint64_t pitch, unsigned int height)
-	:_window(window), _width(width), _pitch(pitch), _height(height) {
-		clearScreen(defaultBg);
+	FbDisplay(void *window, unsigned int width, unsigned int height, size_t pitch)
+	: _window{reinterpret_cast<uint32_t *>(window)},
+			_width{width}, _height{height}, _pitch{pitch / sizeof(uint32_t)} {
+		assert(!(pitch % sizeof(uint32_t)));
+		_clearScreen(defaultBg);
 	}
-	
-	void setChar(unsigned int x, unsigned int y, char c, int fg, int bg) override;
+
 	int getWidth() override;
 	int getHeight() override;
+	
+	void setChars(unsigned int x, unsigned int y,
+			char *c, int count, int fg, int bg) override;
+	void setBlanks(unsigned int x, unsigned int y, int count, int bg) override;
 
 private:
-	void setPixel(unsigned int x, unsigned int y, uint32_t color);
-	void clearScreen(uint32_t color);
+	void _clearScreen(uint32_t rgb_color);
 
-	void *_window;
+	volatile uint32_t *_window;
 	unsigned int _width;
-	uint64_t _pitch;
 	unsigned int _height;
+	size_t _pitch;
 };
-
-void FbDisplay::setChar(unsigned int x, unsigned int y, char c,
-		int fg, int bg) {
-	unsigned int val;
-	for(size_t i = 0; i < fontHeight; i++) {
-		val = vga_font[(c - 32) * fontHeight + i];
-		for(size_t j = 0; j < fontWidth; j++) {
-			if(val & (1 << ((fontWidth - 1) - j))) {
-				setPixel(x * fontWidth + j, y * fontHeight + i, rgbColor[fg]);
-			}else {
-				setPixel(x * fontWidth + j, y * fontHeight + i, (bg < 0) ? defaultBg : rgbColor[bg]); 
-			}
-		}
-	}
-}
 
 int FbDisplay::getWidth() {
 	return _width / fontWidth;
@@ -213,16 +202,47 @@ int FbDisplay::getHeight() {
 	return _height / fontHeight;
 }
 
-void FbDisplay::setPixel(unsigned int x, unsigned int y, uint32_t color) {
-	memcpy(reinterpret_cast<char *>(_window)
-			+ y * _pitch + x * sizeof(uint32_t), &color, sizeof(uint32_t));
+void FbDisplay::setChars(unsigned int x, unsigned int y,
+		char *c, int count, int fg, int bg) {
+	auto fg_rgb = rgbColor[fg];
+	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg]; 
+
+	auto dest_line = _window + y * fontHeight * _pitch + x * fontWidth;
+	for(size_t i = 0; i < fontHeight; i++) {
+		auto dest = dest_line;
+		for(int k = 0; k < count; k++) {
+			auto dc = (c[k] >= 32 && c[k] <= 127) ? c[k] : 127;
+			auto fontbits = fontBitmap[(dc - 32) * fontHeight + i];
+			for(size_t j = 0; j < fontWidth; j++) {
+				int bit = (1 << ((fontWidth - 1) - j));
+				*dest++ = (fontbits & bit) ? fg_rgb : bg_rgb;
+			}
+		}
+		dest_line += _pitch;
+	}
 }
 
-void FbDisplay::clearScreen(uint32_t color) {
-	for(size_t y = 0; y < _height; y++) {
-		for(size_t x = 0; x < _width; x++) {
-			setPixel(x, y, color);
+void FbDisplay::setBlanks(unsigned int x, unsigned int y, int count, int bg) {
+	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg]; 
+
+	auto dest_line = _window + y * fontHeight * _pitch + x * fontWidth;
+	for(size_t i = 0; i < fontHeight; i++) {
+		auto dest = dest_line;
+		for(int k = 0; k < count; k++) {
+			for(size_t j = 0; j < fontWidth; j++)
+				*dest++ = bg_rgb;
 		}
+		dest_line += _pitch;
+	}
+}
+
+void FbDisplay::_clearScreen(uint32_t rgb_color) {
+	auto dest_line = _window;
+	for(size_t i = 0; i < _height; i++) {
+		auto dest = dest_line;
+		for(size_t j = 0; j < _width; j++)
+			*dest++ = rgb_color;
+		dest_line += _pitch;
 	}
 }
 
@@ -249,7 +269,7 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 			(height * pitch + (kPageSize - 1)) & ~(kPageSize - 1));	
 
 	auto display = frigg::construct<FbDisplay>(*kernelAlloc, fb_info->window,
-			fb_info->width, fb_info->pitch, fb_info->height);
+			fb_info->width, fb_info->height, fb_info->pitch);
 	auto bootScreen = frigg::construct<BootScreen>(*kernelAlloc, display);
 
 	enableLogHandler(bootScreen);

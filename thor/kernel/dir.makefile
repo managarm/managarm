@@ -3,6 +3,7 @@ $(call standard_dirs)
 $c_EXTRA_SRCDIR := $(TREE_PATH)/$c/extra-src
 $c_ACPICA_SRCDIR := $(ACPICA)/source
 $(call define_objdir,ARCH_OBJ,$($c_OBJDIR)/arch/x86)
+$(call define_objdir,SYSTEM_OBJ,$($c_OBJDIR)/system)
 $(call define_objdir,PCI_OBJ,$($c_OBJDIR)/system/pci)
 $(call define_objdir,ACPI_OBJ,$($c_OBJDIR)/system/acpi)
 $(call define_objdir,GENERIC_OBJ,$($c_OBJDIR)/generic)
@@ -28,7 +29,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
 	generic/thread.o generic/irq.o generic/io.o generic/service_helpers.o
-$c_OBJECTS += generic/font_8x16.o system/boot-screen.o system/fb.o
+$c_OBJECTS += generic/font-8x16.o system/boot-screen.o system/fb.o
 $c_OBJECTS += system/pci/pci_io.o system/pci/pci_discover.o 
 $c_OBJECTS += system/acpi/glue.o system/acpi/madt.o system/acpi/pm-interface.o
 $c_OBJECT_PATHS := $(addprefix $($c_OBJDIR)/,$($c_OBJECTS))
