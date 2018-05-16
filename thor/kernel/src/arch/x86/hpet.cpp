@@ -78,6 +78,8 @@ public:
 		}
 
 		_timerQueue.push(timer);
+		_activeTimers++;
+//		frigg::infoLogger() << "hpet: Active timers: " << _activeTimers << frigg::endLog;
 		_progress();
 	}
 
@@ -116,6 +118,7 @@ private:
 
 				auto timer = _timerQueue.top();
 				_timerQueue.pop();
+				_activeTimers--;
 				if(logProgress)
 					frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
 				timer->onElapse();
@@ -139,6 +142,8 @@ private:
 		>,
 		CompareTimer
 	> _timerQueue;
+	
+	size_t _activeTimers;
 };
 
 frigg::LazyInitializer<HpetDevice> hpetDevice;
