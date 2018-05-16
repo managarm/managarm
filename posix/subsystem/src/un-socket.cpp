@@ -234,9 +234,12 @@ public:
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 
+		std::string path{sa.sun_path, strnlen(sa.sun_path,
+				addr_length - offsetof(sockaddr_un, sun_path))};
+		std::cout << "posix: Bind to " << path << std::endl;
+
 		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(),
-				std::string{sa.sun_path, strnlen(sa.sun_path, 108)});
+		resolver.setup(process->fsContext()->getRoot(), std::move(path));
 		COFIBER_AWAIT resolver.resolve(resolvePrefix);
 		assert(resolver.currentLink());
 
@@ -257,10 +260,13 @@ public:
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
+		
+		std::string path{sa.sun_path, strnlen(sa.sun_path,
+				addr_length - offsetof(sockaddr_un, sun_path))};
+		std::cout << "posix: Connect to " << path << std::endl;
 
 		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(),
-				std::string{sa.sun_path, strnlen(sa.sun_path, 108)});
+		resolver.setup(process->fsContext()->getRoot(), std::move(path));
 		COFIBER_AWAIT resolver.resolve();
 		assert(resolver.currentLink());
 
