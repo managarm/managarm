@@ -25,9 +25,9 @@
 #include "spec.hpp"
 #include "ehci.hpp"
 
-static const bool logIrqs = true;
-static const bool logSubmits = true;
-static const bool debugLinking = true;
+static const bool logIrqs = false;
+static const bool logSubmits = false;
+static const bool debugLinking = false;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 

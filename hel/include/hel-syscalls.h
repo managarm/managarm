@@ -54,6 +54,12 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(HelQueue
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helSetupChunk(HelHandle queue,
+		int index, HelChunk *chunk, uint32_t flags) {
+	return helSyscall4(kHelCallSetupChunk, (HelWord)queue, (HelWord)index,
+			(HelWord)chunk, (HelWord)flags);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
 		uint32_t flags, HelHandle *handle) {
 	HelWord hel_handle;

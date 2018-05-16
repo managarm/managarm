@@ -191,89 +191,125 @@ private:
 	};
 
 public:
+	static constexpr int sizeShift = 14;
+
 	static Dispatcher &global();
 
-	Dispatcher() = default;
+	Dispatcher()
+	: _handle{kHelNullHandle}, _queue{nullptr},
+			_activeChunks{0}, _retrieveIndex{0}, _nextIndex{0}, _lastProgress{0} { }
 
 	Dispatcher(const Dispatcher &) = delete;
 	
 	Dispatcher &operator= (const Dispatcher &) = delete;
 
 	HelHandle acquire() {
-		if(_items.empty())
-			allocate();
+		if(!_handle) {
+			_queue = reinterpret_cast<HelQueue *>(operator new(sizeof(HelQueue)
+					+ (1 << sizeShift) * sizeof(int)));
+			_queue->headFutex = 0;
+			_queue->elementLimit = 128;
+			_queue->sizeShift = sizeShift;
+			HEL_CHECK(helCreateQueue(_queue, 0, &_handle));
+		}
+
 		return _handle;
 	}
 
 	void dispatch() {
-		assert(!_items.empty());
-
-		auto it = std::prev(_items.end());
-
-		auto ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
-			if(it->progress != (ke & kHelQueueTail)) {
-				assert(it->progress < (ke & kHelQueueTail));
+			if(_retrieveIndex == _nextIndex) {
+			//	assert(_activeChunks < 16);
+//				std::cout << "helix: Allocating chunk #" << _activeChunks
+//						<< " (to be put at index " << _nextIndex << ")" << std::endl;
 
-				auto ptr = (char *)it->queue + sizeof(HelQueue) + it->progress;
-				auto elem = reinterpret_cast<HelElement *>(ptr);
-				it->progress += sizeof(HelElement) + elem->length;
-
-				auto context = reinterpret_cast<Context *>(elem->context);
-				context->complete(ElementPtr{ptr + sizeof(HelElement)});
-				break;
-			}
-			
-			auto ue = __atomic_load_n(&it->queue->userState, __ATOMIC_RELAXED);
-			if((ke & kHelQueueWantNext) && !(ue & kHelQueueHasNext)) {
-				allocate();
-				++it;
-				assert(it == std::prev(_items.end()));
-				// Hack around the current queue limitations and change the queue head.
-				// We need this store (and all loads) to be atomic,
-				// but that should be fine on x86_64.
-				__atomic_store_n(&_items.front().queue->nextQueue, it->queue, __ATOMIC_RELAXED);
-				ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
+				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
+				_chunks[_activeChunks] = chunk;
+				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
+				
+				chunk->progressFutex = 0;
+				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
+				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
+				_wakeHeadFutex();
+				
+				_activeChunks++;
 				continue;
 			}
 
-			if(!(ke & kHelQueueWaiters)) {
-				auto d = ke | kHelQueueWaiters;
-				if(__atomic_compare_exchange_n(&it->queue->kernelState,
-						&ke, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
-					ke = d;
-			}else{
-				HEL_CHECK(helFutexWait((int *)&it->queue->kernelState, ke));
-				ke = __atomic_load_n(&it->queue->kernelState, __ATOMIC_ACQUIRE);
+//			frigg::infoLogger() << "Try to dequeue at " << _lastProgress << frigg::endLog;
+			bool done;
+			_waitProgressFutex(&done);
+			if(done) {
+//				_chunk->progressFutex = 0;
+//				_queue->indexQueue[(_nextIndex++) & ((1 << sizeShift) - 1)] = 0;
+//				_wakeHeadFutex();
+				// TODO: Decrement the refcount.
+
+				_lastProgress = 0;
+				_retrieveIndex = ((_retrieveIndex + 1) & kHelHeadMask);
+				continue;
 			}
+
+			// Dequeue the next element.
+			auto ptr = (char *)_retrieveChunk() + sizeof(HelChunk) + _lastProgress;
+			auto element = reinterpret_cast<HelElement *>(ptr);
+			_lastProgress += sizeof(HelElement) + element->length;
+			
+			auto context = reinterpret_cast<Context *>(element->context);
+			context->complete(ElementPtr{ptr + sizeof(HelElement)});
+			return;
 		}
 	}
 
 private:
-	void allocate() {
-		auto queue = reinterpret_cast<HelQueue *>(operator new(sizeof(HelQueue) + 0x1000));
-		queue->elementLimit = 128;
-		queue->queueLength = 0x1000;
-		queue->kernelState = 0;
-		queue->userState = 0;
-
-		if(!_items.empty()) {
-			_items.back().queue->nextQueue = queue;
-
-			unsigned int e = 0;
-			auto s = __atomic_compare_exchange_n(&_items.back().queue->userState,
-					&e, kHelQueueHasNext, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED);
-			assert(s);
-			HEL_CHECK(helFutexWake((int *)&_items.back().queue->userState));
-		}else{
-			HEL_CHECK(helCreateQueue(queue, 0, &_handle));
-		}
-
-		_items.emplace_back(queue);
+	HelChunk *_retrieveChunk() {
+		auto cn = _queue->indexQueue[_retrieveIndex & ((1 << sizeShift) - 1)];
+		return _chunks[cn];
 	}
 
+	void _wakeHeadFutex() {
+		auto futex = __atomic_exchange_n(&_queue->headFutex, _nextIndex, __ATOMIC_RELEASE);
+		if(futex & kHelHeadWaiters) {
+//			std::cout << "helix: Waking up head waiters" << std::endl;
+			HEL_CHECK(helFutexWake(&_queue->headFutex));
+		}
+	}
+
+	void _waitProgressFutex(bool *done) {
+		while(true) {
+			auto futex = __atomic_load_n(&_retrieveChunk()->progressFutex, __ATOMIC_ACQUIRE);
+			do {
+				if(_lastProgress != (futex & kHelProgressMask)) {
+					*done = false;
+					return;
+				}else if(futex & kHelProgressDone) {
+					*done = true;
+					return;
+				}
+
+				assert(futex == _lastProgress);
+			} while(!__atomic_compare_exchange_n(&_retrieveChunk()->progressFutex, &futex,
+						_lastProgress | kHelProgressWaiters,
+						false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
+			
+			HEL_CHECK(helFutexWait(&_retrieveChunk()->progressFutex,
+					_lastProgress | kHelProgressWaiters));
+		}
+	}
+
+private:
 	HelHandle _handle;
-	std::list<Item> _items;
+	HelQueue *_queue;
+	HelChunk *_chunks[1 << sizeShift];
+	
+	int _activeChunks;
+
+	// Index of the chunk that we are currently retrieving/inserting next.
+	int _retrieveIndex;
+	int _nextIndex;
+
+	// Progress into the current chunk.
+	int _lastProgress;
 };
 
 struct AwaitClock : Operation {

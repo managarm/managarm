@@ -53,6 +53,18 @@ struct ForeignSpaceAccessor {
 	void load(size_t offset, void *pointer, size_t size);
 	Error write(size_t offset, const void *pointer, size_t size);
 
+	template<typename T>
+	T read(size_t offset) {
+		T value;
+		load(offset, &value, sizeof(T));
+		return value;
+	}
+
+	template<typename T>
+	Error write(size_t offset, T value) {
+		return write(offset, &value, sizeof(T));
+	}
+
 private:
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_address;
@@ -65,6 +77,8 @@ private:
 // requires the object to be smaller than a page for the same reason.
 template<typename T>
 struct DirectSpaceAccessor {
+	DirectSpaceAccessor() = default;
+
 	DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset);
 
 	T *get() {

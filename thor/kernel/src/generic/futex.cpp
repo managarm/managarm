@@ -3,47 +3,39 @@
 
 namespace thor {
 
-namespace {
-
-// NOTE: The following structs mirror the Hel{Queue,Element} structs.
-// They must be kept in sync!
-
-const unsigned int kQueueWaiters = (unsigned int)1 << 31;
-const unsigned int kQueueWantNext = (unsigned int)1 << 30;
-const unsigned int kQueueTail = ((unsigned int)1 << 30) - 1;
-
-const unsigned int kQueueHasNext = (unsigned int)1 << 31;
-
-struct QueueStruct {
-	unsigned int elementLimit;
-	unsigned int queueLength;
-	unsigned int kernelState;
-	unsigned int userState;
-	QueueStruct *nextQueue;
-	char queueBuffer[];
-};
-
-struct ElementStruct {
-	unsigned int length;
-	unsigned int reserved;
-	void *context;
-};
-
-} // anonymous namespace
-
 // ----------------------------------------------------------------------------
 // UserQueue
 // ----------------------------------------------------------------------------
 
-UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *head)
-: _space{frigg::move(space)}, _head{head}, _waitInFutex{false} { }
+UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
+: _space{frigg::move(space)}, _pointer{pointer},
+		_waitInFutex{false},
+		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
+		_chunks{*kernelAlloc} {
+	_queuePin = ForeignSpaceAccessor{_space,
+			reinterpret_cast<Address>(_pointer), sizeof(QueueStruct)};
+	_queueAccessor = DirectSpaceAccessor<QueueStruct>{_queuePin, 0};
+
+	// TODO: Take this as a constructor parameter.
+	_sizeShift = _queueAccessor.get()->sizeShift;
+
+	_chunks.resize(1 << _sizeShift);
+}
+
+void UserQueue::setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
+	assert(index < _chunks.size());
+	assert(&_chunks[index] != _currentChunk);
+	_chunks[index] = Chunk{frigg::move(space), pointer};
+}
 
 void UserQueue::submit(QueueNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	assert(!node->_queueNode.in_list);
-//	frigg::infoLogger() << "[" << this << "] push " << node << frigg::endLog;
 	_nodeQueue.push_back(node);
 	_progress();
 }
@@ -57,113 +49,130 @@ void UserQueue::onWake() {
 }
 
 void UserQueue::_progress() {
-	while(!_nodeQueue.empty()) {
-		Address successor = 0;
-		if(!_progressFront(successor))
-			return;
+	if(_waitInFutex)
+		return;
 
-		if(successor)
-			_head = reinterpret_cast<void *>(successor);
+	while(!_nodeQueue.empty()) {
+		assert(!_waitInFutex);
+
+		// Advance the queue if necessary.
+		if(!_currentChunk) {
+			_advanceChunk();
+			if(_waitInFutex)
+				return;
+		}
+
+		// Check if we have to retire the current chunk.
+		size_t length = 0;
+		for(auto source = _nodeQueue.front()->_source; source; source = source->link)
+			length += (source->size + 7) & ~size_t(7);
+
+		if(_currentProgress + length > _currentChunk->bufferSize) {
+			_retireChunk();
+			continue;
+		}
+
+		// Emit the next element to the current chunk.
+		auto node = _nodeQueue.pop_front();
+
+		auto dest = reinterpret_cast<Address>(_currentChunk->pointer)
+				+ offsetof(ChunkStruct, buffer) + _currentProgress;
+		assert(!(dest & 0x7));
+		auto accessor = ForeignSpaceAccessor::acquire(_currentChunk->space,
+				reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length);
+
+		ElementStruct element;
+		memset(&element, 0, sizeof(element));
+		element.length = length;
+		element.context = reinterpret_cast<void *>(node->_context);
+		auto err = accessor.write(0, &element, sizeof(ElementStruct));
+		assert(!err);
+
+		size_t disp = sizeof(ElementStruct);
+		for(auto source = node->_source; source; source = source->link) {
+			err = accessor.write(disp, source->pointer, source->size);
+			assert(!err);
+			disp += (source->size + 7) & ~size_t(7);
+		}
+
+		node->complete();
+
+		// Update the chunk progress futex.
+		_currentProgress += sizeof(ElementStruct) + length;
+		_wakeProgressFutex(false);
 	}
 }
 
-bool UserQueue::_progressFront(Address &successor) {
-	assert(!_nodeQueue.empty());
-	auto address = reinterpret_cast<Address>(_head);
+void UserQueue::_advanceChunk() {
+	assert(!_currentChunk);
 
-	size_t length = 0;
-	for(auto source = _nodeQueue.front()->_source; source; source = source->link)
-		length += (source->size + 7) & ~size_t(7);
-	assert(length % 8 == 0);
-	auto context = _nodeQueue.front()->_context;
+	if(_waitHeadFutex())
+		return;
 
-	auto pin = ForeignSpaceAccessor{_space, address, sizeof(QueueStruct)};
-	auto qs = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, queueLength)};
-	auto ks = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, kernelState)};
-	auto us = DirectSpaceAccessor<unsigned int>{pin, offsetof(QueueStruct, userState)};
-	auto next = DirectSpaceAccessor<QueueStruct *>{pin, offsetof(QueueStruct, nextQueue)};
-
-	auto ke = __atomic_load_n(ks.get(), __ATOMIC_ACQUIRE);
-
-	if(_waitInFutex)
-		return false;
-
-	// First we traverse the nextQueue list until we find a queue that
-	// is has enough free space for our element.
-	while((ke & kQueueWantNext)
-			|| (ke & kQueueTail) + sizeof(ElementStruct) + length > *qs.get()) {
-		if(ke & kQueueWantNext) {
-			// Here we wait on the userState futex until the kQueueHasNext bit is set.
-			auto ue = __atomic_load_n(us.get(), __ATOMIC_ACQUIRE);
-			if(!(ue & kQueueHasNext)) {
-				// We need checkSubmitWait() to avoid a deadlock that is triggered
-				// by taking locks in onWake().
-				_waitInFutex = _space->futexSpace.checkSubmitWait(address
-						+ offsetof(QueueStruct, userState), [&] {
-					auto v = __atomic_load_n(us.get(), __ATOMIC_RELAXED);
-					return ue == v;
-				}, this);
-				return !_waitInFutex;
-			}
-
-			// Finally we move to the next queue.
-			successor = Address(*next.get());
-			return true;
-		}else{
-			// Set the kQueueWantNext bit. If this happens we will usually
-			// wait on the userState futex in the next while-iteration.
-			unsigned int d = ke | kQueueWantNext;
-			if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
-					__ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
-				if(ke & kQueueWaiters)
-					_space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
-			}
-		}
-	}
-
-	unsigned int offset = (ke & kQueueTail);
-
-	auto ez = ForeignSpaceAccessor::acquire(_space,
-			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset),
-			sizeof(ElementStruct));
-
-	Error err;
-	err = ez.write(offsetof(ElementStruct, length), &length, 4);
-	assert(!err);
-	err = ez.write(offsetof(ElementStruct, context), &context, sizeof(uintptr_t));
-	assert(!err);
-	
-//	frigg::infoLogger() << "[" << this << "] finish " << slot->queue.front() << frigg::endLog;
-	auto node = _nodeQueue.pop_front();
-
+	auto source = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, indexQueue)
+			+ (_nextIndex & ((1 << _sizeShift) - 1)) * sizeof(int);
 	auto accessor = ForeignSpaceAccessor::acquire(_space,
-			reinterpret_cast<void *>(address + sizeof(QueueStruct) + offset
-					+ sizeof(ElementStruct)),
-			length);
-	size_t disp = 0;
-	for(auto source = node->_source; source; source = source->link) {
-		accessor.write(disp, source->pointer, source->size);
-		disp += (source->size + 7) & ~size_t(7);
-	}
+			reinterpret_cast<void *>(source), sizeof(int));
+	size_t cn = accessor.read<int>(0);
+	assert(cn < _chunks.size());
+	assert(_chunks[cn].space);
 
-	node->complete();
+	_currentChunk = &_chunks[cn];
+	_nextIndex = ((_nextIndex + 1) & kHeadMask);
+	_chunkPin = ForeignSpaceAccessor{_currentChunk->space,
+			reinterpret_cast<Address>(_currentChunk->pointer), sizeof(ChunkStruct)};
+	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{_chunkPin, 0};
+}
 
+void UserQueue::_retireChunk() {
+	assert(_currentChunk);
+
+	_wakeProgressFutex(true);
+
+	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{};
+	_chunkPin = ForeignSpaceAccessor{};
+	_currentChunk = nullptr;
+	_currentProgress = 0;
+}
+
+bool UserQueue::_waitHeadFutex() {
 	while(true) {
-		assert(!(ke & kQueueWantNext));
-		assert((ke & kQueueTail) == offset);
+		auto futex = __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_ACQUIRE);
+		do {
+			if(_nextIndex != (futex & kHeadMask))
+				return false;
 
-		// Try to update the kernel state word here.
-		// This CAS potentially resets the waiters bit.
-		unsigned int d = offset + length + sizeof(ElementStruct);
-		if(__atomic_compare_exchange_n(ks.get(), &ke, d, false,
-				__ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-			if(ke & kQueueWaiters)
-				_space->futexSpace.wake(address + offsetof(QueueStruct, kernelState));
-			break;
-		}
+			// TODO: Contract violation errors should be reported to user-space.
+			assert(futex == _nextIndex);
+		} while(!__atomic_compare_exchange_n(&_queueAccessor.get()->headFutex, &futex,
+				_nextIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
+
+		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
+		_waitInFutex = _space->futexSpace.checkSubmitWait(fa, [&] {
+			return __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_RELAXED)
+					== (_nextIndex | kHeadWaiters);
+		}, this);
+
+		if(_waitInFutex)
+			return true;
 	}
+}
 
-	return !_nodeQueue.empty();
+void UserQueue::_wakeProgressFutex(bool done) {
+	auto progress = _currentProgress;
+	if(done)
+		progress |= kProgressDone;
+	auto futex = __atomic_exchange_n(&_chunkAccessor.get()->progressFutex,
+			progress, __ATOMIC_RELEASE);
+
+	// If user-space modifies any non-flags field, that's a contract violation.
+	// TODO: Shut down the queue in this case.
+
+	if(futex & kProgressWaiters) {
+		auto fa = reinterpret_cast<Address>(_currentChunk->pointer)
+				+ offsetof(ChunkStruct, progressFutex);
+		_currentChunk->space->futexSpace.wake(fa);
+	}
 }
 
 } // namespace thor

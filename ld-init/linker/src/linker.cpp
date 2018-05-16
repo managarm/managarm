@@ -53,52 +53,99 @@ T load(void *ptr) {
 	return result;
 }
 
+// This Queue implementation is more simplistic than the ones in mlibc and helix.
+// In fact, we only manage a single chunk; this minimizes the memory usage of the queue.
 struct Queue {
 	Queue()
-	: _handle{kHelNullHandle}, _queue(nullptr), _progress(0) { }
+	: _handle{kHelNullHandle}, _lastProgress(0) {
+		_queue = reinterpret_cast<HelQueue *>(allocator->allocate(sizeof(HelQueue)
+				+ sizeof(int)));
+		_queue->headFutex = 1;
+		_queue->elementLimit = 128;
+		_queue->sizeShift = 0;
+		HEL_CHECK(helCreateQueue(_queue, 0, &_handle));
+		
+		_chunk = reinterpret_cast<HelChunk *>(allocator->allocate(sizeof(HelChunk) + 4096));
+		HEL_CHECK(helSetupChunk(_handle, 0, _chunk, 0));
 
-	HelHandle getQueue() {
-		if(!_queue) {
-			auto ptr = allocator->allocate(sizeof(HelQueue) + 4096);
-			_queue = reinterpret_cast<HelQueue *>(ptr);
-			_queue->elementLimit = 128;
-			_queue->queueLength = 4096;
-			_queue->kernelState = 0;
-			_queue->userState = 0;
-			HEL_CHECK(helCreateQueue(_queue, 0, &_handle));
-		}
+		// Reset and enqueue the first chunk.
+		_chunk->progressFutex = 0;
+
+		_queue->indexQueue[0] = 0;
+		_nextIndex = 1;
+		_wakeHeadFutex();
+	}
+
+	Queue(const Queue &) = delete;
+
+	Queue &operator= (const Queue &) = delete;
+
+	HelHandle getHandle() {
 		return _handle;
 	}
 
 	void *dequeueSingle() {
-		auto ke = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
 		while(true) {
-			assert(!(ke & kHelQueueWantNext));
+			bool done;
+			_waitProgressFutex(&done);
+			if(done) {
+				// Reset and enqueue the chunk again.
+				_chunk->progressFutex = 0;
 
-			if(_progress < (ke & kHelQueueTail)) {
-				auto ptr = (char *)_queue + sizeof(HelQueue) + _progress;
-				auto elem = load<HelElement>(ptr);
-				_progress += sizeof(HelElement) + elem.length;
-				return ptr + sizeof(HelElement);
-			}
+				_queue->indexQueue[0] = 0;
+				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
+				_wakeHeadFutex();
 
-			if(!(ke & kHelQueueWaiters)) {
-				auto d = ke | kHelQueueWaiters;
-				if(__atomic_compare_exchange_n(&_queue->kernelState,
-						&ke, d, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
-					ke = d;
-			}else{
-				HEL_CHECK(helFutexWait((int *)&_queue->kernelState, ke));
-				ke = __atomic_load_n(&_queue->kernelState, __ATOMIC_ACQUIRE);
+				_lastProgress = 0;
+				continue;
 			}
+			
+			// Dequeue the next element.
+			auto ptr = (char *)_chunk + sizeof(HelChunk) + _lastProgress;
+			auto element = load<HelElement>(ptr);
+			_lastProgress += sizeof(HelElement) + element.length;
+			return ptr + sizeof(HelElement);
+		}
+	}
+
+private:
+	void _wakeHeadFutex() {
+		auto futex = __atomic_exchange_n(&_queue->headFutex, _nextIndex, __ATOMIC_RELEASE);
+		if(futex & kHelHeadWaiters)
+			HEL_CHECK(helFutexWake(&_queue->headFutex));
+	}
+
+	void _waitProgressFutex(bool *done) {
+		while(true) {
+			auto futex = __atomic_load_n(&_chunk->progressFutex, __ATOMIC_ACQUIRE);
+			do {
+				if(_lastProgress != (futex & kHelProgressMask)) {
+					*done = false;
+					return;
+				}else if(futex & kHelProgressDone) {
+					*done = true;
+					return;
+				}
+
+				assert(futex == _lastProgress);
+			} while(!__atomic_compare_exchange_n(&_chunk->progressFutex, &futex,
+						_lastProgress | kHelProgressWaiters,
+						false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
+			
+			HEL_CHECK(helFutexWait(&_chunk->progressFutex,
+					_lastProgress | kHelProgressWaiters));
 		}
 	}
 
 private:
 	HelHandle _handle;
 	HelQueue *_queue;
-	size_t _progress;
+	HelChunk *_chunk;
+	int _nextIndex;
+	int _lastProgress;
 };
+
+frigg::LazyInitializer<Queue> globalQueue;
 
 HelSimpleResult *parseSimple(void *&element) {
 	auto result = reinterpret_cast<HelSimpleResult *>(element);
@@ -132,7 +179,8 @@ int posixOpen(frigg::StringView path) {
 	req.set_request_type(managarm::posix::CntReqType::OPEN);
 	req.set_path(frigg::String<Allocator>(*allocator, path));
 
-	Queue m;
+	if(!globalQueue)
+		globalQueue.initialize();
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
@@ -144,9 +192,9 @@ int posixOpen(frigg::StringView path) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0, 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, globalQueue->getHandle(), 0, 0));
 
-	auto element = m.dequeueSingle();
+	auto element = globalQueue->dequeueSingle();
 	auto offer = parseSimple(element);
 	auto send_req = parseSimple(element);
 	auto recv_resp = parseInline(element);
@@ -172,7 +220,8 @@ void posixSeek(int fd, int64_t offset) {
 	req.set_req_type(managarm::fs::CntReqType::SEEK_ABS);
 	req.set_rel_offset(offset);
 	
-	Queue m;
+	if(!globalQueue)
+		globalQueue.initialize();
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
@@ -184,9 +233,9 @@ void posixSeek(int fd, int64_t offset) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(lane, actions, 3, m.getQueue(), 0, 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 3, globalQueue->getHandle(), 0, 0));
 
-	auto element = m.dequeueSingle();
+	auto element = globalQueue->dequeueSingle();
 	auto offer = parseSimple(element);
 	auto send_req = parseSimple(element);
 	auto recv_resp = parseInline(element);
@@ -210,7 +259,8 @@ void posixRead(int fd, void *data, size_t length) {
 		req.set_req_type(managarm::fs::CntReqType::READ);
 		req.set_size(length - offset);
 	
-		Queue m;
+		if(!globalQueue)
+			globalQueue.initialize();
 
 		frigg::String<Allocator> ser(*allocator);
 		req.SerializeToString(&ser);
@@ -228,9 +278,9 @@ void posixRead(int fd, void *data, size_t length) {
 		actions[4].flags = 0;
 		actions[4].buffer = (char *)data + offset;
 		actions[4].length = length - offset;
-		HEL_CHECK(helSubmitAsync(lane, actions, 5, m.getQueue(), 0, 0));
+		HEL_CHECK(helSubmitAsync(lane, actions, 5, globalQueue->getHandle(), 0, 0));
 
-		auto element = m.dequeueSingle();
+		auto element = globalQueue->dequeueSingle();
 		auto offer = parseSimple(element);
 		auto send_req = parseSimple(element);
 		auto imbue_creds = parseSimple(element);
@@ -258,7 +308,8 @@ HelHandle posixMmap(int fd) {
 	managarm::fs::CntRequest<Allocator> req(*allocator);
 	req.set_req_type(managarm::fs::CntReqType::MMAP);
 
-	Queue m;
+	if(!globalQueue)
+		globalQueue.initialize();
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
@@ -272,9 +323,9 @@ HelHandle posixMmap(int fd) {
 	actions[2].flags = kHelItemChain;
 	actions[3].type = kHelActionPullDescriptor;
 	actions[3].flags = 0;
-	HEL_CHECK(helSubmitAsync(lane, actions, 4, m.getQueue(), 0, 0));
+	HEL_CHECK(helSubmitAsync(lane, actions, 4, globalQueue->getHandle(), 0, 0));
 
-	auto element = m.dequeueSingle();
+	auto element = globalQueue->dequeueSingle();
 	auto offer = parseSimple(element);
 	auto send_req = parseSimple(element);
 	auto recv_resp = parseInline(element);
@@ -297,7 +348,8 @@ void posixClose(int fd) {
 	req.set_request_type(managarm::posix::CntReqType::CLOSE);
 	req.set_fd(fd);
 	
-	Queue m;
+	if(!globalQueue)
+		globalQueue.initialize();
 
 	frigg::String<Allocator> ser(*allocator);
 	req.SerializeToString(&ser);
@@ -309,9 +361,9 @@ void posixClose(int fd) {
 	actions[1].length = ser.size();
 	actions[2].type = kHelActionRecvInline;
 	actions[2].flags = 0;
-	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, m.getQueue(), 0, 0));
+	HEL_CHECK(helSubmitAsync(kHelThisThread, actions, 3, globalQueue->getHandle(), 0, 0));
 
-	auto element = m.dequeueSingle();
+	auto element = globalQueue->dequeueSingle();
 	auto offer = parseSimple(element);
 	auto send_req = parseSimple(element);
 	auto recv_resp = parseInline(element);

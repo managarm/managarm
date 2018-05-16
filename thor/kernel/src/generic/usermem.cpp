@@ -1113,16 +1113,37 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 			//     in the original space.
 			// * Futexes attached to the memory object prevent CoW.
 			//     This ensures that processes do not miss wake ups in the original space.
-			auto origin_mapping = cur_mapping->copyOnWrite(this);
-			auto fork_mapping = cur_mapping->copyOnWrite(fork_space.get());
+			if(false) {
+				auto origin_mapping = cur_mapping->copyOnWrite(this);
+				auto fork_mapping = cur_mapping->copyOnWrite(fork_space.get());
 
-			_mappings.remove(cur_mapping);
-			_mappings.insert(origin_mapping);
-			fork_space->_mappings.insert(fork_mapping);
-			cur_mapping->uninstall(false);
-			origin_mapping->install(true);
-			fork_mapping->install(false);
-			frigg::destruct(*kernelAlloc, cur_mapping);
+				_mappings.remove(cur_mapping);
+				_mappings.insert(origin_mapping);
+				fork_space->_mappings.insert(fork_mapping);
+				cur_mapping->uninstall(false);
+				origin_mapping->install(true);
+				fork_mapping->install(false);
+				frigg::destruct(*kernelAlloc, cur_mapping);
+			}else{
+				auto bundle = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+						cur_mapping->length(), kPageSize, kPageSize);
+
+				for(size_t pg = 0; pg < cur_mapping->length(); pg += kPageSize) {
+					auto physical = cur_mapping->grabPhysical(pg);
+					assert(physical != PhysicalAddr(-1));
+					PageAccessor accessor{generalWindow, cur_mapping->grabPhysical(pg)};
+					bundle->copyKernelToThisSync(pg, accessor.get(), kPageSize);
+				}
+				
+				auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
+						frigg::move(bundle), 0, cur_mapping->length());
+
+				auto fork_mapping = frigg::construct<NormalMapping>(*kernelAlloc,
+						fork_space.get(), cur_mapping->address(), cur_mapping->length(),
+						cur_mapping->flags(), frigg::move(view), 0);
+				fork_space->_mappings.insert(fork_mapping);
+				fork_mapping->install(false);
+			}
 		}else{
 			assert(!"Illegal mapping type");
 		}

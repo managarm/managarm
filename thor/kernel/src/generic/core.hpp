@@ -82,7 +82,7 @@ namespace thor {
 
 template<typename T>
 DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_t offset) {
-	static_assert(!(kPageSize % sizeof(T)), "Type too large for DirectSpaceAccessor");
+	static_assert(sizeof(T) < kPageSize, "Type too large for DirectSpaceAccessor");
 	assert(!(lock.address() % sizeof(T)));
 	
 	_misalign = (lock.address() + offset) % kPageSize;

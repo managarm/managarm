@@ -559,6 +559,29 @@ HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
 	return kHelErrNone;
 }
 
+HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint32_t flags) {
+	assert(!flags);
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<UserQueue> queue;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+		
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, queue_handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
+	}
+
+	queue->setupChunk(index, this_thread->getAddressSpace().toShared(), chunk);
+
+	return kHelErrNone;
+}
+
 HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 	assert(size > 0);
 	assert(size % kPageSize == 0);

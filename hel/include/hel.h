@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 90,
+	kHelNumCalls = 91,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -27,6 +27,7 @@ enum {
 	kHelCallCloseDescriptor = 20,
 
 	kHelCallCreateQueue = 89,
+	kHelCallSetupChunk = 90,
 
 	kHelCallAllocateMemory = 2,
 	kHelCallResizeMemory = 83,
@@ -224,44 +225,49 @@ enum HelMessageFlags {
 	kHelResponse = 2
 };
 
-//! Flag for kernelState; signals that there are waiters.
-static const unsigned int kHelQueueWaiters = (unsigned int)1 << 31;
+//! Mask to extract the current queue head.
+static const int kHelHeadMask = 0xFFFFFF;
 
-//! Flag for kernelState; signals that the kernel needs a next HelQueue.
-static const unsigned int kHelQueueWantNext = (unsigned int)1 << 30;
+//! Can be set by the kernel to request a FutexWake on update
+static const int kHelHeadWaiters = (1 << 24);
 
-//! Bit mask for kernelState; the kernel enqueue pointer.
-static const unsigned int kHelQueueTail = ((unsigned int)1 << 30) - 1;
-
-//! Flag for userState; signals that there is a next HelQueue.
-static const unsigned int kHelQueueHasNext = (unsigned int)1 << 31;
-
-//! In-memory kernel-user queue.
-//! Each element in the queue is prefixed by a HelElement struct.
+//! In-memory kernel/user-space queue.
 struct HelQueue {
+	//! Futex for kernel/user-space head synchronization.
+	int headFutex;
+
 	//! Maximum size of a single element in bytes.
 	//! Constant. Does not include the per-element HelElement header.
 	unsigned int elementLimit;
 
-	//! Size of the whole queue in bytes.
-	//! Constant. Does not include the HelQueue header.
-	unsigned int queueLength;
+	//! Size of the indexQueue array.
+	unsigned int sizeShift;
 
-	//! The Futex user space waits on.
-	//! Must be accessed atomically.
-	unsigned int kernelState;
+	//! Ensures that the buffer is 8-byte aligned.
+	char padding[4];
 
-	//! The Futex the kernel waits on.
-	//! Must be accessed atomically.
-	unsigned int userState;
+	//! The actual queue.
+	int indexQueue[];
+};
 
-	//! Pointer to the next queue.
-	//! Supplied by user space.
-	//! The kernel requests a next queue by setting the kHelQueueWantNext bit.
-	//! Must be accessed atomically.
-	struct HelQueue *nextQueue;
+//! Mask to extract the number of valid bytes in the chunk.
+static const int kHelProgressMask = 0xFFFFFF;
 
-	char queueBuffer[];
+//! Can be set by userspace to request a FutexWake on update.
+static const int kHelProgressWaiters = (1 << 24);
+
+//! Set by the kernel once it retires the chunk.
+static const int kHelProgressDone = (1 << 25);
+
+struct HelChunk {
+	//! Futex for kernel/user-space progress synchronization.
+	int progressFutex;
+
+	//! Ensures that the buffer is 8-byte aligned.
+	char padding[4];
+
+	//! Actual contents of the chunk.
+	char buffer[];
 };
 
 //! A single element of a HelQueue.
@@ -350,6 +356,7 @@ HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
 HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
