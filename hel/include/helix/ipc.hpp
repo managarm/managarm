@@ -135,16 +135,44 @@ struct Irq { };
 using UniqueIrq = UniqueResource<Irq>;
 using BorrowedIrq = BorrowedResource<Irq>;
 
-struct ElementPtr {
-	explicit ElementPtr(void *queue)
-	: _queue(queue) { }
+struct Dispatcher;
 
-	void *get() {
-		return _queue;
+struct ElementHandle {
+	friend void swap(ElementHandle &u, ElementHandle &v) {
+		using std::swap;
+		swap(u._dispatcher, v._dispatcher);
+		swap(u._cn, v._cn);
+		swap(u._data, v._data);
+	}
+
+	ElementHandle()
+	: _dispatcher{nullptr}, _cn{-1}, _data{nullptr} { }
+
+	explicit ElementHandle(Dispatcher *dispatcher, int cn, void *data)
+	: _dispatcher{dispatcher}, _cn{cn}, _data{data} { }
+
+	ElementHandle(const ElementHandle &other) = delete;
+
+	ElementHandle(ElementHandle &&other)
+	: ElementHandle{} {
+		swap(*this, other);
+	}
+
+	~ElementHandle();
+
+	ElementHandle &operator= (ElementHandle other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	void *data() {
+		return _data;
 	}
 
 private:
-	void *_queue;
+	Dispatcher *_dispatcher;
+	int _cn;
+	void *_data;
 };
 
 struct OperationBase {
@@ -172,10 +200,12 @@ struct Operation : OperationBase {
 };
 
 struct Context {
-	virtual void complete(ElementPtr element) = 0;
+	virtual void complete(ElementHandle element) = 0;
 };
 
 struct Dispatcher {
+	friend struct ElementHandle;
+
 private:
 	struct Item {
 		Item(HelQueue *queue)
@@ -191,7 +221,7 @@ private:
 	};
 
 public:
-	static constexpr int sizeShift = 14;
+	static constexpr int sizeShift = 9;
 
 	static Dispatcher &global();
 
@@ -219,31 +249,49 @@ public:
 	void dispatch() {
 		while(true) {
 			if(_retrieveIndex == _nextIndex) {
-			//	assert(_activeChunks < 16);
-//				std::cout << "helix: Allocating chunk #" << _activeChunks
-//						<< " (to be put at index " << _nextIndex << ")" << std::endl;
+				assert(_activeChunks < (1 << sizeShift));
+				if(_activeChunks >= 16)
+					std::cerr << "\e[35mhelix: Queue is forced to grow to " << _activeChunks
+							<< " chunks (memory leak?)\e[39m" << std::endl;
 
 				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
 				_chunks[_activeChunks] = chunk;
 				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
 				
+				// Reset and enqueue the new chunk.
 				chunk->progressFutex = 0;
+
 				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
 				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
 				_wakeHeadFutex();
 				
+				_refCounts[_activeChunks] = 1;
 				_activeChunks++;
 				continue;
+			}else if (_hadWaiters && _activeChunks < (1 << sizeShift)) {
+//				std::cerr << "\e[35mhelix: Growing queue to " << _activeChunks
+//						<< " chunks to improve throughput\e[39m" << std::endl;
+
+				auto chunk = reinterpret_cast<HelChunk *>(operator new(sizeof(HelChunk) + 4096));
+				_chunks[_activeChunks] = chunk;
+				HEL_CHECK(helSetupChunk(_handle, _activeChunks, chunk, 0));
+				
+				// Reset and enqueue the new chunk.
+				chunk->progressFutex = 0;
+
+				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
+				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
+				_wakeHeadFutex();
+				
+				_refCounts[_activeChunks] = 1;
+				_activeChunks++;
+				_hadWaiters = false;
 			}
 
-//			frigg::infoLogger() << "Try to dequeue at " << _lastProgress << frigg::endLog;
 			bool done;
 			_waitProgressFutex(&done);
 			if(done) {
-//				_chunk->progressFutex = 0;
-//				_queue->indexQueue[(_nextIndex++) & ((1 << sizeShift) - 1)] = 0;
-//				_wakeHeadFutex();
-				// TODO: Decrement the refcount.
+				_surrender(_numberOf(_retrieveIndex));
 
 				_lastProgress = 0;
 				_retrieveIndex = ((_retrieveIndex + 1) & kHelHeadMask);
@@ -256,12 +304,34 @@ public:
 			_lastProgress += sizeof(HelElement) + element->length;
 			
 			auto context = reinterpret_cast<Context *>(element->context);
-			context->complete(ElementPtr{ptr + sizeof(HelElement)});
+			_refCounts[_numberOf(_retrieveIndex)]++;
+			context->complete(ElementHandle{this, _numberOf(_retrieveIndex),
+					ptr + sizeof(HelElement)});
 			return;
 		}
 	}
 
 private:
+	void _surrender(int cn) {
+		assert(_refCounts[cn] > 0);
+		if(_refCounts[cn]-- > 1)
+			return;
+
+		// Reset and requeue the chunk.
+		_chunks[cn]->progressFutex = 0;
+
+		_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = cn;
+		_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
+		_wakeHeadFutex();
+
+		_refCounts[cn] = 1;
+	}
+
+private:
+	int _numberOf(int index) {
+		return _queue->indexQueue[index & ((1 << sizeShift) - 1)];
+	}
+
 	HelChunk *_retrieveChunk() {
 		auto cn = _queue->indexQueue[_retrieveIndex & ((1 << sizeShift) - 1)];
 		return _chunks[cn];
@@ -270,8 +340,8 @@ private:
 	void _wakeHeadFutex() {
 		auto futex = __atomic_exchange_n(&_queue->headFutex, _nextIndex, __ATOMIC_RELEASE);
 		if(futex & kHelHeadWaiters) {
-//			std::cout << "helix: Waking up head waiters" << std::endl;
 			HEL_CHECK(helFutexWake(&_queue->headFutex));
+			_hadWaiters = true;
 		}
 	}
 
@@ -303,6 +373,7 @@ private:
 	HelChunk *_chunks[1 << sizeShift];
 	
 	int _activeChunks;
+	bool _hadWaiters;
 
 	// Index of the chunk that we are currently retrieving/inserting next.
 	int _retrieveIndex;
@@ -310,7 +381,15 @@ private:
 
 	// Progress into the current chunk.
 	int _lastProgress;
+
+	// Per-chunk reference counts.
+	int _refCounts[1 << sizeShift];
 };
+
+inline ElementHandle::~ElementHandle() {
+	if(_dispatcher)
+		_dispatcher->_surrender(_cn);
+}
 
 struct AwaitClock : Operation {
 	HelError error() {
@@ -618,13 +697,16 @@ private:
 		return this;
 	}
 
-	void complete(ElementPtr element) override {
-		_result->_element = element.get();
+	void complete(ElementHandle element) override {
+		_element = std::move(element);
+
+		_result->_element = _element.data();
 		_pledge.set_value();
 	}
 
 	Operation *_result;
 	async::promise<void> _pledge;
+	ElementHandle _element;
 };
 
 template<typename R>
@@ -724,8 +806,10 @@ struct Transmission : private Context {
 	}
 
 private:
-	void complete(ElementPtr element) override {
-		auto ptr = element.get();
+	void complete(ElementHandle element) override {
+		_element = std::move(element);
+
+		auto ptr = _element.data();
 		for(size_t i = 0; i < sizeof...(I); ++i)
 			_results[i]->parse(ptr);
 		_pledge.set_value();
@@ -733,6 +817,7 @@ private:
 
 	std::array<Operation *, sizeof...(I)> _results;
 	async::promise<void> _pledge;
+	ElementHandle _element;
 };
 
 inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
