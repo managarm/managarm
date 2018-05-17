@@ -100,6 +100,11 @@ void enableLogHandler(LogHandler *sink) {
 	globalLogList->push_back(sink);
 }
 
+void disableLogHandler(LogHandler *sink) {
+	auto it = globalLogList->iterator_to(sink);
+	globalLogList->erase(it);
+}
+
 namespace {
 
 void callLegacy(char c) {

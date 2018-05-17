@@ -30,6 +30,7 @@ struct LogHandler {
 };
 
 void enableLogHandler(LogHandler *sink);
+void disableLogHandler(LogHandler *sink);
 
 size_t currentLogSequence();
 void copyLogMessage(size_t sequence, char *text);

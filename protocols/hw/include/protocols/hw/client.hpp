@@ -46,7 +46,9 @@ struct Device {
 	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessIrq();
-	
+
+	async::result<void> claimDevice();
+
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
 	async::result<void> storePciSpace(size_t offset, unsigned int size, uint32_t word);
 	async::result<uint32_t> loadPciCapability(unsigned int index, size_t offset, unsigned int size);

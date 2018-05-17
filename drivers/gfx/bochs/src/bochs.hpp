@@ -22,6 +22,8 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		void commit() override;
 		
 	private:
+		cofiber::no_future _doCommit();
+
 		GfxDevice *_device;
 		int _width;
 		int _height;
@@ -86,7 +88,8 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		uint32_t _pixelPitch;
 	};
 
-	GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer);
+	GfxDevice(protocols::hw::Device hw_device,
+			helix::UniqueDescriptor video_ram, void* frame_buffer);
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
@@ -112,8 +115,10 @@ public:
 	helix::UniqueDescriptor _videoRam;
 
 private:
+	protocols::hw::Device _hwDevice;
 	range_allocator _vramAllocator;
 	arch::io_space _operational;
 	void* _frameBuffer;
+	bool _claimedDevice;
 };
 

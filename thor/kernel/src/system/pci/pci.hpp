@@ -12,6 +12,8 @@ namespace thor {
 struct Memory;
 struct IoSpace;
 
+struct BootScreen;
+
 namespace pci {
 
 enum class IrqIndex {
@@ -26,6 +28,7 @@ inline const char *nameOf(IrqIndex index) {
 	case IrqIndex::intd: return "INTD";
 	default:
 		assert(!"Illegal PCI interrupt pin for nameOf(IrqIndex)");
+		__builtin_unreachable();
 	}
 }
 
@@ -82,7 +85,8 @@ struct PciDevice {
 	: mbusId(0), bus(bus), slot(slot), function(function),
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface),
-			interrupt(nullptr), caps(*kernelAlloc) { }
+			interrupt(nullptr), caps(*kernelAlloc),
+			associatedScreen(nullptr) { }
 	
 	// mbus object ID of the device
 	int64_t mbusId;
@@ -108,6 +112,9 @@ struct PciDevice {
 	Bar bars[6];
 
 	frigg::Vector<Capability, KernelAlloc> caps;
+
+	// Device attachments.
+	BootScreen *associatedScreen;
 };
 
 enum {
@@ -133,6 +140,8 @@ enum {
 	// PCI-to-PCI bridge header fields
 	kPciBridgeSecondary = 0x19
 };
+
+extern frigg::LazyInitializer<frigg::Vector<PciDevice *, KernelAlloc>> allDevices;
 
 void pciDiscover(const RoutingInfo &routing);
 

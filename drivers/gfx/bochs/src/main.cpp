@@ -95,8 +95,11 @@ COFIBER_ROUTINE(cofiber::no_future, serveDevice(std::shared_ptr<drm_core::Device
 // GfxDevice.
 // ----------------------------------------------------------------
 
-GfxDevice::GfxDevice(helix::UniqueDescriptor video_ram, void* frame_buffer)
-: _videoRam{std::move(video_ram)}, _vramAllocator{24, 12}, _frameBuffer{frame_buffer} {
+GfxDevice::GfxDevice(protocols::hw::Device hw_device,
+		helix::UniqueDescriptor video_ram, void* frame_buffer)
+: _hwDevice{std::move(hw_device)}, _videoRam{std::move(video_ram)},
+		_vramAllocator{24, 12}, _frameBuffer{frame_buffer},
+		_claimedDevice{false} {
 	uintptr_t ports[] = { 0x01CE, 0x01CF, 0x01D0 };
 	HelHandle handle;
 	HEL_CHECK(helAccessIo(ports, 3, &handle));
@@ -284,6 +287,10 @@ void GfxDevice::Configuration::dispose() {
 }
 
 void GfxDevice::Configuration::commit() {
+	_doCommit();
+}
+
+COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_doCommit(), ([&] {
 	if(logCommits)
 		std::cout << "gfx-bochs: Committing configuration" << std::endl;
 	drm_mode_modeinfo last_mode;
@@ -296,6 +303,11 @@ void GfxDevice::Configuration::commit() {
 	_device->_theCrtc->setCurrentMode(_mode);
 
 	if(_mode) {
+		if(!_device->_claimedDevice) {
+			COFIBER_AWAIT _device->_hwDevice.claimDevice();
+			_device->_claimedDevice = true;
+		}
+
 		if(switch_mode) {
 			// The resolution registers must be written while the device is disabled.
 			_device->_operational.store(regs::index, (uint16_t)RegisterIndex::enable);
@@ -334,7 +346,7 @@ void GfxDevice::Configuration::commit() {
 	}
 
 	complete();
-}
+}))
 
 // ----------------------------------------------------------------
 // GfxDevice::Connector.
@@ -449,7 +461,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 			0, info.barInfo[0].length, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork,
 			&actual_pointer));
 
-	auto gfx_device = std::make_shared<GfxDevice>(std::move(bar), actual_pointer);
+	auto gfx_device = std::make_shared<GfxDevice>(std::move(pci_device),
+			std::move(bar), actual_pointer);
 	gfx_device->initialize();
 
 	// Create an mbus object for the device.

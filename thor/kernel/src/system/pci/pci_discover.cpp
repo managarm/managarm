@@ -9,6 +9,7 @@
 #include "../../generic/kernel_heap.hpp"
 #include "../../generic/service_helpers.hpp"
 #include "../../generic/usermem.hpp"
+#include "../boot-screen.hpp"
 #include "pci.hpp"
 
 namespace thor {
@@ -17,6 +18,8 @@ namespace thor {
 extern frigg::LazyInitializer<LaneHandle> mbusClient;
 
 namespace pci {
+
+frigg::LazyInitializer<frigg::Vector<PciDevice *, KernelAlloc>> allDevices;
 
 namespace {
 	bool handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
@@ -92,6 +95,20 @@ namespace {
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
 			fiberPushDescriptor(branch, IrqDescriptor{object});
+		}else if(req.req_type() == managarm::hw::CntReqType::CLAIM_DEVICE) {
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			if(device->associatedScreen) {
+				frigg::infoLogger() << "thor: Disabling screen associated with PCI device "
+						<< device->bus << "." << device->slot << "." << device->function
+						<< frigg::endLog;
+				disableLogHandler(device->associatedScreen);
+			}
+
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
 		}else if(req.req_type() == managarm::hw::CntReqType::LOAD_PCI_SPACE) {
 			// TODO: Perform some sanity checks on the offset.
 			uint32_t word;
@@ -504,7 +521,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 		}
 
 		registerDevice(device);
-		//allDevices.push_back(device);
+		allDevices->push(device.get());
 	}
 
 	// TODO: This should probably be moved somewhere else.
@@ -542,6 +559,7 @@ void checkPciBus(uint32_t bus, const RoutingInfo &routing) {
 
 void pciDiscover(const RoutingInfo &routing) {
 	frigg::infoLogger() << "thor: Discovering PCI devices" << frigg::endLog;
+	allDevices.initialize(*kernelAlloc);
 	checkPciBus(0, routing);
 /*	enumerationQueue.push(0);
 	while(!enumerationQueue.empty()) {

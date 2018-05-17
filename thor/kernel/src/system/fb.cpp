@@ -7,6 +7,7 @@
 #include "../generic/io.hpp"
 #include "../generic/kernel_heap.hpp"
 #include "../generic/service_helpers.hpp"
+#include "pci/pci.hpp"
 
 #include "fb.hpp"
 #include "boot-screen.hpp"
@@ -270,9 +271,37 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 
 	auto display = frigg::construct<FbDisplay>(*kernelAlloc, fb_info->window,
 			fb_info->width, fb_info->height, fb_info->pitch);
-	auto bootScreen = frigg::construct<BootScreen>(*kernelAlloc, display);
+	auto screen = frigg::construct<BootScreen>(*kernelAlloc, display);
 
-	enableLogHandler(bootScreen);
+	enableLogHandler(screen);
+
+	// Try to attached the framebuffer to a PCI device.
+	pci::PciDevice *owner = nullptr;
+	for(auto it = pci::allDevices->begin(); it != pci::allDevices->end(); ++it) {
+		auto checkBars = [&] () -> bool {
+			for(int i = 0; i < 6; i++) {
+				if((*it)->bars[i].type != pci::PciDevice::kBarMemory)
+					continue;
+				// TODO: Careful about overflow here.
+				if(address >= (*it)->bars[i].address && address + height * pitch
+						<= (*it)->bars[i].address + (*it)->bars[i].length)
+					return true;
+			}
+			
+			return false;
+		};
+
+		if(checkBars()) {
+			assert(!owner);
+			owner = *it;
+		}
+	}
+
+	if(!owner)
+		frigg::panicLogger() << "thor: Could not find owner for boot framebuffer" << frigg::endLog;
+	frigg::infoLogger() << "thor: Boot framebuffer is attached to PCI device "
+			<< owner->bus << "." << owner->slot << "." << owner->function << frigg::endLog;
+	owner->associatedScreen = screen;
 
 	// Create a fiber to manage requests to the FB mbus object.
 	KernelFiber::run([=] {
