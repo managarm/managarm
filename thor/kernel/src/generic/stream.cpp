@@ -77,13 +77,14 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&stream->_mutex);
-		assert(!stream->_laneBroken[lane]);
 
-		stream->_laneBroken[lane] = true;
+		if(!stream->_laneBroken[lane]) {
+			stream->_laneBroken[lane] = true;
 
-		while(!stream->_processQueue[!lane].empty()) {
-			auto item = stream->_processQueue[!lane].removeFront(); 
-			_cancelItem(item.get());
+			while(!stream->_processQueue[!lane].empty()) {
+				auto item = stream->_processQueue[!lane].removeFront(); 
+				_cancelItem(item.get(), kErrEndOfLane);
+			}
 		}
 	}
 	return true;
@@ -100,23 +101,45 @@ Stream::~Stream() {
 //	frigg::infoLogger() << "\e[31mClosing stream\e[0m" << frigg::endLog;
 }
 
-void Stream::_cancelItem(StreamControl *item) {
+void Stream::shutdownLane(int lane) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+	assert(!_laneBroken[lane]);
+
+//	frigg::infoLogger() << "Shutting down lane" << frigg::endLog;
+	_laneBroken[lane] = true;
+	
+	while(!_conversationQueue.empty())
+		_conversationQueue.removeFront(); 
+
+	while(!_processQueue[lane].empty()) {
+		auto item = _processQueue[lane].removeFront(); 
+		_cancelItem(item.get(), kErrLaneShutdown);
+	}
+
+	while(!_processQueue[!lane].empty()) {
+		auto item = _processQueue[!lane].removeFront(); 
+		_cancelItem(item.get(), kErrEndOfLane);
+	}
+}
+
+void Stream::_cancelItem(StreamControl *item, Error error) {
 	if(OfferBase::classOf(*item)) {
-		static_cast<OfferBase *>(item)->complete(kErrClosedRemotely);
+		static_cast<OfferBase *>(item)->complete(error);
 	}else if(AcceptBase::classOf(*item)) {
-		static_cast<AcceptBase *>(item)->complete(kErrClosedRemotely,
+		static_cast<AcceptBase *>(item)->complete(error,
 				frigg::WeakPtr<Universe>{}, LaneDescriptor{});
 	}else if(SendFromBufferBase::classOf(*item)) {
-		static_cast<SendFromBufferBase *>(item)->complete(kErrClosedRemotely);
+		static_cast<SendFromBufferBase *>(item)->complete(error);
 	}else if(RecvToBufferBase::classOf(*item)) {
-		static_cast<RecvToBufferBase *>(item)->complete(kErrClosedRemotely, 0);
+		static_cast<RecvToBufferBase *>(item)->complete(error, 0);
 	}else if(RecvInlineBase::classOf(*item)) {
-		static_cast<RecvInlineBase *>(item)->complete(kErrClosedRemotely,
+		static_cast<RecvInlineBase *>(item)->complete(error,
 				frigg::UniqueMemory<KernelAlloc>{});
 	}else if(PushDescriptorBase::classOf(*item)) {
-		static_cast<PushDescriptorBase *>(item)->complete(kErrClosedRemotely);
+		static_cast<PushDescriptorBase *>(item)->complete(error);
 	}else if(PullDescriptorBase::classOf(*item)) {
-		static_cast<PullDescriptorBase *>(item)->complete(kErrClosedRemotely,
+		static_cast<PullDescriptorBase *>(item)->complete(error,
 				frigg::WeakPtr<Universe>{}, AnyDescriptor{});
 	}else{
 		assert(!"Unexpected item in stream");
@@ -165,7 +188,7 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 
 		if(_processQueue[q].empty()) {
 			if(_laneBroken[q]) {
-				_cancelItem(u.get());
+				_cancelItem(u.get(), kErrEndOfLane);
 			}else{
 				_processQueue[p].addBack(u);
 			}

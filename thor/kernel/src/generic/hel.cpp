@@ -46,8 +46,8 @@ HelError translateError(Error error) {
 	switch(error) {
 	case kErrSuccess: return kHelErrNone;
 	case kErrThreadExited: return kHelErrThreadTerminated;
-//		case kErrClosedLocally: return kHelErrClosedLocally;
-	case kErrClosedRemotely: return kHelErrClosedRemotely;
+	case kErrLaneShutdown: return kHelErrLaneShutdown;
+	case kErrEndOfLane: return kHelErrEndOfLane;
 //		case kErrBufferTooSmall: return kHelErrBufferTooSmall;
 	case kErrFault: return kHelErrFault;
 	default:
@@ -1672,6 +1672,27 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	return kHelErrNone;
 }
 
+HelError helShutdownLane(HelHandle handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+	
+	LaneHandle lane;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<LaneDescriptor>())
+			return kHelErrBadDescriptor;
+		lane = wrapper->get<LaneDescriptor>().handle;
+	}
+
+	lane.getStream()->shutdownLane(lane.getLane());
+
+	return kHelErrNone;
+}
 
 HelError helFutexWait(int *pointer, int expected) {
 	auto this_thread = getCurrentThread();

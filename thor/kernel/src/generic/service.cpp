@@ -134,7 +134,7 @@ namespace stdio {
 		}
 
 		void onReceive(Error error, size_t length) {
-			if(error == kErrClosedRemotely)
+			if(error == kErrEndOfLane)
 				return;
 			assert(error == kErrSuccess);
 
@@ -310,7 +310,7 @@ namespace initrd {
 		}
 
 		void onReceive(Error error, size_t length) {
-			if(error == kErrClosedRemotely)
+			if(error == kErrEndOfLane)
 				return;
 			assert(error == kErrSuccess);
 

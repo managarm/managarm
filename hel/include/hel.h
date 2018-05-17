@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 91,
+	kHelNumCalls = 92,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -62,6 +62,7 @@ enum {
 	
 	kHelCallCreateStream = 68,
 	kHelCallSubmitAsync = 79,
+	kHelCallShutdownLane = 91,
 
 	kHelCallFutexWait = 70,
 	kHelCallFutexWake = 71,
@@ -81,9 +82,11 @@ enum {
 	kHelErrNone = 0,
 	kHelErrIllegalSyscall = 5,
 	kHelErrIllegalArgs = 7,
+	kHelErrCancelled = 12,
 	kHelErrNoDescriptor = 4,
 	kHelErrBadDescriptor = 2,
 	kHelErrThreadTerminated = 11,
+	kHelErrLaneShutdown = 8,
 	kHelErrClosedLocally = 8, // Deprecated name.
 	kHelErrEndOfLane = 9,
 	kHelErrClosedRemotely = 9, // Deprecated name.
@@ -404,6 +407,7 @@ HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,
 		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
+HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
 HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected);
 HEL_C_LINKAGE HelError helFutexWake(int *pointer);
@@ -430,10 +434,10 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "No such descriptor";
 	case kHelErrBadDescriptor:
 		return "Illegal descriptor for this operation";
-	case kHelErrClosedLocally:
-		return "Resource closed locally";
-	case kHelErrClosedRemotely:
-		return "Resource closed remotely";
+	case kHelErrLaneShutdown:
+		return "Lane shutdown";
+	case kHelErrEndOfLane:
+		return "End of lane";
 	case kHelErrBufferTooSmall:
 		return "Buffer too small";
 	case kHelErrFault:

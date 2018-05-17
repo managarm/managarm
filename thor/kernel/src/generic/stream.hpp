@@ -219,7 +219,9 @@ struct Stream {
 
 	Stream();
 	~Stream();
-	
+
+	void shutdownLane(int lane);
+
 	template<typename F>
 	LaneHandle submitOffer(int lane, F functor) {
 		return _submitControl(lane, frigg::makeShared<Offer<F>>(*kernelAlloc,
@@ -275,7 +277,7 @@ struct Stream {
 	}
 
 private:
-	static void _cancelItem(StreamControl *item);
+	static void _cancelItem(StreamControl *item, Error error);
 
 	// submits an operation to the stream.
 	LaneHandle _submitControl(int lane, frigg::SharedPtr<StreamControl> control);

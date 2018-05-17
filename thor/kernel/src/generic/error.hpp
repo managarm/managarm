@@ -5,10 +5,11 @@ namespace thor {
 
 enum Error {
 	kErrSuccess,
+	kErrCancelled,
 	kErrBufferTooSmall,
 	kErrThreadExited,
-	kErrClosedLocally,
-	kErrClosedRemotely,
+	kErrLaneShutdown,
+	kErrEndOfLane,
 	kErrFault
 };
 

@@ -93,7 +93,7 @@ LaneHandle fiberAccept(LaneHandle lane) {
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
 
-	if(error == kErrClosedRemotely)
+	if(error == kErrEndOfLane)
 		return LaneHandle{};
 	assert(!error);
 	return handle.handle;

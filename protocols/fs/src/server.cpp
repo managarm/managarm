@@ -314,20 +314,6 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 	}
 }))
 
-COFIBER_ROUTINE(async::result<helix::UniqueLane>, doAccept(helix::BorrowedLane lane), ([=] {
-	helix::Accept accept;
-
-	auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
-			helix::action(&accept));
-	COFIBER_AWAIT initiate.async_wait();
-
-	// TODO: Handle end-of-lane correctly. Why does it even happen here?
-	if(accept.error() != kHelErrEndOfLane) {
-		HEL_CHECK(accept.error());
-		COFIBER_RETURN(accept.descriptor());
-	}
-}))
-
 } // anonymous namespace
 
 COFIBER_ROUTINE(async::result<void>,
@@ -350,17 +336,25 @@ serveFile(helix::UniqueLane p, void *file,
 COFIBER_ROUTINE(async::cancelable_result<void>,
 servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] () mutable {
+	auto cancellation = COFIBER_YIELD async::want_cancel_future;
 	while(true) {
+	helix::Accept accept;
 		helix::RecvInline recv_req;
 
-		auto status = COFIBER_YIELD doAccept(lane);
-		if(status.cancelled()) {
-			// TODO: This is only necessary because of a bug in async::cancelable_result!
-			file = nullptr;
-			COFIBER_RETURN();
-		}
-		auto conversation = COFIBER_AWAIT status;
+		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
+				helix::action(&accept));
+		auto future = initiate.async_wait();
 		
+		if(!(COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation}))
+			HEL_CHECK(helShutdownLane(lane.getHandle()));
+		COFIBER_AWAIT std::move(future);
+
+		// TODO: Handle end-of-lane correctly. Why does it even happen here?
+		if(accept.error() == kHelErrLaneShutdown || accept.error() == kHelErrEndOfLane)
+			COFIBER_RETURN();
+		HEL_CHECK(accept.error());
+		auto conversation = accept.descriptor();
+
 		auto &&header = helix::submitAsync(conversation, helix::Dispatcher::global(),
 				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();

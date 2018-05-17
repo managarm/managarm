@@ -260,6 +260,10 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitAsync(HelHandl
 			(HelWord)queue, (HelWord)context, (HelWord)flags);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helShutdownLane(HelHandle handle) {
+	return helSyscall1(kHelCallShutdownLane, (HelWord)handle);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helFutexWait(int *pointer,
 		int expected) {
 	return helSyscall2(kHelCallFutexWait, (HelWord)pointer, (HelWord)expected);
