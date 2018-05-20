@@ -141,6 +141,8 @@ struct QueueInfo {
 struct Transport {
 	DeviceSpace space();
 
+	virtual protocols::hw::Device &hwDevice() = 0;
+
 	virtual uint32_t loadConfig(arch::scalar_register<uint32_t> offset) = 0;
 
 	virtual void finalizeFeatures() = 0;

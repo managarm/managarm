@@ -120,7 +120,7 @@ private:
 };
 
 GfxDevice::GfxDevice(std::unique_ptr<virtio_core::Transport> transport)
-: _transport(std::move(transport)) { }
+: _transport{std::move(transport)}, _claimedDevice{false} { }
 
 COFIBER_ROUTINE(cofiber::no_future, GfxDevice::initialize(), ([=] { 
 	_transport->finalizeFeatures();
@@ -331,6 +331,11 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 	for(size_t i = 0; i < _state.size(); i++) {
 		if(!_state[i])
 			continue;
+
+		if(!_device->_claimedDevice) {
+			COFIBER_AWAIT _device->_transport->hwDevice().claimDevice();
+			_device->_claimedDevice = true;
+		}
 
 		if(!_state[i]->mode) {
 			std::cout << "gfx/virtio: Disable scanout" << std::endl;

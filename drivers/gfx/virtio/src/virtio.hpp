@@ -138,6 +138,7 @@ private:
 	std::unique_ptr<virtio_core::Transport> _transport;
 	virtio_core::Queue *_controlQ;
 	virtio_core::Queue *_cursorQ;
+	bool _claimedDevice;
 	uint32_t _numScanouts;
 	id_allocator<uint32_t> _hwAllocator;
 };

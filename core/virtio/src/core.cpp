@@ -69,6 +69,10 @@ struct LegacyPciTransport : Transport {
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);
 
+	protocols::hw::Device &hwDevice() override {
+		return _hwDevice;
+	}
+
 	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 
 	void finalizeFeatures() override;
@@ -223,6 +227,10 @@ struct StandardPciTransport : Transport {
 			Mapping common_mapping, Mapping notify_mapping,
 			Mapping isr_mapping, Mapping device_mapping,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq);
+
+	protocols::hw::Device &hwDevice() override {
+		return _hwDevice;
+	}
 	
 	uint32_t loadConfig(arch::scalar_register<uint32_t> offset) override;
 

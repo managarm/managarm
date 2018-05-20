@@ -169,7 +169,7 @@ constexpr uint32_t rgbColor[16] = {
 	rgb(0, 255, 255),
 	rgb(255, 255, 255) 
 };
-constexpr uint32_t defaultBg = rgb(25, 25, 112);
+constexpr uint32_t defaultBg = rgb(16, 16, 16);
 
 struct FbDisplay : TextDisplay {
 	FbDisplay(void *window, unsigned int width, unsigned int height, size_t pitch)
