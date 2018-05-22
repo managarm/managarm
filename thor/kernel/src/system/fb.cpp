@@ -183,7 +183,7 @@ struct FbDisplay : TextDisplay {
 	int getHeight() override;
 	
 	void setChars(unsigned int x, unsigned int y,
-			char *c, int count, int fg, int bg) override;
+			const char *c, int count, int fg, int bg) override;
 	void setBlanks(unsigned int x, unsigned int y, int count, int bg) override;
 
 private:
@@ -204,7 +204,7 @@ int FbDisplay::getHeight() {
 }
 
 void FbDisplay::setChars(unsigned int x, unsigned int y,
-		char *c, int count, int fg, int bg) {
+		const char *c, int count, int fg, int bg) {
 	auto fg_rgb = rgbColor[fg];
 	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg]; 
 
