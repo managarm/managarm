@@ -124,6 +124,7 @@ int main() {
 
 	auto modeset = fork();
 	if(!modeset) {
+//		putenv("MLIBC_DEBUG_MALLOC=1");
 		putenv("XDG_RUNTIME_DIR=/run");
 		putenv("MESA_GLSL_CACHE_DISABLE=1");
 //		putenv("MESA_DEBUG=1");

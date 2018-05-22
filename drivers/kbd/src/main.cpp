@@ -21,7 +21,12 @@
 #include "spec.hpp"
 
 arch::io_space base;
-	
+
+namespace {
+	constexpr bool logPackets = false;
+	constexpr bool logMouse = false;
+}
+
 // --------------------------------------------
 // Keyboard
 // --------------------------------------------
@@ -234,11 +239,20 @@ void handleMouseData(uint8_t data) {
 			assert(mouseByte == kMouseByte2);
 			unsigned int byte2 = data;
 			
-			int movement_x = byte1 - ((byte0 << 4) & 0x100);
-			int movement_y = byte2 - ((byte0 << 3) & 0x100);
-		
-			mouseEvntDev->emitEvent(EV_REL, REL_X, movement_x);
-			mouseEvntDev->emitEvent(EV_REL, REL_Y, -movement_y);
+			int movement_x = (int)byte1 - (int)((byte0 << 4) & 0x100);
+			int movement_y = (int)byte2 - (int)((byte0 << 3) & 0x100);
+
+			if(byte0 & 0xC0)
+				std::cout << "ps2-hid: Overflow" << std::endl;
+
+			if(logMouse) {
+				std::cout << "ps2-hid: Packet: " << std::hex << byte0
+						<< " " << byte1 << " " << byte2 << std::dec << std::endl;
+				std::cout << "ps2-hid: Movement: " << movement_x << ", " << movement_y << std::endl;
+			}
+	
+			mouseEvntDev->emitEvent(EV_REL, REL_X, byte1 ? movement_x : 0);
+			mouseEvntDev->emitEvent(EV_REL, REL_Y, byte2 ? -movement_y : 0);
 			mouseEvntDev->emitEvent(EV_KEY, BTN_LEFT, byte0 & 1);
 			mouseEvntDev->emitEvent(EV_KEY, BTN_RIGHT, byte0 & 2);
 			mouseEvntDev->emitEvent(EV_KEY, BTN_MIDDLE, byte0 & 4);
@@ -262,9 +276,14 @@ void sendByte(uint8_t data) {
 }
 
 void readDeviceData() {
+	size_t batch = 1;
 	uint8_t status;
 	while((status = base.load(kbd_register::command)) & 0x01) {
 		uint8_t data = base.load(kbd_register::data);
+		if(logPackets)
+			std::cout << "ps2-hid: Byte " << batch++ << ". Status: "
+					<< std::hex << (unsigned int)status
+					<< ", data: " << (unsigned int)data << std::dec << std::endl;
 		if(status & 0x20) {
 			handleMouseData(data);
 		}else{
@@ -427,6 +446,21 @@ COFIBER_ROUTINE(cofiber::no_future, runMouse(), ([=] {
 	COFIBER_AWAIT root.createObject("ps2mouse", descriptor, std::move(handler));
 }))
 
+COFIBER_ROUTINE(cofiber::no_future, pollController(), ([=] {
+	while(true) {
+		readDeviceData();
+		
+		uint64_t tick;
+		HEL_CHECK(helGetClock(&tick));
+
+		helix::AwaitClock await_clock;
+		auto &&submit = helix::submitAwaitClock(&await_clock, tick + 1'000'000,
+				helix::Dispatcher::global());
+		COFIBER_AWAIT submit.async_wait();
+		HEL_CHECK(await_clock.error());
+	}
+}))
+
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
 	
@@ -475,6 +509,7 @@ int main() {
 
 	handleKbdIrqs();
 	handleMouseIrqs();
+//	pollController();
 	
 	while(true) {
 		helix::Dispatcher::global().dispatch();
