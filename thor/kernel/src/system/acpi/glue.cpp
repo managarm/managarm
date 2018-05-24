@@ -153,11 +153,10 @@ void AcpiOsFree(void *pointer) {
 namespace {
 	struct AcpiSink : IrqSink {
 		AcpiSink(ACPI_OSD_HANDLER handler, void *context)
-		: _handler{handler}, _context{context} { }
+		: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "acpi-sci"}},
+				_handler{handler}, _context{context} { }
 
-		IrqStatus raise(uint64_t sequence) override {
-			(void)sequence;
-
+		IrqStatus raise() override {
 			auto report = [] (unsigned int event, const char *name) {
 				ACPI_EVENT_STATUS status;
 				AcpiGetEventStatus(event, &status);
@@ -176,10 +175,10 @@ namespace {
 
 			auto result = _handler(_context);
 			if(result == ACPI_INTERRUPT_HANDLED) {
-				return irq_status::handled;
+				return IrqStatus::acked;
 			}else{
 				assert(result == ACPI_INTERRUPT_NOT_HANDLED);
-				return irq_status::null;
+				return IrqStatus::nacked;
 			}
 		}
 
@@ -195,12 +194,12 @@ ACPI_STATUS AcpiOsInstallInterruptHandler(UINT32 number,
 
 	auto sink = frigg::construct<AcpiSink>(*kernelAlloc, handler, context);
 	auto pin = getGlobalSystemIrq(number);
-	attachIrq(pin, sink);
+	IrqPin::attachSink(pin, sink);
 	
 	// There are mainboards that raise the SCI before we actually enable it.
 	// This is a problem if the SCI is level-triggered and we mask it because
 	// there is no handler attached. Kick the IRQ so that it gets unmasked again.
-	pin->kick();
+	IrqPin::kickSink(sink);
 
 	return AE_OK;
 }

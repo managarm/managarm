@@ -1761,8 +1761,9 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
-	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc);
-	attachIrq(getGlobalSystemIrq(number), irq.get());
+	auto irq = frigg::makeShared<IrqObject>(*kernelAlloc,
+			frigg::String<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
+	IrqPin::attachSink(getGlobalSystemIrq(number), irq.get());
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -1775,10 +1776,20 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	return kHelErrNone;
 }
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
-	assert(!(flags & ~(kHelAckKick)));
+	assert(!(flags & ~(kHelAckAcknowledge | kHelAckNack | kHelAckKick)));
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
+	
+	auto mode = flags & (kHelAckAcknowledge | kHelAckNack | kHelAckKick);
+	if(mode == kHelAckAcknowledge || mode == kHelAckKick) {
+		if(sequence)
+			return kHelErrIllegalArgs;
+	}else if(mode == kHelAckNack) {
+		// Nothing to check here.
+	}else{
+		return kHelErrIllegalArgs;
+	}
 	
 	frigg::SharedPtr<IrqObject> irq;
 	{
@@ -1793,11 +1804,13 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
-	if(flags & kHelAckKick) {
-		irq->acknowledge();
+	if(mode == kHelAckAcknowledge) {
+		IrqPin::ackSink(irq.get());
+	}else if(mode == kHelAckNack) {
+		IrqPin::nackSink(irq.get(), sequence);
 	}else{
-		assert(!flags);
-		irq->acknowledge();
+ 		assert(mode == kHelAckKick);
+		IrqPin::kickSink(irq.get());
 	}
 
 	return kHelErrNone;

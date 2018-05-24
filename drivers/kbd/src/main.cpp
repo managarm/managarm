@@ -275,7 +275,8 @@ void sendByte(uint8_t data) {
 	base.store(kbd_register::data, data);
 }
 
-void readDeviceData() {
+bool readDeviceData() {
+	bool avail = false;
 	size_t batch = 1;
 	uint8_t status;
 	while((status = base.load(kbd_register::command)) & 0x01) {
@@ -289,7 +290,11 @@ void readDeviceData() {
 		}else{
 			handleKeyboardData(data);
 		}
+
+		avail = true;
 	}
+
+	return avail;
 }
 
 COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {	
@@ -306,7 +311,8 @@ COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {
 		readDeviceData();
 		
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), 0, sequence));
+		//HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckNack, sequence));
 	}
 }))
 
@@ -324,7 +330,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleMouseIrqs(), ([=] {
 		readDeviceData();
 		
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), 0, sequence));
+		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckAcknowledge, 0));
 	}
 }))
 

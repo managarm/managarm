@@ -343,6 +343,8 @@ enum HelIrqFlags {
 };
 
 enum HelAckFlags {
+	kHelAckAcknowledge = 2,
+	kHelAckNack = 3,
 	kHelAckKick = 1
 };
 

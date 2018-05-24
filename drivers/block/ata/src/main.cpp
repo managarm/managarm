@@ -121,15 +121,17 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 
 		// Check if the device is ready without clearing the IRQ.
 		auto status = _altSpace.load(alt_regs::inStatus);
-		if(status & kStatusBsy)
+		if(status & kStatusBsy) {
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
+		}
 		assert(!(status & (kStatusErr | kStatusDf)));
 		assert(status & kStatusRdy);
 		assert(status & kStatusDrq);
 		
 		// Clear and acknowledge the IRQ.
 		auto cleared = _ioSpace.load(regs::inStatus);
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
 		assert(!(cleared & (kStatusErr | kStatusDf)));
 		assert(cleared & kStatusRdy);
 		assert(cleared & kStatusDrq);

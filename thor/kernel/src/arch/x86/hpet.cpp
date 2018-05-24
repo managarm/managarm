@@ -67,6 +67,9 @@ private:
 	static constexpr bool logIrqs = false;
 
 public:
+	HpetDevice()
+	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "hpet-irq"}} { }
+	
 	void installTimer(PrecisionTimerNode *timer) {
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
@@ -83,9 +86,7 @@ public:
 		_progress();
 	}
 
-	IrqStatus raise(uint64_t sequence) override {
-		(void)sequence;
-
+	IrqStatus raise() override {
 		if(logIrqs)
 			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -97,7 +98,7 @@ public:
 		// For level-triggered mode we need to inspect the ISR.
 		if(logIrqs)
 			frigg::infoLogger() << "hpet: Handler completed." << frigg::endLog;
-		return irq_status::handled;
+		return IrqStatus::acked;
 	}
 
 private:
@@ -191,7 +192,7 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(genConfig, enableCounter(true));
 	}
 	
-	attachIrq(getGlobalSystemIrq(2), hpetDevice.get());
+	IrqPin::attachSink(getGlobalSystemIrq(2), hpetDevice.get());
 
 	// Program HPET timer 0 in one-shot mode.
 	if(global_caps & supportsLegacyIrqs) {

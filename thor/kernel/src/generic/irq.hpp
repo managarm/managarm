@@ -39,29 +39,42 @@ private:
 
 // ----------------------------------------------------------------------------
 
-using IrqStatus = unsigned int;
-
-namespace irq_status {
-	static constexpr IrqStatus null = 0;
-
-	// The IRQ has been handled by the sink's raise() method.
-	static constexpr IrqStatus handled = 1;
-}
+enum class IrqStatus {
+	null,
+	acked,
+	nacked
+};
 
 struct IrqSink {
-	friend void attachIrq(IrqPin *pin, IrqSink *sink);
+	friend struct IrqPin;
 
-	IrqSink();
+	IrqSink(frigg::String<KernelAlloc> name);
 
-	virtual IrqStatus raise(uint64_t sequence) = 0;
+	const frigg::String<KernelAlloc> &name() {
+		return _name;
+	}
+
+	virtual IrqStatus raise() = 0;
 
 	// TODO: This needs to be thread-safe.
 	IrqPin *getPin();
 
 	frg::default_list_hook<IrqSink> hook;
 
+protected:
+	uint64_t currentSequence() {
+		return _currentSequence;
+	}
+
 private:
+	frigg::String<KernelAlloc> _name;
+
 	IrqPin *_pin;
+
+	// The following fields are protected by the mutex of IrqPin.
+private:
+	uint64_t _currentSequence;
+	IrqStatus _status;
 };
 
 enum class IrqStrategy {
@@ -85,9 +98,14 @@ enum class Polarity {
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
 struct IrqPin {
-	friend void attachIrq(IrqPin *pin, IrqSink *sink);
 private:
 	using Mutex = frigg::TicketLock;
+
+public:
+	static void attachSink(IrqPin *pin, IrqSink *sink);
+	static void ackSink(IrqSink *sink);
+	static void nackSink(IrqSink *sink, uint64_t sequence);
+	static void kickSink(IrqSink *sink);
 
 public:
 	IrqPin(frigg::String<KernelAlloc> name);
@@ -105,10 +123,11 @@ public:
 	// This function is called from IrqSlot::raise().
 	void raise();
 
-	void kick();
+private:
+	void _acknowledge();
+	void _kick();
 
-	void acknowledge();
-
+public:
 	void warnIfPending();
 
 protected:
@@ -121,7 +140,7 @@ protected:
 	virtual void sendEoi() = 0;
 
 private:
-	IrqStatus _callSinks();
+	void _callSinks();
 
 	frigg::String<KernelAlloc> _name;
 
@@ -133,6 +152,7 @@ private:
 	uint64_t _raiseSequence;
 	uint64_t _sinkSequence;
 	bool _wasAcked;
+	unsigned int _deferCounter;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().
@@ -151,8 +171,6 @@ private:
 	> _sinkList;
 };
 
-void attachIrq(IrqPin *pin, IrqSink *sink);
-
 // ----------------------------------------------------------------------------
 
 // This class implements the user-visible part of IRQ handling.
@@ -161,22 +179,15 @@ private:
 	using Mutex = frigg::TicketLock;
 
 public:
-	IrqObject();
+	IrqObject(frigg::String<KernelAlloc> name);
 
-	IrqStatus raise(uint64_t sequence) override;
+	IrqStatus raise() override;
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
-	
-	void kick();
-	
-	void acknowledge();
-	
+
 private:
 	// Must be protected against IRQs.
 	Mutex _mutex;
-
-	// Protected by the mutex.
-	uint64_t _currentSequence;
 
 	// Protected by the mutex.
 	frg::intrusive_list<

@@ -465,14 +465,16 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 		auto stat = _base.load(op_regs::status);
 		assert(!(stat & status::hostProcessError));
 		assert(!(stat & status::hostSystemError));
-		if(!(stat & status::transactionIrq) && !(stat & status::errorIrq))
+		if(!(stat & status::transactionIrq) && !(stat & status::errorIrq)) {
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
+		}
 
 		if(stat & status::errorIrq)
 			printf("uhci: Error interrupt\n");
 		_base.store(op_regs::status, status::transactionIrq(stat & status::transactionIrq) 
 				| status::errorIrq(stat & status::errorIrq));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
 		
 		//printf("uhci: Processing transfers.\n");
 		_progressSchedule();

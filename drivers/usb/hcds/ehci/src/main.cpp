@@ -400,6 +400,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 			 	&& !(status & usbsts::portChange)) {
 			if(logIrqs)
 				std::cout << "ehci: IRQ is not from this controller" << std::endl;
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
 
@@ -409,7 +410,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 				usbsts::transactionIrq(status & usbsts::transactionIrq)
 				| usbsts::errorIrq(status & usbsts::errorIrq)
 				| usbsts::portChange(status & usbsts::portChange));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
 		
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {

@@ -88,8 +88,14 @@ namespace {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 	
 			assert(device->interrupt);
-			auto object = frigg::makeShared<IrqObject>(*kernelAlloc);
-			attachIrq(device->interrupt, object.get());
+			auto object = frigg::makeShared<IrqObject>(*kernelAlloc,
+					frigg::String<KernelAlloc>{*kernelAlloc, "pci-irq."}
+					+ frigg::to_string(*kernelAlloc, device->bus)
+					+ frigg::String<KernelAlloc>{*kernelAlloc, "-"}
+					+ frigg::to_string(*kernelAlloc, device->slot)
+					+ frigg::String<KernelAlloc>{*kernelAlloc, "-"}
+					+ frigg::to_string(*kernelAlloc, device->function));
+			IrqPin::attachSink(device->interrupt, object.get());
 
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
