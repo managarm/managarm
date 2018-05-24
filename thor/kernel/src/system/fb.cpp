@@ -273,7 +273,7 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 			fb_info->width, fb_info->height, fb_info->pitch);
 	auto screen = frigg::construct<BootScreen>(*kernelAlloc, display);
 
-	enableLogHandler(screen);
+	//enableLogHandler(screen);
 
 	// Try to attached the framebuffer to a PCI device.
 	pci::PciDevice *owner = nullptr;

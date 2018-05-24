@@ -70,6 +70,12 @@ int main() {
 
 	std::cout << "init: On /realfs" << std::endl;
 	
+	auto gfx_plainfb = fork();
+	if(!gfx_plainfb) {
+		execl("/usr/bin/gfx_plainfb", "gfx_plainfb", nullptr);
+	}else assert(gfx_plainfb != -1);
+
+/*
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
 		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
@@ -79,6 +85,7 @@ int main() {
 	if(!gfx_bochs) {
 		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
 	}else assert(gfx_bochs != -1);
+*/
 
 	while(access("/dev/dri/card0", F_OK)) {
 		assert(errno == ENOENT);
