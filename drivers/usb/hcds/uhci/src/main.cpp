@@ -1072,10 +1072,12 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 	
-	observeControllers();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeControllers();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

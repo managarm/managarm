@@ -262,8 +262,7 @@ int main() {
 
 	handleIrqs();
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

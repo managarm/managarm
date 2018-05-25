@@ -422,10 +422,12 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 int main() {
 	std::cout << "gfx/plainfb: Starting driver" << std::endl;
 
-	observeControllers();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeControllers();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

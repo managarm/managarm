@@ -603,10 +603,12 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 int main() {
 	printf("Starting Intel graphics driver\n");
 
-	observeControllers();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeControllers();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

@@ -505,11 +505,13 @@ COFIBER_ROUTINE(cofiber::no_future, observeControllers(), ([] {
 
 int main() {
 	printf("gfx/bochs: Starting driver\n");
-	
-	observeControllers();
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeControllers();
+	}
+
+	helix::globalQueue()->run();
 	
 	return 0;
 }

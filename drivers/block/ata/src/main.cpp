@@ -216,9 +216,11 @@ Controller globalController;
 int main() {
 	printf("block-ata: Starting driver\n");
 
-	globalController.run();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		globalController.run();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 }
 

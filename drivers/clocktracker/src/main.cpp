@@ -163,10 +163,12 @@ COFIBER_ROUTINE(cofiber::no_future, initializeDriver(), ([] {
 int main() {
 	std::cout << "drivers/clocktracker: Starting driver" << std::endl;
 
-	initializeDriver();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		initializeDriver();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

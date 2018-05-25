@@ -508,18 +508,19 @@ int main() {
 	sendByte(0xF4);
 	mouseState = kMouseWaitForAck;
 
-	runKbd();
-	runMouse();
+	{
+		async::queue_scope scope{helix::globalQueue()};
 
-	std::cout << "ps2-hid: mbus objects are ready" << std::endl;
+		runKbd();
+		runMouse();
+		std::cout << "ps2-hid: mbus objects are ready" << std::endl;
 
-	handleKbdIrqs();
-	handleMouseIrqs();
-//	pollController();
-	
-	while(true) {
-		helix::Dispatcher::global().dispatch();
+		handleKbdIrqs();
+		handleMouseIrqs();
+	//	pollController();
 	}
+	
+	helix::globalQueue()->run();
 
 	return 0;
 }

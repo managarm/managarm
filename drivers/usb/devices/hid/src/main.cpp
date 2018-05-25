@@ -659,10 +659,12 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 
-	observeDevices();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeDevices();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }

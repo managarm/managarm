@@ -1557,17 +1557,21 @@ int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
+	
+	{
+		async::queue_scope scope{helix::globalQueue()};
 
-	drvcore::initialize();
+		drvcore::initialize();
 
-	charRegistry.install(createHeloutDevice());
-	charRegistry.install(pts::createMasterDevice());
-	block_subsystem::run();
-	drm_subsystem::run();
-	input_subsystem::run();
-	runInit();
+		charRegistry.install(createHeloutDevice());
+		charRegistry.install(pts::createMasterDevice());
+		block_subsystem::run();
+		drm_subsystem::run();
+		input_subsystem::run();
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+		runInit();
+	}
+
+	helix::globalQueue()->run();
 }
 

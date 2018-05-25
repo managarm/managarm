@@ -203,7 +203,7 @@ struct Context {
 	virtual void complete(ElementHandle element) = 0;
 };
 
-struct Dispatcher {
+struct Dispatcher : async::io_service {
 	friend struct ElementHandle;
 
 private:
@@ -246,7 +246,7 @@ public:
 		return _handle;
 	}
 
-	void dispatch() {
+	void wait() override {
 		while(true) {
 			if(_retrieveIndex == _nextIndex) {
 				assert(_activeChunks < (1 << sizeShift));
@@ -852,6 +852,8 @@ inline Submission submitAwaitEvent(BorrowedDescriptor descriptor, AwaitEvent *op
 		uint64_t sequence, Dispatcher &dispatcher) {
 	return {descriptor, operation, sequence, dispatcher};
 }
+
+async::run_queue *globalQueue();
 
 } // namespace helix
 

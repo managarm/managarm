@@ -214,10 +214,12 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 int main() {
 	std::cout << "block-usb: Starting driver" << std::endl;
 
-	observeDevices();
+	{
+		async::queue_scope scope{helix::globalQueue()};
+		observeDevices();
+	}
 
-	while(true)
-		helix::Dispatcher::global().dispatch();
+	helix::globalQueue()->run();
 	
 	return 0;
 }
