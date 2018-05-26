@@ -336,22 +336,35 @@ serveFile(helix::UniqueLane p, void *file,
 COFIBER_ROUTINE(async::cancelable_result<void>,
 servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		const FileOperations *file_ops), ([lane = std::move(p), file, file_ops] () mutable {
+	struct {
+		HelHandle handle;
+		bool cancelled;
+	} cc;
+
+	cc.handle = lane.getHandle();
+	cc.cancelled = false;
+
 	auto cancellation = COFIBER_YIELD async::want_cancel_future;
+	cancellation.then([&] {
+		HEL_CHECK(helShutdownLane(cc.handle));
+		cc.cancelled = true;
+	});
+
 	while(true) {
 	helix::Accept accept;
 		helix::RecvInline recv_req;
 
 		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept));
-		auto future = initiate.async_wait();
-		
-		if(!(COFIBER_AWAIT async::complete_or_cancel<void>{future, cancellation}))
-			HEL_CHECK(helShutdownLane(lane.getHandle()));
-		COFIBER_AWAIT std::move(future);
+		COFIBER_AWAIT initiate.async_wait();
 
 		// TODO: Handle end-of-lane correctly. Why does it even happen here?
-		if(accept.error() == kHelErrLaneShutdown || accept.error() == kHelErrEndOfLane)
+		if(accept.error() == kHelErrLaneShutdown
+				|| accept.error() == kHelErrEndOfLane) {
+			if(!cc.cancelled)
+				cancellation.get_awaitable()->interrupt();
 			COFIBER_RETURN();
+		}
 		HEL_CHECK(accept.error());
 		auto conversation = accept.descriptor();
 
