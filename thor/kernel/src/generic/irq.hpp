@@ -101,6 +101,9 @@ struct IrqPin {
 private:
 	using Mutex = frigg::TicketLock;
 
+	static constexpr int maskedForService = 1;
+	static constexpr int maskedForNack = 2;
+
 public:
 	static void attachSink(IrqPin *pin, IrqSink *sink);
 	static Error ackSink(IrqSink *sink);
@@ -125,6 +128,7 @@ public:
 
 private:
 	void _acknowledge();
+	void _nack();
 	void _kick();
 
 public:
@@ -141,6 +145,7 @@ protected:
 
 private:
 	void _callSinks();
+	void _updateMask();
 
 	frigg::String<KernelAlloc> _name;
 
@@ -151,8 +156,9 @@ private:
 
 	uint64_t _raiseSequence;
 	uint64_t _sinkSequence;
-	bool _wasAcked;
+	bool _inService;
 	unsigned int _dueSinks;
+	int _maskState;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().

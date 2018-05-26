@@ -79,10 +79,8 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 		return kErrIllegalArgs;
 	sink->_status = IrqStatus::nacked;
 
-	assert(pin->_dueSinks);
-	if(pin->_dueSinks-- == 1)
-		frigg::infoLogger() << "\e[31mthor: IRQ " << pin->_name
-				<< " was nacked!" << frigg::endLog;
+	pin->_nack();
+
 	return kErrSuccess;
 }
 
@@ -103,7 +101,8 @@ Error IrqPin::kickSink(IrqSink *sink) {
 
 IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
-		_raiseSequence{0}, _sinkSequence{0}, _wasAcked{true}, _dueSinks{0} { }
+		_raiseSequence{0}, _sinkSequence{0}, _inService{false}, _dueSinks{0},
+		_maskState{0} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -116,8 +115,9 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	_strategy = program(mode, polarity);
 	_raiseSequence = 0;
 	_sinkSequence = 0;
-	_wasAcked = true;
+	_inService = false;
 	_dueSinks = 0;
+	_maskState = 0;
 }
 
 void IrqPin::raise() {
@@ -131,32 +131,29 @@ void IrqPin::raise() {
 				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
-	auto active = !_wasAcked;
+	auto already_in_service = _inService;
 	_raiseSequence++;
-	_wasAcked = false;
-
-	if(active) {
+	_inService = true;
+	
+	if(already_in_service) {
 		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
 		// TODO: If the IRQ is edge-triggered we lose an edge here!
 		frigg::infoLogger() << "\e[35mthor: Ignoring already active IRQ " << _name
 				<< "\e[39m" << frigg::endLog;
 	}else{
 		_callSinks();
-		
-		if(!_wasAcked) {
-			if(_dueSinks) {
-				_raiseClock = currentNanos();
-				_warnedAfterPending = false;
-			}else{
-				frigg::infoLogger() << "\e[31mthor: IRQ " << _name
-						<< " was nacked!" << frigg::endLog;
-			}
-		}
 	}
-	
-	if(!_wasAcked && _strategy == IrqStrategy::maskThenEoi)
-		mask();
 
+	if(_inService && !_dueSinks) {
+		frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
+		_maskState |= maskedForNack;
+	}
+
+	if(_strategy == IrqStrategy::maskThenEoi)
+		if(_inService)
+			_maskState |= maskedForService;
+
+	_updateMask();
 	sendEoi();
 }
 
@@ -168,36 +165,48 @@ void IrqPin::_acknowledge() {
 //	if(sequence < _currentSequence || _wasAcked)
 //		return;
 
-	if(_wasAcked)
+	if(!_inService)
 		return;
-	_wasAcked = true;
+	_inService = false;
 
 	// Avoid losing IRQs that were ignored in raise() as 'already active'.
 	if(_sinkSequence < _raiseSequence)
 		_callSinks();
 
-	if(_strategy == IrqStrategy::maskThenEoi)
-		unmask();
+	_maskState &= ~maskedForService;
+	_updateMask();
+}
+
+void IrqPin::_nack() {
+	assert(_dueSinks);
+	_dueSinks--;
+	
+	if(!_inService || _dueSinks)
+		return;
+
+	frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
+	_maskState |= maskedForNack;
+	_updateMask();
 }
 
 void IrqPin::_kick() {
-	if(_wasAcked)
+	if(!_inService)
 		return;
-	_wasAcked = true;
+	_inService = false;
 
 	// Avoid losing IRQs that were ignored in raise() as 'already active'.
 	if(_sinkSequence < _raiseSequence)
 		_callSinks();
 
-	if(_strategy == IrqStrategy::maskThenEoi)
-		unmask();
+	_maskState &= ~(maskedForService | maskedForNack);
+	unmask();
 }
 
 void IrqPin::warnIfPending() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_wasAcked || !_dueSinks)
+	if(!_inService || !_dueSinks)
 		return;
 
 	if(currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
@@ -217,6 +226,11 @@ void IrqPin::_callSinks() {
 	_sinkSequence = _raiseSequence;
 	_dueSinks = 0;
 
+	if(_inService) {
+		_raiseClock = currentNanos();
+		_warnedAfterPending = false;
+	}
+
 	if(_sinkList.empty())
 		frigg::infoLogger() << "\e[35mthor: No sink for IRQ "
 				<< _name << "\e[39m" << frigg::endLog;
@@ -226,12 +240,21 @@ void IrqPin::_callSinks() {
 		(*it)->_status = (*it)->raise();
 
 		if((*it)->_status == IrqStatus::acked) {
-			_wasAcked = true;
+			_inService = false;
 		}else if((*it)->_status == IrqStatus::nacked) {
 			// We do not need to do anything here.
 		}else{
 			_dueSinks++;
 		}
+	}
+}
+
+void IrqPin::_updateMask() {
+	// TODO: Avoid the virtual calls if the state does not change?
+	if(!_maskState) {
+		unmask();
+	}else if(_maskState) {
+		mask();
 	}
 }
 
