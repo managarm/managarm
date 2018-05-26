@@ -43,20 +43,25 @@ void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
 	sink->_pin = pin;
 }
 
-void IrqPin::ackSink(IrqSink *sink) {
+Error IrqPin::ackSink(IrqSink *sink) {
 	auto pin = sink->getPin();
 	assert(pin);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
 	
-	assert(sink->_status == IrqStatus::null);
+	if(sink->currentSequence() != pin->_sinkSequence)
+		return kErrSuccess;
+	
+	if(sink->_status != IrqStatus::null)
+		return kErrIllegalArgs;
 	sink->_status = IrqStatus::acked;
 
 	pin->_acknowledge();
+	return kErrSuccess;
 }
 
-void IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
+Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	auto pin = sink->getPin();
 	assert(pin);
 
@@ -64,29 +69,31 @@ void IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	auto lock = frigg::guard(&pin->_mutex);
 	
 	assert(sequence <= sink->currentSequence());
+	if(sink->currentSequence() != pin->_sinkSequence)
+		return kErrSuccess;
 	if(sequence != sink->currentSequence())
-		return;
+		return kErrSuccess;
 
-	assert(sink->_status == IrqStatus::null);
+	if(sink->_status != IrqStatus::null)
+		return kErrIllegalArgs;
 	sink->_status = IrqStatus::nacked;
 
 	assert(pin->_deferCounter);
 	if(pin->_deferCounter-- == 1)
 		frigg::infoLogger() << "\e[31mthor: IRQ " << pin->_name
 				<< " was nacked!" << frigg::endLog;
+	return kErrSuccess;
 }
 
-void IrqPin::kickSink(IrqSink *sink) {
+Error IrqPin::kickSink(IrqSink *sink) {
 	auto pin = sink->getPin();
 	assert(pin);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
 	
-	assert(sink->_status == IrqStatus::null);
-	sink->_status = IrqStatus::acked;
-
 	pin->_kick();
+	return kErrSuccess;
 }
 
 // --------------------------------------------------------
@@ -215,8 +222,8 @@ void IrqPin::_callSinks() {
 
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
 		(*it)->_currentSequence = _sinkSequence;
-
 		(*it)->_status = (*it)->raise();
+
 		if((*it)->_status == IrqStatus::acked) {
 			_wasAcked = true;
 		}else if((*it)->_status == IrqStatus::nacked) {

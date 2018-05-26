@@ -394,11 +394,12 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		auto isr = _isrSpace().load(PCI_ISR);
 		if(!(isr & 3)) {
 //			std::cout << "core-virtio: " << getpid() << " But it's not for me" << std::endl;
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
 			continue;
 		}
 
 //		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
 		
 		if(isr & 2)
 			std::cout << "core-virtio: Configuration change" << std::endl;

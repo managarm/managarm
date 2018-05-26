@@ -1804,16 +1804,22 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		irq = irq_wrapper->get<IrqDescriptor>().irq;
 	}
 
+	Error error;
 	if(mode == kHelAckAcknowledge) {
-		IrqPin::ackSink(irq.get());
+		error = IrqPin::ackSink(irq.get());
 	}else if(mode == kHelAckNack) {
-		IrqPin::nackSink(irq.get(), sequence);
+		error = IrqPin::nackSink(irq.get(), sequence);
 	}else{
  		assert(mode == kHelAckKick);
-		IrqPin::kickSink(irq.get());
+		error = IrqPin::kickSink(irq.get());
 	}
 
-	return kHelErrNone;
+	if(error == kErrIllegalArgs) {
+		return kHelErrIllegalArgs;
+	}else{
+		assert(!error);
+		return kHelErrNone;
+	}
 }
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context) {

@@ -5,6 +5,7 @@ namespace thor {
 
 enum Error {
 	kErrSuccess,
+	kErrIllegalArgs,
 	kErrCancelled,
 	kErrBufferTooSmall,
 	kErrThreadExited,

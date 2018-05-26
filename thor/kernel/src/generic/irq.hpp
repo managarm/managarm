@@ -103,9 +103,9 @@ private:
 
 public:
 	static void attachSink(IrqPin *pin, IrqSink *sink);
-	static void ackSink(IrqSink *sink);
-	static void nackSink(IrqSink *sink, uint64_t sequence);
-	static void kickSink(IrqSink *sink);
+	static Error ackSink(IrqSink *sink);
+	static Error nackSink(IrqSink *sink, uint64_t sequence);
+	static Error kickSink(IrqSink *sink);
 
 public:
 	IrqPin(frigg::String<KernelAlloc> name);
