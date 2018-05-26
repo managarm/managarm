@@ -73,7 +73,7 @@ public:
 		COFIBER_RETURN(size);
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t) override, ([=] {
 		std::cout << "posix: Fix fifo readerFile::poll()" << std::endl;
 	}))
 
@@ -117,7 +117,7 @@ public:
 		_channel = nullptr;
 	}
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t) override, ([=] {
 		std::cout << "posix: Fix fifo WriterFile::poll()" << std::endl;
 	}))
 

@@ -127,7 +127,7 @@ public:
 	writeAll(Process *, const void *data, size_t length) override;
 
 	expected<PollResult>
-	poll(uint64_t sequence) override;
+	poll(Process *, uint64_t sequence) override;
 
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
@@ -162,7 +162,7 @@ public:
 	writeAll(Process *, const void *data, size_t length) override;
 
 	expected<PollResult>
-	poll(uint64_t sequence) override;
+	poll(Process *, uint64_t sequence) override;
 
 	async::result<void>
 	ioctl(Process *process, managarm::fs::CntRequest req, helix::UniqueLane conversation);
@@ -350,7 +350,7 @@ MasterFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(uint64_t past_seq), ([=] {
+COFIBER_ROUTINE(expected<PollResult>, MasterFile::poll(Process *, uint64_t past_seq), ([=] {
 	assert(past_seq <= _channel->currentSeq);
 	while(past_seq == _channel->currentSeq)
 		COFIBER_AWAIT _channel->statusBell.async_wait();
@@ -463,7 +463,7 @@ SlaveFile::writeAll(Process *, const void *data, size_t length), ([=] {
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(uint64_t past_seq), ([=] {
+COFIBER_ROUTINE(expected<PollResult>, SlaveFile::poll(Process *, uint64_t past_seq), ([=] {
 	assert(past_seq <= _channel->currentSeq);
 	while(past_seq == _channel->currentSeq)
 		COFIBER_AWAIT _channel->statusBell.async_wait();

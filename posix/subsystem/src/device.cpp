@@ -111,16 +111,16 @@ private:
 		COFIBER_RETURN(length);
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t sequence) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
 		auto result = COFIBER_AWAIT _file.poll(sequence);
 		COFIBER_RETURN(result);
 	}))
 	
-	expected<PollResult> checkStatus() override {
+	expected<PollResult> checkStatus(Process *) override {
 		if(!_statusMapping) {
 			std::cout << "posix: No file status page. DeviceFile::checkStatus()"
 					" falls back to slower poll()" << std::endl;
-			return poll(0);
+			return poll(nullptr, 0);
 		}
 
 		auto page = reinterpret_cast<protocols::fs::StatusPage *>(_statusMapping.get());
@@ -131,7 +131,7 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Status page update in progess."
 						" Fallback to poll(0)." << std::endl;
-			return poll(0);
+			return poll(nullptr, 0);
 		}
 
 		// Perform the actual loads.
@@ -144,7 +144,7 @@ private:
 			if(logStatusSeqlock)
 				std::cout << "posix: Stale data from status page."
 						" Fallback to poll(0)." << std::endl;
-			return poll(0);
+			return poll(nullptr, 0);
 		}
 
 		// TODO: Return a full edge mask or edges since sequence zero.

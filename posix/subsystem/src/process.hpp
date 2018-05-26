@@ -192,7 +192,11 @@ struct Process : std::enable_shared_from_this<Process> {
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
 public:
-	Process();
+	Process(Process *parent);
+
+	Process *getParent() {
+		return _parent;
+	}
 
 	int pid() {
 		assert(_pid); // Do not return uninitialized information.
@@ -237,6 +241,8 @@ public:
 	}
 
 private:
+	Process *_parent;
+
 	int _pid;
 	std::string _path;
 	std::shared_ptr<VmContext> _vmContext;
@@ -249,6 +255,8 @@ private:
 	void *_clientThreadPage;
 	void *_clientClkTrackerPage;
 	void *_clientFileTable;
+
+	std::vector<std::shared_ptr<Process>> _children;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

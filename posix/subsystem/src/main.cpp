@@ -178,6 +178,15 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			Process::exec(self, path, std::move(args), std::move(env));
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {
 			printf("\e[35mThread exited\e[39m\n");
+
+			// TODO: Handle the case that the init process exits (by issuing a panic).
+			auto parent = self->getParent();
+			assert(parent);
+
+			UserSignal info;
+			info.pid = self->pid();
+			parent->signalContext()->issueSignal(SIGCHLD, info);
+			
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
@@ -246,6 +255,7 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 				self->signalContext()->raiseContext(active, thread);
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
+			printf("posix: Process %s was interrupted\n", self->path().c_str());
 			auto active = self->signalContext()->fetchSignal(~self->signalMask());
 			if(active)
 				self->signalContext()->raiseContext(active, thread);
@@ -1285,7 +1295,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				assert(file && "Illegal FD for EPOLL_ADD item");
 				auto locked = file->weakFile().lock();
 				assert(locked);
-				epoll::addItem(epfile.get(), std::move(locked),
+				epoll::addItem(epfile.get(), self.get(), std::move(locked),
 						req.events(i), i);
 			}
 			
@@ -1355,7 +1365,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			auto locked = file->weakFile().lock();
 			assert(locked);
-			epoll::addItem(epfile.get(), std::move(locked),
+			epoll::addItem(epfile.get(), self.get(), std::move(locked),
 					req.flags(), req.cookie());
 
 			managarm::posix::SvrResponse resp;
@@ -1493,7 +1503,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			assert(!(req.flags() & ~(managarm::posix::OF_CLOEXEC)));
 			
-			auto file = createSignalFile();
+			auto file = createSignalFile(req.sigset());
 			auto fd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OF_CLOEXEC);
 

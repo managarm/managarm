@@ -1,10 +1,12 @@
 
 #include <string.h>
+#include <sys/epoll.h>
 #include <iostream>
 
 #include <async/doorbell.hpp>
 #include <cofiber.hpp>
 #include <helix/ipc.hpp>
+#include "process.hpp"
 #include "signalfd.hpp"
 
 namespace {
@@ -20,17 +22,19 @@ public:
 				&File::fileOperations);
 	}
 
-	OpenFile()
-	: File{StructName::get("signalfd")} { }
+	OpenFile(uint64_t mask)
+	: File{StructName::get("signalfd")}, _mask{mask} { }
 
 	COFIBER_ROUTINE(expected<size_t>,
 	readSome(Process *, void *data, size_t max_length) override, ([=] {
 		throw std::runtime_error("read() from signalfd is not implemented");
 	}))
 	
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t sequence) override, ([=] {
-		std::cout << "posix: Fix signalfd::poll()" << std::endl;
-		COFIBER_AWAIT cofiber::suspend_always{};
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *process, uint64_t in_seq) override, ([=] {
+		std::cout << "posix: signalfd poll() with mask " << _mask << std::endl;
+		auto sequence = COFIBER_AWAIT process->signalContext()->pollSignal(in_seq, _mask);
+		std::cout << "posix: signalfd poll() returns" << std::endl;
+		COFIBER_RETURN(PollResult(sequence, EPOLLIN, EPOLLIN));
 	}))
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -39,12 +43,13 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	uint64_t _mask;
 };
 
 } // anonymous namespace
 
-smarter::shared_ptr<File, FileHandle> createSignalFile() {
-	auto file = smarter::make_shared<OpenFile>();
+smarter::shared_ptr<File, FileHandle> createSignalFile(uint64_t mask) {
+	auto file = smarter::make_shared<OpenFile>(mask);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

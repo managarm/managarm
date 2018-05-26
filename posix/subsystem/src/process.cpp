@@ -398,9 +398,14 @@ void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thr
 	assert(!(handler.flags & signalOnce));
 
 	if(handler.disposition == SignalDisposition::none) {
-		std::cout << "posix: Thread killed as the result of a signal" << std::endl;
-		HEL_CHECK(helKillThread(thread.getHandle()));
-		return;
+		if(item->signalNumber == SIGCHLD) { // TODO: Handle default actions generically.
+			// Ignore the signal.
+			return;
+		}else{
+			std::cout << "posix: Thread killed as the result of a signal" << std::endl;
+			HEL_CHECK(helKillThread(thread.getHandle()));
+			return;
+		}
 	}
 
 	assert(handler.disposition == SignalDisposition::handle);
@@ -479,12 +484,12 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 	return it->second->shared_from_this();
 }
 
-Process::Process()
-: _pid{0}, _clientFileTable{nullptr} { }
+Process::Process(Process *parent)
+: _parent{parent}, _pid{0}, _clientFileTable{nullptr} { }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
-	auto process = std::make_shared<Process>();
+	auto process = std::make_shared<Process>(nullptr);
 	process->_path = path;
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
@@ -519,7 +524,7 @@ COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::stri
 }))
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
-	auto process = std::make_shared<Process>();
+	auto process = std::make_shared<Process>(original.get());
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
@@ -540,6 +545,9 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	ProcessId pid = nextPid++;
 	assert(globalPidMap.find(pid) == globalPidMap.end());
 	process->_pid = pid;
+	
+	original->_children.push_back(process);
+	
 	globalPidMap.insert({pid, process.get()});
 
 	return process;

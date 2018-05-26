@@ -28,15 +28,16 @@ private:
 	static constexpr State statePending = 4;
 
 	struct Item : boost::intrusive::list_base_hook<> {
-		Item(smarter::shared_ptr<OpenFile> epoll,
+		Item(smarter::shared_ptr<OpenFile> epoll, Process *process,
 				smarter::shared_ptr<File> file, int mask, uint64_t cookie)
-		: epoll{epoll}, state{stateActive},
+		: epoll{epoll}, state{stateActive}, process{process},
 				file{std::move(file)}, eventMask{mask}, cookie{cookie} { }
 
 		smarter::shared_ptr<OpenFile> epoll;
 		State state;
 
 		// Basic data of this item.
+		Process *process;
 		smarter::shared_ptr<File> file;
 		int eventMask;
 		uint64_t cookie;
@@ -103,7 +104,7 @@ private:
 						<< "\e[0m still not pending after poll()."
 						<< " Mask is " << item->eventMask << ", while "
 						<< std::get<2>(result) << " is active" << std::endl;
-			item->pollFuture = item->file->poll(std::get<0>(result));
+			item->pollFuture = item->file->poll(item->process, std::get<0>(result));
 			item->pollFuture.then([item] {
 				_awaitPoll(item);
 			});
@@ -115,17 +116,17 @@ public:
 		// Nothing to do here.
 	}
 
-	void addItem(smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
+	void addItem(Process *process, smarter::shared_ptr<File> file, int mask, uint64_t cookie) {
 		if(logEpoll)
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
 					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
 		// TODO: Fix the memory-leak.
 		assert(_fileMap.find(file.get()) == _fileMap.end());
 		auto item = new Item{smarter::static_pointer_cast<OpenFile>(weakFile().lock()),
-				std::move(file), mask, cookie};
+				process, std::move(file), mask, cookie};
 
 		item->state |= statePolling;
-		item->pollFuture = item->file->checkStatus();
+		item->pollFuture = item->file->checkStatus(item->process);
 		item->pollFuture.then([item] {
 			_awaitPoll(item);
 		});
@@ -184,7 +185,7 @@ public:
 					continue;
 				}
 
-				auto result_or_error = COFIBER_AWAIT item->file->checkStatus();	
+				auto result_or_error = COFIBER_AWAIT item->file->checkStatus(item->process);	
 		
 				// Discard closed items.
 				auto error = std::get_if<Error>(&result_or_error);
@@ -214,7 +215,7 @@ public:
 					item->state |= statePolling;
 
 					// Once an item is not pending anymore, we continue watching it.
-					item->pollFuture = item->file->poll(std::get<0>(result));
+					item->pollFuture = item->file->poll(item->process, std::get<0>(result));
 					item->pollFuture.then([item] {
 						_awaitPoll(item);
 					});
@@ -293,7 +294,7 @@ public:
 		_serve.cancel();
 	}
 
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t past_seq) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t past_seq) override, ([=] {
 		assert(past_seq <= _currentSeq);
 		while(_currentSeq == past_seq) {
 			assert(isOpen()); // TODO: Return a poll error here.
@@ -343,9 +344,10 @@ smarter::shared_ptr<File, FileHandle> createFile() {
 	return File::constructHandle(std::move(file));
 }
 
-void addItem(File *epfile, smarter::shared_ptr<File> file, int flags, uint64_t cookie) {
+void addItem(File *epfile, Process *process, smarter::shared_ptr<File> file,
+		int flags, uint64_t cookie) {
 	auto epoll = static_cast<OpenFile *>(epfile);
-	epoll->addItem(std::move(file), flags, cookie);
+	epoll->addItem(process, std::move(file), flags, cookie);
 }
 
 void modifyItem(File *epfile, File *file, int flags, uint64_t cookie) {

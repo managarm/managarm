@@ -36,7 +36,7 @@ private:
 	
 	// TODO: For extern_fs, we can simply return POLLIN | POLLOUT here.
 	// Move device code out of this file.
-	COFIBER_ROUTINE(expected<PollResult>, poll(uint64_t sequence) override, ([=] {
+	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t sequence) override, ([=] {
 		auto result = COFIBER_AWAIT _file.poll(sequence);
 		COFIBER_RETURN(result);
 	}))
