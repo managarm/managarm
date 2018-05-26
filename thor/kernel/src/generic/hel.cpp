@@ -854,10 +854,6 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				map_flags, &actual_address);
 	}
 
-	// TODO: This should not be necessary but we get a page fault if we disable this.
-	// Investigate that bug!
-	thorRtInvalidateSpace();
-
 	*actual_pointer = (void *)actual_address;
 
 	return kHelErrNone;

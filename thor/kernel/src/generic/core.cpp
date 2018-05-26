@@ -71,8 +71,6 @@ KernelVirtualMemory::KernelVirtualMemory() {
 					page_access::write);
 		}
 	}
-	asm("" : : : "memory");
-	thorRtInvalidateSpace();
 
 	_buddy.addChunk(base, length, fine_shift, coarse_shift, (void *)original_base);
 }
@@ -105,9 +103,6 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 				page_access::write);
 	}
 
-	asm("" : : : "memory");
-	thorRtInvalidateSpace();
-
 	return uintptr_t(p);
 }
 
@@ -115,13 +110,13 @@ void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
 	assert((address % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
-	asm("" : : : "memory");
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(address + offset);
 		physicalAllocator->free(physical, kPageSize);
 	}
 
-	thorRtInvalidateSpace();
+	for(size_t offset = 0; offset < length; offset += kPageSize)
+		invalidatePage(reinterpret_cast<char *>(address) + offset);
 }
 
 void *KernelAlloc::allocate(size_t size) {

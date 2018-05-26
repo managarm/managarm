@@ -10,12 +10,12 @@ namespace thor {
 
 void invlpg(const void *address) {
 	auto p = reinterpret_cast<const char *>(address);
-	asm volatile ("invlpg %0" : : "m"(*p));
+	asm volatile ("invlpg %0" : : "m"(*p) : "memory");
 }
 
 void invalidatePage(const void *address) {
 	auto p = reinterpret_cast<const char *>(address);
-	asm volatile ("invlpg %0" : : "m"(*p));
+	asm volatile ("invlpg %0" : : "m"(*p) : "memory");
 }
 
 struct PWindow {
@@ -219,6 +219,7 @@ enum {
 	kPagePresent = 0x1,
 	kPageWrite = 0x2,
 	kPageUser = 0x4,
+	kPageGlobal = 0x100,
 	kPageXd = 0x8000000000000000
 };
 
@@ -487,7 +488,7 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, ui
 
 	// setup the new pt entry
 	assert((pt_pointer[pt_index] & kPagePresent) == 0);
-	uint64_t new_entry = physical | kPagePresent;
+	uint64_t new_entry = physical | kPagePresent | kPageGlobal;
 	if(flags & page_access::write)
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
@@ -741,11 +742,6 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
 	
 	return accessor1[index1] & kPagePresent;
-}
-
-void thorRtInvalidateSpace() {
-	asm volatile ("movq %%cr3, %%rax\n\t"
-		"movq %%rax, %%cr3" : : : "%rax", "memory");
 }
 
 } // namespace thor

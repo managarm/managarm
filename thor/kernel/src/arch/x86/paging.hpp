@@ -189,8 +189,7 @@ private:
 	PhysicalAddr _pml4Address;
 };
 
-extern "C" void thorRtInvalidatePage(void *pointer);
-extern "C" void thorRtInvalidateSpace();
+void invalidatePage(const void *address);
 
 } // namespace thor
 

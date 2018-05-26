@@ -69,18 +69,20 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-	
+
+/*
 	auto gfx_plainfb = fork();
 	if(!gfx_plainfb) {
 		execl("/usr/bin/gfx_plainfb", "gfx_plainfb", nullptr);
 	}else assert(gfx_plainfb != -1);
+*/
 
-/*
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
 		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
-	
+
+/*
 	auto gfx_bochs = fork();
 	if(!gfx_bochs) {
 		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
@@ -147,5 +149,8 @@ int main() {
 		//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
 		execl("/usr/bin/weston", "weston", nullptr);
 	}else assert(modeset != -1);
+
+	while(true)
+		sleep(60);
 }
 

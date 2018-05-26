@@ -149,7 +149,6 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;
 			}
-			thorRtInvalidateSpace();
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
 			KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
@@ -208,7 +207,6 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 					| AddressSpace::kMapProtWrite,
 				&stack_base);
 	}
-	thorRtInvalidateSpace();
 
 	// build the stack data area (containing program arguments,
 	// environment strings and related data).

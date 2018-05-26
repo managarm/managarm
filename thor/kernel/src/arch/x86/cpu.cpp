@@ -583,6 +583,14 @@ void initializeThisProcessor() {
 	idtr.pointer = cpu_data->idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
+	// Enable the global page feature.
+	{
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 7;
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+	}
+
 	// Enable the wr{fs,gs}base instructions.
 	// FIXME: does not seem to work under qemu
 //	if(!(frigg::arch_x86::cpuid(frigg::arch_x86::kCpuIndexStructuredExtendedFeaturesEnum)[1]

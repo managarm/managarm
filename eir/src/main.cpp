@@ -212,6 +212,7 @@ enum PageFlags {
 	kPagePresent = 1,
 	kPageWrite = 2,
 	kPageUser = 4,
+	kPageGlobal = 0x100,
 	kPageXd = 0x8000000000000000
 };
 
@@ -274,6 +275,7 @@ void setupPaging() {
 enum {
 	kAccessWrite = 1,
 	kAccessExecute = 2,
+	kAccessGlobal = 4,
 };
 
 // generates a page table where the first entry points to the table itself.
@@ -371,6 +373,8 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 		new_entry |= kPageWrite;
 	if(!(flags & kAccessExecute))
 		new_entry |= kPageXd;
+	if(!(flags & kAccessGlobal))
+		new_entry |= kPageGlobal;
 	((uint64_t*)pt)[pt_index] = new_entry;
 }
 
@@ -453,7 +457,7 @@ void loadKernelImage(void *image, uint64_t *out_entry) {
 		if(phdr->p_type != PT_LOAD)
 			continue;
 
-		uint32_t map_flags = 0;
+		uint32_t map_flags = kAccessGlobal;
 		if((phdr->p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
 			// no additional flags
 		}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
