@@ -152,7 +152,7 @@ private:
 	uint64_t _raiseSequence;
 	uint64_t _sinkSequence;
 	bool _wasAcked;
-	unsigned int _deferCounter;
+	unsigned int _dueSinks;
 
 	// Timestamp of the last acknowledge() operation.
 	// Relative to currentNanos().

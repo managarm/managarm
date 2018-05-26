@@ -52,10 +52,11 @@ Error IrqPin::ackSink(IrqSink *sink) {
 	
 	if(sink->currentSequence() != pin->_sinkSequence)
 		return kErrSuccess;
-	
-	if(sink->_status != IrqStatus::null)
-		return kErrIllegalArgs;
-	sink->_status = IrqStatus::acked;
+
+	// TODO: We would like to prevent users from acking and nacking the same IRQ.
+	// Unfortunately, we cannot simply set _status as that is reset at every
+	// _sinkSequence but not at every _raiseSequence.
+	// TODO: Design a mechanism to detect multiple acks.
 
 	pin->_acknowledge();
 	return kErrSuccess;
@@ -78,8 +79,8 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 		return kErrIllegalArgs;
 	sink->_status = IrqStatus::nacked;
 
-	assert(pin->_deferCounter);
-	if(pin->_deferCounter-- == 1)
+	assert(pin->_dueSinks);
+	if(pin->_dueSinks-- == 1)
 		frigg::infoLogger() << "\e[31mthor: IRQ " << pin->_name
 				<< " was nacked!" << frigg::endLog;
 	return kErrSuccess;
@@ -102,7 +103,7 @@ Error IrqPin::kickSink(IrqSink *sink) {
 
 IrqPin::IrqPin(frigg::String<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
-		_raiseSequence{0}, _sinkSequence{0}, _wasAcked{true}, _deferCounter{0} { }
+		_raiseSequence{0}, _sinkSequence{0}, _wasAcked{true}, _dueSinks{0} { }
 
 void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -116,7 +117,7 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 	_raiseSequence = 0;
 	_sinkSequence = 0;
 	_wasAcked = true;
-	_deferCounter = 0;
+	_dueSinks = 0;
 }
 
 void IrqPin::raise() {
@@ -143,7 +144,7 @@ void IrqPin::raise() {
 		_callSinks();
 		
 		if(!_wasAcked) {
-			if(_deferCounter) {
+			if(_dueSinks) {
 				_raiseClock = currentNanos();
 				_warnedAfterPending = false;
 			}else{
@@ -196,7 +197,7 @@ void IrqPin::warnIfPending() {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
-	if(_wasAcked || !_deferCounter)
+	if(_wasAcked || !_dueSinks)
 		return;
 
 	if(currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
@@ -214,7 +215,7 @@ void IrqPin::warnIfPending() {
 void IrqPin::_callSinks() {
 	assert(_raiseSequence > _sinkSequence);
 	_sinkSequence = _raiseSequence;
-	_deferCounter = 0;
+	_dueSinks = 0;
 
 	if(_sinkList.empty())
 		frigg::infoLogger() << "\e[35mthor: No sink for IRQ "
@@ -229,7 +230,7 @@ void IrqPin::_callSinks() {
 		}else if((*it)->_status == IrqStatus::nacked) {
 			// We do not need to do anything here.
 		}else{
-			_deferCounter++;
+			_dueSinks++;
 		}
 	}
 }
