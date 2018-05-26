@@ -19,7 +19,7 @@ extern frigg::LazyInitializer<LaneHandle> mbusClient;
 
 namespace pci {
 
-frigg::LazyInitializer<frigg::Vector<PciDevice *, KernelAlloc>> allDevices;
+frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
 namespace {
 	bool handleReq(LaneHandle lane, frigg::SharedPtr<PciDevice> device) {
@@ -175,6 +175,34 @@ namespace {
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
 			fiberSend(branch, ser.data(), ser.size());
+		}else if(req.req_type() == managarm::hw::CntReqType::GET_FB_INFO) {
+			auto fb = device->associatedFrameBuffer;
+			assert(fb);
+
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+			resp.set_fb_pitch(fb->pitch);
+			resp.set_fb_width(fb->width);
+			resp.set_fb_height(fb->height);
+			resp.set_fb_bpp(fb->bpp);
+			resp.set_fb_type(fb->type);
+		
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_FB_MEMORY) {
+			auto fb = device->associatedFrameBuffer;
+			assert(fb);
+
+			MemoryBundleDescriptor descriptor{fb->memory};
+			
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+		
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+			fiberPushDescriptor(branch, descriptor);
 		}else{
 			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
@@ -233,6 +261,14 @@ namespace {
 		req.add_properties(std::move(class_prop));
 		req.add_properties(std::move(subclass_prop));
 		req.add_properties(std::move(if_prop));
+	
+		if(device->associatedFrameBuffer) {
+			managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
+			cls_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "class"));
+			auto &cls_item = cls_prop.mutable_item().mutable_string_item();
+			cls_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "framebuffer"));
+			req.add_properties(std::move(cls_prop));
+		}
 
 		frigg::String<KernelAlloc> ser(*kernelAlloc);
 		req.SerializeToString(&ser);
@@ -277,50 +313,12 @@ namespace {
 	}
 }
 
-void registerDevice(frigg::SharedPtr<PciDevice> device) {
+void runDevice(frigg::SharedPtr<PciDevice> device) {
 	KernelFiber::run([=] {
 		auto object_lane = createObject(*mbusClient, device);
 		while(true)
 			handleBind(object_lane, device);
 	});
-/*	char vendor[5], device_id[5], revision[3];
-	sprintf(vendor, "%.4x", device->vendor);
-	sprintf(device_id, "%.4x", device->deviceId);
-	sprintf(revision, "%.2x", device->revision);
-	
-	char class_code[3], sub_class[3], interface[3];
-	sprintf(class_code, "%.2x", device->classCode);
-	sprintf(sub_class, "%.2x", device->subClass);
-	sprintf(interface, "%.2x", device->interface);*/
-
-/*
-	std::unordered_map<std::string, std::string> descriptor {
-		{ "pci-vendor", vendor },
-		{ "pci-device", device_id },
-		{ "pci-revision", revision },
-		{ "pci-class", class_code },
-		{ "pci-subclass", sub_class },
-		{ "pci-interface", interface }
-	};
-
-	auto root = COFIBER_AWAIT mbus::Instance::global().getRoot();
-	
-	char name[9];
-	sprintf(name, "%.2x.%.2x.%.1x", device->bus, device->slot, device->function);
-	auto object = COFIBER_AWAIT root.createObject(name, descriptor,
-			[=] (mbus::AnyQuery query) -> async::result<helix::UniqueDescriptor> {
-		helix::UniqueLane local_lane, remote_lane;
-		std::tie(local_lane, remote_lane) = helix::createStream();
-		std::cout << "pre handleDevice()" << std::endl;
-		handleDevice(device, std::move(local_lane));
-		std::cout << "post handleDevice()" << std::endl;
-
-		async::promise<helix::UniqueDescriptor> promise;
-		promise.set_value(std::move(remote_lane));
-		return promise.async_get();
-	});
-	std::cout << "Created object " << name << std::endl;
-*/
 }
 
 // --------------------------------------------------------
@@ -526,8 +524,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 			device->interrupt = irq_pin;
 		}
 
-		registerDevice(device);
-		allDevices->push(device.get());
+		allDevices->push(device);
 	}
 
 	// TODO: This should probably be moved somewhere else.
@@ -573,6 +570,12 @@ void pciDiscover(const RoutingInfo &routing) {
 		enumerationQueue.pop();
 		checkPciBus(bus);
 	}*/
+}
+
+void runAllDevices() {
+	for(auto it = allDevices->begin(); it != allDevices->end(); ++it) {
+		runDevice(*it);
+	}
 }
 
 } } // namespace thor::pci

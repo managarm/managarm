@@ -1,9 +1,11 @@
 
 #include <frg/list.hpp>
+#include <frigg/atomic.hpp>
 #include <frigg/linked.hpp>
 #include <frigg/hashmap.hpp>
 #include "accessors.hpp"
 #include "kernel_heap.hpp"
+#include "../arch/x86/ints.hpp"
 
 namespace thor {
 

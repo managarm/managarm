@@ -19,127 +19,6 @@ extern uint8_t fontBitmap[];
 
 namespace thor {
 
-// TODO: Move this to a header file.
-extern frigg::LazyInitializer<LaneHandle> mbusClient;
-
-namespace {
-
-struct FbInfo {
-	uint64_t address;
-	uint64_t pitch;
-	uint64_t width;
-	uint64_t height;
-	uint64_t bpp;
-	uint64_t type;
-	
-	void *window;
-	frigg::SharedPtr<Memory> memory;
-};
-
-bool handleReq(LaneHandle lane, FbInfo *info) {
-	auto branch = fiberAccept(lane);
-	if(!branch)
-		return false;
-
-	auto buffer = fiberRecv(branch);
-	managarm::hw::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
-
-	if(req.req_type() == managarm::hw::CntReqType::GET_FB_INFO) {
-		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::hw::Errors::SUCCESS);
-		resp.set_fb_pitch(info->pitch);
-		resp.set_fb_width(info->width);
-		resp.set_fb_height(info->height);
-		resp.set_fb_bpp(info->bpp);
-		resp.set_fb_type(info->type);
-	
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
-	}else if(req.req_type() == managarm::hw::CntReqType::ACCESS_BAR) {
-		MemoryBundleDescriptor descriptor{info->memory};
-		
-		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::hw::Errors::SUCCESS);
-	
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
-		fiberPushDescriptor(branch, descriptor);
-	}else{
-		managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-		resp.set_error(managarm::hw::Errors::ILLEGAL_REQUEST);
-		
-		frigg::String<KernelAlloc> ser(*kernelAlloc);
-		resp.SerializeToString(&ser);
-		fiberSend(branch, ser.data(), ser.size());
-	}
-
-	return true;
-}
-
-// ------------------------------------------------------------------------
-// mbus object creation and management.
-// ------------------------------------------------------------------------
-
-LaneHandle createObject(LaneHandle mbus_lane) {
-	auto branch = fiberOffer(mbus_lane);
-	
-	managarm::mbus::Property<KernelAlloc> cls_prop(*kernelAlloc);
-	cls_prop.set_name(frigg::String<KernelAlloc>(*kernelAlloc, "class"));
-	auto &cls_item = cls_prop.mutable_item().mutable_string_item();
-	cls_item.set_value(frigg::String<KernelAlloc>(*kernelAlloc, "framebuffer"));
-	
-	managarm::mbus::CntRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_req_type(managarm::mbus::CntReqType::CREATE_OBJECT);
-	req.set_parent_id(1);
-	req.add_properties(std::move(cls_prop));
-
-	frigg::String<KernelAlloc> ser(*kernelAlloc);
-	req.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
-
-	auto buffer = fiberRecv(branch);
-	managarm::mbus::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.ParseFromArray(buffer.data(), buffer.size());
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-	
-	auto descriptor = fiberPullDescriptor(branch);
-	assert(descriptor.is<LaneDescriptor>());
-	return descriptor.get<LaneDescriptor>().handle;
-}
-
-void handleBind(LaneHandle object_lane, FbInfo *fbinfo) {
-	auto branch = fiberAccept(object_lane);
-	assert(branch);
-
-	auto buffer = fiberRecv(branch);
-	managarm::mbus::SvrRequest<KernelAlloc> req(*kernelAlloc);
-	req.ParseFromArray(buffer.data(), buffer.size());
-	assert(req.req_type() == managarm::mbus::SvrReqType::BIND);
-	
-	managarm::mbus::CntResponse<KernelAlloc> resp(*kernelAlloc);
-	resp.set_error(managarm::mbus::Error::SUCCESS);
-
-	frigg::String<KernelAlloc> ser(*kernelAlloc);
-	resp.SerializeToString(&ser);
-	fiberSend(branch, ser.data(), ser.size());
-
-	auto stream = createStream();
-	fiberPushDescriptor(branch, LaneDescriptor{stream.get<1>()});
-
-	// TODO: Do this in an own fiber.
-	KernelFiber::run([lane = stream.get<0>(), info = fbinfo] () {
-		while(true) {
-			if(!handleReq(lane, info))
-				break;
-		}
-	});
-}
-
-} // anonymous namespace
-
 // ------------------------------------------------------------------------
 // window handling
 // ------------------------------------------------------------------------
@@ -273,7 +152,7 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 			fb_info->width, fb_info->height, fb_info->pitch);
 	auto screen = frigg::construct<BootScreen>(*kernelAlloc, display);
 
-	//enableLogHandler(screen);
+	enableLogHandler(screen);
 
 	// Try to attached the framebuffer to a PCI device.
 	pci::PciDevice *owner = nullptr;
@@ -293,7 +172,7 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 
 		if(checkBars()) {
 			assert(!owner);
-			owner = *it;
+			owner = it->get();
 		}
 	}
 
@@ -301,14 +180,8 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 		frigg::panicLogger() << "thor: Could not find owner for boot framebuffer" << frigg::endLog;
 	frigg::infoLogger() << "thor: Boot framebuffer is attached to PCI device "
 			<< owner->bus << "." << owner->slot << "." << owner->function << frigg::endLog;
+	owner->associatedFrameBuffer = fb_info;
 	owner->associatedScreen = screen;
-
-	// Create a fiber to manage requests to the FB mbus object.
-	KernelFiber::run([=] {
-		auto object_lane = createObject(*mbusClient);
-		while(true)
-			handleBind(object_lane, fb_info);
-	});
 }
 
 } // namespace thor

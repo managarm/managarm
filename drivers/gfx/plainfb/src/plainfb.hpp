@@ -99,10 +99,13 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 		size_t _pitch;
 	};
 
-	GfxDevice(unsigned int screen_width, unsigned int screen_height,
+	GfxDevice(protocols::hw::Device hw_device,
+			unsigned int screen_width, unsigned int screen_height,
 			size_t screen_pitch, helix::Mapping fb_mapping)
-	: _screenWidth{screen_width}, _screenHeight{screen_height},
-			_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)} { }
+	: _hwDevice{std::move(hw_device)},
+			_screenWidth{screen_width}, _screenHeight{screen_height},
+			_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)},
+			_claimedDevice{false} { }
 	
 	cofiber::no_future initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
@@ -116,6 +119,7 @@ struct GfxDevice : drm_core::Device, std::enable_shared_from_this<GfxDevice> {
 	std::tuple<std::string, std::string, std::string> driverInfo() override;
 
 private:
+	protocols::hw::Device _hwDevice;
 	unsigned int _screenWidth;
 	unsigned int _screenHeight;
 	size_t _screenPitch;
@@ -124,6 +128,8 @@ private:
 	std::shared_ptr<Crtc> _theCrtc;
 	std::shared_ptr<Encoder> _theEncoder;
 	std::shared_ptr<Connector> _theConnector;
+
+	bool _claimedDevice;
 };
 
 #endif // DRIVERS_GFX_PLAINFB_PLAINFB_HPP

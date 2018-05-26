@@ -1,6 +1,8 @@
 #ifndef THOR_GENERIC_ACCESSOR_HPP
 #define THOR_GENERIC_ACCESSOR_HPP
 
+#include <frigg/variant.hpp>
+
 #include "../arch/x86/paging.hpp"
 
 namespace thor {

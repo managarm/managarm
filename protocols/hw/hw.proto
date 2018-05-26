@@ -29,6 +29,7 @@ enum CntReqType {
 	PM_RESET = 8;
 
 	GET_FB_INFO = 9;
+	ACCESS_FB_MEMORY = 11;
 }
 
 message PciBar {

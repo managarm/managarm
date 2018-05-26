@@ -60,40 +60,6 @@ COFIBER_ROUTINE(async::result<PciInfo>, Device::getPciInfo(),
 	COFIBER_RETURN(info);
 }))
 
-COFIBER_ROUTINE(async::result<FbInfo>, Device::getFbInfo(),
-		([=] {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-
-	managarm::hw::CntRequest req;
-	req.set_req_type(managarm::hw::CntReqType::GET_FB_INFO);
-
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp));
-	COFIBER_AWAIT transmit.async_wait();
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_resp.error());
-
-	managarm::hw::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-
-	FbInfo info;
-
-	info.pitch = resp.fb_pitch();
-	info.width = resp.fb_width();
-	info.height = resp.fb_height();
-	info.bpp = resp.fb_bpp();
-	info.type = resp.fb_type();
-
-	COFIBER_RETURN(info);
-}))
-
 COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessBar(int index),
 		([=] {
 	helix::Offer offer;
@@ -262,6 +228,68 @@ COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciCapability(unsigned int 
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	COFIBER_RETURN(resp.word());
+}))
+
+COFIBER_ROUTINE(async::result<FbInfo>, Device::getFbInfo(), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::GET_FB_INFO);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	FbInfo info;
+
+	info.pitch = resp.fb_pitch();
+	info.width = resp.fb_width();
+	info.height = resp.fb_height();
+	info.bpp = resp.fb_bpp();
+	info.type = resp.fb_type();
+
+	COFIBER_RETURN(info);
+}))
+
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, Device::accessFbMemory(), ([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+	helix::PullDescriptor pull_bar;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::ACCESS_FB_MEMORY);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp, kHelItemChain),
+			helix::action(&pull_bar));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(pull_bar.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto bar = pull_bar.descriptor();
+	COFIBER_RETURN(std::move(bar));
 }))
 
 } } // namespace protocols::hw

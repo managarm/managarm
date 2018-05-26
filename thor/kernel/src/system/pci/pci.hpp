@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <frigg/smart_ptr.hpp>
 #include <frigg/vector.hpp>
+#include "../fb.hpp"
 #include "../../generic/irq.hpp"
 
 namespace thor {
@@ -86,7 +87,7 @@ struct PciDevice {
 			vendor(vendor), deviceId(device_id), revision(revision),
 			classCode(class_code), subClass(sub_class), interface(interface),
 			interrupt(nullptr), caps(*kernelAlloc),
-			associatedScreen(nullptr) { }
+			associatedFrameBuffer(nullptr), associatedScreen(nullptr) { }
 	
 	// mbus object ID of the device
 	int64_t mbusId;
@@ -114,6 +115,7 @@ struct PciDevice {
 	frigg::Vector<Capability, KernelAlloc> caps;
 
 	// Device attachments.
+	FbInfo *associatedFrameBuffer;
 	BootScreen *associatedScreen;
 };
 
@@ -141,9 +143,11 @@ enum {
 	kPciBridgeSecondary = 0x19
 };
 
-extern frigg::LazyInitializer<frigg::Vector<PciDevice *, KernelAlloc>> allDevices;
+extern frigg::LazyInitializer<frigg::Vector<frigg::SharedPtr<PciDevice>, KernelAlloc>> allDevices;
 
 void pciDiscover(const RoutingInfo &routing);
+
+void runAllDevices();
 
 } } // namespace thor::pci
 

@@ -251,6 +251,11 @@ COFIBER_ROUTINE(cofiber::no_future, GfxDevice::Configuration::_dispatch(), ([=] 
 //		std::cout << "Swap to framebuffer " << _state[i]->fb->id()
 //				<< " " << _state[i]->width << "x" << _state[i]->height << std::endl;
 
+		if(!_device->_claimedDevice) {
+			COFIBER_AWAIT _device->_hwDevice.claimDevice();
+			_device->_claimedDevice = true;
+		}
+
 		auto bo = _state->fb->getBufferObject();
 		assert(bo->getWidth() == _device->_screenWidth);
 		assert(bo->getHeight() == _device->_screenHeight);
@@ -371,13 +376,14 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	protocols::hw::Device hw_device(COFIBER_AWAIT entity.bind());
 
 	auto info = COFIBER_AWAIT hw_device.getFbInfo();
-	auto fb_memory = COFIBER_AWAIT hw_device.accessBar(0);
+	auto fb_memory = COFIBER_AWAIT hw_device.accessFbMemory();
 	std::cout << "gfx/plainfb: Resolution " << info.width
 			<< "x" << info.height << " (" << info.bpp
 			<< " bpp, pitch: " << info.pitch << ")" << std::endl;
 	assert(info.bpp == 32);
 	
-	auto gfx_device = std::make_shared<GfxDevice>(info.width, info.height, info.pitch,
+	auto gfx_device = std::make_shared<GfxDevice>(std::move(hw_device),
+			info.width, info.height, info.pitch,
 			helix::Mapping{fb_memory, 0, info.pitch * info.height});
 	gfx_device->initialize();
 
