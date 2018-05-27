@@ -58,7 +58,8 @@ enum {
 	ACKNOWLEDGE = 1,
 	DRIVER = 2,
 	FEATURES_OK = 8,
-	DRIVER_OK = 4
+	DRIVER_OK = 4,
+	DEVICE_NEEDS_RESET = 64
 };
 
 enum {

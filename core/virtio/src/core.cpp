@@ -193,11 +193,23 @@ COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		_legacySpace.load(PCI_L_ISR_STATUS);
+		auto isr = _legacySpace.load(PCI_L_ISR_STATUS);
 
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), 0, sequence));
-		for(auto &queue : _queues)
-			queue->processInterrupt();
+		if(!(isr & 3)) {
+			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
+			continue;
+		}
+
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
+
+		if(isr & 2) {
+			std::cout << "core-virtio: Configuration change" << std::endl;
+			auto status = _legacySpace.load(PCI_L_DEVICE_STATUS);
+			assert(!(status & DEVICE_NEEDS_RESET));
+		}
+		if(isr & 1)
+			for(auto &queue : _queues)
+				queue->processInterrupt();
 	}
 }))
 
@@ -400,9 +412,12 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 
 //		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
-		
-		if(isr & 2)
+
+		if(isr & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
+			auto status = _commonSpace().load(PCI_DEVICE_STATUS);
+			assert(!(status & DEVICE_NEEDS_RESET));
+		}
 		if(isr & 1)
 			for(auto &queue : _queues)
 				queue->processInterrupt();
