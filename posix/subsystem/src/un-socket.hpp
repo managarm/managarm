@@ -4,7 +4,7 @@
 namespace un_socket {
 
 smarter::shared_ptr<File, FileHandle> createSocketFile();
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair();
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process);
 
 } // namespace un_socket
 

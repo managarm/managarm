@@ -71,6 +71,11 @@ async::result<void> File::ptAllocate(void *object,
 	return self->allocate(offset, size);
 }
 
+async::result<int> File::ptGetOption(void *object, int option) {
+	auto self = static_cast<File *>(object);
+	return self->getOption(option);
+}
+
 async::result<void> File::ptSetOption(void *object, int option, int value) {
 	auto self = static_cast<File *>(object);
 	return self->setOption(option, value);
@@ -184,13 +189,19 @@ expected<PollResult> File::checkStatus(Process *process) {
 	return poll(process, 0);
 }
 
+async::result<int> File::getOption(int) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement getOption()" << std::endl;
+	throw std::runtime_error("posix: Object has no File::getOption()");
+}
+
 async::result<void> File::setOption(int, int) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement setOption()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::setOption()");
 }
 
-async::result<AcceptResult> File::accept() {
+async::result<AcceptResult> File::accept(Process *) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement accept()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::accept()");

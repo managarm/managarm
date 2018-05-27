@@ -64,9 +64,13 @@ public:
 				&File::fileOperations);
 	}
 
-	OpenFile()
+	OpenFile(Process *process = nullptr)
 	: File{StructName::get("un-socket")}, _currentState{State::null},
-			_currentSeq{1}, _inSeq{0}, _remote{nullptr}, _passCreds{false} { }
+			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
+			_remote{nullptr}, _passCreds{false} {
+		if(process)
+			_ownerPid = process->pid();
+	}
 
 public:
 	COFIBER_ROUTINE(expected<size_t>,
@@ -187,19 +191,26 @@ public:
 		COFIBER_RETURN(max_length);
 	}))
 	
+	COFIBER_ROUTINE(async::result<int>, getOption(int option) override, ([=] {
+		assert(option == SO_PEERCRED);
+		assert(_currentState == State::connected);
+		COFIBER_RETURN(_remote->_ownerPid);
+	}));
+	
 	COFIBER_ROUTINE(async::result<void>, setOption(int option, int value) override, ([=] {
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
 		COFIBER_RETURN();
 	}));
 	
-	COFIBER_ROUTINE(async::result<AcceptResult>, accept() override, ([=] {
+	COFIBER_ROUTINE(async::result<AcceptResult>, accept(Process *process) override, ([=] {
 		assert(!_acceptQueue.empty());
+		
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
 
 		// Create a new socket and connect it to the queued one.
-		auto local = smarter::make_shared<OpenFile>();
+		auto local = smarter::make_shared<OpenFile>(process);
 		local->setupWeakFile(local);
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
@@ -270,6 +281,9 @@ public:
 		COFIBER_AWAIT resolver.resolve();
 		assert(resolver.currentLink());
 
+		assert(!_ownerPid);
+		_ownerPid = process->pid();
+
 		// Lookup the socket associated with the node.
 		auto node = resolver.currentLink()->getTarget();
 		auto server = globalBindMap.at(node);
@@ -305,6 +319,8 @@ private:
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
 
+	int _ownerPid;
+
 	// For connected sockets, this is the socket we are connected to.
 	OpenFile *_remote;
 
@@ -319,9 +335,9 @@ smarter::shared_ptr<File, FileHandle> createSocketFile() {
 	return File::constructHandle(std::move(file));
 }
 
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair() {
-	auto file0 = smarter::make_shared<OpenFile>();
-	auto file1 = smarter::make_shared<OpenFile>();
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process) {
+	auto file0 = smarter::make_shared<OpenFile>(process);
+	auto file1 = smarter::make_shared<OpenFile>(process);
 	file0->setupWeakFile(file0);
 	file1->setupWeakFile(file1);
 	OpenFile::serve(file0);

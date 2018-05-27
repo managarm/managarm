@@ -99,6 +99,9 @@ public:
 	static async::result<void>
 	ptAllocate(void *object, int64_t offset, size_t size);
 	
+	static async::result<int>
+	ptGetOption(void *object, int option);
+	
 	static async::result<void>
 	ptSetOption(void *object, int option, int value);
 
@@ -124,6 +127,7 @@ public:
 			.withReadEntries(&ptReadEntries)
 			.withTruncate(&ptTruncate)
 			.withFallocate(&ptAllocate)
+			.withGetOption(&ptGetOption)
 			.withSetOption(&ptSetOption)
 			.withBind(&ptBind)
 			.withConnect(&ptConnect)
@@ -216,9 +220,10 @@ public:
 	// Like poll, but only checks the current state. Does not return edges.
 	virtual expected<PollResult> checkStatus(Process *);
 
+	virtual async::result<int> getOption(int option);
 	virtual async::result<void> setOption(int option, int value);
 
-	virtual async::result<AcceptResult> accept();
+	virtual async::result<AcceptResult> accept(Process *process);
 
 	virtual async::result<void> bind(Process *process,
 			const void *addr_ptr, size_t addr_length);

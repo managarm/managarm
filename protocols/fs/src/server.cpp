@@ -209,6 +209,21 @@ COFIBER_ROUTINE(cofiber::no_future, handlePassthrough(smarter::shared_ptr<void> 
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_IOCTL) {
 		assert(file_ops->ioctl);
 		COFIBER_AWAIT file_ops->ioctl(file.get(), std::move(req), std::move(conversation));
+	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_OPTION) {
+		helix::SendBuffer send_resp;
+		
+		assert(file_ops->getOption);
+		auto result = COFIBER_AWAIT(file_ops->getOption(file.get(), req.command()));
+		
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_pid(result);
+
+		auto ser = resp.SerializeAsString();
+		auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+				helix::action(&send_resp, ser.data(), ser.size()));
+		COFIBER_AWAIT transmit.async_wait();
+		HEL_CHECK(send_resp.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_OPTION) {
 		helix::SendBuffer send_resp;
 		

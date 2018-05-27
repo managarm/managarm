@@ -51,7 +51,7 @@ struct FileOperations {
 	: seekAbs{nullptr}, seekRel{nullptr}, seekEof{nullptr},
 			read{nullptr}, write{nullptr}, readEntries{nullptr},
 			accessMemory{nullptr}, truncate{nullptr}, fallocate{nullptr},
-			ioctl{nullptr}, setOption{nullptr}, poll{nullptr},
+			ioctl{nullptr}, getOption{nullptr}, setOption{nullptr}, poll{nullptr},
 			bind{nullptr}, listen{nullptr}, connect{nullptr}, sockname{nullptr} { }
 
 	constexpr FileOperations &withSeekAbs(async::result<SeekResult> (*f)(void *object,
@@ -103,6 +103,11 @@ struct FileOperations {
 		ioctl = f;
 		return *this;
 	}
+	constexpr FileOperations &withGetOption(async::result<int> (*f)(void *object,
+			int option)) {
+		getOption = f;
+		return *this;
+	}
 	constexpr FileOperations &withSetOption(async::result<void> (*f)(void *object,
 			int option, int value)) {
 		setOption = f;
@@ -143,6 +148,7 @@ struct FileOperations {
 	async::result<void> (*fallocate)(void *object, int64_t offset, size_t size);
 	async::result<void> (*ioctl)(void *object, managarm::fs::CntRequest req,
 			helix::UniqueLane conversation);
+	async::result<int> (*getOption)(void *object, int option);
 	async::result<void> (*setOption)(void *object, int option, int value);
 	async::result<PollResult> (*poll)(void *object, uint64_t sequence);
 	async::result<void> (*bind)(void *object, const char *credentials,

@@ -1156,7 +1156,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 					|| req.socktype() == SOCK_SEQPACKET);
 			assert(!req.protocol());
 
-			auto pair = un_socket::createSocketPair();
+			auto pair = un_socket::createSocketPair(self.get());
 			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair),
 					req.flags() & SOCK_CLOEXEC);
 			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair),
@@ -1181,7 +1181,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			auto sockfile = self->fileContext()->getFile(req.fd());
 			assert(sockfile && "Illegal FD for ACCEPT");
 
-			auto newfile = COFIBER_AWAIT sockfile->accept();
+			auto newfile = COFIBER_AWAIT sockfile->accept(self.get());
 			auto fd = self->fileContext()->attachFile(std::move(newfile));
 
 			managarm::posix::SvrResponse resp;

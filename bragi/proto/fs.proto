@@ -66,6 +66,7 @@ enum CntReqType {
 	SEEK_EOF = 8;
 
 	PT_IOCTL = 17;
+	PT_GET_OPTION = 26;
 	PT_SET_OPTION = 25;
 
 	// Legacy API.
@@ -197,6 +198,8 @@ message SvrResponse {
 	// Event edges and current events for FILE_POLL.
 	optional int32 edges = 61;
 	optional int32 status = 62;
+	
+	optional int64 pid = 71;
 
 	optional int32 pts_index = 63;
 
