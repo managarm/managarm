@@ -22,7 +22,7 @@ void advanceY() {
 //		if(haveTimer())
 //			pollSleepNano(100000000);
 
-		PageAccessor accessor{generalWindow, 0xB8000};
+		PageAccessor accessor{0xB8000};
 		auto base = (volatile char *)accessor.get();
 		for(auto i = 0; i < 24; i++) {
 			for(auto j = 0; j < 80; j++) {
@@ -116,7 +116,7 @@ void callLegacy(char c) {
 		if(c == '\n') {
 			advanceY();
 		}else{
-			PageAccessor accessor{generalWindow, 0xB8000};
+			PageAccessor accessor{0xB8000};
 			auto base = (volatile char *)accessor.get();
 
 			base[(80 * y + x) * 2] = c;
@@ -671,7 +671,7 @@ void bootSecondary(unsigned int apic_id) {
 	auto image_size = (uintptr_t)_binary_thor_kernel_obj_arch_x86_trampoline_bin_end
 			- (uintptr_t)_binary_thor_kernel_obj_arch_x86_trampoline_bin_start;
 	assert(image_size <= kPageSize);
-	PageAccessor accessor{generalWindow, pma};
+	PageAccessor accessor{pma};
 	memcpy(accessor.get(), _binary_thor_kernel_obj_arch_x86_trampoline_bin_start, image_size);
 	
 	// Allocate a stack for the initialization code.

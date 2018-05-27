@@ -99,8 +99,8 @@ void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
 
-		PageAccessor dest_accessor{generalWindow, dest_page};
-		PageAccessor src_accessor{generalWindow, src_page};
+		PageAccessor dest_accessor{dest_page};
+		PageAccessor src_accessor{src_page};
 		memcpy((uint8_t *)dest_accessor.get() + dest_misalign,
 				(uint8_t *)src_accessor.get() + src_misalign, chunk);
 
@@ -187,7 +187,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		PhysicalAddr page = bundle->fetchRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy((uint8_t *)accessor.get() + misalign, pointer, prefix);
 		progress += prefix;
 	}
@@ -197,7 +197,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy(accessor.get(), (uint8_t *)pointer + progress, kPageSize);
 		progress += kPageSize;
 	}
@@ -207,7 +207,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy(accessor.get(), (uint8_t *)pointer + progress, size - progress);
 	}
 
@@ -226,7 +226,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		PhysicalAddr page = bundle->fetchRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy(buffer, (uint8_t *)accessor.get() + misalign, prefix);
 		progress += prefix;
 	}
@@ -236,7 +236,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy((uint8_t *)buffer + progress, accessor.get(), kPageSize);
 		progress += kPageSize;
 	}
@@ -246,7 +246,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		PhysicalAddr page = bundle->fetchRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
-		PageAccessor accessor{generalWindow, page};
+		PageAccessor accessor{page};
 		memcpy((uint8_t *)buffer + progress, accessor.get(), size - progress);
 	}
 
@@ -348,13 +348,13 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 		assert(!(physical % _chunkAlign));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
-			PageAccessor accessor{generalWindow, physical + pg_progress};
+			PageAccessor accessor{physical + pg_progress};
 			memset(accessor.get(), 0, kPageSize);
 		}
 		_physicalChunks[index] = physical;
 	}
 
-	PageAccessor accessor{generalWindow, _physicalChunks[index]
+	PageAccessor accessor{_physicalChunks[index]
 			+ ((offset % _chunkSize) / kPageSize)};
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
 }
@@ -396,7 +396,7 @@ PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
 		assert(!(physical % _chunkAlign));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
-			PageAccessor accessor{generalWindow, physical + pg_progress};
+			PageAccessor accessor{physical + pg_progress};
 			memset(accessor.get(), 0, kPageSize);
 		}
 		_physicalChunks[index] = physical;
@@ -504,7 +504,7 @@ PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		assert(physical != PhysicalAddr(-1));
 		
-		PageAccessor accessor{generalWindow, physical};
+		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 		_managed->physicalPages[index] = physical;
 	}
@@ -1131,7 +1131,7 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 				for(size_t pg = 0; pg < cur_mapping->length(); pg += kPageSize) {
 					auto physical = cur_mapping->grabPhysical(pg);
 					assert(physical != PhysicalAddr(-1));
-					PageAccessor accessor{generalWindow, cur_mapping->grabPhysical(pg)};
+					PageAccessor accessor{cur_mapping->grabPhysical(pg)};
 					bundle->copyKernelToThisSync(pg, accessor.get(), kPageSize);
 				}
 				

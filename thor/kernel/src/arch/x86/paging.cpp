@@ -1,4 +1,5 @@
 
+#include <arch/variable.hpp>
 #include <frg/list.hpp>
 #include "generic/kernel.hpp"
 
@@ -18,198 +19,9 @@ void invalidatePage(const void *address) {
 	asm volatile ("invlpg %0" : : "m"(*p) : "memory");
 }
 
-struct PWindow {
-private:
-	struct Item {
-		explicit Item(VirtualAddr address)
-		: address{address}, numLocks{0} { }
-
-		Item(const Item &) = delete;
-
-		~Item() = delete; // TODO: This is not really intended.
-
-		Item &operator= (const Item &) = delete;
-
-		// Virtual address of this mapping.
-		const VirtualAddr address;
-
-		// Current physical access.
-		PhysicalAddr physical;
-
-		// Number of locks on this mapping.
-		unsigned int numLocks;
-
-		frg::default_list_hook<Item> queueHook;
-	};
-
-public:
-	struct Handle {
-		friend void swap(Handle &a, Handle &b) {
-			using frigg::swap;
-			swap(a._window, b._window);
-			swap(a._item, b._item);
-		}
-
-		Handle()
-		: _window{nullptr}, _item{nullptr} { }
-
-		explicit Handle(PWindow &window, PhysicalAddr physical)
-		: _window{&window}, _item{nullptr} {
-			_item = _window->_acquire(physical);
-		}
-
-		Handle(const Handle &) = delete;
-
-		Handle(Handle &&other)
-		: Handle{} {
-			swap(*this, other);
-		}
-
-		~Handle() {
-			if(_item)
-				_window->_release(_item);
-		}
-
-		Handle &operator= (Handle other) {
-			swap(*this, other);
-			return *this;
-		}
-
-		void *get() {
-			assert(_item);
-			return reinterpret_cast<void *>(_item->address);
-		}
-
-	private:
-		PWindow *_window;
-		Item *_item;
-	};
-
-	PWindow()
-	: _numItems{0}, _numReclaimable{0}, _activeMap{frigg::DefaultHasher<VirtualAddr>{}, *kernelAlloc} { }
-
-	void attach(VirtualAddr address) {
-		auto item = frigg::construct<Item>(*kernelAlloc, address);
-		_itemPool.push_front(item);
-		_numItems++;
-	}
-
-private:
-	Item *_acquire(PhysicalAddr physical) {
-		auto it = _activeMap.get(physical);
-		if(it) {
-			auto item = *it;
-
-			// Remove the item from the list of reclaimable items.
-			if(item->numLocks++ == 0) {
-				assert(item->queueHook.in_list);
-				_reclaimQueue.erase(_reclaimQueue.iterator_to(item));
-				_numReclaimable--;
-			}
-
-			return item;
-		}else{
-			assert(!_itemPool.empty());
-
-			auto item = _itemPool.pop_front();
-			item->physical = physical;
-			item->numLocks = 1;
-			_activeMap.insert(physical, item);
-	
-			KernelPageSpace::global().mapSingle4k(item->address, physical, page_access::write);
-			
-			return item;
-		}
-	}
-
-	void _release(Item *item) {
-		assert(item->numLocks);
-
-		// Re-insert the item into the list of reclaimable items.
-		if(--item->numLocks == 0) {
-			_reclaimQueue.push_front(item);
-			_numReclaimable++;
-		}
-
-		_reclaim();
-	}
-
-	void _reclaim() {
-		assert(_numItems);
-		while(2 * _numReclaimable >= _numItems) {
-//			frigg::infoLogger() << "\e[31mReclaiming\e[39m" << frigg::endLog;
-			auto item = _reclaimQueue.pop_back();
-			_numReclaimable--;
-			
-			// Strategy: We have to performs the following actions:
-			// - We deactive the item so that no once will lock it.
-			// - We shoot down the mapping.
-			// - We mark the item as re-usable.
-			assert(!item->numLocks);
-			_activeMap.remove(item->physical);
-
-			KernelPageSpace::global().unmapSingle4k(item->address);
-			invlpg(reinterpret_cast<void *>(item->address));
-
-			_itemPool.push_front(item);
-		}
-	}
-
-	size_t _numItems;
-
-	// Number of items that can be reclaimed (i.e. they are not locked).
-	size_t _numReclaimable;
-
-	// This list stores all mappings that are currently not in use.
-	frg::intrusive_list<
-		Item,
-		frg::locate_member<
-			Item,
-			frg::default_list_hook<Item>,
-			&Item::queueHook
-		>
-	> _itemPool;
-
-	frigg::Hashmap<
-		PhysicalAddr,
-		Item *,
-		frigg::DefaultHasher<PhysicalAddr>,
-		KernelAlloc
-	> _activeMap;
-
-	// Stores a LRU queue of all reclaimable mappings.
-	frg::intrusive_list<
-		Item,
-		frg::locate_member<
-			Item,
-			frg::default_list_hook<Item>,
-			&Item::queueHook
-		>
-	> _reclaimQueue;
-};
-
-frigg::LazyInitializer<PWindow> physicalWindow;
-
 void initializePhysicalAccess() {
-	physicalWindow.initialize();
-
-	for(size_t progress = 0; progress < 0x200000; progress += kPageSize)
-		physicalWindow->attach(0xFFFF'FF80'0060'0000 + progress);
+	// Nothing to do here.
 }
-
-struct PAccessor {
-	PAccessor() = default;
-
-	explicit PAccessor(PhysicalAddr physical)
-	: _handle{*physicalWindow, physical} { }
-
-	void *get() {
-		return _handle.get();
-	}
-
-private:
-	PWindow::Handle _handle;
-};
 
 } // namespace thor
 
@@ -224,45 +36,6 @@ enum {
 };
 
 namespace thor {
-
-constexpr PhysicalWindow::PhysicalWindow(uint64_t *table, void *content)
-: _table{table}, _content{content}, _locked{} { }
-
-void *PhysicalWindow::acquire(PhysicalAddr physical) {
-	assert(!(physical % kPageSize));
-
-	// FIXME: This hack is uncredibly ugly!
-	// Fix global initializers instead of using this hack!
-	_table = reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000);
-	_content = reinterpret_cast<uint64_t *>(0xFFFF'FF80'0040'0000);
-
-	for(int i = 0; i < 512; ++i) {
-		if(_locked[i])
-			continue;
-
-//		frigg::infoLogger() << "Locking " << i << " to " << (void *)physical << frigg::endLog;
-		_locked[i] = true;
-		_table[i] = physical | kPagePresent | kPageWrite | kPageXd;
-		invlpg((char *)_content + i * kPageSize);
-		return (char *)_content + i * kPageSize;
-	}
-
-	frigg::panicLogger() << "Cannot lock a slot of a PhysicalWindow" << frigg::endLog;
-	__builtin_unreachable();
-}
-
-void PhysicalWindow::release(void *pointer) {
-	assert(!(uintptr_t(pointer) % kPageSize));
-	assert((char *)pointer >= (char *)_content);
-	auto index = ((char *)pointer - (char *)_content) / kPageSize;
-
-	_locked[index] = false;
-	_table[index] = 0;
-	invlpg((char *)_content + index * kPageSize);
-}
-
-PhysicalWindow generalWindow{reinterpret_cast<uint64_t *>(0xFFFF'FF80'0000'2000),
-		reinterpret_cast<void *>(0xFFFF'FF80'0040'0000)};
 
 // --------------------------------------------------------
 
@@ -539,34 +312,16 @@ PhysicalAddr KernelPageSpace::getPml4() {
 // ClientPageSpace
 // --------------------------------------------------------
 
-struct TableAccessor {
-	TableAccessor() = default;
-
-	TableAccessor(const TableAccessor &) = delete;
-
-	TableAccessor &operator= (const TableAccessor &) = delete;
-	
-	void aim(PhysicalAddr address) {
-		_accessor = PAccessor{address};
-	}
-
-	uint64_t &operator[] (size_t n) {
-		return static_cast<uint64_t *>(_accessor.get())[n];
-	}
-
-private:
-	PAccessor _accessor;
-};
-
 ClientPageSpace::ClientPageSpace() {
 	_pml4Address = physicalAllocator->allocate(kPageSize);
 
 	// Initialize the bottom half to unmapped memory.
-	TableAccessor accessor;
-	accessor.aim(_pml4Address);
+	PageAccessor accessor;
+	accessor = PageAccessor{_pml4Address};
+	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
 
 	for(size_t i = 0; i < 256; i++)
-		accessor[i] = 0;
+		tbl4[i].store(0);
 
 	// Share the top half with the kernel.
 	auto kernel_pml4 = KernelPageSpace::global().getPml4();
@@ -574,7 +329,7 @@ ClientPageSpace::ClientPageSpace() {
 
 	for(size_t i = 256; i < 512; i++) {
 		assert(kernel_table[i] & kPagePresent);
-		accessor[i] = kernel_table[i];
+		tbl4[i].store(kernel_table[i]);
 	}
 }
 
@@ -591,10 +346,15 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 	
-	TableAccessor accessor4;
-	TableAccessor accessor3;
-	TableAccessor accessor2;
-	TableAccessor accessor1;
+	PageAccessor accessor4;
+	PageAccessor accessor3;
+	PageAccessor accessor2;
+	PageAccessor accessor1;
+
+	arch::scalar_variable<uint64_t> *tbl4;
+	arch::scalar_variable<uint64_t> *tbl3;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl1;
 
 	auto index4 = (int)((pointer >> 39) & 0x1FF);
 	auto index3 = (int)((pointer >> 30) & 0x1FF);
@@ -602,61 +362,62 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	auto index1 = (int)((pointer >> 12) & 0x1FF);
 
 	// The PML4 does always exist.
-	accessor4.aim(_pml4Address);
+	accessor4 = PageAccessor{_pml4Address};
 
 	// Make sure there is a PDPT.
-	if(accessor4[index4] & kPagePresent) {
-		accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
+	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
+	if(tbl4[index4].load() & kPagePresent) {
+		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		accessor3.aim(tbl_address);
-		for(int i = 0; i < 512; i++)
-			accessor3[i] = 0;
+		accessor3 = PageAccessor{tbl_address};
+		memset(accessor3.get(), 0, kPageSize);
 		
 		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		accessor4[index4] = new_entry;
+		tbl4[index4].store(new_entry);
 	}
-	assert(user_page ? ((accessor4[index4] & kPageUser) != 0)
-			: ((accessor4[index4] & kPageUser) == 0));
+	assert(user_page ? ((tbl4[index4].load() & kPageUser) != 0)
+			: ((tbl4[index4].load() & kPageUser) == 0));
 	
 	// Make sure there is a PD.
-	if(accessor3[index3] & kPagePresent) {
-		accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
+	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+	if(tbl3[index3].load() & kPagePresent) {
+		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		accessor2.aim(tbl_address);
-		for(int i = 0; i < 512; i++)
-			accessor2[i] = 0;
+		accessor2 = PageAccessor{tbl_address};
+		memset(accessor2.get(), 0, kPageSize);
 		
 		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		accessor3[index3] = new_entry;
+		tbl3[index3].store(new_entry);
 	}
-	assert(user_page ? ((accessor3[index3] & kPageUser) != 0)
-			: ((accessor3[index3] & kPageUser) == 0));
+	assert(user_page ? ((tbl3[index3].load() & kPageUser) != 0)
+			: ((tbl3[index3].load() & kPageUser) == 0));
 	
 	// Make sure there is a PT.
-	if(accessor2[index2] & kPagePresent) {
-		accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
+	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+	if(tbl2[index2].load() & kPagePresent) {
+		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
 	}else{
 		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		accessor1.aim(tbl_address);
-		for(int i = 0; i < 512; i++)
-			accessor1[i] = 0;
+		accessor1 = PageAccessor{tbl_address};
+		memset(accessor1.get(), 0, kPageSize);
 		
 		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
 		if(user_page)
 			new_entry |= kPageUser;
-		accessor2[index2] = new_entry;
+		tbl2[index2].store(new_entry);
 	}
-	assert(user_page ? ((accessor2[index2] & kPageUser) != 0)
-			: ((accessor2[index2] & kPageUser) == 0));
+	assert(user_page ? ((tbl2[index2].load() & kPageUser) != 0)
+			: ((tbl2[index2].load() & kPageUser) == 0));
 
 	// Setup the new PTE.
-	assert(!(accessor1[index1] & kPagePresent));
+	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+	assert(!(tbl1[index1].load() & kPagePresent));
 	uint64_t new_entry = physical | kPagePresent;
 	if(user_page)
 		new_entry |= kPageUser;
@@ -664,17 +425,22 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
-	accessor1[index1] = new_entry;
+	tbl1[index1].store(new_entry);
 }
 
 void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode) {
 	assert(!(pointer & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
-	TableAccessor accessor4;
-	TableAccessor accessor3;
-	TableAccessor accessor2;
-	TableAccessor accessor1;
+	PageAccessor accessor4;
+	PageAccessor accessor3;
+	PageAccessor accessor2;
+	PageAccessor accessor1;
+
+	arch::scalar_variable<uint64_t> *tbl4;
+	arch::scalar_variable<uint64_t> *tbl3;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl1;
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
 		auto index4 = (int)(((pointer + progress) >> 39) & 0x1FF);
@@ -683,40 +449,49 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 		auto index1 = (int)(((pointer + progress) >> 12) & 0x1FF);
 		
 		// The PML4 is always present.
-		accessor4.aim(_pml4Address);
+		accessor4 = PageAccessor{_pml4Address};
+		tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
 
 		// Find the PDPT.
-		if(mode == PageMode::remap && !(accessor4[index4] & kPagePresent))
+		if(mode == PageMode::remap && !(tbl4[index4].load() & kPagePresent))
 			continue;
-		assert(accessor4[index4] & kPagePresent);
-		accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
+		assert(tbl4[index4].load() & kPagePresent);
+		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
+		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
 		
 		// Find the PD.
-		if(mode == PageMode::remap && !(accessor3[index3] & kPagePresent))
+		if(mode == PageMode::remap && !(tbl3[index3].load() & kPagePresent))
 			continue;
-		assert(accessor3[index3] & kPagePresent);
-		accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
+		assert(tbl3[index3].load() & kPagePresent);
+		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
+		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
 		
 		// Find the PT.
-		if(mode == PageMode::remap && !(accessor2[index2] & kPagePresent))
+		if(mode == PageMode::remap && !(tbl2[index2].load() & kPagePresent))
 			continue;
-		assert(accessor2[index2] & kPagePresent);
-		accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
+		assert(tbl2[index2].load() & kPagePresent);
+		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
+		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
 		
-		if(mode == PageMode::remap && !(accessor1[index1] & kPagePresent))
+		if(mode == PageMode::remap && !(tbl1[index1].load() & kPagePresent))
 			continue;
-		assert(accessor1[index1] & kPagePresent);
-		accessor1[index1] &= ~uint64_t{kPagePresent};
+		assert(tbl1[index1].load() & kPagePresent);
+		tbl1[index1].store(tbl1[index1].load() & ~uint64_t{kPagePresent});
 	}
 }
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	TableAccessor accessor4;
-	TableAccessor accessor3;
-	TableAccessor accessor2;
-	TableAccessor accessor1;
+	PageAccessor accessor4;
+	PageAccessor accessor3;
+	PageAccessor accessor2;
+	PageAccessor accessor1;
+
+	arch::scalar_variable<uint64_t> *tbl4;
+	arch::scalar_variable<uint64_t> *tbl3;
+	arch::scalar_variable<uint64_t> *tbl2;
+	arch::scalar_variable<uint64_t> *tbl1;
 
 	auto index4 = (int)((pointer >> 39) & 0x1FF);
 	auto index3 = (int)((pointer >> 30) & 0x1FF);
@@ -724,24 +499,28 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	auto index1 = (int)((pointer >> 12) & 0x1FF);
 	
 	// The PML4 is always present.
-	accessor4.aim(_pml4Address);
+	accessor4 = PageAccessor{_pml4Address};
+	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
 
 	// Find the PDPT.
-	if(!(accessor4[index4] & kPagePresent))
+	if(!(tbl4[index4].load() & kPagePresent))
 		return false;
-	accessor3.aim(accessor4[index4] & 0x000FFFFFFFFFF000);
-	
+	accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
+	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
+
 	// Find the PD.
-	if(!(accessor3[index3] & kPagePresent))
+	if(!(tbl3[index3].load() & kPagePresent))
 		return false;
-	accessor2.aim(accessor3[index3] & 0x000FFFFFFFFFF000);
-	
+	accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
+	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
+
 	// Find the PT.
-	if(!(accessor2[index2] & kPagePresent))
+	if(!(tbl2[index2].load() & kPagePresent))
 		return false;
-	accessor1.aim(accessor2[index2] & 0x000FFFFFFFFFF000);
-	
-	return accessor1[index1] & kPagePresent;
+	accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
+	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
+
+	return tbl1[index1].load() & kPagePresent;
 }
 
 } // namespace thor

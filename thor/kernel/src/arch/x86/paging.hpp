@@ -15,31 +15,19 @@ enum {
 	kPageShift = 12
 };
 
-struct PhysicalWindow {
-	constexpr PhysicalWindow(uint64_t *table, void *content);
-
-	void *acquire(PhysicalAddr physical);
-	void release(void *pointer);
-
-private:
-	uint64_t *_table;
-	void *_content;
-	bool _locked[512];
-};
-
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {
 		using frigg::swap;
-		swap(a._window, b._window);
 		swap(a._pointer, b._pointer);
 	}
 
 	PageAccessor()
-	: _window{nullptr} { }
+	: _pointer{nullptr} { }
 
-	PageAccessor(PhysicalWindow &window, PhysicalAddr physical)
-	: _window{&window} {
-		_pointer = _window->acquire(physical);
+	PageAccessor(PhysicalAddr physical) {
+		assert(!(physical & (kPageSize - 1)));
+		assert(physical < 0x4000'0000'0000);
+		_pointer = reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
 	}
 
 	PageAccessor(const PageAccessor &) = delete;
@@ -49,10 +37,7 @@ struct PageAccessor {
 		swap(*this, other);
 	}
 
-	~PageAccessor() {
-		if(_window)
-			_window->release(_pointer);
-	}
+	~PageAccessor() { }
 	
 	PageAccessor &operator= (PageAccessor other) {
 		swap(*this, other);
@@ -64,11 +49,8 @@ struct PageAccessor {
 	}
 
 private:
-	PhysicalWindow *_window;
 	void *_pointer;
 };
-
-extern PhysicalWindow generalWindow;
 
 void sendShootdownIpi();
 

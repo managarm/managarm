@@ -381,6 +381,11 @@ void mapSingle4kPage(uint64_t address, uint64_t physical, uint32_t flags) {
 // ----------------------------------------------------------------------------
 
 void mapRegionsAndStructs() {
+	// This region should be available RAM on every PC.
+	for(size_t page = 0x8000; page < 0x80000; page += kPageSize)
+			mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
+					page, kAccessWrite);
+
 	uint64_t tree_mapping = 0xFFFF'C080'0000'0000;
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable
@@ -631,11 +636,6 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	for(size_t page = 0; page < 0x10000; page += kPageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), kAccessWrite);
 
-	// finally setup the BSPs physical windows.
-	auto physical2 = allocPt();
-	mapSingle4kPage(0xFFFF'FF80'0000'2000, physical2, kAccessWrite);
-	mapPt(0xFFFF'FF80'0040'0000, physical2);
-	
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
