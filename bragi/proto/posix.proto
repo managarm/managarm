@@ -23,6 +23,7 @@ enum CntReqType {
 	GET_PID = 17;
 	FORK = 8;
 	EXEC = 1;
+	WAIT = 56;
 	VM_MAP = 26;
 	VM_REMAP = 43;
 	VM_UNMAP = 27;
@@ -117,6 +118,8 @@ message CntRequest {
 	
 	// used by INIT, EXEC and OPEN
 	optional string path = 2;
+
+	optional int64 pid = 34;
 
 	// used by MOUNT
 	optional string target_path = 12;

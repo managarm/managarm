@@ -485,7 +485,8 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 }
 
 Process::Process(Process *parent)
-: _parent{parent}, _pid{0}, _clientFileTable{nullptr} { }
+: _parent{parent}, _pid{0}, _clientFileTable{nullptr},
+		_notifyType{NotifyType::null} { }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<Process>>, Process::init(std::string path),
 		([=] {
@@ -588,5 +589,34 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	// TODO: execute() should return a stopped thread that we can start here.
 
 	COFIBER_RETURN();
+}))
+
+void Process::notify() {
+	auto parent = getParent();
+	assert(parent);
+
+	assert(_notifyType == NotifyType::null);
+	_notifyType = NotifyType::terminated;
+	parent->_notifyQueue.push_back(*this);
+	parent->_notifyBell.ring();
+}
+
+COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking), ([=] {
+	assert(pid == -1 || pid > 0);
+
+	int result = 0;
+	while(true) {
+		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
+			if(pid > 0 && pid != it->pid())
+				continue;
+			_notifyQueue.erase(it);
+			result = it->pid();
+			break;
+		}
+
+		if(result > 0 || non_blocking)
+			COFIBER_RETURN(result);
+		COFIBER_AWAIT _notifyBell.async_wait();
+	}
 }))
 

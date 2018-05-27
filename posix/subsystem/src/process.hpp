@@ -181,6 +181,11 @@ private:
 	uint64_t _activeSet;
 };
 
+enum class NotifyType {
+	null,
+	terminated
+};
+
 struct Process : std::enable_shared_from_this<Process> {
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
@@ -240,6 +245,10 @@ public:
 		return _clientFileTable;
 	}
 
+	void notify();
+
+	async::result<int> wait(int pid, bool non_blocking);
+
 private:
 	Process *_parent;
 
@@ -257,6 +266,22 @@ private:
 	void *_clientFileTable;
 
 	std::vector<std::shared_ptr<Process>> _children;
+
+	// The following intrusive queue stores notifications for wait(). 
+	NotifyType _notifyType;
+
+	boost::intrusive::list_member_hook<> _notifyHook;
+
+	boost::intrusive::list<
+		Process,
+		boost::intrusive::member_hook<
+			Process,
+			boost::intrusive::list_member_hook<>,
+			&Process::_notifyHook
+		>
+	> _notifyQueue;
+
+	async::doorbell _notifyBell;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

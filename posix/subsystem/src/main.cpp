@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/sysmacros.h>
 #include <sys/timerfd.h>
+#include <sys/wait.h>
 #include <iomanip>
 #include <iostream>
 
@@ -177,7 +178,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 			Process::exec(self, path, std::move(args), std::move(env));
 		}else if(observe.observation() == kHelObserveSuperCall + 4) {
-			printf("\e[35mThread exited\e[39m\n");
+			if(logRequests)
+				std::cout << "posix: EXIT supercall" << std::endl;
 
 			// TODO: Handle the case that the init process exits (by issuing a panic).
 			auto parent = self->getParent();
@@ -186,7 +188,8 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			parent->signalContext()->issueSignal(SIGCHLD, info);
-			
+			self->notify();
+
 			HEL_CHECK(helCloseDescriptor(thread.getHandle()));
 			return;
 		}else if(observe.observation() == kHelObserveSuperCall + 7) {
@@ -327,6 +330,26 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(self->pid());
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
+			if(logRequests)
+				std::cout << "posix: WAIT" << std::endl;
+
+			assert(!(req.flags() & ~WNOHANG));
+
+			auto pid = COFIBER_AWAIT self->wait(req.pid(), req.flags() & WNOHANG);
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(pid);
+			resp.set_mode(0x200); // 0x200 means exited.
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
