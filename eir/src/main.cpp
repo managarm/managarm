@@ -384,7 +384,7 @@ void mapRegionsAndStructs() {
 	// This region should be available RAM on every PC.
 	for(size_t page = 0x8000; page < 0x80000; page += kPageSize)
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
-					page, kAccessWrite);
+					page, kAccessWrite | kAccessGlobal);
 
 	uint64_t tree_mapping = 0xFFFF'C080'0000'0000;
 	for(size_t i = 0; i < numRegions; ++i) {
@@ -395,14 +395,14 @@ void mapRegionsAndStructs() {
 		// Map the region itself.
 		for(size_t page = 0; page < regions[i].size; page += kPageSize)
 			mapSingle4kPage(0xFFFF'8000'0000'0000 + regions[i].address + page,
-					regions[i].address + page, kAccessWrite);
+					regions[i].address + page, kAccessWrite | kAccessGlobal);
 
 		// Map the buddy tree.
 		regions[i].buddyMap = tree_mapping;
 
 		auto overhead = frigg::buddy_tools::determine_size(regions[i].numRoots, regions[i].order);
 		for(size_t page = 0; page < overhead; page += kPageSize) {
-			mapSingle4kPage(tree_mapping, regions[i].buddyTree + page, kAccessWrite);
+			mapSingle4kPage(tree_mapping, regions[i].buddyTree + page, kAccessWrite | kAccessGlobal);
 			tree_mapping += kPageSize;
 		}
 	}
