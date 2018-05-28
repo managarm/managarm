@@ -38,8 +38,8 @@ void fiberSleep(uint64_t nanos) {
 		KernelFiber *fiber;
 	};
 
-	Blocker blocker{currentTicks() + durationToTicks(0, 0, 0, nanos), this_fiber};
-	installTimer(&blocker);
+	Blocker blocker{currentNanos() + nanos, this_fiber};
+	generalTimerEngine()->installTimer(&blocker);
 
 	while(!blocker.complete.load(std::memory_order_acquire)) {
 		auto check = [&] {

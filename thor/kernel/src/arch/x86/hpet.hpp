@@ -17,11 +17,5 @@ uint64_t currentNanos();
 uint64_t durationToTicks(uint64_t seconds, uint64_t millis = 0,
 		uint64_t micros = 0, uint64_t nanos = 0);
 
-class PrecisionTimerNode;
-
-void installTimer(PrecisionTimerNode *timer);
-
-void timerInterrupt();
-
 } // namespace thor
 

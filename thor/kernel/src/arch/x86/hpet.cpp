@@ -52,13 +52,7 @@ arch::bit_register<uint8_t> command(67);
 arch::field<uint8_t, int> operatingMode(1, 3);
 arch::field<uint8_t, int> accessMode(4, 2);
 
-struct CompareTimer {
-	bool operator() (const PrecisionTimerNode *a, const PrecisionTimerNode *b) const {
-		return a->deadline > b->deadline;
-	}
-};
-
-struct HpetDevice : IrqSink {
+struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
 private:
 	using Mutex = frigg::TicketLock;
 
@@ -69,30 +63,14 @@ private:
 public:
 	HpetDevice()
 	: IrqSink{frigg::String<KernelAlloc>{*kernelAlloc, "hpet-irq"}} { }
-	
-	void installTimer(PrecisionTimerNode *timer) {
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
-
-		if(logTimers) {
-			auto current = hpetBase.load(mainCounter);
-			frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline
-					<< " (counter is " << current << ")" << frigg::endLog;
-		}
-
-		_timerQueue.push(timer);
-		_activeTimers++;
-//		frigg::infoLogger() << "hpet: Active timers: " << _activeTimers << frigg::endLog;
-		_progress();
-	}
 
 	IrqStatus raise() override {
 		if(logIrqs)
 			frigg::infoLogger() << "hpet: Irq was raised." << frigg::endLog;
-		auto irq_lock = frigg::guard(&irqMutex());
-		auto lock = frigg::guard(&_mutex);
+//		auto irq_lock = frigg::guard(&irqMutex());
+//		auto lock = frigg::guard(&_mutex);
 
-		_progress();
+		fireAlarm();
 
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
@@ -101,53 +79,24 @@ public:
 		return IrqStatus::acked;
 	}
 
-private:
-	// This function is somewhat complicated because we have to avoid a race between
-	// the comparator setup and the main counter.
-	void _progress() {
-		auto current = hpetBase.load(mainCounter);
-		do {
-			// Process all timers that elapsed in the past.
-			if(logProgress)
-				frigg::infoLogger() << "hpet: Processing timers until " << current << frigg::endLog;
-			while(true) {
-				if(_timerQueue.empty())
-					return;
-
-				if(_timerQueue.top()->deadline > current)
-					break;
-
-				auto timer = _timerQueue.top();
-				_timerQueue.pop();
-				_activeTimers--;
-				if(logProgress)
-					frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
-				timer->onElapse();
-			}
-
-			// Setup the comparator and iterate if there was a race.
-			assert(!_timerQueue.empty());
-			hpetBase.store(timerComparator0, _timerQueue.top()->deadline);
-			current = hpetBase.load(mainCounter);
-		} while(_timerQueue.top()->deadline <= current);
+public:
+	uint64_t currentNanos() override {
+		assert(hpetPeriod > kFemtosPerNano);
+		return currentTicks() * (hpetPeriod / kFemtosPerNano);
 	}
 
-	Mutex _mutex;
+public:
+	void arm(uint64_t nanos) override {
+		auto ticks = durationToTicks(0, 0, 0, nanos);
+		hpetBase.store(timerComparator0, ticks);
+	}
 
-	frg::pairing_heap<
-		PrecisionTimerNode,
-		frg::locate_member<
-			PrecisionTimerNode,
-			frg::pairing_heap_hook<PrecisionTimerNode>,
-			&PrecisionTimerNode::hook
-		>,
-		CompareTimer
-	> _timerQueue;
-	
-	size_t _activeTimers;
+private:
+//	Mutex _mutex;
 };
 
 frigg::LazyInitializer<HpetDevice> hpetDevice;
+extern PrecisionTimerEngine *globalTimerEngine;
 
 bool haveTimer() {
 	return hpetAvailable;
@@ -193,6 +142,8 @@ void setupHpet(PhysicalAddr address) {
 	}
 	
 	IrqPin::attachSink(getGlobalSystemIrq(2), hpetDevice.get());
+	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
+			hpetDevice.get(), hpetDevice.get());
 
 	// Program HPET timer 0 in one-shot mode.
 	if(global_caps & supportsLegacyIrqs) {
@@ -240,10 +191,6 @@ uint64_t durationToTicks(uint64_t seconds,
 			+ (millis * kFemtosPerMilli) / hpetPeriod
 			+ (micros * kFemtosPerMicro) / hpetPeriod
 			+ (nanos / (hpetPeriod / kFemtosPerNano));
-}
-
-void installTimer(PrecisionTimerNode *timer) {
-	hpetDevice->installTimer(timer);
 }
 
 } // namespace thor

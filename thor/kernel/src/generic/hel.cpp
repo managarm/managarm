@@ -1445,16 +1445,16 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context) {
 	struct Closure : PrecisionTimerNode, QueueNode {
-		static void issue(uint64_t ticks, frigg::SharedPtr<UserQueue> queue,
+		static void issue(uint64_t nanos, frigg::SharedPtr<UserQueue> queue,
 				uintptr_t context) {
-			auto node = frigg::construct<Closure>(*kernelAlloc, ticks,
+			auto node = frigg::construct<Closure>(*kernelAlloc, nanos,
 					frigg::move(queue), context);
-			installTimer(node);
+			generalTimerEngine()->installTimer(node);
 		}
 
-		explicit Closure(uint64_t ticks, frigg::SharedPtr<UserQueue> the_queue,
+		explicit Closure(uint64_t nanos, frigg::SharedPtr<UserQueue> the_queue,
 				uintptr_t context)
-		: PrecisionTimerNode{ticks}, queue{frigg::move(the_queue)},
+		: PrecisionTimerNode{nanos}, queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
 			setupContext(context);
@@ -1490,8 +1490,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	auto ticks = durationToTicks(0, 0, 0, counter);
-	Closure::issue(ticks, frigg::move(queue), context);
+	Closure::issue(counter, frigg::move(queue), context);
 
 	return kHelErrNone;
 }

@@ -39,8 +39,11 @@ int64_t getCmosTime() {
 	const uint64_t nanoPrefix = 1e9;
 	
 	// Wait until the RTC update-in-progress bit gets set and reset.
+	// TODO: fiberSleep(1'000) does not seem to work here.
+//	frigg::infoLogger() << "thor: Waiting for RTC update in-progress" << frigg::endLog;
 	while(!(readCmos(rtcStatusA) & 0x80))
-		fiberSleep(1'000);
+		;
+//	frigg::infoLogger() << "thor: Waiting for RTC update completion" << frigg::endLog;
 	while(readCmos(rtcStatusA) & 0x80)
 		frigg::pause();
 
