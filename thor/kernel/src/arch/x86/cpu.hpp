@@ -13,6 +13,7 @@
 #include "../../generic/types.hpp"
 #include "ints.hpp"
 #include "paging.hpp"
+#include "pic.hpp"
 
 namespace thor {
 
@@ -497,6 +498,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 	PageBinding primaryBinding;
 
 	bool haveSmap;
+
+	LocalApicContext apicContext;
 };
 
 void enableUserAccess();

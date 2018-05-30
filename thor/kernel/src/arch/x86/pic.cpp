@@ -56,10 +56,78 @@ enum {
 static int picModel = kModelLegacy;
 
 // --------------------------------------------------------
-// Local PIC management
+// Local APIC timer
 // --------------------------------------------------------
 
+// TODO: APIC variables should be CPU-specific.
 uint32_t apicTicksPerMilli;
+namespace {
+	GlobalApicContext *globalApicContextInstance;
+
+	LocalApicContext *localApicContext() {
+		return &getCpuData()->apicContext;
+	}
+}
+
+GlobalApicContext *globalApicContext() {
+	return globalApicContextInstance;
+}
+
+void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
+	assert(apicTicksPerMilli > 0);
+	assert(nanos > 0);
+
+	globalApicContext()->_globalDeadline = nanos;
+	LocalApicContext::_updateLocalTimer();
+}
+
+void LocalApicContext::setPreemption(uint64_t nanos) {
+	assert(apicTicksPerMilli > 0);
+	
+	localApicContext()->_preemptionDeadline = nanos;
+	LocalApicContext::_updateLocalTimer();
+}
+
+void LocalApicContext::handleTimerIrq() {
+	globalApicContext()->_globalAlarmInstance.fireAlarm();
+}
+
+void LocalApicContext::_updateLocalTimer() {
+	uint64_t deadline = 0;
+	auto consider = [&] (uint64_t dc) {
+		if(!dc)
+			return;
+		if(!deadline || dc < deadline)
+			deadline = dc;
+	};
+
+	// TODO: We need to lock the global context to read the deadline.
+	consider(localApicContext()->_preemptionDeadline);
+	consider(globalApicContext()->_globalDeadline);
+	
+	auto now = systemClockSource()->currentNanos();
+	uint64_t ticks;
+	if(deadline < now) {
+		ticks = 1;
+	}else{
+		auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
+		assert(!of);
+		ticks /= 1'000'000;
+	}
+	picBase.store(lApicInitCount, ticks);
+}
+
+void armPreemption(uint64_t nanos) {
+	LocalApicContext::setPreemption(systemClockSource()->currentNanos() + nanos);
+}
+
+void disarmPreemption() {
+	LocalApicContext::setPreemption(0);
+}
+
+// --------------------------------------------------------
+// Local PIC management
+// --------------------------------------------------------
 
 void initLocalApicOnTheSystem() {
 	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrLocalApicBase);
@@ -96,32 +164,55 @@ uint64_t localTicks() {
 	return picBase.load(lApicCurCount);
 }
 
+uint64_t rdtsc() {
+	uint32_t lsw, msw;
+	asm ("rdtsc" : "=a"(lsw), "=d"(msw));
+	return (static_cast<uint64_t>(msw) << 32)
+			| static_cast<uint64_t>(lsw);
+}
+
+uint64_t tscTicksPerMilli;
+
+struct TimeStampCounter : ClockSource {
+	uint64_t currentNanos() override {
+		auto r = rdtsc() * 1'000'000 / tscTicksPerMilli;
+//		frigg::infoLogger() << r << frigg::endLog;
+		return r;
+	}
+};
+
+TimeStampCounter *globalTscInstance;
+
+extern AlarmTracker *hpetAlarmTracker;
+extern ClockSource *globalClockSource;
+extern PrecisionTimerEngine *globalTimerEngine;
+
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
+
 	picBase.store(lApicInitCount, 0xFFFFFFFF);
-	pollSleepNano(millis * 1000000);
+	pollSleepNano(millis * 1'000'000);
 	uint32_t elapsed = 0xFFFFFFFF
 			- picBase.load(lApicCurCount);
 	picBase.store(lApicInitCount, 0);
+
 	apicTicksPerMilli = elapsed / millis;
+	frigg::infoLogger() << "thor: Local APIC ticks/ms: " << apicTicksPerMilli << frigg::endLog;
 	
-	frigg::infoLogger() << "Local elapsed ticks: " << elapsed << frigg::endLog;
-}
-
-void armPreemption(uint64_t nanos) {
-	assert(apicTicksPerMilli > 0);
-	assert(nanos > 0);
+	auto tsc_start = rdtsc();
+	pollSleepNano(millis * 1'000'000);
+	auto tsc_elapsed = rdtsc() - tsc_start;
 	
-	uint64_t ticks;
-	auto of = __builtin_mul_overflow(nanos, apicTicksPerMilli, &ticks);
-	assert(!of);
-	ticks /= 1'000'000;
-	picBase.store(lApicInitCount, ticks);
-}
+	tscTicksPerMilli = tsc_elapsed / millis;
+	frigg::infoLogger() << "thor: TSC ticks/ms: " << tscTicksPerMilli << frigg::endLog;
 
-void disarmPreemption() {
-	assert(apicTicksPerMilli > 0);
-	picBase.store(lApicInitCount, 0);
+	globalTscInstance = frigg::construct<TimeStampCounter>(*kernelAlloc);
+	globalApicContextInstance = frigg::construct<GlobalApicContext>(*kernelAlloc);
+
+	globalClockSource = globalTscInstance;
+	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
+			globalTscInstance, globalApicContext()->globalAlarm());
+//			globalTscInstance, hpetAlarmTracker);
 }
 
 void acknowledgeIpi() {

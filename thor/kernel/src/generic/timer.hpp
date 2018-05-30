@@ -90,6 +90,7 @@ private:
 	size_t _activeTimers;
 };
 
+ClockSource *systemClockSource();
 PrecisionTimerEngine *generalTimerEngine();
 
 } // namespace thor

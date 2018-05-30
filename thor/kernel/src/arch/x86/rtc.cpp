@@ -91,7 +91,7 @@ bool handleReq(LaneHandle lane) {
 	if(req.req_type() == managarm::clock::CntReqType::RTC_GET_TIME) {
 		managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 		resp.set_error(managarm::clock::Error::SUCCESS);
-		resp.set_ref_nanos(currentNanos());
+		resp.set_ref_nanos(systemClockSource()->currentNanos());
 		resp.set_time_nanos(getCmosTime());
 	
 		frigg::String<KernelAlloc> ser(*kernelAlloc);

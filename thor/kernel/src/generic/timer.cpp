@@ -9,6 +9,7 @@ namespace thor {
 static constexpr bool logTimers = false;
 static constexpr bool logProgress = false;
 
+ClockSource *globalClockSource;
 PrecisionTimerEngine *globalTimerEngine;
 
 PrecisionTimerEngine::PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm)
@@ -22,7 +23,7 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 
 	if(logTimers) {
 		auto current = _clock->currentNanos();
-		frigg::infoLogger() << "hpet: Setting timer at " << timer->deadline
+		frigg::infoLogger() << "thor: Setting timer at " << timer->deadline
 				<< " (counter is " << current << ")" << frigg::endLog;
 	}
 
@@ -46,7 +47,7 @@ void PrecisionTimerEngine::_progress() {
 	do {
 		// Process all timers that elapsed in the past.
 		if(logProgress)
-			frigg::infoLogger() << "hpet: Processing timers until " << current << frigg::endLog;
+			frigg::infoLogger() << "thor: Processing timers until " << current << frigg::endLog;
 		while(true) {
 			if(_timerQueue.empty())
 				return;
@@ -58,7 +59,7 @@ void PrecisionTimerEngine::_progress() {
 			_timerQueue.pop();
 			_activeTimers--;
 			if(logProgress)
-				frigg::infoLogger() << "hpet: Timer completed" << frigg::endLog;
+				frigg::infoLogger() << "thor: Timer completed" << frigg::endLog;
 			timer->onElapse();
 		}
 
@@ -67,6 +68,10 @@ void PrecisionTimerEngine::_progress() {
 		_alarm->arm(_timerQueue.top()->deadline);
 		current = _clock->currentNanos();
 	} while(_timerQueue.top()->deadline <= current);
+}
+
+ClockSource *systemClockSource() {
+	return globalClockSource;
 }
 
 PrecisionTimerEngine *generalTimerEngine() {

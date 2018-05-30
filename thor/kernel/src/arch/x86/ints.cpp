@@ -250,6 +250,8 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
+	LocalApicContext::handleTimerIrq();
+
 	acknowledgeIrq(0);
 
 	handlePreemption(image);

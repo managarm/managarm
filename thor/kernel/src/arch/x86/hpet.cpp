@@ -56,8 +56,6 @@ struct HpetDevice : IrqSink, ClockSource, AlarmTracker {
 private:
 	using Mutex = frigg::TicketLock;
 
-	static constexpr bool logTimers = false;
-	static constexpr bool logProgress = false;
 	static constexpr bool logIrqs = false;
 
 public:
@@ -82,12 +80,18 @@ public:
 public:
 	uint64_t currentNanos() override {
 		assert(hpetPeriod > kFemtosPerNano);
-		return currentTicks() * (hpetPeriod / kFemtosPerNano);
+		return hpetBase.load(mainCounter) * (hpetPeriod / kFemtosPerNano);
 	}
 
 public:
 	void arm(uint64_t nanos) override {
-		auto ticks = durationToTicks(0, 0, 0, nanos);
+		uint64_t ticks;
+		auto now = systemClockSource()->currentNanos();
+		if(nanos < now) {
+			ticks = 1;
+		}else{
+			ticks = hpetBase.load(mainCounter) + (nanos - now) / (hpetPeriod / kFemtosPerNano);
+		}
 		hpetBase.store(timerComparator0, ticks);
 	}
 
@@ -96,7 +100,7 @@ private:
 };
 
 frigg::LazyInitializer<HpetDevice> hpetDevice;
-extern PrecisionTimerEngine *globalTimerEngine;
+AlarmTracker *hpetAlarmTracker;
 
 bool haveTimer() {
 	return hpetAvailable;
@@ -141,9 +145,7 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(genConfig, enableCounter(true));
 	}
 	
-	IrqPin::attachSink(getGlobalSystemIrq(2), hpetDevice.get());
-	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
-			hpetDevice.get(), hpetDevice.get());
+//	IrqPin::attachSink(getGlobalSystemIrq(2), hpetDevice.get());
 
 	// Program HPET timer 0 in one-shot mode.
 	if(global_caps & supportsLegacyIrqs) {
@@ -157,6 +159,7 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
 	}
 
+	hpetAlarmTracker = hpetDevice.get();
 	hpetAvailable = true;
 	
 	// TODO: Move this somewhere else.
@@ -174,23 +177,6 @@ void pollSleepNano(uint64_t nanotime) {
 	while(hpetBase.load(mainCounter) < goal) {
 		frigg::pause();
 	}
-}
-
-uint64_t currentTicks() {
-	return hpetBase.load(mainCounter);
-}
-
-uint64_t currentNanos() {
-	assert(hpetPeriod > kFemtosPerNano);
-	return currentTicks() * (hpetPeriod / kFemtosPerNano);
-}
-
-uint64_t durationToTicks(uint64_t seconds,
-		uint64_t millis, uint64_t micros, uint64_t nanos) {
-	return (seconds * kFemtosPerSecond) / hpetPeriod
-			+ (millis * kFemtosPerMilli) / hpetPeriod
-			+ (micros * kFemtosPerMicro) / hpetPeriod
-			+ (nanos / (hpetPeriod / kFemtosPerNano));
 }
 
 } // namespace thor

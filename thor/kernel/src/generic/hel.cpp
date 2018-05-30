@@ -1439,7 +1439,7 @@ HelError helWriteFsBase(void *pointer) {
 }
 
 HelError helGetClock(uint64_t *counter) {
-	*counter = currentNanos();
+	*counter = systemClockSource()->currentNanos();
 	return kHelErrNone;
 }
 

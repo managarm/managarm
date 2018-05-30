@@ -210,7 +210,7 @@ void IrqPin::warnIfPending() {
 	if(!_inService || !_dueSinks)
 		return;
 
-	if(currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
+	if(systemClockSource()->currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
 		auto log = frigg::infoLogger();
 		log << "\e[35mthor: Pending IRQ " << _name << " has not been"
 				" acked/nacked for more than one second.";
@@ -228,7 +228,7 @@ void IrqPin::_callSinks() {
 	_dueSinks = 0;
 
 	if(_inService) {
-		_raiseClock = currentNanos();
+		_raiseClock = systemClockSource()->currentNanos();
 		_warnedAfterPending = false;
 	}
 
