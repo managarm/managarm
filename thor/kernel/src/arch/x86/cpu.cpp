@@ -474,7 +474,7 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // --------------------------------------------------------
 
 PlatformCpuData::PlatformCpuData()
-: haveSmap{false} {
+: pcidBindings{0, 1, 2, 3, 4, 5, 6, 7}, haveSmap{false}, havePcids{false} {
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	frigg::arch_x86::makeGdtNullSegment(gdt, kGdtIndexNull);
@@ -617,6 +617,24 @@ void initializeThisProcessor() {
 		cpu_data->haveSmap = true;
 	}else{
 		frigg::infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frigg::endLog;
+	}
+
+	// Enable the PCID extension.
+	if(frigg::arch_x86::cpuid(0x01)[2] & (uint32_t(1) << 17)) {
+		frigg::infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frigg::endLog;
+
+		if(!(frigg::arch_x86::cpuid(0x07)[1] & (uint32_t(1) << 10)))
+			frigg::panicLogger() << "\e[31mthor: However, INVPCID is not supported!\e[39m"
+					<< frigg::endLog;
+
+		uint64_t cr4;
+		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+		cr4 |= uint32_t(1) << 17;
+		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+		cpu_data->havePcids = true;
+	}else{
+		frigg::infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frigg::endLog;
 	}
 
 	// setup the syscall interface

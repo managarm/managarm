@@ -72,20 +72,53 @@ private:
 };
 
 struct PageSpace;
+struct PageBinding;
+
+static constexpr int maxPcidCount = 8;
+
+// Per-CPU context for paging.
+struct PageContext {
+	friend struct PageBinding;
+
+	PageContext();
+
+	PageContext(const PageContext &) = delete;
+	
+	PageContext &operator= (const PageContext &) = delete;
+
+private:
+	// Timestamp for the LRU mechansim of PCIDs.
+	uint64_t _nextStamp;
+
+	// Current primary binding (i.e. the currently active PCID).
+	PageBinding *_primaryBinding;
+};
 
 struct PageBinding {
-	PageBinding();
+	PageBinding(int pcid);
 
 	PageBinding(const PageBinding &) = delete;
 	
 	PageBinding &operator= (const PageBinding &) = delete;
+
+	PageSpace *boundSpace() {
+		return _boundSpace;
+	}
+
+	uint64_t bindStamp() {
+		return _bindStamp;
+	}
 
 	void rebind(PageSpace *space, PhysicalAddr pml4);
 
 	void shootdown();
 
 private:
+	int _pcid;
+
 	PageSpace *_boundSpace;
+
+	uint64_t _bindStamp;
 
 	uint64_t _alreadyShotSequence;
 };

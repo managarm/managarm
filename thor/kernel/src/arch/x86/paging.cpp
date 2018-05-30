@@ -9,14 +9,35 @@
 
 namespace thor {
 
-void invlpg(const void *address) {
+void invalidatePage(const void *address) {
 	auto p = reinterpret_cast<const char *>(address);
 	asm volatile ("invlpg %0" : : "m"(*p) : "memory");
 }
 
-void invalidatePage(const void *address) {
-	auto p = reinterpret_cast<const char *>(address);
-	asm volatile ("invlpg %0" : : "m"(*p) : "memory");
+void invalidatePcid(int pcid) {
+	struct {
+		uint64_t pcid;
+		const void *address;
+	} descriptor;
+	
+	descriptor.pcid = pcid;
+	descriptor.address = nullptr;
+
+	uint64_t type = 1;
+	asm volatile ("invpcid %1, %0" : : "r"(type), "m"(descriptor) : "memory");
+}
+
+void invalidatePage(int pcid, const void *address) {
+	struct {
+		uint64_t pcid;
+		const void *address;
+	} descriptor;
+	
+	descriptor.pcid = pcid;
+	descriptor.address = address;
+
+	uint64_t type = 0;
+	asm volatile ("invpcid %1, %0" : : "r"(type), "m"(descriptor) : "memory");
 }
 
 void initializePhysicalAccess() {
@@ -39,14 +60,34 @@ namespace thor {
 
 // --------------------------------------------------------
 
-PageBinding::PageBinding()
-: _boundSpace{nullptr}, _alreadyShotSequence{0} { }
+PageContext::PageContext()
+: _nextStamp{1}, _primaryBinding{nullptr} { }
+
+PageBinding::PageBinding(int pcid)
+: _pcid{pcid}, _boundSpace{nullptr}, _bindStamp{0}, _alreadyShotSequence{0} { }
 
 void PageBinding::rebind(PageSpace *space, PhysicalAddr pml4) {
 	assert(!intsAreEnabled());
+	assert(getCpuData()->havePcids || !_pcid);
 
-	// Shootdown everything.
-	asm volatile ("mov %0, %%cr3" : : "r"(pml4) : "memory");
+	auto context = &getCpuData()->pageContext;
+	if(_boundSpace == space) {
+		// If the space is bound AND we are the primary binding, we can omit changing CR3.
+		if(context->_primaryBinding != this)
+			asm volatile ("mov %0, %%cr3" : : "r"(pml4 | _pcid) : "memory");
+	}else{
+		// If we switch to another space, we have to invalidate PCIDs.
+		if(getCpuData()->havePcids)
+			invalidatePcid(_pcid);
+		asm volatile ("mov %0, %%cr3" : : "r"(pml4 | _pcid) : "memory");
+	}
+
+	_bindStamp = context->_nextStamp++;
+	context->_primaryBinding = this;
+
+	// If we invalidated the PCID, mark everything as shot-down.
+	if(_boundSpace == space)
+		return;
 	
 	frg::intrusive_list<
 		ShootNode,
@@ -129,8 +170,15 @@ void PageBinding::shootdown() {
 			// Perform the actual shootdown.
 			assert(!(current->address & (kPageSize - 1)));
 			assert(!(current->size & (kPageSize - 1)));
-			for(size_t pg = 0; pg < current->size; pg += kPageSize)
-				invlpg(reinterpret_cast<void *>(current->address + pg));
+
+			if(!getCpuData()->havePcids) {
+				assert(!_pcid);
+				for(size_t pg = 0; pg < current->size; pg += kPageSize)
+					invalidatePage(reinterpret_cast<void *>(current->address + pg));
+			}else{
+				for(size_t pg = 0; pg < current->size; pg += kPageSize)
+					invalidatePage(_pcid, reinterpret_cast<void *>(current->address + pg));
+			}
 
 			// Signal completion of the shootdown.
 			if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -338,7 +386,28 @@ ClientPageSpace::~ClientPageSpace() {
 }
 
 void ClientPageSpace::activate() {
-	getCpuData()->primaryBinding.rebind(this, _pml4Address);
+	auto bindings = getCpuData()->pcidBindings;
+
+	// If PCIDs are not supported, we only use the first binding.
+	if(!getCpuData()->havePcids) {
+		bindings[0].rebind(this, _pml4Address);
+		return;
+	}
+
+	int k = 0;
+	for(int i = 0; i < maxPcidCount; i++) {
+		// If the space is currently bound, always keep that binding.
+		if(bindings[i].boundSpace() == this) {
+			bindings[i].rebind(this, _pml4Address);
+			return;
+		}
+
+		// Otherwise, prefer the LRU binding.
+		if(bindings[i].bindStamp() < bindings[k].bindStamp())
+			k = i;
+	}
+
+	bindings[k].rebind(this, _pml4Address);
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,

@@ -495,9 +495,11 @@ struct PlatformCpuData : public AssemblyCpuData {
 	
 	frigg::arch_x86::Tss64 tss;
 
-	PageBinding primaryBinding;
+	PageContext pageContext;
+	PageBinding pcidBindings[maxPcidCount];
 
 	bool haveSmap;
+	bool havePcids;
 
 	LocalApicContext apicContext;
 };
