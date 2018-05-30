@@ -138,15 +138,16 @@ void IrqPin::raise() {
 	if(already_in_service) {
 		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
 		// TODO: If the IRQ is edge-triggered we lose an edge here!
-		frigg::infoLogger() << "\e[35mthor: Ignoring already active IRQ " << _name
-				<< "\e[39m" << frigg::endLog;
+		//frigg::infoLogger() << "\e[35mthor: Ignoring already active IRQ " << _name
+		//		<< "\e[39m" << frigg::endLog;
+		_maskState |= maskedForService;
 	}else{
 		_callSinks();
-	}
 
-	if(_inService && !_dueSinks) {
-		frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
-		_maskState |= maskedForNack;
+		if(_inService && !_dueSinks) {
+			frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
+			_maskState |= maskedForNack;
+		}
 	}
 
 	if(_strategy == IrqStrategy::maskThenEoi)
