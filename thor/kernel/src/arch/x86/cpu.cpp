@@ -702,7 +702,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	status_block->targetStage = 0;
 	status_block->initiatorStage = 0;
-	status_block->pml4 = KernelPageSpace::global().getPml4();
+	status_block->pml4 = KernelPageSpace::global().rootTable();
 	status_block->stack = (uintptr_t)stack_ptr + stack_size;
 	status_block->main = &secondaryMain;
 

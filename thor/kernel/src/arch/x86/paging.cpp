@@ -64,31 +64,36 @@ PageContext::PageContext()
 : _nextStamp{1}, _primaryBinding{nullptr} { }
 
 PageBinding::PageBinding(int pcid)
-: _pcid{pcid}, _boundSpace{nullptr}, _bindStamp{0}, _alreadyShotSequence{0} { }
+: _pcid{pcid}, _boundSpace{nullptr}, _wasRebound{false},
+		_primaryStamp{0}, _alreadyShotSequence{0} { }
 
-void PageBinding::rebind(PageSpace *space, PhysicalAddr pml4) {
+void PageBinding::makePrimary() {
 	assert(!intsAreEnabled());
 	assert(getCpuData()->havePcids || !_pcid);
 
 	auto context = &getCpuData()->pageContext;
-	if(_boundSpace == space) {
-		// If the space is bound AND we are the primary binding, we can omit changing CR3.
-		if(context->_primaryBinding != this)
-			asm volatile ("mov %0, %%cr3" : : "r"(pml4 | _pcid) : "memory");
-	}else{
-		// If we switch to another space, we have to invalidate PCIDs.
-		if(getCpuData()->havePcids)
-			invalidatePcid(_pcid);
-		asm volatile ("mov %0, %%cr3" : : "r"(pml4 | _pcid) : "memory");
-	}
+	// If we are the primary binding, we might be able to avoid changing CR3.
+	if(_wasRebound || context->_primaryBinding != this)
+		asm volatile ("mov %0, %%cr3" : : "r"(_boundSpace->rootTable() | _pcid) : "memory");
 
-	_bindStamp = context->_nextStamp++;
+	_wasRebound = false;
+	_primaryStamp = context->_nextStamp++;
 	context->_primaryBinding = this;
+}
 
-	// If we invalidated the PCID, mark everything as shot-down.
+void PageBinding::rebind(PageSpace *space) {
+	assert(!intsAreEnabled());
+
 	if(_boundSpace == space)
 		return;
 	
+	// If we switch to another space, we have to invalidate PCIDs.
+	if(getCpuData()->havePcids)
+		invalidatePcid(_pcid);
+
+	_wasRebound = true;
+
+	// Mark everything as shot-down.
 	frg::intrusive_list<
 		ShootNode,
 		frg::locate_member<
@@ -201,8 +206,8 @@ void PageBinding::shootdown() {
 	_alreadyShotSequence = target_seq;
 }
 
-PageSpace::PageSpace()
-: _numBindings{0}, _shootSequence{0} { }
+PageSpace::PageSpace(PhysicalAddr root_table)
+: _rootTable{root_table}, _numBindings{0}, _shootSequence{0} { }
 
 void PageSpace::submitShootdown(ShootNode *node) {
 	bool any_bindings;
@@ -240,7 +245,7 @@ KernelPageSpace &KernelPageSpace::global() {
 }
 
 KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
-: _pml4Address{pml4_address} { }
+: PageSpace{pml4_address} { }
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
@@ -254,7 +259,7 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, ui
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 
 	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(rootTable());
 
 	// make sure there is a pdpt
 	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
@@ -328,7 +333,7 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	int pt_index = (int)((pointer >> 12) & 0x1FF);
 	
 	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(_pml4Address);
+	uint64_t *pml4_pointer = (uint64_t *)region.access(rootTable());
 	uint64_t pml4_entry = pml4_pointer[pml4_index];
 
 	// find the pdpt entry
@@ -351,28 +356,22 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
 }
 
-PhysicalAddr KernelPageSpace::getPml4() {
-	return _pml4Address;
-}
-
-
 // --------------------------------------------------------
 // ClientPageSpace
 // --------------------------------------------------------
 
-ClientPageSpace::ClientPageSpace() {
-	_pml4Address = physicalAllocator->allocate(kPageSize);
-
+ClientPageSpace::ClientPageSpace()
+: PageSpace{physicalAllocator->allocate(kPageSize)} {
 	// Initialize the bottom half to unmapped memory.
 	PageAccessor accessor;
-	accessor = PageAccessor{_pml4Address};
+	accessor = PageAccessor{rootTable()};
 	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
 
 	for(size_t i = 0; i < 256; i++)
 		tbl4[i].store(0);
 
 	// Share the top half with the kernel.
-	auto kernel_pml4 = KernelPageSpace::global().getPml4();
+	auto kernel_pml4 = KernelPageSpace::global().rootTable();
 	auto kernel_table = (uint64_t *)SkeletalRegion::global().access(kernel_pml4);
 
 	for(size_t i = 256; i < 512; i++) {
@@ -388,26 +387,25 @@ ClientPageSpace::~ClientPageSpace() {
 void ClientPageSpace::activate() {
 	auto bindings = getCpuData()->pcidBindings;
 
-	// If PCIDs are not supported, we only use the first binding.
-	if(!getCpuData()->havePcids) {
-		bindings[0].rebind(this, _pml4Address);
-		return;
-	}
-
 	int k = 0;
 	for(int i = 0; i < maxPcidCount; i++) {
 		// If the space is currently bound, always keep that binding.
 		if(bindings[i].boundSpace() == this) {
-			bindings[i].rebind(this, _pml4Address);
+			bindings[i].makePrimary();
 			return;
 		}
+	
+		// If PCIDs are not supported, we only use the first binding.
+		if(!getCpuData()->havePcids)
+			break;
 
 		// Otherwise, prefer the LRU binding.
-		if(bindings[i].bindStamp() < bindings[k].bindStamp())
+		if(bindings[i].primaryStamp() < bindings[k].primaryStamp())
 			k = i;
 	}
 
-	bindings[k].rebind(this, _pml4Address);
+	bindings[k].rebind(this);
+	bindings[k].makePrimary();
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
@@ -431,7 +429,7 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 	auto index1 = (int)((pointer >> 12) & 0x1FF);
 
 	// The PML4 does always exist.
-	accessor4 = PageAccessor{_pml4Address};
+	accessor4 = PageAccessor{rootTable()};
 
 	// Make sure there is a PDPT.
 	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
@@ -518,7 +516,7 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 		auto index1 = (int)(((pointer + progress) >> 12) & 0x1FF);
 		
 		// The PML4 is always present.
-		accessor4 = PageAccessor{_pml4Address};
+		accessor4 = PageAccessor{rootTable()};
 		tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
 
 		// Find the PDPT.
@@ -568,7 +566,7 @@ bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	auto index1 = (int)((pointer >> 12) & 0x1FF);
 	
 	// The PML4 is always present.
-	accessor4 = PageAccessor{_pml4Address};
+	accessor4 = PageAccessor{rootTable()};
 	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
 
 	// Find the PDPT.

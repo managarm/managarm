@@ -105,11 +105,13 @@ struct PageBinding {
 		return _boundSpace;
 	}
 
-	uint64_t bindStamp() {
-		return _bindStamp;
+	uint64_t primaryStamp() {
+		return _primaryStamp;
 	}
 
-	void rebind(PageSpace *space, PhysicalAddr pml4);
+	void makePrimary();
+
+	void rebind(PageSpace *space);
 
 	void shootdown();
 
@@ -118,7 +120,9 @@ private:
 
 	PageSpace *_boundSpace;
 
-	uint64_t _bindStamp;
+	bool _wasRebound;
+
+	uint64_t _primaryStamp;
 
 	uint64_t _alreadyShotSequence;
 };
@@ -126,11 +130,17 @@ private:
 struct PageSpace {
 	friend struct PageBinding;
 
-	PageSpace();
+	PageSpace(PhysicalAddr root_table);
+
+	PhysicalAddr rootTable() {
+		return _rootTable;
+	}
 
 	void submitShootdown(ShootNode *node);
 
 private:
+	PhysicalAddr _rootTable;
+
 	frigg::TicketLock _mutex;
 	
 	unsigned int _numBindings;
@@ -162,7 +172,7 @@ namespace page_access {
 	static constexpr uint32_t execute = 2;
 }
 
-struct KernelPageSpace {
+struct KernelPageSpace : PageSpace {
 public:
 	static void initialize(PhysicalAddr pml4_address);
 
@@ -177,11 +187,6 @@ public:
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
-
-	PhysicalAddr getPml4();
-
-private:
-	PhysicalAddr _pml4Address;
 };
 
 struct ClientPageSpace : PageSpace {
@@ -199,9 +204,6 @@ public:
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
 	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
-
-private:
-	PhysicalAddr _pml4Address;
 };
 
 void invalidatePage(const void *address);
