@@ -9,8 +9,6 @@
 
 namespace thor {
 
-int64_t allocAsyncId();
-
 // --------------------------------------------------------
 // Debugging and logging
 // --------------------------------------------------------
@@ -57,17 +55,6 @@ struct CpuData : public PlatformCpuData {
 	IrqMutex irqMutex;
 	Scheduler scheduler;
 	KernelFiber *activeFiber;
-};
-
-struct SubmitInfo {
-	SubmitInfo();
-
-	SubmitInfo(int64_t async_id, uintptr_t submit_function,
-			uintptr_t submit_object);
-	
-	int64_t asyncId;
-	uintptr_t submitFunction;
-	uintptr_t submitObject;
 };
 
 } // namespace thor

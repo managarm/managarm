@@ -8,14 +8,6 @@ void operator delete(void *, size_t) {
 
 namespace thor {
 
-static int64_t nextAsyncId = 1;
-
-int64_t allocAsyncId() {
-	int64_t async_id;
-	frigg::fetchInc<int64_t>(&nextAsyncId, async_id);
-	return async_id;
-}
-
 // --------------------------------------------------------
 // Debugging and logging
 // --------------------------------------------------------
@@ -142,18 +134,6 @@ IrqMutex &irqMutex() {
 
 CpuData::CpuData()
 : activeFiber{nullptr} { }
-
-// --------------------------------------------------------
-// SubmitInfo
-// --------------------------------------------------------
-
-SubmitInfo::SubmitInfo()
-: asyncId(0), submitFunction(0), submitObject(0) { }
-
-SubmitInfo::SubmitInfo(int64_t async_id,
-		uintptr_t submit_function, uintptr_t submit_object)
-: asyncId(async_id), submitFunction(submit_function),
-		submitObject(submit_object) { }
 
 // --------------------------------------------------------
 // Threading related functions
