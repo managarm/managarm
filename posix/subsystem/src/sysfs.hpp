@@ -34,12 +34,15 @@ public:
 
 	explicit AttributeFile(std::shared_ptr<FsLink> link);
 
+	void handleClose() override;
+
 	expected<off_t> seek(off_t offset, VfsSeek whence) override;
 	expected<size_t> readSome(Process *, void *data, size_t max_length) override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
 
 	bool _cached;
 	std::string _buffer;
@@ -52,6 +55,8 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
+	void handleClose() override;
+
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
@@ -60,6 +65,8 @@ private:
 	DirectoryNode *_node;
 
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
+
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 

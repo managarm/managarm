@@ -33,12 +33,16 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-			&File::fileOperations);
+	file->_serve = protocols::fs::servePassthrough(std::move(lane),
+			smarter::shared_ptr<File>{file}, &File::fileOperations);
 }
 
 AttributeFile::AttributeFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("sysfs.attr"), std::move(link)}, _cached{false}, _offset{0} { }
+
+void AttributeFile::handleClose() {
+	_serve.cancel();
+}
 
 COFIBER_ROUTINE(expected<off_t>,
 AttributeFile::seek(off_t offset, VfsSeek whence), ([=] {
@@ -77,14 +81,18 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-			&File::fileOperations);
+	file->_serve = protocols::fs::servePassthrough(std::move(lane),
+			smarter::shared_ptr<File>{file}, &File::fileOperations);
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
 : File{StructName::get("sysfs.dir"), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
+
+void DirectoryFile::handleClose() {
+	_serve.cancel();
+}
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 COFIBER_ROUTINE(async::result<ReadEntriesResult>,

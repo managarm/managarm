@@ -130,6 +130,8 @@ public:
 
 	explicit DirectoryFile(std::shared_ptr<FsLink> link);
 
+	void handleClose() override;
+
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
@@ -138,6 +140,8 @@ private:
 	DirectoryNode *_node;
 
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
+
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
@@ -237,13 +241,15 @@ public:
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		protocols::fs::servePassthrough(std::move(lane), file,
+		file->_serve = protocols::fs::servePassthrough(std::move(lane), file,
 				&fileOperations);
 	}
 
 	MemoryFile(std::shared_ptr<FsLink> link)
 	: File{StructName::get("tmpfs.regular"), std::move(link)}, _offset{0} { }
-	
+
+	void handleClose() override;
+
 	expected<off_t> seek(off_t delta, VfsSeek whence) override;
 
 	expected<size_t> readSome(Process *, void *buffer, size_t max_length) override;
@@ -262,6 +268,8 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancelable_result<void> _serve;
+
 	uint64_t _offset;
 };
 
@@ -349,6 +357,10 @@ struct Superblock : FsSuperblock {
 MemoryNode::MemoryNode(Superblock *superblock)
 : FsNode{superblock}, _areaSize{0}, _fileSize{0} { }
 
+void MemoryFile::handleClose() {
+	_serve.cancel();
+}
+
 COFIBER_ROUTINE(expected<off_t>,
 MemoryFile::seek(off_t delta, VfsSeek whence), ([=] {
 	assert(whence == VfsSeek::relative);
@@ -428,12 +440,16 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	protocols::fs::servePassthrough(std::move(lane), smarter::shared_ptr<File>{file},
-			&File::fileOperations);
+	file->_serve = protocols::fs::servePassthrough(std::move(lane),
+			smarter::shared_ptr<File>{file}, &File::fileOperations);
+}
+
+void DirectoryFile::handleClose() {
+	_serve.cancel();
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<FsLink> link)
-: File{StructName::get("sysfs.dir"), std::move(link)},
+: File{StructName::get("tmpfs.dir"), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
