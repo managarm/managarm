@@ -53,7 +53,6 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 	auto self = entity->_scheduler;
 	assert(self);
-	assert(entity != self->_current); // TODO: The other case is untested.
 
 	self->_updateSystemProgress();
 

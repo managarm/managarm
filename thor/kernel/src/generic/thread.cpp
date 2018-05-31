@@ -10,10 +10,6 @@ namespace {
 	constexpr bool logRunStates = false;
 }
 
-void Thread::ObserveBase::run() {
-	trigger(error, interrupt);
-}
-
 // --------------------------------------------------------
 // Thread
 // --------------------------------------------------------
@@ -69,19 +65,22 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	this_thread->_runState = kRunInterrupted;
 	saveExecutor(&this_thread->_executor, image);
 
-	while(!this_thread->_observeQueue.empty()) {
-		auto observe = this_thread->_observeQueue.pop_front();
-		observe->error = Error::kErrSuccess;
-		observe->interrupt = interrupt;
-		observe->trigger(Error::kErrSuccess, interrupt);
-		globalWorkQueue().post(observe);
-	}
-
 	Scheduler::suspend(this_thread.get());
-	runDetached([] (frigg::LockGuard<Mutex> lock) {
+	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
+		ObserveQueue queue;
+		queue.splice(queue.end(), thread->_observeQueue);
+
 		lock.unlock();
+
+		while(!queue.empty()) {
+			auto observe = queue.pop_front();
+			observe->error = Error::kErrSuccess;
+			observe->interrupt = interrupt;
+			observe->trigger();
+		}
+
 		localScheduler()->reschedule();
-	}, std::move(lock));
+	}, interrupt, this_thread.get(), std::move(lock));
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
@@ -96,18 +95,22 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 				<< " is (synchronously) interrupted" << frigg::endLog;
 	saveExecutor(&this_thread->_executor, image);
 
-	while(!this_thread->_observeQueue.empty()) {
-		auto observe = this_thread->_observeQueue.pop_front();
-		observe->error = Error::kErrSuccess;
-		observe->interrupt = interrupt;
-		globalWorkQueue().post(observe);
-	}
-
 	Scheduler::suspend(this_thread.get());
-	runDetached([] (frigg::LockGuard<Mutex> lock) {
+	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
+		ObserveQueue queue;
+		queue.splice(queue.end(), thread->_observeQueue);
+
 		lock.unlock();
+
+		while(!queue.empty()) {
+			auto observe = queue.pop_front();
+			observe->error = Error::kErrSuccess;
+			observe->interrupt = interrupt;
+			observe->trigger();
+		}
+
 		localScheduler()->reschedule();
-	}, std::move(lock));
+	}, interrupt, this_thread.get(), std::move(lock));
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
@@ -127,20 +130,23 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 					<< " was (asynchronously) killed" << frigg::endLog;
 		saveExecutor(&this_thread->_executor, image);
 
-		while(!this_thread->_observeQueue.empty()) {
-			auto observe = this_thread->_observeQueue.pop_front();
-			observe->error = Error::kErrThreadExited;
-			observe->interrupt = kIntrNull;
-			globalWorkQueue().post(observe);
-		}
-
 		assert(!intsAreEnabled());
 		Scheduler::suspend(this_thread.get());
-		runDetached([] (frigg::LockGuard<Mutex> lock) {
+		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
+			ObserveQueue queue;
+			queue.splice(queue.end(), thread->_observeQueue);
+
 			lock.unlock();
+
+			while(!queue.empty()) {
+				auto observe = queue.pop_front();
+				observe->error = Error::kErrThreadExited;
+				observe->interrupt = kIntrNull;
+				observe->trigger();
+			}
+
 			localScheduler()->reschedule();
-		}, std::move(lock));
-		return;
+		}, this_thread.get(), std::move(lock));
 	}
 	
 	if(this_thread->_pendingSignal == kSigInterrupt) {
@@ -151,19 +157,23 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 					<< " was (asynchronously) interrupted" << frigg::endLog;
 		saveExecutor(&this_thread->_executor, image);
 
-		while(!this_thread->_observeQueue.empty()) {
-			auto observe = this_thread->_observeQueue.pop_front();
-			observe->error = Error::kErrSuccess;
-			observe->interrupt = kIntrRequested;
-			globalWorkQueue().post(observe);
-		}
-
 		assert(!intsAreEnabled());
 		Scheduler::suspend(this_thread.get());
-		runDetached([] (frigg::LockGuard<Mutex> lock) {
+		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
+			ObserveQueue queue;
+			queue.splice(queue.end(), thread->_observeQueue);
+
 			lock.unlock();
+
+			while(!queue.empty()) {
+				auto observe = queue.pop_front();
+				observe->error = Error::kErrSuccess;
+				observe->interrupt = kIntrRequested;
+				observe->trigger();
+			}
+
 			localScheduler()->reschedule();
-		}, std::move(lock));
+		}, this_thread.get(), std::move(lock));
 	}
 }
 
@@ -238,16 +248,21 @@ Thread::~Thread() {
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
 	frigg::infoLogger() << "\e[31mthor: Shutting down thread\e[39m" << frigg::endLog;
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	ObserveQueue queue;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
 
-	Scheduler::unassociate(this);
+		Scheduler::unassociate(this);
+		
+		queue.splice(queue.end(), _observeQueue);
+	}
 
-	while(!_observeQueue.empty()) {
-		auto observe = _observeQueue.pop_front();
+	while(!queue.empty()) {
+		auto observe = queue.pop_front();
 		observe->error = Error::kErrThreadExited;
 		observe->interrupt = kIntrNull;
-		globalWorkQueue().post(observe);
+		observe->trigger();
 	}
 }
 
@@ -256,16 +271,19 @@ void Thread::cleanup() {
 }
 
 void Thread::doSubmitObserve(ObserveBase *observe) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&_mutex);
 
-	if(_runState != kRunTerminated) {
-		_observeQueue.push_back(observe);
-	}else{
-		observe->error = Error::kErrThreadExited;
-		observe->interrupt = kIntrNull;
-		globalWorkQueue().post(observe);
+		if(_runState != kRunTerminated) {
+			_observeQueue.push_back(observe);
+			return;
+		}
 	}
+
+	observe->error = Error::kErrThreadExited;
+	observe->interrupt = kIntrNull;
+	observe->trigger();
 }
 
 UserContext &Thread::getContext() {

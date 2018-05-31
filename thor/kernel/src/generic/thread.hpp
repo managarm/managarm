@@ -24,13 +24,15 @@ frigg::UnsafePtr<Thread> getCurrentThread();
 
 struct Thread : frigg::SharedCounter, ScheduleEntity {
 private:
-	struct ObserveBase : Tasklet {
-		void run() override;
-
+	struct ObserveBase {
 		Error error;
 		Interrupt interrupt;
 
 		virtual void trigger(Error error, Interrupt interrupt) = 0;
+
+		void trigger() {
+			trigger(error, interrupt);
+		}
 
 		frg::default_list_hook<ObserveBase> hook;
 	};
@@ -208,15 +210,17 @@ private:
 
 	LaneHandle _superiorLane;
 	LaneHandle _inferiorLane;
-
-	frg::intrusive_list<
+	
+	using ObserveQueue = frg::intrusive_list<
 		ObserveBase,
 		frg::locate_member<
 			ObserveBase,
 			frg::default_list_hook<ObserveBase>,
 			&ObserveBase::hook
 		>
-	> _observeQueue;
+	>;
+
+	ObserveQueue _observeQueue;
 };
 
 } // namespace thor
