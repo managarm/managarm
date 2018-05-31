@@ -26,7 +26,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	arch/x86/hpet.o arch/x86/rtc.o \
 	arch/x86/embed_trampoline.o \
 	generic/physical.o generic/main.o generic/service.o generic/hel.o \
-	generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
+	generic/cancel.o generic/core.o generic/fiber.o generic/usermem.o generic/schedule.o \
 	generic/futex.o generic/stream.o \
 	generic/timer.o generic/thread.o generic/irq.o generic/io.o generic/service_helpers.o
 $c_OBJECTS += generic/font-8x16.o system/boot-screen.o system/fb.o

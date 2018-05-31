@@ -6,8 +6,11 @@
 #include <frg/pairing_heap.hpp>
 #include <frg/intrusive.hpp>
 #include <frigg/atomic.hpp>
+#include "cancel.hpp"
 
 namespace thor {
+
+struct PrecisionTimerEngine;
 
 struct ClockSource {
 	virtual uint64_t currentNanos() = 0;
@@ -40,8 +43,12 @@ private:
 };
 
 struct PrecisionTimerNode {
+	friend struct PrecisionTimerEngine;
+
 	PrecisionTimerNode(uint64_t deadline)
-	: deadline{deadline} { }
+	: deadline{deadline}, _engine{nullptr}, _inQueue{false} { }
+
+	void cancelTimer();
 
 	// The timer subsystem drops its references to the node before this call.
 	virtual void onElapse() = 0;
@@ -49,6 +56,12 @@ struct PrecisionTimerNode {
 	uint64_t deadline;
 
 	frg::pairing_heap_hook<PrecisionTimerNode> hook;
+
+private:
+	// TODO: If we allow timer engines to be destructed, this needs to be refcounted.
+	PrecisionTimerEngine *_engine;
+
+	bool _inQueue;
 };
 
 struct CompareTimer {
@@ -58,6 +71,8 @@ struct CompareTimer {
 };
 
 struct PrecisionTimerEngine : private AlarmSink {
+	friend struct PrecisionTimerNode;
+
 private:
 	using Mutex = frigg::TicketLock;
 

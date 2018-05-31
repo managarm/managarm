@@ -194,9 +194,23 @@ public: // TODO: This should not be public.
 };
 
 struct Operation : OperationBase {
+	Operation()
+	: _asyncId{0} { }
+
+	uint64_t asyncId() {
+		return _asyncId;
+	}
+
+	void setAsyncId(uint64_t async_id) {
+		_asyncId = async_id;
+	}
+
 	virtual void parse(void *&element) {
 		assert(!"Not supported");
 	}
+
+private:
+	uint64_t _asyncId;
 };
 
 struct Context {
@@ -648,8 +662,10 @@ struct Submission : private Context {
 	Submission(AwaitClock *operation,
 			uint64_t counter, Dispatcher &dispatcher)
 	: _result(operation) {
+		uint64_t async_id;
 		HEL_CHECK(helSubmitAwaitClock(counter, dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
+				reinterpret_cast<uintptr_t>(context()), &async_id));
+		operation->setAsyncId(async_id);
 	}
 
 	Submission(BorrowedDescriptor memory, ManageMemory *operation,

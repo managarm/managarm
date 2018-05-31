@@ -4,6 +4,7 @@
 #include <frigg/linked.hpp>
 #include <frigg/hashmap.hpp>
 #include "accessors.hpp"
+#include "cancel.hpp"
 #include "kernel_heap.hpp"
 #include "../arch/x86/ints.hpp"
 
@@ -176,7 +177,7 @@ private:
 	frg::default_list_hook<QueueNode> _queueNode;
 };
 
-struct UserQueue : private FutexNode {
+struct UserQueue : CancelRegistry, private FutexNode {
 private:
 	using Address = uintptr_t;
 

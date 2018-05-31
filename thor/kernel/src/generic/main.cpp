@@ -758,6 +758,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helSetupChunk((HelHandle)arg0, (int)arg1,
 				(HelChunk *)arg2, (uint32_t)arg3);
 	} break;
+	case kHelCallCancelAsync: {
+		HelHandle handle;
+		*image.error() = helCancelAsync((HelHandle)arg0, (uint64_t)arg1);
+	} break;
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
@@ -880,8 +884,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = counter;
 	} break;
 	case kHelCallSubmitAwaitClock: {
+		uint64_t async_id;
 		*image.error() = helSubmitAwaitClock((uint64_t)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2);
+				(HelHandle)arg1, (uintptr_t)arg2, &async_id);
+		*image.out0() = async_id;
 	} break;
 
 	case kHelCallCreateStream: {

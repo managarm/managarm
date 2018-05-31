@@ -3,6 +3,7 @@
 #define FRIGG_HASHMAP_HPP
 
 #include <frigg/macros.hpp>
+#include <frigg/memory.hpp>
 #include <frigg/tuple.hpp>
 #include <frigg/optional.hpp>
 

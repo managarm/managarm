@@ -12,12 +12,26 @@ static constexpr bool logProgress = false;
 ClockSource *globalClockSource;
 PrecisionTimerEngine *globalTimerEngine;
 
+void PrecisionTimerNode::cancelTimer() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_engine->_mutex);
+
+	if(_inQueue)
+		return;
+	_engine->_timerQueue.remove(this);
+	_inQueue = false;
+	_engine->_activeTimers--;
+	onElapse();
+}
+
 PrecisionTimerEngine::PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm)
 : _clock{clock}, _alarm{alarm} {
 	_alarm->setSink(this);
 }
 
 void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
+	assert(!timer->_engine);
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -29,7 +43,11 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 
 	_timerQueue.push(timer);
 	_activeTimers++;
-//		frigg::infoLogger() << "hpet: Active timers: " << _activeTimers << frigg::endLog;
+//	frigg::infoLogger() << "thor: Active timers: " << _activeTimers << frigg::endLog;
+
+	timer->_engine = this;
+	timer->_inQueue = true;
+
 	_progress();
 }
 
@@ -57,6 +75,8 @@ void PrecisionTimerEngine::_progress() {
 
 			auto timer = _timerQueue.top();
 			_timerQueue.pop();
+			assert(timer->_inQueue);
+			timer->_inQueue = false;
 			_activeTimers--;
 			if(logProgress)
 				frigg::infoLogger() << "thor: Timer completed" << frigg::endLog;

@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 92,
+	kHelNumCalls = 93,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -28,6 +28,7 @@ enum {
 
 	kHelCallCreateQueue = 89,
 	kHelCallSetupChunk = 90,
+	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 2,
 	kHelCallResizeMemory = 83,
@@ -362,6 +363,7 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle handle);
 
 HEL_C_LINKAGE HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetupChunk(HelHandle queue, int index, HelChunk *chunk, uint32_t flags);
+HEL_C_LINKAGE HelError helCancelAsync(HelHandle queue, uint64_t async_id);
 
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t new_size);
@@ -404,7 +406,7 @@ HEL_C_LINKAGE HelError helStoreRegisters(HelHandle handle, int set, const void *
 HEL_C_LINKAGE HelError helWriteFsBase(void *pointer);
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context);
+		HelHandle queue, uintptr_t context, uint64_t *async_id);
 
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
 HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const HelAction *actions,

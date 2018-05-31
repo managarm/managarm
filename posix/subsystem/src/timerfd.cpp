@@ -15,6 +15,7 @@ bool logTimerfd = false;
 struct OpenFile : File {
 private:
 	struct Timer {
+		uint64_t asyncId;
 		uint64_t initial;
 		uint64_t interval;
 	};
@@ -30,7 +31,9 @@ private:
 			helix::AwaitClock await_initial;
 			auto &&submit = helix::submitAwaitClock(&await_initial, tick + timer->initial,
 					helix::Dispatcher::global());
+			timer->asyncId = await_initial.asyncId();
 			COFIBER_AWAIT submit.async_wait();
+			timer->asyncId = 0;
 			HEL_CHECK(await_initial.error());
 			tick += timer->initial;
 
@@ -39,18 +42,25 @@ private:
 				_theSeq++;
 				_seqBell.ring();
 			}else{
+				delete timer;
 				COFIBER_RETURN();
 			}
 		}
 
-		if(!timer->interval)
+		if(!timer->interval) {
+			if(_activeTimer == timer)
+				_activeTimer = nullptr;
+			delete timer;
 			COFIBER_RETURN();
+		}
 
 		while(true) {
 			helix::AwaitClock await_interval;
 			auto &&submit = helix::submitAwaitClock(&await_interval, tick + timer->interval,
 					helix::Dispatcher::global());
+			timer->asyncId = await_interval.asyncId();
 			COFIBER_AWAIT submit.async_wait();
+			timer->asyncId = 0;
 			HEL_CHECK(await_interval.error());
 			tick += timer->interval;
 
@@ -59,6 +69,7 @@ private:
 				_theSeq++;
 				_seqBell.ring();
 			}else{
+				delete timer;
 				COFIBER_RETURN();
 			}
 		}
@@ -116,13 +127,18 @@ public:
 	}
 
 	void setTime(uint64_t initial, uint64_t interval) {
+		auto current = std::exchange(_activeTimer, nullptr);
+		if(current) {
+			assert(current->asyncId);
+			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), current->asyncId));
+		}
+
 		if(initial || interval) {
 			_activeTimer = new Timer;
+			_activeTimer->asyncId = 0;
 			_activeTimer->initial = initial;
 			_activeTimer->interval = interval;
 			arm(_activeTimer);
-		}else{
-			_activeTimer = nullptr;
 		}
 	}
 

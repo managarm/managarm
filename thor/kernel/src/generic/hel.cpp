@@ -552,6 +552,7 @@ HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
 
 	auto queue = frigg::makeShared<UserQueue>(*kernelAlloc,
 			this_thread->getAddressSpace().toShared(), head);
+	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -582,6 +583,28 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 	}
 
 	queue->setupChunk(index, this_thread->getAddressSpace().toShared(), chunk);
+
+	return kHelErrNone;
+}
+
+HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<UserQueue> queue;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+		
+		auto queue_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!queue_wrapper)
+			return kHelErrNoDescriptor;
+		if(!queue_wrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queue_wrapper->get<QueueDescriptor>().queue;
+	}
+
+	queue->cancel(async_id);
 
 	return kHelErrNone;
 }
@@ -1447,12 +1470,15 @@ HelError helGetClock(uint64_t *counter) {
 	return kHelErrNone;
 }
 
-HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context) {
-	struct Closure : PrecisionTimerNode, QueueNode {
+HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
+		uint64_t *async_id) {
+	struct Closure : CancelNode, PrecisionTimerNode, QueueNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<UserQueue> queue,
-				uintptr_t context) {
+				uintptr_t context, uint64_t *async_id) {
 			auto node = frigg::construct<Closure>(*kernelAlloc, nanos,
 					frigg::move(queue), context);
+			node->queue->issue(node);
+			*async_id = node->asyncId();
 			generalTimerEngine()->installTimer(node);
 		}
 
@@ -1465,7 +1491,12 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			setupSource(&source);
 		}
 
+		void handleCancel() override {
+			cancelTimer();
+		}
+
 		void onElapse() override {
+			finalizeCancel();
 			queue->submit(this);
 		}
 
@@ -1494,7 +1525,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	Closure::issue(counter, frigg::move(queue), context);
+	Closure::issue(counter, frigg::move(queue), context, async_id);
 
 	return kHelErrNone;
 }

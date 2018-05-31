@@ -60,6 +60,11 @@ extern inline __attribute__ (( always_inline )) HelError helSetupChunk(HelHandle
 			(HelWord)chunk, (HelWord)flags);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helCancelAsync(HelHandle handle,
+		uint64_t async_id) {
+	return helSyscall2(kHelCallCancelAsync, (HelWord)handle, (HelWord)async_id);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
 		uint32_t flags, HelHandle *handle) {
 	HelWord hel_handle;
@@ -239,8 +244,12 @@ extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *c
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall3(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue, (HelWord)context);
+		HelHandle queue, uintptr_t context, uint64_t *async_id) {
+	HelWord async_word;
+	HelError error = helSyscall3_1(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue,
+			(HelWord)context, &async_word);
+	*async_id = (uint64_t)async_word;
+	return error;
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHandle *lane1,
