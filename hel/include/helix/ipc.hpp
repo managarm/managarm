@@ -469,20 +469,22 @@ struct Accept : Operation {
 	
 	UniqueDescriptor descriptor() {
 		HEL_CHECK(error());
-		UniqueDescriptor descriptor(result()->handle);
-		result()->handle = kHelNullHandle;
-		return descriptor;
+		return std::move(_descriptor);
 	}
 
 	void parse(void *&ptr) override {
 		_element = ptr;
 		ptr = (char *)ptr + sizeof(HelHandleResult);
+		if(!error())
+			_descriptor = UniqueDescriptor{result()->handle};
 	}
 
 private:
 	HelHandleResult *result() {
 		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
 	}
+
+	UniqueDescriptor _descriptor;
 };
 
 struct ImbueCredentials : Operation {
@@ -576,20 +578,22 @@ struct PullDescriptor : Operation {
 	
 	UniqueDescriptor descriptor() {
 		HEL_CHECK(error());
-		UniqueDescriptor descriptor(result()->handle);
-		result()->handle = kHelNullHandle;
-		return descriptor;
+		return std::move(_descriptor);
 	}
 
 	void parse(void *&ptr) override {
 		_element = ptr;
 		ptr = (char *)ptr + sizeof(HelHandleResult);
+		if(!error())
+			_descriptor = UniqueDescriptor{result()->handle};
 	}
 
 private:
 	HelHandleResult *result() {
 		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
 	}
+
+	UniqueDescriptor _descriptor;
 };
 
 struct SendBuffer : Operation {
