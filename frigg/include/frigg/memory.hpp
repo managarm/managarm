@@ -129,6 +129,15 @@ void destruct(Allocator &allocator, T *pointer) {
 	allocator.free(pointer);
 }
 
+template<typename T, typename Allocator>
+void destructN(Allocator &allocator, T *pointer, size_t n) {
+	if(!pointer)
+		return;
+	for(size_t i = 0; i < n; i++)
+		pointer[i].~T();
+	allocator.free(pointer);
+}
+
 } // namespace frigg
 
 #endif // FRIGG_MEMORY_HPP

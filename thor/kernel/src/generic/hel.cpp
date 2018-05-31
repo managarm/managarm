@@ -361,6 +361,10 @@ public:
 		setupContext(context);
 	}
 
+	~MsgHandler() {
+		frigg::destructN(*kernelAlloc, _results, _numItems);
+	}
+
 private:
 	void submit() {
 		auto source = [this] (int index) {
@@ -384,7 +388,7 @@ private:
 	}
 	
 	void complete() override {
-		// TODO: Destruct this.
+		frigg::destruct(*kernelAlloc, this);
 	}
 
 	size_t _numItems;
