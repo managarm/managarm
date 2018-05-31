@@ -370,7 +370,8 @@ servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 		helix::RecvInline recv_req;
 
 		auto &&initiate = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept));
+				helix::action(&accept, kHelItemAncillary),
+				helix::action(&recv_req));
 		COFIBER_AWAIT initiate.async_wait();
 
 		// TODO: Handle end-of-lane correctly. Why does it even happen here?
@@ -381,12 +382,8 @@ servePassthrough(helix::UniqueLane p, smarter::shared_ptr<void> file,
 			COFIBER_RETURN();
 		}
 		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_req.error());	
 		auto conversation = accept.descriptor();
-
-		auto &&header = helix::submitAsync(conversation, helix::Dispatcher::global(),
-				helix::action(&recv_req));
-		COFIBER_AWAIT header.async_wait();
-		HEL_CHECK(recv_req.error());		
 
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recv_req.data(), recv_req.length());
