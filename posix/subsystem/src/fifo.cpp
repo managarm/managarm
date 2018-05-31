@@ -11,6 +11,8 @@ namespace fifo {
 
 namespace {
 
+constexpr bool logFifos = false;
+
 struct Packet {
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
@@ -53,7 +55,8 @@ public:
 
 	COFIBER_ROUTINE(expected<size_t>,
 	readSome(Process *, void *data, size_t max_length) override, ([=] {
-		std::cout << "posix: Read from pipe " << this << std::endl;
+		if(logFifos)
+			std::cout << "posix: Read from pipe " << this << std::endl;
 
 		while(_channel->packetQueue.empty() && _channel->writerCount)
 			COFIBER_AWAIT _channel->statusBell.async_wait();
@@ -116,6 +119,21 @@ public:
 		}
 		_channel = nullptr;
 	}
+	
+	COFIBER_ROUTINE(FutureMaybe<void>,
+	writeAll(Process *process, const void *data, size_t max_length) override, ([=] {
+
+		Packet packet;
+		packet.buffer.resize(max_length);
+		memcpy(packet.buffer.data(), data, max_length);
+		packet.offset = 0;
+
+		_channel->packetQueue.push_back(std::move(packet));
+		_channel->inSeq = ++_channel->currentSeq;
+		_channel->statusBell.ring();
+
+		COFIBER_RETURN();
+	}))
 	
 	COFIBER_ROUTINE(expected<PollResult>, poll(Process *, uint64_t) override, ([=] {
 		std::cout << "posix: Fix fifo WriterFile::poll()" << std::endl;
