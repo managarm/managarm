@@ -26,13 +26,10 @@ struct Thread : frigg::SharedCounter, ScheduleEntity {
 private:
 	struct ObserveBase {
 		Error error;
+		uint64_t sequence;
 		Interrupt interrupt;
 
-		virtual void trigger(Error error, Interrupt interrupt) = 0;
-
-		void trigger() {
-			trigger(error, interrupt);
-		}
+		virtual void trigger() = 0;
 
 		frg::default_list_hook<ObserveBase> hook;
 	};
@@ -42,8 +39,8 @@ private:
 		Observe(F functor)
 		: _functor(frigg::move(functor)) { }
 
-		void trigger(Error error, Interrupt interrupt) override {
-			_functor(error, interrupt);
+		void trigger() override {
+			_functor(error, sequence, interrupt);
 		}
 
 	private:
@@ -131,9 +128,9 @@ public:
 	}
 
 	template<typename F>
-	void submitObserve(F functor) {
+	void submitObserve(uint64_t in_seq, F functor) {
 		auto observe = frigg::construct<Observe<F>>(*kernelAlloc, frigg::move(functor));
-		doSubmitObserve(observe);
+		doSubmitObserve(in_seq, observe);
 	}
 
 	// TODO: Do not expose these functions publically.
@@ -142,7 +139,7 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 	
-	void doSubmitObserve(ObserveBase *observe);
+	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
 
 	// TODO: Tidy this up.
 	frigg::UnsafePtr<Thread> self;
@@ -184,6 +181,8 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+	Interrupt _lastInterrupt;
+	uint64_t _stateSeq;
 
 	// number of ticks this thread has been running (i.e. in the active state)
 	uint64_t _numTicks;

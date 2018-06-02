@@ -605,14 +605,16 @@ namespace initrd {
 	
 	struct ObserveClosure {
 		ObserveClosure(Process *process, frigg::SharedPtr<Thread> thread)
-		: _process(process), _thread(frigg::move(thread)) { }
+		: _process(process), _thread(frigg::move(thread)),
+				_observedSeq{1} { }
 
 		void operator() () {
-			_thread->submitObserve(CALLBACK_MEMBER(this, &ObserveClosure::onObserve));
+			_thread->submitObserve(_observedSeq,
+					CALLBACK_MEMBER(this, &ObserveClosure::onObserve));
 		}
 
 	private:
-		void onObserve(Error error, Interrupt interrupt) {
+		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
 			assert(error == kErrSuccess);
 			
 			if(interrupt == kIntrSuperCall + 1) {
@@ -620,14 +622,18 @@ namespace initrd {
 				_thread->_executor.general()->rsi = (Word)_process->clientFileTable;
 				Thread::resumeOther(_thread);
 			}else{
-				frigg::panicLogger() << "Unexpected observation" << frigg::endLog;
+				frigg::panicLogger() << "thor: Unexpected observation "
+						<< (uint32_t)interrupt << frigg::endLog;
 			}
 
+			_observedSeq = sequence;
 			(*this)();
 		}
 		
 		Process *_process;
 		frigg::SharedPtr<Thread> _thread;
+
+		uint64_t _observedSeq;
 	};
 }
 

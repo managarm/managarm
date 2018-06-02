@@ -652,6 +652,10 @@ struct Observe : Operation {
 		return result()->observation;
 	}
 
+	uint64_t sequence() {
+		return result()->sequence;
+	}
+
 private:
 	HelObserveResult *result() {
 		return reinterpret_cast<HelObserveResult *>(OperationBase::element());
@@ -689,9 +693,9 @@ struct Submission : private Context {
 	}
 
 	Submission(BorrowedDescriptor thread, Observe *operation,
-			Dispatcher &dispatcher)
+			uint64_t in_seq, Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitObserve(thread.getHandle(),
+		HEL_CHECK(helSubmitObserve(thread.getHandle(), in_seq,
 				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
@@ -856,8 +860,8 @@ inline Submission submitLockMemory(BorrowedDescriptor memory, LockMemory *operat
 }
 
 inline Submission submitObserve(BorrowedDescriptor thread, Observe *operation,
-		Dispatcher &dispatcher) {
-	return {thread, operation, dispatcher};
+		uint64_t in_seq, Dispatcher &dispatcher) {
+	return {thread, operation, in_seq, dispatcher};
 }
 
 template<typename... I>

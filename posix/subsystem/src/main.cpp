@@ -79,15 +79,19 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 	auto res = globalCredentialsMap.insert({creds, self});
 	assert(res.second);
 
+	uint64_t sequence = 1;
 	while(true) {
 		helix::Observe observe;
-		auto &&submit = helix::submitObserve(thread, &observe, helix::Dispatcher::global());
+		auto &&submit = helix::submitObserve(thread, &observe,
+				sequence, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
-		
+
 		if(observe.error() == kHelErrThreadTerminated)
 			COFIBER_RETURN();
 
 		HEL_CHECK(observe.error());
+		sequence = observe.sequence();
+
 		if(observe.observation() == kHelObserveSuperCall + 1) {
 			if(logRequests)
 				std::cout << "posix: clientFileTable supercall" << std::endl;

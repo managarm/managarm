@@ -206,8 +206,9 @@ extern inline __attribute__ (( always_inline )) HelError helSetPriority(HelHandl
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitObserve(HelHandle handle,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall3(kHelCallSubmitObserve, (HelWord)handle, (HelWord)queue, (HelWord)context);
+		uint64_t in_seq, HelHandle queue, uintptr_t context) {
+	return helSyscall4(kHelCallSubmitObserve, (HelWord)handle, (HelWord)in_seq,
+			(HelWord)queue, (HelWord)context);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helKillThread(HelHandle handle) {

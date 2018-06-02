@@ -134,7 +134,7 @@ enum {
 
 enum {
 	kHelItemChain = 1,
-	kHelItemAncillary = 2
+	kHelItemAncillary = 2,
 };
 
 struct HelSgItem {
@@ -304,7 +304,7 @@ struct HelManageResult {
 struct HelObserveResult {
 	HelError error;
 	unsigned int observation;
-	uint64_t code;
+	uint64_t sequence;
 };
 
 struct HelInlineResult {
@@ -396,7 +396,7 @@ HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle address_spa
 		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
 HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
 HEL_C_LINKAGE HelError helYield();
-HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle,
+HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 		HelHandle queue, uintptr_t context);
 HEL_C_LINKAGE HelError helKillThread(HelHandle handle);
 HEL_C_LINKAGE HelError helInterruptThread(HelHandle handle);

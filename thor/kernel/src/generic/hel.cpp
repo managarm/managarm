@@ -310,9 +310,9 @@ private:
 };
 
 struct ObserveThreadWriter {
-	ObserveThreadWriter(Error error, Interrupt interrupt)
+	ObserveThreadWriter(Error error, uint64_t sequence, Interrupt interrupt)
 	: source{&_result, sizeof(HelObserveResult), nullptr},
-			_result{translateError(error), 0, 0} {
+			_result{translateError(error), 0, sequence} {
 		if(interrupt == kIntrNull) {
 			_result.observation = kHelObserveNull;
 		}else if(interrupt == kIntrRequested) {
@@ -1284,7 +1284,8 @@ HelError helYield() {
 	return kHelErrNone;
 }
 
-HelError helSubmitObserve(HelHandle handle, HelHandle queue_handle, uintptr_t context) {
+HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
+		HelHandle queue_handle, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1309,9 +1310,8 @@ HelError helSubmitObserve(HelHandle handle, HelHandle queue_handle, uintptr_t co
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 	
-	// TODO: protect the thread with a lock!
 	PostEvent<ObserveThreadWriter> functor{frigg::move(queue), context};
-	thread->submitObserve(frigg::move(functor));
+	thread->submitObserve(in_seq, frigg::move(functor));
 
 	return kHelErrNone;
 }

@@ -64,18 +64,22 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is (synchronously) interrupted" << frigg::endLog;
 	this_thread->_runState = kRunInterrupted;
+	this_thread->_lastInterrupt = interrupt;
+	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 
 	Scheduler::suspend(this_thread.get());
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
+		auto sequence = thread->_stateSeq;
 
 		lock.unlock();
 
 		while(!queue.empty()) {
 			auto observe = queue.pop_front();
 			observe->error = Error::kErrSuccess;
+			observe->sequence = sequence;
 			observe->interrupt = interrupt;
 			observe->trigger();
 		}
@@ -91,6 +95,8 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 
 	assert(this_thread->_runState == kRunActive);
 	this_thread->_runState = kRunInterrupted;
+	this_thread->_lastInterrupt = interrupt;
+	++this_thread->_stateSeq;
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is (synchronously) interrupted" << frigg::endLog;
@@ -100,12 +106,14 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
+		auto sequence = thread->_stateSeq;
 
 		lock.unlock();
 
 		while(!queue.empty()) {
 			auto observe = queue.pop_front();
 			observe->error = Error::kErrSuccess;
+			observe->sequence = sequence;
 			observe->interrupt = interrupt;
 			observe->trigger();
 		}
@@ -126,6 +134,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	
 	if(this_thread->_pendingKill) {
 		this_thread->_runState = kRunTerminated;
+		++this_thread->_stateSeq;
 	//	if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) killed" << frigg::endLog;
@@ -136,12 +145,14 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
+			auto sequence = thread->_stateSeq;
 
 			lock.unlock();
 
 			while(!queue.empty()) {
 				auto observe = queue.pop_front();
 				observe->error = Error::kErrThreadExited;
+				observe->sequence = 0;
 				observe->interrupt = kIntrNull;
 				observe->trigger();
 			}
@@ -152,6 +163,8 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	
 	if(this_thread->_pendingSignal == kSigInterrupt) {
 		this_thread->_runState = kRunInterrupted;
+		this_thread->_lastInterrupt = kIntrRequested;
+		++this_thread->_stateSeq;
 		this_thread->_pendingSignal = kSigNone;
 	//	if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
@@ -163,12 +176,14 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
+			auto sequence = thread->_stateSeq;
 
 			lock.unlock();
 
 			while(!queue.empty()) {
 				auto observe = queue.pop_front();
 				observe->error = Error::kErrSuccess;
+				observe->sequence = sequence;
 				observe->interrupt = kIntrRequested;
 				observe->trigger();
 			}
@@ -226,7 +241,7 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,
 		frigg::SharedPtr<AddressSpace> address_space, AbiParameters abi)
-: flags(0), _runState(kRunInterrupted),
+: flags(0), _runState(kRunInterrupted), _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_numTicks(0), _activationTick(0),
 		_pendingKill{false}, _pendingSignal(kSigNone), _runCount(1),
 		_executor{&_context, abi},
@@ -262,6 +277,7 @@ void Thread::destruct() {
 	while(!queue.empty()) {
 		auto observe = queue.pop_front();
 		observe->error = Error::kErrThreadExited;
+		observe->sequence = 0;
 		observe->interrupt = kIntrNull;
 		observe->trigger();
 	}
@@ -271,19 +287,39 @@ void Thread::cleanup() {
 	frigg::destruct(*kernelAlloc, this);
 }
 
-void Thread::doSubmitObserve(ObserveBase *observe) {
+void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
+	RunState state;
+	Interrupt interrupt;
+	uint64_t sequence;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&_mutex);
 
-		if(_runState != kRunTerminated) {
+		assert(in_seq <= _stateSeq);
+		if(in_seq == _stateSeq && _runState != kRunTerminated) {
 			_observeQueue.push_back(observe);
 			return;
+		}else{
+			state = _runState;
+			interrupt = _lastInterrupt;
+			sequence = _stateSeq;
 		}
 	}
 
-	observe->error = Error::kErrThreadExited;
-	observe->interrupt = kIntrNull;
+	switch(state) {
+	case kRunInterrupted:
+		observe->error = Error::kErrSuccess;
+		observe->sequence = sequence;
+		observe->interrupt = interrupt;
+		break;
+	case kRunTerminated:
+		observe->error = Error::kErrThreadExited;
+		observe->sequence = 0;
+		observe->interrupt = kIntrNull;
+		break;
+	default:
+		frigg::panicLogger() << "thor: Unexpected RunState" << frigg::endLog;
+	}
 	observe->trigger();
 }
 
