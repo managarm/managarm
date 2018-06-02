@@ -1043,7 +1043,7 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	_pageSpace.submitShootdown(&node->_shootNode);
 }
 
-bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
+bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
 	// TODO: It seems that this is not invoked for on-demand allocation
 	// of AllocatedMemory objects!
 
@@ -1060,7 +1060,8 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags) {
 	// FIXME: mapping might be deleted here!
 	// We need to use either refcounting or QS garbage collection here!
 
-	return mapping->handleFault(address - mapping->address(), fault_flags);
+	node->_resolved = mapping->handleFault(address - mapping->address(), fault_flags);
+	return true;
 }
 
 frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
@@ -1140,16 +1141,6 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 	}
 
 	return frigg::move(fork_space);
-}
-
-PhysicalAddr AddressSpace::grabPhysical(Guard &guard, VirtualAddr address) {
-	assert(guard.protects(&lock));
-	assert((address % kPageSize) == 0);
-
-	Mapping *mapping = _getMapping(address);
-	if(!mapping)
-		return PhysicalAddr(-1);
-	return mapping->grabPhysical(address - mapping->address());
 }
 
 void AddressSpace::activate() {
@@ -1277,6 +1268,14 @@ bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
 	return true;
 }
 
+PhysicalAddr ForeignSpaceAccessor::getPhysical(size_t offset) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard guard(&_space->lock);
+
+	auto vaddr = reinterpret_cast<VirtualAddr>(_address) + offset;
+	return _resolvePhysical(vaddr);
+}
+
 void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 	assert(_acquired);
 
@@ -1289,7 +1288,7 @@ void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
 		size_t misalign = (VirtualAddr)write % kPageSize;
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
-		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+		PhysicalAddr page = _resolvePhysical(write - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -1310,7 +1309,7 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 		size_t misalign = (VirtualAddr)write % kPageSize;
 		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
 
-		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+		PhysicalAddr page = _resolvePhysical(write - misalign);
 		if(page == PhysicalAddr(-1))
 			return kErrFault;
 
@@ -1320,6 +1319,13 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 	}
 
 	return kErrSuccess;
+}
+
+PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
+	Mapping *mapping = _space->_getMapping(vaddr);
+	if(!mapping)
+		return PhysicalAddr(-1);
+	return mapping->grabPhysical(vaddr - mapping->address());
 }
 
 } // namespace thor

@@ -940,19 +940,19 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
 
-	auto address = (VirtualAddr)pointer;
-	auto misalign = address % kPageSize;
+	// TODO: The physical page can change after we destruct the accessor!
+	// We need a better hel API to properly handle that case.
+	AcquireNode node;
 
-	PhysicalAddr page_physical;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&space->lock);
+	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
+	auto accessor = ForeignSpaceAccessor{frigg::move(space),
+			reinterpret_cast<char *>(pointer) - disp, kPageSize};
+	auto acq = accessor.acquire(&node);
+	assert(acq);
 
-		page_physical = space->grabPhysical(space_guard, address - misalign);
-		assert(page_physical != PhysicalAddr(-1));
-	}
+	auto page_physical = accessor.getPhysical(0);
 
-	*physical = page_physical + misalign;
+	*physical = page_physical + disp;
 
 	return kHelErrNone;
 }

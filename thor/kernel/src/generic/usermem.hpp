@@ -412,6 +412,24 @@ private:
 	frigg::SharedPtr<CowBundle> _cowBundle;
 };
 
+struct FaultNode {
+	friend struct AddressSpace;
+
+	FaultNode()
+	: _resolved{false} { }
+
+	FaultNode(const FaultNode &) = delete;
+
+	FaultNode &operator= (const FaultNode &) = delete;
+
+	bool resolved() {
+		return _resolved;
+	}
+
+private:
+	bool _resolved;
+};
+
 struct HoleLess {
 	bool operator() (const Hole &a, const Hole &b) {
 		return a.address() < b.address();
@@ -453,6 +471,8 @@ private:
 };
 
 class AddressSpace {
+	friend struct ForeignSpaceAccessor;
+
 public:
 	typedef frigg::TicketLock Lock;
 	typedef frigg::LockGuard<Lock> Guard;
@@ -490,7 +510,7 @@ public:
 	void unmap(Guard &guard, VirtualAddr address, size_t length,
 			AddressUnmapNode *node);
 
-	bool handleFault(VirtualAddr address, uint32_t flags);
+	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
 	
 	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
 	
@@ -563,6 +583,8 @@ struct ForeignSpaceAccessor {
 	}
 
 	bool acquire(AcquireNode *node);
+	
+	PhysicalAddr getPhysical(size_t offset);
 
 	void load(size_t offset, void *pointer, size_t size);
 	Error write(size_t offset, const void *pointer, size_t size);
@@ -580,6 +602,8 @@ struct ForeignSpaceAccessor {
 	}
 
 private:
+	PhysicalAddr _resolvePhysical(VirtualAddr vaddr);
+
 	frigg::SharedPtr<AddressSpace> _space;
 	void *_address;
 	size_t _length;

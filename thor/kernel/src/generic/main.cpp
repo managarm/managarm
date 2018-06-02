@@ -586,7 +586,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
 	}else{
-		handled = address_space->handleFault(address, flags);
+		FaultNode node;
+		auto done = address_space->handleFault(address, flags, &node);
+		assert(done);
+		handled = node.resolved();
 	}
 	
 	if(handled)

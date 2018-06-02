@@ -74,13 +74,7 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_
 	assert(!(lock.address() % sizeof(T)));
 	
 	_misalign = (lock.address() + offset) % kPageSize;
-	PhysicalAddr physical;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard guard(&lock.space()->lock);
-
-		physical = lock.space()->grabPhysical(guard, lock.address() + offset - _misalign);
-	}
+	auto physical = lock.getPhysical(offset - _misalign);
 	assert(physical != PhysicalAddr(-1));
 	_accessor = PageAccessor{physical};
 }
