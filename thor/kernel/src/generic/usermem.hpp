@@ -80,7 +80,34 @@ private:
 	F _functor;
 };
 
+struct FetchNode {
+	friend struct MemoryBundle;
+
+	PhysicalAddr physical() {
+		return _physical;
+	}
+
+private:
+	void (*_fetched)(FetchNode *);
+
+	PhysicalAddr _physical;
+};
+
 struct MemoryBundle {	
+protected:
+	void setupFetch(FetchNode *node, void (*fetched)(FetchNode *)) {
+		node->_fetched = fetched;
+	}
+
+	void completeFetch(FetchNode *node, PhysicalAddr physical) {
+		node->_physical = physical;
+	}
+	
+	void callbackFetch(FetchNode *node) {
+		node->_fetched(node);
+	}
+
+public:
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
 	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
@@ -88,8 +115,9 @@ struct MemoryBundle {
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
-	// TODO: This should be asynchronous.
-	virtual PhysicalAddr fetchRange(uintptr_t offset) = 0;
+	virtual bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) = 0;
+	
+	PhysicalAddr blockForRange(uintptr_t offset);
 };
 
 struct VirtualView {
@@ -103,7 +131,7 @@ struct CowBundle : MemoryBundle {
 	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	PhysicalAddr fetchRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
 
 private:
 	frigg::TicketLock _mutex;
@@ -167,7 +195,7 @@ struct HardwareMemory : Memory {
 	~HardwareMemory();
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	PhysicalAddr fetchRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
 
 	size_t getLength();
 
@@ -190,7 +218,7 @@ struct AllocatedMemory : Memory {
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	PhysicalAddr fetchRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
 	
 	size_t getLength();
 
@@ -245,7 +273,7 @@ public:
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	PhysicalAddr fetchRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
 
 	size_t getLength();
 
@@ -266,7 +294,7 @@ public:
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	PhysicalAddr fetchRange(uintptr_t offset) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
 
 	size_t getLength();
 

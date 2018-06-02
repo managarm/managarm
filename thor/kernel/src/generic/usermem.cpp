@@ -14,6 +14,29 @@ namespace {
 	}
 }
 
+
+PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
+	struct Node : FetchNode {
+		Node()
+		: blockedThread{getCurrentThread()}, complete{false} { }
+
+		frigg::UnsafePtr<Thread> blockedThread;
+		std::atomic<bool> complete;
+	} node;
+
+	auto functor = [] (FetchNode *base) {
+		auto np = static_cast<Node *>(base);
+		np->complete.store(true, std::memory_order_release);
+		Thread::unblockOther(np->blockedThread);
+	};
+
+	if(!fetchRange(offset, &node, functor)) 
+		Thread::blockCurrentWhile([&] {
+			return !node.complete.load(std::memory_order_acquire);
+		});
+	return node.physical();
+}
+
 // --------------------------------------------------------
 
 CowBundle::CowBundle(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size)
@@ -33,8 +56,9 @@ PhysicalAddr CowBundle::peekRange(uintptr_t) {
 	__builtin_unreachable();
 }
 
-PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
+bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
 	assert(!(offset & (kPageSize - 1)));
+	setupFetch(node, fetched);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
@@ -43,7 +67,8 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 	if(auto it = _pages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
 		assert(physical != PhysicalAddr(-1));
-		return physical;
+		completeFetch(node, physical);
+		return true;
 	}
 
 	// Otherwise we need to copy from the super-tree.
@@ -56,11 +81,12 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 			assert(chain != this);
 			Memory::transfer(_copy.get(), offset, chain->_copy.get(), disp, kPageSize);
 
-			auto physical = _copy->fetchRange(offset);
+			auto physical = _copy->blockForRange(offset);
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			return physical;
+			completeFetch(node, physical);
+			return true;
 		}
 
 		// Copy from the root view.
@@ -69,11 +95,12 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 			auto bundle = chain->_superRoot->resolveRange(chain->_superOffset + disp, kPageSize);
 			Memory::transfer(_copy.get(), offset, bundle.get<0>(), bundle.get<1>(), kPageSize);
 
-			auto physical = _copy->fetchRange(offset);
+			auto physical = _copy->blockForRange(offset);
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			return physical;
+			completeFetch(node, physical);
+			return true;
 		}
 
 		disp += chain->_superOffset;
@@ -94,8 +121,8 @@ void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
 				kPageSize - src_misalign), length - progress);
 
-		PhysicalAddr dest_page = dest_memory->fetchRange(dest_offset + progress - dest_misalign);
-		PhysicalAddr src_page = src_memory->fetchRange(src_offset + progress - dest_misalign);
+		PhysicalAddr dest_page = dest_memory->blockForRange(dest_offset + progress - dest_misalign);
+		PhysicalAddr src_page = src_memory->blockForRange(src_offset + progress - dest_misalign);
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
 
@@ -179,7 +206,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
-		PhysicalAddr page = bundle->fetchRange(offset - misalign);
+		PhysicalAddr page = bundle->blockForRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -189,7 +216,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 
 	while(size - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		PhysicalAddr page = bundle->blockForRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -199,7 +226,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 
 	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		PhysicalAddr page = bundle->blockForRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
@@ -215,7 +242,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
-		PhysicalAddr page = bundle->fetchRange(offset - misalign);
+		PhysicalAddr page = bundle->blockForRange(offset - misalign);
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -225,7 +252,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 
 	while(size - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		PhysicalAddr page = bundle->blockForRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
@@ -235,7 +262,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 
 	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->fetchRange(offset + progress);
+		PhysicalAddr page = bundle->blockForRange(offset + progress);
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
@@ -264,9 +291,12 @@ PhysicalAddr HardwareMemory::peekRange(uintptr_t offset) {
 	return _base + offset;
 }
 
-PhysicalAddr HardwareMemory::fetchRange(uintptr_t offset) {
+bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
 	assert(offset % kPageSize == 0);
-	return _base + offset;
+	setupFetch(node, fetched);
+
+	completeFetch(node, _base + offset);
+	return true;
 }
 
 size_t HardwareMemory::getLength() {
@@ -358,8 +388,9 @@ PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	return _physicalChunks[index] + misalign;
 }
 
-PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
+bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
 	assert(offset % kPageSize == 0);
+	setupFetch(node, fetched);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
@@ -386,7 +417,8 @@ PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
 	auto misalign = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	return _physicalChunks[index] + misalign;
+	completeFetch(node, _physicalChunks[index] + misalign);
+	return true;
 }
 
 size_t AllocatedMemory::getLength() {
@@ -411,6 +443,8 @@ ManagedSpace::~ManagedSpace() {
 	assert(!"Implement this");
 }
 
+// TODO: Split this into a function to match initiate <-> handle requests
+// + a different function to complete initiate requests.
 void ManagedSpace::progressLoads() {
 	// TODO: this function could issue loads > a single kPageSize
 	while(!initiateLoadQueue.empty()) {
@@ -469,8 +503,9 @@ PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 	return _managed->physicalPages[index];
 }
 
-PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
+bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
 	assert(!(offset % kPageSize));
+	setupFetch(node, fetched);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
@@ -486,7 +521,8 @@ PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
 		_managed->physicalPages[index] = physical;
 	}
 
-	return _managed->physicalPages[index];
+	completeFetch(node, _managed->physicalPages[index]);
+	return true;
 }
 
 size_t BackingMemory::getLength() {
@@ -553,8 +589,9 @@ PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 	return _managed->physicalPages[index];
 }
 
-PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
+bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
 	assert(!(offset % kPageSize));
+	setupFetch(node, fetched);
 	
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
@@ -562,37 +599,24 @@ PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
 	if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
-		auto this_thread = getCurrentThread();
-
-		std::atomic<bool> complete(false);
-		auto functor = [&] (Error error) {
+		auto functor = [=] (Error error) {
 			assert(error == kErrSuccess);
-			complete.store(true, std::memory_order_release);
-			Thread::unblockOther(this_thread);
+			auto physical = _managed->physicalPages[index];
+			assert(physical != PhysicalAddr(-1));
+			completeFetch(node, physical);
+			callbackFetch(node);
 		};
-
-		// TODO: Store the initiation object on the stack.
-		// This ensures that we can not run out of kernel heap memory here.
 		auto initiate = frigg::makeShared<Initiate<decltype(functor)>>(*kernelAlloc,
 				offset, kPageSize, frigg::move(functor));
 		_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 		_managed->progressLoads();
-
-		lock.unlock();
-		irq_lock.unlock();
-
-//		frigg::infoLogger() << "thor: Thread blocked on memory read" << frigg::endLog;
-		Thread::blockCurrentWhile([&] {
-			return !complete.load(std::memory_order_acquire);
-		});
-
-		irq_lock.lock();
-		lock.lock();
+		return false;
 	}
 
 	auto physical = _managed->physicalPages[index];
 	assert(physical != PhysicalAddr(-1));
-	return physical;
+	completeFetch(node, physical);
+	return true;
 }
 
 size_t FrontalMemory::getLength() {
@@ -755,7 +779,7 @@ PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
 
 	auto range = _view->resolveRange(_offset + disp, kPageSize);
 	assert(range.get<2>() >= kPageSize);
-	return range.get<0>()->fetchRange(range.get<1>());
+	return range.get<0>()->blockForRange(range.get<1>());
 }
 
 bool NormalMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
@@ -779,7 +803,7 @@ bool NormalMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) 
 
 	auto range = _view->resolveRange(_offset + fault_page, kPageSize);
 	assert(range.get<2>() >= kPageSize);
-	auto physical = range.get<0>()->fetchRange(range.get<1>());
+	auto physical = range.get<0>()->blockForRange(range.get<1>());
 
 	// TODO: This can actually happen!
 	assert(!owner()->_pageSpace.isMapped(vaddr));
@@ -835,7 +859,7 @@ void CowMapping::uninstall(bool clear) {
 }
 
 PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
-	return _cowBundle->fetchRange(disp);
+	return _cowBundle->blockForRange(disp);
 }
 
 bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
@@ -857,7 +881,7 @@ bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 
 	auto fault_page = fault_offset & ~(kPageSize - 1);
 
-	auto physical = _cowBundle->fetchRange(fault_page);
+	auto physical = _cowBundle->blockForRange(fault_page);
 	// TODO: Ensure that no racing threads still see the original page.
 	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
 			true, page_flags);
