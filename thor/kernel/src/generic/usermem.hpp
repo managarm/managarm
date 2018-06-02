@@ -104,6 +104,8 @@ struct CowBundle : MemoryBundle {
 	PhysicalAddr fetchRange(uintptr_t offset) override;
 
 private:
+	frigg::TicketLock _mutex;
+
 	frigg::SharedPtr<VirtualView> _superRoot;
 	frigg::SharedPtr<CowBundle> _superChain;
 	ptrdiff_t _superOffset;
@@ -202,6 +204,8 @@ struct AllocatedMemory : Memory {
 	size_t getLength();
 
 private:
+	frigg::TicketLock _mutex;
+
 	frigg::Vector<PhysicalAddr, KernelAlloc> _physicalChunks;
 	size_t _chunkSize, _chunkAlign;
 };
@@ -218,6 +222,8 @@ struct ManagedSpace {
 	
 	void progressLoads();
 	bool isComplete(frigg::UnsafePtr<InitiateBase> initiate);
+
+	frigg::TicketLock mutex;
 
 	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frigg::Vector<LoadState, KernelAlloc> loadState;

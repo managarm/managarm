@@ -36,6 +36,9 @@ PhysicalAddr CowBundle::peekRange(uintptr_t) {
 PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 	assert(!(offset & (kPageSize - 1)));
 
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	// If the page is present in this bundle we just return it.
 	if(auto it = _pages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
@@ -329,6 +332,9 @@ AllocatedMemory::~AllocatedMemory() {
 }
 
 void AllocatedMemory::resize(size_t new_length) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	assert(!(new_length % _chunkSize));
 	size_t num_chunks = new_length / _chunkSize;
 	assert(num_chunks >= _physicalChunks.size());
@@ -336,6 +342,9 @@ void AllocatedMemory::resize(size_t new_length) {
 }
 
 void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	// TODO: For now we only allow naturally aligned access.
 	assert(size <= kPageSize);
 	assert(!(offset % size));
@@ -373,6 +382,10 @@ void AllocatedMemory::release(uintptr_t offset, size_t length) {
 
 PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
+	
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	auto index = offset / _chunkSize;
 	auto misalign = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
@@ -383,6 +396,9 @@ PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 
 PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 
 	auto range = alignRange(offset, kPageSize, _chunkSize);
 	for(uintptr_t progress = 0; progress < range.get<1>(); progress += _chunkSize) {
@@ -410,6 +426,9 @@ PhysicalAddr AllocatedMemory::fetchRange(uintptr_t offset) {
 }
 
 size_t AllocatedMemory::getLength() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	return _physicalChunks.size() * _chunkSize;
 }
 
@@ -490,6 +509,9 @@ void BackingMemory::release(uintptr_t offset, size_t length) {
 PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
 	return _managed->physicalPages[index];
@@ -497,6 +519,9 @@ PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 
 PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
 	
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
@@ -513,10 +538,14 @@ PhysicalAddr BackingMemory::fetchRange(uintptr_t offset) {
 }
 
 size_t BackingMemory::getLength() {
+	// Size is constant so we do not need to lock.
 	return _managed->physicalPages.size() * kPageSize;
 }
 
 void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
 	_managed->handleLoadQueue.addBack(frigg::move(handle));
 	_managed->progressLoads();
 }
@@ -524,6 +553,9 @@ void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
 void BackingMemory::completeLoad(size_t offset, size_t length) {
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
+	
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
 	assert((offset + length) / kPageSize <= _managed->physicalPages.size());
 
 /*	assert(length == kPageSize);
@@ -571,6 +603,9 @@ void FrontalMemory::release(uintptr_t offset, size_t length) {
 PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
 	if(_managed->loadState[index] != ManagedSpace::kStateLoaded)
@@ -580,6 +615,9 @@ PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 
 PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
+	
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
@@ -600,6 +638,9 @@ PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 		_managed->initiateLoadQueue.addBack(frigg::move(initiate));
 		_managed->progressLoads();
 
+		lock.unlock();
+		irq_lock.unlock();
+
 //		frigg::infoLogger() << "thor: Thread blocked on memory read" << frigg::endLog;
 		Thread::blockCurrentWhile([&] {
 			return !complete.load(std::memory_order_acquire);
@@ -612,10 +653,14 @@ PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 }
 
 size_t FrontalMemory::getLength() {
+	// Size is constant so we do not need to lock.
 	return _managed->physicalPages.size() * kPageSize;
 }
 
 void FrontalMemory::submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_managed->mutex);
+
 	assert(initiate->offset % kPageSize == 0);
 	assert(initiate->length % kPageSize == 0);
 	assert((initiate->offset + initiate->length) / kPageSize
