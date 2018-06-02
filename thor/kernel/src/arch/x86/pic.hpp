@@ -28,6 +28,8 @@ private:
 	GlobalAlarmSlot _globalAlarmInstance;
 
 private:
+	frigg::TicketLock _mutex;
+
 	uint64_t _globalDeadline;
 };
 

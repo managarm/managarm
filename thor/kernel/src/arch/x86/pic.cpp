@@ -77,7 +77,11 @@ void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	assert(apicTicksPerMilli > 0);
 	assert(nanos > 0);
 
-	globalApicContext()->_globalDeadline = nanos;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&globalApicContext()->_mutex);
+		globalApicContext()->_globalDeadline = nanos;
+	}
 	LocalApicContext::_updateLocalTimer();
 }
 
@@ -101,10 +105,13 @@ void LocalApicContext::_updateLocalTimer() {
 			deadline = dc;
 	};
 
-	// TODO: We need to lock the global context to read the deadline.
 	consider(localApicContext()->_preemptionDeadline);
-	consider(globalApicContext()->_globalDeadline);
-	
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		auto lock = frigg::guard(&globalApicContext()->_mutex);
+		consider(globalApicContext()->_globalDeadline);
+	}
+
 	auto now = systemClockSource()->currentNanos();
 	uint64_t ticks;
 	if(deadline < now) {
