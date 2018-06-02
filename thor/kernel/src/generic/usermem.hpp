@@ -13,6 +13,7 @@ namespace thor {
 
 struct Memory;
 struct AddressSpace;
+struct ForeignSpaceAccessor;
 
 using GrabIntent = uint32_t;
 enum : GrabIntent {
@@ -565,10 +566,25 @@ public: // TODO: Make this private.
 };
 
 struct AcquireNode {
-	void (*acquired)();
+	friend struct ForeignSpaceAccessor;
+
+	AcquireNode()
+	: _acquired{nullptr}, _progress{0} { }
+
+private:
+	void (*_acquired)(AcquireNode *);
+
+	ForeignSpaceAccessor *_accessor;
+	FetchNode _fetch;
+	size_t _progress;
 };
 
 struct ForeignSpaceAccessor {
+private:
+	static bool _processAcquire(AcquireNode *node);
+	static void _fetchedAcquire(FetchNode *node);
+
+public:
 	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
 		frigg::swap(a._space, b._space);
 		frigg::swap(a._address, b._address);
@@ -605,7 +621,7 @@ struct ForeignSpaceAccessor {
 		return _length;
 	}
 
-	bool acquire(AcquireNode *node);
+	bool acquire(AcquireNode *node, void (*acquired)(AcquireNode *));
 	
 	PhysicalAddr getPhysical(size_t offset);
 

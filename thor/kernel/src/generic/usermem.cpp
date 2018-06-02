@@ -6,15 +6,6 @@
 
 namespace thor {
 
-namespace {
-	frigg::Tuple<uintptr_t, size_t> alignRange(uintptr_t offset, size_t length, size_t align) {
-		auto misalign = offset & (align - 1);
-		return frigg::Tuple<uintptr_t, size_t>{offset - misalign,
-				(misalign + length + (align - 1)) & ~(align - 1)};
-	}
-}
-
-
 PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
 	struct Node : FetchNode {
 		Node()
@@ -381,30 +372,28 @@ PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	auto lock = frigg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
-	auto misalign = offset & (_chunkSize - 1);
+	auto disp = offset & (_chunkSize - 1);
 	assert(index < _physicalChunks.size());
+
 	if(_physicalChunks[index] == PhysicalAddr(-1))
 		return PhysicalAddr(-1);
-	return _physicalChunks[index] + misalign;
+	return _physicalChunks[index] + disp;
 }
 
 bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
-	assert(offset % kPageSize == 0);
 	setupFetch(node, fetched);
-
+	
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
+	
+	auto index = offset / _chunkSize;
+	auto disp = offset & (_chunkSize - 1);
+	assert(index < _physicalChunks.size());
 
-	auto range = alignRange(offset, kPageSize, _chunkSize);
-	for(uintptr_t progress = 0; progress < range.get<1>(); progress += _chunkSize) {
-		size_t index = (range.get<0>() + progress) / _chunkSize;
-		assert(index < _physicalChunks.size());
-		if(_physicalChunks[index] != PhysicalAddr(-1))
-			continue;
-
+	if(_physicalChunks[index] == PhysicalAddr(-1)) {
 		auto physical = physicalAllocator->allocate(_chunkSize);
 		assert(physical != PhysicalAddr(-1));
-		assert(!(physical % _chunkAlign));
+		assert(!(physical & (_chunkAlign - 1)));
 
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
 			PageAccessor accessor{physical + pg_progress};
@@ -413,11 +402,8 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetch
 		_physicalChunks[index] = physical;
 	}
 
-	auto index = offset / _chunkSize;
-	auto misalign = offset & (_chunkSize - 1);
-	assert(index < _physicalChunks.size());
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, _physicalChunks[index] + misalign);
+	completeFetch(node, _physicalChunks[index] + disp);
 	return true;
 }
 
@@ -1271,10 +1257,45 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 // ForeignSpaceAccessor
 // --------------------------------------------------------
 
-bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
-	_acquired = true;
-//	node->acquired();
+bool ForeignSpaceAccessor::_processAcquire(AcquireNode *node) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&node->_accessor->_space->lock);
+
+	while(node->_progress < node->_accessor->_length) {
+		auto vaddr = reinterpret_cast<uintptr_t>(node->_accessor->_address) + node->_progress;
+		auto mapping = node->_accessor->_space->_getMapping(vaddr);
+		assert(mapping);
+		auto range = mapping->resolveRange(vaddr - mapping->address(),
+				node->_accessor->_length - node->_progress);
+		if(!range.get<0>()->fetchRange(range.get<1>(), &node->_fetch, &_fetchedAcquire))
+			return false;
+		node->_progress += kPageSize - (vaddr & (kPageSize - 1));
+	}
+
 	return true;
+}
+
+void ForeignSpaceAccessor::_fetchedAcquire(FetchNode *base) {
+	assert(!"This is untested");
+	auto node = frg::container_of(base, &AcquireNode::_fetch);
+	node->_progress += kPageSize;
+
+	if(_processAcquire(node)) {
+		node->_accessor->_acquired = true;
+		node->_acquired(node);
+	}
+}
+
+bool ForeignSpaceAccessor::acquire(AcquireNode *node, void (*acquired)(AcquireNode *)) {
+	node->_acquired = acquired;
+	node->_accessor = this;
+	node->_progress = 0;
+
+	if(_processAcquire(node)) {
+		node->_accessor->_acquired = true;
+		return true;
+	}
+	return false;
 }
 
 PhysicalAddr ForeignSpaceAccessor::getPhysical(size_t offset) {
@@ -1332,10 +1353,11 @@ Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t siz
 
 PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
 	Mapping *mapping = _space->_getMapping(vaddr);
-	if(!mapping)
-		return PhysicalAddr(-1);
+	assert(mapping);
 	auto range = mapping->resolveRange(vaddr - mapping->address(), kPageSize);
-	return range.get<0>()->blockForRange(range.get<1>());
+	auto physical = range.get<0>()->peekRange(range.get<1>());
+	assert(physical != PhysicalAddr(-1));
+	return physical;
 }
 
 } // namespace thor

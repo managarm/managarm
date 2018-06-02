@@ -15,7 +15,7 @@ UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
 		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
 		_chunks{*kernelAlloc} {
 	_queuePin = ForeignSpaceAccessor{_space, _pointer, sizeof(QueueStruct)};
-	auto acq = _queuePin.acquire(&_acquireNode);
+	auto acq = _queuePin.acquire(&_acquireNode, nullptr);
 	assert(acq);
 	_queueAccessor = DirectSpaceAccessor<QueueStruct>{_queuePin, 0};
 
@@ -83,7 +83,7 @@ void UserQueue::_progress() {
 		assert(!(dest & 0x7));
 		auto accessor = ForeignSpaceAccessor{_currentChunk->space,
 				reinterpret_cast<void *>(dest), sizeof(ElementStruct) + length};
-		auto acq = accessor.acquire(&_acquireNode);
+		auto acq = accessor.acquire(&_acquireNode, nullptr);
 		assert(acq);
 
 		ElementStruct element;
@@ -118,7 +118,7 @@ void UserQueue::_advanceChunk() {
 			+ (_nextIndex & ((1 << _sizeShift) - 1)) * sizeof(int);
 	auto accessor = ForeignSpaceAccessor{_space,
 			reinterpret_cast<void *>(source), sizeof(int)};
-	auto acq = accessor.acquire(&_acquireNode);
+	auto acq = accessor.acquire(&_acquireNode, nullptr);
 	assert(acq);
 	size_t cn = accessor.read<int>(0);
 	assert(cn < _chunks.size());
@@ -128,7 +128,7 @@ void UserQueue::_advanceChunk() {
 	_nextIndex = ((_nextIndex + 1) & kHeadMask);
 	_chunkPin = ForeignSpaceAccessor{_currentChunk->space,
 			_currentChunk->pointer, sizeof(ChunkStruct)};
-	auto acq_chunk = _chunkPin.acquire(&_acquireNode);
+	auto acq_chunk = _chunkPin.acquire(&_acquireNode, nullptr);
 	assert(acq_chunk);
 	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{_chunkPin, 0};
 }

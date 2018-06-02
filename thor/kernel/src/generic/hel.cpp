@@ -947,7 +947,7 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
 	auto accessor = ForeignSpaceAccessor{frigg::move(space),
 			reinterpret_cast<char *>(pointer) - disp, kPageSize};
-	auto acq = accessor.acquire(&node);
+	auto acq = accessor.acquire(&node, nullptr);
 	assert(acq);
 
 	auto page_physical = accessor.getPhysical(0);
@@ -985,7 +985,7 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
 	auto accessor = ForeignSpaceAccessor{frigg::move(space),
 			(void *)address, length};
-	auto acq = accessor.acquire(&node);
+	auto acq = accessor.acquire(&node, nullptr);
 	assert(acq);
 
 	enableUserAccess();
@@ -1023,7 +1023,7 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
 	auto accessor = ForeignSpaceAccessor{frigg::move(space),
 			(void *)address, length};
-	auto acq = accessor.acquire(&node);
+	auto acq = accessor.acquire(&node, nullptr);
 	assert(acq);
 
 	enableUserAccess();
@@ -1718,7 +1718,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			AcquireNode node;
 			auto accessor = ForeignSpaceAccessor{frigg::move(space),
 					action.buffer, action.length};
-			auto acq = accessor.acquire(&node);
+			auto acq = accessor.acquire(&node, nullptr);
 			assert(acq);
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
 					Token(handler, i - 1));
