@@ -190,6 +190,7 @@ struct TimeStampCounter : ClockSource {
 
 TimeStampCounter *globalTscInstance;
 
+extern ClockSource *hpetClockSource;
 extern AlarmTracker *hpetAlarmTracker;
 extern ClockSource *globalClockSource;
 extern PrecisionTimerEngine *globalTimerEngine;
@@ -217,8 +218,9 @@ void calibrateApicTimer() {
 	globalApicContextInstance = frigg::construct<GlobalApicContext>(*kernelAlloc);
 
 	globalClockSource = globalTscInstance;
+//	globalClockSource = hpetClockSource;
 	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
-			globalTscInstance, globalApicContext()->globalAlarm());
+			globalClockSource, globalApicContext()->globalAlarm());
 //			globalTscInstance, hpetAlarmTracker);
 }
 

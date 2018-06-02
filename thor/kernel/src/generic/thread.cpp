@@ -145,7 +145,6 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
-			auto sequence = thread->_stateSeq;
 
 			lock.unlock();
 

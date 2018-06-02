@@ -1,5 +1,6 @@
 
 #include "kernel.hpp"
+#include "ipc-queue.hpp"
 #include "irq.hpp"
 #include "../arch/x86/debug.hpp"
 
@@ -958,8 +959,6 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 
 HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		size_t length, void *buffer) {
-	ASSERT_BOOT_CPU();
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -981,9 +980,14 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
+	AcquireNode node;
+
 	// TODO: This enableUserAccess() should be replaced by a writeUserMemory().
-	auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
-			(void *)address, length);
+	auto accessor = ForeignSpaceAccessor{frigg::move(space),
+			(void *)address, length};
+	auto acq = accessor.acquire(&node);
+	assert(acq);
+
 	enableUserAccess();
 	accessor.load(0, buffer, length);
 	disableUserAccess();
@@ -993,8 +997,6 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 
 HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		size_t length, const void *buffer) {
-	ASSERT_BOOT_CPU();
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1016,9 +1018,14 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		}
 	}
 
+	AcquireNode node;
+
 	// TODO: This enableUserAccess() should be replaced by a readUserMemory().
-	auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
-			(void *)address, length);
+	auto accessor = ForeignSpaceAccessor{frigg::move(space),
+			(void *)address, length};
+	auto acq = accessor.acquire(&node);
+	assert(acq);
+
 	enableUserAccess();
 	auto error = accessor.write(0, buffer, length);
 	assert(!error);
@@ -1507,16 +1514,12 @@ HelError helWriteFsBase(void *pointer) {
 }
 
 HelError helGetClock(uint64_t *counter) {
-	ASSERT_BOOT_CPU();
-
 	*counter = systemClockSource()->currentNanos();
 	return kHelErrNone;
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-	ASSERT_BOOT_CPU();
-
 	struct Closure : CancelNode, PrecisionTimerNode, QueueNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<UserQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
@@ -1712,8 +1715,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		case kHelActionRecvToBuffer: {
 			using Token = SetResult<RecvStringWriter>;
 			auto space = this_thread->getAddressSpace().toShared();
-			auto accessor = ForeignSpaceAccessor::acquire(frigg::move(space),
-					action.buffer, action.length);
+			AcquireNode node;
+			auto accessor = ForeignSpaceAccessor{frigg::move(space),
+					action.buffer, action.length};
+			auto acq = accessor.acquire(&node);
+			assert(acq);
 			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
 					Token(handler, i - 1));
 		} break;
@@ -1748,8 +1754,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 }
 
 HelError helShutdownLane(HelHandle handle) {
-	ASSERT_BOOT_CPU();
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	

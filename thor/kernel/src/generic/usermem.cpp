@@ -87,9 +87,6 @@ PhysicalAddr CowBundle::fetchRange(uintptr_t offset) {
 
 void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 		MemoryBundle *src_memory, uintptr_t src_offset, size_t length) {
-//	dest_memory->acquire(dest_offset, length);
-//	src_memory->acquire(src_offset, length);
-
 	size_t progress = 0;
 	while(progress < length) {
 		auto dest_misalign = (dest_offset + progress) % kPageSize;
@@ -109,9 +106,6 @@ void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 
 		progress += chunk;
 	}
-
-//	dest_memory->release(dest_offset, length);
-//	src_memory->release(src_offset, length);
 }
 
 void Memory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t size) {
@@ -181,8 +175,6 @@ void Memory::completeLoad(size_t offset, size_t length) {
 
 void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,
 		CopyToBundleNode *node, void (*complete)(CopyToBundleNode *)) {
-	bundle->acquire(offset, size);
-
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
@@ -214,14 +206,11 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 		memcpy(accessor.get(), (uint8_t *)pointer + progress, size - progress);
 	}
 
-	bundle->release(offset, size);
 	complete(node);
 }
 
 void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		CopyFromBundleNode *node, void (*complete)(CopyFromBundleNode *)) {
-	bundle->acquire(offset, size);
-
 	size_t progress = 0;
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
@@ -253,7 +242,6 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 		memcpy((uint8_t *)buffer + progress, accessor.get(), size - progress);
 	}
 
-	bundle->release(offset, size);
 	complete(node);
 }
 
@@ -269,18 +257,6 @@ HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length)
 
 HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
-}
-
-void HardwareMemory::acquire(uintptr_t offset, size_t length) {
-	// Hardware memory is always available.
-	(void)offset;
-	(void)length;
-}
-
-void HardwareMemory::release(uintptr_t offset, size_t length) {
-	// Hardware memory is always available.
-	(void)offset;
-	(void)length;
 }
 
 PhysicalAddr HardwareMemory::peekRange(uintptr_t offset) {
@@ -366,18 +342,6 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	PageAccessor accessor{_physicalChunks[index]
 			+ ((offset % _chunkSize) / kPageSize)};
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
-}
-
-void AllocatedMemory::acquire(uintptr_t offset, size_t length) {
-	// TODO: Mark the pages as locked.
-	(void)offset;
-	(void)length;
-}
-
-void AllocatedMemory::release(uintptr_t offset, size_t length) {
-	// TODO: Mark the pages as unlocked.
-	(void)offset;
-	(void)length;
 }
 
 PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
@@ -494,18 +458,6 @@ bool ManagedSpace::isComplete(frigg::UnsafePtr<InitiateBase> initiate) {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::acquire(uintptr_t offset, size_t length) {
-	(void)offset;
-	(void)length;
-	assert(!"Implement this");
-}
-
-void BackingMemory::release(uintptr_t offset, size_t length) {
-	(void)offset;
-	(void)length;
-	assert(!"Implement this");
-}
-
 PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
@@ -588,18 +540,6 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 // FrontalMemory
 // --------------------------------------------------------
 
-void FrontalMemory::acquire(uintptr_t offset, size_t length) {
-	(void)offset;
-	(void)length;
-	assert(!"Implement this");
-}
-
-void FrontalMemory::release(uintptr_t offset, size_t length) {
-	(void)offset;
-	(void)length;
-	assert(!"Implement this");
-}
-
 PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
@@ -645,6 +585,9 @@ PhysicalAddr FrontalMemory::fetchRange(uintptr_t offset) {
 		Thread::blockCurrentWhile([&] {
 			return !complete.load(std::memory_order_acquire);
 		});
+
+		irq_lock.lock();
+		lock.lock();
 	}
 
 	auto physical = _managed->physicalPages[index];
@@ -1322,6 +1265,61 @@ void AddressSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	}
 	
 	frigg::destruct(*kernelAlloc, hole);
+}
+
+// --------------------------------------------------------
+// ForeignSpaceAccessor
+// --------------------------------------------------------
+
+bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
+	_acquired = true;
+//	node->acquired();
+	return true;
+}
+
+void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
+	assert(_acquired);
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard guard(&_space->lock);
+	
+	size_t progress = 0;
+	while(progress < size) {
+		VirtualAddr write = (VirtualAddr)_address + offset + progress;
+		size_t misalign = (VirtualAddr)write % kPageSize;
+		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+
+		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+		assert(page != PhysicalAddr(-1));
+
+		PageAccessor accessor{page};
+		memcpy((char *)pointer + progress, (char *)accessor.get() + misalign, chunk);
+		progress += chunk;
+	}
+}
+
+Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
+	assert(_acquired);
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	AddressSpace::Guard guard(&_space->lock);
+	
+	size_t progress = 0;
+	while(progress < size) {
+		VirtualAddr write = (VirtualAddr)_address + offset + progress;
+		size_t misalign = (VirtualAddr)write % kPageSize;
+		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
+
+		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
+		if(page == PhysicalAddr(-1))
+			return kErrFault;
+
+		PageAccessor accessor{page};
+		memcpy((char *)accessor.get() + misalign, (char *)pointer + progress, chunk);
+		progress += chunk;
+	}
+
+	return kErrSuccess;
 }
 
 } // namespace thor

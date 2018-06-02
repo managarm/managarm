@@ -250,7 +250,10 @@ KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
-	
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	auto &region = SkeletalRegion::global();
 
 	int pml4_index = (int)((pointer >> 39) & 0x1FF);
@@ -324,6 +327,9 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, ui
 
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 
 	auto &region = SkeletalRegion::global();
 
@@ -412,6 +418,9 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		bool user_page, uint32_t flags) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 	
 	PageAccessor accessor4;
 	PageAccessor accessor3;
@@ -499,6 +508,9 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 	assert(!(pointer & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	PageAccessor accessor4;
 	PageAccessor accessor3;
 	PageAccessor accessor2;
@@ -549,6 +561,9 @@ void ClientPageSpace::unmapRange(VirtualAddr pointer, size_t size, PageMode mode
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
+
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
 
 	PageAccessor accessor4;
 	PageAccessor accessor3;

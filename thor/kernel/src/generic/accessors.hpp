@@ -3,75 +3,10 @@
 
 #include <frigg/variant.hpp>
 
+#include "usermem.hpp"
 #include "../arch/x86/paging.hpp"
 
 namespace thor {
-
-struct AddressSpace;
-
-struct ForeignSpaceAccessor {
-	// TODO: Use the constructor instead.
-	static ForeignSpaceAccessor acquire(frigg::SharedPtr<AddressSpace> space,
-			void *address, size_t length) {
-		// TODO: actually lock the memory + make sure the memory is mapped as writeable
-		// TODO: return an empty lock if the acquire fails
-		return ForeignSpaceAccessor(frigg::move(space), (uintptr_t)address, length);
-	}
-
-	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
-		frigg::swap(a._space, b._space);
-		frigg::swap(a._address, b._address);
-		frigg::swap(a._length, b._length);
-	}
-
-	ForeignSpaceAccessor() = default;
-	
-	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
-			uintptr_t address, size_t length)
-	: _space(frigg::move(space)), _address((void *)address), _length(length) { }
-
-	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
-
-	ForeignSpaceAccessor(ForeignSpaceAccessor &&other)
-	: ForeignSpaceAccessor() {
-		swap(*this, other);
-	}
-	
-	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	frigg::UnsafePtr<AddressSpace> space() {
-		return _space;
-	}
-	uintptr_t address() {
-		return (uintptr_t)_address;
-	}
-	size_t length() {
-		return _length;
-	}
-
-	void load(size_t offset, void *pointer, size_t size);
-	Error write(size_t offset, const void *pointer, size_t size);
-
-	template<typename T>
-	T read(size_t offset) {
-		T value;
-		load(offset, &value, sizeof(T));
-		return value;
-	}
-
-	template<typename T>
-	Error write(size_t offset, T value) {
-		return write(offset, &value, sizeof(T));
-	}
-
-private:
-	frigg::SharedPtr<AddressSpace> _space;
-	void *_address;
-	size_t _length;
-};
 
 // directly accesses an object in an arbitrary address space.
 // requires the object's address to be naturally aligned

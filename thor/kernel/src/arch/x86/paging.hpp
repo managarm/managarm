@@ -185,6 +185,9 @@ public:
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
+
+private:
+	frigg::TicketLock _mutex;
 };
 
 struct ClientPageSpace : PageSpace {
@@ -202,6 +205,9 @@ public:
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
 	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
+
+private:
+	frigg::TicketLock _mutex;
 };
 
 void invalidatePage(const void *address);

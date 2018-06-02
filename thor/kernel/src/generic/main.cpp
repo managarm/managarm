@@ -695,7 +695,7 @@ extern "C" void thorImplementNoThreadIrqs() {
 void handleSyscall(SyscallImageAccessor image) {
 	frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
 	if(logEverySyscall && *image.number() != kHelCallLog)
-		frigg::infoLogger() << this_thread.get()
+		frigg::infoLogger() << this_thread.get() << " on CPU " << getLocalApicId()
 				<< " syscall #" << *image.number() << frigg::endLog;
 
 	// TODO: The return in this code path prevents us from checking for signals!

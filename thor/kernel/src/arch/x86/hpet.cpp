@@ -100,6 +100,7 @@ private:
 };
 
 frigg::LazyInitializer<HpetDevice> hpetDevice;
+ClockSource *hpetClockSource;
 AlarmTracker *hpetAlarmTracker;
 
 bool haveTimer() {
@@ -159,6 +160,7 @@ void setupHpet(PhysicalAddr address) {
 		hpetBase.store(timerConfig0, timer_bits::enableInt(true) | timer_bits::activeIrq(2));
 	}
 
+	hpetClockSource = hpetDevice.get();
 	hpetAlarmTracker = hpetDevice.get();
 	hpetAvailable = true;
 	

@@ -85,47 +85,6 @@ DirectSpaceAccessor<T>::DirectSpaceAccessor(ForeignSpaceAccessor &lock, ptrdiff_
 	_accessor = PageAccessor{physical};
 }
 
-inline void ForeignSpaceAccessor::load(size_t offset, void *pointer, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
-	
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = (VirtualAddr)_address + offset + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		assert(page != PhysicalAddr(-1));
-
-		PageAccessor accessor{page};
-		memcpy((char *)pointer + progress, (char *)accessor.get() + misalign, chunk);
-		progress += chunk;
-	}
-}
-
-inline Error ForeignSpaceAccessor::write(size_t offset, const void *pointer, size_t size) {
-	auto irq_lock = frigg::guard(&irqMutex());
-	AddressSpace::Guard guard(&_space->lock);
-	
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = (VirtualAddr)_address + offset + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frigg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = _space->grabPhysical(guard, write - misalign);
-		if(page == PhysicalAddr(-1))
-			return kErrFault;
-
-		PageAccessor accessor{page};
-		memcpy((char *)accessor.get() + misalign, (char *)pointer + progress, chunk);
-		progress += chunk;
-	}
-
-	return kErrSuccess;
-}
-
 // --------------------------------------------------------
 // Process related classes
 // --------------------------------------------------------

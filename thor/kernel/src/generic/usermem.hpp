@@ -7,10 +7,12 @@
 #include "error.hpp"
 #include "types.hpp"
 #include "futex.hpp"
+#include "../arch/x86/paging.hpp"
 
 namespace thor {
 
 struct Memory;
+struct AddressSpace;
 
 using GrabIntent = uint32_t;
 enum : GrabIntent {
@@ -132,11 +134,6 @@ struct Memory : MemoryBundle {
 
 	virtual void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length);
 
-	// Prevents eviction of a range of memory.
-	// Does NOT ensure that this range is present before the call returns.
-	virtual void acquire(uintptr_t offset, size_t length) = 0;
-	virtual void release(uintptr_t offset, size_t length) = 0;
-
 	size_t getLength();
 
 	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
@@ -169,9 +166,6 @@ struct HardwareMemory : Memory {
 	HardwareMemory(PhysicalAddr base, size_t length);
 	~HardwareMemory();
 
-	void acquire(uintptr_t offset, size_t length) override;
-	void release(uintptr_t offset, size_t length) override;
-
 	PhysicalAddr peekRange(uintptr_t offset) override;
 	PhysicalAddr fetchRange(uintptr_t offset) override;
 
@@ -194,9 +188,6 @@ struct AllocatedMemory : Memory {
 	void resize(size_t new_length) override;
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
-
-	void acquire(uintptr_t offset, size_t length) override;
-	void release(uintptr_t offset, size_t length) override;
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
 	PhysicalAddr fetchRange(uintptr_t offset) override;
@@ -253,9 +244,6 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
-	void acquire(uintptr_t offset, size_t length) override;
-	void release(uintptr_t offset, size_t length) override;
-	
 	PhysicalAddr peekRange(uintptr_t offset) override;
 	PhysicalAddr fetchRange(uintptr_t offset) override;
 
@@ -277,9 +265,6 @@ public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
-	void acquire(uintptr_t offset, size_t length) override;
-	void release(uintptr_t offset, size_t length) override;
-	
 	PhysicalAddr peekRange(uintptr_t offset) override;
 	PhysicalAddr fetchRange(uintptr_t offset) override;
 
@@ -534,6 +519,71 @@ private:
 
 public: // TODO: Make this private.
 	ClientPageSpace _pageSpace;
+};
+
+struct AcquireNode {
+	void (*acquired)();
+};
+
+struct ForeignSpaceAccessor {
+	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
+		frigg::swap(a._space, b._space);
+		frigg::swap(a._address, b._address);
+		frigg::swap(a._length, b._length);
+		frigg::swap(a._acquired, b._acquired);
+	}
+
+	ForeignSpaceAccessor()
+	: _acquired{false} { }
+	
+	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
+			void *address, size_t length)
+	: _space(frigg::move(space)), _address(address), _length(length) { }
+
+	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
+
+	ForeignSpaceAccessor(ForeignSpaceAccessor &&other)
+	: ForeignSpaceAccessor() {
+		swap(*this, other);
+	}
+	
+	ForeignSpaceAccessor &operator= (ForeignSpaceAccessor other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	frigg::UnsafePtr<AddressSpace> space() {
+		return _space;
+	}
+	uintptr_t address() {
+		return (uintptr_t)_address;
+	}
+	size_t length() {
+		return _length;
+	}
+
+	bool acquire(AcquireNode *node);
+
+	void load(size_t offset, void *pointer, size_t size);
+	Error write(size_t offset, const void *pointer, size_t size);
+
+	template<typename T>
+	T read(size_t offset) {
+		T value;
+		load(offset, &value, sizeof(T));
+		return value;
+	}
+
+	template<typename T>
+	Error write(size_t offset, T value) {
+		return write(offset, &value, sizeof(T));
+	}
+
+private:
+	frigg::SharedPtr<AddressSpace> _space;
+	void *_address;
+	size_t _length;
+	bool _acquired;
 };
 
 } // namespace thor
