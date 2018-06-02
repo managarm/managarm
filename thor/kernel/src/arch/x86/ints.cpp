@@ -46,6 +46,7 @@ extern "C" void thorRtIsrIrq22();
 extern "C" void thorRtIsrIrq23();
 
 extern "C" void thorRtIpiShootdown();
+extern "C" void thorRtIpiPing();
 extern "C" void thorRtPreemption();
 
 namespace thor {
@@ -158,6 +159,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 1);
 	
 	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
+	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 1);
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 
 	//FIXME
@@ -284,6 +286,24 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 		getCpuData()->pcidBindings[i].shootdown();
 
 	acknowledgeIpi();
+}
+
+extern "C" void onPlatformPing(IrqImageAccessor image) {
+	if(inStub(*image.ip()))
+		frigg::panicLogger() << "Shootdown IPI"
+				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
+	uint16_t cs = *image.cs();
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
+
+	assert(!irqMutex().nesting());
+	disableUserAccess();
+
+	acknowledgeIpi();
+
+	handlePreemption(image);
 }
 
 bool intsAreEnabled() {

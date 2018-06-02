@@ -79,10 +79,12 @@ struct Scheduler {
 	Scheduler(const Scheduler &) = delete;
 
 	Scheduler &operator= (const Scheduler &) = delete;
-	
-	Progress liveUnfairness(const ScheduleEntity *entity);
-	int64_t liveRuntime(const ScheduleEntity *entity);
 
+private:
+	Progress _liveUnfairness(const ScheduleEntity *entity);
+	int64_t _liveRuntime(const ScheduleEntity *entity);
+
+public:
 	bool wantSchedule();
 
 	[[ noreturn ]] void reschedule();
@@ -99,6 +101,8 @@ private:
 	void _updateWaitingEntity(ScheduleEntity *entity);
 
 	void _updateEntityStats(ScheduleEntity *entity);
+	
+	frigg::TicketLock _mutex;
 
 	// Updates the current value of _scheduleFlag.
 	void _refreshFlag();

@@ -69,6 +69,9 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id);
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page);
 
+void sendShootdownIpi();
+void sendPingIpi();
+
 // --------------------------------------------------------
 // I/O APIC management
 // --------------------------------------------------------

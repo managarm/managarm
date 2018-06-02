@@ -26,6 +26,9 @@ ScheduleEntity::~ScheduleEntity() {
 }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&scheduler->_mutex);
+
 //	frigg::infoLogger() << "associate " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
@@ -33,26 +36,40 @@ void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 }
 
 void Scheduler::unassociate(ScheduleEntity *entity) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	
+	auto self = entity->_scheduler;
+	assert(self);
+	auto lock = frigg::guard(&self->_mutex);
+
 	assert(entity->state == ScheduleState::attached);
+	assert(entity != self->_current);
 	entity->_scheduler = nullptr;
 	entity->state = ScheduleState::null;
 }
 
 void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
-	// Otherwise, we would have to remove-reinsert into the queue.
+	auto irq_lock = frigg::guard(&irqMutex());
+
 	auto self = entity->_scheduler;
 	assert(self);
+	auto lock = frigg::guard(&self->_mutex);
+
+	// Otherwise, we would have to remove-reinsert into the queue.
 	assert(entity == self->_current);
 
 	entity->priority = priority;
 }
 
 void Scheduler::resume(ScheduleEntity *entity) {
+	auto irq_lock = frigg::guard(&irqMutex());
+
 //	frigg::infoLogger() << "resume " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::attached);
 
 	auto self = entity->_scheduler;
 	assert(self);
+	auto lock = frigg::guard(&self->_mutex);
 
 	self->_updateSystemProgress();
 
@@ -69,15 +86,24 @@ void Scheduler::resume(ScheduleEntity *entity) {
 		self->_waitQueue.push(entity);
 		self->_numWaiting++;
 		self->_updatePreemption();
+	}else{
+		assert(self == &getCpuData()->scheduler);
 	}
+
+	if(self != &getCpuData()->scheduler)
+		sendPingIpi();
 }
 
 void Scheduler::suspend(ScheduleEntity *entity) {
+	auto irq_lock = frigg::guard(&irqMutex());
+
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
 	assert(entity->state == ScheduleState::active);
 	
 	auto self = entity->_scheduler;
 	assert(self);
+	auto lock = frigg::guard(&self->_mutex);
+
 	assert(entity == self->_current); // TODO: The other case is untested.
 	
 	self->_updateSystemProgress();
@@ -95,6 +121,8 @@ void Scheduler::suspend(ScheduleEntity *entity) {
 		self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
 		self->_numWaiting--;
 		self->_updatePreemption();
+	}else{
+		assert(self == &getCpuData()->scheduler);
 	}
 }
 
@@ -102,7 +130,7 @@ Scheduler::Scheduler()
 : _scheduleFlag{false}, _current{nullptr},
 		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
 
-Progress Scheduler::liveUnfairness(const ScheduleEntity *entity) {
+Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);
 
 	auto delta_progress = _systemProgress - entity->refProgress;
@@ -113,7 +141,7 @@ Progress Scheduler::liveUnfairness(const ScheduleEntity *entity) {
 	}
 }
 
-int64_t Scheduler::liveRuntime(const ScheduleEntity *entity) {
+int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);
 	if(entity == _current) {
 		return entity->_runTime + (_refClock - entity->_refClock);
@@ -123,12 +151,18 @@ int64_t Scheduler::liveRuntime(const ScheduleEntity *entity) {
 }
 
 bool Scheduler::wantSchedule() {
+	assert(!intsAreEnabled());
+	auto lock = frigg::guard(&_mutex);
+
 	_updateSystemProgress();
 	_refreshFlag();
 	return _scheduleFlag;
 }
 
 void Scheduler::reschedule() {
+	assert(!intsAreEnabled());
+	auto lock = frigg::guard(&_mutex);
+
 	_updateSystemProgress();
 
 	if(_current)
@@ -139,6 +173,7 @@ void Scheduler::reschedule() {
 	if(_waitQueue.empty()) {
 		if(logScheduling)
 			frigg::infoLogger() << "System is idle" << frigg::endLog;
+		lock.unlock();
 		suspendSelf();
 		frigg::panicLogger() << "Return from suspendSelf()" << frigg::endLog;
 	}
@@ -148,6 +183,7 @@ void Scheduler::reschedule() {
 
 	_updatePreemption();
 
+	lock.unlock();
 	_current->invoke();
 	frigg::panicLogger() << "Return from ScheduleEntity::invoke()" << frigg::endLog;
 	__builtin_unreachable();
@@ -185,14 +221,14 @@ void Scheduler::_schedule() {
 //		frigg::infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
 //				<< " ms" << frigg::endLog;
 		frigg::infoLogger() << "Running entity with priority: " << entity->priority
-				<< ", unfairness: " << (liveUnfairness(entity) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << liveRuntime(entity) / (1000 * 1000)
+				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
+				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
 				<< " ms (" << (_numWaiting + 1) << " active threads)" << frigg::endLog;
 	}
 	if(logNextBest && !_waitQueue.empty())
 		frigg::infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
-				<< ", unfairness: " << (liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << liveRuntime(_waitQueue.top()) / (1000 * 1000)
+				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
+				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
 				<< " ms" << frigg::endLog;
 
 	_current = entity;
@@ -237,7 +273,7 @@ void Scheduler::_updatePreemption() {
 		return;
 	}
 
-	auto diff = liveUnfairness(_current) - liveUnfairness(_waitQueue.top());
+	auto diff = _liveUnfairness(_current) - _liveUnfairness(_waitQueue.top());
 	if(diff < 0)
 		return; // Hope for thread switch.
 

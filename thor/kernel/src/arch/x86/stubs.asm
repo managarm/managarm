@@ -258,6 +258,7 @@ MAKE_IRQ_STUB thorRtIsrIrq22, 22
 MAKE_IRQ_STUB thorRtIsrIrq23, 23
 
 MAKE_IPI_STUB thorRtIpiShootdown, onPlatformShootdown
+MAKE_IPI_STUB thorRtIpiPing, onPlatformPing
 MAKE_IPI_STUB thorRtPreemption, onPlatformPreemption
 
 # ---------------------------------------------------------

@@ -510,6 +510,10 @@ void disableUserAccess() {
 // Namespace scope functions
 // --------------------------------------------------------
 
+namespace {
+	frigg::LazyInitializer<frigg::Vector<CpuData *, KernelAlloc>> allCpuContexts;
+}
+
 size_t getStateSize() {
 	return Executor::determineSize();
 }
@@ -518,6 +522,10 @@ CpuData *getCpuData() {
 	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
 	auto cpu_data = reinterpret_cast<AssemblyCpuData *>(msr);
 	return static_cast<CpuData *>(cpu_data);
+}
+
+CpuData *getCpuData(size_t k) {
+	return (*allCpuContexts)[k];
 }
 
 void doRunDetached(void (*function) (void *), void *argument) {
@@ -536,11 +544,16 @@ extern "C" void syscallStub();
 
 frigg::LazyInitializer<CpuData> staticBootCpuContext;
 
-void installBootCpuContext() {
+void initializeBootCpuEarly() {
 	// Set up the kernel gs segment.
 	staticBootCpuContext.initialize();
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
 			(uintptr_t)static_cast<AssemblyCpuData *>(staticBootCpuContext.get()));
+}
+
+void initializeCpuContexts() {
+	allCpuContexts.initialize(*kernelAlloc);
+	allCpuContexts->push(staticBootCpuContext.get());
 }
 
 void allocateAdditionalCpuContext() {
@@ -548,6 +561,9 @@ void allocateAdditionalCpuContext() {
 	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
 			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
+
+	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
+	allCpuContexts->push(cpu_data);
 }
 
 void initializeThisProcessor() {	

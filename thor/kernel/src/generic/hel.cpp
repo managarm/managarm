@@ -3,6 +3,8 @@
 #include "irq.hpp"
 #include "../arch/x86/debug.hpp"
 
+#define ASSERT_BOOT_CPU() assert(getCpuData() == getCpuData(0))
+
 using namespace thor;
 
 void readUserMemory(void *kern_ptr, const void *user_ptr, size_t size) {
@@ -492,6 +494,8 @@ HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
 }
 
 HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *info) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -588,6 +592,8 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 }
 
 HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -642,6 +648,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 }
 
 HelError helResizeMemory(HelHandle handle, size_t new_size) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -665,6 +673,8 @@ HelError helResizeMemory(HelHandle handle, size_t new_size) {
 
 HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backing_handle, HelHandle *frontal_handle) {
+	ASSERT_BOOT_CPU();
+
 	(void)flags;
 	assert(size > 0);
 	assert(size % kPageSize == 0);
@@ -690,6 +700,8 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 }
 
 HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
+	ASSERT_BOOT_CPU();
+
 	assert((physical % kPageSize) == 0);
 	assert((size % kPageSize) == 0);
 
@@ -710,6 +722,8 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 
 HelError helCreateSliceView(HelHandle bundle_handle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
+	ASSERT_BOOT_CPU();
+
 	assert(!flags);
 	assert((offset % kPageSize) == 0);
 	assert((size % kPageSize) == 0);
@@ -919,6 +933,8 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 }
 
 HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	
 	frigg::SharedPtr<AddressSpace> space = this_thread->getAddressSpace().toShared();
@@ -942,6 +958,8 @@ HelError helPointerPhysical(void *pointer, uintptr_t *physical) {
 
 HelError helLoadForeign(HelHandle handle, uintptr_t address,
 		size_t length, void *buffer) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -975,6 +993,8 @@ HelError helLoadForeign(HelHandle handle, uintptr_t address,
 
 HelError helStoreForeign(HelHandle handle, uintptr_t address,
 		size_t length, const void *buffer) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1008,6 +1028,8 @@ HelError helStoreForeign(HelHandle handle, uintptr_t address,
 }
 
 HelError helMemoryInfo(HelHandle handle, size_t *size) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1029,6 +1051,8 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 }
 
 HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr_t context) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1065,6 +1089,8 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 }
 
 HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
+	ASSERT_BOOT_CPU();
+
 	assert(offset % kPageSize == 0 && length % kPageSize == 0);
 
 	auto this_thread = getCurrentThread();
@@ -1091,6 +1117,8 @@ HelError helCompleteLoad(HelHandle handle, uintptr_t offset, size_t length) {
 
 HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		HelHandle queue_handle, uintptr_t context) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1205,7 +1233,9 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(flags & kHelThreadTrapsAreFatal)
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 
-	Scheduler::associate(new_thread.get(), localScheduler());
+	// TODO: For now we create all threads on CPU #0. Rework that.
+//	Scheduler::associate(new_thread.get(), localScheduler());
+	Scheduler::associate(new_thread.get(), &getCpuData(0)->scheduler);
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(new_thread);
 
@@ -1221,6 +1251,8 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 }
 
 HelError helSetPriority(HelHandle handle, int priority) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1245,6 +1277,8 @@ HelError helSetPriority(HelHandle handle, int priority) {
 }
 
 HelError helYield() {
+	ASSERT_BOOT_CPU();
+
 	Thread::deferCurrent();
 
 	return kHelErrNone;
@@ -1283,6 +1317,8 @@ HelError helSubmitObserve(HelHandle handle, HelHandle queue_handle, uintptr_t co
 }
 
 HelError helKillThread(HelHandle handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1305,6 +1341,8 @@ HelError helKillThread(HelHandle handle) {
 }
 
 HelError helInterruptThread(HelHandle handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -1365,6 +1403,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 
+	// TODO: Make sure that the thread is actually suspenend!
+
 	if(set == kHelRegsProgram) {
 		uintptr_t regs[2];
 		regs[0] = *thread->_executor.ip();
@@ -1420,7 +1460,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread = thread_wrapper->get<ThreadDescriptor>().thread;
 	}
 	
-	// FIXME: We need to lock the thread and ensure it is in the interrupted state.
+	// TODO: Make sure that the thread is actually suspenend!
+
 	if(set == kHelRegsProgram) {
 		uintptr_t regs[2];
 		readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2);
@@ -1466,12 +1507,16 @@ HelError helWriteFsBase(void *pointer) {
 }
 
 HelError helGetClock(uint64_t *counter) {
+	ASSERT_BOOT_CPU();
+
 	*counter = systemClockSource()->currentNanos();
 	return kHelErrNone;
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
+	ASSERT_BOOT_CPU();
+
 	struct Closure : CancelNode, PrecisionTimerNode, QueueNode {
 		static void issue(uint64_t nanos, frigg::SharedPtr<UserQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
@@ -1703,6 +1748,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 }
 
 HelError helShutdownLane(HelHandle handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1788,6 +1835,8 @@ HelError helFutexWake(int *pointer) {
 }
 
 HelError helAccessIrq(int number, HelHandle *handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1805,7 +1854,10 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	return kHelErrNone;
 }
+
 HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) {
+	ASSERT_BOOT_CPU();
+
 	assert(!(flags & ~(kHelAckAcknowledge | kHelAckNack | kHelAckKick)));
 
 	auto this_thread = getCurrentThread();
@@ -1851,8 +1903,11 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 		return kHelErrNone;
 	}
 }
+
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context) {
+	ASSERT_BOOT_CPU();
+
 	struct Closure : AwaitIrqNode, QueueNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<UserQueue> queue, intptr_t context) {
@@ -1917,6 +1972,8 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1937,6 +1994,8 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 }
 
 HelError helEnableIo(HelHandle handle) {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	
@@ -1959,6 +2018,8 @@ HelError helEnableIo(HelHandle handle) {
 }
 
 HelError helEnableFullIo() {
+	ASSERT_BOOT_CPU();
+
 	auto this_thread = getCurrentThread();
 
 	for(uintptr_t port = 0; port < 0x10000; port++)

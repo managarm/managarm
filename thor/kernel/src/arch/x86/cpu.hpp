@@ -301,6 +301,7 @@ private:
 // CpuData is some high-level struct that inherits from PlatformCpuData.
 struct CpuData;
 CpuData *getCpuData();
+CpuData *getCpuData(size_t k);
 
 struct AbiParameters {
 	uintptr_t ip;
@@ -532,7 +533,8 @@ void runDetached(F functor, Args... args) {
 // that destroys the thread together with its kernel stack
 void doRunDetached(void (*function) (void *), void *argument);
 
-void installBootCpuContext();
+void initializeBootCpuEarly();
+void initializeCpuContexts();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);

@@ -25,6 +25,7 @@ void Thread::deferCurrent() {
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
 
+	// TODO: What is the purpose of forkExecutor here?
 	if(forkExecutor(&this_thread->_executor)) {
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
 			lock.unlock();

@@ -76,10 +76,8 @@ struct Futex {
 			>
 		> wake_queue;
 
-		// TODO: Use a splice() call here.
 		// TODO: Enable users to only wake a certain number of waiters.
-		while(!it->queue.empty())
-			wake_queue.push_front(it->queue.pop_front());
+		wake_queue.splice(wake_queue.end(), it->queue);
 		
 		_slots.remove(address);
 

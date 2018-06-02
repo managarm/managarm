@@ -258,6 +258,15 @@ void sendShootdownIpi() {
 	}
 }
 
+void sendPingIpi() {
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+	picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
+}
+
 // --------------------------------------------------------
 
 IrqPin *globalSystemIrqs[24];

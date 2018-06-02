@@ -179,7 +179,8 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_lane) {
+void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_lane,
+		Scheduler *scheduler) {
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	space->setupDefaultMappings();
 
@@ -293,7 +294,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	thread.control().increment();
 	thread.control().increment();
 
-	Scheduler::associate(thread.get(), localScheduler());
+	Scheduler::associate(thread.get(), scheduler);
 	Thread::resumeOther(thread);
 }
 
@@ -320,7 +321,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 	
 	initializeProcessorEarly();
-	installBootCpuContext();
+	initializeBootCpuEarly();
 
 	if(info->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
@@ -355,6 +356,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(int i = 0; i < 24; i++)
 		globalIrqSlots[i].initialize();
 
+	initializeCpuContexts();
 	initializeTheSystemEarly();
 	initializeThisProcessor();
 	
@@ -505,11 +507,14 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		assert(mbus_module && mbus_module->type == MfsType::regular);
 		assert(clocktracker_module && clocktracker_module->type == MfsType::regular);
 		assert(posix_module && posix_module->type == MfsType::regular);
-		executeModule(static_cast<MfsRegular *>(mbus_module), mbus_stream.get<0>(), LaneHandle{});
+		executeModule(static_cast<MfsRegular *>(mbus_module),
+				mbus_stream.get<0>(), LaneHandle{}, &getCpuData(1)->scheduler);
+//				mbus_stream.get<0>(), LaneHandle{}, localScheduler());
 		executeModule(static_cast<MfsRegular *>(clocktracker_module),
-				LaneHandle{}, mbus_stream.get<1>());
+				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
 		executeModule(static_cast<MfsRegular *>(posix_module),
-				LaneHandle{}, mbus_stream.get<1>());
+//				LaneHandle{}, mbus_stream.get<1>(), &getCpuData(1)->scheduler);
+				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
 
 		while(true)
 			KernelFiber::blockCurrent(frigg::CallbackPtr<bool()>{nullptr,

@@ -52,8 +52,6 @@ private:
 	void *_pointer;
 };
 
-void sendShootdownIpi();
-
 struct ShootNode {
 	friend struct PageSpace;
 	friend struct PageBinding;
