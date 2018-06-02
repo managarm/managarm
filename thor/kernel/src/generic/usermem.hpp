@@ -387,7 +387,6 @@ struct Mapping {
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
 	
-	virtual PhysicalAddr grabPhysical(VirtualAddr disp) = 0;
 	virtual bool handleFault(VirtualAddr disp, uint32_t fault_flags) = 0;
 
 	frigg::rbtree_hook treeNode;
@@ -412,7 +411,6 @@ struct NormalMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	PhysicalAddr grabPhysical(VirtualAddr disp) override;
 	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
@@ -433,7 +431,6 @@ struct CowMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	PhysicalAddr grabPhysical(VirtualAddr disp) override;
 	bool handleFault(VirtualAddr disp, uint32_t flags) override;
 
 private:
@@ -542,8 +539,6 @@ public:
 	
 	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
 	
-	PhysicalAddr grabPhysical(Guard &guard, VirtualAddr address);
-
 	void activate();
 
 	Lock lock;

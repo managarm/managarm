@@ -770,18 +770,6 @@ void NormalMapping::uninstall(bool clear) {
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
-PhysicalAddr NormalMapping::grabPhysical(VirtualAddr disp) {
-	// TODO: Allocate missing pages for OnDemand or CopyOnWrite pages.
-
-	// TODO: Add a don't-require-backing flag to peekRange.
-	//if(flags() & MappingFlags::dontRequireBacking)
-	//	grab_flags |= kGrabDontRequireBacking;
-
-	auto range = _view->resolveRange(_offset + disp, kPageSize);
-	assert(range.get<2>() >= kPageSize);
-	return range.get<0>()->blockForRange(range.get<1>());
-}
-
 bool NormalMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	if(fault_flags & AddressSpace::kFaultWrite)
 		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
@@ -856,10 +844,6 @@ void CowMapping::uninstall(bool clear) {
 		return;
 
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
-}
-
-PhysicalAddr CowMapping::grabPhysical(VirtualAddr disp) {
-	return _cowBundle->blockForRange(disp);
 }
 
 bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
@@ -1142,9 +1126,10 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 						cur_mapping->length(), kPageSize, kPageSize);
 
 				for(size_t pg = 0; pg < cur_mapping->length(); pg += kPageSize) {
-					auto physical = cur_mapping->grabPhysical(pg);
+					auto range = cur_mapping->resolveRange(pg, kPageSize);
+					auto physical = range.get<0>()->blockForRange(range.get<1>());
 					assert(physical != PhysicalAddr(-1));
-					PageAccessor accessor{cur_mapping->grabPhysical(pg)};
+					PageAccessor accessor{physical};
 					bundle->copyKernelToThisSync(pg, accessor.get(), kPageSize);
 				}
 				
@@ -1349,7 +1334,8 @@ PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
 	Mapping *mapping = _space->_getMapping(vaddr);
 	if(!mapping)
 		return PhysicalAddr(-1);
-	return mapping->grabPhysical(vaddr - mapping->address());
+	auto range = mapping->resolveRange(vaddr - mapping->address(), kPageSize);
+	return range.get<0>()->blockForRange(range.get<1>());
 }
 
 } // namespace thor
