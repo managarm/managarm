@@ -12,6 +12,7 @@
 namespace thor {
 
 struct Memory;
+struct Mapping;
 struct AddressSpace;
 struct ForeignSpaceAccessor;
 
@@ -318,6 +319,34 @@ private:
 	size_t _viewSize;
 };
 
+struct FaultNode {
+	friend struct AddressSpace;
+	friend struct NormalMapping;
+	friend struct CowMapping;
+
+	FaultNode()
+	: _resolved{false} { }
+
+	FaultNode(const FaultNode &) = delete;
+
+	FaultNode &operator= (const FaultNode &) = delete;
+
+	bool resolved() {
+		return _resolved;
+	}
+
+private:
+	VirtualAddr _address;
+	uint32_t _flags;
+	void (*_handled)(FaultNode *);
+
+	bool _resolved;
+
+	Mapping *_mapping;
+	FetchNode _fetch;
+	uintptr_t _bundleOffset;
+};
+
 struct Hole {
 	Hole(VirtualAddr address, size_t length)
 	: _address{address}, _length{length}, largestHole{0} { }
@@ -388,7 +417,7 @@ struct Mapping {
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
 	
-	virtual bool handleFault(VirtualAddr disp, uint32_t fault_flags) = 0;
+	virtual bool handleFault(FaultNode *node) = 0;
 
 	frigg::rbtree_hook treeNode;
 
@@ -412,7 +441,7 @@ struct NormalMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	bool handleFault(VirtualAddr disp, uint32_t flags) override;
+	bool handleFault(FaultNode *node) override;
 
 private:
 	frigg::SharedPtr<VirtualView> _view;
@@ -432,28 +461,10 @@ struct CowMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	bool handleFault(VirtualAddr disp, uint32_t flags) override;
+	bool handleFault(FaultNode *node) override;
 
 private:
 	frigg::SharedPtr<CowBundle> _cowBundle;
-};
-
-struct FaultNode {
-	friend struct AddressSpace;
-
-	FaultNode()
-	: _resolved{false} { }
-
-	FaultNode(const FaultNode &) = delete;
-
-	FaultNode &operator= (const FaultNode &) = delete;
-
-	bool resolved() {
-		return _resolved;
-	}
-
-private:
-	bool _resolved;
 };
 
 struct HoleLess {
@@ -498,6 +509,8 @@ private:
 
 class AddressSpace {
 	friend struct ForeignSpaceAccessor;
+	friend struct NormalMapping;
+	friend struct CowMapping;
 
 public:
 	typedef frigg::TicketLock Lock;
@@ -536,7 +549,8 @@ public:
 	void unmap(Guard &guard, VirtualAddr address, size_t length,
 			AddressUnmapNode *node);
 
-	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
+	bool handleFault(VirtualAddr address, uint32_t flags,
+			FaultNode *node, void (*handled)(FaultNode *));
 	
 	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
 	
@@ -561,7 +575,6 @@ private:
 	HoleTree _holes;
 	MappingTree _mappings;
 
-public: // TODO: Make this private.
 	ClientPageSpace _pageSpace;
 };
 

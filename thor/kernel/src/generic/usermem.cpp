@@ -756,33 +756,57 @@ void NormalMapping::uninstall(bool clear) {
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
-bool NormalMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
-	if(fault_flags & AddressSpace::kFaultWrite)
-		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
-			return false;
-	if(fault_flags & AddressSpace::kFaultExecute)
-		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute))
-			return false;
+bool NormalMapping::handleFault(FaultNode *node) {
+	if(node->_flags & AddressSpace::kFaultWrite)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
+			node->_resolved = false;
+			return true;
+		}
+	if(node->_flags & AddressSpace::kFaultExecute)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
+			node->_resolved = false;
+			return true;
+		}
 
-	uint32_t page_flags = 0;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
-		page_flags |= page_access::write;
-	if((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
-		page_flags |= page_access::execute;
-	// TODO: Allow inaccessible mappings.
-	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
+	auto fault_page = (node->_address - address()) & ~(kPageSize - 1);
 
-	auto fault_page = fault_offset & ~(kPageSize - 1);
-	auto vaddr = address() + fault_page;
+	auto bundle_range = _view->resolveRange(_offset + fault_page, kPageSize);
+	assert(bundle_range.get<2>() >= kPageSize);
+	node->_bundleOffset = bundle_range.get<1>();
 
-	auto range = _view->resolveRange(_offset + fault_page, kPageSize);
-	assert(range.get<2>() >= kPageSize);
-	auto physical = range.get<0>()->blockForRange(range.get<1>());
+	static auto remap = [] (FaultNode *node) {
+		auto self = node->_mapping;
 
-	// TODO: This can actually happen!
-	assert(!owner()->_pageSpace.isMapped(vaddr));
-	owner()->_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
-	return true;
+		auto fault_page = (node->_address - self->address()) & ~(kPageSize - 1);
+		auto vaddr = self->address() + fault_page;
+		// TODO: This can actually happen!
+		assert(!self->owner()->_pageSpace.isMapped(vaddr));
+
+		uint32_t page_flags = 0;
+		if((self->flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
+			page_flags |= page_access::write;
+		if((self->flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)
+			page_flags |= page_access::execute;
+		// TODO: Allow inaccessible mappings.
+		assert((self->flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
+
+		self->owner()->_pageSpace.mapSingle4k(vaddr, node->_fetch.range().get<0>(),
+				true, page_flags);
+		node->_resolved = true;
+	};
+
+	static auto fetched = [] (FetchNode *base) {
+		auto node = frg::container_of(base, &FaultNode::_fetch);
+		remap(node);
+		node->_handled(node);
+	};
+
+	if(bundle_range.get<0>()->fetchRange(node->_bundleOffset, &node->_fetch, fetched)) {
+		remap(node);
+		return true;
+	}else{
+		return false;
+	}
 }
 
 // --------------------------------------------------------
@@ -832,14 +856,18 @@ void CowMapping::uninstall(bool clear) {
 	owner()->_pageSpace.unmapRange(address(), length(), PageMode::remap);
 }
 
-bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
+bool CowMapping::handleFault(FaultNode *node) {
 	// TODO: We do not need to copy on read.
-	if(fault_flags & AddressSpace::kFaultWrite)
-		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite))
+	if(node->_flags & AddressSpace::kFaultWrite)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)) {
+			node->_resolved = false;
 			return false;
-	if(fault_flags & AddressSpace::kFaultExecute)
-		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute))
+		}
+	if(node->_flags & AddressSpace::kFaultExecute)
+		if(!((flags() & MappingFlags::permissionMask) & MappingFlags::protExecute)) {
+			node->_resolved = false;
 			return false;
+		}
 
 	uint32_t page_flags = 0;
 	if((flags() & MappingFlags::permissionMask) & MappingFlags::protWrite)
@@ -849,12 +877,13 @@ bool CowMapping::handleFault(VirtualAddr fault_offset, uint32_t fault_flags) {
 	// TODO: Allow inaccessible mappings.
 	assert((flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
-	auto fault_page = fault_offset & ~(kPageSize - 1);
+	auto fault_page = (node->_address - address()) & ~(kPageSize - 1);
 
 	auto physical = _cowBundle->blockForRange(fault_page);
 	// TODO: Ensure that no racing threads still see the original page.
 	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
 			true, page_flags);
+	node->_resolved = true;
 	return true;
 }
 
@@ -1037,9 +1066,11 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	_pageSpace.submitShootdown(&node->_shootNode);
 }
 
-bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
-	// TODO: It seems that this is not invoked for on-demand allocation
-	// of AllocatedMemory objects!
+bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags,
+		FaultNode *node, void (*handled)(FaultNode *)) {
+	node->_address = address;
+	node->_flags = fault_flags;
+	node->_handled = handled;
 
 	Mapping *mapping;
 	{
@@ -1050,12 +1081,13 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultN
 		if(!mapping)
 			return false;
 	}
-
+	
+	node->_mapping = mapping;
+	
 	// FIXME: mapping might be deleted here!
 	// We need to use either refcounting or QS garbage collection here!
 
-	node->_resolved = mapping->handleFault(address - mapping->address(), fault_flags);
-	return true;
+	return mapping->handleFault(node);
 }
 
 frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {

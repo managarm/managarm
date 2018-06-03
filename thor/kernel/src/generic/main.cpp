@@ -586,15 +586,33 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
 	}else{
-		FaultNode node;
-		auto done = address_space->handleFault(address, flags, &node);
-		assert(done);
-		handled = node.resolved();
+		struct Node {
+			std::atomic<bool> complete;
+			frigg::UnsafePtr<Thread> blockedThread;
+			FaultNode fault;
+		} node;
+
+		node.complete.store(false, std::memory_order_relaxed);
+		node.blockedThread = this_thread;
+
+		auto unblock = [] (FaultNode *base) {
+			auto node = frg::container_of(base, &Node::fault);
+			node->complete.store(true, std::memory_order_release);
+			Thread::unblockOther(node->blockedThread);
+		};
+
+		if(!address_space->handleFault(address, flags, &node.fault, unblock)) {
+			Thread::blockCurrentWhile([&] {
+				return !node.complete.load(std::memory_order_acquire);
+			});
+		}
+
+		handled = node.fault.resolved();
 	}
 	
 	if(handled)
 		return;
-	
+
 	if(!(*image.code() & kPfUser)
 			|| this_thread->flags & Thread::kFlagTrapsAreFatal) {
 		auto msg = frigg::panicLogger();
@@ -637,8 +655,7 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	}
 
 	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n"
-				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
+		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n" << "Last ip: " << (void *)*image.ip() << frigg::endLog;
 		
 		// TODO: We should kill the thread in this situation.
 		Thread::interruptCurrent(kIntrPanic, image);
