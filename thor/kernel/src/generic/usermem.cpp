@@ -25,7 +25,7 @@ PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
 		Thread::blockCurrentWhile([&] {
 			return !node.complete.load(std::memory_order_acquire);
 		});
-	return node.physical();
+	return node.range().get<0>();
 }
 
 // --------------------------------------------------------
@@ -58,7 +58,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(Fe
 	if(auto it = _pages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
 		assert(physical != PhysicalAddr(-1));
-		completeFetch(node, physical);
+		completeFetch(node, physical, kPageSize);
 		return true;
 	}
 
@@ -76,7 +76,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(Fe
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			completeFetch(node, physical);
+			completeFetch(node, physical, kPageSize);
 			return true;
 		}
 
@@ -90,7 +90,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(Fe
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			completeFetch(node, physical);
+			completeFetch(node, physical, kPageSize);
 			return true;
 		}
 
@@ -286,7 +286,7 @@ bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetche
 	assert(offset % kPageSize == 0);
 	setupFetch(node, fetched);
 
-	completeFetch(node, _base + offset);
+	completeFetch(node, _base + offset, _length - offset);
 	return true;
 }
 
@@ -403,7 +403,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetch
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, _physicalChunks[index] + disp);
+	completeFetch(node, _physicalChunks[index] + disp, _chunkSize - disp);
 	return true;
 }
 
@@ -507,7 +507,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched
 		_managed->physicalPages[index] = physical;
 	}
 
-	completeFetch(node, _managed->physicalPages[index]);
+	completeFetch(node, _managed->physicalPages[index], kPageSize);
 	return true;
 }
 
@@ -589,7 +589,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched
 			assert(error == kErrSuccess);
 			auto physical = _managed->physicalPages[index];
 			assert(physical != PhysicalAddr(-1));
-			completeFetch(node, physical);
+			completeFetch(node, physical, kPageSize);
 			callbackFetch(node);
 		};
 		auto initiate = frigg::makeShared<Initiate<decltype(functor)>>(*kernelAlloc,
@@ -601,7 +601,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched
 
 	auto physical = _managed->physicalPages[index];
 	assert(physical != PhysicalAddr(-1));
-	completeFetch(node, physical);
+	completeFetch(node, physical, kPageSize);
 	return true;
 }
 
@@ -1269,7 +1269,7 @@ bool ForeignSpaceAccessor::_processAcquire(AcquireNode *node) {
 				node->_accessor->_length - node->_progress);
 		if(!range.get<0>()->fetchRange(range.get<1>(), &node->_fetch, &_fetchedAcquire))
 			return false;
-		node->_progress += kPageSize - (vaddr & (kPageSize - 1));
+		node->_progress += node->_fetch.range().get<1>();
 	}
 
 	return true;

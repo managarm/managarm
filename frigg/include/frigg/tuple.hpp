@@ -13,6 +13,8 @@ namespace _tuple {
 
 	template<typename T, typename... Types>
 	struct Storage<T, Types...> {
+		Storage() = default;
+
 		Storage(T item, Types... tail)
 		: item(move(item)), tail(move(tail)...) { }
 
@@ -59,6 +61,8 @@ namespace _tuple {
 template<typename... Types>
 class Tuple {
 public:
+	Tuple() = default;
+
 	explicit Tuple(Types... args)
 	: p_storage(move(args)...) { }
 
@@ -70,6 +74,10 @@ public:
 private:
 	_tuple::Storage<Types...> p_storage;
 };
+
+// Specialization to allow empty tuples.
+template<>
+class Tuple<> { };
 
 template<typename... Types>
 Tuple<typename RemoveRef<Types>::type...> makeTuple(Types &&... args) {

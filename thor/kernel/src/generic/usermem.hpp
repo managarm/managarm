@@ -84,14 +84,14 @@ private:
 struct FetchNode {
 	friend struct MemoryBundle;
 
-	PhysicalAddr physical() {
-		return _physical;
+	frigg::Tuple<PhysicalAddr, size_t> range() {
+		return _range;
 	}
 
 private:
 	void (*_fetched)(FetchNode *);
 
-	PhysicalAddr _physical;
+	frigg::Tuple<PhysicalAddr, size_t> _range;
 };
 
 struct MemoryBundle {	
@@ -100,8 +100,8 @@ protected:
 		node->_fetched = fetched;
 	}
 
-	void completeFetch(FetchNode *node, PhysicalAddr physical) {
-		node->_physical = physical;
+	void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size) {
+		node->_range = frigg::Tuple<PhysicalAddr, size_t>{physical, size};
 	}
 	
 	void callbackFetch(FetchNode *node) {
