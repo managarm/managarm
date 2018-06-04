@@ -17,47 +17,76 @@ LaneHandle::~LaneHandle() {
 		_stream.control().decrement();
 }
 
-static void transfer(frigg::SharedPtr<OfferBase> offer,
-		frigg::SharedPtr<AcceptBase> accept, LaneDescriptor lane) {
-	offer->complete(kErrSuccess);
+static void transfer(OfferBase *offer, AcceptBase *accept, LaneHandle lane) {
+	offer->_error = kErrSuccess;
+	offer->complete();
+
 	// TODO: move universe and lane?
-	accept->complete(kErrSuccess, accept->_universe, frigg::move(lane));
+	accept->_error = kErrSuccess;
+	accept->_lane = std::move(lane);
+	accept->complete();
 }
 
-static void transfer(frigg::SharedPtr<ImbueCredentialsBase> from,
-		frigg::SharedPtr<ExtractCredentialsBase> to) {
-	from->complete(kErrSuccess);
-	to->complete(kErrSuccess, from->credentials);
+static void transfer(ImbueCredentialsBase *from, ExtractCredentialsBase *to) {
+	auto credentials = from->_inCredentials;
+
+	from->_error = kErrSuccess;
+	from->complete();
+
+	to->_error = kErrSuccess;
+	to->_transmitCredentials = credentials;
+	to->complete();
 }
 
-static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
-		frigg::SharedPtr<RecvInlineBase> to) {
-	auto buffer = frigg::move(from->buffer);
-	from->complete(kErrSuccess);
-	to->complete(kErrSuccess, frigg::move(buffer));
+static void transfer(SendFromBufferBase *from, RecvInlineBase *to) {
+	auto buffer = std::move(from->_inBuffer);
+
+	from->_error = kErrSuccess;
+	from->complete();
+
+	to->_error = kErrSuccess;
+	to->_transmitBuffer = std::move(buffer);
+	to->complete();
 }
 
-static void transfer(frigg::SharedPtr<SendFromBufferBase> from,
-		frigg::SharedPtr<RecvToBufferBase> to) {
-	if(from->buffer.size() <= to->accessor.length()) {
-		auto error = to->accessor.write(0, from->buffer.data(), from->buffer.size());
+static void transfer(SendFromBufferBase *from, RecvToBufferBase *to) {
+	auto buffer = std::move(from->_inBuffer);
+
+	if(buffer.size() <= to->_inAccessor.length()) {
+		auto error = to->_inAccessor.write(0, buffer.data(), buffer.size());
 		if(error) {
-			from->complete(error);
-			to->complete(error, 0);
+			from->_error = kErrSuccess;
+			from->complete();
+
+			to->_error = error;
+			to->_actualLength = 0;
+			to->complete();
 		}else{
-			from->complete(kErrSuccess);
-			to->complete(kErrSuccess, from->buffer.size());
+			from->_error = kErrSuccess;
+			from->complete();
+
+			to->_error = kErrSuccess;
+			to->_actualLength = buffer.size();
+			to->complete();
 		}
 	}else{
-		from->complete(kErrBufferTooSmall);
-		to->complete(kErrBufferTooSmall, 0);
+		from->_error = kErrBufferTooSmall;
+		from->complete();
+
+		to->_error = kErrBufferTooSmall;
+		to->complete();
 	}
 }
 
-static void transfer(frigg::SharedPtr<PushDescriptorBase> push,
-		frigg::SharedPtr<PullDescriptorBase> pull) {
-	push->complete(kErrSuccess);
-	pull->complete(kErrSuccess, pull->_universe, push->_lane);
+static void transfer(PushDescriptorBase *push, PullDescriptorBase *pull) {
+	auto descriptor = std::move(push->_inDescriptor);
+
+	push->_error = kErrSuccess;
+	push->complete();
+
+	pull->_error = kErrSuccess;
+	pull->_descriptor = std::move(descriptor);
+	pull->complete();
 }
 
 void Stream::incrementPeers(Stream *stream, int lane) {
@@ -82,8 +111,8 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 			stream->_laneBroken[lane] = true;
 
 			while(!stream->_processQueue[!lane].empty()) {
-				auto item = stream->_processQueue[!lane].removeFront(); 
-				_cancelItem(item.get(), kErrEndOfLane);
+				auto item = stream->_processQueue[!lane].pop_front(); 
+				_cancelItem(item, kErrEndOfLane);
 			}
 		}
 	}
@@ -113,45 +142,27 @@ void Stream::shutdownLane(int lane) {
 		_conversationQueue.removeFront(); 
 
 	while(!_processQueue[lane].empty()) {
-		auto item = _processQueue[lane].removeFront(); 
-		_cancelItem(item.get(), kErrLaneShutdown);
+		auto item = _processQueue[lane].pop_front(); 
+		_cancelItem(item, kErrLaneShutdown);
 	}
 
 	while(!_processQueue[!lane].empty()) {
-		auto item = _processQueue[!lane].removeFront(); 
-		_cancelItem(item.get(), kErrEndOfLane);
+		auto item = _processQueue[!lane].pop_front(); 
+		_cancelItem(item, kErrEndOfLane);
 	}
 }
 
-void Stream::_cancelItem(StreamControl *item, Error error) {
-	if(OfferBase::classOf(*item)) {
-		static_cast<OfferBase *>(item)->complete(error);
-	}else if(AcceptBase::classOf(*item)) {
-		static_cast<AcceptBase *>(item)->complete(error,
-				frigg::WeakPtr<Universe>{}, LaneDescriptor{});
-	}else if(SendFromBufferBase::classOf(*item)) {
-		static_cast<SendFromBufferBase *>(item)->complete(error);
-	}else if(RecvToBufferBase::classOf(*item)) {
-		static_cast<RecvToBufferBase *>(item)->complete(error, 0);
-	}else if(RecvInlineBase::classOf(*item)) {
-		static_cast<RecvInlineBase *>(item)->complete(error,
-				frigg::UniqueMemory<KernelAlloc>{});
-	}else if(PushDescriptorBase::classOf(*item)) {
-		static_cast<PushDescriptorBase *>(item)->complete(error);
-	}else if(PullDescriptorBase::classOf(*item)) {
-		static_cast<PullDescriptorBase *>(item)->complete(error,
-				frigg::WeakPtr<Universe>{}, AnyDescriptor{});
-	}else{
-		assert(!"Unexpected item in stream");
-	}
+void Stream::_cancelItem(StreamNode *item, Error error) {
+	item->_error = error;
+	item->complete();
 }
 
-LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
+LaneHandle Stream::_submitControl(int p, StreamNode *u) {
 	// p/q is the number of the local/remote lane.
 	// u/v is the local/remote item that we are processing.
 	assert(!(p & ~int(1)));
 	int q = 1 - p;
-	frigg::SharedPtr<StreamControl> v;
+	StreamNode *v = nullptr;
 
 	// The stream created by Accept/Offer.
 	frigg::SharedPtr<Stream> conversation;
@@ -188,13 +199,13 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 
 		if(_processQueue[q].empty()) {
 			if(_laneBroken[q]) {
-				_cancelItem(u.get(), kErrEndOfLane);
+				_cancelItem(u, kErrEndOfLane);
 			}else{
-				_processQueue[p].addBack(u);
+				_processQueue[p].push_back(u);
 			}
 		}else{
 			// Both queues are non-empty and we process both items.
-			v = _processQueue[q].removeFront();
+			v = _processQueue[q].pop_front();
 		}
 	}
 
@@ -205,9 +216,9 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 			LaneHandle lane1(adoptLane, conversation, p);
 			LaneHandle lane2(adoptLane, conversation, q);
 
-			transfer(frigg::staticPtrCast<OfferBase>(frigg::move(u)),
-					frigg::staticPtrCast<AcceptBase>(frigg::move(v)),
-					LaneDescriptor(frigg::move(lane2)));
+			transfer(static_cast<OfferBase *>(u),
+					static_cast<AcceptBase *>(v),
+					std::move(lane2));
 
 			return LaneHandle(adoptLane, conversation, p);
 		}else if(OfferBase::classOf(*v)
@@ -215,50 +226,50 @@ LaneHandle Stream::_submitControl(int p, frigg::SharedPtr<StreamControl> u) {
 			LaneHandle lane1(adoptLane, conversation, p);
 			LaneHandle lane2(adoptLane, conversation, q);
 
-			transfer(frigg::staticPtrCast<OfferBase>(frigg::move(v)),
-					frigg::staticPtrCast<AcceptBase>(frigg::move(u)),
-					LaneDescriptor(frigg::move(lane1)));
+			transfer(static_cast<OfferBase *>(v),
+					static_cast<AcceptBase *>(u),
+					std::move(lane1));
 			
 			return LaneHandle(adoptLane, conversation, p);
 		}else if(ImbueCredentialsBase::classOf(*u)
 				&& ExtractCredentialsBase::classOf(*v)) {
-			transfer(frigg::staticPtrCast<ImbueCredentialsBase>(frigg::move(u)),
-					frigg::staticPtrCast<ExtractCredentialsBase>(frigg::move(v)));
+			transfer(static_cast<ImbueCredentialsBase *>(u),
+					static_cast<ExtractCredentialsBase *>(v));
 			return LaneHandle();
 		}else if(ImbueCredentialsBase::classOf(*v)
 				&& ExtractCredentialsBase::classOf(*u)) {
-			transfer(frigg::staticPtrCast<ImbueCredentialsBase>(frigg::move(v)),
-					frigg::staticPtrCast<ExtractCredentialsBase>(frigg::move(u)));
+			transfer(static_cast<ImbueCredentialsBase *>(v),
+					static_cast<ExtractCredentialsBase *>(u));
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvInlineBase::classOf(*v)) {
-			transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),
-					frigg::staticPtrCast<RecvInlineBase>(frigg::move(v)));
+			transfer(static_cast<SendFromBufferBase *>(u),
+					static_cast<RecvInlineBase *>(v));
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*v)
 				&& RecvInlineBase::classOf(*u)) {
-			transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(v)),
-					frigg::staticPtrCast<RecvInlineBase>(frigg::move(u)));
+			transfer(static_cast<SendFromBufferBase *>(v),
+					static_cast<RecvInlineBase *>(u));
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvToBufferBase::classOf(*v)) {
-			transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(u)),
-					frigg::staticPtrCast<RecvToBufferBase>(frigg::move(v)));
+			transfer(static_cast<SendFromBufferBase *>(u),
+					static_cast<RecvToBufferBase *>(v));
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*v)
 				&& RecvToBufferBase::classOf(*u)) {
-			transfer(frigg::staticPtrCast<SendFromBufferBase>(frigg::move(v)),
-					frigg::staticPtrCast<RecvToBufferBase>(frigg::move(u)));
+			transfer(static_cast<SendFromBufferBase *>(v),
+					static_cast<RecvToBufferBase *>(u));
 			return LaneHandle();
 		}else if(PushDescriptorBase::classOf(*u)
 				&& PullDescriptorBase::classOf(*v)) {
-			transfer(frigg::staticPtrCast<PushDescriptorBase>(frigg::move(u)),
-					frigg::staticPtrCast<PullDescriptorBase>(frigg::move(v)));
+			transfer(static_cast<PushDescriptorBase *>(u),
+					static_cast<PullDescriptorBase *>(v));
 			return LaneHandle();
 		}else if(PushDescriptorBase::classOf(*v)
 				&& PullDescriptorBase::classOf(*u)) {
-			transfer(frigg::staticPtrCast<PushDescriptorBase>(frigg::move(v)),
-					frigg::staticPtrCast<PullDescriptorBase>(frigg::move(u)));
+			transfer(static_cast<PushDescriptorBase *>(v),
+					static_cast<PullDescriptorBase *>(u));
 			return LaneHandle();
 		}else{
 			frigg::infoLogger() << u->tag()

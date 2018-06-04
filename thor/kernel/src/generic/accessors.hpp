@@ -120,6 +120,8 @@ private:
 
 struct AnyBufferAccessor {
 public:
+	AnyBufferAccessor() { }
+
 	AnyBufferAccessor(KernelAccessor accessor)
 	: _variant(frigg::move(accessor)) { }
 	

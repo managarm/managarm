@@ -20,15 +20,31 @@ struct Realization<Base, void(Args...), F> : Base {
 	explicit Realization(F functor, CArgs &&... args)
 	: Base(frigg::forward<CArgs>(args)...), _functor(frigg::move(functor)) { }
 
-	void complete(Args... args) override {
+	void callback(Args... args) override {
 		_functor(frigg::move(args)...);
+		frigg::destruct(*kernelAlloc, this);
 	}
 
 private:
 	F _functor;
 };
 
-struct StreamControl {
+struct StreamPacket {
+	friend struct Stream;
+	friend struct StreamNode;
+	
+	StreamPacket(void (*transmitted)(StreamPacket *))
+	: _transmitted{transmitted}, _incompleteCount{0} { }
+
+private:
+	void (*_transmitted)(StreamPacket *);
+
+	std::atomic<unsigned int> _incompleteCount;
+};
+
+struct StreamNode {
+	friend struct Stream;
+
 	enum {
 		kTagNull,
 		kTagOffer,
@@ -42,42 +58,116 @@ struct StreamControl {
 		kTagPullDescriptor
 	};
 
-	explicit StreamControl(int tag)
-	: _tag(tag) { }
+	explicit StreamNode(int tag, StreamPacket *packet)
+	: _tag(tag), _packet{packet} {
+		auto n = _packet->_incompleteCount.load(std::memory_order_relaxed);
+		_packet->_incompleteCount.store(n + 1, std::memory_order_relaxed);
+	}
+
+	StreamNode(const StreamNode &) = delete;
+
+	StreamNode &operator= (const StreamNode &) = delete;
 
 	int tag() const {
 		return _tag;
 	}
 
-	frigg::IntrusiveSharedLinkedItem<StreamControl> processQueueItem;
+	frg::default_list_hook<StreamNode> processQueueItem;
+
+	void complete() {
+		auto n = _packet->_incompleteCount.fetch_sub(1, std::memory_order_acq_rel);
+		assert(n > 0);
+		if(n == 1)
+			_packet->_transmitted(_packet);
+	}
 
 private:
 	int _tag;
+	StreamPacket *_packet;
+
+public:
+	// ------------------------------------------------------------------------
+	// Transmission inputs.
+	// ------------------------------------------------------------------------
+
+	frigg::Array<char, 16> _inCredentials;
+	frigg::UniqueMemory<KernelAlloc> _inBuffer;	
+	AnyBufferAccessor _inAccessor;
+	AnyDescriptor _inDescriptor;
+
+	// ------------------------------------------------------------------------
+	// Transmission outputs.
+	// ------------------------------------------------------------------------
+
+	// TODO: Initialize outputs to zero to avoid leaks to usermode.
+public:
+	Error error() {
+		return _error;
+	}
+
+	size_t actualLength() {
+		return _actualLength;
+	}
+	
+	frigg::UniqueMemory<KernelAlloc> transmitBuffer() {
+		return std::move(_transmitBuffer);
+	}
+	
+	const frigg::Array<char, 16> &transmitCredentials() {
+		return _transmitCredentials;
+	}
+
+	LaneHandle lane() {
+		return std::move(_lane);
+	}
+
+	AnyDescriptor descriptor() {
+		return std::move(_descriptor);
+	}
+
+public:
+	Error _error;
+	frigg::Array<char, 16> _transmitCredentials;
+	size_t _actualLength;
+	frigg::UniqueMemory<KernelAlloc> _transmitBuffer;
+	LaneHandle _lane;
+	AnyDescriptor _descriptor;
 };
 
-struct OfferBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct OfferBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagOffer;
 	}
 
-	explicit OfferBase()
-	: StreamControl(kTagOffer) { }
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<OfferBase *>(base);
+		packet->callback(packet->error());
+	}
 
-	virtual void complete(Error error) = 0;
+	explicit OfferBase()
+	: StreamPacket(&transmitted), StreamNode(kTagOffer, this) { }
+
+	virtual void callback(Error error) = 0;
 };
 
 template<typename F>
 using Offer = Realization<OfferBase, void(Error), F>;
 
-struct AcceptBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct AcceptBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagAccept;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<AcceptBase *>(base);
+		packet->callback(packet->error(), packet->_universe, LaneDescriptor{packet->lane()});
 	}
 
 	explicit AcceptBase(frigg::WeakPtr<Universe> universe)
-	: StreamControl(kTagAccept), _universe(frigg::move(universe)) { }
+	: StreamPacket(&transmitted), StreamNode(kTagAccept, this),
+			_universe(frigg::move(universe)) { }
 
-	virtual void complete(Error error, frigg::WeakPtr<Universe> universe,
+	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,
 			LaneDescriptor lane) = 0;
 	
 	frigg::WeakPtr<Universe> _universe;
@@ -90,64 +180,82 @@ using Accept = Realization<
 	F
 >;
 
-struct ImbueCredentialsBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct ImbueCredentialsBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagImbueCredentials;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<ImbueCredentialsBase *>(base);
+		packet->callback(packet->error());
 	}
 
 	explicit ImbueCredentialsBase(const char * credentials_)
-	: StreamControl(kTagImbueCredentials) {
-		memcpy(credentials.data(), credentials_, 16);
+	: StreamPacket(&transmitted), StreamNode(kTagImbueCredentials, this) {
+		memcpy(_inCredentials.data(), credentials_, 16);
 	}
 
-	virtual void complete(Error error) = 0;
-
-	frigg::Array<char, 16> credentials;
+	virtual void callback(Error error) = 0;
 };
 
 template<typename F>
 using ImbueCredentials = Realization<ImbueCredentialsBase, void(Error), F>;
 
-struct ExtractCredentialsBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct ExtractCredentialsBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagExtractCredentials;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<ExtractCredentialsBase *>(base);
+		packet->callback(packet->error(), packet->transmitCredentials());
 	}
 
 	explicit ExtractCredentialsBase()
-	: StreamControl(kTagExtractCredentials) { }
+	: StreamPacket(&transmitted), StreamNode(kTagExtractCredentials, this) { }
 
-	virtual void complete(Error error, frigg::Array<char, 16> credentials) = 0;
+	virtual void callback(Error error, frigg::Array<char, 16> credentials) = 0;
 };
 
 template<typename F>
 using ExtractCredentials = Realization<ExtractCredentialsBase,
 		void(Error, frigg::Array<char, 16>), F>;
 
-struct SendFromBufferBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct SendFromBufferBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagSendFromBuffer;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<SendFromBufferBase *>(base);
+		packet->callback(packet->error());
 	}
 
 	explicit SendFromBufferBase(frigg::UniqueMemory<KernelAlloc> buffer)
-	: StreamControl(kTagSendFromBuffer), buffer(frigg::move(buffer)) { }
+	: StreamPacket(&transmitted), StreamNode(kTagSendFromBuffer, this) {
+		_inBuffer = frigg::move(buffer);
+	}
 
-	virtual void complete(Error error) = 0;
-	
-	frigg::UniqueMemory<KernelAlloc> buffer;
+	virtual void callback(Error error) = 0;
 };
 
 template<typename F>
 using SendFromBuffer = Realization<SendFromBufferBase, void(Error), F>;
 
-struct RecvInlineBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct RecvInlineBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagRecvInline;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<RecvInlineBase *>(base);
+		packet->callback(packet->error(), packet->transmitBuffer());
 	}
 
 	explicit RecvInlineBase()
-	: StreamControl(kTagRecvInline) { }
+	: StreamPacket(&transmitted), StreamNode(kTagRecvInline, this) { }
 
-	virtual void complete(Error error, frigg::UniqueMemory<KernelAlloc> buffer) = 0;
+	virtual void callback(Error error, frigg::UniqueMemory<KernelAlloc> buffer) = 0;
 };
 
 template<typename F>
@@ -157,48 +265,64 @@ using RecvInline = Realization<
 	F
 >;
 
-struct RecvToBufferBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct RecvToBufferBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagRecvToBuffer;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<RecvToBufferBase *>(base);
+		packet->callback(packet->error(), packet->actualLength());
 	}
 
 	explicit RecvToBufferBase(AnyBufferAccessor accessor)
-	: StreamControl(kTagRecvToBuffer), accessor(frigg::move(accessor)) { }
+	: StreamPacket(&transmitted), StreamNode(kTagRecvToBuffer, this) {
+		_inAccessor = frigg::move(accessor);
+	}
 
-	virtual void complete(Error error, size_t length) = 0;
-	
-	AnyBufferAccessor accessor;
+	virtual void callback(Error error, size_t length) = 0;
 };
 
 template<typename F>
 using RecvToBuffer = Realization<RecvToBufferBase, void(Error, size_t), F>;
 
-struct PushDescriptorBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct PushDescriptorBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagPushDescriptor;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<PushDescriptorBase *>(base);
+		packet->callback(packet->error());
 	}
 
 	explicit PushDescriptorBase(AnyDescriptor lane)
-	: StreamControl(kTagPushDescriptor), _lane(frigg::move(lane)) { }
+	: StreamPacket(&transmitted), StreamNode(kTagPushDescriptor, this) {
+		_inDescriptor = frigg::move(lane);
+	}
 
-	virtual void complete(Error error) = 0;
-
-	AnyDescriptor _lane;
+	virtual void callback(Error error) = 0;
 };
 
 template<typename F>
 using PushDescriptor = Realization<PushDescriptorBase, void(Error), F>;
 
-struct PullDescriptorBase : StreamControl {
-	static bool classOf(const StreamControl &base) {
+struct PullDescriptorBase : StreamPacket, StreamNode {
+	static bool classOf(const StreamNode &base) {
 		return base.tag() == kTagPullDescriptor;
+	}
+	
+	static void transmitted(StreamPacket *base) {
+		auto packet = static_cast<PullDescriptorBase *>(base);
+		packet->callback(packet->error(), packet->_universe, packet->descriptor());
 	}
 
 	explicit PullDescriptorBase(frigg::WeakPtr<Universe> universe)
-	: StreamControl(kTagPullDescriptor), _universe(frigg::move(universe)) { }
+	: StreamPacket(&transmitted), StreamNode(kTagPullDescriptor, this),
+			_universe(frigg::move(universe)) { }
 
-	virtual void complete(Error error, frigg::WeakPtr<Universe> universe,
-			AnyDescriptor lane) = 0;
+	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,
+			AnyDescriptor descriptor) = 0;
 	
 	frigg::WeakPtr<Universe> _universe;
 };
@@ -224,74 +348,78 @@ struct Stream {
 
 	template<typename F>
 	LaneHandle submitOffer(int lane, F functor) {
-		return _submitControl(lane, frigg::makeShared<Offer<F>>(*kernelAlloc,
+		return _submitControl(lane, frigg::construct<Offer<F>>(*kernelAlloc,
 				frigg::move(functor)));
 	}
 	
 	template<typename F>
 	LaneHandle submitAccept(int lane, frigg::WeakPtr<Universe> universe, F functor) {
-		return _submitControl(lane, frigg::makeShared<Accept<F>>(*kernelAlloc,
+		return _submitControl(lane, frigg::construct<Accept<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(universe)));
 	}
 	
 	template<typename F>
 	LaneHandle submitImbueCredentials(int lane, const char *credentials, F functor) {
-		return _submitControl(lane, frigg::makeShared<ImbueCredentials<F>>(*kernelAlloc,
+		return _submitControl(lane, frigg::construct<ImbueCredentials<F>>(*kernelAlloc,
 				frigg::move(functor), credentials));
 	}
 	
 	template<typename F>
 	LaneHandle submitExtractCredentials(int lane, F functor) {
-		return _submitControl(lane, frigg::makeShared<ExtractCredentials<F>>(*kernelAlloc,
+		return _submitControl(lane, frigg::construct<ExtractCredentials<F>>(*kernelAlloc,
 				frigg::move(functor)));
 	}
 
 	template<typename F>
 	void submitSendBuffer(int lane, frigg::UniqueMemory<KernelAlloc> buffer, F functor) {
-		_submitControl(lane, frigg::makeShared<SendFromBuffer<F>>(*kernelAlloc,
+		_submitControl(lane, frigg::construct<SendFromBuffer<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(buffer)));
 	}
 	
 	template<typename F>
 	void submitRecvInline(int lane, F functor) {
-		_submitControl(lane, frigg::makeShared<RecvInline<F>>(*kernelAlloc,
+		_submitControl(lane, frigg::construct<RecvInline<F>>(*kernelAlloc,
 				frigg::move(functor)));
 	}
 	
 	template<typename F>
 	void submitRecvBuffer(int lane, AnyBufferAccessor accessor, F functor) {
-		_submitControl(lane, frigg::makeShared<RecvToBuffer<F>>(*kernelAlloc,
+		_submitControl(lane, frigg::construct<RecvToBuffer<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(accessor)));
 	}
 	
 	template<typename F>
 	void submitPushDescriptor(int lane, AnyDescriptor descriptor, F functor) {
-		_submitControl(lane, frigg::makeShared<PushDescriptor<F>>(*kernelAlloc,
+		_submitControl(lane, frigg::construct<PushDescriptor<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(descriptor)));
 	}
 	
 	template<typename F>
 	void submitPullDescriptor(int lane, frigg::WeakPtr<Universe> universe, F functor) {
-		_submitControl(lane, frigg::makeShared<PullDescriptor<F>>(*kernelAlloc,
+		_submitControl(lane, frigg::construct<PullDescriptor<F>>(*kernelAlloc,
 				frigg::move(functor), frigg::move(universe)));
 	}
 
 private:
-	static void _cancelItem(StreamControl *item, Error error);
+	static void _cancelItem(StreamNode *item, Error error);
 
 	// submits an operation to the stream.
-	LaneHandle _submitControl(int lane, frigg::SharedPtr<StreamControl> control);
+	LaneHandle _submitControl(int lane, StreamNode *control);
 
 	std::atomic<int> _peerCount[2];
 	
 	frigg::TicketLock _mutex;
 
 	// protected by _mutex.
-	frigg::IntrusiveSharedLinkedList<
-		StreamControl,
-		&StreamControl::processQueueItem
+	frg::intrusive_list<
+		StreamNode,
+		frg::locate_member<
+			StreamNode,
+			frg::default_list_hook<StreamNode>,
+			&StreamNode::processQueueItem
+		>
 	> _processQueue[2];
-	
+
 	// protected by _mutex.
 	frigg::LinkedList<frigg::SharedPtr<Stream>, KernelAlloc> _conversationQueue;
 	
