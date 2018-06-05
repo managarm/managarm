@@ -351,6 +351,32 @@ private:
 	uintptr_t _bundleOffset;
 };
 
+struct ForkItem {
+	Mapping *mapping;
+	AllocatedMemory *destBundle;
+};
+
+struct ForkNode {
+	friend struct AddressSpace;
+
+	ForkNode()
+	: _items{*kernelAlloc} { }
+
+	frigg::SharedPtr<AddressSpace> forkedSpace() {
+		return frigg::move(_fork);
+	}
+
+private:
+	void (*_forked)(ForkNode *);
+
+	// TODO: This should be a SharedPtr, too.
+	AddressSpace *_original;
+	frigg::SharedPtr<AddressSpace> _fork;
+	frigg::LinkedList<ForkItem, KernelAlloc> _items;
+	FetchNode _fetch;
+	size_t _progress;
+};
+
 struct Hole {
 	Hole(VirtualAddr address, size_t length)
 	: _address{address}, _length{length}, largestHole{0} { }
@@ -556,7 +582,7 @@ public:
 	bool handleFault(VirtualAddr address, uint32_t flags,
 			FaultNode *node, void (*handled)(FaultNode *));
 	
-	frigg::SharedPtr<AddressSpace> fork(Guard &guard);
+	bool fork(ForkNode *node);
 	
 	void activate();
 

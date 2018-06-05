@@ -1111,17 +1111,19 @@ bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags,
 	return mapping->handleFault(node);
 }
 
-frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
-	assert(guard.protects(&lock));
+bool AddressSpace::fork(ForkNode *node) {
+	node->_fork = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	node->_original = this;
 
-	auto fork_space = frigg::makeShared<AddressSpace>(*kernelAlloc);
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&this->lock);
 
 	// Copy holes to the child space.
 	auto cur_hole = _holes.first();
 	while(cur_hole) {
 		auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
 				cur_hole->address(), cur_hole->length());
-		fork_space->_holes.insert(fork_hole);
+		node->_fork->_holes.insert(fork_hole);
 
 		cur_hole = HoleTree::successor(cur_hole);
 	}
@@ -1135,11 +1137,11 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 			// TODO: Merge this hole into adjacent holes.
 			auto fork_hole = frigg::construct<Hole>(*kernelAlloc,
 					cur_mapping->address(), cur_mapping->length());
-			fork_space->_holes.insert(fork_hole);
+			node->_fork->_holes.insert(fork_hole);
 		}else if(cur_mapping->flags() & MappingFlags::shareAtFork) {
-			auto fork_mapping = cur_mapping->shareMapping(fork_space.get());
+			auto fork_mapping = cur_mapping->shareMapping(node->_fork.get());
 
-			fork_space->_mappings.insert(fork_mapping);
+			node->_fork->_mappings.insert(fork_mapping);
 			fork_mapping->install(false);
 		}else if(cur_mapping->flags() & MappingFlags::copyOnWriteAtFork) {
 			// TODO: Copy-on-write if possible and plain copy otherwise.
@@ -1151,11 +1153,11 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 			//     This ensures that processes do not miss wake ups in the original space.
 			if(false) {
 				auto origin_mapping = cur_mapping->copyOnWrite(this);
-				auto fork_mapping = cur_mapping->copyOnWrite(fork_space.get());
+				auto fork_mapping = cur_mapping->copyOnWrite(node->_fork.get());
 
 				_mappings.remove(cur_mapping);
 				_mappings.insert(origin_mapping);
-				fork_space->_mappings.insert(fork_mapping);
+				node->_fork->_mappings.insert(fork_mapping);
 				cur_mapping->uninstall(false);
 				origin_mapping->install(true);
 				fork_mapping->install(false);
@@ -1164,21 +1166,15 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 				auto bundle = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 						cur_mapping->length(), kPageSize, kPageSize);
 
-				for(size_t pg = 0; pg < cur_mapping->length(); pg += kPageSize) {
-					auto range = cur_mapping->resolveRange(pg, kPageSize);
-					auto physical = range.get<0>()->blockForRange(range.get<1>());
-					assert(physical != PhysicalAddr(-1));
-					PageAccessor accessor{physical};
-					bundle->copyKernelToThisSync(pg, accessor.get(), kPageSize);
-				}
-				
+				node->_items.addBack(ForkItem{cur_mapping, bundle.get()});
+
 				auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
 						frigg::move(bundle), 0, cur_mapping->length());
 
 				auto fork_mapping = frigg::construct<NormalMapping>(*kernelAlloc,
-						fork_space.get(), cur_mapping->address(), cur_mapping->length(),
+						node->_fork.get(), cur_mapping->address(), cur_mapping->length(),
 						cur_mapping->flags(), frigg::move(view), 0);
-				fork_space->_mappings.insert(fork_mapping);
+				node->_fork->_mappings.insert(fork_mapping);
 				fork_mapping->install(false);
 			}
 		}else{
@@ -1188,7 +1184,33 @@ frigg::SharedPtr<AddressSpace> AddressSpace::fork(Guard &guard) {
 		cur_mapping = successor;
 	}
 
-	return frigg::move(fork_space);
+	// TODO: Unlocking here should not be necessary.
+	lock.unlock();
+	irq_lock.unlock();
+
+	node->_progress = 0;
+
+	while(!node->_items.empty()) {
+		auto item = &node->_items.front();
+		if(node->_progress == item->mapping->length()) {
+			node->_items.removeFront();
+			node->_progress = 0;
+			continue;
+		}
+		assert(node->_progress < item->mapping->length());
+		assert(node->_progress + kPageSize <= item->mapping->length());
+
+		auto range = item->mapping->resolveRange(node->_progress, kPageSize);
+		auto done = range.get<0>()->fetchRange(range.get<1>(), &node->_fetch, nullptr);
+		assert(done);
+		assert(node->_fetch.range().get<1>() >= kPageSize);
+		
+		PageAccessor accessor{node->_fetch.range().get<0>()};
+		item->destBundle->copyKernelToThisSync(node->_progress, accessor.get(), kPageSize);
+		node->_progress += kPageSize;
+	}
+
+	return true;
 }
 
 void AddressSpace::activate() {

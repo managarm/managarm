@@ -795,20 +795,16 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 		}
 	}
 
-	frigg::SharedPtr<AddressSpace> forked;
-	{
-		auto irq_lock = frigg::guard(&irqMutex());
-		AddressSpace::Guard space_guard(&space->lock);
+	ForkNode node;
+	auto done = space->fork(&node);
+	assert(done);
 
-		forked = space->fork(space_guard);
-	}
-	
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*forked_handle = this_universe->attachDescriptor(universe_guard,
-				AddressSpaceDescriptor(frigg::move(forked)));
+				AddressSpaceDescriptor(node.forkedSpace()));
 	}
 
 	return kHelErrNone;
