@@ -65,9 +65,17 @@ struct InitiateBase {
 	// Current progress in bytes.
 	size_t progress;
 	
-
-	frigg::IntrusiveSharedLinkedItem<InitiateBase> processQueueItem;
+	frg::default_list_hook<InitiateBase> processQueueItem;
 };
+
+using InitiateList = frg::intrusive_list<
+	InitiateBase,
+	frg::locate_member<
+		InitiateBase,
+		frg::default_list_hook<InitiateBase>,
+		&InitiateBase::processQueueItem
+	>
+>;
 
 template<typename F>
 struct Initiate : InitiateBase {
@@ -76,6 +84,7 @@ struct Initiate : InitiateBase {
 
 	void complete(Error error) override {
 		_functor(error);
+		frigg::destruct(*kernelAlloc, this);
 	}
 
 private:
@@ -166,7 +175,9 @@ struct Memory : MemoryBundle {
 
 	size_t getLength();
 
-	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
+	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
+	void submitInitiateLoad(InitiateBase *initiate);
+
 	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
 	void completeLoad(size_t offset, size_t length);
 
@@ -242,22 +253,15 @@ struct ManagedSpace {
 	~ManagedSpace();
 	
 	void progressLoads();
-	bool isComplete(frigg::UnsafePtr<InitiateBase> initiate);
+	bool isComplete(InitiateBase *initiate);
 
 	frigg::TicketLock mutex;
 
 	frigg::Vector<PhysicalAddr, KernelAlloc> physicalPages;
 	frigg::Vector<LoadState, KernelAlloc> loadState;
 
-	frigg::IntrusiveSharedLinkedList<
-		InitiateBase,
-		&InitiateBase::processQueueItem
-	> initiateLoadQueue;
-
-	frigg::IntrusiveSharedLinkedList<
-		InitiateBase,
-		&InitiateBase::processQueueItem
-	> pendingLoadQueue;
+	InitiateList initiateLoadQueue;
+	InitiateList pendingLoadQueue;
 
 	frigg::IntrusiveSharedLinkedList<
 		ManageBase,
@@ -300,7 +304,7 @@ public:
 
 	size_t getLength();
 
-	void submitInitiateLoad(frigg::SharedPtr<InitiateBase> initiate);
+	void submitInitiateLoad(InitiateBase *initiate);
 
 private:
 	frigg::SharedPtr<ManagedSpace> _managed;

@@ -1151,7 +1151,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 	}
 
 	PostEvent<LockMemoryWriter> functor{frigg::move(queue), context};
-	auto initiate = frigg::makeShared<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
+	auto initiate = frigg::construct<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
 			offset, size, frigg::move(functor));
 	{
 		// TODO: protect memory object with a guard
