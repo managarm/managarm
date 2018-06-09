@@ -167,10 +167,10 @@ void Memory::submitInitiateLoad(InitiateBase *initiate) {
 	}
 }
 
-void Memory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
+void Memory::submitHandleLoad(ManageBase *handle) {
 	switch(tag()) {
 	case MemoryTag::backing:
-		static_cast<BackingMemory *>(this)->submitHandleLoad(frigg::move(handle));
+		static_cast<BackingMemory *>(this)->submitHandleLoad(handle);
 		break;
 	default:
 		assert(!"Not supported");
@@ -438,13 +438,14 @@ void ManagedSpace::progressLoads() {
 
 		size_t index = (initiate->offset + initiate->progress) / kPageSize;
 		if(loadState[index] == kStateMissing) {
-			if(handleLoadQueue.empty())
+			if(submittedManageQueue.empty())
 				break;
 
 			loadState[index] = kStateLoading;
 
-			frigg::SharedPtr<ManageBase> handle = handleLoadQueue.removeFront();
-			handle->complete(kErrSuccess, initiate->offset + initiate->progress, kPageSize);
+			auto handle = submittedManageQueue.pop_front();
+			handle->setup(kErrSuccess, initiate->offset + initiate->progress, kPageSize);
+			completedManageQueue.push_back(handle);
 
 			initiate->progress += kPageSize;
 		}else if(loadState[index] == kStateLoading) {
@@ -456,8 +457,9 @@ void ManagedSpace::progressLoads() {
 
 		if(initiate->progress == initiate->length) {
 			if(isComplete(initiate)) {
-				initiate->complete(kErrSuccess);
 				initiateLoadQueue.pop_front();
+				initiate->setup(kErrSuccess);
+				completedLoadQueue.push_back(initiate);
 			}else{
 				initiateLoadQueue.pop_front();
 				pendingLoadQueue.push_back(initiate);
@@ -517,12 +519,29 @@ size_t BackingMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
-void BackingMemory::submitHandleLoad(frigg::SharedPtr<ManageBase> handle) {
+void BackingMemory::submitHandleLoad(ManageBase *handle) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	_managed->handleLoadQueue.addBack(frigg::move(handle));
+	_managed->submittedManageQueue.push_back(handle);
 	_managed->progressLoads();
+
+	InitiateList initiate_queue;
+	ManageList manage_queue;
+	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
+	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
+
+	lock.unlock();
+	irq_lock.unlock();
+
+	while(!initiate_queue.empty()) {
+		auto node = initiate_queue.pop_front();
+		node->complete();
+	}
+	while(!manage_queue.empty()) {
+		auto node = manage_queue.pop_front();
+		node->complete();
+	}
 }
 
 void BackingMemory::completeLoad(size_t offset, size_t length) {
@@ -617,6 +636,19 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched
 				offset, kPageSize, frigg::move(functor));
 		_managed->initiateLoadQueue.push_back(initiate);
 		_managed->progressLoads();
+
+		ManageList manage_queue;
+		manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
+		assert(_managed->completedLoadQueue.empty());
+
+		lock.unlock();
+		irq_lock.unlock();
+
+		while(!manage_queue.empty()) {
+			auto node = manage_queue.pop_front();
+			node->complete();
+		}
+
 		return false;
 	}
 
@@ -642,6 +674,23 @@ void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
 	
 	_managed->initiateLoadQueue.push_back(initiate);
 	_managed->progressLoads();
+
+	InitiateList initiate_queue;
+	ManageList manage_queue;
+	initiate_queue.splice(initiate_queue.end(), _managed->completedLoadQueue);
+	manage_queue.splice(manage_queue.end(), _managed->completedManageQueue);
+
+	lock.unlock();
+	irq_lock.unlock();
+
+	while(!initiate_queue.empty()) {
+		auto node = initiate_queue.pop_front();
+		node->complete();
+	}
+	while(!manage_queue.empty()) {
+		auto node = manage_queue.pop_front();
+		node->complete();
+	}
 }
 
 // --------------------------------------------------------

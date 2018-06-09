@@ -1081,12 +1081,9 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	}
 	
 	PostEvent<ManageMemoryWriter> functor{frigg::move(queue), context};
-	auto manage = frigg::makeShared<Manage<PostEvent<ManageMemoryWriter>>>(*kernelAlloc,
+	auto manage = frigg::construct<Manage<PostEvent<ManageMemoryWriter>>>(*kernelAlloc,
 			frigg::move(functor));
-	{
-		// TODO: protect memory object with a guard
-		memory->submitHandleLoad(frigg::move(manage));
-	}
+	memory->submitHandleLoad(manage);
 
 	return kHelErrNone;
 }
@@ -1149,10 +1146,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 	PostEvent<LockMemoryWriter> functor{frigg::move(queue), context};
 	auto initiate = frigg::construct<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
 			offset, size, frigg::move(functor));
-	{
-		// TODO: protect memory object with a guard
-		memory->submitInitiateLoad(frigg::move(initiate));
-	}
+	memory->submitInitiateLoad(initiate);
 
 	return kHelErrNone;
 }

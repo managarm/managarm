@@ -36,9 +36,32 @@ enum class MemoryTag {
 
 struct ManageBase {
 	virtual void complete(Error error, uintptr_t offset, size_t size) = 0;
+	
+	void setup(Error error, uintptr_t offset, size_t size) {
+		_error = error;
+		_offset = offset;
+		_size = size;
+	}
 
-	frigg::IntrusiveSharedLinkedItem<ManageBase> processQueueItem;
+	void complete() {
+		complete(_error, _offset, _size);
+	}
+
+	frg::default_list_hook<ManageBase> processQueueItem;
+
+	Error _error;
+	uintptr_t _offset;
+	size_t _size;
 };
+
+using ManageList = frg::intrusive_list<
+	ManageBase,
+	frg::locate_member<
+		ManageBase,
+		frg::default_list_hook<ManageBase>,
+		&ManageBase::processQueueItem
+	>
+>;
 
 template<typename F>
 struct Manage : ManageBase {
@@ -47,6 +70,7 @@ struct Manage : ManageBase {
 
 	void complete(Error error, uintptr_t offset, size_t size) override {
 		_functor(error, offset, size);
+		frigg::destruct(*kernelAlloc, this);
 	}
 
 private:
@@ -59,13 +83,23 @@ struct InitiateBase {
 
 	virtual void complete(Error error) = 0;
 	
+	void setup(Error error) {
+		_error = error;
+	}
+
+	void complete() {
+		complete(_error);
+	}
+
 	size_t offset;
 	size_t length;
 
-	// Current progress in bytes.
-	size_t progress;
+	Error _error;
 	
 	frg::default_list_hook<InitiateBase> processQueueItem;
+
+	// Current progress in bytes.
+	size_t progress;
 };
 
 using InitiateList = frg::intrusive_list<
@@ -178,7 +212,7 @@ struct Memory : MemoryBundle {
 	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
 	void submitInitiateLoad(InitiateBase *initiate);
 
-	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
+	void submitHandleLoad(ManageBase *handle);
 	void completeLoad(size_t offset, size_t length);
 
 private:
@@ -262,11 +296,10 @@ struct ManagedSpace {
 
 	InitiateList initiateLoadQueue;
 	InitiateList pendingLoadQueue;
+	InitiateList completedLoadQueue;
 
-	frigg::IntrusiveSharedLinkedList<
-		ManageBase,
-		&ManageBase::processQueueItem
-	> handleLoadQueue;
+	ManageList submittedManageQueue;
+	ManageList completedManageQueue;
 };
 
 struct BackingMemory : Memory {
@@ -283,7 +316,7 @@ public:
 
 	size_t getLength();
 
-	void submitHandleLoad(frigg::SharedPtr<ManageBase> handle);
+	void submitHandleLoad(ManageBase *handle);
 	void completeLoad(size_t offset, size_t length);
 
 private:
