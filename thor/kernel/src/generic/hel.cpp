@@ -139,7 +139,8 @@ struct AcceptWriter {
 	AcceptWriter(Error error, frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane)
 	: _source{&_result, sizeof(HelHandleResult), nullptr},
 			_result{translateError(error), 0, kHelNullHandle} {
-		if(weak_universe) {
+		// TODO: This condition should be replaced. Just test if lane is valid.
+		if(!error && weak_universe) {
 			auto universe = weak_universe.grab();
 			assert(universe);
 
@@ -286,7 +287,7 @@ struct PullDescriptorWriter {
 			AnyDescriptor descriptor)
 	: _source{&_result, sizeof(HelHandleResult), nullptr},
 			_result{translateError(error), 0, kHelNullHandle} {
-		if(weak_universe) {
+		if(!error && weak_universe) {
 			auto universe = weak_universe.grab();
 			assert(universe);
 
@@ -593,8 +594,6 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 }
 
 HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
-	ASSERT_BOOT_CPU();
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -649,8 +648,6 @@ HelError helAllocateMemory(size_t size, uint32_t flags, HelHandle *handle) {
 }
 
 HelError helResizeMemory(HelHandle handle, size_t new_size) {
-	ASSERT_BOOT_CPU();
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 	

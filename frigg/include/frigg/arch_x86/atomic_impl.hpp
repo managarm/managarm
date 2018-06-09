@@ -84,24 +84,27 @@ void fetchDec(T *pointer, T &old_value) {
 class TicketLock {
 public:
 	TicketLock()
-	: p_nextTicket(0), p_servingTicket(0) { }
+	: _nextTicket{0}, _servingTicket{0} { }
+
+	TicketLock(const TicketLock &) = delete;
+
+	TicketLock &operator= (const TicketLock &) = delete;
 
 	void lock() {
-		uint32_t ticket;
-		fetchInc<uint32_t>(&p_nextTicket, ticket);
-
-		while(volatileRead<uint32_t>(&p_servingTicket) != ticket) {
+		auto ticket = __atomic_fetch_add(&_nextTicket, 1, __ATOMIC_RELAXED);
+		while(__atomic_load_n(&_servingTicket, __ATOMIC_ACQUIRE) != ticket) {
 			pause();
 		}
 	}
 	
 	void unlock() {
-		volatileWrite<uint32_t>(&p_servingTicket, p_servingTicket + 1);
+		auto current = __atomic_load_n(&_servingTicket, __ATOMIC_RELAXED);
+		__atomic_store_n(&_servingTicket, current + 1, __ATOMIC_RELEASE);
 	}
 
 private:
-	uint32_t p_nextTicket;
-	uint32_t p_servingTicket;
+	uint32_t _nextTicket;
+	uint32_t _servingTicket;
 };
 
 } // namespace frigg

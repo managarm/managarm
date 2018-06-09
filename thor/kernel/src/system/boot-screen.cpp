@@ -101,9 +101,9 @@ void BootScreen::printChar(char c) {
 	}
 
 	// Partially draw the last line.
-	char text[100];
-	copyLogMessage(_bottomSequence, text);
-	_fmt.print(text);
+//	char text[100];
+//	copyLogMessage(_bottomSequence, text);
+//	_fmt.print(text + _x);
 }
 
 void BootScreen::printString(const char *string) {
