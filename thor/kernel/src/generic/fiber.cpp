@@ -6,24 +6,24 @@ namespace thor {
 
 void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	auto this_fiber = thisFiber();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_fiber->_mutex);
+	
 	if(!predicate())
 		return;
-	
-	assert(intsAreEnabled());
-	disableInts();
-	
+
+	assert(!this_fiber->_blocked);
 	this_fiber->_blocked = true;
 	getCpuData()->executorContext = nullptr;
 	getCpuData()->activeFiber = nullptr;
-	Scheduler::suspend(this_fiber);
 
-	if(forkExecutor(&this_fiber->_executor)) {
-		runDetached([] {
+	forkExecutor([&] {
+		Scheduler::suspend(this_fiber);
+		runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
+			lock.unlock();
 			localScheduler()->reschedule();
-		});
-	}
-	
-	enableInts();
+		}, frigg::move(lock));
+	}, &this_fiber->_executor);
 }
 
 void KernelFiber::exitCurrent() {
@@ -66,12 +66,17 @@ KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
 : _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} { }
 
 void KernelFiber::invoke() {
+	assert(!intsAreEnabled());
+
 	getCpuData()->executorContext = &_executorContext;
 	getCpuData()->activeFiber = this;
 	restoreExecutor(&_executor);
 }
 
 void KernelFiber::unblock() {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&_mutex);
+
 	if(!_blocked)
 		return;
 	
@@ -81,6 +86,8 @@ void KernelFiber::unblock() {
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {
 	auto self = frg::container_of(this, &KernelFiber::_associatedWorkQueue);
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&self->_mutex);
 
 	if(!self->_blocked)
 		return;

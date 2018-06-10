@@ -460,9 +460,17 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
-// copies the current state into the executor and continues normal control flow.
-// returns 1 when the state is saved and 0 when it is restored.
-extern "C" [[ gnu::returns_twice ]] int forkExecutor(Executor *executor);
+template<typename F>
+void forkExecutor(F functor, Executor *executor) {
+	auto delegate = [] (void *p) {
+		auto fp = static_cast<F *>(p);
+		(*fp)();
+	};
+	doForkExecutor(executor, delegate, &functor);
+}
+
+// Copies the current state into the executor and calls the supplied function.
+extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
 
 // restores the current executor from its saved image.
 // this is functions does the heavy lifting during task switch.

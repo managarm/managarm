@@ -2,6 +2,7 @@
 #ifndef FRIGG_ATOMIC_HPP
 #define FRIGG_ATOMIC_HPP
 
+#include <frigg/algorithm.hpp>
 #include <frigg/macros.hpp>
 
 #if defined(__i386__)
@@ -25,51 +26,62 @@ constexpr DontLock dontLock = DontLock();
 template<typename Mutex>
 class LockGuard {
 public:
-	LockGuard(Mutex *mutex, DontLock)
-	: p_mutex(mutex), p_isLocked(false) { }
-
-	LockGuard(Mutex *mutex)
-	: p_mutex(mutex), p_isLocked(false) {
-		lock();
+	friend void swap(LockGuard &u, LockGuard &v) {
+		swap(u._mutex, v._mutex);
+		swap(u._isLocked, v._isLocked);
 	}
 
-	LockGuard(LockGuard &&other)
-	: p_mutex(other.p_mutex), p_isLocked(other.p_isLocked) {
-		other.p_isLocked = false;
+	LockGuard()
+	: _mutex{nullptr}, _isLocked{false} { }
+
+	LockGuard(Mutex *mutex, DontLock)
+	: _mutex{mutex}, _isLocked{false} { }
+
+	LockGuard(Mutex *mutex)
+	: _mutex{mutex}, _isLocked{false} {
+		lock();
 	}
 
 	LockGuard(const LockGuard &other) = delete;
 	
+	LockGuard(LockGuard &&other)
+	: LockGuard() {
+		swap(*this, other);
+	}
+
 	~LockGuard() {
-		if(p_isLocked)
+		if(_isLocked)
 			unlock();
 	}
 
-	LockGuard &operator= (const LockGuard &other) = delete;
+	LockGuard &operator= (LockGuard other) {
+		swap(*this, other);
+		return *this;
+	}
 
 	void lock() {
-		assert(!p_isLocked);
-		p_mutex->lock();
-		p_isLocked = true;
+		assert(!_isLocked);
+		_mutex->lock();
+		_isLocked = true;
 	}
 
 	void unlock() {
-		assert(p_isLocked);
-		p_mutex->unlock();
-		p_isLocked = false;
+		assert(_isLocked);
+		_mutex->unlock();
+		_isLocked = false;
 	}
 
 	bool isLocked() {
-		return p_isLocked;
+		return _isLocked;
 	}
 
 	bool protects(Mutex *mutex) {
-		return p_isLocked && mutex == p_mutex;
+		return _isLocked && mutex == _mutex;
 	}
 
 private:
-	Mutex *p_mutex;
-	bool p_isLocked;
+	Mutex *_mutex;
+	bool _isLocked;
 };
 
 template<typename Mutex>

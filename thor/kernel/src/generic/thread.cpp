@@ -29,13 +29,11 @@ void Thread::deferCurrent() {
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
 
-	// TODO: What is the purpose of forkExecutor here?
-	if(forkExecutor(&this_thread->_executor)) {
-		runDetached([] (frigg::LockGuard<Mutex> lock) {
-			lock.unlock();
-			localScheduler()->reschedule();
-		}, std::move(lock));
-	}
+	// TODO: We had forkExecutor() here. Did that serve any purpose?
+	runDetached([] (frigg::LockGuard<Mutex> lock) {
+		lock.unlock();
+		localScheduler()->reschedule();
+	}, std::move(lock));
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
@@ -365,6 +363,7 @@ void Thread::invoke() {
 }
 
 void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
+	assert(!intsAreEnabled());
 	auto this_thread = getCurrentThread();
 	assert(lock.protects(&this_thread->_mutex));
 
@@ -374,16 +373,13 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is blocked" << frigg::endLog;
 
-	assert(!intsAreEnabled());
-	if(forkExecutor(&this_thread->_executor)) {
+	forkExecutor([&] {
 		Scheduler::suspend(this_thread.get());
 		runDetached([] (frigg::LockGuard<Mutex> lock) {
-			// TODO: exit the current thread.
 			lock.unlock();
-
 			localScheduler()->reschedule();
 		}, frigg::move(lock));
-	}
+	}, &this_thread->_executor);
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {

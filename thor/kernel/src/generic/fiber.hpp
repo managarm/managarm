@@ -86,7 +86,9 @@ public:
 	}
 
 private:
+	frigg::TicketLock _mutex;
 	bool _blocked;
+
 	AssociatedWorkQueue _associatedWorkQueue;
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;

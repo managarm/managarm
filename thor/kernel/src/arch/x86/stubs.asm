@@ -334,9 +334,10 @@ syscallStub:
 # ---------------------------------------------------------
 
 .text
-.global forkExecutor
-forkExecutor:
+.global doForkExecutor
+doForkExecutor:
 	mov .L_executorImagePtr(%rdi), %rdi
+	mov %rdx, %r11
 	
 	# save the fs segment
 	mov $.L_msrIndexFsBase, %rcx
@@ -368,17 +369,17 @@ forkExecutor:
 	# setup the state for the second return
 	mov (%rsp), %rdx
 	mov %rdx, .L_imageRip(%rdi)
-	mov %cs, %rsi
-	mov %rsi, .L_imageCs(%rdi)
+	mov %cs, %rax
+	mov %rax, .L_imageCs(%rdi)
 	pushfq
 	popq .L_imageRflags(%rdi)
 	leaq 8(%rsp), %rcx
 	mov %rcx, .L_imageRsp(%rdi)
-	mov %ss, %rsi
-	mov %rsi, .L_imageSs(%rdi)
+	mov %ss, %rax
+	mov %rax, .L_imageSs(%rdi)
 
-	movq $0, .L_imageRax(%rdi)
-	mov $1, %rax
+	mov %r11, %rdi
+	call *%rsi
 	ret
 
 # arguments: void *pointer
