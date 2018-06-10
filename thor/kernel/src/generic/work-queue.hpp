@@ -1,6 +1,8 @@
 #ifndef THOR_GENERIC_WORK_QUEUE_HPP
 #define THOR_GENERIC_WORK_QUEUE_HPP
 
+#include <atomic>
+
 #include <frg/list.hpp>
 
 namespace thor {
@@ -24,6 +26,9 @@ private:
 struct WorkQueue {
 	static void post(Worklet *worklet);
 
+	WorkQueue()
+	: _anyPosted{false} { }
+
 	bool check();
 
 	void run();
@@ -40,6 +45,19 @@ private:
 			&Worklet::_hook
 		>
 	> _pending;
+	
+	frigg::TicketLock _mutex;
+
+	std::atomic<bool> _anyPosted;
+
+	frg::intrusive_list<
+		Worklet,
+		frg::locate_member<
+			Worklet,
+			frg::default_list_hook<Worklet>,
+			&Worklet::_hook
+		>
+	> _posted;
 };
 
 } // namespace thor
