@@ -79,6 +79,16 @@ void KernelFiber::unblock() {
 	Scheduler::resume(this);
 }
 
+void KernelFiber::AssociatedWorkQueue::wakeup() {
+	auto self = frg::container_of(this, &KernelFiber::_associatedWorkQueue);
+
+	if(!self->_blocked)
+		return;
+
+	self->_blocked = false;
+	Scheduler::resume(self);
+}
+
 KernelFiber *thisFiber() {
 	return getCpuData()->activeFiber;
 }

@@ -7,6 +7,7 @@
 #include <frg/intrusive.hpp>
 #include <frigg/atomic.hpp>
 #include "cancel.hpp"
+#include "work-queue.hpp"
 
 namespace thor {
 
@@ -43,21 +44,25 @@ private:
 };
 
 struct PrecisionTimerNode {
+	friend struct CompareTimer;
 	friend struct PrecisionTimerEngine;
 
-	PrecisionTimerNode(uint64_t deadline)
-	: deadline{deadline}, _engine{nullptr}, _inQueue{false} { }
+	PrecisionTimerNode()
+	: _engine{nullptr}, _inQueue{false} { }
+
+	void setup(uint64_t deadline, Worklet *elapsed) {
+		_deadline = deadline;
+		_elapsed = elapsed;
+	}
 
 	void cancelTimer();
-
-	// The timer subsystem drops its references to the node before this call.
-	virtual void onElapse() = 0;
-
-	uint64_t deadline;
 
 	frg::pairing_heap_hook<PrecisionTimerNode> hook;
 
 private:
+	uint64_t _deadline;
+	Worklet *_elapsed;
+
 	// TODO: If we allow timer engines to be destructed, this needs to be refcounted.
 	PrecisionTimerEngine *_engine;
 
@@ -66,7 +71,7 @@ private:
 
 struct CompareTimer {
 	bool operator() (const PrecisionTimerNode *a, const PrecisionTimerNode *b) const {
-		return a->deadline > b->deadline;
+		return a->_deadline > b->_deadline;
 	}
 };
 

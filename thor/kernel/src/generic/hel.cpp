@@ -1529,24 +1529,28 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			generalTimerEngine()->installTimer(node);
 		}
 
+		static void elapsed(Worklet *worklet) {
+			auto closure = frg::container_of(worklet, &Closure::worklet);
+			closure->finalizeCancel();
+			closure->queue->submit(closure);
+		}
+
 		explicit Closure(uint64_t nanos, frigg::SharedPtr<UserQueue> the_queue,
 				uintptr_t context)
-		: PrecisionTimerNode{nanos}, queue{frigg::move(the_queue)},
+		: queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
 			thread = getCurrentThread().get();
-			setup(thread->associatedWorkQueue());
+			QueueNode::setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
+			
+			worklet.setup(&Closure::elapsed, thread->associatedWorkQueue());
+			PrecisionTimerNode::setup(nanos, &worklet);
 		}
 
 		void handleCancel() override {
 			cancelTimer();
-		}
-
-		void onElapse() override {
-			finalizeCancel();
-			queue->submit(this);
 		}
 
 		void complete() override {
@@ -1554,6 +1558,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		Thread *thread;
+		Worklet worklet;
 		frigg::SharedPtr<UserQueue> queue;
 		QueueSource source;
 		HelSimpleResult result;

@@ -21,7 +21,7 @@ void PrecisionTimerNode::cancelTimer() {
 	_engine->_timerQueue.remove(this);
 	_inQueue = false;
 	_engine->_activeTimers--;
-	onElapse();
+	WorkQueue::post(_elapsed);
 }
 
 PrecisionTimerEngine::PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm)
@@ -37,7 +37,7 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 
 	if(logTimers) {
 		auto current = _clock->currentNanos();
-		frigg::infoLogger() << "thor: Setting timer at " << timer->deadline
+		frigg::infoLogger() << "thor: Setting timer at " << timer->_deadline
 				<< " (counter is " << current << ")" << frigg::endLog;
 	}
 
@@ -70,7 +70,7 @@ void PrecisionTimerEngine::_progress() {
 			if(_timerQueue.empty())
 				return;
 
-			if(_timerQueue.top()->deadline > current)
+			if(_timerQueue.top()->_deadline > current)
 				break;
 
 			auto timer = _timerQueue.top();
@@ -80,14 +80,14 @@ void PrecisionTimerEngine::_progress() {
 			_activeTimers--;
 			if(logProgress)
 				frigg::infoLogger() << "thor: Timer completed" << frigg::endLog;
-			timer->onElapse();
+			WorkQueue::post(timer->_elapsed);
 		}
 
 		// Setup the comparator and iterate if there was a race.
 		assert(!_timerQueue.empty());
-		_alarm->arm(_timerQueue.top()->deadline);
+		_alarm->arm(_timerQueue.top()->_deadline);
 		current = _clock->currentNanos();
-	} while(_timerQueue.top()->deadline <= current);
+	} while(_timerQueue.top()->_deadline <= current);
 }
 
 ClockSource *systemClockSource() {

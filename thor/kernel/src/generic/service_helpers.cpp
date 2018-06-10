@@ -26,24 +26,32 @@ void fiberSleep(uint64_t nanos) {
 	auto this_fiber = thisFiber();
 
 	struct Blocker : PrecisionTimerNode {
-		Blocker(uint64_t ticks, KernelFiber *fiber)
-		: PrecisionTimerNode{ticks}, complete{false}, fiber{fiber} { }
+		static void elapsed(Worklet *worklet) {
+			auto blocker = frg::container_of(worklet, &Blocker::worklet);
+			blocker->complete.store(true, std::memory_order_release);
+			blocker->fiber->unblock();
+		}
 
-		void onElapse() override {
-			complete.store(true, std::memory_order_release);
-			fiber->unblock();
+		Blocker(uint64_t ticks, KernelFiber *fiber)
+		: complete{false}, fiber{fiber} {
+			worklet.setup(&Blocker::elapsed, fiber->associatedWorkQueue());
+			setup(ticks, &worklet);
 		}
 
 		std::atomic<bool> complete;
 		KernelFiber *fiber;
+		Worklet worklet;
 	};
 
 	Blocker blocker{systemClockSource()->currentNanos() + nanos, this_fiber};
 	generalTimerEngine()->installTimer(&blocker);
 
 	while(!blocker.complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !blocker.complete.load(std::memory_order_relaxed);
+			return !blocker.complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}

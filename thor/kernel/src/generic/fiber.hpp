@@ -14,6 +14,12 @@ struct KernelFiber;
 KernelFiber *thisFiber();
 
 struct KernelFiber : ScheduleEntity {
+private:
+	struct AssociatedWorkQueue : WorkQueue {
+		void wakeup() override;
+	};
+
+public:
 	template<typename Node, typename Function, typename... Args>
 	static void await(Function &&f, Args &&... args) {
 		struct Awaiter {
@@ -75,8 +81,13 @@ struct KernelFiber : ScheduleEntity {
 
 	void unblock();
 
+	WorkQueue *associatedWorkQueue() {
+		return &_associatedWorkQueue;
+	}
+
 private:
 	bool _blocked;
+	AssociatedWorkQueue _associatedWorkQueue;
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;
