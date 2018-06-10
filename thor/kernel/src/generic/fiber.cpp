@@ -63,7 +63,9 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
-: _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} { }
+: _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
+	_executorContext.associatedWorkQueue = &_associatedWorkQueue;
+}
 
 void KernelFiber::invoke() {
 	assert(!intsAreEnabled());

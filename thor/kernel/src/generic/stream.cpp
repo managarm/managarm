@@ -17,7 +17,13 @@ LaneHandle::~LaneHandle() {
 		_stream.control().decrement();
 }
 
-static void transfer(OfferBase *offer, AcceptBase *accept, LaneHandle lane) {
+struct OfferAccept { };
+struct ImbueExtract { };
+struct SendRecvInline { };
+struct SendRecvBuffer { };
+struct PushPull { };
+
+static void transfer(OfferAccept, StreamNode *offer, StreamNode *accept, LaneHandle lane) {
 	offer->_error = kErrSuccess;
 	offer->complete();
 
@@ -27,7 +33,7 @@ static void transfer(OfferBase *offer, AcceptBase *accept, LaneHandle lane) {
 	accept->complete();
 }
 
-static void transfer(ImbueCredentialsBase *from, ExtractCredentialsBase *to) {
+static void transfer(ImbueExtract, StreamNode *from, StreamNode *to) {
 	auto credentials = from->_inCredentials;
 
 	from->_error = kErrSuccess;
@@ -38,7 +44,7 @@ static void transfer(ImbueCredentialsBase *from, ExtractCredentialsBase *to) {
 	to->complete();
 }
 
-static void transfer(SendFromBufferBase *from, RecvInlineBase *to) {
+static void transfer(SendRecvInline, StreamNode *from, StreamNode *to) {
 	auto buffer = std::move(from->_inBuffer);
 
 	from->_error = kErrSuccess;
@@ -49,7 +55,7 @@ static void transfer(SendFromBufferBase *from, RecvInlineBase *to) {
 	to->complete();
 }
 
-static void transfer(SendFromBufferBase *from, RecvToBufferBase *to) {
+static void transfer(SendRecvBuffer, StreamNode *from, StreamNode *to) {
 	auto buffer = std::move(from->_inBuffer);
 
 	if(buffer.size() <= to->_inAccessor.length()) {
@@ -78,7 +84,7 @@ static void transfer(SendFromBufferBase *from, RecvToBufferBase *to) {
 	}
 }
 
-static void transfer(PushDescriptorBase *push, PullDescriptorBase *pull) {
+static void transfer(PushPull, StreamNode *push, StreamNode *pull) {
 	auto descriptor = std::move(push->_inDescriptor);
 
 	push->_error = kErrSuccess;
@@ -157,7 +163,7 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	item->complete();
 }
 
-LaneHandle Stream::_submitControl(int p, StreamNode *u) {
+LaneHandle Stream::transmit(int p, StreamNode *u) {
 	// p/q is the number of the local/remote lane.
 	// u/v is the local/remote item that we are processing.
 	assert(!(p & ~int(1)));
@@ -216,9 +222,7 @@ LaneHandle Stream::_submitControl(int p, StreamNode *u) {
 			LaneHandle lane1(adoptLane, conversation, p);
 			LaneHandle lane2(adoptLane, conversation, q);
 
-			transfer(static_cast<OfferBase *>(u),
-					static_cast<AcceptBase *>(v),
-					std::move(lane2));
+			transfer(OfferAccept{}, u, v, std::move(lane2));
 
 			return LaneHandle(adoptLane, conversation, p);
 		}else if(OfferBase::classOf(*v)
@@ -226,50 +230,40 @@ LaneHandle Stream::_submitControl(int p, StreamNode *u) {
 			LaneHandle lane1(adoptLane, conversation, p);
 			LaneHandle lane2(adoptLane, conversation, q);
 
-			transfer(static_cast<OfferBase *>(v),
-					static_cast<AcceptBase *>(u),
-					std::move(lane1));
+			transfer(OfferAccept{}, v, u, std::move(lane1));
 			
 			return LaneHandle(adoptLane, conversation, p);
 		}else if(ImbueCredentialsBase::classOf(*u)
 				&& ExtractCredentialsBase::classOf(*v)) {
-			transfer(static_cast<ImbueCredentialsBase *>(u),
-					static_cast<ExtractCredentialsBase *>(v));
+			transfer(ImbueExtract{}, u, v);
 			return LaneHandle();
 		}else if(ImbueCredentialsBase::classOf(*v)
 				&& ExtractCredentialsBase::classOf(*u)) {
-			transfer(static_cast<ImbueCredentialsBase *>(v),
-					static_cast<ExtractCredentialsBase *>(u));
+			transfer(ImbueExtract{}, v, u);
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvInlineBase::classOf(*v)) {
-			transfer(static_cast<SendFromBufferBase *>(u),
-					static_cast<RecvInlineBase *>(v));
+			transfer(SendRecvInline{}, u, v);
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*v)
 				&& RecvInlineBase::classOf(*u)) {
-			transfer(static_cast<SendFromBufferBase *>(v),
-					static_cast<RecvInlineBase *>(u));
+			transfer(SendRecvInline{}, v, u);
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*u)
 				&& RecvToBufferBase::classOf(*v)) {
-			transfer(static_cast<SendFromBufferBase *>(u),
-					static_cast<RecvToBufferBase *>(v));
+			transfer(SendRecvBuffer{}, u, v);
 			return LaneHandle();
 		}else if(SendFromBufferBase::classOf(*v)
 				&& RecvToBufferBase::classOf(*u)) {
-			transfer(static_cast<SendFromBufferBase *>(v),
-					static_cast<RecvToBufferBase *>(u));
+			transfer(SendRecvBuffer{}, v, u);
 			return LaneHandle();
 		}else if(PushDescriptorBase::classOf(*u)
 				&& PullDescriptorBase::classOf(*v)) {
-			transfer(static_cast<PushDescriptorBase *>(u),
-					static_cast<PullDescriptorBase *>(v));
+			transfer(PushPull{}, u, v);
 			return LaneHandle();
 		}else if(PushDescriptorBase::classOf(*v)
 				&& PullDescriptorBase::classOf(*u)) {
-			transfer(static_cast<PushDescriptorBase *>(v),
-					static_cast<PullDescriptorBase *>(u));
+			transfer(PushPull{}, v, u);
 			return LaneHandle();
 		}else{
 			frigg::infoLogger() << u->tag()

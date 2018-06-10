@@ -71,7 +71,11 @@ namespace stdio {
 		void onRecvData(Error error, frigg::UniqueMemory<KernelAlloc> data) {
 			assert(error == kErrSuccess);
 			
-			helLog(reinterpret_cast<char *>(data.data()), data.size());
+			{
+				auto p = frigg::infoLogger();
+				for(size_t i = 0; i < data.size(); i++)
+					p.print(reinterpret_cast<char *>(data.data())[i]);
+			}
 
 			fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -637,27 +641,56 @@ namespace initrd {
 	};
 }
 
+namespace {
+	template<typename S, typename F>
+	struct LambdaInvoker;
+	
+	template<typename R, typename... Args, typename F>
+	struct LambdaInvoker<R(Args...), F> {
+		static R invoke(void *object, Args... args) {
+			return (*static_cast<F *>(object))(frigg::move(args)...);
+		}
+	};
+
+	template<typename S, typename F>
+	frigg::CallbackPtr<S> wrap(F &functor) {
+		return frigg::CallbackPtr<S>(&functor, &LambdaInvoker<S, F>::invoke);
+	}
+}
+
 void runService(frigg::SharedPtr<Thread> thread) {
-	auto stdio_stream = createStream();
-	auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
-	stdio_file->clientLane = frigg::move(stdio_stream.get<1>());
-	
-	auto stdio_closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
-			frigg::move(stdio_stream.get<0>()));
-	(*stdio_closure)();
+	KernelFiber::run([=] {
+		auto stdio_stream = createStream();
+		auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
+		stdio_file->clientLane = frigg::move(stdio_stream.get<1>());
+		
+		auto stdio_closure = frigg::construct<stdio::RequestClosure>(*kernelAlloc,
+				frigg::move(stdio_stream.get<0>()));
+		(*stdio_closure)();
 
-	auto process = frigg::construct<initrd::Process>(*kernelAlloc, thread);
-	process->attachFile(stdio_file);
-	process->attachFile(stdio_file);
-	process->attachFile(stdio_file);
-	
-	auto observe_closure = frigg::construct<initrd::ObserveClosure>(*kernelAlloc,
-			process, thread);
-	(*observe_closure)();
+		auto process = frigg::construct<initrd::Process>(*kernelAlloc, thread);
+		process->attachFile(stdio_file);
+		process->attachFile(stdio_file);
+		process->attachFile(stdio_file);
+		
+		auto observe_closure = frigg::construct<initrd::ObserveClosure>(*kernelAlloc,
+				process, thread);
+		(*observe_closure)();
 
-	auto posix_closure = frigg::construct<initrd::ServerRequestClosure>(*kernelAlloc,
-			process, thread->superiorLane());
-	(*posix_closure)();
+		auto posix_closure = frigg::construct<initrd::ServerRequestClosure>(*kernelAlloc,
+				process, thread->superiorLane());
+		(*posix_closure)();
+
+		auto this_fiber = thisFiber();
+		while(true) {
+			this_fiber->associatedWorkQueue()->run();
+
+			auto check = [&] {
+				return !this_fiber->associatedWorkQueue()->check();
+			};
+			KernelFiber::blockCurrent(wrap<bool()>(check));
+		}
+	});
 }
 
 } // namespace thor

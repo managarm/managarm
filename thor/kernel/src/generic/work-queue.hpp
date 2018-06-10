@@ -24,6 +24,8 @@ private:
 };
 
 struct WorkQueue {
+	static WorkQueue *localQueue();
+
 	static void post(Worklet *worklet);
 
 	WorkQueue()

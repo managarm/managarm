@@ -4,6 +4,12 @@
 
 namespace thor {
 
+WorkQueue *WorkQueue::localQueue() {
+	auto context = localExecutorContext();
+	assert(context);
+	return context->associatedWorkQueue;
+}
+
 // TODO: Optimize for the case where we are on the correct thread.
 void WorkQueue::post(Worklet *worklet) {
 	auto wq = worklet->_workQueue;

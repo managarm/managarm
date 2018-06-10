@@ -252,6 +252,8 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 	memset(_credentials, 0, 16);
 	memcpy(_credentials + 8, &id, sizeof(uint64_t));
 
+	_executorContext.associatedWorkQueue = &_associatedWorkQueue;
+
 	auto stream = createStream();
 	_superiorLane = frigg::move(stream.get<0>());
 	_inferiorLane = frigg::move(stream.get<1>());

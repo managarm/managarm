@@ -70,8 +70,11 @@ LaneHandle fiberOffer(LaneHandle lane) {
 	auto branch = lane.getStream()->submitOffer(lane.getLane(), wrap<void(Error)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
@@ -95,8 +98,11 @@ LaneHandle fiberAccept(LaneHandle lane) {
 			wrap<void(Error, frigg::WeakPtr<Universe>, LaneDescriptor)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
@@ -123,8 +129,11 @@ void fiberSend(LaneHandle lane, const void *buffer, size_t length) {
 			frigg::move(kernel_buffer), wrap<void(Error)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
@@ -146,8 +155,11 @@ frigg::UniqueMemory<KernelAlloc> fiberRecv(LaneHandle lane) {
 			wrap<void(Error, frigg::UniqueMemory<KernelAlloc>)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
@@ -168,8 +180,11 @@ void fiberPushDescriptor(LaneHandle lane, AnyDescriptor descriptor) {
 			wrap<void(Error)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
@@ -191,8 +206,11 @@ AnyDescriptor fiberPullDescriptor(LaneHandle lane) {
 			wrap<void(Error, frigg::WeakPtr<Universe>, AnyDescriptor)>(callback));
 
 	while(!complete.load(std::memory_order_acquire)) {
+		this_fiber->associatedWorkQueue()->run();
+
 		auto check = [&] {
-			return !complete.load(std::memory_order_relaxed);
+			return !complete.load(std::memory_order_relaxed)
+					&& !this_fiber->associatedWorkQueue()->check();
 		};
 		KernelFiber::blockCurrent(wrap<bool()>(check));
 	}
