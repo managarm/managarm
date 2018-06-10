@@ -718,6 +718,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		frigg::infoLogger() << this_thread.get() << " on CPU " << getLocalApicId()
 				<< " syscall #" << *image.number() << frigg::endLog;
 
+	// Run worklets before we run the syscall.
+	// This avoids useless FutexWait calls on IPC queues.
+	this_thread->associatedWorkQueue()->run();
+
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {
 		Thread::interruptCurrent(static_cast<Interrupt>(kIntrSuperCall
@@ -965,6 +969,9 @@ void handleSyscall(SyscallImageAccessor image) {
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}
+	
+	// Run more worklets that were posted by the syscall.
+	this_thread->associatedWorkQueue()->run();
 
 	Thread::raiseSignals(image);
 

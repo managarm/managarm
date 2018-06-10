@@ -1,6 +1,8 @@
 #ifndef THOR_LIBC_STRING_H
 #define THOR_LIBC_STRING_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

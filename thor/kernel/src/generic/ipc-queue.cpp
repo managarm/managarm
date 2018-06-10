@@ -1,4 +1,7 @@
 
+#include <string.h>
+
+#include <frg/container_of.hpp>
 #include <frigg/debug.hpp>
 #include "ipc-queue.hpp"
 #include "kernel.hpp"
@@ -38,25 +41,31 @@ void UserQueue::submit(QueueNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
+	struct Ops {
+		static void ready(Worklet *worklet) {
+			auto node = frg::container_of(worklet, &QueueNode::_worklet);
+			auto self = node->_queue;
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
+
+			self->_progress();
+		}
+	};
+
 	assert(!node->_queueNode.in_list);
+	node->_queue = this;
+	node->_worklet.setup(&Ops::ready, node->_wq);
+
+	auto was_empty = _nodeQueue.empty();
 	_nodeQueue.push_back(node);
-	_progress();
-}
-
-void UserQueue::onWake() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	_waitInFutex = false;
-	_progress();
+	if(was_empty)
+		_progress();
 }
 
 void UserQueue::_progress() {
-	if(_waitInFutex)
-		return;
-
-	while(!_nodeQueue.empty()) {
+	while(true) {
 		assert(!_waitInFutex);
+		assert(!_nodeQueue.empty());
 
 		// Advance the queue if necessary.
 		if(!_currentChunk) {
@@ -105,6 +114,10 @@ void UserQueue::_progress() {
 		// Update the chunk progress futex.
 		_currentProgress += sizeof(ElementStruct) + length;
 		_wakeProgressFutex(false);
+
+		if(!_nodeQueue.empty())
+			WorkQueue::post(&_nodeQueue.front()->_worklet);
+		return;
 	}
 }
 
@@ -145,6 +158,19 @@ void UserQueue::_retireChunk() {
 }
 
 bool UserQueue::_waitHeadFutex() {
+	struct Ops {
+		static void woken(Worklet *worklet) {
+			auto self = frg::container_of(worklet, &UserQueue::_worklet);
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&self->_mutex);
+
+			self->_waitInFutex = false;
+			self->_progress();
+		}
+	};
+	
+	auto node = _nodeQueue.front();
+
 	while(true) {
 		auto futex = __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_ACQUIRE);
 		do {
@@ -157,10 +183,12 @@ bool UserQueue::_waitHeadFutex() {
 				_nextIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
 
 		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
+		_worklet.setup(&Ops::woken, node->_wq);
+		_futex.setup(&_worklet);
 		_waitInFutex = _space->futexSpace.checkSubmitWait(fa, [&] {
 			return __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_RELAXED)
 					== (_nextIndex | kHeadWaiters);
-		}, this);
+		}, &_futex);
 
 		if(_waitInFutex)
 			return true;

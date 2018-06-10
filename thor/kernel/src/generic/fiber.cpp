@@ -13,6 +13,7 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	disableInts();
 	
 	this_fiber->_blocked = true;
+	getCpuData()->executorContext = nullptr;
 	getCpuData()->activeFiber = nullptr;
 	Scheduler::suspend(this_fiber);
 
@@ -62,9 +63,10 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 }
 
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
-: _blocked{false}, _context{std::move(stack)}, _executor{&_context, abi} { }
+: _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} { }
 
 void KernelFiber::invoke() {
+	getCpuData()->executorContext = &_executorContext;
 	getCpuData()->activeFiber = this;
 	restoreExecutor(&_executor);
 }

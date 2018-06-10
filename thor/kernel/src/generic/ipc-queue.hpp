@@ -9,6 +9,8 @@
 
 namespace thor {
 
+struct UserQueue;
+
 // NOTE: The following structs mirror the Hel{Queue,Element} structs.
 // They must be kept in sync!
 
@@ -52,6 +54,9 @@ struct QueueNode {
 	: _context{0}, _source{nullptr} { }
 
 	// Users of UserQueue::submit() have to set this up first.
+	void setup(WorkQueue *wq) {
+		_wq = wq;
+	}
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
@@ -64,11 +69,14 @@ struct QueueNode {
 private:
 	uintptr_t _context;
 	const QueueSource *_source;
+	WorkQueue *_wq;
 
+	UserQueue *_queue;
+	Worklet _worklet;
 	frg::default_list_hook<QueueNode> _queueNode;
 };
 
-struct UserQueue : CancelRegistry, private FutexNode {
+struct UserQueue : CancelRegistry {
 private:
 	using Address = uintptr_t;
 
@@ -110,8 +118,6 @@ public:
 	void submit(QueueNode *node);
 
 private:
-	void onWake() override;
-
 	void _progress();
 	void _advanceChunk();
 	void _retireChunk();
@@ -127,7 +133,9 @@ private:
 	
 	int _sizeShift;
 
+	Worklet _worklet;
 	AcquireNode _acquireNode;
+	FutexNode _futex;
 
 	// Accessors for the queue header.
 	ForeignSpaceAccessor _queuePin;

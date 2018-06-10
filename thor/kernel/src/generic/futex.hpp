@@ -7,6 +7,7 @@
 #include <frigg/hashmap.hpp>
 #include "cancel.hpp"
 #include "kernel_heap.hpp"
+#include "work-queue.hpp"
 #include "../arch/x86/ints.hpp"
 
 namespace thor {
@@ -14,9 +15,12 @@ namespace thor {
 struct FutexNode {
 	friend struct Futex;
 
-	virtual void onWake() = 0;
+	void setup(Worklet *woken) {
+		_woken = woken;
+	}
 
 private:
+	Worklet *_woken;
 	frg::default_list_hook<FutexNode> _queueNode;
 };
 
@@ -52,7 +56,7 @@ struct Futex {
 	template<typename C>
 	void submitWait(Address address, C condition, FutexNode *node) {
 		if(!checkSubmitWait(address, std::move(condition), node))
-			node->onWake();
+			WorkQueue::post(node->_woken);
 	}
 
 	void wake(Address address) {
@@ -66,8 +70,6 @@ struct Futex {
 		// Invariant: If the slot exists then its queue is not empty.
 		assert(!it->queue.empty());
 
-		// Note: We have to run the onWake() callbacks with locks released.
-		// This improves latency and prevents deadlocks if onWake() calls submitWait().
 		frg::intrusive_list<
 			FutexNode,
 			frg::locate_member<
@@ -86,8 +88,8 @@ struct Futex {
 		irq_lock.unlock();
 
 		while(!wake_queue.empty()) {
-			auto waiter = wake_queue.pop_front();
-			waiter->onWake();
+			auto node = wake_queue.pop_front();
+			WorkQueue::post(node->_woken);
 		}
 	}
 

@@ -136,33 +136,7 @@ private:
 	Progress _systemProgress;
 };
 
-// ----------------------------------------------------------------------------
-
-struct Tasklet {
-	virtual void run();
-
-	frg::default_list_hook<Tasklet> hook;
-};
-
-struct WorkQueue : ScheduleEntity {
-	void post(Tasklet *tasklet);
-
-	void invoke() override;
-
-private:
-	frg::intrusive_list<
-		Tasklet,
-		frg::locate_member<
-			Tasklet,
-			frg::default_list_hook<Tasklet>,
-			&Tasklet::hook
-		>
-	> _queue;
-};
-
 Scheduler *localScheduler();
-
-WorkQueue &globalWorkQueue();
 
 } // namespace thor
 

@@ -47,15 +47,35 @@ class Stream;
 class LaneControl;
 class IoSpace;
 
+struct WorkQueue;
 struct KernelFiber;
+
+// TODO: For now, this class is empty but it will be required for QST.
+struct ExecutorContext {
+	ExecutorContext();
+
+	ExecutorContext(const ExecutorContext &) = delete;
+
+	ExecutorContext &operator= (const ExecutorContext &) = delete;
+};
 
 struct CpuData : public PlatformCpuData {
 	CpuData();
 
+	CpuData(const CpuData &) = delete;
+
+	CpuData &operator= (const CpuData &) = delete;
+
 	IrqMutex irqMutex;
 	Scheduler scheduler;
+
+	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
 };
+
+inline ExecutorContext *localExecutorContext() {
+	return getCpuData()->executorContext;
+}
 
 } // namespace thor
 

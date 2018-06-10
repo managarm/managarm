@@ -1,4 +1,8 @@
 
+#include <stddef.h>
+#include <string.h>
+
+#include <frg/container_of.hpp>
 #include "kernel.hpp"
 
 namespace thor {
@@ -243,7 +247,7 @@ Thread::Thread(frigg::SharedPtr<Universe> universe,
 : flags(0), _runState(kRunInterrupted), _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_numTicks(0), _activationTick(0),
 		_pendingKill{false}, _pendingSignal(kSigNone), _runCount(1),
-		_executor{&_context, abi},
+		_executor{&_userContext, abi},
 		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
 	// TODO: Generate real UUIDs instead of ascending numbers.
 	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -323,7 +327,7 @@ void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
 }
 
 UserContext &Thread::getContext() {
-	return _context;
+	return _userContext;
 }
 
 frigg::UnsafePtr<Universe> Thread::getUniverse() {
@@ -353,8 +357,9 @@ void Thread::invoke() {
 
 	lock.unlock();
 
-	_context.migrate(getCpuData());
+	_userContext.migrate(getCpuData());
 	_addressSpace->activate();
+	getCpuData()->executorContext = &_executorContext;
 	switchExecutor(self);
 	restoreExecutor(&_executor);
 }
@@ -379,6 +384,21 @@ void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
 			localScheduler()->reschedule();
 		}, frigg::move(lock));
 	}
+}
+
+void Thread::AssociatedWorkQueue::wakeup() {
+	auto self = frg::container_of(this, &Thread::_associatedWorkQueue);
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&self->_mutex);
+
+	if(self->_runState != kRunBlocked)
+		return;
+
+	self->_runState = kRunDeferred;
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)self
+				<< " is deferred (via wq wakeup)" << frigg::endLog;
+	Scheduler::resume(self);
 }
 
 } // namespace thor

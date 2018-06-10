@@ -409,9 +409,9 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 }
 
-void switchExecutor(frigg::UnsafePtr<Thread> executor) {
+void switchExecutor(frigg::UnsafePtr<Thread> thread) {
 	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = executor;
+	getCpuData()->activeExecutor = thread;
 }
 
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);

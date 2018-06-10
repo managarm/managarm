@@ -132,6 +132,8 @@ IrqMutex &irqMutex() {
 	return getCpuData()->irqMutex;
 }
 
+ExecutorContext::ExecutorContext() { }
+
 CpuData::CpuData()
 : activeFiber{nullptr} { }
 

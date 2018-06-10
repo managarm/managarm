@@ -1,4 +1,7 @@
 
+#include <string.h>
+
+#include <frg/container_of.hpp>
 #include "kernel.hpp"
 #include "ipc-queue.hpp"
 #include "irq.hpp"
@@ -79,16 +82,21 @@ public:
 	};
 
 	PostEvent(frigg::SharedPtr<UserQueue> queue, uintptr_t context)
-	: _queue(frigg::move(queue)), _context(context) { }
+	: _queue(frigg::move(queue)), _context(context) {
+		_thread = getCurrentThread();
+	}
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
 		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
 				_context, frigg::forward<Args>(args)...);
+		wrapper->setup(_thread->associatedWorkQueue());
 		_queue->submit(wrapper);
 	}
 
 private:
+	frigg::UnsafePtr<Thread> _thread;
+
 	frigg::SharedPtr<UserQueue> _queue;
 	uintptr_t _context;
 };
@@ -362,6 +370,8 @@ public:
 			uintptr_t context)
 	: _numItems(num_items), _results(frigg::constructN<ItemWriter>(*kernelAlloc, num_items)),
 			_numComplete(0), _queue(frigg::move(queue)) {
+		_thread = getCurrentThread();
+		setup(_thread->associatedWorkQueue());
 		setupContext(context);
 	}
 
@@ -394,6 +404,8 @@ private:
 	void complete() override {
 		frigg::destruct(*kernelAlloc, this);
 	}
+
+	frigg::UnsafePtr<Thread> _thread;
 
 	size_t _numItems;
 	ItemWriter *_results;
@@ -1522,6 +1534,8 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		: PrecisionTimerNode{nanos}, queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
+			thread = getCurrentThread().get();
+			setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
 		}
@@ -1539,6 +1553,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			frigg::destruct(*kernelAlloc, this);
 		}
 
+		Thread *thread;
 		frigg::SharedPtr<UserQueue> queue;
 		QueueSource source;
 		HelSimpleResult result;
@@ -1766,20 +1781,22 @@ HelError helFutexWait(int *pointer, int expected) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	struct Blocker : FutexNode {
+	struct Blocker {
+		static void woken(Worklet *worklet) {
+			auto self = frg::container_of(worklet, &Blocker::worklet);
+			self->_complete.store(true, std::memory_order_release);
+			Thread::unblockOther(self->_thread);
+		}
+
 		Blocker(frigg::UnsafePtr<Thread> thread)
 		: _thread{thread}, _complete{false} { }
-
-		void onWake() override {
-			_complete.store(true, std::memory_order_release);
-			Thread::unblockOther(_thread);
-		}
 
 		bool check() {
 			return _complete.load(std::memory_order_acquire);
 		}
 	
-	private:
+		Worklet worklet;
+		FutexNode futex;
 		frigg::UnsafePtr<Thread> _thread;
 		std::atomic<bool> _complete;
 	};
@@ -1787,12 +1804,14 @@ HelError helFutexWait(int *pointer, int expected) {
 	Blocker blocker{this_thread};
 
 	// TODO: Support physical (i.e. non-private) futexes.
+	blocker.worklet.setup(&Blocker::woken, this_thread->associatedWorkQueue());
+	blocker.futex.setup(&blocker.worklet);
 	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
 		enableUserAccess();
 		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
 		disableUserAccess();
 		return expected == v;
-	}, &blocker);
+	}, &blocker.futex);
 
 /*
 	frigg::infoLogger() << "thor: "
@@ -1806,9 +1825,13 @@ HelError helFutexWait(int *pointer, int expected) {
 			<< " " << this_thread->credentials()[14] << " " << this_thread->credentials()[15]
 			<< " Thread blocked on futex" << frigg::endLog;
 */
-	Thread::blockCurrentWhile([&] {
-		return !blocker.check();
-	});
+	while(!blocker.check()) {
+		this_thread->associatedWorkQueue()->run();
+
+		Thread::blockCurrentIf([&] {
+			return !blocker.check() && !this_thread->associatedWorkQueue()->check();
+		});
+	}
 
 	return kHelErrNone;
 }
@@ -1911,6 +1934,8 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		explicit Closure(frigg::SharedPtr<UserQueue> the_queue, uintptr_t context)
 		: _queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
+			thread = getCurrentThread().get();
+			setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
 		}
@@ -1926,6 +1951,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 	private:
+		Thread *thread;
 		frigg::SharedPtr<UserQueue> _queue;
 		QueueSource source;
 		HelEventResult result;

@@ -5,6 +5,7 @@
 #include "core.hpp"
 #include "error.hpp"
 #include "schedule.hpp"
+#include "work-queue.hpp"
 
 namespace thor {
 
@@ -47,6 +48,10 @@ private:
 		F _functor;
 	};
 
+	struct AssociatedWorkQueue : WorkQueue {
+		void wakeup() override;
+	};
+
 public:
 	static frigg::SharedPtr<Thread> create(frigg::SharedPtr<Universe> universe,
 			frigg::SharedPtr<AddressSpace> address_space,
@@ -73,6 +78,22 @@ public:
 
 			_blockLocked(frigg::move(guard));
 		}
+	}
+
+	template<typename P>
+	static void blockCurrentIf(P predicate) {
+		// optimization: do not acquire the lock for the first test.
+		if(!predicate())
+			return;
+
+		frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
+		StatelessIrqLock irq_lock;
+		auto guard = frigg::guard(&this_thread->_mutex);
+
+		if(!predicate())
+			return;
+
+		_blockLocked(frigg::move(guard));
 	}
 
 	// State transitions that apply to the current thread only.
@@ -113,6 +134,10 @@ public:
 
 	const char *credentials() {
 		return _credentials;
+	}
+	
+	WorkQueue *associatedWorkQueue() {
+		return &_associatedWorkQueue;
 	}
 
 	UserContext &getContext();
@@ -178,6 +203,8 @@ private:
 
 	char _credentials[16];
 
+	AssociatedWorkQueue _associatedWorkQueue;
+
 	Mutex _mutex;
 
 	RunState _runState;
@@ -198,7 +225,8 @@ private:
 	// The thread is killed when this counter reaches zero.
 	std::atomic<int> _runCount;
 
-	UserContext _context;
+	UserContext _userContext;
+	ExecutorContext _executorContext;
 public:
 	// TODO: This should be private.
 	Executor _executor;

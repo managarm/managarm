@@ -342,44 +342,6 @@ void Scheduler::_refreshFlag() {
 	_scheduleFlag = true;
 }
 
-// ----------------------------------------------------------------------------
-
-void WorkQueue::post(Tasklet *tasklet) {
-	if(_queue.empty())
-		Scheduler::resume(this);
-
-	_queue.push_back(tasklet);
-}
-
-void WorkQueue::invoke() {
-	while(!_queue.empty()) {
-		auto tasklet = _queue.pop_front();
-
-		// We suspend the WorkQueue before invoking the tasklet. This way we do not call
-		// resume() before suspend() if the last tasklet inserts another tasklet to this queue.
-		if(_queue.empty())
-			Scheduler::suspend(this);
-
-		tasklet->run();
-	}
-
-	// Note that we are currently running in the schedule context. Thus runDetached() trashes
-	// our own stack. We need to be careful not to access it in the callback.
-	runDetached([] {
-		localScheduler()->reschedule();
-	});
-}
-
-frigg::LazyInitializer<WorkQueue> workQueueSingleton;
-
-WorkQueue &globalWorkQueue() {
-	if(!workQueueSingleton) {
-		workQueueSingleton.initialize();
-		Scheduler::associate(workQueueSingleton.get(), localScheduler());
-	}
-	return *workQueueSingleton;
-}
-
 Scheduler *localScheduler() {
 	return &getCpuData()->scheduler;
 }

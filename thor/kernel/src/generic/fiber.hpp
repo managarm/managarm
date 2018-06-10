@@ -4,6 +4,7 @@
 #include <frigg/callback.hpp>
 #include <frg/container_of.hpp>
 #include "../arch/x86/cpu.hpp"
+#include "core.hpp"
 #include "schedule.hpp"
 
 namespace thor {
@@ -76,7 +77,8 @@ struct KernelFiber : ScheduleEntity {
 
 private:
 	bool _blocked;
-	FiberContext _context;
+	FiberContext _fiberContext;
+	ExecutorContext _executorContext;
 	Executor _executor;
 };
 
