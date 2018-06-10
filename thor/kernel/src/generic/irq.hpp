@@ -7,15 +7,26 @@
 #include <frg/list.hpp>
 #include "error.hpp"
 #include "kernel_heap.hpp"
+#include "work-queue.hpp"
 
 namespace thor {
 
 struct AwaitIrqNode {
 	friend struct IrqObject;
 
-	virtual void onRaise(Error error, uint64_t sequence) = 0;
+	void setup(Worklet *awaited) {
+		_awaited = awaited;
+	}
+
+	Error error() { return _error; }
+	uint64_t sequence() { return _sequence; }
 
 private:
+	Worklet *_awaited;
+
+	Error _error;
+	uint64_t _sequence;
+
 	frg::default_list_hook<AwaitIrqNode> _queueNode;
 };
 

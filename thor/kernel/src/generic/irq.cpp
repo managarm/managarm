@@ -275,7 +275,9 @@ IrqStatus IrqObject::raise() {
 
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->onRaise(kErrSuccess, currentSequence());
+		node->_error = kErrSuccess;
+		node->_sequence = currentSequence();
+		WorkQueue::post(node->_awaited);
 	}
 
 	return IrqStatus::null;
@@ -287,7 +289,9 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 
 	assert(sequence <= currentSequence());
 	if(sequence < currentSequence()) {
-		node->onRaise(kErrSuccess, currentSequence());
+		node->_error = kErrSuccess;
+		node->_sequence = currentSequence();
+		WorkQueue::post(node->_awaited);
 	}else{
 		_waitQueue.push_back(node);
 	}

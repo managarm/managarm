@@ -1922,12 +1922,19 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context) {
 	ASSERT_BOOT_CPU();
 
-	struct Closure : AwaitIrqNode, QueueNode {
+	struct Closure : QueueNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
 				frigg::SharedPtr<UserQueue> queue, intptr_t context) {
-			auto node = frigg::construct<Closure>(*kernelAlloc,
+			auto closure = frigg::construct<Closure>(*kernelAlloc,
 					frigg::move(queue), context);
-			irq->submitAwait(node, sequence);
+			irq->submitAwait(&closure->irqNode, sequence);
+		}
+		
+		static void awaited(Worklet *worklet) {
+			auto closure = frg::container_of(worklet, &Closure::worklet);
+			closure->result.error = translateError(closure->irqNode.error());
+			closure->result.sequence = closure->irqNode.sequence();
+			closure->_queue->submit(closure);
 		}
 
 	public:
@@ -1938,12 +1945,8 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
-		}
-
-		void onRaise(Error error, uint64_t sequence) override {
-			result.error = translateError(error);
-			result.sequence = sequence;
-			_queue->submit(this);
+			worklet.setup(&Closure::awaited, thread->associatedWorkQueue());
+			irqNode.setup(&worklet);
 		}
 
 		void complete() override {
@@ -1952,6 +1955,8 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	private:
 		Thread *thread;
+		Worklet worklet;
+		AwaitIrqNode irqNode;
 		frigg::SharedPtr<UserQueue> _queue;
 		QueueSource source;
 		HelEventResult result;
