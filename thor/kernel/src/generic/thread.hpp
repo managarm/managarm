@@ -1,7 +1,10 @@
 #ifndef THOR_GENERIC_THREAD_HPP
 #define THOR_GENERIC_THREAD_HPP
 
+#include <string.h>
 #include <atomic>
+
+#include <frg/container_of.hpp>
 #include "core.hpp"
 #include "error.hpp"
 #include "schedule.hpp"
@@ -30,21 +33,26 @@ private:
 		uint64_t sequence;
 		Interrupt interrupt;
 
-		virtual void trigger() = 0;
-
+		Worklet *triggered;
 		frg::default_list_hook<ObserveBase> hook;
 	};
 
 	template<typename F>
 	struct Observe : ObserveBase {
-		Observe(F functor)
-		: _functor(frigg::move(functor)) { }
+		static void trigger(Worklet *base) {
+			auto self = frg::container_of(base, &Observe::_worklet);
+			self->_functor(self->error, self->sequence, self->interrupt);
+			frigg::destruct(*kernelAlloc, self);
+		}
 
-		void trigger() override {
-			_functor(error, sequence, interrupt);
+		Observe(F functor)
+		: _functor(frigg::move(functor)) {
+			_worklet.setup(&Observe::trigger, WorkQueue::localQueue());
+			triggered = &_worklet;
 		}
 
 	private:
+		Worklet _worklet;
 		F _functor;
 	};
 

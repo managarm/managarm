@@ -83,7 +83,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 			observe->error = Error::kErrSuccess;
 			observe->sequence = sequence;
 			observe->interrupt = interrupt;
-			observe->trigger();
+			WorkQueue::post(observe->triggered);
 		}
 
 		localScheduler()->reschedule();
@@ -117,7 +117,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 			observe->error = Error::kErrSuccess;
 			observe->sequence = sequence;
 			observe->interrupt = interrupt;
-			observe->trigger();
+			WorkQueue::post(observe->triggered);
 		}
 
 		localScheduler()->reschedule();
@@ -155,7 +155,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				observe->error = Error::kErrThreadExited;
 				observe->sequence = 0;
 				observe->interrupt = kIntrNull;
-				observe->trigger();
+				WorkQueue::post(observe->triggered);
 			}
 
 			localScheduler()->reschedule();
@@ -186,7 +186,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				observe->error = Error::kErrSuccess;
 				observe->sequence = sequence;
 				observe->interrupt = kIntrRequested;
-				observe->trigger();
+				WorkQueue::post(observe->triggered);
 			}
 
 			localScheduler()->reschedule();
@@ -282,7 +282,7 @@ void Thread::destruct() {
 		observe->error = Error::kErrThreadExited;
 		observe->sequence = 0;
 		observe->interrupt = kIntrNull;
-		observe->trigger();
+		WorkQueue::post(observe->triggered);
 	}
 }
 
@@ -323,7 +323,7 @@ void Thread::doSubmitObserve(uint64_t in_seq, ObserveBase *observe) {
 	default:
 		frigg::panicLogger() << "thor: Unexpected RunState" << frigg::endLog;
 	}
-	observe->trigger();
+	WorkQueue::post(observe->triggered);
 }
 
 UserContext &Thread::getContext() {
