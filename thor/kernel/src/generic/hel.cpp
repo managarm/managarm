@@ -101,17 +101,6 @@ private:
 	uintptr_t _context;
 };
 
-struct ManageMemoryWriter {
-	ManageMemoryWriter(Error error, uintptr_t offset, size_t length)
-	: source{&_result, sizeof(HelManageResult), nullptr},
-			_result{translateError(error), 0, offset, length} { }
-
-	QueueSource source;
-
-private:
-	HelManageResult _result;
-};
-
 struct LockMemoryWriter {
 	LockMemoryWriter(Error error)
 	: source{&_result, sizeof(HelSimpleResult), nullptr},
@@ -1088,11 +1077,41 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 			return kHelErrBadDescriptor;
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
-	
-	PostEvent<ManageMemoryWriter> functor{frigg::move(queue), context};
-	auto manage = frigg::construct<Manage<PostEvent<ManageMemoryWriter>>>(*kernelAlloc,
-			frigg::move(functor));
-	memory->submitHandleLoad(manage);
+
+	struct Closure : QueueNode {
+		Closure()
+		: ipcSource{&helResult, sizeof(HelManageResult), nullptr} {
+			setupSource(&ipcSource);
+		}
+
+		void complete() override {
+			frigg::destruct(*kernelAlloc, this);
+		}
+
+		frigg::SharedPtr<UserQueue> ipcQueue;
+		Worklet worklet;
+		ManageBase manage;
+		QueueSource ipcSource;
+
+		HelManageResult helResult;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static void managed(Worklet *base) {
+			auto closure = frg::container_of(base, &Closure::worklet);
+			closure->helResult = HelManageResult{translateError(closure->manage.error()), 0,
+					closure->manage.offset(), closure->manage.size()};
+			closure->ipcQueue->submit(closure);
+		}
+	};
+
+	closure->ipcQueue = frigg::move(queue);
+	closure->setup(this_thread->associatedWorkQueue());
+	closure->setupContext(context);
+
+	closure->worklet.setup(&Ops::managed, getCurrentThread()->associatedWorkQueue());
+	closure->manage.setup(&closure->worklet);
+	memory->submitManage(&closure->manage);
 
 	return kHelErrNone;
 }
@@ -1152,10 +1171,39 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	PostEvent<LockMemoryWriter> functor{frigg::move(queue), context};
-	auto initiate = frigg::construct<Initiate<PostEvent<LockMemoryWriter>>>(*kernelAlloc,
-			offset, size, frigg::move(functor));
-	memory->submitInitiateLoad(initiate);
+	struct Closure : QueueNode {
+		Closure()
+		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
+			setupSource(&ipcSource);
+		}
+
+		void complete() override {
+			frigg::destruct(*kernelAlloc, this);
+		}
+
+		frigg::SharedPtr<UserQueue> ipcQueue;
+		Worklet worklet;
+		InitiateBase initiate;
+		QueueSource ipcSource;
+
+		HelSimpleResult helResult;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static void initiated(Worklet *base) {
+			auto closure = frg::container_of(base, &Closure::worklet);
+			closure->helResult = HelSimpleResult{translateError(closure->initiate.error()), 0};
+			closure->ipcQueue->submit(closure);
+		}
+	};
+
+	closure->ipcQueue = frigg::move(queue);
+	closure->setup(this_thread->associatedWorkQueue());
+	closure->setupContext(context);
+
+	closure->worklet.setup(&Ops::initiated, getCurrentThread()->associatedWorkQueue());
+	closure->initiate.setup(offset, size, &closure->worklet);
+	memory->submitInitiateLoad(&closure->initiate);
 
 	return kHelErrNone;
 }

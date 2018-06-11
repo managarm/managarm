@@ -601,10 +601,17 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 			Thread::unblockOther(node->blockedThread);
 		};
 
+		// TODO: It is safe to use the thread's WQ here (as PFs never interrupt WQ dequeue).
+		// However, it might be desirable to handle PFs on their own WQ.
 		if(!address_space->handleFault(address, flags, &node.fault, unblock)) {
-			Thread::blockCurrentWhile([&] {
-				return !node.complete.load(std::memory_order_acquire);
-			});
+			while(!node.complete.load(std::memory_order_acquire)) {
+				this_thread->associatedWorkQueue()->run();
+
+				Thread::blockCurrentIf([&] {
+					return !node.complete.load(std::memory_order_acquire)
+							&& !this_thread->associatedWorkQueue()->check();
+				});
+			}
 		}
 
 		handled = node.fault.resolved();

@@ -3,6 +3,7 @@
 
 #include <frigg/rbtree.hpp>
 #include <frigg/vector.hpp>
+#include <frg/container_of.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include "error.hpp"
 #include "types.hpp"
@@ -35,8 +36,14 @@ enum class MemoryTag {
 };
 
 struct ManageBase {
-	virtual void complete(Error error, uintptr_t offset, size_t size) = 0;
-	
+	void setup(Worklet *worklet) {
+		_worklet = worklet;
+	}
+
+	Error error() { return _error; }
+	uintptr_t offset() { return _offset; }
+	size_t size() { return _size; }
+
 	void setup(Error error, uintptr_t offset, size_t size) {
 		_error = error;
 		_offset = offset;
@@ -44,14 +51,18 @@ struct ManageBase {
 	}
 
 	void complete() {
-		complete(_error, _offset, _size);
+		WorkQueue::post(_worklet);
 	}
 
 	frg::default_list_hook<ManageBase> processQueueItem;
 
+private:
+	// Results of the operation.
 	Error _error;
 	uintptr_t _offset;
 	size_t _size;
+
+	Worklet *_worklet;
 };
 
 using ManageList = frg::intrusive_list<
@@ -63,39 +74,31 @@ using ManageList = frg::intrusive_list<
 	>
 >;
 
-template<typename F>
-struct Manage : ManageBase {
-	Manage(F functor)
-	: _functor(frigg::move(functor)) { }
-
-	void complete(Error error, uintptr_t offset, size_t size) override {
-		_functor(error, offset, size);
-		frigg::destruct(*kernelAlloc, this);
-	}
-
-private:
-	F _functor;
-};
-
 struct InitiateBase {
-	InitiateBase(size_t offset, size_t length)
-	: offset(offset), length(length), progress(0) { }
-
-	virtual void complete(Error error) = 0;
+	void setup(uintptr_t offset_, size_t length_, Worklet *worklet) {
+		offset = offset_;
+		length = length_;
+		_worklet = worklet;
+	}
+	
+	Error error() { return _error; }
 	
 	void setup(Error error) {
 		_error = error;
 	}
 
 	void complete() {
-		complete(_error);
+		WorkQueue::post(_worklet);
 	}
 
-	size_t offset;
+	uintptr_t offset;
 	size_t length;
 
+private:
 	Error _error;
-	
+
+	Worklet *_worklet;
+public:
 	frg::default_list_hook<InitiateBase> processQueueItem;
 
 	// Current progress in bytes.
@@ -110,20 +113,6 @@ using InitiateList = frg::intrusive_list<
 		&InitiateBase::processQueueItem
 	>
 >;
-
-template<typename F>
-struct Initiate : InitiateBase {
-	Initiate(size_t offset, size_t length, F functor)
-	: InitiateBase(offset, length), _functor(frigg::move(functor)) { }
-
-	void complete(Error error) override {
-		_functor(error);
-		frigg::destruct(*kernelAlloc, this);
-	}
-
-private:
-	F _functor;
-};
 
 struct FetchNode {
 	friend struct MemoryBundle;
@@ -140,15 +129,15 @@ private:
 
 struct MemoryBundle {	
 protected:
-	void setupFetch(FetchNode *node, void (*fetched)(FetchNode *)) {
+	static void setupFetch(FetchNode *node, void (*fetched)(FetchNode *)) {
 		node->_fetched = fetched;
 	}
 
-	void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size) {
+	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size) {
 		node->_range = frigg::Tuple<PhysicalAddr, size_t>{physical, size};
 	}
 	
-	void callbackFetch(FetchNode *node) {
+	static void callbackFetch(FetchNode *node) {
 		node->_fetched(node);
 	}
 
@@ -212,7 +201,7 @@ struct Memory : MemoryBundle {
 	// TODO: InitiateLoad does more or less the same as fetchRange(). Remove it.
 	void submitInitiateLoad(InitiateBase *initiate);
 
-	void submitHandleLoad(ManageBase *handle);
+	void submitManage(ManageBase *handle);
 	void completeLoad(size_t offset, size_t length);
 
 private:
@@ -316,7 +305,7 @@ public:
 
 	size_t getLength();
 
-	void submitHandleLoad(ManageBase *handle);
+	void submitManage(ManageBase *handle);
 	void completeLoad(size_t offset, size_t length);
 
 private:

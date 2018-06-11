@@ -158,7 +158,8 @@ void Memory::submitInitiateLoad(InitiateBase *initiate) {
 		break;
 	case MemoryTag::hardware:
 	case MemoryTag::allocated:
-		initiate->complete(kErrSuccess);
+		initiate->setup(kErrSuccess);
+		initiate->complete();
 		break;
 	case MemoryTag::copyOnWrite:
 		assert(!"Not implemented yet");
@@ -167,10 +168,10 @@ void Memory::submitInitiateLoad(InitiateBase *initiate) {
 	}
 }
 
-void Memory::submitHandleLoad(ManageBase *handle) {
+void Memory::submitManage(ManageBase *handle) {
 	switch(tag()) {
 	case MemoryTag::backing:
-		static_cast<BackingMemory *>(this)->submitHandleLoad(handle);
+		static_cast<BackingMemory *>(this)->submitManage(handle);
 		break;
 	default:
 		assert(!"Not supported");
@@ -519,7 +520,7 @@ size_t BackingMemory::getLength() {
 	return _managed->physicalPages.size() * kPageSize;
 }
 
-void BackingMemory::submitHandleLoad(ManageBase *handle) {
+void BackingMemory::submitManage(ManageBase *handle) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
@@ -584,7 +585,8 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 
 	while(!queue.empty()) {
 		auto node = queue.pop_front();
-		node->complete(kErrSuccess);
+		node->setup(kErrSuccess);
+		node->complete();
 	}
 }
 
@@ -615,26 +617,45 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
 	if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
-		auto functor = [=] (Error error) {
-			assert(error == kErrSuccess);
+		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
+		struct Closure {
+			uintptr_t offset;
+			FetchNode *fetch;
+			ManagedSpace *bundle;
 
-			auto irq_lock = frigg::guard(&irqMutex());
-			auto lock = frigg::guard(&_managed->mutex);
+			Worklet worklet;
+			InitiateBase initiate;
+		} *closure = frigg::construct<Closure>(*kernelAlloc);
 
-			auto physical = _managed->physicalPages[index];
-			assert(physical != PhysicalAddr(-1));
+		struct Ops {
+			static void initiated(Worklet *worklet) {
+				auto closure = frg::container_of(worklet, &Closure::worklet);
+				assert(closure->initiate.error() == kErrSuccess);
 
-			lock.unlock();
-			irq_lock.unlock();
+				auto irq_lock = frigg::guard(&irqMutex());
+				auto lock = frigg::guard(&closure->bundle->mutex);
 
-			completeFetch(node, physical, kPageSize);
-			callbackFetch(node);
+				auto index = closure->offset / kPageSize;
+				assert(closure->bundle->loadState[index] == ManagedSpace::kStateLoaded);
+				auto physical = closure->bundle->physicalPages[index];
+				assert(physical != PhysicalAddr(-1));
+
+				lock.unlock();
+				irq_lock.unlock();
+
+				completeFetch(closure->fetch, physical, kPageSize);
+				callbackFetch(closure->fetch);
+				frigg::destruct(*kernelAlloc, closure);
+			}
 		};
 
-		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
-		auto initiate = frigg::construct<Initiate<decltype(functor)>>(*kernelAlloc,
-				offset, kPageSize, frigg::move(functor));
-		_managed->initiateLoadQueue.push_back(initiate);
+		closure->offset = offset;
+		closure->fetch = node;
+		closure->bundle = _managed.get();
+
+		closure->worklet.setup(&Ops::initiated, WorkQueue::localQueue());
+		closure->initiate.setup(offset, kPageSize, &closure->worklet);
+		_managed->initiateLoadQueue.push_back(&closure->initiate);
 		_managed->progressLoads();
 
 		ManageList manage_queue;
@@ -664,6 +685,8 @@ size_t FrontalMemory::getLength() {
 }
 
 void FrontalMemory::submitInitiateLoad(InitiateBase *initiate) {
+	initiate->progress = 0;
+
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
