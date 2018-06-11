@@ -357,6 +357,10 @@ struct FaultNode {
 
 	FaultNode &operator= (const FaultNode &) = delete;
 
+	void setup(Worklet *handled) {
+		_handled = handled;
+	}
+
 	bool resolved() {
 		return _resolved;
 	}
@@ -364,7 +368,7 @@ struct FaultNode {
 private:
 	VirtualAddr _address;
 	uint32_t _flags;
-	void (*_handled)(FaultNode *);
+	Worklet *_handled;
 
 	bool _resolved;
 
@@ -601,8 +605,7 @@ public:
 	void unmap(Guard &guard, VirtualAddr address, size_t length,
 			AddressUnmapNode *node);
 
-	bool handleFault(VirtualAddr address, uint32_t flags,
-			FaultNode *node, void (*handled)(FaultNode *));
+	bool handleFault(VirtualAddr address, uint32_t flags, FaultNode *node);
 	
 	bool fork(ForkNode *node);
 	
@@ -636,8 +639,16 @@ struct AcquireNode {
 	AcquireNode()
 	: _acquired{nullptr}, _progress{0} { }
 
+	AcquireNode(const AcquireNode &) = delete;
+
+	AcquireNode &operator= (const AcquireNode &) = delete;
+
+	void setup(Worklet *acquire) {
+		_acquired = acquire;
+	}
+
 private:
-	void (*_acquired)(AcquireNode *);
+	Worklet *_acquired;
 
 	ForeignSpaceAccessor *_accessor;
 	FetchNode _fetch;
@@ -686,7 +697,7 @@ public:
 		return _length;
 	}
 
-	bool acquire(AcquireNode *node, void (*acquired)(AcquireNode *));
+	bool acquire(AcquireNode *node);
 	
 	PhysicalAddr getPhysical(size_t offset);
 

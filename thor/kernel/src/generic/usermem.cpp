@@ -891,7 +891,7 @@ bool NormalMapping::handleFault(FaultNode *node) {
 	static auto fetched = [] (FetchNode *base) {
 		auto node = frg::container_of(base, &FaultNode::_fetch);
 		remap(node);
-		node->_handled(node);
+		WorkQueue::post(node->_handled);
 	};
 
 	if(bundle_range.get<0>()->fetchRange(node->_bundleOffset, &node->_fetch, fetched)) {
@@ -1159,11 +1159,9 @@ void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,
 	_pageSpace.submitShootdown(&node->_shootNode);
 }
 
-bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags,
-		FaultNode *node, void (*handled)(FaultNode *)) {
+bool AddressSpace::handleFault(VirtualAddr address, uint32_t fault_flags, FaultNode *node) {
 	node->_address = address;
 	node->_flags = fault_flags;
-	node->_handled = handled;
 
 	Mapping *mapping;
 	{
@@ -1429,12 +1427,11 @@ void ForeignSpaceAccessor::_fetchedAcquire(FetchNode *base) {
 
 	if(_processAcquire(node)) {
 		node->_accessor->_acquired = true;
-		node->_acquired(node);
+		WorkQueue::post(node->_acquired);
 	}
 }
 
-bool ForeignSpaceAccessor::acquire(AcquireNode *node, void (*acquired)(AcquireNode *)) {
-	node->_acquired = acquired;
+bool ForeignSpaceAccessor::acquire(AcquireNode *node) {
 	node->_accessor = this;
 	node->_progress = 0;
 

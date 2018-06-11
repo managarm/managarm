@@ -589,21 +589,24 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		struct Node {
 			std::atomic<bool> complete;
 			frigg::UnsafePtr<Thread> blockedThread;
+			Worklet worklet;
 			FaultNode fault;
 		} node;
 
 		node.complete.store(false, std::memory_order_relaxed);
 		node.blockedThread = this_thread;
 
-		auto unblock = [] (FaultNode *base) {
-			auto node = frg::container_of(base, &Node::fault);
+		auto unblock = [] (Worklet *base) {
+			auto node = frg::container_of(base, &Node::worklet);
 			node->complete.store(true, std::memory_order_release);
 			Thread::unblockOther(node->blockedThread);
 		};
 
 		// TODO: It is safe to use the thread's WQ here (as PFs never interrupt WQ dequeue).
 		// However, it might be desirable to handle PFs on their own WQ.
-		if(!address_space->handleFault(address, flags, &node.fault, unblock)) {
+		node.worklet.setup(unblock, this_thread->associatedWorkQueue());
+		node.fault.setup(&node.worklet);
+		if(!address_space->handleFault(address, flags, &node.fault)) {
 			while(!node.complete.load(std::memory_order_acquire)) {
 				this_thread->associatedWorkQueue()->run();
 
