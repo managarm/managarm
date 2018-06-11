@@ -244,8 +244,10 @@ public:
 		}
 
 		~Printer() {
-			if(_valid)
+			if(_valid) {
 				friggEndLog();
+				friggPanic();
+			}
 		}
 
 		Printer &operator= (const Printer &) = delete;
@@ -262,7 +264,6 @@ public:
 
 		inline void finish() {
 			friggPrintCritical('\n');
-			friggPanic();
 		}
 	
 	private:

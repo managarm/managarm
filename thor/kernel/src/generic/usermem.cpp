@@ -7,28 +7,24 @@
 namespace thor {
 
 PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
-	struct Node : FetchNode {
-		Node()
-		: blockedThread{getCurrentThread()}, complete{false} { }
-
-		frigg::UnsafePtr<Thread> blockedThread;
-		std::atomic<bool> complete;
+	struct Closure : FetchNode {
+		ThreadBlocker blocker;
 		Worklet worklet;
-	} node;
+	} closure;
 
-	auto functor = [] (Worklet *base) {
-		auto node = frg::container_of(base, &Node::worklet);
-		node->complete.store(true, std::memory_order_release);
-		Thread::unblockOther(node->blockedThread);
-	};
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	}, WorkQueue::localQueue());
+	closure.setup(&closure.worklet);
+	if(!fetchRange(offset, &closure)) {
+		// FIXME: This is incorrect and breaks if we unblockOther() before blockCurrent().
+		// TODO: Just remove the whole blockForRange() function.
+		closure.blocker.setup();
+		Thread::blockCurrent(&closure.blocker);
+	}
 
-	node.worklet.setup(functor, WorkQueue::localQueue());
-	node.setup(&node.worklet);
-	if(!fetchRange(offset, &node)) 
-		Thread::blockCurrentWhile([&] {
-			return !node.complete.load(std::memory_order_acquire);
-		});
-	return node.range().get<0>();
+	return closure.range().get<0>();
 }
 
 // --------------------------------------------------------

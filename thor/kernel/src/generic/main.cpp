@@ -586,38 +586,25 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 	if(image.inKernelDomain() && !image.allowUserPages()) {
 		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
 	}else{
-		struct Node {
-			std::atomic<bool> complete;
-			frigg::UnsafePtr<Thread> blockedThread;
+		// TODO: Make sure that we're in a thread domain.
+		struct Closure {
+			ThreadBlocker blocker;
 			Worklet worklet;
 			FaultNode fault;
-		} node;
-
-		node.complete.store(false, std::memory_order_relaxed);
-		node.blockedThread = this_thread;
-
-		auto unblock = [] (Worklet *base) {
-			auto node = frg::container_of(base, &Node::worklet);
-			node->complete.store(true, std::memory_order_release);
-			Thread::unblockOther(node->blockedThread);
-		};
+		} closure;
 
 		// TODO: It is safe to use the thread's WQ here (as PFs never interrupt WQ dequeue).
 		// However, it might be desirable to handle PFs on their own WQ.
-		node.worklet.setup(unblock, this_thread->associatedWorkQueue());
-		node.fault.setup(&node.worklet);
-		if(!address_space->handleFault(address, flags, &node.fault)) {
-			while(!node.complete.load(std::memory_order_acquire)) {
-				this_thread->associatedWorkQueue()->run();
+		closure.worklet.setup([] (Worklet *base) {
+			auto closure = frg::container_of(base, &Closure::worklet);
+			Thread::unblockOther(&closure->blocker);
+		}, this_thread->associatedWorkQueue());
+		closure.fault.setup(&closure.worklet);
+		closure.blocker.setup();
+		if(!address_space->handleFault(address, flags, &closure.fault))
+			Thread::blockCurrent(&closure.blocker);
 
-				Thread::blockCurrentIf([&] {
-					return !node.complete.load(std::memory_order_acquire)
-							&& !this_thread->associatedWorkQueue()->check();
-				});
-			}
-		}
-
-		handled = node.fault.resolved();
+		handled = closure.fault.resolved();
 	}
 	
 	if(handled)

@@ -23,6 +23,7 @@ enum Interrupt {
 };
 
 struct Thread;
+struct ThreadBlocker;
 
 frigg::UnsafePtr<Thread> getCurrentThread();
 
@@ -70,41 +71,8 @@ public:
 				frigg::SharedControl{thread}};
 	}
 
-	template<typename P>
-	static void blockCurrentWhile(P predicate) {
-		// optimization: do not acquire the lock for the first test.
-		if(!predicate())
-			return;
-
-		frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
-		while(true) {
-			StatelessIrqLock irq_lock;
-			auto guard = frigg::guard(&this_thread->_mutex);
-
-			if(!predicate())
-				return;
-
-			_blockLocked(frigg::move(guard));
-		}
-	}
-
-	template<typename P>
-	static void blockCurrentIf(P predicate) {
-		// optimization: do not acquire the lock for the first test.
-		if(!predicate())
-			return;
-
-		frigg::UnsafePtr<Thread> this_thread = getCurrentThread();
-		StatelessIrqLock irq_lock;
-		auto guard = frigg::guard(&this_thread->_mutex);
-
-		if(!predicate())
-			return;
-
-		_blockLocked(frigg::move(guard));
-	}
-
 	// State transitions that apply to the current thread only.
+	static void blockCurrent(ThreadBlocker *blocker);
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
@@ -114,7 +82,7 @@ public:
 
 	// State transitions that apply to arbitrary threads.
 	// TODO: interruptOther() needs an Interrupt argument.
-	static void unblockOther(frigg::UnsafePtr<Thread> thread);
+	static void unblockOther(ThreadBlocker *blocker);
 	static void killOther(frigg::UnsafePtr<Thread> thread);
 	static void interruptOther(frigg::UnsafePtr<Thread> thread);
 	static void resumeOther(frigg::UnsafePtr<Thread> thread);
@@ -256,6 +224,16 @@ private:
 	>;
 
 	ObserveQueue _observeQueue;
+};
+
+struct ThreadBlocker {
+	friend struct Thread;
+
+	void setup();
+
+private:
+	Thread *_thread;
+	bool _done;
 };
 
 } // namespace thor

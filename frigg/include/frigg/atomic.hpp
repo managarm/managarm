@@ -34,7 +34,7 @@ public:
 	LockGuard()
 	: _mutex{nullptr}, _isLocked{false} { }
 
-	LockGuard(Mutex *mutex, DontLock)
+	LockGuard(DontLock, Mutex *mutex)
 	: _mutex{mutex}, _isLocked{false} { }
 
 	LockGuard(Mutex *mutex)
@@ -87,6 +87,11 @@ private:
 template<typename Mutex>
 LockGuard<Mutex> guard(Mutex *mutex) {
 	return LockGuard<Mutex>(mutex);
+}
+
+template<typename Mutex>
+LockGuard<Mutex> guard(DontLock, Mutex *mutex) {
+	return LockGuard<Mutex>(dontLock, mutex);
 }
 
 } // namespace frigg

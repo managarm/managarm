@@ -72,6 +72,9 @@ struct StatelessIrqLock {
 		lock();
 	}
 
+	StatelessIrqLock(frigg::DontLock)
+	: _locked{false} { }
+
 	StatelessIrqLock(const StatelessIrqLock &) = delete;
 
 	~StatelessIrqLock() {

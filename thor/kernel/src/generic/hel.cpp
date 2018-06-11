@@ -1838,37 +1838,25 @@ HelError helFutexWait(int *pointer, int expected) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
-	struct Blocker {
-		static void woken(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &Blocker::worklet);
-			self->_complete.store(true, std::memory_order_release);
-			Thread::unblockOther(self->_thread);
-		}
-
-		Blocker(frigg::UnsafePtr<Thread> thread)
-		: _thread{thread}, _complete{false} { }
-
-		bool check() {
-			return _complete.load(std::memory_order_acquire);
-		}
-	
+	struct Closure {
+		ThreadBlocker blocker;
 		Worklet worklet;
 		FutexNode futex;
-		frigg::UnsafePtr<Thread> _thread;
-		std::atomic<bool> _complete;
-	};
-
-	Blocker blocker{this_thread};
+	} closure;
 
 	// TODO: Support physical (i.e. non-private) futexes.
-	blocker.worklet.setup(&Blocker::woken, this_thread->associatedWorkQueue());
-	blocker.futex.setup(&blocker.worklet);
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	}, this_thread->associatedWorkQueue());
+	closure.futex.setup(&closure.worklet);
+	closure.blocker.setup();
 	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
 		enableUserAccess();
 		auto v = __atomic_load_n(pointer, __ATOMIC_RELAXED);
 		disableUserAccess();
 		return expected == v;
-	}, &blocker.futex);
+	}, &closure.futex);
 
 /*
 	frigg::infoLogger() << "thor: "
@@ -1882,13 +1870,8 @@ HelError helFutexWait(int *pointer, int expected) {
 			<< " " << this_thread->credentials()[14] << " " << this_thread->credentials()[15]
 			<< " Thread blocked on futex" << frigg::endLog;
 */
-	while(!blocker.check()) {
-		this_thread->associatedWorkQueue()->run();
-
-		Thread::blockCurrentIf([&] {
-			return !blocker.check() && !this_thread->associatedWorkQueue()->check();
-		});
-	}
+	
+	Thread::blockCurrent(&closure.blocker);
 
 	return kHelErrNone;
 }

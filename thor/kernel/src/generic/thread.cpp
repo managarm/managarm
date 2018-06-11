@@ -18,6 +18,37 @@ namespace {
 // Thread
 // --------------------------------------------------------
 
+void Thread::blockCurrent(ThreadBlocker *blocker) {
+	auto this_thread = getCurrentThread();
+	while(true) {
+		// Run the WQ outside of the locks.
+		this_thread->_associatedWorkQueue.run();
+
+		StatelessIrqLock irq_lock;
+		auto lock = frigg::guard(&this_thread->_mutex);
+
+		// Those are the important tests; they are protected by the thread's mutex.
+		if(blocker->_done)
+			break;
+		if(this_thread->_associatedWorkQueue.check())
+			continue;
+
+		assert(this_thread->_runState == kRunActive);
+		this_thread->_runState = kRunBlocked;
+		if(logRunStates)
+			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " is blocked" << frigg::endLog;
+
+		forkExecutor([&] {
+			Scheduler::suspend(this_thread.get());
+			runDetached([] (frigg::LockGuard<Mutex> lock) {
+				lock.unlock();
+				localScheduler()->reschedule();
+			}, frigg::move(lock));
+		}, &this_thread->_executor);
+	}
+}
+
 void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -194,18 +225,22 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	}
 }
 
-void Thread::unblockOther(frigg::UnsafePtr<Thread> thread) {
+void Thread::unblockOther(ThreadBlocker *blocker) {
+	auto thread = blocker->_thread;
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&thread->_mutex);
+
+	assert(!blocker->_done);
+	blocker->_done = true;
 
 	if(thread->_runState != kRunBlocked)
 		return;
 
 	thread->_runState = kRunDeferred;
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)thread.get()
+		frigg::infoLogger() << "thor: " << (void *)thread
 				<< " is deferred (via unblock)" << frigg::endLog;
-	Scheduler::resume(thread.get());
+	Scheduler::resume(thread);
 }
 
 void Thread::killOther(frigg::UnsafePtr<Thread> thread) {
@@ -364,26 +399,6 @@ void Thread::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void Thread::_blockLocked(frigg::LockGuard<Mutex> lock) {
-	assert(!intsAreEnabled());
-	auto this_thread = getCurrentThread();
-	assert(lock.protects(&this_thread->_mutex));
-
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunBlocked;
-	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is blocked" << frigg::endLog;
-
-	forkExecutor([&] {
-		Scheduler::suspend(this_thread.get());
-		runDetached([] (frigg::LockGuard<Mutex> lock) {
-			lock.unlock();
-			localScheduler()->reschedule();
-		}, frigg::move(lock));
-	}, &this_thread->_executor);
-}
-
 void Thread::AssociatedWorkQueue::wakeup() {
 	auto self = frg::container_of(this, &Thread::_associatedWorkQueue);
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -397,6 +412,11 @@ void Thread::AssociatedWorkQueue::wakeup() {
 		frigg::infoLogger() << "thor: " << (void *)self
 				<< " is deferred (via wq wakeup)" << frigg::endLog;
 	Scheduler::resume(self);
+}
+
+void ThreadBlocker::setup() {
+	_thread = getCurrentThread().get();
+	_done = false;
 }
 
 } // namespace thor
