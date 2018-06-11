@@ -117,28 +117,28 @@ using InitiateList = frg::intrusive_list<
 struct FetchNode {
 	friend struct MemoryBundle;
 
+	void setup(Worklet *fetched) {
+		_fetched = fetched;
+	}
+
 	frigg::Tuple<PhysicalAddr, size_t> range() {
 		return _range;
 	}
 
 private:
-	void (*_fetched)(FetchNode *);
+	Worklet *_fetched;
 
 	frigg::Tuple<PhysicalAddr, size_t> _range;
 };
 
 struct MemoryBundle {	
 protected:
-	static void setupFetch(FetchNode *node, void (*fetched)(FetchNode *)) {
-		node->_fetched = fetched;
-	}
-
 	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size) {
 		node->_range = frigg::Tuple<PhysicalAddr, size_t>{physical, size};
 	}
 	
 	static void callbackFetch(FetchNode *node) {
-		node->_fetched(node);
+		WorkQueue::post(node->_fetched);
 	}
 
 public:
@@ -149,7 +149,7 @@ public:
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
 	// Result stays valid until the range is evicted.
-	virtual bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) = 0;
+	virtual bool fetchRange(uintptr_t offset, FetchNode *node) = 0;
 	
 	PhysicalAddr blockForRange(uintptr_t offset);
 };
@@ -165,7 +165,7 @@ struct CowBundle : MemoryBundle {
 	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 private:
 	frigg::TicketLock _mutex;
@@ -231,7 +231,7 @@ struct HardwareMemory : Memory {
 	~HardwareMemory();
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();
 
@@ -254,7 +254,7 @@ struct AllocatedMemory : Memory {
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	
 	size_t getLength();
 
@@ -301,7 +301,7 @@ public:
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();
 
@@ -322,7 +322,7 @@ public:
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
 	PhysicalAddr peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) override;
+	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();
 
@@ -373,6 +373,7 @@ private:
 	bool _resolved;
 
 	Mapping *_mapping;
+	Worklet _worklet;
 	FetchNode _fetch;
 	uintptr_t _bundleOffset;
 };
@@ -651,6 +652,7 @@ private:
 	Worklet *_acquired;
 
 	ForeignSpaceAccessor *_accessor;
+	Worklet _worklet;
 	FetchNode _fetch;
 	size_t _progress;
 };
@@ -658,7 +660,7 @@ private:
 struct ForeignSpaceAccessor {
 private:
 	static bool _processAcquire(AcquireNode *node);
-	static void _fetchedAcquire(FetchNode *node);
+	static void _fetchedAcquire(Worklet *base);
 
 public:
 	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {

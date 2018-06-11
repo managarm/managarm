@@ -13,15 +13,18 @@ PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
 
 		frigg::UnsafePtr<Thread> blockedThread;
 		std::atomic<bool> complete;
+		Worklet worklet;
 	} node;
 
-	auto functor = [] (FetchNode *base) {
-		auto np = static_cast<Node *>(base);
-		np->complete.store(true, std::memory_order_release);
-		Thread::unblockOther(np->blockedThread);
+	auto functor = [] (Worklet *base) {
+		auto node = frg::container_of(base, &Node::worklet);
+		node->complete.store(true, std::memory_order_release);
+		Thread::unblockOther(node->blockedThread);
 	};
 
-	if(!fetchRange(offset, &node, functor)) 
+	node.worklet.setup(functor, WorkQueue::localQueue());
+	node.setup(&node.worklet);
+	if(!fetchRange(offset, &node)) 
 		Thread::blockCurrentWhile([&] {
 			return !node.complete.load(std::memory_order_acquire);
 		});
@@ -47,9 +50,8 @@ PhysicalAddr CowBundle::peekRange(uintptr_t) {
 	__builtin_unreachable();
 }
 
-bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
+bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(!(offset & (kPageSize - 1)));
-	setupFetch(node, fetched);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
@@ -283,9 +285,8 @@ PhysicalAddr HardwareMemory::peekRange(uintptr_t offset) {
 	return _base + offset;
 }
 
-bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
+bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(offset % kPageSize == 0);
-	setupFetch(node, fetched);
 
 	completeFetch(node, _base + offset, _length - offset);
 	return true;
@@ -381,9 +382,7 @@ PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	return _physicalChunks[index] + disp;
 }
 
-bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
-	setupFetch(node, fetched);
-	
+bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 	
@@ -493,9 +492,8 @@ PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 	return _managed->physicalPages[index];
 }
 
-bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
+bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(!(offset % kPageSize));
-	setupFetch(node, fetched);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
@@ -607,9 +605,8 @@ PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 	return _managed->physicalPages[index];
 }
 
-bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node, void (*fetched)(FetchNode *)) {
+bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(!(offset % kPageSize));
-	setupFetch(node, fetched);
 	
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
@@ -888,13 +885,15 @@ bool NormalMapping::handleFault(FaultNode *node) {
 		node->_resolved = true;
 	};
 
-	static auto fetched = [] (FetchNode *base) {
-		auto node = frg::container_of(base, &FaultNode::_fetch);
+	static auto fetched = [] (Worklet *base) {
+		auto node = frg::container_of(base, &FaultNode::_worklet);
 		remap(node);
 		WorkQueue::post(node->_handled);
 	};
 
-	if(bundle_range.get<0>()->fetchRange(node->_bundleOffset, &node->_fetch, fetched)) {
+	node->_worklet.setup(fetched, WorkQueue::localQueue());
+	node->_fetch.setup(&node->_worklet);
+	if(bundle_range.get<0>()->fetchRange(node->_bundleOffset, &node->_fetch)) {
 		remap(node);
 		return true;
 	}else{
@@ -1271,7 +1270,8 @@ bool AddressSpace::fork(ForkNode *node) {
 		assert(node->_progress + kPageSize <= item->mapping->length());
 
 		auto range = item->mapping->resolveRange(node->_progress, kPageSize);
-		auto done = range.get<0>()->fetchRange(range.get<1>(), &node->_fetch, nullptr);
+		node->_fetch.setup(nullptr);
+		auto done = range.get<0>()->fetchRange(range.get<1>(), &node->_fetch);
 		assert(done);
 		assert(node->_fetch.range().get<1>() >= kPageSize);
 		
@@ -1412,7 +1412,9 @@ bool ForeignSpaceAccessor::_processAcquire(AcquireNode *node) {
 		assert(mapping);
 		auto range = mapping->resolveRange(vaddr - mapping->address(),
 				node->_accessor->_length - node->_progress);
-		if(!range.get<0>()->fetchRange(range.get<1>(), &node->_fetch, &_fetchedAcquire))
+		node->_worklet.setup(&_fetchedAcquire, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!range.get<0>()->fetchRange(range.get<1>(), &node->_fetch))
 			return false;
 		node->_progress += node->_fetch.range().get<1>();
 	}
@@ -1420,9 +1422,9 @@ bool ForeignSpaceAccessor::_processAcquire(AcquireNode *node) {
 	return true;
 }
 
-void ForeignSpaceAccessor::_fetchedAcquire(FetchNode *base) {
+void ForeignSpaceAccessor::_fetchedAcquire(Worklet *base) {
 	assert(!"This is untested");
-	auto node = frg::container_of(base, &AcquireNode::_fetch);
+	auto node = frg::container_of(base, &AcquireNode::_worklet);
 	node->_progress += kPageSize;
 
 	if(_processAcquire(node)) {
