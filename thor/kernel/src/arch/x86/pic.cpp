@@ -19,6 +19,8 @@ arch::bit_register<uint32_t> lApicSpurious(0x00F0);
 arch::bit_register<uint32_t> lApicIcrLow(0x0300);
 arch::bit_register<uint32_t> lApicIcrHigh(0x0310);
 arch::bit_register<uint32_t> lApicLvtTimer(0x0320);
+arch::bit_register<uint32_t> lApicLvtLocal0(0x0350);
+arch::bit_register<uint32_t> lApicLvtLocal1(0x0360);
 arch::scalar_register<uint32_t> lApicInitCount(0x0380);
 arch::scalar_register<uint32_t> lApicCurCount(0x0390);
 
@@ -45,6 +47,8 @@ arch::field<uint32_t, uint8_t> apicIcrHighDestField(24, 8);
 
 // lApicLvtTimer registers
 arch::field<uint32_t, uint8_t> apicLvtVector(0, 8);
+arch::field<uint32_t, bool> apicLvtMask(16, 1);
+arch::field<uint32_t, uint8_t> apicLvtMode(8, 3);
 
 arch::mem_space picBase;
 
@@ -153,12 +157,24 @@ void initLocalApicOnTheSystem() {
 }
 
 void initLocalApicPerCpu() {
-	// enable the local apic
+	auto dumpLocalInt = [&] (int index) {
+		auto regstr = (index == 0 ? lApicLvtLocal0 : lApicLvtLocal1);
+		auto lvt = picBase.load(regstr);
+		frigg::infoLogger() << "thor: CPU #" << getLocalApicId()
+				<< " LINT " << index << " mode is " << (lvt & apicLvtMode)
+				<< ", it is " << ((lvt & apicLvtMask) ? "masked" : "not masked")
+				<< frigg::endLog;
+	};
+
+	// Enable the local APIC.
 	uint32_t spurious_vector = 0x81;
 	picBase.store(lApicSpurious, apicSpuriousVector(spurious_vector)
 			| apicSpuriousSwEnable(true));
 	
-	// setup a timer interrupt for scheduling
+	dumpLocalInt(0);
+	dumpLocalInt(1);
+	
+	// Setup a timer interrupt for scheduling.
 	uint32_t schedule_vector = 0xFF;
 	picBase.store(lApicLvtTimer, apicLvtVector(schedule_vector));
 }

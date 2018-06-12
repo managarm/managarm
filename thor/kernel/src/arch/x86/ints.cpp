@@ -49,6 +49,8 @@ extern "C" void thorRtIpiShootdown();
 extern "C" void thorRtIpiPing();
 extern "C" void thorRtPreemption();
 
+extern "C" void nmiStub();
+
 namespace thor {
 
 static constexpr bool logEveryFault = false;
@@ -161,6 +163,9 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
 	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 1);
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
+	
+	int nmi_selector = kSelSystemNmiCode;
+	makeIdt64IntSystemGate(table, 2, fault_selector, (void *)&nmiStub, 2);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
@@ -290,7 +295,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
 	if(inStub(*image.ip()))
-		frigg::panicLogger() << "Shootdown IPI"
+		frigg::panicLogger() << "Ping IPI"
 				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
 
@@ -304,6 +309,21 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	acknowledgeIpi();
 
 	handlePreemption(image);
+}
+
+extern "C" void onPlatformNmi(NmiImageAccessor image) {
+	// If we interrupted user space or a kernel stub, we might need to update GS.
+	auto gs = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+			reinterpret_cast<uintptr_t>(*image.expectedGs()));
+
+	frigg::infoLogger() << "thor: NMI on CPU #" << getLocalApicId() << frigg::endLog;
+	frigg::infoLogger() << "thor: From CS: 0x" << frigg::logHex(*image.cs())
+			<< ", IP: " << (void *)*image.ip() << frigg::endLog;
+
+	// Restore the old value of GS.
+	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
+			reinterpret_cast<uintptr_t>(gs));
 }
 
 bool intsAreEnabled() {

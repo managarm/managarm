@@ -41,7 +41,9 @@ enum {
 	kGdtIndexClientUserData = 9,
 	kGdtIndexClientUserCode = 10,
 	kGdtIndexSystemIdleCode = 11,
-	kGdtIndexSystemFiberCode = 12
+	kGdtIndexSystemFiberCode = 12,
+
+	kGdtIndexSystemNmiCode = 13
 };
 
 constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
@@ -61,7 +63,9 @@ enum {
 	kSelClientUserData = selectorFor(kGdtIndexClientUserData, 3),
 	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3),
 	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0),
-	kSelSystemFiberCode = selectorFor(kGdtIndexSystemFiberCode, 0)
+	kSelSystemFiberCode = selectorFor(kGdtIndexSystemFiberCode, 0),
+	
+	kSelSystemNmiCode = selectorFor(kGdtIndexSystemNmiCode, 0)
 };
 
 struct UniqueKernelStack {
@@ -298,6 +302,51 @@ private:
 	char *_pointer;
 };
 
+struct NmiImageAccessor {
+	void **expectedGs() {
+		return &_frame()->expectedGs;
+	}
+	
+	Word *ip() { return &_frame()->rip; }
+	Word *cs() { return &_frame()->cs; }
+
+private:
+	// note: this struct is accessed from assembly.
+	// do not change the field offsets!
+	struct Frame {
+		Word rax;
+		Word rbx;
+		Word rcx;
+		Word rdx;
+		Word rdi;
+		Word rsi;
+		Word r8;
+		Word r9;
+		Word r10;
+		Word r11;
+		Word r12;
+		Word r13;
+		Word r14;
+		Word r15;
+		Word rbp;
+
+		// the following fields are pushed by interrupt
+		Word rip;
+		Word cs;
+		Word rflags;
+		Word rsp;
+		Word ss;
+
+		void *expectedGs;
+	};
+
+	Frame *_frame() {
+		return reinterpret_cast<Frame *>(_pointer);
+	}
+
+	char *_pointer;
+};
+
 // CpuData is some high-level struct that inherits from PlatformCpuData.
 struct CpuData;
 CpuData *getCpuData();
@@ -496,10 +545,11 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
-	uint32_t gdt[13 * 2];
+	uint32_t gdt[14 * 2];
 	uint32_t idt[256 * 4];
 
 	UniqueKernelStack irqStack;
+	UniqueKernelStack nmiStack;
 	UniqueKernelStack detachedStack;
 	
 	frigg::arch_x86::Tss64 tss;

@@ -456,6 +456,7 @@ void UserContext::enableIoPort(uintptr_t port) {
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
 	tss.ist1 = (Word)cpu_data->irqStack.base();
+	tss.ist2 = (Word)cpu_data->nmiStack.base();
 }
 
 frigg::UnsafePtr<Thread> activeExecutor() {
@@ -491,6 +492,8 @@ PlatformCpuData::PlatformCpuData()
 	frigg::arch_x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
 	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
+	
+	frigg::arch_x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemNmiCode);
 	
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(frigg::arch_x86::Tss64));
@@ -573,11 +576,24 @@ void initializeThisProcessor() {
 
 	// Allocate per-CPU areas.
 	cpu_data->irqStack = UniqueKernelStack::make();
+	cpu_data->nmiStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
+
+	// We embed some data at the top of the NMI stack.
+	// The NMI handler needs this data to enter a consistent kernel state.
+	struct Embedded {
+		AssemblyCpuData *expectedGs;
+		uint64_t padding;
+	} embedded{cpu_data, 0};
+
+	cpu_data->nmiStack.embed<Embedded>(embedded);
+
+	// Setup our IST after the did the embedding.
 	cpu_data->tss.ist1 = (uintptr_t)cpu_data->irqStack.base();
+	cpu_data->tss.ist2 = (uintptr_t)cpu_data->nmiStack.base();
 
 	frigg::arch_x86::Gdtr gdtr;
-	gdtr.limit = 13 * 8;
+	gdtr.limit = 14 * 8;
 	gdtr.pointer = cpu_data->gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
