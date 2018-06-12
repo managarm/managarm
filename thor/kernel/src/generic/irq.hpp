@@ -65,6 +65,7 @@ struct IrqSink {
 		return _name;
 	}
 
+	// This method is called with sinkMutex() held.
 	virtual IrqStatus raise() = 0;
 
 	// TODO: This needs to be thread-safe.
@@ -73,6 +74,11 @@ struct IrqSink {
 	frg::default_list_hook<IrqSink> hook;
 
 protected:
+	frigg::TicketLock *sinkMutex() {
+		return &_mutex;
+	}
+
+	// Protected by the pin->_mutex and sinkMutex().
 	uint64_t currentSequence() {
 		return _currentSequence;
 	}
@@ -81,8 +87,11 @@ private:
 	frigg::String<KernelAlloc> _name;
 
 	IrqPin *_pin;
+	
+	// Must be protected against IRQs.
+	frigg::TicketLock _mutex;
 
-	// The following fields are protected by the mutex of IrqPin.
+	// The following fields are protected by pin->_mutex and _mutex.
 private:
 	uint64_t _currentSequence;
 	IrqStatus _status;
@@ -110,8 +119,6 @@ enum class Polarity {
 // This class handles the IRQ configuration and acknowledgement.
 struct IrqPin {
 private:
-	using Mutex = frigg::TicketLock;
-
 	static constexpr int maskedForService = 1;
 	static constexpr int maskedForNack = 2;
 
@@ -161,7 +168,7 @@ private:
 	frigg::String<KernelAlloc> _name;
 
 	// Must be protected against IRQs.
-	Mutex _mutex;
+	frigg::TicketLock _mutex;
 
 	IrqStrategy _strategy;
 
@@ -192,10 +199,6 @@ private:
 
 // This class implements the user-visible part of IRQ handling.
 struct IrqObject : IrqSink {
-private:
-	using Mutex = frigg::TicketLock;
-
-public:
 	IrqObject(frigg::String<KernelAlloc> name);
 
 	IrqStatus raise() override;
@@ -203,10 +206,7 @@ public:
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 
 private:
-	// Must be protected against IRQs.
-	Mutex _mutex;
-
-	// Protected by the mutex.
+	// Protected by the sinkMutex.
 	frg::intrusive_list<
 		AwaitIrqNode,
 		frg::locate_member<

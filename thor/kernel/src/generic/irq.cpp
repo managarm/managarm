@@ -237,6 +237,7 @@ void IrqPin::_callSinks() {
 				<< _name << "\e[39m" << frigg::endLog;
 
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
+		auto lock = frigg::guard(&(*it)->_mutex);
 		(*it)->_currentSequence = _sinkSequence;
 		(*it)->_status = (*it)->raise();
 
@@ -270,9 +271,6 @@ IrqObject::IrqObject(frigg::String<KernelAlloc> name)
 : IrqSink{frigg::move(name)} { }
 
 IrqStatus IrqObject::raise() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
 		node->_error = kErrSuccess;
@@ -285,7 +283,7 @@ IrqStatus IrqObject::raise() {
 
 void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
+	auto lock = frigg::guard(sinkMutex());
 
 	assert(sequence <= currentSequence());
 	if(sequence < currentSequence()) {
