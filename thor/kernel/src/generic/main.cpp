@@ -515,10 +515,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		executeModule(static_cast<MfsRegular *>(posix_module),
 //				LaneHandle{}, mbus_stream.get<1>(), &getCpuData(1)->scheduler);
 				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
-
-		while(true)
-			KernelFiber::blockCurrent(frigg::CallbackPtr<bool()>{nullptr,
-					[] (void *) { return true; }});
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;

@@ -641,23 +641,6 @@ namespace initrd {
 	};
 }
 
-namespace {
-	template<typename S, typename F>
-	struct LambdaInvoker;
-	
-	template<typename R, typename... Args, typename F>
-	struct LambdaInvoker<R(Args...), F> {
-		static R invoke(void *object, Args... args) {
-			return (*static_cast<F *>(object))(frigg::move(args)...);
-		}
-	};
-
-	template<typename S, typename F>
-	frigg::CallbackPtr<S> wrap(F &functor) {
-		return frigg::CallbackPtr<S>(&functor, &LambdaInvoker<S, F>::invoke);
-	}
-}
-
 void runService(frigg::SharedPtr<Thread> thread) {
 	KernelFiber::run([=] {
 		auto stdio_stream = createStream();
@@ -681,15 +664,10 @@ void runService(frigg::SharedPtr<Thread> thread) {
 				process, thread->superiorLane());
 		(*posix_closure)();
 
-		auto this_fiber = thisFiber();
-		while(true) {
-			this_fiber->associatedWorkQueue()->run();
-
-			auto check = [&] {
-				return !this_fiber->associatedWorkQueue()->check();
-			};
-			KernelFiber::blockCurrent(wrap<bool()>(check));
-		}
+		// Just block this fiber forever (we're still processing worklets).
+		FiberBlocker blocker;
+		blocker.setup();
+		KernelFiber::blockCurrent(&blocker);
 	});
 }
 

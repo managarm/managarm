@@ -10,6 +10,7 @@
 namespace thor {
 
 struct KernelFiber;
+struct FiberBlocker;
 
 KernelFiber *thisFiber();
 
@@ -45,8 +46,10 @@ public:
 	}
 
 	static void blockCurrent(frigg::CallbackPtr<bool()> predicate);
-
+	static void blockCurrent(FiberBlocker *blocker);
 	static void exitCurrent();
+
+	static void unblockOther(FiberBlocker *blocker);
 
 	template<typename F>
 	static void run(F functor) {
@@ -93,6 +96,16 @@ private:
 	FiberContext _fiberContext;
 	ExecutorContext _executorContext;
 	Executor _executor;
+};
+
+struct FiberBlocker {
+	friend struct KernelFiber;
+
+	void setup();
+
+private:
+	KernelFiber *_fiber;
+	bool _done;
 };
 
 } // namespace thor
