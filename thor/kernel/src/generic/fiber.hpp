@@ -21,30 +21,6 @@ private:
 	};
 
 public:
-	template<typename Node, typename Function, typename... Args>
-	static void await(Function &&f, Args &&... args) {
-		struct Awaiter {
-			bool predicate() {
-				return !complete.load(std::memory_order_relaxed);
-			}
-
-			Awaiter()
-			: fiber{thisFiber()}, complete{false} { }
-
-			Node node;
-			KernelFiber *fiber;
-			std::atomic<bool> complete;
-		};
-
-		Awaiter awaiter;
-		f(frigg::forward<Args>(args)..., &awaiter.node, [] (Node *node) {
-			auto awaiter = frg::container_of(node, &Awaiter::node);
-			awaiter->complete.store(true, std::memory_order_relaxed);
-			awaiter->fiber->unblock();
-		});
-		blockCurrent(CALLBACK_MEMBER(&awaiter, &Awaiter::predicate));
-	}
-
 	static void blockCurrent(frigg::CallbackPtr<bool()> predicate);
 	static void blockCurrent(FiberBlocker *blocker);
 	static void exitCurrent();
@@ -81,8 +57,6 @@ public:
 	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
 
 	[[ noreturn ]] void invoke() override;
-
-	void unblock();
 
 	WorkQueue *associatedWorkQueue() {
 		return &_associatedWorkQueue;

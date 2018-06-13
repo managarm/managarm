@@ -5,6 +5,7 @@
 #include "module.hpp"
 #include "irq.hpp"
 #include "fiber.hpp"
+#include "service_helpers.hpp"
 #include <frigg/elf.hpp>
 #include <eir/interface.hpp>
 #include "../system/pci/pci.hpp"
@@ -94,8 +95,7 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 
 	// parse the ELf file format
 	Elf64_Ehdr ehdr;
-	KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
-			0, &ehdr, sizeof(Elf64_Ehdr));
+	fiberCopyFromBundle(image.get(), 0, &ehdr, sizeof(Elf64_Ehdr));
 	assert(ehdr.e_ident[0] == 0x7F
 			&& ehdr.e_ident[1] == 'E'
 			&& ehdr.e_ident[2] == 'L'
@@ -107,8 +107,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 
 	for(int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
-		KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
-				ehdr.e_phoff + i * ehdr.e_phentsize, &phdr, sizeof(Elf64_Phdr));
+		fiberCopyFromBundle(image.get(), ehdr.e_phoff + i * ehdr.e_phentsize,
+				&phdr, sizeof(Elf64_Phdr));
 		
 		if(phdr.p_type == PT_LOAD) {
 			assert(phdr.p_memsz > 0);
@@ -151,8 +151,8 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 			}
 		}else if(phdr.p_type == PT_INTERP) {
 			info.interpreter.resize(phdr.p_filesz);
-			KernelFiber::await<CopyFromBundleNode>(&copyFromBundle, image.get(),
-					phdr.p_offset, info.interpreter.data(), phdr.p_filesz);
+			fiberCopyFromBundle(image.get(), phdr.p_offset,
+					info.interpreter.data(), phdr.p_filesz);
 		}else if(phdr.p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr.p_vaddr;
 		}else if(phdr.p_type == PT_DYNAMIC
@@ -215,8 +215,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	frigg::String<KernelAlloc> data_area(*kernelAlloc);
 
 	uintptr_t data_disp = stack_size - data_area.size();
-	KernelFiber::await<CopyToBundleNode>(&copyToBundle, stack_memory.get(), data_disp,
-			data_area.data(), data_area.size());
+	fiberCopyToBundle(stack_memory.get(), data_disp, data_area.data(), data_area.size());
 
 	// build the stack tail area (containing the aux vector).
 	Handle xpipe_handle;
@@ -275,8 +274,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	
 	uintptr_t tail_disp = data_disp - tail_area.size();
 	assert(!(tail_disp % 16));
-	KernelFiber::await<CopyToBundleNode>(&copyToBundle, stack_memory.get(), tail_disp,
-			tail_area.data(), tail_area.size());
+	fiberCopyToBundle(stack_memory.get(), tail_disp, tail_area.data(), tail_area.size());
 
 	// create a thread for the module
 	AbiParameters params;
@@ -471,8 +469,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 
 					auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-					KernelFiber::await<CopyToBundleNode>(&copyToBundle, memory.get(), 0,
-							data, file_size);
+					fiberCopyToBundle(memory.get(), 0, data, file_size);
 		
 					const char *begin = path.data();
 					const char *end = path.data() + path.size();

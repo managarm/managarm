@@ -120,17 +120,6 @@ void KernelFiber::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void KernelFiber::unblock() {
-	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&_mutex);
-
-	if(!_blocked)
-		return;
-	
-	_blocked = false;
-	Scheduler::resume(this);
-}
-
 void KernelFiber::AssociatedWorkQueue::wakeup() {
 	auto self = frg::container_of(this, &KernelFiber::_associatedWorkQueue);
 	auto irq_lock = frigg::guard(&irqMutex());

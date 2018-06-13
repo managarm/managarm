@@ -22,6 +22,38 @@ namespace {
 	}
 }
 
+void fiberCopyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size) {
+	struct Closure {
+		static void copied(CopyToBundleNode *base) {
+			auto closure = frg::container_of(base, &Closure::copy);
+			KernelFiber::unblockOther(&closure->blocker);
+		}
+
+		FiberBlocker blocker;
+		CopyToBundleNode copy;
+	} closure;
+
+	closure.blocker.setup();
+	copyToBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied);
+	KernelFiber::blockCurrent(&closure.blocker);
+}
+
+void fiberCopyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t size) {
+	struct Closure {
+		static void copied(CopyFromBundleNode *base) {
+			auto closure = frg::container_of(base, &Closure::copy);
+			KernelFiber::unblockOther(&closure->blocker);
+		}
+
+		FiberBlocker blocker;
+		CopyFromBundleNode copy;
+	} closure;
+
+	closure.blocker.setup();
+	copyFromBundle(bundle, offset, pointer, size, &closure.copy, &Closure::copied);
+	KernelFiber::blockCurrent(&closure.blocker);
+}
+
 void fiberSleep(uint64_t nanos) {
 	struct Closure {
 		static void elapsed(Worklet *worklet) {
