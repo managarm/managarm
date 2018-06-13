@@ -209,11 +209,21 @@ private:
 };
 
 struct CopyToBundleNode {
+	friend void copyToBundle(Memory *, ptrdiff_t, const void *, size_t,
+		CopyToBundleNode *, void (*)(CopyToBundleNode *));
 
+private:
+	Worklet _worklet;
+	FetchNode _fetch;
 };
 
 struct CopyFromBundleNode {
+	friend void copyFromBundle(Memory *, ptrdiff_t, void *, size_t,
+		CopyFromBundleNode *, void (*)(CopyFromBundleNode *));
 
+private:
+	Worklet _worklet;
+	FetchNode _fetch;
 };
 
 void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t size,

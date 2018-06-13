@@ -6,25 +6,8 @@
 
 namespace thor {
 
-PhysicalAddr MemoryBundle::blockForRange(uintptr_t offset) {
-	struct Closure : FetchNode {
-		ThreadBlocker blocker;
-		Worklet worklet;
-	} closure;
-
-	closure.worklet.setup([] (Worklet *base) {
-		auto closure = frg::container_of(base, &Closure::worklet);
-		Thread::unblockOther(&closure->blocker);
-	}, WorkQueue::localQueue());
-	closure.setup(&closure.worklet);
-	if(!fetchRange(offset, &closure)) {
-		// FIXME: This is incorrect and breaks if we unblockOther() before blockCurrent().
-		// TODO: Just remove the whole blockForRange() function.
-		closure.blocker.setup();
-		Thread::blockCurrent(&closure.blocker);
-	}
-
-	return closure.range().get<0>();
+PhysicalAddr MemoryBundle::blockForRange(uintptr_t) {
+	assert(!"This function is not supported anymore. Convert code to fetchRange");
 }
 
 // --------------------------------------------------------
@@ -110,8 +93,22 @@ void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 		size_t chunk = frigg::min(frigg::min(kPageSize - dest_misalign,
 				kPageSize - src_misalign), length - progress);
 
-		PhysicalAddr dest_page = dest_memory->blockForRange(dest_offset + progress - dest_misalign);
-		PhysicalAddr src_page = src_memory->blockForRange(src_offset + progress - dest_misalign);
+		Worklet dest_worklet;
+		Worklet src_worklet;
+		FetchNode dest_fetch;
+		FetchNode src_fetch;
+
+		dest_worklet.setup(nullptr, WorkQueue::localQueue());
+		src_worklet.setup(nullptr, WorkQueue::localQueue());
+		dest_fetch.setup(&dest_worklet);
+		src_fetch.setup(&src_worklet);
+		if(!dest_memory->fetchRange(dest_offset + progress - dest_misalign, &dest_fetch))
+			assert(!"Fix asynchronous case");
+		if(!src_memory->fetchRange(src_offset + progress - src_misalign, &src_fetch))
+			assert(!"Fix asynchronous case");
+
+		auto dest_page = dest_fetch.range().get<0>();
+		auto src_page = src_fetch.range().get<0>();
 		assert(dest_page != PhysicalAddr(-1));
 		assert(src_page != PhysicalAddr(-1));
 
@@ -196,7 +193,13 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
-		PhysicalAddr page = bundle->blockForRange(offset - misalign);
+
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+		
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -205,8 +208,14 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	}
 
 	while(size - progress >= kPageSize) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->blockForRange(offset + progress);
+		assert(!((offset + progress) % kPageSize));
+
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+		
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -215,8 +224,14 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	}
 
 	if(size - progress > 0) {
-		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->blockForRange(offset + progress);
+		assert(!((offset + progress) % kPageSize));
+		
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+		
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
@@ -232,7 +247,13 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 	size_t misalign = offset % kPageSize;
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
-		PhysicalAddr page = bundle->blockForRange(offset - misalign);
+		
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 
 		PageAccessor accessor{page};
@@ -242,7 +263,13 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 
 	while(size - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->blockForRange(offset + progress);
+
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
@@ -252,7 +279,13 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 
 	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
-		PhysicalAddr page = bundle->blockForRange(offset + progress);
+		
+		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_fetch.setup(&node->_worklet);
+		if(!bundle->fetchRange(offset + progress, &node->_fetch))
+			assert(!"Handle the asynchronous case");
+		
+		auto page = node->_fetch.range().get<0>();
 		assert(page != PhysicalAddr(-1));
 		
 		PageAccessor accessor{page};
