@@ -165,7 +165,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 	
 	int nmi_selector = kSelSystemNmiCode;
-	makeIdt64IntSystemGate(table, 2, fault_selector, (void *)&nmiStub, 2);
+	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 2);
 
 	//FIXME
 //	frigg::arch_x86::makeIdt64IntSystemGate(table, 0x82,
