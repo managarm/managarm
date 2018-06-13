@@ -685,7 +685,8 @@ public:
 	
 	ForeignSpaceAccessor(frigg::SharedPtr<AddressSpace> space,
 			void *address, size_t length)
-	: _space(frigg::move(space)), _address(address), _length(length) { }
+	: _space(frigg::move(space)), _address(address), _length(length),
+			_acquired{false} { }
 
 	ForeignSpaceAccessor(const ForeignSpaceAccessor &other) = delete;
 
