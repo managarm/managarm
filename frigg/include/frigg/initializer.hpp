@@ -9,7 +9,7 @@
 namespace frigg FRIGG_VISIBILITY {
 
 // note: this class has to be placed in zero'd memory
-// (e.g. in the BSS segment), otherise p_initialized will contain garbage
+// (e.g. in the BSS segment), otherise _initialized will contain garbage
 // we cannot use a ctor to initialize that field as this code is
 // used in the dynamic linker and we want to avoid run-time relocations there
 template<typename T>
@@ -17,25 +17,25 @@ class LazyInitializer {
 public:
 	template<typename... Args>
 	void initialize(Args&&... args) {
-		assert(!p_initialized);
-		new(p_object) T(forward<Args>(args)...);
-		p_initialized = true;
+		assert(!_initialized);
+		new(&_storage) T(forward<Args>(args)...);
+		_initialized = true;
 	}
 
 	void discard() {
-		p_initialized = false;
+		_initialized = false;
 	}
 
 	T *get() {
-		assert(p_initialized);
-		return reinterpret_cast<T *>(p_object);
+		assert(_initialized);
+		return reinterpret_cast<T *>(&_storage);
 	}
 	T* unsafeGet() {
-		return reinterpret_cast<T *>(p_object);
+		return reinterpret_cast<T *>(&_storage);
 	}
 
 	operator bool () {
-		return p_initialized;
+		return _initialized;
 	}
 
 	T *operator-> () {
@@ -46,8 +46,8 @@ public:
 	}
 
 private:
-	char p_object[sizeof(T)];
-	bool p_initialized;
+	AlignedStorage<sizeof(T), alignof(T)> _storage;
+	bool _initialized;
 };
 
 // container for an object that 

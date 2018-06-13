@@ -22,6 +22,7 @@ uint16_t readPciHalf(uint32_t bus, uint32_t slot, uint32_t function, uint32_t of
 			| (offset & ~uint32_t(3)) | 0x80000000;
 	asm volatile ( "outl %0, %1" : : "a" (address), "d" (uint16_t(0xCF8)) );
 	asm volatile ( "inw %1, %0" : "=a" (result) : "d" (uint16_t(0xCFC + (offset & 3))) );
+	return result;
 }
 
 uint8_t readPciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
@@ -31,6 +32,7 @@ uint8_t readPciByte(uint32_t bus, uint32_t slot, uint32_t function, uint32_t off
 			| (offset & ~uint32_t(3)) | 0x80000000;
 	asm volatile ( "outl %0, %1" : : "a" (address), "d" (uint16_t(0xCF8)) );
 	asm volatile ( "inb %1, %0" : "=a" (result) : "d" (uint16_t(0xCFC + (offset & 3))) );
+	return result;
 }
 
 void writePciWord(uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value) {

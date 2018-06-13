@@ -90,7 +90,8 @@ namespace _buddy {
 		Layer *layers;
 	};
 
-	inline void *reserve(void *&intern, void *limit, size_t size) {
+	inline void *reserve(void *&intern, void *limit, size_t size, size_t align) {
+		intern = (char *)(((uintptr_t)intern + (align - 1)) & ~uintptr_t(align - 1));
 		void *p = intern;
 		intern = (char *)intern + size;
 		assert(intern <= limit);
@@ -116,9 +117,9 @@ namespace _buddy {
 				if(s == fine_shift) {
 					size_t num_elements = (num_pages + BitFacet::kBitsInElement - 1)
 							/ BitFacet::kBitsInElement;
-					overhead += sizeof(Layer) + sizeof(BitFacet::BitElement) * num_elements;
+					overhead += sizeof(Layer) + sizeof(BitFacet::BitElement) * num_elements + 8;
 				}else{
-					overhead += sizeof(Layer) + sizeof(int) * num_pages;
+					overhead += sizeof(Layer) + sizeof(int) * num_pages + 8;
 				}
 			}
 			return overhead;
@@ -136,7 +137,8 @@ namespace _buddy {
 					fine_shift, coarse_shift);
 
 			int num_levels = coarse_shift - fine_shift + 1;
-			auto layers = (Layer *)reserve(intern, limit, sizeof(Layer) * num_levels);
+			auto layers = (Layer *)reserve(intern, limit,
+					sizeof(Layer) * num_levels, alignof(Layer));
 
 			for(int i = 0; i < num_levels; i++) {
 				int shift = coarse_shift - i;
@@ -147,12 +149,14 @@ namespace _buddy {
 					size_t num_elements = (num_pages + BitFacet::kBitsInElement - 1)
 							/ BitFacet::kBitsInElement;
 					size_t set_size = sizeof(BitFacet::BitElement) * num_elements;
-					auto elements = (BitFacet::BitElement *)reserve(intern, limit, set_size);
+					auto elements = (BitFacet::BitElement *)reserve(intern, limit,
+							set_size, alignof(BitFacet::BitElement));
 					memset(elements, 0xFF, set_size);
 
 					new (&layers[i]) Layer(shift, num_pages, BitFacet(elements));
 				}else{
-					auto elements = (int *)reserve(intern, limit, sizeof(int) * num_pages);
+					auto elements = (int *)reserve(intern, limit,
+							sizeof(int) * num_pages, alignof(int));
 					for(size_t e = 0; e < num_pages; e++)
 						elements[e] = shift;
 					
@@ -161,7 +165,7 @@ namespace _buddy {
 			}
 			
 			assert(!_singleChunk);
-			_singleChunk = new (reserve(intern, limit, sizeof(Chunk)))
+			_singleChunk = new (reserve(intern, limit, sizeof(Chunk), alignof(Chunk)))
 					Chunk(chunk_base, num_levels, layers);
 		}
 

@@ -64,7 +64,7 @@ struct QueueNode {
 		_source = source;
 	}
 
-	virtual void complete();
+	virtual void complete() = 0;
 	
 private:
 	uintptr_t _context;
