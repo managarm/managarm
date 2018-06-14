@@ -94,7 +94,26 @@ void Scheduler::resume(ScheduleEntity *entity) {
 		sendPingIpi();
 }
 
-void Scheduler::suspend(ScheduleEntity *entity) {
+void Scheduler::suspendCurrent() {
+	auto irq_lock = frigg::guard(&irqMutex());
+
+	auto self = localScheduler();
+	auto lock = frigg::guard(&self->_mutex);
+	auto entity = self->_current;
+	assert(entity);
+//	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
+	
+	self->_updateSystemProgress();
+
+	// Update the unfairness on suspend.
+	self->_updateCurrentEntity();
+	self->_updateEntityStats(entity);
+	entity->state = ScheduleState::attached;
+
+	self->_current = nullptr;
+}
+
+void Scheduler::suspendWaiting(ScheduleEntity *entity) {
 	auto irq_lock = frigg::guard(&irqMutex());
 
 //	frigg::infoLogger() << "suspend " << entity << frigg::endLog;
@@ -103,27 +122,20 @@ void Scheduler::suspend(ScheduleEntity *entity) {
 	auto self = entity->_scheduler;
 	assert(self);
 	auto lock = frigg::guard(&self->_mutex);
+	assert(entity != self->_current);
 
-	assert(entity == self->_current); // TODO: The other case is untested.
+	assert(!"This function is untested");
 	
 	self->_updateSystemProgress();
 
 	// Update the unfairness on suspend.
-	if(self->_current)
-		self->_updateCurrentEntity();
-	if(entity != self->_current) {
-		self->_updateWaitingEntity(entity);
-		self->_updateEntityStats(entity);
-	}
+	self->_updateWaitingEntity(entity);
+	self->_updateEntityStats(entity);
 	entity->state = ScheduleState::attached;
 
-	if(entity != self->_current) {
-		self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
-		self->_numWaiting--;
-		self->_updatePreemption();
-	}else{
-		assert(self == &getCpuData()->scheduler);
-	}
+	self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
+	self->_numWaiting--;
+	self->_updatePreemption();
 }
 
 Scheduler::Scheduler()

@@ -16,9 +16,9 @@ void KernelFiber::blockCurrent(frigg::CallbackPtr<bool()> predicate) {
 	this_fiber->_blocked = true;
 	getCpuData()->executorContext = nullptr;
 	getCpuData()->activeFiber = nullptr;
+	Scheduler::suspendCurrent();
 
 	forkExecutor([&] {
-		Scheduler::suspend(this_fiber);
 		runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
 			lock.unlock();
 			localScheduler()->reschedule();
@@ -45,9 +45,9 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		this_fiber->_blocked = true;
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
+		Scheduler::suspendCurrent();
 
 		forkExecutor([&] {
-			Scheduler::suspend(this_fiber);
 			runDetached([] (frigg::LockGuard<frigg::TicketLock> lock) {
 				lock.unlock();
 				localScheduler()->reschedule();

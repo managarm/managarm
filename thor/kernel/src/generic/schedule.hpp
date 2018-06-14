@@ -72,7 +72,8 @@ struct Scheduler {
 	static void setPriority(ScheduleEntity *entity, int priority);
 
 	static void resume(ScheduleEntity *entity);
-	static void suspend(ScheduleEntity *entity);
+	static void suspendCurrent();
+	static void suspendWaiting(ScheduleEntity *entity);
 
 	Scheduler();
 
