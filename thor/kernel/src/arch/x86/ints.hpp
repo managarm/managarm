@@ -26,44 +26,56 @@ void suspendSelf();
 extern "C" void enterUserMode(void *stack_ptr, void *ip) __attribute__ (( noreturn ));
 
 struct IrqMutex {
+private:
+	unsigned int enableBit = 0x8000'0000;
+
+public:
 	IrqMutex()
-	: _nesting{0} { }
+	: _state{0} { }
 
 	IrqMutex(const IrqMutex &) = delete;
 
 	void lock() {
 		// We maintain the following invariants:
 		// * Properly nested lock()/unlock() pairs restore IRQs to the original state.
-		// * If we observe _nesting > 0 then IRQs are disabled.
-		auto n = _nesting.load(std::memory_order_relaxed);
-		if(!n) {
+		// * If we observe _state > 0 then IRQs are disabled.
+		//
+		// NMIs and faults can always interrupt us but that is
+		// not a problem because of the first invariant.
+		auto s = _state.load(std::memory_order_acquire);
+		if(!s) {
 			auto e = intsAreEnabled();
-			if(e)
+			if(e) {
 				disableInts();
-			// NMIs/faults can interrupt us here but that is not a problem because of the first invariant.
-			_nesting.fetch_add(1, std::memory_order_acq_rel); // TODO: Replace by store.
-			_enabled = e;
+				_state.store(enableBit | 1, std::memory_order_relaxed);
+			}else{
+				_state.store(1, std::memory_order_relaxed);
+			}
 		}else{
 			// Because of the second invariant we do not need to examine the IRQ state here.
-			_nesting.fetch_add(1, std::memory_order_acq_rel); // TODO: Replace by store.
+			assert(s & ~enableBit);
+			_state.store(s + 1, std::memory_order_release);
 		}
 	}
 
 	void unlock() {
-		auto n = _nesting.fetch_sub(1, std::memory_order_acq_rel);
-		assert(n);
-		if(n == 1 && _enabled)
-			enableInts();
+		auto s = _state.load(std::memory_order_relaxed);
+		assert(s & ~enableBit);
+		if((s & ~enableBit) == 1) {
+			_state.store(0, std::memory_order_release);
+			if(s & enableBit)
+				enableInts();
+		}else{
+			_state.store(s - 1, std::memory_order_release);
+		}
 	}
 
 	unsigned int nesting() {
-		return _nesting.load(std::memory_order_relaxed);
+		return _state.load(std::memory_order_relaxed) & ~enableBit;
 	}
 
 private:
-	// TODO: We do not need 'lock xadd' here; 'xadd' alone suffices.
-	std::atomic<unsigned int> _nesting;
-	bool _enabled;
+	std::atomic<unsigned int> _state;
 };
 
 struct StatelessIrqLock {

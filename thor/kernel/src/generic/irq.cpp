@@ -70,9 +70,9 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 	auto lock = frigg::guard(&pin->_mutex);
 	
 	assert(sequence <= sink->currentSequence());
-	if(sink->currentSequence() != pin->_sinkSequence)
-		return kErrSuccess;
 	if(sequence != sink->currentSequence())
+		return kErrSuccess;
+	if(sink->currentSequence() != pin->_sinkSequence)
 		return kErrSuccess;
 
 	if(sink->_status != IrqStatus::null)
@@ -121,7 +121,7 @@ void IrqPin::configure(TriggerMode mode, Polarity polarity) {
 }
 
 void IrqPin::raise() {
-	auto irq_lock = frigg::guard(&irqMutex());
+	assert(!intsAreEnabled());
 	auto lock = frigg::guard(&_mutex);
 	
 	if(_strategy == IrqStrategy::null) {
@@ -145,7 +145,8 @@ void IrqPin::raise() {
 		_callSinks();
 
 		if(_inService && !_dueSinks) {
-			frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
+			frigg::infoLogger() << "\e[31mthor: IRQ " << _name
+					<< " was nacked (synchronously)!" << frigg::endLog;
 			_maskState |= maskedForNack;
 		}
 	}
@@ -185,7 +186,8 @@ void IrqPin::_nack() {
 	if(!_inService || _dueSinks)
 		return;
 
-	frigg::infoLogger() << "\e[31mthor: IRQ " << _name << " was nacked!" << frigg::endLog;
+	frigg::infoLogger() << "\e[31mthor: IRQ " << _name
+			<< " was nacked (asynchronously)!" << frigg::endLog;
 	_maskState |= maskedForNack;
 	_updateMask();
 }
@@ -244,7 +246,7 @@ void IrqPin::_callSinks() {
 		if((*it)->_status == IrqStatus::acked) {
 			_inService = false;
 		}else if((*it)->_status == IrqStatus::nacked) {
-			// We do not need to do anything here.
+			// We do not need to do anything here; we just do not increment _dueSinks.
 		}else{
 			_dueSinks++;
 		}
@@ -255,7 +257,7 @@ void IrqPin::_updateMask() {
 	// TODO: Avoid the virtual calls if the state does not change?
 	if(!_maskState) {
 		unmask();
-	}else if(_maskState) {
+	}else{
 		mask();
 	}
 }
