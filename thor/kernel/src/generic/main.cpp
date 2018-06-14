@@ -305,6 +305,8 @@ extern "C" void frg_panic(const char *cstring) {
 frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
+	initializeBootCpuEarly();
+
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
 	if(cmd_line == "vga") {
@@ -319,7 +321,6 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 	
 	initializeProcessorEarly();
-	initializeBootCpuEarly();
 
 	if(info->signature == eirSignatureValue) {
 		frigg::infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"

@@ -7,12 +7,13 @@
 .set .L_userCode64Selector, 0x2B
 .set .L_userDataSelector, 0x23
 
-.set statusBlock, 0xFE0
-.set statusTargetStage, 0xFE0
-.set statusInitiatorStage, 0xFE4
-.set statusPml4, 0xFE8
-.set statusStack, 0xFF0
-.set statusMain, 0xFF8
+.set statusBlock, 0xFD8
+.set statusTargetStage, 0xFD8
+.set statusInitiatorStage, 0xFDC
+.set statusPml4, 0xFE0
+.set statusStack, 0xFE8
+.set statusMain, 0xFF0
+.set statusCpuContext, 0xFF8
 
 .code16
 .global trampoline

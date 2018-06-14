@@ -1,7 +1,6 @@
 
 # kernel gs segment fields
-.set .L_gsActiveExecutor, 0x08
-.set .L_gsSyscallStack, 0x10
+.set .L_gsSyscallStack, 0x08
 
 # executor struct fields
 .set .L_executorImagePtr, 0x00

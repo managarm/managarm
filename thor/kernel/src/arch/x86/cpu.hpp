@@ -351,6 +351,7 @@ private:
 struct CpuData;
 CpuData *getCpuData();
 CpuData *getCpuData(size_t k);
+int getCpuCount();
 
 struct AbiParameters {
 	uintptr_t ip;
@@ -534,11 +535,10 @@ void switchExecutor(frigg::UnsafePtr<Thread> executor);
 
 frigg::UnsafePtr<Thread> activeExecutor();
 
-// note: this struct is accessed from assembly.
-// do not change the field offsets!
+// Note: This struct is accessed from assembly.
+// Do not change the field offsets!
 struct AssemblyCpuData {
-	// TODO: This is not really arch-specific!
-	frigg::UnsafePtr<Thread> activeExecutor;
+	AssemblyCpuData *selfPointer;
 	void *syscallStack;
 };
 
@@ -561,6 +561,9 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool havePcids;
 
 	LocalApicContext apicContext;
+	
+	// TODO: This is not really arch-specific!
+	frigg::UnsafePtr<Thread> activeExecutor;
 };
 
 void enableUserAccess();

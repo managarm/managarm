@@ -522,13 +522,17 @@ size_t getStateSize() {
 }
 
 CpuData *getCpuData() {
-	uint64_t msr = frigg::arch_x86::rdmsr(frigg::arch_x86::kMsrIndexGsBase);
-	auto cpu_data = reinterpret_cast<AssemblyCpuData *>(msr);
+	AssemblyCpuData *cpu_data;
+	asm ("mov %%gs:0, %0" : "=r"(cpu_data));
 	return static_cast<CpuData *>(cpu_data);
 }
 
 CpuData *getCpuData(size_t k) {
 	return (*allCpuContexts)[k];
+}
+
+int getCpuCount() {
+	return allCpuContexts->size();
 }
 
 void doRunDetached(void (*function) (void *), void *argument) {
@@ -547,32 +551,29 @@ extern "C" void syscallStub();
 
 frigg::LazyInitializer<CpuData> staticBootCpuContext;
 
-void initializeBootCpuEarly() {
-	// Set up the kernel gs segment.
-	staticBootCpuContext.initialize();
+// Set up the kernel GS segment.
+void setupCpuContext(AssemblyCpuData *context) {
+	context->selfPointer = context;
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
-			(uintptr_t)static_cast<AssemblyCpuData *>(staticBootCpuContext.get()));
+			reinterpret_cast<uint64_t>(context));
+}
+
+void initializeBootCpuEarly() {
+	staticBootCpuContext.initialize();
+	setupCpuContext(staticBootCpuContext.get());
 }
 
 void initializeCpuContexts() {
 	allCpuContexts.initialize(*kernelAlloc);
-	allCpuContexts->push(staticBootCpuContext.get());
-}
-
-void allocateAdditionalCpuContext() {
-	// Set up the kernel gs segment.
-	auto cpu_data = frigg::construct<CpuData>(*kernelAlloc);
-	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
-			(uintptr_t)static_cast<AssemblyCpuData *>(cpu_data));
-
-	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
-	allCpuContexts->push(cpu_data);
 }
 
 void initializeThisProcessor() {	
 	// FIXME: the stateSize should not be CPU specific!
 	// move it to a global variable and initialize it in initializeTheSystem() etc.!
-	PlatformCpuData *cpu_data = getCpuData();
+	auto cpu_data = getCpuData();
+	
+	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
+	allCpuContexts->push(cpu_data);
 
 	// Allocate per-CPU areas.
 	cpu_data->irqStack = UniqueKernelStack::make();
@@ -699,17 +700,17 @@ struct StatusBlock {
 	unsigned int pml4;
 	uintptr_t stack;
 	void (*main)(StatusBlock *);
+	AssemblyCpuData *cpuContext;
 };
 
-static_assert(sizeof(StatusBlock) == 32, "Bad sizeof(StatusBlock)");
+static_assert(sizeof(StatusBlock) == 40, "Bad sizeof(StatusBlock)");
 
 void secondaryMain(StatusBlock *status_block) {
-	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
-	allocateAdditionalCpuContext();
+	setupCpuContext(status_block->cpuContext);
 	initializeThisProcessor();
 	__atomic_store_n(&status_block->targetStage, 2, __ATOMIC_RELEASE);
 
-	frigg::infoLogger() << "Start scheduling on AP" << frigg::endLog;
+	frigg::infoLogger() << "Hello world from CPU #" << getLocalApicId() << frigg::endLog;	
 	localScheduler()->reschedule();
 }
 
@@ -737,6 +738,7 @@ void bootSecondary(unsigned int apic_id) {
 	status_block->pml4 = KernelPageSpace::global().rootTable();
 	status_block->stack = (uintptr_t)stack_ptr + stack_size;
 	status_block->main = &secondaryMain;
+	status_block->cpuContext = frigg::construct<CpuData>(*kernelAlloc);
 
 	// Send the IPI sequence that starts up the AP.
 	// On modern processors INIT lets the processor enter the wait-for-SIPI state.
