@@ -305,7 +305,7 @@ extern "C" void frg_panic(const char *cstring) {
 frigg::LazyInitializer<frigg::Vector<KernelFiber *, KernelAlloc>> earlyFibers;
 
 extern "C" void thorMain(PhysicalAddr info_paddr) {
-	initializeBootCpuEarly();
+	earlyInitializeBootProcessor();
 
 	auto info = reinterpret_cast<EirInfo *>(0x40000000);
 	auto cmd_line = frigg::StringView{reinterpret_cast<char *>(info->commandLine)};
@@ -355,8 +355,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 	for(int i = 0; i < 24; i++)
 		globalIrqSlots[i].initialize();
 
-	initializeCpuContexts();
 	initializeTheSystemEarly();
+	initializeBootProcessor();
 	initializeThisProcessor();
 	
 	if(logInitialization)

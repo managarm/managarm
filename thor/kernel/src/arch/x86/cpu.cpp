@@ -558,14 +558,17 @@ void setupCpuContext(AssemblyCpuData *context) {
 			reinterpret_cast<uint64_t>(context));
 }
 
-void initializeBootCpuEarly() {
+void earlyInitializeBootProcessor() {
 	staticBootCpuContext.initialize();
-	staticBootCpuContext->localApicId = getLocalApicId();
 	setupCpuContext(staticBootCpuContext.get());
 }
 
-void initializeCpuContexts() {
+void initializeBootProcessor() {
 	allCpuContexts.initialize(*kernelAlloc);
+
+	// We need to fill in the boot APIC ID.
+	// This cannot be done in earlyInitializeBootProcessor() as we need the APIC base first.
+	staticBootCpuContext->localApicId = getLocalApicId();
 }
 
 void initializeThisProcessor() {	
