@@ -57,6 +57,7 @@ void fiberCopyFromBundle(Memory *bundle, ptrdiff_t offset, void *pointer, size_t
 void fiberSleep(uint64_t nanos) {
 	struct Closure {
 		static void elapsed(Worklet *worklet) {
+//			frigg::infoLogger() << "Timer is elapsed" << frigg::endLog;
 			auto closure = frg::container_of(worklet, &Closure::worklet);
 			KernelFiber::unblockOther(&closure->blocker);
 		}

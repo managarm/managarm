@@ -67,8 +67,10 @@ void PrecisionTimerEngine::_progress() {
 		if(logProgress)
 			frigg::infoLogger() << "thor: Processing timers until " << current << frigg::endLog;
 		while(true) {
-			if(_timerQueue.empty())
+			if(_timerQueue.empty()) {
+				_alarm->arm(0);
 				return;
+			}
 
 			if(_timerQueue.top()->_deadline > current)
 				break;

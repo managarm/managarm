@@ -36,6 +36,8 @@ private:
 struct LocalApicContext {
 	friend struct GlobalApicContext;
 
+	LocalApicContext();
+
 	static void setPreemption(uint64_t nanos);
 
 	static void handleTimerIrq();
@@ -45,6 +47,7 @@ private:
 
 private:
 	uint64_t _preemptionDeadline;
+	uint64_t _globalDeadline;
 };
 
 GlobalApicContext *globalApicContext();

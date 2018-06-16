@@ -79,7 +79,6 @@ GlobalApicContext *globalApicContext() {
 
 void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	assert(apicTicksPerMilli > 0);
-	assert(nanos > 0);
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
@@ -89,6 +88,9 @@ void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	LocalApicContext::_updateLocalTimer();
 }
 
+LocalApicContext::LocalApicContext()
+: _preemptionDeadline{0}, _globalDeadline{0} { }
+
 void LocalApicContext::setPreemption(uint64_t nanos) {
 	assert(apicTicksPerMilli > 0);
 	
@@ -97,7 +99,19 @@ void LocalApicContext::setPreemption(uint64_t nanos) {
 }
 
 void LocalApicContext::handleTimerIrq() {
-	globalApicContext()->_globalAlarmInstance.fireAlarm();
+//	frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
+//			<< frigg::endLog;
+	auto self = localApicContext();
+	if(self->_globalDeadline && systemClockSource()->currentNanos() > self->_globalDeadline) {
+		globalApicContext()->_globalAlarmInstance.fireAlarm();
+
+		// Update the global deadline to avoid calling fireAlarm() on the next IRQ.
+		{
+			auto irq_lock = frigg::guard(&irqMutex());
+			auto lock = frigg::guard(&globalApicContext()->_mutex);
+			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
+		}
+	}
 }
 
 void LocalApicContext::_updateLocalTimer() {
@@ -109,11 +123,19 @@ void LocalApicContext::_updateLocalTimer() {
 			deadline = dc;
 	};
 
-	consider(localApicContext()->_preemptionDeadline);
+	// Copy the global deadline so we can access it without locking.
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		auto lock = frigg::guard(&globalApicContext()->_mutex);
-		consider(globalApicContext()->_globalDeadline);
+		localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
+	}
+
+	consider(localApicContext()->_preemptionDeadline);
+	consider(localApicContext()->_globalDeadline);
+	
+	if(!deadline) {
+		picBase.store(lApicInitCount, 0);
+		return;
 	}
 
 	auto now = systemClockSource()->currentNanos();
@@ -121,9 +143,12 @@ void LocalApicContext::_updateLocalTimer() {
 	if(deadline < now) {
 		ticks = 1;
 	}else{
+//		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
+//				<< ((deadline - now)/1000) << " us in the future" << frigg::endLog;
 		auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
+		assert(ticks);
 	}
 	picBase.store(lApicInitCount, ticks);
 }
