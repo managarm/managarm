@@ -1220,6 +1220,8 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 	return kHelErrNone;
 }
 
+std::atomic<unsigned int> globalNextCpu = 0;
+
 HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		int abi, void *ip, void *sp, uint32_t flags, HelHandle *handle) {
 	(void)abi;
@@ -1270,9 +1272,11 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(flags & kHelThreadTrapsAreFatal)
 		new_thread->flags |= Thread::kFlagTrapsAreFatal;
 
-	// TODO: For now we create all threads on CPU #0. Rework that.
+	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
+	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
+	frigg::infoLogger() << "thor: New thread on CPU #" << cpu << frigg::endLog;
+	Scheduler::associate(new_thread.get(), &getCpuData(cpu)->scheduler);
 //	Scheduler::associate(new_thread.get(), localScheduler());
-	Scheduler::associate(new_thread.get(), &getCpuData(1)->scheduler);
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(new_thread);
 

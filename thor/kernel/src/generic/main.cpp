@@ -506,13 +506,13 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		assert(clocktracker_module && clocktracker_module->type == MfsType::regular);
 		assert(posix_module && posix_module->type == MfsType::regular);
 		executeModule(static_cast<MfsRegular *>(mbus_module),
-				mbus_stream.get<0>(), LaneHandle{}, &getCpuData(1)->scheduler);
-//				mbus_stream.get<0>(), LaneHandle{}, localScheduler());
+//				mbus_stream.get<0>(), LaneHandle{}, &getCpuData(1)->scheduler);
+				mbus_stream.get<0>(), LaneHandle{}, localScheduler());
 		executeModule(static_cast<MfsRegular *>(clocktracker_module),
 				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
 		executeModule(static_cast<MfsRegular *>(posix_module),
-				LaneHandle{}, mbus_stream.get<1>(), &getCpuData(1)->scheduler);
-//				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
+//				LaneHandle{}, mbus_stream.get<1>(), &getCpuData(1)->scheduler);
+				LaneHandle{}, mbus_stream.get<1>(), localScheduler());
 	});
 
 	frigg::infoLogger() << "thor: Entering initilization fiber." << frigg::endLog;
