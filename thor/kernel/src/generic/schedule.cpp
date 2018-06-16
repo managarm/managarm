@@ -70,28 +70,25 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	auto self = entity->_scheduler;
 	assert(self);
 	auto lock = frigg::guard(&self->_mutex);
+	assert(entity != self->_current);
 
 	self->_updateSystemProgress();
 
 	// Update the unfairness reference on resume.
 	if(self->_current)
 		self->_updateCurrentEntity();
-	if(entity != self->_current) {
-		entity->refProgress = self->_systemProgress;
-		entity->_refClock = self->_refClock;
-	}
+	entity->refProgress = self->_systemProgress;
+	entity->_refClock = self->_refClock;
 	entity->state = ScheduleState::active;
 	
-	if(entity != self->_current) {
-		self->_waitQueue.push(entity);
-		self->_numWaiting++;
+	self->_waitQueue.push(entity);
+	self->_numWaiting++;
+
+	if(self == &getCpuData()->scheduler) {
 		self->_updatePreemption();
 	}else{
-		assert(self == &getCpuData()->scheduler);
+		sendPingIpi(self->_cpuContext->localApicId);
 	}
-
-	if(self != &getCpuData()->scheduler)
-		sendPingIpi();
 }
 
 void Scheduler::suspendCurrent() {
@@ -135,11 +132,16 @@ void Scheduler::suspendWaiting(ScheduleEntity *entity) {
 
 	self->_waitQueue.remove(entity); // TODO: Pairing heap remove() is untested.
 	self->_numWaiting--;
-	self->_updatePreemption();
+
+	if(self == &getCpuData()->scheduler) {
+		self->_updatePreemption();
+	}else{
+		sendPingIpi(self->_cpuContext->localApicId);
+	}
 }
 
-Scheduler::Scheduler()
-: _scheduleFlag{false}, _current{nullptr},
+Scheduler::Scheduler(CpuData *cpu_context)
+: _cpuContext{cpu_context}, _scheduleFlag{false}, _current{nullptr},
 		_numWaiting{0}, _refClock{0}, _systemProgress{0} { }
 
 Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
@@ -168,6 +170,7 @@ bool Scheduler::wantSchedule() {
 
 	_updateSystemProgress();
 	_refreshFlag();
+	_updatePreemption();
 	return _scheduleFlag;
 }
 

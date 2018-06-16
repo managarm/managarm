@@ -560,6 +560,7 @@ void setupCpuContext(AssemblyCpuData *context) {
 
 void initializeBootCpuEarly() {
 	staticBootCpuContext.initialize();
+	staticBootCpuContext->localApicId = getLocalApicId();
 	setupCpuContext(staticBootCpuContext.get());
 }
 
@@ -728,6 +729,9 @@ void bootSecondary(unsigned int apic_id) {
 	// Allocate a stack for the initialization code.
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
+	
+	auto context = frigg::construct<CpuData>(*kernelAlloc);
+	context->localApicId = apic_id;
 
 	// Setup a status block to communicate information to the AP.
 	auto status_block = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
@@ -738,7 +742,7 @@ void bootSecondary(unsigned int apic_id) {
 	status_block->pml4 = KernelPageSpace::global().rootTable();
 	status_block->stack = (uintptr_t)stack_ptr + stack_size;
 	status_block->main = &secondaryMain;
-	status_block->cpuContext = frigg::construct<CpuData>(*kernelAlloc);
+	status_block->cpuContext = context;
 
 	// Send the IPI sequence that starts up the AP.
 	// On modern processors INIT lets the processor enter the wait-for-SIPI state.

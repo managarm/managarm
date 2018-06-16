@@ -685,7 +685,8 @@ void handlePreemption(IrqImageAccessor image) {
 		frigg::infoLogger() << "thor: Preemption IRQ" << frigg::endLog;
 
 	// TODO: Can this function actually be called from non-preemptible domains?
-	if(image.inPreemptibleDomain() && localScheduler()->wantSchedule()) {
+	assert(image.inPreemptibleDomain());
+	if(localScheduler()->wantSchedule()) {
 		if(image.inThreadDomain()) {
 			Thread::deferCurrent(image);
 		}else if(image.inFiberDomain()) {

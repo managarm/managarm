@@ -270,16 +270,26 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 void sendShootdownIpi() {
 	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
 	picBase.store(lApicIcrLow, apicIcrLowVector(0xF0) | apicIcrLowDelivMode(0)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
 	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 		// Wait for IPI delivery.
 	}
 }
 
-void sendPingIpi() {
-	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+void sendPingIpi(uint32_t apic) {
+//	frigg::infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frigg::endLog;
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
 	picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
-			| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
+}
+
+void sendGlobalNmi() {
+	picBase.store(lApicIcrHigh, apicIcrHighDestField(0));
+	picBase.store(lApicIcrLow, apicIcrLowVector(0) | apicIcrLowDelivMode(4)
+			| apicIcrLowLevel(true) | apicIcrLowShorthand(3));
 	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 		// Wait for IPI delivery.
 	}

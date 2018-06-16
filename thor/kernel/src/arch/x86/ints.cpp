@@ -317,8 +317,13 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	frigg::arch_x86::wrmsr(frigg::arch_x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
 
-	frigg::infoLogger() << "thor: NMI on CPU #" << getLocalApicId() << frigg::endLog;
-	frigg::infoLogger() << "thor: From CS: 0x" << frigg::logHex(*image.cs())
+	if(!getLocalApicId())
+		sendGlobalNmi();
+
+	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+			<< "]: NMI triggered" << frigg::endLog;
+	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+			<< "]: From CS: 0x" << frigg::logHex(*image.cs())
 			<< ", IP: " << (void *)*image.ip() << frigg::endLog;
 
 	// Restore the old value of GS.

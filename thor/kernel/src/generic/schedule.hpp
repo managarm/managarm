@@ -75,7 +75,7 @@ struct Scheduler {
 	static void suspendCurrent();
 	static void suspendWaiting(ScheduleEntity *entity);
 
-	Scheduler();
+	Scheduler(CpuData *cpu_context);
 
 	Scheduler(const Scheduler &) = delete;
 
@@ -102,7 +102,9 @@ private:
 	void _updateWaitingEntity(ScheduleEntity *entity);
 
 	void _updateEntityStats(ScheduleEntity *entity);
-	
+
+	CpuData *_cpuContext;
+
 	frigg::TicketLock _mutex;
 
 	// Updates the current value of _scheduleFlag.

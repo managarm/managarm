@@ -545,6 +545,8 @@ struct AssemblyCpuData {
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
 
+	int localApicId;
+
 	uint32_t gdt[14 * 2];
 	uint32_t idt[256 * 4];
 
