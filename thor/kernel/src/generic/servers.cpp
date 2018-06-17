@@ -20,12 +20,67 @@ extern MfsDirectory *mfsRoot;
 // TODO: move this declaration to a header file
 void runService(frigg::SharedPtr<Thread> thread);
 
+// ------------------------------------------------------------------------
+// File management.
+// ------------------------------------------------------------------------
+
+void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
+	const char *begin = path.data();
+	const char *end = path.data() + path.size();
+	auto it = begin;
+
+	// We have no VFS. Relative paths are absolute.
+	if(it != end && *it == '/')
+		++it;
+
+	// Parse each individual component.
+	MfsNode *node = mfsRoot;
+	while(it != end) {
+		auto slash = std::find(it, end, '/');
+		if(slash == end)
+			break;
+
+		auto component = path.subString(it - begin, slash - it);
+		if(component == "..") {
+			// We resolve double-dots unless they are at the beginning of the path.
+			assert(!"Fix double-dots");
+		}else if(component.size() && component != ".") {
+			// We discard multiple slashes and single-dots.
+			assert(node->type == MfsType::directory);
+			auto directory = static_cast<MfsDirectory *>(node);
+			auto target = directory->getTarget(component);
+			if(target) {
+				node = target;
+			}else{
+				node = frigg::construct<MfsDirectory>(*kernelAlloc);
+				directory->link(frigg::String<KernelAlloc>{*kernelAlloc, component}, node);
+			}
+		}
+
+		// Finally we need to skip the slash we found.
+		it = slash;
+		if(it != end)
+			++it;
+	}
+
+	// Now, insert the file into its parent directory.
+	auto directory = static_cast<MfsDirectory *>(node);
+
+	auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc,
+			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+	fiberCopyToBundle(memory.get(), 0, buffer, size);
+
+	auto name = path.subString(it - begin, end - it);
+	auto file = frigg::construct<MfsRegular>(*kernelAlloc, std::move(memory));
+	directory->link(frigg::String<KernelAlloc>{*kernelAlloc, name}, file);
+}
+
 MfsNode *resolveModule(frigg::StringView path) {
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
 	auto it = begin;
 
-	// We have no VFS. Ignore absolute paths.
+	// We have no VFS. Relative paths are absolute.
 	if(it != end && *it == '/')
 		++it;
 
@@ -38,13 +93,6 @@ MfsNode *resolveModule(frigg::StringView path) {
 		if(component == "..") {
 			// We resolve double-dots unless they are at the beginning of the path.
 			assert(!"Fix double-dots");
-/*
-			if(components.empty() || components.back() == "..") {
-				components.push_back("..");
-			}else{
-				components.pop_back();
-			}
-*/
 		}else if(component.size() && component != ".") {
 			// We discard multiple slashes and single-dots.
 			assert(node->type == MfsType::directory);
@@ -63,6 +111,10 @@ MfsNode *resolveModule(frigg::StringView path) {
 
 	return node;
 }
+
+// ------------------------------------------------------------------------
+// ELF parsing and execution.
+// ------------------------------------------------------------------------
 
 struct ImageInfo {
 	ImageInfo()
@@ -317,8 +369,17 @@ bool handleReq(LaneHandle lane) {
 	managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
 	req.ParseFromArray(buffer.data(), buffer.size());
 
-	if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
-//		frigg::infoLogger() << "thor: SVR_RUN request" << frigg::endLog;
+	if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
+		auto buffer = fiberRecv(branch);
+		createMfsFile(req.name(), buffer.data(), buffer.size());
+
+		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+		resp.set_error(managarm::svrctl::Error::SUCCESS);
+	
+		frigg::String<KernelAlloc> ser(*kernelAlloc);
+		resp.SerializeToString(&ser);
+		fiberSend(branch, ser.data(), ser.size());
+	}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
 		runServer(req.name());
 		
 		managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);

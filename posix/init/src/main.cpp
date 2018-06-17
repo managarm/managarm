@@ -8,6 +8,7 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <iostream>
 
@@ -69,23 +70,42 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-/*	
-	auto gfx_plainfb = fork();
-	if(!gfx_plainfb) {
-		execl("/usr/bin/gfx_plainfb", "gfx_plainfb", nullptr);
-	}else assert(gfx_plainfb != -1);
-*/
+
+	auto upload = [] (const char *name) {
+		auto svrctl = fork();
+		if(!svrctl) {
+			execl("/usr/bin/runsvr", "upload", name, nullptr);
+		}else assert(svrctl != -1);
+
+		// TODO: Ensure the status is termination.
+		waitpid(svrctl, nullptr, 0);
+	};
+
+	upload("/usr/bin/gfx_bochs");
+	upload("/usr/bin/gfx_plainfb");
+	upload("/usr/bin/gfx_virtio");
+	upload("/usr/bin/ps2-hid");
+	upload("/usr/bin/hid");
+	upload("/usr/lib/libevbackend.so");
+	upload("/usr/lib/libdrm_core.so");
 
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
-		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
+		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
 
 /*	
 	auto gfx_bochs = fork();
 	if(!gfx_bochs) {
-		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
+		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/gfx_bochs", nullptr);
 	}else assert(gfx_bochs != -1);
+*/
+
+/*
+	auto gfx_plainfb = fork();
+	if(!gfx_plainfb) {
+		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/gfx_plainfb", nullptr);
+	}else assert(gfx_plainfb != -1);
 */
 
 	while(access("/dev/dri/card0", F_OK)) {
@@ -113,12 +133,12 @@ int main() {
 
 	auto input_ps2 = fork();
 	if(!input_ps2) {
-		execl("/usr/bin/ps2-hid", "ps2-hid", nullptr);
+		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/ps2-hid", nullptr);
 	}else assert(input_ps2 != -1);
 
 	auto input_hid = fork();
 	if(!input_hid) {
-		execl("/usr/bin/hid", "hid", nullptr);
+		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/hid", nullptr);
 	}else assert(input_hid != -1);
 
 	sleep(3);

@@ -473,9 +473,15 @@ namespace initrd {
 //			frigg::infoLogger() << "initrd: '" <<  _req.path() << "' requested." << frigg::endLog;
 			// TODO: Actually handle the file-not-found case.
 			auto module = resolveModule(_req.path());
-			if(!module)
-				frigg::panicLogger() << "initrd: Module '" << _req.path()
-						<< "' not found" << frigg::endLog;
+			if(!module) {
+				posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				resp.SerializeToString(&_buffer);
+				serviceSend(_lane, _buffer.data(), _buffer.size(),
+						CALLBACK_MEMBER(this, &OpenClosure::onSendResp));
+				return;
+			}
 
 			if(module->type == MfsType::directory) {
 				auto stream = createStream();
