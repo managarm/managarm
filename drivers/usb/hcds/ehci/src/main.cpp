@@ -410,7 +410,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 				usbsts::transactionIrq(status & usbsts::transactionIrq)
 				| usbsts::errorIrq(status & usbsts::errorIrq)
 				| usbsts::portChange(status & usbsts::portChange));
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 		
 		if((status & usbsts::transactionIrq)
 				|| (status & usbsts::errorIrq)) {

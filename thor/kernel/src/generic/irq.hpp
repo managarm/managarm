@@ -94,6 +94,7 @@ private:
 	// The following fields are protected by pin->_mutex and _mutex.
 private:
 	uint64_t _currentSequence;
+	uint64_t _responseSequence;
 	IrqStatus _status;
 };
 
@@ -124,7 +125,7 @@ private:
 
 public:
 	static void attachSink(IrqPin *pin, IrqSink *sink);
-	static Error ackSink(IrqSink *sink);
+	static Error ackSink(IrqSink *sink, uint64_t sequence);
 	static Error nackSink(IrqSink *sink, uint64_t sequence);
 	static Error kickSink(IrqSink *sink);
 

@@ -24,7 +24,8 @@ void IrqSlot::link(IrqPin *pin) {
 // --------------------------------------------------------
 
 IrqSink::IrqSink(frigg::String<KernelAlloc> name)
-: _name{frigg::move(name)}, _pin{nullptr}, _currentSequence{0}, _status{IrqStatus::null} { }
+: _name{frigg::move(name)}, _pin{nullptr}, _currentSequence{0},
+		_responseSequence{0}, _status{IrqStatus::null} { }
 
 IrqPin *IrqSink::getPin() {
 	return _pin;
@@ -37,27 +38,48 @@ IrqPin *IrqSink::getPin() {
 void IrqPin::attachSink(IrqPin *pin, IrqSink *sink) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
-
 	assert(!sink->_pin);
+
+	// TODO: Decide what to do in this case.
+	if(pin->_inService)
+		frigg::infoLogger() << "thor: IRQ " << pin->name() << " is in service"
+				" while sink is attached" << frigg::endLog;
+
 	pin->_sinkList.push_back(sink);
 	sink->_pin = pin;
 }
 
-Error IrqPin::ackSink(IrqSink *sink) {
+Error IrqPin::ackSink(IrqSink *sink, uint64_t sequence) {
 	auto pin = sink->getPin();
 	assert(pin);
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
-	
-	if(sink->currentSequence() != pin->_sinkSequence)
-		return kErrSuccess;
+	assert(sink->currentSequence() == pin->_sinkSequence);
 
-	// TODO: We would like to prevent users from acking and nacking the same IRQ.
-	// Unfortunately, we cannot simply set _status as that is reset at every
-	// _sinkSequence but not at every _raiseSequence.
-	// TODO: Design a mechanism to detect multiple acks.
+	if(sequence <= sink->_responseSequence)
+		return kErrIllegalArgs;
+	if(sequence > sink->currentSequence())
+		return kErrIllegalArgs;
 
+	if(sequence == sink->currentSequence()) {
+		// Because _responseSequence is lagging behind, the IRQ status must be null here.
+		assert(sink->_status == IrqStatus::null);
+		sink->_status = IrqStatus::acked;
+	}
+	sink->_responseSequence = sequence;
+
+	// Note that we have to unblock the IRQ regardless of whether the ACK targets the
+	// currentSequence(). That avoids a race in the following scenario:
+	// Device A: Generates IRQ.
+	// Device B: Generates IRQ.
+	// IrqPin is raise()ed.
+	// Device A: Handles IRQ and ACKs.
+	// IrqPin is unmask()ed.
+	// IrqPin is raise()ed and mask()ed.
+	// Device B: Handles IRQ and ACKs.
+	// Now, the IrqPin is needs to be unmask()ed again, even though the ACK sequence
+	// does not necessarily match the currentSequence().
 	pin->_acknowledge();
 	return kErrSuccess;
 }
@@ -68,18 +90,20 @@ Error IrqPin::nackSink(IrqSink *sink, uint64_t sequence) {
 
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&pin->_mutex);
+	assert(sink->currentSequence() == pin->_sinkSequence);
 	
-	assert(sequence <= sink->currentSequence());
-	if(sequence != sink->currentSequence())
-		return kErrSuccess;
-	if(sink->currentSequence() != pin->_sinkSequence)
-		return kErrSuccess;
-
-	if(sink->_status != IrqStatus::null)
+	if(sequence <= sink->_responseSequence)
 		return kErrIllegalArgs;
-	sink->_status = IrqStatus::nacked;
-
-	pin->_nack();
+	if(sequence > sink->currentSequence())
+		return kErrIllegalArgs;
+		
+	if(sequence == sink->currentSequence()) {
+		// Because _responseSequence is lagging behind, the IRQ status must be null here.
+		assert(sink->_status == IrqStatus::null);
+		sink->_status = IrqStatus::nacked;
+		pin->_nack();
+	}
+	sink->_responseSequence = sequence;
 
 	return kErrSuccess;
 }
@@ -131,15 +155,15 @@ void IrqPin::raise() {
 				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
+	// If the IRQ is already masked, we're encountering a hardware race.
+	assert(!_maskState);
+
 	auto already_in_service = _inService;
 	_raiseSequence++;
 	_inService = true;
 	
 	if(already_in_service) {
-		// TODO: This is not an error, just a hardware race. Report it less obnoxiously.
-		// TODO: If the IRQ is edge-triggered we lose an edge here!
-		//frigg::infoLogger() << "\e[35mthor: Ignoring already active IRQ " << _name
-		//		<< "\e[39m" << frigg::endLog;
+		assert(_strategy == IrqStrategy::justEoi);
 		_maskState |= maskedForService;
 	}else{
 		_callSinks();
@@ -160,13 +184,6 @@ void IrqPin::raise() {
 }
 
 void IrqPin::_acknowledge() {
-	// Commit ef3927ac1f introduced a check against the input sequence number here.
-	// It is not clear what the purpose of this check is; certainly, it can lead to
-	// missing ACKs for shared IRQs.
-//	assert(sequence <= _currentSequence);
-//	if(sequence < _currentSequence || _wasAcked)
-//		return;
-
 	if(!_inService)
 		return;
 	_inService = false;
@@ -241,11 +258,15 @@ void IrqPin::_callSinks() {
 	for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
 		auto lock = frigg::guard(&(*it)->_mutex);
 		(*it)->_currentSequence = _sinkSequence;
-		(*it)->_status = (*it)->raise();
+		auto status = (*it)->raise();
 
-		if((*it)->_status == IrqStatus::acked) {
+		(*it)->_status = status;
+		if(status != IrqStatus::null)
+			(*it)->_responseSequence = _sinkSequence;
+
+		if(status == IrqStatus::acked) {
 			_inService = false;
-		}else if((*it)->_status == IrqStatus::nacked) {
+		}else if(status == IrqStatus::nacked) {
 			// We do not need to do anything here; we just do not increment _dueSinks.
 		}else{
 			_dueSinks++;

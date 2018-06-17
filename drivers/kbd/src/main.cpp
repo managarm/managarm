@@ -311,7 +311,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleKbdIrqs(), ([=] {
 		readDeviceData();
 		
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckAcknowledge, sequence));
 		//HEL_CHECK(helAcknowledgeIrq(kbdIrq.getHandle(), kHelAckNack, sequence));
 	}
 }))
@@ -330,7 +330,7 @@ COFIBER_ROUTINE(cofiber::no_future, handleMouseIrqs(), ([=] {
 		readDeviceData();
 		
 		// TODO: Only ack if the IRQ was from the PS/2 controller.
-		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(mouseIrq.getHandle(), kHelAckAcknowledge, sequence));
 	}
 }))
 

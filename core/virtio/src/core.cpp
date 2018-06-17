@@ -184,6 +184,8 @@ void LegacyPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
@@ -200,7 +202,7 @@ COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
 			continue;
 		}
 
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		if(isr & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
@@ -392,7 +394,9 @@ void StandardPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
-//	std::cout << "core-virtio: " << getpid() << " _processIrqs() " << std::endl;
+	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
+
+	//std::cout << "core-virtio " << getpid() << ": Starting IRQ loop" << std::endl;
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await;
@@ -401,8 +405,8 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
+//		std::cout << "core-virtio " << getpid() << ": Got IRQ #" << sequence << std::endl;
 
-//		std::cout << "core-virtio: " << getpid() << " Got IRQ #" << sequence << std::endl;
 		auto isr = _isrSpace().load(PCI_ISR);
 		if(!(isr & 3)) {
 //			std::cout << "core-virtio: " << getpid() << " But it's not for me" << std::endl;
@@ -411,7 +415,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 		}
 
 //		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		if(isr & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;

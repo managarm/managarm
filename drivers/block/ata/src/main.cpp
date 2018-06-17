@@ -131,7 +131,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 		
 		// Clear and acknowledge the IRQ.
 		auto cleared = _ioSpace.load(regs::inStatus);
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, 0));
+		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 		assert(!(cleared & (kStatusErr | kStatusDf)));
 		assert(cleared & kStatusRdy);
 		assert(cleared & kStatusDrq);

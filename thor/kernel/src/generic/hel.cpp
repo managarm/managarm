@@ -1890,14 +1890,8 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	auto this_universe = this_thread->getUniverse();
 	
 	auto mode = flags & (kHelAckAcknowledge | kHelAckNack | kHelAckKick);
-	if(mode == kHelAckAcknowledge || mode == kHelAckKick) {
-		if(sequence)
-			return kHelErrIllegalArgs;
-	}else if(mode == kHelAckNack) {
-		// Nothing to check here.
-	}else{
+	if(mode != kHelAckAcknowledge && mode != kHelAckNack && mode != kHelAckKick)
 		return kHelErrIllegalArgs;
-	}
 	
 	frigg::SharedPtr<IrqObject> irq;
 	{
@@ -1914,7 +1908,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 
 	Error error;
 	if(mode == kHelAckAcknowledge) {
-		error = IrqPin::ackSink(irq.get());
+		error = IrqPin::ackSink(irq.get(), sequence);
 	}else if(mode == kHelAckNack) {
 		error = IrqPin::nackSink(irq.get(), sequence);
 	}else{

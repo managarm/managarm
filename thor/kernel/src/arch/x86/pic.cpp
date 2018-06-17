@@ -274,6 +274,9 @@ void raiseInitAssertIpi(uint32_t dest_apic_id) {
 	// DM:init = 5, Level:assert = 1, TM:Level = 1
 	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
 			| apicIcrLowLevel(true) | apicIcrLowTriggerMode(true));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
 }
 
 void raiseInitDeassertIpi(uint32_t dest_apic_id) {
@@ -281,6 +284,9 @@ void raiseInitDeassertIpi(uint32_t dest_apic_id) {
 	// DM:init = 5, TM:Level = 1
 	picBase.store(lApicIcrLow, apicIcrLowDelivMode(5)
 			| apicIcrLowTriggerMode(true));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
 }
 
 void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
@@ -290,6 +296,9 @@ void raiseStartupIpi(uint32_t dest_apic_id, uint32_t page) {
 	// DM:startup = 6
 	picBase.store(lApicIcrLow, apicIcrLowVector(vector)
 			| apicIcrLowDelivMode(6));
+	while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+		// Wait for IPI delivery.
+	}
 }
 
 void sendShootdownIpi() {
