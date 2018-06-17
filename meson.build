@@ -35,6 +35,7 @@ subdir('drivers/usb/hcds/ehci/')
 subdir('drivers/usb/devices/hid/')
 subdir('drivers/usb/devices/storage/')
 subdir('drivers/virtio/')
+subdir('utils/runsvr/')
 
 subdir('drivers/clocktracker')
 

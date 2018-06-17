@@ -621,7 +621,12 @@ namespace initrd {
 		void onObserve(Error error, uint64_t sequence, Interrupt interrupt) {
 			assert(error == kErrSuccess);
 			
-			if(interrupt == kIntrSuperCall + 1) {
+			if(interrupt == kIntrPanic) {
+				// Do nothing and stop observing.
+				// TODO: Make sure the server is destructed here.
+				frigg::infoLogger() << "thor: Panic in server" << frigg::endLog;
+				return;
+			}else if(interrupt == kIntrSuperCall + 1) {
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = (Word)_process->clientFileTable;
 				Thread::resumeOther(_thread);

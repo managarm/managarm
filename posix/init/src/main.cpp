@@ -20,27 +20,27 @@ int main() {
 	// Start essential bus and storage drivers.
 	auto uhci = fork();
 	if(!uhci) {
-		execl("/sbin/uhci", "uhci", nullptr);
+		execl("/bin/runsvr", "runsvr", "/sbin/uhci", nullptr);
 	}else assert(uhci != -1);
 
 	auto ehci = fork();
 	if(!ehci) {
-		execl("/sbin/ehci", "ehci", nullptr);
+		execl("/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
 	}else assert(ehci != -1);
 
 	auto virtio = fork();
 	if(!virtio) {
-		execl("/sbin/virtio-block", "virtio-block", nullptr);
+		execl("/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
 
 	auto block_ata = fork();
 	if(!block_ata) {
-		execl("/sbin/block-ata", "block-ata", nullptr);
+		execl("/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
 	}else assert(block_ata != -1);
 
 	auto block_usb = fork();
 	if(!block_usb) {
-		execl("/sbin/storage", "block-usb", nullptr);
+		execl("/bin/runsvr", "runsvr", "/sbin/storage", nullptr);
 	}else assert(block_usb != -1);
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.

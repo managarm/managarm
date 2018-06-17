@@ -1,6 +1,16 @@
+#ifndef THOR_GENERIC_DESCRIPTOR_HPP
+#define THOR_GENERIC_DESCRIPTOR_HPP
+
+#include <frigg/smart_ptr.hpp>
+#include <frigg/variant.hpp>
 
 namespace thor {
 
+struct AddressSpace;
+struct IoSpace;
+struct Memory;
+struct Thread;
+struct Universe;
 struct UserQueue;
 struct VirtualView;
 
@@ -157,3 +167,4 @@ typedef frigg::Variant<
 
 } // namespace thor
 
+#endif // THOR_GENERIC_DESCRIPTOR_HPP

@@ -1,5 +1,10 @@
+#ifndef THOR_GENERIC_MODULE_HPP
+#define THOR_GENERIC_MODULE_HPP
 
-// TODO: add a proper include guard and sort this into the other kernel headers
+#include <frigg/string.hpp>
+#include <frigg/vector.hpp>
+#include "kernel_heap.hpp"
+#include "usermem.hpp"
 
 namespace thor {
 
@@ -68,3 +73,4 @@ MfsNode *resolveModule(frigg::StringView path);
 
 } // namespace thor
 
+#endif // THOR_GENERIC_MODULE_HPP
