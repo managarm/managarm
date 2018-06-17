@@ -42,6 +42,11 @@ struct ElementStruct {
 };
 
 struct QueueSource {
+	void setup(void *pointer_, size_t size_) {
+		pointer = pointer_;
+		size = size_;
+	}
+
 	void *pointer;
 	size_t size;
 	const QueueSource *link;

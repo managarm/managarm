@@ -40,7 +40,8 @@ struct StreamPacket {
 	StreamPacket()
 	: _incompleteCount{0} { }
 
-	void setup(Worklet *transmitted) {
+	void setup(unsigned int count, Worklet *transmitted) {
+		_incompleteCount.store(count, std::memory_order_relaxed);
 		_transmitted = transmitted;
 	}
 
@@ -50,27 +51,23 @@ private:
 	std::atomic<unsigned int> _incompleteCount;
 };
 
+enum {
+	kTagNull,
+	kTagOffer,
+	kTagAccept,
+	kTagImbueCredentials,
+	kTagExtractCredentials,
+	kTagSendFromBuffer,
+	kTagRecvInline,
+	kTagRecvToBuffer,
+	kTagPushDescriptor,
+	kTagPullDescriptor
+};
+
 struct StreamNode {
 	friend struct Stream;
 
-	enum {
-		kTagNull,
-		kTagOffer,
-		kTagAccept,
-		kTagImbueCredentials,
-		kTagExtractCredentials,
-		kTagSendFromBuffer,
-		kTagRecvInline,
-		kTagRecvToBuffer,
-		kTagPushDescriptor,
-		kTagPullDescriptor
-	};
-
-	explicit StreamNode(int tag, StreamPacket *packet)
-	: _tag(tag), _packet{packet} {
-		auto n = _packet->_incompleteCount.load(std::memory_order_relaxed);
-		_packet->_incompleteCount.store(n + 1, std::memory_order_relaxed);
-	}
+	StreamNode() = default;
 
 	StreamNode(const StreamNode &) = delete;
 
@@ -78,6 +75,11 @@ struct StreamNode {
 
 	int tag() const {
 		return _tag;
+	}
+
+	void setup(int tag, StreamPacket *packet) {
+		_tag = tag;
+		_packet = packet;
 	}
 
 	frg::default_list_hook<StreamNode> processQueueItem;
@@ -111,6 +113,10 @@ public:
 public:
 	Error error() {
 		return _error;
+	}
+	
+	frigg::Array<char, 16> credentials() {
+		return _transmitCredentials;
 	}
 
 	size_t actualLength() {
@@ -152,10 +158,10 @@ struct OfferBase : StreamPacket, StreamNode {
 		packet->callback(packet->error());
 	}
 
-	explicit OfferBase()
-	: StreamNode(kTagOffer, this) {
+	explicit OfferBase() {
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagOffer, this);
 	}
 
 	virtual void callback(Error error) = 0;
@@ -177,10 +183,10 @@ struct AcceptBase : StreamPacket, StreamNode {
 	}
 
 	explicit AcceptBase(frigg::WeakPtr<Universe> universe)
-	: StreamNode(kTagAccept, this),
-			_universe(frigg::move(universe)) {
+	: _universe(frigg::move(universe)) {
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagAccept, this);
 	}
 
 	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,
@@ -208,11 +214,11 @@ struct ImbueCredentialsBase : StreamPacket, StreamNode {
 		packet->callback(packet->error());
 	}
 
-	explicit ImbueCredentialsBase(const char * credentials_)
-	: StreamNode(kTagImbueCredentials, this) {
+	explicit ImbueCredentialsBase(const char * credentials_) {
 		memcpy(_inCredentials.data(), credentials_, 16);
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagImbueCredentials, this);
 	}
 
 	virtual void callback(Error error) = 0;
@@ -233,10 +239,10 @@ struct ExtractCredentialsBase : StreamPacket, StreamNode {
 		packet->callback(packet->error(), packet->transmitCredentials());
 	}
 
-	explicit ExtractCredentialsBase()
-	: StreamNode(kTagExtractCredentials, this) {
+	explicit ExtractCredentialsBase() {
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagExtractCredentials, this);
 	}
 
 	virtual void callback(Error error, frigg::Array<char, 16> credentials) = 0;
@@ -258,11 +264,11 @@ struct SendFromBufferBase : StreamPacket, StreamNode {
 		packet->callback(packet->error());
 	}
 
-	explicit SendFromBufferBase(frigg::UniqueMemory<KernelAlloc> buffer)
-	: StreamNode(kTagSendFromBuffer, this) {
+	explicit SendFromBufferBase(frigg::UniqueMemory<KernelAlloc> buffer) {
 		_inBuffer = frigg::move(buffer);
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagSendFromBuffer, this);
 	}
 
 	virtual void callback(Error error) = 0;
@@ -283,10 +289,10 @@ struct RecvInlineBase : StreamPacket, StreamNode {
 		packet->callback(packet->error(), packet->transmitBuffer());
 	}
 
-	explicit RecvInlineBase()
-	: StreamNode(kTagRecvInline, this) {
+	explicit RecvInlineBase() {
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagRecvInline, this);
 	}
 
 	virtual void callback(Error error, frigg::UniqueMemory<KernelAlloc> buffer) = 0;
@@ -311,11 +317,11 @@ struct RecvToBufferBase : StreamPacket, StreamNode {
 		packet->callback(packet->error(), packet->actualLength());
 	}
 
-	explicit RecvToBufferBase(AnyBufferAccessor accessor)
-	: StreamNode(kTagRecvToBuffer, this) {
+	explicit RecvToBufferBase(AnyBufferAccessor accessor) {
 		_inAccessor = frigg::move(accessor);
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagRecvToBuffer, this);
 	}
 
 	virtual void callback(Error error, size_t length) = 0;
@@ -336,11 +342,11 @@ struct PushDescriptorBase : StreamPacket, StreamNode {
 		packet->callback(packet->error());
 	}
 
-	explicit PushDescriptorBase(AnyDescriptor lane)
-	: StreamNode(kTagPushDescriptor, this) {
+	explicit PushDescriptorBase(AnyDescriptor lane) {
 		_inDescriptor = frigg::move(lane);
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagPushDescriptor, this);
 	}
 
 	virtual void callback(Error error) = 0;
@@ -362,10 +368,10 @@ struct PullDescriptorBase : StreamPacket, StreamNode {
 	}
 
 	explicit PullDescriptorBase(frigg::WeakPtr<Universe> universe)
-	: StreamNode(kTagPullDescriptor, this),
-			_universe(frigg::move(universe)) {
+	: _universe(frigg::move(universe)) {
 		worklet.setup(&transmitted, WorkQueue::localQueue());
-		setup(&worklet);
+		StreamPacket::setup(1, &worklet);
+		StreamNode::setup(kTagPullDescriptor, this);
 	}
 
 	virtual void callback(Error error, frigg::WeakPtr<Universe> universe,

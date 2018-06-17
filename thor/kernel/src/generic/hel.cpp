@@ -110,202 +110,6 @@ private:
 	HelSimpleResult _result;
 };
 
-struct OfferWriter {
-	OfferWriter(Error error)
-	: _source{&_result, sizeof(HelSimpleResult), nullptr},
-			_result{translateError(error), 0} { }
-
-	OfferWriter(const OfferWriter &) = delete;
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelSimpleResult _result;
-};
-
-struct AcceptWriter {
-	AcceptWriter(Error error, frigg::WeakPtr<Universe> weak_universe, LaneDescriptor lane)
-	: _source{&_result, sizeof(HelHandleResult), nullptr},
-			_result{translateError(error), 0, kHelNullHandle} {
-		// TODO: This condition should be replaced. Just test if lane is valid.
-		if(!error && weak_universe) {
-			auto universe = weak_universe.grab();
-			assert(universe);
-
-			auto irq_lock = frigg::guard(&irqMutex());
-			Universe::Guard lock(&universe->lock);
-
-			_result.handle = universe->attachDescriptor(lock, frigg::move(lane));
-		}
-	}
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelHandleResult _result;
-};
-
-struct ImbueCredentialsWriter {
-	ImbueCredentialsWriter(Error error)
-	: _source{&_result, sizeof(HelSimpleResult), nullptr},
-			_result{translateError(error), 0} { }
-
-	ImbueCredentialsWriter(const ImbueCredentialsWriter &) = delete;
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelSimpleResult _result;
-};
-
-struct ExtractCredentialsWriter {
-	ExtractCredentialsWriter(Error error, frigg::Array<char, 16> credentials)
-	: _source{&_result, sizeof(HelCredentialsResult), nullptr},
-			_result{translateError(error), 0} {
-		memcpy(_result.credentials, credentials.data(), 16);
-	}
-
-	ExtractCredentialsWriter(const ExtractCredentialsWriter &) = delete;
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelCredentialsResult _result;
-};
-
-struct SendStringWriter {
-	SendStringWriter(Error error)
-	: _source{&_result, sizeof(HelSimpleResult), nullptr},
-			_result{translateError(error), 0} { }
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelSimpleResult _result;
-};
-
-struct RecvInlineWriter {
-	RecvInlineWriter(Error error, frigg::UniqueMemory<KernelAlloc> buffer)
-	: _resultChunk{&_result, sizeof(HelInlineResultNoFlex), &_bufferChunk},
-			_bufferChunk{buffer.data(), buffer.size(), nullptr},
-			_result{translateError(error), 0, buffer.size()},
-			_buffer(frigg::move(buffer)) { }
-
-	QueueSource *source() {
-		return &_resultChunk;
-	}
-
-	void link(QueueSource *next) {
-		_bufferChunk.link = next;
-	}
-
-private:
-	QueueSource _resultChunk;
-	QueueSource _bufferChunk;
-	HelInlineResultNoFlex _result;
-	frigg::UniqueMemory<KernelAlloc> _buffer;
-};
-
-struct RecvStringWriter {
-	RecvStringWriter(Error error, size_t length)
-	: _source{&_result, sizeof(HelLengthResult), nullptr},
-			_result{translateError(error), 0, length} { }
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelLengthResult _result;
-};
-
-struct PushDescriptorWriter {
-	PushDescriptorWriter(Error error)
-	: _source{&_result, sizeof(HelSimpleResult), nullptr},
-			_result{translateError(error), 0} { }
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelSimpleResult _result;
-};
-
-struct PullDescriptorWriter {
-	PullDescriptorWriter(Error error, frigg::WeakPtr<Universe> weak_universe,
-			AnyDescriptor descriptor)
-	: _source{&_result, sizeof(HelHandleResult), nullptr},
-			_result{translateError(error), 0, kHelNullHandle} {
-		if(!error && weak_universe) {
-			auto universe = weak_universe.grab();
-			assert(universe);
-
-			auto irq_lock = frigg::guard(&irqMutex());
-			Universe::Guard lock(&universe->lock);
-
-			_result.handle = universe->attachDescriptor(lock, frigg::move(descriptor));
-		}
-	}
-
-	QueueSource *source() {
-		return &_source;
-	}
-
-	void link(QueueSource *next) {
-		_source.link = next;
-	}
-
-private:
-	QueueSource _source;
-	HelHandleResult _result;
-};
-
 struct ObserveThreadWriter {
 	ObserveThreadWriter(Error error, uint64_t sequence, Interrupt interrupt)
 	: source{&_result, sizeof(HelObserveResult), nullptr},
@@ -334,89 +138,6 @@ struct ObserveThreadWriter {
 
 private:
 	HelObserveResult _result;
-};
-
-using ItemWriter = frigg::Variant<
-	OfferWriter,
-	AcceptWriter,
-	ImbueCredentialsWriter,
-	ExtractCredentialsWriter,
-	SendStringWriter,
-	RecvInlineWriter,
-	RecvStringWriter,
-	PushDescriptorWriter,
-	PullDescriptorWriter
->;
-
-struct MsgHandler : QueueNode {
-	template<typename W>
-	friend struct SetResult;
-
-public:
-	MsgHandler(size_t num_items, frigg::SharedPtr<UserQueue> queue,
-			uintptr_t context)
-	: _numItems(num_items), _results(frigg::constructN<ItemWriter>(*kernelAlloc, num_items)),
-			_numComplete(0), _queue(frigg::move(queue)) {
-		_thread = getCurrentThread();
-		setup(_thread->associatedWorkQueue());
-		setupContext(context);
-	}
-
-	~MsgHandler() {
-		frigg::destructN(*kernelAlloc, _results, _numItems);
-	}
-
-private:
-	void submit() {
-		auto source = [this] (int index) {
-			return _results[index].apply([&] (auto &item) {
-				return item.source();
-			});
-		};
-		
-		auto link = [this] (int index, QueueSource *next) {
-			return _results[index].apply([&] (auto &item) {
-				return item.link(next);
-			});
-		};
-		
-		for(size_t i = 1; i < _numItems; ++i)
-			link(i - 1, source(i));
-		
-		assert(_numItems);
-		setupSource(source(0));
-		_queue->submit(this);
-	}
-	
-	void complete() override {
-		frigg::destruct(*kernelAlloc, this);
-	}
-
-	frigg::UnsafePtr<Thread> _thread;
-
-	size_t _numItems;
-	ItemWriter *_results;
-	std::atomic<unsigned int> _numComplete;
-
-	frigg::SharedPtr<UserQueue> _queue;
-};
-
-template<typename W>
-struct SetResult {
-	SetResult(MsgHandler *handler, size_t index)
-	: _handler(handler), _index(index) { }
-
-	template<typename... Args>
-	void operator() (Args &&... args) {
-		_handler->_results[_index].emplace<W>(frigg::forward<Args>(args)...);
-		auto c = _handler->_numComplete.fetch_add(1, std::memory_order_acq_rel);
-		if(c + 1 == _handler->_numItems)
-			_handler->submit();
-	}
-
-private:
-	MsgHandler *_handler;
-	size_t _index;
 };
 
 HelError helLog(const char *string, size_t length) {
@@ -1667,8 +1388,139 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	auto handler = frigg::construct<MsgHandler>(*kernelAlloc, count,
-			frigg::move(queue), context);
+	struct Item {
+		StreamNode transmit;
+		frigg::UniqueMemory<KernelAlloc> buffer;
+		QueueSource mainSource;
+		QueueSource dataSource;
+		union {
+			HelSimpleResult helSimpleResult;
+			HelHandleResult helHandleResult;
+			HelCredentialsResult helCredentialsResult;
+			HelInlineResultNoFlex helInlineResult;
+			HelLengthResult helLengthResult;
+		};
+	};
+
+	struct Closure : QueueNode {
+		void complete() override {
+			// TODO: Turn items into a unique_ptr.
+			frigg::destructN(*kernelAlloc, items, count);
+			frigg::destruct(*kernelAlloc, this);
+		}
+		
+		size_t count;
+		frigg::WeakPtr<Universe> weakUniverse;
+		frigg::SharedPtr<UserQueue> ipcQueue;
+
+		Worklet worklet;
+		StreamPacket packet;
+		Item *items;
+	} *closure = frigg::construct<Closure>(*kernelAlloc);
+
+	struct Ops {
+		static void transmitted(Worklet *worklet) {
+			auto closure = frg::container_of(worklet, &Closure::worklet);
+
+			QueueSource *tail = nullptr;
+			auto link = [&] (QueueSource *source) {
+				if(tail)
+					tail->link = source;
+				tail = source;
+			};
+
+			for(size_t i = 0; i < closure->count; i++) {
+				auto item = &closure->items[i];
+				if(item->transmit.tag() == kTagOffer) {
+					item->helSimpleResult = {translateError(item->transmit.error()), 0};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagAccept) {
+					// TODO: This condition should be replaced. Just test if lane is valid.
+					HelHandle handle = kHelNullHandle;
+					if(!item->transmit.error()) {
+						auto universe = closure->weakUniverse.grab();
+						assert(universe);
+
+						auto irq_lock = frigg::guard(&irqMutex());
+						Universe::Guard lock(&universe->lock);
+
+						handle = universe->attachDescriptor(lock,
+								LaneDescriptor{item->transmit.lane()});
+					}
+					
+					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
+					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagImbueCredentials) {
+					item->helSimpleResult = {translateError(item->transmit.error()), 0};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagExtractCredentials) {
+					item->helCredentialsResult = {translateError(item->transmit.error()), 0};
+					memcpy(item->helCredentialsResult.credentials,
+							item->transmit.credentials().data(), 16);
+					item->mainSource.setup(&item->helCredentialsResult,
+							sizeof(HelCredentialsResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagSendFromBuffer) {
+					item->helSimpleResult = {translateError(item->transmit.error()), 0};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagRecvInline) {
+					item->buffer = item->transmit.transmitBuffer();
+
+					item->helInlineResult = {translateError(item->transmit.error()),
+							0, item->buffer.size()};
+					item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
+					item->dataSource.setup(item->buffer.data(), item->buffer.size());
+					link(&item->mainSource);
+					link(&item->dataSource);
+				}else if(item->transmit.tag() == kTagRecvToBuffer) {
+					item->helLengthResult = {translateError(item->transmit.error()),
+							0, item->transmit.actualLength()};
+					item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagPushDescriptor) {
+					item->helSimpleResult = {translateError(item->transmit.error()), 0};
+					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+					link(&item->mainSource);
+				}else if(item->transmit.tag() == kTagPullDescriptor) {
+					// TODO: This condition should be replaced. Just test if lane is valid.
+					HelHandle handle = kHelNullHandle;
+					if(!item->transmit.error()) {
+						auto universe = closure->weakUniverse.grab();
+						assert(universe);
+
+						auto irq_lock = frigg::guard(&irqMutex());
+						Universe::Guard lock(&universe->lock);
+
+						handle = universe->attachDescriptor(lock, item->transmit.descriptor());
+					}
+					
+					item->helHandleResult = {translateError(item->transmit.error()), 0, handle};
+					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+					link(&item->mainSource);
+				}else{
+					frigg::panicLogger() << "thor: Unexpected transmission tag" << frigg::endLog;
+				}
+			}
+
+			assert(closure->count);
+			closure->setupSource(&closure->items[0].mainSource);
+			closure->ipcQueue->submit(closure);
+		}
+	};
+	
+	closure->count = count;
+	closure->weakUniverse = this_universe.toWeak();
+	closure->ipcQueue = frigg::move(queue);
+	
+	closure->worklet.setup(&Ops::transmitted, WorkQueue::localQueue());
+	closure->packet.setup(count, &closure->worklet);
+	closure->setup(WorkQueue::localQueue());
+	closure->setupContext(context);
+	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
 
 	frigg::Vector<LaneHandle, KernelAlloc> stack(*kernelAlloc);
 	stack.push(frigg::move(lane));
@@ -1684,43 +1536,43 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 		switch(action.type) {
 		case kHelActionOffer: {
-			using Token = SetResult<OfferWriter>;
-			LaneHandle branch = target.getStream()->submitOffer(target.getLane(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagOffer, &closure->packet);
+			LaneHandle branch = target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(branch);
 		} break;
 		case kHelActionAccept: {
-			using Token = SetResult<AcceptWriter>;
-			LaneHandle branch = target.getStream()->submitAccept(target.getLane(),
-					this_universe.toWeak(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagAccept, &closure->packet);
+			LaneHandle branch = target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 
 			if(action.flags & kHelItemAncillary)
 				stack.push(branch);
 		} break;
 		case kHelActionImbueCredentials: {
-			using Token = SetResult<ImbueCredentialsWriter>;
-			target.getStream()->submitImbueCredentials(target.getLane(),
-					this_thread->credentials(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagImbueCredentials, &closure->packet);
+			memcpy(closure->items[i - 1].transmit._inCredentials.data(),
+					this_thread->credentials(), 16);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionExtractCredentials: {
-			using Token = SetResult<ExtractCredentialsWriter>;
-			target.getStream()->submitExtractCredentials(target.getLane(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagExtractCredentials, &closure->packet);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionSendFromBuffer: {
-			using Token = SetResult<SendStringWriter>;
 			frigg::UniqueMemory<KernelAlloc> buffer(*kernelAlloc, action.length);
 			readUserMemory(buffer.data(), action.buffer, action.length);
-			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
-					Token(handler, i - 1));
+
+			closure->items[i - 1].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i - 1].transmit._inBuffer = frigg::move(buffer);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionSendFromBufferSg: {
-			using Token = SetResult<SendStringWriter>;
-			
 			size_t length = 0;
 			auto sglist = reinterpret_cast<HelSgItem *>(action.buffer);
 			for(size_t j = 0; j < action.length; j++) {
@@ -1737,17 +1589,18 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				offset += item.length;
 			}
 
-			target.getStream()->submitSendBuffer(target.getLane(), frigg::move(buffer),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagSendFromBuffer, &closure->packet);
+			closure->items[i - 1].transmit._inBuffer = frigg::move(buffer);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionRecvInline: {
-			using Token = SetResult<RecvInlineWriter>;
 			auto space = this_thread->getAddressSpace().toShared();
-			target.getStream()->submitRecvInline(target.getLane(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagRecvInline, &closure->packet);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionRecvToBuffer: {
-			using Token = SetResult<RecvStringWriter>;
 			auto space = this_thread->getAddressSpace().toShared();
 			AcquireNode node;
 			auto accessor = ForeignSpaceAccessor{frigg::move(space),
@@ -1755,8 +1608,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			node.setup(nullptr);
 			auto acq = accessor.acquire(&node);
 			assert(acq);
-			target.getStream()->submitRecvBuffer(target.getLane(), frigg::move(accessor),
-					Token(handler, i - 1));
+
+			closure->items[i - 1].transmit.setup(kTagRecvToBuffer, &closure->packet);
+			closure->items[i - 1].transmit._inAccessor = frigg::move(accessor);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionPushDescriptor: {
 			AnyDescriptor operand;
@@ -1770,14 +1626,15 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				operand = *wrapper;
 			}
 
-			using Token = SetResult<PushDescriptorWriter>;
-			target.getStream()->submitPushDescriptor(target.getLane(), frigg::move(operand),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagPushDescriptor, &closure->packet);
+			closure->items[i - 1].transmit._inDescriptor = frigg::move(operand);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		case kHelActionPullDescriptor: {
-			using Token = SetResult<PullDescriptorWriter>;
-			target.getStream()->submitPullDescriptor(target.getLane(), this_universe.toWeak(),
-					Token(handler, i - 1));
+			closure->items[i - 1].transmit.setup(kTagPullDescriptor, &closure->packet);
+			target.getStream()->transmit(target.getLane(),
+					&closure->items[i - 1].transmit);
 		} break;
 		default:
 			assert(!"Fix error handling here");
