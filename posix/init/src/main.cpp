@@ -69,8 +69,7 @@ int main() {
 		throw std::runtime_error("chroot() failed");
 
 	std::cout << "init: On /realfs" << std::endl;
-
-/*
+/*	
 	auto gfx_plainfb = fork();
 	if(!gfx_plainfb) {
 		execl("/usr/bin/gfx_plainfb", "gfx_plainfb", nullptr);
@@ -82,7 +81,7 @@ int main() {
 		execl("/usr/bin/gfx_virtio", "gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
 
-/*
+/*	
 	auto gfx_bochs = fork();
 	if(!gfx_bochs) {
 		execl("/usr/bin/gfx_bochs", "gfx_bochs", nullptr);
