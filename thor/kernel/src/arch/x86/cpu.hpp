@@ -360,6 +360,8 @@ struct AbiParameters {
 };
 
 struct UserContext {
+	static void deactivate();
+
 	UserContext();
 
 	UserContext(const UserContext &other) = delete;

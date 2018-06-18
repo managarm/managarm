@@ -139,7 +139,11 @@ public:
 	void cleanup() override;
 
 	[[ noreturn ]] void invoke() override;
-	
+
+private:
+	void _uninvoke();
+
+public:
 	void doSubmitObserve(uint64_t in_seq, ObserveBase *observe);
 
 	// TODO: Tidy this up.

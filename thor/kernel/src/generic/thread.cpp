@@ -40,6 +40,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 		assert(this_thread->_runState == kRunActive);
 		this_thread->_runState = kRunBlocked;
 		Scheduler::suspendCurrent();
+		this_thread->_uninvoke();
 
 		forkExecutor([&] {
 			runDetached([] (frigg::LockGuard<Mutex> lock) {
@@ -54,12 +55,14 @@ void Thread::deferCurrent() {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frigg::guard(&this_thread->_mutex);
-
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunDeferred;
+	
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
+
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunDeferred;
+	this_thread->_uninvoke();
 
 	// TODO: We had forkExecutor() here. Did that serve any purpose?
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
@@ -72,13 +75,15 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frigg::guard(&this_thread->_mutex);
-
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_runState = kRunDeferred;
+	
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is deferred" << frigg::endLog;
+
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunDeferred;
 	saveExecutor(&this_thread->_executor, image);
+	this_thread->_uninvoke();
 
 	runDetached([] (frigg::LockGuard<Mutex> lock) {
 		lock.unlock();
@@ -103,6 +108,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 	Scheduler::suspendCurrent();
+	this_thread->_uninvoke();
 
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
 		ObserveQueue queue;
@@ -138,6 +144,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 	Scheduler::suspendCurrent();
+	this_thread->_uninvoke();
 
 	runDetached([] (Interrupt interrupt, Thread *thread, frigg::LockGuard<Mutex> lock) {
 		ObserveQueue queue;
@@ -177,6 +184,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		++this_thread->_stateSeq;
 		saveExecutor(&this_thread->_executor, image);
 		Scheduler::suspendCurrent();
+		this_thread->_uninvoke();
 
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
 			ObserveQueue queue;
@@ -207,6 +215,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_pendingSignal = kSigNone;
 		saveExecutor(&this_thread->_executor, image);
 		Scheduler::suspendCurrent();
+		this_thread->_uninvoke();
 
 		runDetached([] (Thread *thread, frigg::LockGuard<Mutex> lock) {
 			ObserveQueue queue;
@@ -403,6 +412,10 @@ void Thread::invoke() {
 	getCpuData()->executorContext = &_executorContext;
 	switchExecutor(self);
 	restoreExecutor(&_executor);
+}
+
+void Thread::_uninvoke() {
+	UserContext::deactivate();
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {

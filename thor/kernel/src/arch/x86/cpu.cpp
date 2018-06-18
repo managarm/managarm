@@ -237,7 +237,7 @@ namespace {
 	void activateTss(frigg::arch_x86::Tss64 *tss) {
 		frigg::arch_x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
 				tss, sizeof(frigg::arch_x86::Tss64));
-		asm volatile ("ltr %w0" : : "r"(kSelTask));
+		asm volatile ("ltr %w0" : : "r"(kSelTask) : "memory");
 	}
 }
 
@@ -441,6 +441,10 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 // --------------------------------------------------------
 // UserContext
 // --------------------------------------------------------
+
+void UserContext::deactivate() {
+	activateTss(&getCpuData()->tss);
+}
 
 UserContext::UserContext()
 : kernelStack{UniqueKernelStack::make()} {
