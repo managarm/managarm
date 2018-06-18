@@ -27,7 +27,7 @@ extern "C" void enterUserMode(void *stack_ptr, void *ip) __attribute__ (( noretu
 
 struct IrqMutex {
 private:
-	unsigned int enableBit = 0x8000'0000;
+	static constexpr unsigned int enableBit = 0x8000'0000;
 
 public:
 	IrqMutex()
