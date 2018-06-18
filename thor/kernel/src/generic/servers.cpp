@@ -15,6 +15,8 @@ namespace thor {
 
 frigg::LazyInitializer<LaneHandle> mbusClient;
 
+frigg::TicketLock globalMfsMutex;
+
 extern MfsDirectory *mfsRoot;
 
 // TODO: move this declaration to a header file
@@ -25,6 +27,9 @@ void runService(frigg::SharedPtr<Thread> thread);
 // ------------------------------------------------------------------------
 
 void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&globalMfsMutex);
+
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
 	auto it = begin;
@@ -76,6 +81,9 @@ void createMfsFile(frigg::StringView path, const void *buffer, size_t size) {
 }
 
 MfsNode *resolveModule(frigg::StringView path) {
+	auto irq_lock = frigg::guard(&irqMutex());
+	auto lock = frigg::guard(&globalMfsMutex);
+
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
 	auto it = begin;
