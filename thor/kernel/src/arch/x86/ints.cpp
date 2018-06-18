@@ -54,6 +54,7 @@ extern "C" void nmiStub();
 namespace thor {
 
 static constexpr bool logEveryFault = false;
+static constexpr bool logEveryPreemption = false;
 
 uint32_t earlyGdt[3 * 2];
 uint32_t earlyIdt[256 * 4];
@@ -189,7 +190,6 @@ void handleDebugFault(FaultImageAccessor image) {
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	uint16_t cs = *image.cs();
-
 	if(logEveryFault)
 		frigg::infoLogger() << "Fault #" << number << ", from cs: 0x" << frigg::logHex(cs)
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
@@ -249,8 +249,13 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 		frigg::panicLogger() << "Preemption IRQ"
 				" in stub section, cs: 0x" << frigg::logHex(*image.cs())
 				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
-
+	
 	uint16_t cs = *image.cs();
+	if(logEveryPreemption)
+		frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+				<< "]: Preemption from cs: 0x" << frigg::logHex(cs)
+				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
 	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
 			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode);
 
@@ -258,6 +263,8 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	disableUserAccess();
 
 	LocalApicContext::handleTimerIrq();
+
+	getCpuData()->heartbeat.fetch_add(1, std::memory_order_relaxed);
 
 	acknowledgeIrq(0);
 
@@ -318,10 +325,13 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
 
 	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
-			<< "]: NMI triggered" << frigg::endLog;
+			<< "]: NMI triggered at heartbeat "
+			<< getCpuData()->heartbeat.load(std::memory_order_relaxed) << frigg::endLog;
 	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
 			<< "]: From CS: 0x" << frigg::logHex(*image.cs())
 			<< ", IP: " << (void *)*image.ip() << frigg::endLog;
+	frigg::infoLogger() << "thor [CPU " << getLocalApicId()
+			<< "]: RFLAGS is " << (void *)*image.rflags() << frigg::endLog;
 
 	if(!getLocalApicId())
 		sendGlobalNmi();

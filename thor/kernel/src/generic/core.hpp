@@ -73,6 +73,7 @@ struct CpuData : public PlatformCpuData {
 
 	ExecutorContext *executorContext;
 	KernelFiber *activeFiber;
+	std::atomic<uint64_t> heartbeat;
 };
 
 inline ExecutorContext *localExecutorContext() {

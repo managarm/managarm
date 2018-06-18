@@ -135,7 +135,7 @@ IrqMutex &irqMutex() {
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()
-: scheduler{this}, activeFiber{nullptr} { }
+: scheduler{this}, activeFiber{nullptr}, heartbeat{0} { }
 
 // --------------------------------------------------------
 // Threading related functions

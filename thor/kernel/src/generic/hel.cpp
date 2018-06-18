@@ -995,7 +995,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
-	frigg::infoLogger() << "thor: New thread on CPU #" << cpu << frigg::endLog;
+//	frigg::infoLogger() << "thor: New thread on CPU #" << cpu << frigg::endLog;
 	Scheduler::associate(new_thread.get(), &getCpuData(cpu)->scheduler);
 //	Scheduler::associate(new_thread.get(), localScheduler());
 	if(!(flags & kHelThreadStopped))
