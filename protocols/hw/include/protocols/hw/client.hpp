@@ -47,6 +47,7 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessIrq();
 
 	async::result<void> claimDevice();
+	async::result<void> enableBusIrq();
 
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
 	async::result<void> storePciSpace(size_t offset, unsigned int size, uint32_t word);

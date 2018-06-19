@@ -405,8 +405,9 @@ std::shared_ptr<StandardHub> create(Device device) {
 // Controller.
 // ----------------------------------------------------------------------------
 
-Controller::Controller(arch::io_space base, helix::UniqueIrq irq)
-: _base(base), _irq(frigg::move(irq)), _lastFrame(0), _frameCounter(0),
+Controller::Controller(protocols::hw::Device hw_device, arch::io_space base, helix::UniqueIrq irq)
+: _hwDevice{std::move(hw_device)},  _base{base}, _irq{frigg::move(irq)},
+		_lastFrame{0}, _frameCounter{0},
 		_enumerator{this}, _periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
@@ -453,6 +454,8 @@ void Controller::initialize() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
+	COFIBER_AWAIT _hwDevice.enableBusIrq();
+
 	uint64_t sequence = 0;
 	while(true) {
 		helix::AwaitEvent await_irq;
@@ -1039,7 +1042,7 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 	
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
-	auto controller = std::make_shared<Controller>(base, std::move(irq));
+	auto controller = std::make_shared<Controller>(std::move(device), base, std::move(irq));
 	controller->initialize();
 
 	globalControllers.push_back(std::move(controller));

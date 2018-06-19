@@ -4,6 +4,7 @@
 #include <arch/io_space.hpp>
 #include <async/doorbell.hpp>
 #include <async/mutex.hpp>
+#include <protocols/hw/client.hpp>
 
 struct DeviceState;
 struct ConfigurationState;
@@ -67,7 +68,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 		Controller *_controller;
 	};
 
-	Controller(arch::io_space base, helix::UniqueIrq irq);
+	Controller(protocols::hw::Device hw_device, arch::io_space base, helix::UniqueIrq irq);
 
 	void initialize();
 	cofiber::no_future _handleIrqs();
@@ -76,6 +77,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 	async::result<void> enumerateDevice() override;
 
 private:
+	protocols::hw::Device _hwDevice;
 	arch::io_space _base;
 	helix::UniqueIrq _irq;
 

@@ -146,6 +146,31 @@ COFIBER_ROUTINE(async::result<void>, Device::claimDevice(),
 	COFIBER_RETURN();
 }))
 
+COFIBER_ROUTINE(async::result<void>, Device::enableBusIrq(),
+		([=] {
+	helix::Offer offer;
+	helix::SendBuffer send_req;
+	helix::RecvInline recv_resp;
+
+	managarm::hw::CntRequest req;
+	req.set_req_type(managarm::hw::CntReqType::BUSIRQ_ENABLE);
+
+	auto ser = req.SerializeAsString();
+	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
+			helix::action(&offer, kHelItemAncillary),
+			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&recv_resp));
+	COFIBER_AWAIT transmit.async_wait();
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::hw::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	COFIBER_RETURN();
+}))
 
 COFIBER_ROUTINE(async::result<uint32_t>, Device::loadPciSpace(size_t offset,
 		unsigned int size), ([=] {

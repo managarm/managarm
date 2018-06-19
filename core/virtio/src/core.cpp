@@ -184,6 +184,9 @@ void LegacyPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, LegacyPciTransport::_processIrqs(), ([=] {
+	COFIBER_AWAIT _hwDevice.enableBusIrq();
+
+	// TODO: The kick here should not be required.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
 
 	uint64_t sequence = 0;
@@ -394,6 +397,9 @@ void StandardPciTransport::runDevice() {
 }
 
 COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
+	COFIBER_AWAIT _hwDevice.enableBusIrq();
+
+	// TODO: The kick here should not be required.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
 
 	//std::cout << "core-virtio " << getpid() << ": Starting IRQ loop" << std::endl;

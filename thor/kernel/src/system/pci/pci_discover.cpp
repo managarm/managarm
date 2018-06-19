@@ -102,15 +102,26 @@ namespace {
 			fiberSend(branch, ser.data(), ser.size());
 			fiberPushDescriptor(branch, IrqDescriptor{object});
 		}else if(req.req_type() == managarm::hw::CntReqType::CLAIM_DEVICE) {
-			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::hw::Errors::SUCCESS);
-
 			if(device->associatedScreen) {
 				frigg::infoLogger() << "thor: Disabling screen associated with PCI device "
 						<< device->bus << "." << device->slot << "." << device->function
 						<< frigg::endLog;
 				disableLogHandler(device->associatedScreen);
 			}
+			
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			frigg::String<KernelAlloc> ser(*kernelAlloc);
+			resp.SerializeToString(&ser);
+			fiberSend(branch, ser.data(), ser.size());
+		}else if(req.req_type() == managarm::hw::CntReqType::BUSIRQ_ENABLE) {
+			auto command = readPciHalf(device->bus, device->slot, device->function, kPciCommand);
+			writePciHalf(device->bus, device->slot, device->function,
+					kPciCommand, command & ~uint16_t{0x400});
+
+			managarm::hw::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			frigg::String<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -377,6 +388,7 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 	if(command & 0x400)
 		frigg::infoLogger() << " (IRQs masked)";
 	frigg::infoLogger() << frigg::endLog;
+	writePciHalf(bus, slot, function, kPciCommand, command | 0x400);
 
 	auto device_id = readPciHalf(bus, slot, function, kPciDevice);
 	auto revision = readPciByte(bus, slot, function, kPciRevision);

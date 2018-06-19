@@ -378,6 +378,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+	COFIBER_AWAIT _hwDevice.enableBusIrq();
+
+	// TODO: We should not need this kick anymore.
 	HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckKick, 0));
 
 	uint64_t sequence = 0;
