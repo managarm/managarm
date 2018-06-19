@@ -34,10 +34,12 @@ int main() {
 		execl("/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
 
+/*
 	auto block_ata = fork();
 	if(!block_ata) {
 		execl("/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
 	}else assert(block_ata != -1);
+*/
 
 	auto block_usb = fork();
 	if(!block_usb) {
@@ -89,10 +91,12 @@ int main() {
 	upload("/usr/lib/libevbackend.so");
 	upload("/usr/lib/libdrm_core.so");
 
+/*
 	auto gfx_virtio = fork();
 	if(!gfx_virtio) {
 		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/gfx_virtio", nullptr);
 	}else assert(gfx_virtio != -1);
+*/
 
 /*	
 	auto gfx_bochs = fork();
@@ -101,12 +105,10 @@ int main() {
 	}else assert(gfx_bochs != -1);
 */
 
-/*
 	auto gfx_plainfb = fork();
 	if(!gfx_plainfb) {
 		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/gfx_plainfb", nullptr);
 	}else assert(gfx_plainfb != -1);
-*/
 
 	while(access("/dev/dri/card0", F_OK)) {
 		assert(errno == ENOENT);

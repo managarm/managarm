@@ -148,7 +148,8 @@ void LocalApicContext::_updateLocalTimer() {
 		auto of = __builtin_mul_overflow(deadline - now, apicTicksPerMilli, &ticks);
 		assert(!of);
 		ticks /= 1'000'000;
-		assert(ticks);
+		if(!ticks)
+			ticks = 1;
 	}
 	picBase.store(lApicInitCount, ticks);
 }
