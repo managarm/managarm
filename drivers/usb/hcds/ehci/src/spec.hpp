@@ -84,9 +84,9 @@ namespace qh_flags {
 	arch::field<uint32_t, bool> inactivate(7, 1);
 	arch::field<uint32_t, uint8_t> endpointNumber(8, 4);
 	arch::field<uint32_t, uint8_t> endpointSpeed(12, 2);
-	arch::field<uint32_t, bool> loadDataToggle(14, 1);
+	arch::field<uint32_t, bool> manualDataToggle(14, 1);
 	arch::field<uint32_t, bool> reclaimHead(15, 1);
-	arch::field<uint32_t, uint8_t> maxPacketLength(16, 10);
+	arch::field<uint32_t, unsigned int> maxPacketLength(16, 11);
 	arch::field<uint32_t, bool> controlEndpointFlag(27, 1);
 	arch::field<uint32_t, uint8_t> nakReload(28, 4);
 }
