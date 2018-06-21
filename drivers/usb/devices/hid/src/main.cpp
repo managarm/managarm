@@ -557,6 +557,10 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
 		auto length = COFIBER_AWAIT endp.transfer(transfer);
+
+		// Some devices (e.g. bochs) send empty packets instead of NAKs.
+		if(!length)
+			continue;
 		
 		if(logRawPackets) {
 			std::cout << "usb-hid: Report size: " << length
@@ -643,7 +647,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 
 	auto handler = mbus::ObserverHandler{}
 	.withAttach([] (mbus::Entity entity, mbus::Properties) {
-		std::cout << "uhci: Detected hid-device" << std::endl;
+		std::cout << "usb-hid: Detected USB device" << std::endl;
 		bindDevice(std::move(entity));
 	});
 
@@ -655,7 +659,7 @@ COFIBER_ROUTINE(cofiber::no_future, observeDevices(), ([] {
 // --------------------------------------------------------
 
 int main() {
-	printf("Starting hid (usb-)driver\n");
+	printf("usb-hid: Starting driver\n");
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 

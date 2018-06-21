@@ -40,14 +40,20 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 				throw std::runtime_error("Illegal endpoint!\n");
 			}
 		}else{
-			printf("Unexpected descriptor type: %d!\n", type);
+			printf("block-usb: Unexpected descriptor type: %d!\n", type);
 		}
 	});
+
+	if(logSteps)
+		std::cout << "block-usb: Setting up configuration" << std::endl;
 	
 	auto config = COFIBER_AWAIT _usbDevice.useConfiguration(config_num);
 	auto intf = COFIBER_AWAIT config.useInterface(intf_num, 0);
 	auto endp_in = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 	auto endp_out = COFIBER_AWAIT(intf.getEndpoint(PipeType::out, out_endp_number.value()));
+
+	if(logSteps)
+		std::cout << "block-usb: Device is ready" << std::endl;
 
 	while(true) {
 		if(!_queue.empty()) {
@@ -150,6 +156,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	std::experimental::optional<int> intf_class;
 	std::experimental::optional<int> intf_subclass;
 	std::experimental::optional<int> intf_protocol;
+	
+	std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
@@ -162,6 +170,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 						<< info.interfaceNumber.value() << std::endl;
 				return;
 			}
+			std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
+					<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
 			intf_number = info.interfaceNumber.value();
 			
 			assert(!intf_class);

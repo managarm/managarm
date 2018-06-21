@@ -26,6 +26,7 @@
 #include "ehci.hpp"
 
 static const bool logIrqs = false;
+static const bool logPackets = false;
 static const bool logSubmits = false;
 static const bool debugLinking = false;
 
@@ -408,7 +409,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 		}
 
 		if(status & usbsts::errorIrq)
-			printf("ehci: Error interrupt\n");
+			printf("\e[31mehci: Error interrupt\e[39m\n");
 		_operational.store(op_regs::usbsts,
 				usbsts::transactionIrq(status & usbsts::transactionIrq)
 				| usbsts::errorIrq(status & usbsts::errorIrq)
@@ -498,12 +499,16 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		
 		int pipe = info.endpointNumber.value();
 		if(info.endpointIn.value()) {
+			std::cout << "ehci: Setting up IN pipe " << pipe
+					<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
 			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].inStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
 							address, pipe, PipeType::in, desc->maxPacketSize};
 			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
 		}else{
+			std::cout << "ehci: Setting up OUT pipe " << pipe
+					<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
 			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].outStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
@@ -528,7 +533,7 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 	head->flags.store(qh_flags::deviceAddr(address)
 			| qh_flags::endpointNumber(pipe)
 			| qh_flags::endpointSpeed(0x02)
-			| qh_flags::loadDataToggle(type == PipeType::control)
+			| qh_flags::manualDataToggle(type == PipeType::control)
 			| qh_flags::maxPacketLength(packet_size));
 	head->mask.store(qh_mask::interruptScheduleMask(0x00)
 			| qh_mask::multiplier(0x01));
@@ -679,6 +684,9 @@ auto Controller::_buildInterruptOrBulk(XferFlags dir,
 		projected += td_size(projected);
 		num_data++;
 	}
+
+	if(logPackets)
+		std::cout << "ehci: Building transfer using " << num_data << " TDs" << std::endl;
 
 	// Finally construct each qTD.
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
