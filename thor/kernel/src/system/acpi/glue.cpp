@@ -12,6 +12,10 @@ extern "C" {
 #include <acpi.h>
 }
 
+namespace {
+	constexpr bool logEverySci = false;
+}
+
 #define NOT_IMPLEMENTED() do { assert(!"Fix this"); /* frigg::panicLogger() << "ACPI interface function " << __func__ << " is not implemented!" << frigg::endLog;*/ } while(0)
 
 using namespace thor;
@@ -166,12 +170,14 @@ namespace {
 						<< " " << set << frigg::endLog;
 			};
 
-			frigg::infoLogger() << "thor: Handling ACPI interrupt." << frigg::endLog;
-			report(ACPI_EVENT_PMTIMER, "ACPI timer");
-			report(ACPI_EVENT_GLOBAL, "Global lock");
-			report(ACPI_EVENT_POWER_BUTTON, "Power button");
-			report(ACPI_EVENT_SLEEP_BUTTON, "Sleep button");
-			report(ACPI_EVENT_RTC, "RTC");
+			if(logEverySci) {
+				frigg::infoLogger() << "thor: Handling ACPI interrupt." << frigg::endLog;
+				report(ACPI_EVENT_PMTIMER, "ACPI timer");
+				report(ACPI_EVENT_GLOBAL, "Global lock");
+				report(ACPI_EVENT_POWER_BUTTON, "Power button");
+				report(ACPI_EVENT_SLEEP_BUTTON, "Sleep button");
+				report(ACPI_EVENT_RTC, "RTC");
+			}
 
 			auto result = _handler(_context);
 			if(result == ACPI_INTERRUPT_HANDLED) {

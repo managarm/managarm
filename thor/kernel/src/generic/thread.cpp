@@ -96,8 +96,6 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	StatelessIrqLock irq_lock;
 	auto lock = frigg::guard(&this_thread->_mutex);
 
-	frigg::infoLogger() << "interrupt " << (void *)this_thread.get()
-			<< ", reason: " << (uint64_t)interrupt << frigg::endLog;
 	if(logRunStates)
 		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 				<< " is (synchronously) interrupted" << frigg::endLog;
@@ -176,7 +174,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	assert(this_thread->_runState == kRunActive);
 	
 	if(this_thread->_pendingKill) {
-	//	if(logRunStates)
+		if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) killed" << frigg::endLog;
 
@@ -205,7 +203,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 	}
 	
 	if(this_thread->_pendingSignal == kSigInterrupt) {
-	//	if(logRunStates)
+		if(logRunStates)
 			frigg::infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) interrupted" << frigg::endLog;
 
@@ -315,7 +313,7 @@ Thread::~Thread() {
 
 // This function has to initiate the thread's shutdown.
 void Thread::destruct() {
-	frigg::infoLogger() << "\e[31mthor: Shutting down thread\e[39m" << frigg::endLog;
+//	frigg::infoLogger() << "\e[31mthor: Shutting down thread\e[39m" << frigg::endLog;
 	ObserveQueue queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
