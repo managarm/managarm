@@ -70,11 +70,15 @@ PageBinding::PageBinding(int pcid)
 void PageBinding::makePrimary() {
 	assert(!intsAreEnabled());
 	assert(getCpuData()->havePcids || !_pcid);
-
 	auto context = &getCpuData()->pageContext;
+
 	// If we are the primary binding, we might be able to avoid changing CR3.
-	if(_wasRebound || context->_primaryBinding != this)
-		asm volatile ("mov %0, %%cr3" : : "r"(_boundSpace->rootTable() | _pcid) : "memory");
+	if(_wasRebound || context->_primaryBinding != this) {
+		auto cr3 = _boundSpace->rootTable() | _pcid;
+		if(getCpuData()->havePcids)
+			cr3 |= PhysicalAddr(1) << 63;
+		asm volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+	}
 
 	_wasRebound = false;
 	_primaryStamp = context->_nextStamp++;
