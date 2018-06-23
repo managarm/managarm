@@ -179,18 +179,22 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
 
-				space->map(space_guard, frigg::move(view), base + virt_address, 0, virt_length,
+				auto error = space->map(space_guard, frigg::move(view),
+						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtWrite,
 						&actual_address);
+				assert(!error);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				AddressSpace::Guard space_guard(&space->lock);
 
-				space->map(space_guard, frigg::move(view), base + virt_address, 0, virt_length,
+				auto error = space->map(space_guard, frigg::move(view),
+						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute,
 						&actual_address);
+				assert(!error);
 			}else{
 				frigg::panicLogger() << "Illegal combination of segment permissions"
 						<< frigg::endLog;

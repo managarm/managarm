@@ -196,12 +196,12 @@ COFIBER_ROUTINE(cofiber::no_future, FileSystem::manageInode(std::shared_ptr<Inod
 				&manage, helix::Dispatcher::global());
 		COFIBER_AWAIT(submit.async_wait());
 		HEL_CHECK(manage.error());
+		assert(manage.offset() + manage.length() <= ((inode->fileSize + 0xFFF) & ~size_t(0xFFF)));
 		
 		void *window;
 		HEL_CHECK(helMapMemory(inode->backingMemory, kHelNullHandle, nullptr,
 				manage.offset(), manage.length(), kHelMapProtRead | kHelMapProtWrite, &window));
 
-		assert(manage.offset() < inode->fileSize);
 		size_t read_size = std::min(manage.length(), inode->fileSize - manage.offset());
 		size_t num_blocks = read_size / inode->fs.blockSize;
 		if(read_size % inode->fs.blockSize != 0)

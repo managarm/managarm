@@ -461,22 +461,30 @@ ManagedSpace::~ManagedSpace() {
 // TODO: Split this into a function to match initiate <-> handle requests
 // + a different function to complete initiate requests.
 void ManagedSpace::progressLoads() {
-	// TODO: this function could issue loads > a single kPageSize
+	// TODO: Ensure that offset and length are actually in range.
 	while(!initiateLoadQueue.empty()) {
 		auto initiate = initiateLoadQueue.front();
 
-		size_t index = (initiate->offset + initiate->progress) / kPageSize;
+		size_t index = (initiate->offset + initiate->progress) >> kPageShift;
 		if(loadState[index] == kStateMissing) {
 			if(submittedManageQueue.empty())
 				break;
 
-			loadState[index] = kStateLoading;
+			// Fuse the request using adjacent missing pages.
+			size_t count = 0;
+			while(initiate->progress + (count << kPageShift) < initiate->length
+					&& loadState[index] == kStateMissing) {
+				loadState[index] = kStateLoading;
+				index++;
+				count++;
+			}
 
 			auto handle = submittedManageQueue.pop_front();
-			handle->setup(kErrSuccess, initiate->offset + initiate->progress, kPageSize);
+			handle->setup(kErrSuccess, initiate->offset + initiate->progress,
+					count << kPageShift);
 			completedManageQueue.push_back(handle);
 
-			initiate->progress += kPageSize;
+			initiate->progress += count << kPageShift;
 		}else if(loadState[index] == kStateLoading) {
 			initiate->progress += kPageSize;
 		}else{
@@ -484,6 +492,7 @@ void ManagedSpace::progressLoads() {
 			initiate->progress += kPageSize;
 		}
 
+		assert(initiate->progress <= initiate->length);
 		if(initiate->progress == initiate->length) {
 			if(isComplete(initiate)) {
 				initiateLoadQueue.pop_front();
@@ -522,12 +531,11 @@ PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 }
 
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	assert(!(offset % kPageSize));
-
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 	
-	auto index = offset / kPageSize;
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->physicalPages.size());
 	if(_managed->physicalPages[index] == PhysicalAddr(-1)) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
@@ -538,7 +546,7 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		_managed->physicalPages[index] = physical;
 	}
 
-	completeFetch(node, _managed->physicalPages[index], kPageSize);
+	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign);
 	return true;
 }
 
@@ -751,6 +759,10 @@ ExteriorBundleView::ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
 	assert(!(_viewSize & (kPageSize - 1)));
 }
 
+size_t ExteriorBundleView::length() {
+	return _viewSize;
+}
+
 frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 ExteriorBundleView::resolveRange(ptrdiff_t offset, size_t size) {
 	assert(offset + size <= _viewSize);
@@ -819,7 +831,9 @@ Mapping::Mapping(AddressSpace *owner, VirtualAddr base_address, size_t length,
 
 NormalMapping::NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 		MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset)
-: Mapping{owner, address, length, flags}, _view{frigg::move(view)}, _offset{offset} { }
+: Mapping{owner, address, length, flags}, _view{frigg::move(view)}, _offset{offset} {
+	assert(_offset + NormalMapping::length() <= _view->length());
+}
 
 frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 NormalMapping::resolveRange(ptrdiff_t offset, size_t size) {
@@ -1028,12 +1042,15 @@ void AddressSpace::setupDefaultMappings() {
 	_holes.insert(hole);
 }
 
-void AddressSpace::map(Guard &guard,
+Error AddressSpace::map(Guard &guard,
 		frigg::UnsafePtr<VirtualView> view, VirtualAddr address,
 		size_t offset, size_t length, uint32_t flags, VirtualAddr *actual_address) {
 	assert(guard.protects(&lock));
 	assert(length);
 	assert(!(length % kPageSize));
+
+	if(offset + length > view->length())
+		return kErrBufferTooSmall;
 
 	VirtualAddr target;
 	if(flags & kMapFixed) {
@@ -1093,6 +1110,7 @@ void AddressSpace::map(Guard &guard,
 	mapping->install(false);
 
 	*actual_address = target;
+	return kErrSuccess;
 }
 
 void AddressSpace::unmap(Guard &guard, VirtualAddr address, size_t length,

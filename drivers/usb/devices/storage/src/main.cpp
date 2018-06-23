@@ -18,6 +18,7 @@
 #include "storage.hpp"
 
 namespace {
+	constexpr bool logRequests = false;
 	constexpr bool logSteps = false;
 
 	// I own a USB key that does not support the READ6 command. ~AvdG
@@ -58,8 +59,11 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 	while(true) {
 		if(!_queue.empty()) {
 			auto req = &_queue.front();
+			
+			if(logRequests)
+				std::cout << "block-usb: Reading " << req->numSectors << " sectors" << std::endl;
 			assert(req->numSectors);
-			assert(req->numSectors <= 255);
+			assert(req->numSectors <= 0xFFFF);
 
 			CommandBlockWrapper cbw;
 			memset(&cbw, 0, sizeof(CommandBlockWrapper));
@@ -69,7 +73,7 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 			cbw.flags = 0x80; // Direction: Device-to-host.
 			cbw.lun = 0;
 
-			if(enableRead6 && req->sector <= 0x1FFFFF) {
+			if(enableRead6 && req->sector <= 0x1FFFFF && req->numSectors <= 0xFF) {
 				scsi::Read6 command;
 				memset(&command, 0, sizeof(scsi::Read6));
 				command.opCode = 0x08;

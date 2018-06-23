@@ -155,6 +155,8 @@ public:
 };
 
 struct VirtualView {
+	virtual size_t length() = 0;
+
 	virtual frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 	resolveRange(ptrdiff_t offset, size_t size) = 0;
 };
@@ -345,6 +347,8 @@ private:
 struct ExteriorBundleView : VirtualView {
 	ExteriorBundleView(frigg::SharedPtr<MemoryBundle> bundle,
 			ptrdiff_t view_offset, size_t view_size);
+
+	size_t length() override;
 
 	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
 	resolveRange(ptrdiff_t offset, size_t size) override;
@@ -609,7 +613,7 @@ public:
 
 	void setupDefaultMappings();
 
-	void map(Guard &guard, frigg::UnsafePtr<VirtualView> view,
+	Error map(Guard &guard, frigg::UnsafePtr<VirtualView> view,
 			VirtualAddr address, size_t offset, size_t length,
 			uint32_t flags, VirtualAddr *actual_address);
 	

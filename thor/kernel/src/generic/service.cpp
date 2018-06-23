@@ -422,9 +422,11 @@ namespace initrd {
 			auto irq_lock = frigg::guard(&irqMutex());
 			AddressSpace::Guard space_guard(&_thread->getAddressSpace()->lock);
 
-			_thread->getAddressSpace()->map(space_guard, frigg::move(view), 0, 0, 0x1000,
+			auto error = _thread->getAddressSpace()->map(space_guard, frigg::move(view),
+					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
+			assert(!error);
 		}
 
 		int attachFile(OpenFile *file) {

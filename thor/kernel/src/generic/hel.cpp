@@ -591,19 +591,24 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
-	
+
+	Error error;
 	VirtualAddr actual_address;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		AddressSpace::Guard space_guard(&space->lock);
 
-		space->map(space_guard, view, (VirtualAddr)pointer, offset, length,
+		error = space->map(space_guard, view, (VirtualAddr)pointer, offset, length,
 				map_flags, &actual_address);
 	}
 
-	*actual_pointer = (void *)actual_address;
-
-	return kHelErrNone;
+	if(error == kErrBufferTooSmall) {
+		return kHelErrBufferTooSmall;
+	}else{
+		assert(!error);
+		*actual_pointer = (void *)actual_address;
+		return kHelErrNone;
+	}
 }
 
 HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
