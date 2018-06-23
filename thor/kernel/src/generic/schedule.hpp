@@ -63,9 +63,6 @@ struct ScheduleGreater {
 };
 
 struct Scheduler {
-	// Minimum length of a preemption time slice in ns.
-	static constexpr int64_t sliceGranularity = 1'000'000;
-
 	static void associate(ScheduleEntity *entity, Scheduler *scheduler);
 	static void unassociate(ScheduleEntity *entity);
 

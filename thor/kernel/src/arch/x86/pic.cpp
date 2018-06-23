@@ -263,7 +263,7 @@ void calibrateApicTimer() {
 //	globalClockSource = hpetClockSource;
 	globalTimerEngine = frigg::construct<PrecisionTimerEngine>(*kernelAlloc,
 			globalClockSource, globalApicContext()->globalAlarm());
-//			globalTscInstance, hpetAlarmTracker);
+//			globalClockSource, hpetAlarmTracker);
 }
 
 void acknowledgeIpi() {

@@ -3,10 +3,15 @@
 
 namespace thor {
 
-constexpr bool logScheduling = false;
-constexpr bool logNextBest = false;
-constexpr bool logUpdates = false;
-constexpr bool logTimeSlice = false;
+namespace {
+	constexpr bool logScheduling = false;
+	constexpr bool logNextBest = false;
+	constexpr bool logUpdates = false;
+	constexpr bool logTimeSlice = false;
+
+	// Minimum length of a preemption time slice in ns.
+	static constexpr int64_t sliceGranularity = 10'000'000;
+}
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
 	return b->priority - a->priority; // Prefer larger priority.
