@@ -31,7 +31,7 @@ namespace td_token {
 	static constexpr arch::field<uint32_t, Packet> pid(0, 8);
 	static constexpr arch::field<uint32_t, uint8_t> address(8, 7);
 	static constexpr arch::field<uint32_t, uint8_t> pipe(15, 4);
-	static constexpr arch::field<uint32_t, unsigned int> toggle(19, 1);
+	static constexpr arch::field<uint32_t, bool> toggle(19, 1);
 	static constexpr arch::field<uint32_t, size_t> length(21, 11);
 }
 
@@ -84,13 +84,15 @@ struct alignas(16) TransferDescriptor {
 	typedef Pointer LinkPointer;
 
 	void dumpStatus() {
-		if(status.load() & td_status::active) printf(" active");
-		if(status.load() & td_status::stalled) printf(" stalled");
-		if(status.load() & td_status::bitstuffError) printf(" bitstuff-error");
-		if(status.load() & td_status::timeoutError) printf(" time-out");
-		if(status.load() & td_status::nakError) printf(" nak");
-		if(status.load() & td_status::babbleError) printf(" babble-detected");
-		if(status.load() & td_status::bufferError) printf(" data-buffer-error");
+		auto s = status.load();
+		if(s & td_status::active) std::cout << " active";
+		if(s & td_status::stalled) std::cout << " stalled";
+		if(s & td_status::bitstuffError) std::cout << " bitstuff-error";
+		if(s & td_status::timeoutError) std::cout << " time-out";
+		if(s & td_status::nakError) std::cout << " nak";
+		if(s & td_status::babbleError) std::cout << " babble-detected";
+		if(s & td_status::bufferError) std::cout << " data-buffer-error";
+		if(!(s & td_status::errorBits)) std::cout << " no-error";
 	}
 
 	LinkPointer _linkPointer;

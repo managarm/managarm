@@ -33,7 +33,7 @@ struct PortState {
 struct Hub {
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
-	virtual async::result<void> issueReset(int port) = 0;
+	virtual async::result<bool> issueReset(int port) = 0;
 };
 
 struct Enumerator {
@@ -44,6 +44,7 @@ struct Enumerator {
 
 private:
 	cofiber::no_future _observePort(std::shared_ptr<Hub> hub, int port);
+	async::result<void> _observationCycle(Hub *hub, int port);
 
 	BaseController *_controller;
 	async::mutex _enumerateMutex;
@@ -62,7 +63,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
-		async::result<void> issueReset(int port) override;
+		async::result<bool> issueReset(int port) override;
 
 	private:
 		Controller *_controller;
@@ -109,10 +110,11 @@ private:
 	struct Transaction : ScheduleItem {
 		explicit Transaction(arch::dma_array<TransferDescriptor> transfers,
 				bool allow_short_packets = false)
-		: transfers{std::move(transfers)}, numComplete{0},
+		: transfers{std::move(transfers)}, autoToggle{false}, numComplete{0},
 				allowShortPackets{allow_short_packets} { }
 		
 		arch::dma_array<TransferDescriptor> transfers;
+		bool autoToggle;
 		size_t numComplete;
 		bool allowShortPackets;
 		async::promise<size_t> promise;
@@ -121,12 +123,13 @@ private:
 
 	struct QueueEntity : ScheduleItem {
 		QueueEntity(arch::dma_object<QueueHead> the_head)
-		: head{std::move(the_head)} {
+		: head{std::move(the_head)}, toggleState{false} {
 			head->_linkPointer = QueueHead::LinkPointer();
 			head->_elementPointer = QueueHead::ElementPointer();
 		}
 
 		arch::dma_object<QueueHead> head;
+		bool toggleState;
 		boost::intrusive::list<Transaction> transactions;
 	};
 

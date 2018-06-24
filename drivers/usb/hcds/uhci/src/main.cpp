@@ -148,32 +148,47 @@ void Enumerator::observeHub(std::shared_ptr<Hub> hub) {
 
 COFIBER_ROUTINE(cofiber::no_future, Enumerator::_observePort(std::shared_ptr<Hub> hub,
 		int port), ([=] {
+	while(true)
+		COFIBER_AWAIT _observationCycle(hub.get(), port);
+}))
+
+COFIBER_ROUTINE(async::result<void>, Enumerator::_observationCycle(Hub *hub, int port), ([=] {
 	std::unique_lock<async::mutex> enumerate_lock;
 
+	// Wait until the device is connected.
+	while(true) {
+		auto s = COFIBER_AWAIT hub->pollState(port);
+
+		if(s.status & hub_status::connect)
+			break;
+	}
+
+	COFIBER_AWAIT _enumerateMutex.async_lock();
+	enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
+
+	std::cout << "usb: Issuing reset on port " << port << std::endl;
+	if(!(COFIBER_AWAIT hub->issueReset(port)))
+		COFIBER_RETURN();
+	
+	// Wait until the device is enabled.
+	while(true) {
+		auto s = COFIBER_AWAIT hub->pollState(port);
+
+		// TODO: Handle disconnect here.
+		if(s.status & hub_status::enable)
+			break;
+	}
+
+//		std::cout << "usb: Enumerating device on port " << port << std::endl;
+	COFIBER_AWAIT _controller->enumerateDevice();
+	enumerate_lock.unlock();
+	
+	// Wait until the device is disconnected.
 	while(true) {
 		auto s = COFIBER_AWAIT hub->pollState(port);
 
 		if(!(s.status & hub_status::connect))
-			continue;
-
-		COFIBER_AWAIT _enumerateMutex.async_lock();
-		enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
-
-//		std::cout << "usb: Issuing reset on port " << port << std::endl;
-		COFIBER_AWAIT hub->issueReset(port);
-		break;
-	}
-	
-	while(true) {
-		auto s = COFIBER_AWAIT hub->pollState(port);
-
-		if(!(s.status & hub_status::enable))
-			continue;
-
-//		std::cout << "usb: Enumerating device on port " << port << std::endl;
-		COFIBER_AWAIT _controller->enumerateDevice();
-		enumerate_lock.unlock();
-		break;
+			break;
 	}
 }))
 
@@ -216,7 +231,7 @@ private:
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
-	async::result<void> issueReset(int port) override;
+	async::result<bool> issueReset(int port) override;
 
 private:
 	Device _device;
@@ -378,7 +393,7 @@ COFIBER_ROUTINE(async::result<PortState>, StandardHub::pollState(int port), ([=]
 	}
 }))
 
-COFIBER_ROUTINE(async::result<void>, StandardHub::issueReset(int port), ([=] {
+COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port), ([=] {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> reset_req{_device.setupPool()};
 	reset_req->type = setup_type::targetOther | setup_type::byClass
@@ -390,7 +405,7 @@ COFIBER_ROUTINE(async::result<void>, StandardHub::issueReset(int port), ([=] {
 
 	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
 			reset_req, arch::dma_buffer_view{}});
-	COFIBER_RETURN();
+	COFIBER_RETURN(true);
 }))
 
 } // anonymous namespace
@@ -473,19 +488,22 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::_handleIrqs(), ([=] {
 			continue;
 		}
 
-		if(stat & status::errorIrq)
-			printf("uhci: Error interrupt\n");
 		_base.store(op_regs::status, status::transactionIrq(stat & status::transactionIrq) 
 				| status::errorIrq(stat & status::errorIrq));
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 		
-		//printf("uhci: Processing transfers.\n");
-		_progressSchedule();
+		if(stat & status::errorIrq)
+			printf("\e[31muhci: Error interrupt\e[39m\n");
+		if((stat & status::transactionIrq) || (stat & status::errorIrq)) {
+			//printf("uhci: Processing transfers.\n");
+			_progressSchedule();
+		}
 	}
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::_refreshFrame(), ([=] {
 	while(true) {
+//		std::cout << "uhci: Frame update" << std::endl;
 		_updateFrame();
 
 		uint64_t tick;
@@ -566,7 +584,7 @@ COFIBER_ROUTINE(async::result<PortState>, Controller::RootHub::pollState(int por
 	}
 }))
 
-COFIBER_ROUTINE(async::result<void>, Controller::RootHub::issueReset(int port), ([=] {
+COFIBER_ROUTINE(async::result<bool>, Controller::RootHub::issueReset(int port), ([=] {
 	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
 
 	// Reset the port for 50 ms.
@@ -580,22 +598,41 @@ COFIBER_ROUTINE(async::result<void>, Controller::RootHub::issueReset(int port), 
 			helix::Dispatcher::global());
 	COFIBER_AWAIT submit.async_wait();
 	HEL_CHECK(await_clock.error());
+	
+	// Disable the reset line.
+	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(false));
+
+	// Linux issues a 10us wait here, probably to wait until reset is turned off in hardware.
+	usleep(10);
 
 	// Enable the port and wait until it is available.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::enableStatus(true));
 
+	uint64_t start;
+	HEL_CHECK(helGetClock(&start));
 	while(true) {
 		auto sc = port_space.load(port_regs::statusCtrl);
 		if((sc & port_status_ctrl::enableStatus))
 			break;
+	
+		uint64_t now;
+		HEL_CHECK(helGetClock(&now));
+		if(now - start > 1000'000'000) {
+			std::cout << "\e[31muhci: Could not enable device after reset\e[39m" << std::endl;
+			COFIBER_RETURN(false);
+		}
 	}
+	
+	auto sc = port_space.load(port_regs::statusCtrl);
+	if(sc & port_status_ctrl::lowSpeed)
+		std::cout << "\e[31muhci: Device is low speed!\e[39m" << std::endl;
 
 	// Similar to USB standard hubs we do not reset the enable-change bit.
 	_controller->_portState[port].status |= hub_status::enable;
 	_controller->_portState[port].changes |= hub_status::reset;
 	_controller->_portDoorbell.ring();
 
-	COFIBER_RETURN();
+	COFIBER_RETURN(true);
 }))
 
 COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
@@ -769,11 +806,13 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		
 		int pipe = info.endpointNumber.value();
 		if(info.endpointIn.value()) {
+			std::cout << "uhci: Setting up IN endpoint " << pipe << std::endl;
 			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].inStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
 		}else{
+			std::cout << "uhci: Setting up OUT endpoint " << pipe << std::endl;
 			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
 			_activeDevices[address].outStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
@@ -823,9 +862,11 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	auto device = &_activeDevices[address];
 	EndpointSlot *endpoint;
 	if(type == PipeType::in) {
+		assert(info.flags == kXferToHost);
 		endpoint = &device->inStates[pipe];
 	}else{
 		assert(type == PipeType::out);
+		assert(info.flags == kXferToDevice);
 		assert(!info.allowShortPackets);
 		endpoint = &device->outStates[pipe];
 	}
@@ -844,7 +885,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
-	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true));
+	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true)
+			| td_status::lowSpeed(true));
 	transfers[0].token.store(td_token::pid(Packet::setup) | td_token::address(address)
 			| td_token::pipe(pipe) | td_token::length(sizeof(SetupPacket) - 1));
 	transfers[0]._bufferPointer = TransferBufferPointer::from(setup.data());
@@ -854,18 +896,22 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
 		assert(chunk);
-		transfers[i + 1].status.store(td_status::active(true) | td_status::detectShort(true));
+		transfers[i + 1].status.store(td_status::active(true) | td_status::detectShort(true)
+				| td_status::lowSpeed(true));
 		transfers[i + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
-				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
-				| td_token::length(chunk - 1));
-		transfers[i + 1]._bufferPointer = TransferBufferPointer::from((char *)buffer.data() + progress);
+				| td_token::toggle(i % 2 == 0) | td_token::address(address)
+				| td_token::pipe(pipe) | td_token::length(chunk - 1));
+		transfers[i + 1]._bufferPointer
+				= TransferBufferPointer::from((char *)buffer.data() + progress);
 		transfers[i + 1]._linkPointer = TransferDescriptor::LinkPointer::from(&transfers[i + 2]);
 		progress += chunk;
 	}
 
-	transfers[num_data + 1].status.store(td_status::active(true) | td_status::completionIrq(true));
+	transfers[num_data + 1].status.store(td_status::active(true) | td_status::completionIrq(true)
+			| td_status::lowSpeed(true));
 	transfers[num_data + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::in : Packet::out)
-			| td_token::address(address) | td_token::pipe(pipe) | td_token::length(0x7FF));
+			| td_token::toggle(true) | td_token::address(address)
+			| td_token::pipe(pipe) | td_token::length(0x7FF));
 
 	return new Transaction{std::move(transfers)};
 }
@@ -874,6 +920,10 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		arch::dma_buffer_view buffer, size_t max_packet_size,
 		bool allow_short_packet) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
+	std::cout << "_buildInterruptOrBulk. Address: " << address
+			<< ", pipe: " << pipe << ", direction: " << dir
+			<< ", maxPacketSize: " << max_packet_size
+			<< ", buffer size: " << buffer.size() << std::endl;
 
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
@@ -887,7 +937,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 				| td_status::completionIrq(i + 1 == num_data)
 				| td_status::detectShort(true));
 		transfers[i].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
-				| td_token::toggle(i % 2 != 0) | td_token::address(address) | td_token::pipe(pipe)
+				| td_token::address(address) | td_token::pipe(pipe)
 				| td_token::length(chunk - 1));
 		transfers[i]._bufferPointer = TransferBufferPointer::from((char *)buffer.data() + progress);
 
@@ -896,7 +946,9 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		progress += chunk;
 	}
 
-	return new Transaction{std::move(transfers), allow_short_packet};
+	auto transaction = new Transaction{std::move(transfers), allow_short_packet};
+	transaction->autoToggle = true;
+	return transaction;
 }
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
@@ -911,6 +963,18 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 // Controller: Schedule manipulation functions.
 // ----------------------------------------------------------------
 
+void Controller::_linkInterrupt(QueueEntity *entity) {
+	_asyncQh->_linkPointer = QueueHead::LinkPointer::from(_asyncQh->data());
+
+	if(_asyncSchedule.empty()) {
+		_asyncQh->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
+	}else{
+		_asyncSchedule.back().head->_linkPointer
+				= QueueHead::LinkPointer::from(entity->head.data());
+	}
+	_asyncSchedule.push_back(*entity);
+}
+
 void Controller::_linkAsync(QueueEntity *entity) {
 	if(_asyncSchedule.empty()) {
 		_asyncQh->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
@@ -922,8 +986,20 @@ void Controller::_linkAsync(QueueEntity *entity) {
 }
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
-	if(queue->transactions.empty())
+	if(queue->transactions.empty()) {
+		// Update the toggle state of the transaction.
+		if(transaction->autoToggle) {
+			bool state = queue->toggleState;
+			for(size_t i = 0; i < transaction->transfers.size(); i++) {
+				transaction->transfers[i].token.store(transaction->transfers[i].token.load()
+						| td_token::toggle(state));
+				state = !state;
+			}
+		}
+
 		queue->head->_elementPointer = QueueHead::LinkPointer::from(&transaction->transfers[0]);
+	}
+
 	queue->transactions.push_back(*transaction);
 }
 
@@ -940,12 +1016,37 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		return;
 
 	auto front = &entity->transactions.front();
+
+	auto handleError = [&] () {
+		auto status = front->transfers[front->numComplete].status.load();
+		// TODO: This could also mean that the TD is not retired because of SPD.
+		// TODO: Unify this case with the transaction success case above.
+		std::cout << "\e[31muhci: Transfer error!\e[39m" << std::endl;
+		_dump(front);
+		
+		// Clean up the Queue.
+		entity->transactions.pop_front();
+//TODO:		_reclaim(front);
+	};
+
 	while(front->numComplete < front->transfers.size()) {
 		auto &transfer = front->transfers[front->numComplete];
-		if(transfer.status.load() & td_status::active)
+		auto status = transfer.status.load();
+		if(status & td_status::active) {
 			break;
+		}else if(status & td_status::errorBits) {
+			handleError();
+			return;
+		}
+		
+		// TODO: Handle short packets correctly.
+		auto n = status & td_status::actualLength;
+		assert(n == (transfer.token.load() & td_token::length));
 
+		// We advance the toggleState on each successful transaction for
+		// each pipe type, not only for bulk/interrupt. This does not really hurt.
 		front->numComplete++;
+		entity->toggleState = !entity->toggleState;
 	}
 	
 	if(front->numComplete == front->transfers.size()) {
@@ -983,23 +1084,6 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			auto front = &entity->transactions.front();
 			entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
 		}
-	}else{
-		auto status = front->transfers[front->numComplete].status.load();
-		if(!(status & td_status::active)) {
-			// TODO: This could also mean that the TD is not retired because of SPD.
-			// TODO: Unify this case with the transaction success case above.
-			assert(!(status & td_status::errorBits));
-			printf("Transfer error!\n");
-			_dump(front);
-			
-			// Clean up the Queue.
-			entity->transactions.pop_front();
-			_reclaim(front);
-		}else{
-			// Fatal errors should have retired the TD.
-			assert(!(status & td_status::stalled));
-			assert(!(status & td_status::babbleError));
-		}
 	}
 }
 
@@ -1017,9 +1101,9 @@ void Controller::_reclaim(ScheduleItem *item) {
 
 void Controller::_dump(Transaction *transaction) {
 	for(size_t i = 0; i < transaction->transfers.size(); i++) {
-		printf("    TD %lu:", i);
+		std::cout << "    TD " << i << ":";
 		transaction->transfers[i].dumpStatus();
-		printf("\n");
+		std::cout << std::endl;
 	}
 }
 

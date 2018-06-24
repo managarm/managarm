@@ -45,6 +45,7 @@ namespace port_status_ctrl {
 	arch::field<uint16_t, bool> connectChange(1, 1);
 	arch::field<uint16_t, bool> enableStatus(2, 1);
 	arch::field<uint16_t, bool> enableChange(3, 1);
+	arch::field<uint16_t, bool> lowSpeed(8, 1);
 	arch::field<uint16_t, bool> portReset(9, 1);
 }
 
