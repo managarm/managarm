@@ -91,6 +91,26 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	}, std::move(lock));
 }
 
+void Thread::suspendCurrent(IrqImageAccessor image) {
+	auto this_thread = getCurrentThread();
+	StatelessIrqLock irq_lock;
+	auto lock = frigg::guard(&this_thread->_mutex);
+	
+	if(logRunStates)
+		frigg::infoLogger() << "thor: " << (void *)this_thread.get()
+				<< " is suspended" << frigg::endLog;
+
+	assert(this_thread->_runState == kRunActive);
+	this_thread->_runState = kRunSuspended;
+	saveExecutor(&this_thread->_executor, image);
+	this_thread->_uninvoke();
+
+	runDetached([] (frigg::LockGuard<Mutex> lock) {
+		lock.unlock();
+		localScheduler()->reschedule();
+	}, std::move(lock));
+}
+
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -399,6 +419,10 @@ void Thread::invoke() {
 				<< " " << _credentials[12] << " " << _credentials[13]
 				<< " " << _credentials[14] << " " << _credentials[15]
 				<< " is activated" << frigg::endLog;
+
+	// If there is work to do, return to the WorkQueue and not to user space.
+	if(_runState == kRunSuspended && _associatedWorkQueue.check())
+		workOnExecutor(&_executor);
 
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
 	_runState = kRunActive;

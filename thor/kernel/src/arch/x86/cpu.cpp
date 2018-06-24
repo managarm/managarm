@@ -8,6 +8,10 @@
 
 namespace thor {
 
+namespace {
+	constexpr bool disableSmp = true;
+}
+
 // --------------------------------------------------------
 // Debugging functions
 // --------------------------------------------------------
@@ -414,6 +418,31 @@ void switchExecutor(frigg::UnsafePtr<Thread> thread) {
 	getCpuData()->activeExecutor = thread;
 }
 
+extern "C" void workStub();
+
+void workOnExecutor(Executor *executor) {
+	auto nsp = reinterpret_cast<uint64_t *>(executor->getSyscallStack());
+
+	auto push = [&] (uint64_t v) {
+		memcpy(--nsp, &v, sizeof(uint64_t));
+	};
+
+	// Build an IRET frame on the syscall stack.
+	push(*executor->ss());
+	push(*executor->sp());
+	push(*executor->rflags());
+	push(*executor->cs());
+	push(*executor->ip());
+
+	// Point the executor to the work stub.
+	void *stub = reinterpret_cast<void *>(&workStub);
+	*executor->ip() = reinterpret_cast<uintptr_t>(stub);
+	*executor->cs() = kSelExecutorSyscallCode;
+	*executor->rflags() &= ~uint64_t(0x200); // Disable IRQs.
+	*executor->sp() = reinterpret_cast<uintptr_t>(nsp);
+	*executor->ss() = 0;
+}
+
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 [[ gnu::section(".text.stubs") ]] void restoreExecutor(Executor *executor) {
@@ -723,6 +752,9 @@ void secondaryMain(StatusBlock *status_block) {
 }
 
 void bootSecondary(unsigned int apic_id) {
+	if(disableSmp)
+		return;
+
 	// TODO: Allocate a page in low physical memory instead of hard-coding it.
 	uintptr_t pma = 0x10000;
 

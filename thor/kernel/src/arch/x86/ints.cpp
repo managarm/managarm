@@ -274,6 +274,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	assert(!irqMutex().nesting());
 	enableInts();
+	// TODO: User-access should already be disabled here.
 	disableUserAccess();
 
 	handleSyscall(image);
@@ -316,6 +317,21 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	acknowledgeIpi();
 
 	handlePreemption(image);
+}
+
+extern "C" void onPlatformWork() {
+//	if(inStub(*image.ip()))
+//		frigg::panicLogger() << "Work interrupt " << number
+//				<< " in stub section, cs: 0x" << frigg::logHex(*image.cs())
+//				<< ", ip: " << (void *)*image.ip() << frigg::endLog;
+
+	assert(!irqMutex().nesting());
+	// TODO: User-access should already be disabled here.
+	disableUserAccess();
+
+	enableInts();
+	getCurrentThread()->associatedWorkQueue()->run();
+	disableInts();
 }
 
 extern "C" void onPlatformNmi(NmiImageAccessor image) {

@@ -9,8 +9,10 @@ namespace {
 	constexpr bool logUpdates = false;
 	constexpr bool logTimeSlice = false;
 
+	constexpr bool disablePreemption = true;
+
 	// Minimum length of a preemption time slice in ns.
-	static constexpr int64_t sliceGranularity = 10'000'000;
+	constexpr int64_t sliceGranularity = 10'000'000;
 }
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
@@ -276,6 +278,9 @@ void Scheduler::_updateSystemProgress() {
 
 // TODO: Integrate this function and the _refreshFlag() function.
 void Scheduler::_updatePreemption() {
+	if(disablePreemption)
+		return;
+
 	// It does not make sense to preempt if there is no active thread.
 	if(!_current || _current->state != ScheduleState::active)
 		return; // Hope for thread switch.
@@ -352,7 +357,7 @@ void Scheduler::_refreshFlag() {
 			return;
 		}
 
-		if(_refClock - _sliceClock < sliceGranularity
+		if(disablePreemption || _refClock - _sliceClock < sliceGranularity
 				|| ScheduleEntity::scheduleBefore(_current, _waitQueue.top())) {
 			_scheduleFlag = false;
 			return;

@@ -211,6 +211,16 @@ struct IrqImageAccessor {
 		}
 	}
 
+	bool inManipulableDomain() {
+		assert(inThreadDomain());
+		if(*cs() == kSelClientUserCompat
+				|| *cs() == kSelClientUserCode) {
+			return true;
+		}else{
+			return false;
+		}
+	}
+
 	bool inFiberDomain() {
 		assert(inPreemptibleDomain());
 		return *cs() == kSelSystemFiberCode;
@@ -394,6 +404,7 @@ struct Executor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
+	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
 	static size_t determineSize();
@@ -409,12 +420,18 @@ struct Executor {
 
 	Executor &operator= (const Executor &other) = delete;
 
+	void *getSyscallStack() {
+		return _syscallStack;
+	}
+
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
 	Word *rflags() { return &general()->rflags; }
 
 	Word *ip() { return &general()->rip; }
 	Word *sp() { return &general()->rsp; }
+	Word *cs() { return &general()->cs; }
+	Word *ss() { return &general()->ss; }
 
 private:
 	// note: this struct is accessed from assembly.
@@ -524,6 +541,8 @@ void forkExecutor(F functor, Executor *executor) {
 
 // Copies the current state into the executor and calls the supplied function.
 extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
+
+void workOnExecutor(Executor *executor);
 
 // restores the current executor from its saved image.
 // this is functions does the heavy lifting during task switch.

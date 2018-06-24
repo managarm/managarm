@@ -75,6 +75,7 @@ public:
 	static void blockCurrent(ThreadBlocker *blocker);
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
+	static void suspendCurrent(IrqImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
 	

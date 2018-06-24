@@ -111,6 +111,8 @@ void LocalApicContext::handleTimerIrq() {
 			auto lock = frigg::guard(&globalApicContext()->_mutex);
 			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
 		}
+	}else{
+		localApicContext()->_updateLocalTimer();
 	}
 }
 
@@ -141,6 +143,8 @@ void LocalApicContext::_updateLocalTimer() {
 	auto now = systemClockSource()->currentNanos();
 	uint64_t ticks;
 	if(deadline < now) {
+//		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting single tick timer"
+//				<< frigg::endLog;
 		ticks = 1;
 	}else{
 //		frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Setting timer "
