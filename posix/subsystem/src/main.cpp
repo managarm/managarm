@@ -295,11 +295,11 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 
 COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> self,
 		helix::BorrowedDescriptor thread), ([=] {
-	uint64_t sequence = 0;
+	uint64_t sequence = 1;
 	while(true) {
-		std::cout << "Waiting for raise in " << self->pid() << std::endl;
+		//std::cout << "Waiting for raise in " << self->pid() << std::endl;
 		sequence = COFIBER_AWAIT self->signalContext()->pollSignal(sequence, UINT64_C(-1));
-		std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
+		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}
 }))
