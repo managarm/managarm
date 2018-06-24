@@ -486,7 +486,10 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 		}
 	});
 
+	std::cout << "usb-hid: Using endpoint number " << in_endp_number.value() << std::endl;
+
 	// Parse all report descriptors.
+	std::cout << "usb-hid: Parsing report descriptor" << std::endl;
 	for(size_t i = 0; i < report_descs.size(); i++) {
 		arch::dma_object<SetupPacket> get_descriptor{device.setupPool()};
 		get_descriptor->type = setup_type::targetInterface | setup_type::byStandard
@@ -550,9 +553,12 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	auto endp = COFIBER_AWAIT(intf.getEndpoint(PipeType::in, in_endp_number.value()));
 
 	// Read reports from the USB device.
+	std::cout << "usb-hid: Entering report loop" << std::endl;
+
 	std::vector<std::pair<bool, int32_t>> values;
 	values.resize(elements.size());
 	while(true) {
+		std::cout << "usb-hid: Requesting new report" << std::endl;
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;
@@ -611,27 +617,34 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 	std::experimental::optional<int> config_number;
 	std::experimental::optional<int> intf_number;
-	std::experimental::optional<int> intf_class;
+	std::experimental::optional<int> intf_alternative;
 	
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!config_number);
 			config_number = info.configNumber.value();
 		}else if(type == descriptor_type::interface) {
+			auto desc = reinterpret_cast<InterfaceDescriptor *>(p);
+			if(desc->interfaceClass != 3)
+				return;
+	
 			if(intf_number) {
-				std::cout << "usb-hid: Ignoring interface "
-						<< info.interfaceNumber.value() << std::endl;
+				std::cout << "usb-hid: Ignoring secondary HID interface: "
+						<< info.interfaceNumber.value()
+						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
 				return;
 			}
+
 			intf_number = info.interfaceNumber.value();
-			
-			auto desc = (InterfaceDescriptor *)p;
-			intf_class = desc->interfaceClass;
+			intf_alternative = info.interfaceAlternative.value();
 		}
 	});
 	
-	if(intf_class.value() != 3)
-		return;
+	if(!intf_number)
+		COFIBER_RETURN();
+	std::cout << "usb-hid: Detected HID device. "
+			"Interface: " << intf_number.value()
+			<< ", alternative: " << intf_alternative.value() << std::endl;
 
 	HidDevice* hid_device = new HidDevice();
 	hid_device->run(device, config_number.value(), intf_number.value());

@@ -18,6 +18,7 @@
 #include "storage.hpp"
 
 namespace {
+	constexpr bool logEnumeration = false;
 	constexpr bool logRequests = false;
 	constexpr bool logSteps = false;
 
@@ -41,7 +42,8 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 				throw std::runtime_error("Illegal endpoint!\n");
 			}
 		}else{
-			printf("block-usb: Unexpected descriptor type: %d!\n", type);
+			if(logEnumeration)
+				printf("block-usb: Unexpected descriptor type: %d!\n", type);
 		}
 	});
 
@@ -103,21 +105,29 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 
 			// TODO: Respect USB device DMA requirements.
 
+			// TODO: Ideally, we want to post the IN-transfer first.
+			// We do this to try to avoid unnecessary IRQs
+			// and round-trips to the device and host-controller driver.
+			CommandStatusWrapper csw;
+
 			if(logSteps)
 				std::cout << "block-usb: Sending CBW" << std::endl;
 			COFIBER_AWAIT endp_out.transfer(BulkTransfer{XferFlags::kXferToDevice,
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
-
+			
 			if(logSteps)
-				std::cout << "block-usb: Exchanging data" << std::endl;
-			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
-					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}});
+				std::cout << "block-usb: Waiting for data and CSW" << std::endl;
+			BulkTransfer data_info{XferFlags::kXferToHost,
+					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}};
+			// TODO: We want this to be lazy but that only works if can ensure that
+			// the next transaction is also posted to the queue.
+//			data_info.lazyNotification = true;
+			auto data_xfer = endp_in.transfer(data_info);
+			COFIBER_AWAIT std::move(data_xfer);
 
-			CommandStatusWrapper csw;
-			if(logSteps)
-				std::cout << "block-usb: Receiving CSW" << std::endl;
-			COFIBER_AWAIT endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
+			auto csw_xfer = endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
+			COFIBER_AWAIT std::move(csw_xfer);
 
 			if(logSteps)
 				std::cout << "block-usb: Request complete" << std::endl;
@@ -161,7 +171,8 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 	std::experimental::optional<int> intf_subclass;
 	std::experimental::optional<int> intf_protocol;
 	
-	std::cout << "block-usb: Getting configuration descriptor" << std::endl;
+	if(logEnumeration)
+		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
 	auto descriptor = COFIBER_AWAIT device.configurationDescriptor();
 	walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
@@ -174,8 +185,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 						<< info.interfaceNumber.value() << std::endl;
 				return;
 			}
-			std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
-					<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
+			if(logEnumeration)
+				std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
+						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
 			intf_number = info.interfaceNumber.value();
 			
 			assert(!intf_class);
@@ -188,16 +200,18 @@ COFIBER_ROUTINE(cofiber::no_future, bindDevice(mbus::Entity entity), ([=] {
 		}
 	});
 
-	std::cout << "block-usb: Device class: 0x" << std::hex << intf_class.value()
-			<< ", subclass: 0x" << intf_subclass.value()
-			<< ", protocol: 0x" << intf_protocol.value()
-			<< std::dec << std::endl;
+	if(logEnumeration)
+		std::cout << "block-usb: Device class: 0x" << std::hex << intf_class.value()
+				<< ", subclass: 0x" << intf_subclass.value()
+				<< ", protocol: 0x" << intf_protocol.value()
+				<< std::dec << std::endl;
 	if(intf_class.value() != 0x08
 			|| intf_subclass.value() != 0x06
 			|| intf_protocol.value() != 0x50)
 		return;
 
-	std::cout << "block-usb: Detected USB device" << std::endl;
+	if(logEnumeration)
+		std::cout << "block-usb: Detected USB device" << std::endl;
 
 	auto storage_device = new StorageDevice(device);
 	storage_device->run(config_number.value(), intf_number.value());
