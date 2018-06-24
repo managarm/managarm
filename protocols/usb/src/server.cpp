@@ -35,6 +35,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			arch::dma_buffer buffer{nullptr, req.length()};
 			InterruptTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
+			transfer.lazyNotification = req.lazy_notification();
 			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
@@ -59,6 +60,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			HEL_CHECK(recv_buffer.error());
 		
 			BulkTransfer transfer{XferFlags::kXferToDevice, buffer};
+			transfer.lazyNotification = req.lazy_notification();
 			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;
@@ -78,6 +80,7 @@ COFIBER_ROUTINE(cofiber::no_future, serveEndpoint(Endpoint endpoint,
 			arch::dma_buffer buffer{nullptr, req.length()};
 			BulkTransfer transfer{XferFlags::kXferToHost, buffer};
 			transfer.allowShortPackets = req.allow_short();
+			transfer.lazyNotification = req.lazy_notification();
 			auto length = COFIBER_AWAIT endpoint.transfer(transfer);
 
 			managarm::usb::SvrResponse resp;

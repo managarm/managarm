@@ -258,6 +258,7 @@ COFIBER_ROUTINE(async::result<size_t>, EndpointState::transfer(InterruptTransfer
 		req.set_req_type(managarm::usb::CntReqType::INTERRUPT_TRANSFER_TO_HOST);
 		req.set_length(info.buffer.size());
 		req.set_allow_short(info.allowShortPackets);
+		req.set_lazy_notification(info.lazyNotification);
 
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -292,6 +293,7 @@ COFIBER_ROUTINE(async::result<size_t>, EndpointState::transfer(BulkTransfer info
 		managarm::usb::CntRequest req;
 		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_DEVICE);
 		req.set_length(info.buffer.size());
+		req.set_lazy_notification(info.lazyNotification);
 		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
@@ -321,6 +323,7 @@ COFIBER_ROUTINE(async::result<size_t>, EndpointState::transfer(BulkTransfer info
 		req.set_req_type(managarm::usb::CntReqType::BULK_TRANSFER_TO_HOST);
 		req.set_length(info.buffer.size());
 		req.set_allow_short(info.allowShortPackets);
+		req.set_lazy_notification(info.lazyNotification);
 		
 		auto ser = req.SerializeAsString();
 		auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),

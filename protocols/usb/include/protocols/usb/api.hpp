@@ -27,20 +27,24 @@ struct ControlTransfer {
 
 struct InterruptTransfer {
 	InterruptTransfer(XferFlags flags, arch::dma_buffer_view buffer)
-	: flags{flags}, buffer{buffer}, allowShortPackets{false} { }
+	: flags{flags}, buffer{buffer},
+			allowShortPackets{false}, lazyNotification{false} { }
 
 	XferFlags flags;
 	arch::dma_buffer_view buffer;
 	bool allowShortPackets;
+	bool lazyNotification;
 };
 
 struct BulkTransfer {
 	BulkTransfer(XferFlags flags, arch::dma_buffer_view buffer)
-	: flags{flags}, buffer{buffer}, allowShortPackets{false} { }
+	: flags{flags}, buffer{buffer},
+			allowShortPackets{false}, lazyNotification{false} { }
 
 	XferFlags flags;
 	arch::dma_buffer_view buffer;
 	bool allowShortPackets;
+	bool lazyNotification;
 };
 
 enum class PipeType {

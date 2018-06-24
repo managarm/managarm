@@ -41,6 +41,7 @@ message CntRequest {
 	optional int32 pipetype = 10;
 
 	optional bool allow_short = 11;
+	optional bool lazy_notification = 12;
 }
 
 message SvrResponse {
