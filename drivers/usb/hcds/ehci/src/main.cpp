@@ -28,6 +28,8 @@
 static const bool logIrqs = false;
 static const bool logPackets = false;
 static const bool logSubmits = false;
+static const bool logControllerEnumeration = false;
+static const bool logDeviceEnumeration = false;
 static const bool debugLinking = false;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
@@ -192,18 +194,21 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	auto ext_pointer = _space.load(cap_regs::hccparams) & hccparams::extPointer;
 	if(ext_pointer) {
 		auto header = COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer, 2);
-		std::cout << "ehci: Extended capability: " << (header & 0xFF) << std::endl;
+		if(logControllerEnumeration)
+			std::cout << "ehci: Extended capability: " << (header & 0xFF) << std::endl;
 
 		assert((header & 0xFF) == 1);
-		if(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1))
+		if(logControllerEnumeration && (COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)))
 			std::cout << "ehci: Controller is owned by the BIOS" << std::endl;
 
+		// TODO: We need a timeout here.
 		assert(!(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 3, 1)));
 		COFIBER_AWAIT _hwDevice.storePciSpace(ext_pointer + 3, 1, 1);
 		while(COFIBER_AWAIT _hwDevice.loadPciSpace(ext_pointer + 2, 1)) {
 			// Do nothing while we wait for BIOS to release the EHCI.
 		}
-		std::cout << "ehci: Acquired OS <-> BIOS semaphore" << std::endl;
+		if(logControllerEnumeration)
+			std::cout << "ehci: Acquired OS <-> BIOS semaphore" << std::endl;
 
 		assert(!(header & 0xFF00));
 	}
@@ -225,7 +230,8 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::initialize(), ([=] {
 	while(_operational.load(op_regs::usbcmd) & usbcmd::hcReset) {
 		// Wait until the reset is complete.
 	}
-	std::cout << "ehci: Controller reset." << std::endl;
+	if(logControllerEnumeration)
+		std::cout << "ehci: Controller reset." << std::endl;
 
 	// Initialize controller.
 	_operational.store(op_regs::usbintr, usbintr::transaction(true) 
@@ -264,14 +270,17 @@ void Controller::_checkPorts() {
 					| portsc::portOwner(sc & portsc::portOwner));
 			if(sc & portsc::connectStatus) {
 				if((sc & portsc::lineStatus) == 1) {
-					std::cout << "ehci: Device on port " << i << " is low-speed" << std::endl;
+					if(logDeviceEnumeration)
+						std::cout << "ehci: Device on port " << i << " is low-speed" << std::endl;
 					port_space.store(port_regs::sc, portsc::portOwner(true));
 				}else{
-					std::cout << "ehci: Connect on port " << i << std::endl;
+					if(logDeviceEnumeration)
+						std::cout << "ehci: Connect on port " << i << std::endl;
 					_enumerator.connectPort(i);
 				}
 			}else{
-				std::cout << "ehci: Disconnect on port " << i << std::endl;
+				if(logDeviceEnumeration)
+					std::cout << "ehci: Disconnect on port " << i << std::endl;
 			}
 		}
 	}
@@ -288,7 +297,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	auto address = _addressStack.front();
 	_addressStack.pop();
 
-	std::cout << "ehci: Setting device address" << std::endl;
+	if(logDeviceEnumeration)
+		std::cout << "ehci: Setting device address" << std::endl;
 
 	arch::dma_object<SetupPacket> set_address{&schedulePool};
 	set_address->type = setup_type::targetDevice | setup_type::byStandard
@@ -304,7 +314,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	queue->setAddress(address);
 
 	// Enquire the maximum packet size of the default control pipe.
-	std::cout << "ehci: Getting device descriptor header" << std::endl;
+	if(logDeviceEnumeration)
+		std::cout << "ehci: Getting device descriptor header" << std::endl;
 
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
 	get_header->type = setup_type::targetDevice | setup_type::byStandard
@@ -322,7 +333,8 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
 	
 	// Read the rest of the device descriptor.
-	std::cout << "ehci: Getting full device descriptor" << std::endl;
+	if(logDeviceEnumeration)
+		std::cout << "ehci: Getting full device descriptor" << std::endl;
 
 	arch::dma_object<SetupPacket> get_descriptor{&schedulePool};
 	get_descriptor->type = setup_type::targetDevice | setup_type::byStandard
@@ -496,20 +508,28 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		auto desc = (EndpointDescriptor *)p;
 
 		// TODO: Pay attention to interface/alternative.
+
+		auto packet_size = desc->maxPacketSize & 0x7FF;
+
+		// TODO: Set QH multiplier for high-bandwidth endpoints.
+		if(desc->maxPacketSize & 0x1800)
+			std::cout << "\e[35mehci: Endpoint is high bandwidth\e[39m" << std::endl;
 		
 		int pipe = info.endpointNumber.value();
 		if(info.endpointIn.value()) {
-			std::cout << "ehci: Setting up IN pipe " << pipe
-					<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
-			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
+			if(logDeviceEnumeration)
+				std::cout << "ehci: Setting up IN pipe " << pipe
+						<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
+			_activeDevices[address].inStates[pipe].maxPacketSize = packet_size;
 			_activeDevices[address].inStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
 							address, pipe, PipeType::in, desc->maxPacketSize};
 			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
 		}else{
-			std::cout << "ehci: Setting up OUT pipe " << pipe
-					<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
-			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
+			if(logDeviceEnumeration)
+				std::cout << "ehci: Setting up OUT pipe " << pipe
+						<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
+			_activeDevices[address].outStates[pipe].maxPacketSize = packet_size;
 			_activeDevices[address].outStates[pipe].queueEntity
 					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
 							address, pipe, PipeType::out, desc->maxPacketSize};
@@ -589,7 +609,7 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(info.flags,
-			info.buffer, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -607,7 +627,7 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(info.flags,
-			info.buffer, endpoint->maxPacketSize);
+			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -666,7 +686,8 @@ auto Controller::_buildControl(XferFlags dir,
 }
 
 auto Controller::_buildInterruptOrBulk(XferFlags dir,
-		arch::dma_buffer_view buffer, size_t max_packet_size) -> Transaction * {
+		arch::dma_buffer_view buffer, size_t max_packet_size,
+		bool lazy_notification) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
 	// Maximum size that can be transferred in a single qTD starting from a certain offset.
@@ -703,7 +724,7 @@ auto Controller::_buildInterruptOrBulk(XferFlags dir,
 		transfers[i].altTd.store(td_ptr::terminate(true));
 		transfers[i].status.store(td_status::active(true)
 				| td_status::pidCode(dir == kXferToDevice ? 0x00 : 0x01)
-				| td_status::interruptOnComplete(true)
+				| td_status::interruptOnComplete(i + 1 == num_data && !lazy_notification)
 				| td_status::totalBytes(chunk));
 
 		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
@@ -839,6 +860,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();
+		delete active;
 		// TODO: _reclaim(active);
 		
 		// Schedule the next transaction.
@@ -859,6 +881,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		
 		// Clean up the Queue.
 		entity->transactions.pop_front();
+		delete active;
 		// TODO: _reclaim(active);
 	}
 }

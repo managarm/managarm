@@ -113,7 +113,8 @@ public:
 			arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
 			size_t max_packet_size);
 	static Transaction *_buildInterruptOrBulk(XferFlags dir,
-			arch::dma_buffer_view buffer, size_t max_packet_size);
+			arch::dma_buffer_view buffer, size_t max_packet_size,
+			bool lazy_notification);
 
 
 	async::result<void> transfer(int address, int pipe, ControlTransfer info);
