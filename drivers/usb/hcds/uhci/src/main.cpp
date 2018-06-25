@@ -934,8 +934,8 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		assert(chunk);
 		// TODO: Only set detectShort bit if allow_short_packet is true?
 		transfers[i].status.store(td_status::active(true)
-				| td_status::completionIrq(i + 1 == num_data)
-				| td_status::detectShort(true));
+				| td_status::completionIrq(i + 1 == num_data) | td_status::detectShort(true)
+				| td_status::lowSpeed(true));
 		transfers[i].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
 				| td_token::address(address) | td_token::pipe(pipe)
 				| td_token::length(chunk - 1));

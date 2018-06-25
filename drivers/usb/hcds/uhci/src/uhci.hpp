@@ -24,7 +24,7 @@ namespace td_status {
 	static constexpr arch::field<uint32_t, bool> isochronous(25, 1);
 	static constexpr arch::field<uint32_t, bool> lowSpeed(26, 1);
 	static constexpr arch::field<uint32_t, uint8_t> numRetries(27, 2);
-	static constexpr arch::field<uint32_t, bool> detectShort(28, 1);
+	static constexpr arch::field<uint32_t, bool> detectShort(29, 1);
 }
 
 namespace td_token {
