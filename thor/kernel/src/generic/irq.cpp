@@ -170,7 +170,7 @@ void IrqPin::raise() {
 
 		if(_inService && !_dueSinks) {
 			frigg::infoLogger() << "\e[31mthor: IRQ " << _name
-					<< " was nacked (synchronously)!" << frigg::endLog;
+					<< " was nacked (synchronously)!\e[39m" << frigg::endLog;
 			_maskState |= maskedForNack;
 		}
 	}
@@ -204,7 +204,7 @@ void IrqPin::_nack() {
 		return;
 
 	frigg::infoLogger() << "\e[31mthor: IRQ " << _name
-			<< " was nacked (asynchronously)!" << frigg::endLog;
+			<< " was nacked (asynchronously)!\e[39m" << frigg::endLog;
 	_maskState |= maskedForNack;
 	_updateMask();
 }

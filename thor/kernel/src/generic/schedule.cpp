@@ -9,7 +9,7 @@ namespace {
 	constexpr bool logUpdates = false;
 	constexpr bool logTimeSlice = false;
 
-	constexpr bool disablePreemption = true;
+	constexpr bool disablePreemption = false;
 
 	// Minimum length of a preemption time slice in ns.
 	constexpr int64_t sliceGranularity = 10'000'000;

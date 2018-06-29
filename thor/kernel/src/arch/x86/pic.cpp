@@ -102,7 +102,13 @@ void LocalApicContext::handleTimerIrq() {
 //	frigg::infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
 //			<< frigg::endLog;
 	auto self = localApicContext();
-	if(self->_globalDeadline && systemClockSource()->currentNanos() > self->_globalDeadline) {
+	auto now = systemClockSource()->currentNanos();
+
+	if(self->_preemptionDeadline && now > self->_preemptionDeadline)
+		self->_preemptionDeadline = 0;
+
+	if(self->_globalDeadline && now > self->_globalDeadline) {
+		self->_globalDeadline = 0;
 		globalApicContext()->_globalAlarmInstance.fireAlarm();
 
 		// Update the global deadline to avoid calling fireAlarm() on the next IRQ.
@@ -111,9 +117,9 @@ void LocalApicContext::handleTimerIrq() {
 			auto lock = frigg::guard(&globalApicContext()->_mutex);
 			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
 		}
-	}else{
-		localApicContext()->_updateLocalTimer();
 	}
+	
+	localApicContext()->_updateLocalTimer();
 }
 
 void LocalApicContext::_updateLocalTimer() {
