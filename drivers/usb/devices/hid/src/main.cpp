@@ -558,7 +558,7 @@ COFIBER_ROUTINE(cofiber::no_future, HidDevice::run(Device device, int config_num
 	std::vector<std::pair<bool, int32_t>> values;
 	values.resize(elements.size());
 	while(true) {
-		std::cout << "usb-hid: Requesting new report" << std::endl;
+//		std::cout << "usb-hid: Requesting new report" << std::endl;
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
 		InterruptTransfer transfer{XferFlags::kXferToHost, report};
 		transfer.allowShortPackets = true;

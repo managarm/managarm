@@ -182,8 +182,9 @@ private:
 	// Schedule management.
 	// ------------------------------------------------------------------------
 	
-	void _linkInterrupt(QueueEntity *entity);
+	void _linkInterrupt(QueueEntity *entity, int order, int index);
 	void _linkAsync(QueueEntity *entity);
+	void _linkIntoScheduleTree(int order, int index, QueueEntity *entity);
 	void _linkTransaction(QueueEntity *queue, Transaction *transaction);
 
 	void _progressSchedule();
@@ -191,16 +192,15 @@ private:
 
 	void _reclaim(ScheduleItem *item);
 
-	boost::intrusive::list<QueueEntity> _interruptSchedule[1024];
-
+	boost::intrusive::list<QueueEntity> _interruptSchedule[2 * 1024 - 1];
 	boost::intrusive::list<QueueEntity> _asyncSchedule;
+	std::vector<QueueEntity *> _activeEntities;
 
 	// This queue holds all schedule structs that are currently
 	// being garbage collected.
 	boost::intrusive::list<ScheduleItem> _reclaimQueue;
 
-	arch::dma_array<QueueHead> _periodicQh;
-	arch::dma_object<QueueHead> _asyncQh;
+	FrameList *_frameList;
 	
 	// ----------------------------------------------------------------------------
 	// Debugging functions.

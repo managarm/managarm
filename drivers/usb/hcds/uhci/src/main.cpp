@@ -423,7 +423,7 @@ std::shared_ptr<StandardHub> create(Device device) {
 Controller::Controller(protocols::hw::Device hw_device, arch::io_space base, helix::UniqueIrq irq)
 : _hwDevice{std::move(hw_device)},  _base{base}, _irq{frigg::move(irq)},
 		_lastFrame{0}, _frameCounter{0},
-		_enumerator{this}, _periodicQh{&schedulePool, 1024}, _asyncQh{&schedulePool} {
+		_enumerator{this} {
 	for(int i = 1; i < 128; i++) {
 		_addressStack.push(i);
 	}
@@ -446,15 +446,13 @@ void Controller::initialize() {
 	HEL_CHECK(helMapMemory(list_handle, kHelNullHandle,
 			nullptr, 0, 4096, kHelMapProtRead | kHelMapProtWrite, &list_mapping));
 	
-	auto list_pointer = (FrameList *)list_mapping;
-	for(int i = 0; i < 1024; i++) {
-		_periodicQh[i]._linkPointer = Pointer::from(_asyncQh.data());
-		list_pointer->entries[i] = FrameListPointer::from(&_periodicQh[i]);
-	}
+	_frameList = (FrameList *)list_mapping;
+	for(int i = 0; i < 1024; i++)
+		_frameList->entries[i].store(FrameListPointer{}._bits);
 
 	// Pass the frame list to the controller and run it.
 	uintptr_t list_physical;
-	HEL_CHECK(helPointerPhysical(list_pointer, &list_physical));
+	HEL_CHECK(helPointerPhysical(_frameList, &list_physical));
 	assert((list_physical % 0x1000) == 0);
 	_base.store(op_regs::frameListBase, list_physical);
 	_base.store(op_regs::command, command::runStop(true));
@@ -803,21 +801,27 @@ COFIBER_ROUTINE(async::result<void>, Controller::useInterface(int address,
 		auto desc = (EndpointDescriptor *)p;
 
 		// TODO: Pay attention to interface/alternative.
+		std::cout << "uhci: Interval is " << (int)desc->interval << std::endl;
 		
 		int pipe = info.endpointNumber.value();
+		QueueEntity *entity;
 		if(info.endpointIn.value()) {
 			std::cout << "uhci: Setting up IN endpoint " << pipe << std::endl;
+			entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].inStates[pipe].queueEntity
-					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
-			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
+			_activeDevices[address].inStates[pipe].queueEntity = entity;
 		}else{
 			std::cout << "uhci: Setting up OUT endpoint " << pipe << std::endl;
+			entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].outStates[pipe].queueEntity
-					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
-			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
+			_activeDevices[address].outStates[pipe].queueEntity = entity;
 		}
+
+		auto order = 1 << (CHAR_BIT * sizeof(int) - __builtin_clz(desc->interval) - 1);
+		std::cout << "uhci: Using order " << order << std::endl;
+		this->_linkInterrupt(entity, order, 0);
+//TODO: For bulk: this->_linkAsync(entity);
+
 	});
 	
 	COFIBER_RETURN();
@@ -920,10 +924,10 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		arch::dma_buffer_view buffer, size_t max_packet_size,
 		bool allow_short_packet) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
-	std::cout << "_buildInterruptOrBulk. Address: " << address
-			<< ", pipe: " << pipe << ", direction: " << dir
-			<< ", maxPacketSize: " << max_packet_size
-			<< ", buffer size: " << buffer.size() << std::endl;
+//	std::cout << "_buildInterruptOrBulk. Address: " << address
+//			<< ", pipe: " << pipe << ", direction: " << dir
+//			<< ", maxPacketSize: " << max_packet_size
+//			<< ", buffer size: " << buffer.size() << std::endl;
 
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
@@ -963,26 +967,74 @@ async::result<void> Controller::_directTransfer(int address, int pipe, ControlTr
 // Controller: Schedule manipulation functions.
 // ----------------------------------------------------------------
 
-void Controller::_linkInterrupt(QueueEntity *entity) {
-	_asyncQh->_linkPointer = QueueHead::LinkPointer::from(_asyncQh->data());
+void Controller::_linkInterrupt(QueueEntity *entity, int order, int index) {
+	assert(order > 0 && order <= 1024);
+	assert(index < order);
 
-	if(_asyncSchedule.empty()) {
-		_asyncQh->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
+	// Try to find a periodic entity with lower order that we link to.
+	int so = order >> 1;
+	while(so) {
+		/*auto n = (so - 1) + (index & (so - 1));
+		if(!_interruptSchedule[n].empty()) {
+			std::cout << "Linking to a lower order. This is untested" << std::endl;
+			auto successor = &_interruptSchedule[n].front();
+			entity->head->_linkPointer = QueueHead::LinkPointer::from(successor->head.data());
+			break;
+		}*/
+		so >>= 1;
+	}
+
+	// If there is no lower-order periodic entity, link to the async schedule.
+	if(!so) {
+		assert(!_asyncSchedule.empty());
+		auto successor = &_asyncSchedule.front();
+		entity->head->_linkPointer = QueueHead::LinkPointer::from(successor->head.data());
+	}
+
+	// Link to the back of this order/index of the periodic schedule.
+	auto n = (order - 1) + index;
+	if(_interruptSchedule[n].empty()) {
+		// Link the front of the schedule to the new entity.
+		if(order == 1024) {
+			_frameList->entries[index].store(FrameListPointer::from(entity->head.data())._bits);
+		}else{
+			_linkIntoScheduleTree(order << 1, index, entity);
+			_linkIntoScheduleTree(order << 1, index + order, entity);
+		}
 	}else{
-		_asyncSchedule.back().head->_linkPointer
+		_interruptSchedule[n].back().head->_linkPointer
 				= QueueHead::LinkPointer::from(entity->head.data());
 	}
-	_asyncSchedule.push_back(*entity);
+	_interruptSchedule[n].push_back(*entity);
+	_activeEntities.push_back(entity);
 }
 
 void Controller::_linkAsync(QueueEntity *entity) {
+	// Link to the back of the asynchronous schedule.
 	if(_asyncSchedule.empty()) {
-		_asyncQh->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
+		// Link the front of the schedule to the new entity.
+		_linkIntoScheduleTree(1, 0, entity);
 	}else{
 		_asyncSchedule.back().head->_linkPointer
 				= QueueHead::LinkPointer::from(entity->head.data());
 	}
 	_asyncSchedule.push_back(*entity);
+	_activeEntities.push_back(entity);
+}
+
+void Controller::_linkIntoScheduleTree(int order, int index, QueueEntity *entity) {
+	assert(order > 0 && order <= 1024);
+	assert(index < order);
+
+	auto n = (order - 1) + index;
+	assert(_interruptSchedule[n].empty());
+
+	if(order == 1024) {
+		_frameList->entries[index].store(FrameListPointer::from(entity->head.data())._bits);
+	}else{
+		_linkIntoScheduleTree(order << 1, index, entity);
+		_linkIntoScheduleTree(order << 1, index + order, entity);
+	}
 }
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
@@ -1004,9 +1056,9 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 }
 
 void Controller::_progressSchedule() {
-	auto it = _asyncSchedule.begin();
-	while(it != _asyncSchedule.end()) {
-		_progressQueue(&(*it));
+	auto it = _activeEntities.begin();
+	while(it != _activeEntities.end()) {
+		_progressQueue(*it);
 		++it;
 	}
 }

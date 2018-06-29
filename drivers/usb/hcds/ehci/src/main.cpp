@@ -30,6 +30,7 @@ static const bool logPackets = false;
 static const bool logSubmits = false;
 static const bool logControllerEnumeration = false;
 static const bool logDeviceEnumeration = false;
+
 static const bool debugLinking = false;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;

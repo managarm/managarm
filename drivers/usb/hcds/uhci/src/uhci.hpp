@@ -121,12 +121,14 @@ struct FrameListPointer {
 		HEL_CHECK(helPointerPhysical(item, &physical));
 		assert(physical % sizeof(*item) == 0);
 		assert((physical & 0xFFFFFFFF) == physical);
-		return FrameListPointer(physical, true);
+		return FrameListPointer{physical, true};
 	}
+	
+	FrameListPointer()
+	: _bits{1 << TerminateBit} { }
 
 	FrameListPointer(uint32_t pointer, bool is_queue)
-	: _bits(pointer
-			| (is_queue << QhSelectBit)) {
+	: _bits{pointer | (is_queue << QhSelectBit)} {
 		assert(pointer % 16 == 0);
 	}
 
@@ -138,7 +140,7 @@ struct FrameListPointer {
 };
 
 struct FrameList {
-	FrameListPointer entries[1024];
+	arch::scalar_variable<uint32_t> entries[1024];
 };
 
 enum {
