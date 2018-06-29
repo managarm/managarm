@@ -19,20 +19,17 @@ int main() {
 	printf("Starting posix-init\n");
 
 	// Start essential bus and storage drivers.
-	auto uhci = fork();
-	if(!uhci) {
-		execl("/bin/runsvr", "runsvr", "/sbin/uhci", nullptr);
-	}else assert(uhci != -1);
-
 	auto ehci = fork();
 	if(!ehci) {
 		execl("/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
 	}else assert(ehci != -1);
 
+/*
 	auto virtio = fork();
 	if(!virtio) {
 		execl("/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
+*/
 
 /*
 	auto block_ata = fork();
@@ -48,9 +45,16 @@ int main() {
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
 	while(access("/dev/sda0", F_OK)) {
+		std::cout << "Waiting for /dev/sda0" << std::endl;
 		assert(errno == ENOENT);
 		sleep(1);
 	}
+
+	// Hack: Start UHCI only after EHCI devices are ready.
+	auto uhci = fork();
+	if(!uhci) {
+		execl("/bin/runsvr", "runsvr", "/sbin/uhci", nullptr);
+	}else assert(uhci != -1);
 
 	printf("init: Mounting /dev/sda0\n");
 	if(mount("/dev/sda0", "/realfs", "ext2", 0, ""))
@@ -133,10 +137,12 @@ int main() {
 		sleep(1);
 	}
 
+/*
 	auto input_ps2 = fork();
 	if(!input_ps2) {
 		execl("/usr/bin/runsvr", "runsvr", "/usr/bin/ps2-hid", nullptr);
 	}else assert(input_ps2 != -1);
+*/
 
 	auto input_hid = fork();
 	if(!input_hid) {
