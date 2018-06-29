@@ -801,7 +801,11 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 	if(queue->transactions.empty()) {
 		if(logSubmits)
 			std::cout << "ehci: Linking in _linkTransaction" << std::endl;
+		auto status = queue->head->status.load();
 		assert(queue->head->nextTd.load() & td_ptr::terminate);
+		assert(!(status & qh_status::active));
+		assert(!(status & qh_status::halted));
+		assert(!(status & qh_status::totalBytes));
 		auto current = (queue->head->curTd.load() & qh_curTd::curTd);
 		auto pointer = schedulePointer(&transaction->transfers[0]);
 		queue->head->nextTd.store(qh_nextTd::nextTd(pointer));
@@ -861,7 +865,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 
 		// Clean up the Queue.
 		entity->transactions.pop_front();
-		delete active;
+		//delete active;
 		// TODO: _reclaim(active);
 		
 		// Schedule the next transaction.
@@ -882,7 +886,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		
 		// Clean up the Queue.
 		entity->transactions.pop_front();
-		delete active;
+		//delete active;
 		// TODO: _reclaim(active);
 	}
 }

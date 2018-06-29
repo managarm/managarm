@@ -116,7 +116,7 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 					arch::dma_buffer_view{nullptr, &cbw, sizeof(CommandBlockWrapper)}});
 			
 			if(logSteps)
-				std::cout << "block-usb: Waiting for data and CSW" << std::endl;
+				std::cout << "block-usb: Waiting for data" << std::endl;
 			BulkTransfer data_info{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, req->buffer, req->numSectors * 512}};
 			// TODO: We want this to be lazy but that only works if can ensure that
@@ -125,6 +125,8 @@ COFIBER_ROUTINE(async::result<void>, StorageDevice::run(int config_num, int intf
 			auto data_xfer = endp_in.transfer(data_info);
 			COFIBER_AWAIT std::move(data_xfer);
 
+			if(logSteps)
+				std::cout << "block-usb: Waiting for CSW" << std::endl;
 			auto csw_xfer = endp_in.transfer(BulkTransfer{XferFlags::kXferToHost,
 					arch::dma_buffer_view{nullptr, &csw, sizeof(CommandStatusWrapper)}});
 			COFIBER_AWAIT std::move(csw_xfer);
