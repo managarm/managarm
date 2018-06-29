@@ -2,6 +2,7 @@
 #define LIBARCH_VARIABLE_HPP
 
 #include <arch/bits.hpp>
+#include <arch/mem_space.hpp>
 
 namespace arch {
 
@@ -16,11 +17,11 @@ struct basic_variable {
 	: _embedded{static_cast<B>(r)} { }
 
 	R load() {
-		return static_cast<R>(_embedded);
+		return static_cast<R>(_detail::mem_ops<B>::load(&_embedded));
 	}
 
 	void store(R r) {
-		_embedded = static_cast<B>(r);
+		_detail::mem_ops<B>::store(&_embedded, static_cast<B>(r));
 	}
 
 private:
