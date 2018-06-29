@@ -90,7 +90,7 @@ void setupDebugging() {
 		
 		// Set the baud rate.
 		base.store(lineControl, dlab(true));
-		base.store(baudLow, 0x0C);
+		base.store(baudLow, 0x01);
 		base.store(baudHigh, 0x00);
 
 		// Configure: 8 data bits, 1 stop bit, no parity.
