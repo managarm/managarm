@@ -186,7 +186,7 @@ void initLocalApicOnTheSystem() {
 	// bits > the physical address limit of the msr.
 	// For now we just assume that they are zero.
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
-			page_access::write);
+			page_access::write, CachingMode::null);
 	picBase = arch::mem_space(register_ptr);
 
 	frigg::infoLogger() << "Booting on CPU #" << getLocalApicId() << frigg::endLog;
@@ -515,7 +515,7 @@ void setupIoApic(PhysicalAddr address) {
 	// TODO: We really only need a single page.
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x10000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), address,
-			page_access::write);
+			page_access::write, CachingMode::null);
 	
 	picModel = kModelApic;
 

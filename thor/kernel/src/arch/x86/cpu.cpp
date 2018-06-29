@@ -9,7 +9,7 @@
 namespace thor {
 
 namespace {
-	constexpr bool disableSmp = true;
+	constexpr bool disableSmp = false;
 }
 
 // --------------------------------------------------------

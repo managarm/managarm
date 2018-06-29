@@ -614,6 +614,15 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	}
 
 	// ------------------------------------------------------------------------
+
+	// Program the PAT. Each byte configures a single entry.
+	// 00: Uncacheable
+	// 01: Write Combining
+	// 04: Write Through
+	// 06: Write Back
+	// Keep in sync with the SMP trampoline in thor.
+	uint64_t pat = 0x00'00'01'00'00'00'04'06;
+	frigg::arch_x86::wrmsr(0x277, pat);
 	
 	setupPaging();
 

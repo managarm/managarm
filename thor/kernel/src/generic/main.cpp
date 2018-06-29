@@ -121,7 +121,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(0x1000000));
 			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
-						modules[0].physicalBase + pg, 0);
+						modules[0].physicalBase + pg, 0, CachingMode::null);
 
 			struct Header {
 				char magic[6];

@@ -52,6 +52,9 @@ enum {
 	kPagePresent = 0x1,
 	kPageWrite = 0x2,
 	kPageUser = 0x4,
+	kPagePwt = 0x8,
+	kPagePcd = 0x10,
+	kPagePat = 0x80,
 	kPageGlobal = 0x100,
 	kPageXd = 0x8000000000000000
 };
@@ -251,7 +254,8 @@ KernelPageSpace &KernelPageSpace::global() {
 KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
 : PageSpace{pml4_address} { }
 
-void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags) {
+void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+		uint32_t flags, CachingMode caching_mode) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
@@ -326,6 +330,13 @@ void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, ui
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
+	if(caching_mode == CachingMode::writeThrough) {
+		new_entry |= kPagePwt;
+	}else if(caching_mode == CachingMode::writeCombine) {
+		new_entry |= kPagePat | kPagePwt;
+	}else{
+		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
+	}
 	pt_pointer[pt_index] = new_entry;
 }
 
@@ -419,7 +430,7 @@ void ClientPageSpace::activate() {
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		bool user_page, uint32_t flags) {
+		bool user_page, uint32_t flags, CachingMode caching_mode) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
@@ -505,6 +516,13 @@ void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		new_entry |= kPageWrite;
 	if(!(flags & page_access::execute))
 		new_entry |= kPageXd;
+	if(caching_mode == CachingMode::writeThrough) {
+		new_entry |= kPagePwt;
+	}else if(caching_mode == CachingMode::writeCombine) {
+		new_entry |= kPagePat | kPagePwt;
+	}else{
+		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
+	}
 	tbl1[index1].store(new_entry);
 }
 

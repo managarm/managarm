@@ -121,20 +121,21 @@ struct FetchNode {
 		_fetched = fetched;
 	}
 
-	frigg::Tuple<PhysicalAddr, size_t> range() {
+	frigg::Tuple<PhysicalAddr, size_t, CachingMode> range() {
 		return _range;
 	}
 
 private:
 	Worklet *_fetched;
 
-	frigg::Tuple<PhysicalAddr, size_t> _range;
+	frigg::Tuple<PhysicalAddr, size_t, CachingMode> _range;
 };
 
 struct MemoryBundle {	
 protected:
-	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size) {
-		node->_range = frigg::Tuple<PhysicalAddr, size_t>{physical, size};
+	static void completeFetch(FetchNode *node, PhysicalAddr physical, size_t size,
+			CachingMode cm) {
+		node->_range = frigg::Tuple<PhysicalAddr, size_t, CachingMode>{physical, size, cm};
 	}
 	
 	static void callbackFetch(FetchNode *node) {
@@ -144,7 +145,7 @@ protected:
 public:
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
-	virtual PhysicalAddr peekRange(uintptr_t offset) = 0;
+	virtual frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
 
 	// Returns the physical memory that backs a range of memory.
 	// Ensures that the range is present before returning.
@@ -166,7 +167,7 @@ struct CowBundle : MemoryBundle {
 
 	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
 
-	PhysicalAddr peekRange(uintptr_t offset) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 private:
@@ -239,10 +240,10 @@ struct HardwareMemory : Memory {
 		return memory.tag() == MemoryTag::hardware;
 	}
 
-	HardwareMemory(PhysicalAddr base, size_t length);
+	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	~HardwareMemory();
 
-	PhysicalAddr peekRange(uintptr_t offset) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();
@@ -250,6 +251,7 @@ struct HardwareMemory : Memory {
 private:
 	PhysicalAddr _base;
 	size_t _length;
+	CachingMode _cacheMode;
 };
 
 struct AllocatedMemory : Memory {
@@ -265,7 +267,7 @@ struct AllocatedMemory : Memory {
 
 	void copyKernelToThisSync(ptrdiff_t offset, void *pointer, size_t length) override;
 
-	PhysicalAddr peekRange(uintptr_t offset) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 	
 	size_t getLength();
@@ -312,7 +314,7 @@ public:
 	BackingMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::backing), _managed(frigg::move(managed)) { }
 
-	PhysicalAddr peekRange(uintptr_t offset) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();
@@ -333,7 +335,7 @@ public:
 	FrontalMemory(frigg::SharedPtr<ManagedSpace> managed)
 	: Memory(MemoryTag::frontal), _managed(frigg::move(managed)) { }
 
-	PhysicalAddr peekRange(uintptr_t offset) override;
+	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	bool fetchRange(uintptr_t offset, FetchNode *node) override;
 
 	size_t getLength();

@@ -141,12 +141,13 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 	fb_info->window = KernelVirtualMemory::global().allocate(0x1'000'000);
 	for(size_t pg = 0; pg < window_size; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(fb_info->window) + pg,
-				address + pg, page_access::write);
+				address + pg, page_access::write, CachingMode::writeCombine);
 	
 	assert(!(address & (kPageSize - 1)));
 	fb_info->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 			address & ~(kPageSize - 1),
-			(height * pitch + (kPageSize - 1)) & ~(kPageSize - 1));	
+			(height * pitch + (kPageSize - 1)) & ~(kPageSize - 1),
+			CachingMode::writeCombine);	
 
 	auto display = frigg::construct<FbDisplay>(*kernelAlloc, fb_info->window,
 			fb_info->width, fb_info->height, fb_info->pitch);

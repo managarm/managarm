@@ -24,7 +24,7 @@ CowBundle::CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t
 	_copy = frigg::makeShared<AllocatedMemory>(*kernelAlloc, size, kPageSize, kPageSize);
 }
 
-PhysicalAddr CowBundle::peekRange(uintptr_t) {
+frigg::Tuple<PhysicalAddr, CachingMode> CowBundle::peekRange(uintptr_t) {
 	assert(!"This should never be called");
 	__builtin_unreachable();
 }
@@ -39,7 +39,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node) {
 	if(auto it = _pages.find(offset >> kPageShift); it) {
 		auto physical = it->load(std::memory_order_relaxed);
 		assert(physical != PhysicalAddr(-1));
-		completeFetch(node, physical, kPageSize);
+		completeFetch(node, physical, kPageSize, CachingMode::null);
 		return true;
 	}
 
@@ -57,7 +57,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node) {
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			completeFetch(node, physical, kPageSize);
+			completeFetch(node, physical, kPageSize, CachingMode::null);
 			return true;
 		}
 
@@ -71,7 +71,7 @@ bool CowBundle::fetchRange(uintptr_t offset, FetchNode *node) {
 			assert(physical != PhysicalAddr(-1));
 			auto cow_it = _pages.insert(offset >> kPageShift, PhysicalAddr(-1));
 			cow_it->store(physical, std::memory_order_relaxed);
-			completeFetch(node, physical, kPageSize);
+			completeFetch(node, physical, kPageSize, CachingMode::null);
 			return true;
 		}
 
@@ -299,25 +299,25 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 // HardwareMemory
 // --------------------------------------------------------
 
-HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length)
-: Memory(MemoryTag::hardware), _base(base), _length(length) {
-	assert(base % kPageSize == 0);
-	assert(length % kPageSize == 0);
+HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode)
+: Memory{MemoryTag::hardware}, _base{base}, _length{length}, _cacheMode{cache_mode} {
+	assert(!(base % kPageSize));
+	assert(!(length % kPageSize));
 }
 
 HardwareMemory::~HardwareMemory() {
 	// For now we do nothing when deallocating hardware memory.
 }
 
-PhysicalAddr HardwareMemory::peekRange(uintptr_t offset) {
+frigg::Tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
-	return _base + offset;
+	return frigg::Tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
 bool HardwareMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	assert(offset % kPageSize == 0);
 
-	completeFetch(node, _base + offset, _length - offset);
+	completeFetch(node, _base + offset, _length - offset, _cacheMode);
 	return true;
 }
 
@@ -396,7 +396,7 @@ void AllocatedMemory::copyKernelToThisSync(ptrdiff_t offset, void *pointer, size
 	memcpy((uint8_t *)accessor.get() + (offset % kPageSize), pointer, size);
 }
 
-PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
+frigg::Tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 	
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -407,8 +407,9 @@ PhysicalAddr AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(index < _physicalChunks.size());
 
 	if(_physicalChunks[index] == PhysicalAddr(-1))
-		return PhysicalAddr(-1);
-	return _physicalChunks[index] + disp;
+		return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return frigg::Tuple<PhysicalAddr, CachingMode>{_physicalChunks[index] + disp,
+			CachingMode::null};
 }
 
 bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -432,7 +433,7 @@ bool AllocatedMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	completeFetch(node, _physicalChunks[index] + disp, _chunkSize - disp);
+	completeFetch(node, _physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null);
 	return true;
 }
 
@@ -519,7 +520,7 @@ bool ManagedSpace::isComplete(InitiateBase *initiate) {
 // BackingMemory
 // --------------------------------------------------------
 
-PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
+frigg::Tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -527,7 +528,8 @@ PhysicalAddr BackingMemory::peekRange(uintptr_t offset) {
 
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
-	return _managed->physicalPages[index];
+	return frigg::Tuple<PhysicalAddr, CachingMode>{_managed->physicalPages[index],
+			CachingMode::null};
 }
 
 bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -546,7 +548,8 @@ bool BackingMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		_managed->physicalPages[index] = physical;
 	}
 
-	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign);
+	completeFetch(node, _managed->physicalPages[index] + misalign, kPageSize - misalign,
+			CachingMode::null);
 	return true;
 }
 
@@ -629,7 +632,7 @@ void BackingMemory::completeLoad(size_t offset, size_t length) {
 // FrontalMemory
 // --------------------------------------------------------
 
-PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
+frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frigg::guard(&irqMutex());
@@ -638,8 +641,9 @@ PhysicalAddr FrontalMemory::peekRange(uintptr_t offset) {
 	auto index = offset / kPageSize;
 	assert(index < _managed->physicalPages.size());
 	if(_managed->loadState[index] != ManagedSpace::kStateLoaded)
-		return PhysicalAddr(-1);
-	return _managed->physicalPages[index];
+		return frigg::Tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return frigg::Tuple<PhysicalAddr, CachingMode>{_managed->physicalPages[index],
+			CachingMode::null};
 }
 
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
@@ -677,7 +681,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				lock.unlock();
 				irq_lock.unlock();
 
-				completeFetch(closure->fetch, physical, kPageSize);
+				completeFetch(closure->fetch, physical, kPageSize, CachingMode::null);
 				callbackFetch(closure->fetch);
 				frigg::destruct(*kernelAlloc, closure);
 			}
@@ -709,7 +713,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto physical = _managed->physicalPages[index];
 	assert(physical != PhysicalAddr(-1));
-	completeFetch(node, physical, kPageSize);
+	completeFetch(node, physical, kPageSize, CachingMode::null);
 	return true;
 }
 
@@ -869,7 +873,7 @@ void NormalMapping::install(bool overwrite) {
 
 		auto range = _view->resolveRange(_offset + progress, kPageSize);
 		assert(range.get<2>() >= kPageSize);
-		PhysicalAddr physical = range.get<0>()->peekRange(range.get<1>());
+		auto bundle_range = range.get<0>()->peekRange(range.get<1>());
 
 		VirtualAddr vaddr = address() + progress;
 		if(overwrite && owner()->_pageSpace.isMapped(vaddr)) {
@@ -877,8 +881,9 @@ void NormalMapping::install(bool overwrite) {
 		}else{
 			assert(!owner()->_pageSpace.isMapped(vaddr));
 		}
-		if(physical != PhysicalAddr(-1))
-			owner()->_pageSpace.mapSingle4k(vaddr, physical, true, page_flags);
+		if(bundle_range.get<0>() != PhysicalAddr(-1))
+			owner()->_pageSpace.mapSingle4k(vaddr, bundle_range.get<0>(), true,
+					page_flags, bundle_range.get<1>());
 	}
 }
 
@@ -924,7 +929,7 @@ bool NormalMapping::handleFault(FaultNode *node) {
 		assert((self->flags() & MappingFlags::permissionMask) & MappingFlags::protRead);
 
 		self->owner()->_pageSpace.mapSingle4k(vaddr, node->_fetch.range().get<0>(),
-				true, page_flags);
+				true, page_flags, node->_fetch.range().get<2>());
 		node->_resolved = true;
 	};
 
@@ -1016,8 +1021,9 @@ bool CowMapping::handleFault(FaultNode *node) {
 
 	auto physical = _cowBundle->blockForRange(fault_page);
 	// TODO: Ensure that no racing threads still see the original page.
-	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
-			true, page_flags);
+	assert(!"Fix this");
+//	owner()->_pageSpace.mapSingle4k(address() + fault_page, physical,
+//			true, page_flags);
 	node->_resolved = true;
 	return true;
 }
@@ -1548,9 +1554,9 @@ PhysicalAddr ForeignSpaceAccessor::_resolvePhysical(VirtualAddr vaddr) {
 	Mapping *mapping = _space->_getMapping(vaddr);
 	assert(mapping);
 	auto range = mapping->resolveRange(vaddr - mapping->address(), kPageSize);
-	auto physical = range.get<0>()->peekRange(range.get<1>());
-	assert(physical != PhysicalAddr(-1));
-	return physical;
+	auto bundle_range = range.get<0>()->peekRange(range.get<1>());
+	assert(bundle_range.get<0>() != PhysicalAddr(-1));
+	return bundle_range.get<0>();
 }
 
 } // namespace thor

@@ -487,7 +487,8 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 				auto offset = address & (kPageSize - 1);
 				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1));
+						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::null);
 				device->bars[i].offset = offset;
 
 				frigg::infoLogger() << "            32-bit memory BAR #" << i
@@ -514,7 +515,8 @@ void checkPciFunction(uint32_t bus, uint32_t slot, uint32_t function,
 				auto offset = address & (kPageSize - 1);
 				device->bars[i].memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
 						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1));
+						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::null);
 				device->bars[i].offset = offset;
 
 				frigg::infoLogger() << "            64-bit memory BAR #" << i

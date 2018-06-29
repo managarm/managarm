@@ -61,6 +61,12 @@ trampoline:
 	mov %ax, %fs
 	mov %ax, %gs
 
+	# Setup the PAT. Keep this in sync with the eir code.
+	mov $0x00000406, %eax
+	mov $0x00000100, %edx
+	mov $0x277, %ecx
+	wrmsr
+
 	# Enable PAE paging.
 	mov %cr4, %eax
 	or $0x20, %eax

@@ -60,7 +60,7 @@ KernelVirtualMemory::KernelVirtualMemory() {
 		for(size_t offset = 0; offset < overhead; offset += kPageSize) {
 			PhysicalAddr physical = physicalAllocator->allocate(0x1000);
 			KernelPageSpace::global().mapSingle4k(original_base + offset, physical,
-					page_access::write);
+					page_access::write, CachingMode::null);
 		}
 	}
 
@@ -92,7 +92,7 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
-				page_access::write);
+				page_access::write, CachingMode::null);
 	}
 
 	return uintptr_t(p);

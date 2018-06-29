@@ -124,7 +124,7 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS physical, ACPI_SIZE length) {
 	auto ptr = KernelVirtualMemory::global().allocate(0x100000);
 	for(size_t pg = 0; pg < vsize; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k((VirtualAddr)ptr + pg, paddr + pg,
-				page_access::write);
+				page_access::write, CachingMode::null);
 	return reinterpret_cast<char *>(ptr) + (physical & (kPageSize - 1));
 }
 

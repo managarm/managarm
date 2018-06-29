@@ -170,6 +170,14 @@ namespace page_access {
 	static constexpr uint32_t execute = 2;
 }
 
+enum class CachingMode {
+	null,
+	uncached,
+	writeCombine,
+	writeThrough,
+	writeBack,
+};
+
 struct KernelPageSpace : PageSpace {
 public:
 	static void initialize(PhysicalAddr pml4_address);
@@ -183,7 +191,8 @@ public:
 	
 	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, uint32_t flags);
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+			uint32_t flags, CachingMode caching_mode);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
 private:
@@ -202,7 +211,8 @@ public:
 	
 	void activate();
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access, uint32_t flags);
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
+			uint32_t flags, CachingMode caching_mode);
 	void unmapRange(VirtualAddr pointer, size_t size, PageMode mode);
 	bool isMapped(VirtualAddr pointer);
 

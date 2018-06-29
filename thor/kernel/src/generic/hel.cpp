@@ -420,7 +420,8 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc, physical, size);
+	auto memory = frigg::makeShared<HardwareMemory>(*kernelAlloc, physical, size,
+			CachingMode::null);
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
