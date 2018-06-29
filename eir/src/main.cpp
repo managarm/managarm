@@ -524,7 +524,7 @@ struct MbInfo {
 	uint32_t memoryMapLength;
 	void *memoryMapPtr;
 	uint32_t padding[9];
-	uint64_t fbAddr;
+	uint64_t fbAddress;
 	uint32_t fbPitch;
 	uint32_t fbWidth;
 	uint32_t fbHeight;
@@ -688,12 +688,18 @@ extern "C" void eirMain(MbInfo *mb_info) {
 	
 	if((mb_info->flags & kMbInfoFramebuffer) != 0) {
 		auto framebuf = &info_ptr->frameBuffer;
-		framebuf->fbAddress = mb_info->fbAddr;
+		framebuf->fbAddress = mb_info->fbAddress;
 		framebuf->fbPitch = mb_info->fbPitch;
 		framebuf->fbWidth = mb_info->fbWidth;
 		framebuf->fbHeight = mb_info->fbHeight;
 		framebuf->fbBpp = mb_info->fbBpp;
 		framebuf->fbType = mb_info->fbType;
+	
+		// Map the framebuffer to a lower-half address.
+		assert(mb_info->fbAddress & ~(kPageSize - 1));
+		for(uint64_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
+			mapSingle4kPage(0x80000000 + pg, mb_info->fbAddress + pg, kAccessWrite);
+		framebuf->fbEarlyWindow = 0x80000000;
 	}
 
 	frigg::infoLogger() << "Leaving Eir and entering the real kernel" << frigg::endLog;

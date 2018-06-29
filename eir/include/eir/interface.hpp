@@ -21,6 +21,7 @@ struct EirModule {
 
 struct EirFramebuffer {
 	EirPtr fbAddress;
+	EirPtr fbEarlyWindow;
 	EirSize fbPitch;
 	EirSize fbWidth;
 	EirSize fbHeight;

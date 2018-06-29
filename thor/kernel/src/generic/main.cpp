@@ -48,6 +48,11 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		debugToBochs = true;
 	}
 	setupDebugging();
+
+	initializeBootFb(info->frameBuffer.fbAddress, info->frameBuffer.fbPitch,
+			info->frameBuffer.fbWidth, info->frameBuffer.fbHeight,
+			info->frameBuffer.fbBpp, info->frameBuffer.fbType,
+			reinterpret_cast<void *>(info->frameBuffer.fbEarlyWindow));
 	
 	frigg::infoLogger() << "Starting Thor" << frigg::endLog;
 	
@@ -104,9 +109,7 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		// Complete the system initialization.
 		initializeExtendedSystem();
 
-		initializeFb(info->frameBuffer.fbAddress, info->frameBuffer.fbPitch,
-				info->frameBuffer.fbWidth, info->frameBuffer.fbHeight,
-				info->frameBuffer.fbBpp, info->frameBuffer.fbType);
+		transitionBootFb();
 
 		pci::runAllDevices();
 

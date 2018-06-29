@@ -51,11 +51,15 @@ constexpr uint32_t rgbColor[16] = {
 constexpr uint32_t defaultBg = rgb(16, 16, 16);
 
 struct FbDisplay : TextDisplay {
-	FbDisplay(void *window, unsigned int width, unsigned int height, size_t pitch)
-	: _window{reinterpret_cast<uint32_t *>(window)},
-			_width{width}, _height{height}, _pitch{pitch / sizeof(uint32_t)} {
+	FbDisplay(void *ptr, unsigned int width, unsigned int height, size_t pitch)
+	: _width{width}, _height{height}, _pitch{pitch / sizeof(uint32_t)} {
 		assert(!(pitch % sizeof(uint32_t)));
+		setWindow(ptr);
 		_clearScreen(defaultBg);
+	}
+
+	void setWindow(void *ptr) {
+		_window = reinterpret_cast<uint32_t *>(ptr);
 	}
 
 	int getWidth() override;
@@ -126,9 +130,16 @@ void FbDisplay::_clearScreen(uint32_t rgb_color) {
 	}
 }
 
-void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
-		uint64_t height, uint64_t bpp, uint64_t type) {
-	auto fb_info = frigg::construct<FbInfo>(*kernelAlloc);
+namespace {
+	frigg::LazyInitializer<FbInfo> bootInfo;
+	frigg::LazyInitializer<FbDisplay> bootDisplay;
+	frigg::LazyInitializer<BootScreen> bootScreen;
+}
+
+void initializeBootFb(uint64_t address, uint64_t pitch, uint64_t width,
+		uint64_t height, uint64_t bpp, uint64_t type, void *early_window) {
+	bootInfo.initialize();
+	auto fb_info = bootInfo.get();
 	fb_info->address = address;
 	fb_info->pitch = pitch;
 	fb_info->width = width;
@@ -136,24 +147,30 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 	fb_info->bpp = bpp;
 	fb_info->type = type;
 
-	auto window_size = (height * pitch + (kPageSize - 1)) & ~(kPageSize - 1);
-	assert(window_size <= 0x1'000'000);
-	fb_info->window = KernelVirtualMemory::global().allocate(0x1'000'000);
-	for(size_t pg = 0; pg < window_size; pg += kPageSize)
-		KernelPageSpace::global().mapSingle4k(VirtualAddr(fb_info->window) + pg,
-				address + pg, page_access::write, CachingMode::writeCombine);
-	
-	assert(!(address & (kPageSize - 1)));
-	fb_info->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
-			address & ~(kPageSize - 1),
-			(height * pitch + (kPageSize - 1)) & ~(kPageSize - 1),
-			CachingMode::writeCombine);	
-
-	auto display = frigg::construct<FbDisplay>(*kernelAlloc, fb_info->window,
+	// Initialize the framebuffer with a lower-half window.
+	bootDisplay.initialize(early_window,
 			fb_info->width, fb_info->height, fb_info->pitch);
-	auto screen = frigg::construct<BootScreen>(*kernelAlloc, display);
+	bootScreen.initialize(bootDisplay.get());
 
-	enableLogHandler(screen);
+	enableLogHandler(bootScreen.get());
+}
+
+void transitionBootFb() {
+	auto window_size = (bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1);
+	assert(window_size <= 0x1'000'000);
+	auto window = KernelVirtualMemory::global().allocate(0x1'000'000);
+	for(size_t pg = 0; pg < window_size; pg += kPageSize)
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(window) + pg,
+				bootInfo->address + pg, page_access::write, CachingMode::writeCombine);
+
+	// Transition to the kernel mapping window.
+	bootDisplay->setWindow(window);
+	
+	assert(!(bootInfo->address & (kPageSize - 1)));
+	bootInfo->memory = frigg::makeShared<HardwareMemory>(*kernelAlloc,
+			bootInfo->address & ~(kPageSize - 1),
+			(bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1),
+			CachingMode::writeCombine);	
 
 	// Try to attached the framebuffer to a PCI device.
 	pci::PciDevice *owner = nullptr;
@@ -163,8 +180,10 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 				if((*it)->bars[i].type != pci::PciDevice::kBarMemory)
 					continue;
 				// TODO: Careful about overflow here.
-				if(address >= (*it)->bars[i].address && address + height * pitch
-						<= (*it)->bars[i].address + (*it)->bars[i].length)
+				auto bar_begin = (*it)->bars[i].address;
+				auto bar_end = (*it)->bars[i].address + (*it)->bars[i].length;
+				if(bootInfo->address >= bar_begin
+						&& bootInfo->address + bootInfo->height * bootInfo->pitch <= bar_end)
 					return true;
 			}
 			
@@ -181,8 +200,8 @@ void initializeFb(uint64_t address, uint64_t pitch, uint64_t width,
 		frigg::panicLogger() << "thor: Could not find owner for boot framebuffer" << frigg::endLog;
 	frigg::infoLogger() << "thor: Boot framebuffer is attached to PCI device "
 			<< owner->bus << "." << owner->slot << "." << owner->function << frigg::endLog;
-	owner->associatedFrameBuffer = fb_info;
-	owner->associatedScreen = screen;
+	owner->associatedFrameBuffer = bootInfo.get();
+	owner->associatedScreen = bootScreen.get();
 }
 
 } // namespace thor
