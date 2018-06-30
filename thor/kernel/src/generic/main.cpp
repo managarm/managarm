@@ -299,6 +299,8 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		frigg::infoLogger() << "\e[31mthor: SMAP fault.\e[39m" << frigg::endLog;
 	}else{
 		// TODO: Make sure that we're in a thread domain.
+		WorkScope wqs{this_thread->pagingWorkQueue()};
+
 		struct Closure {
 			ThreadBlocker blocker;
 			Worklet worklet;
@@ -310,7 +312,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address) {
 		closure.worklet.setup([] (Worklet *base) {
 			auto closure = frg::container_of(base, &Closure::worklet);
 			Thread::unblockOther(&closure->blocker);
-		}, this_thread->associatedWorkQueue());
+		});
 		closure.fault.setup(&closure.worklet);
 		closure.blocker.setup();
 		if(!address_space->handleFault(address, flags, &closure.fault))
@@ -443,7 +445,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	// Run worklets before we run the syscall.
 	// This avoids useless FutexWait calls on IPC queues.
-	this_thread->associatedWorkQueue()->run();
+	this_thread->mainWorkQueue()->run();
 
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {
@@ -694,7 +696,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	}
 	
 	// Run more worklets that were posted by the syscall.
-	this_thread->associatedWorkQueue()->run();
+	this_thread->mainWorkQueue()->run();
 
 	Thread::raiseSignals(image);
 

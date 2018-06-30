@@ -58,7 +58,13 @@ private:
 	};
 
 	struct AssociatedWorkQueue : WorkQueue {
+		AssociatedWorkQueue(Thread *thread)
+		: _thread{thread} { }
+
 		void wakeup() override;
+	
+	private:
+		Thread *_thread;
 	};
 
 public:
@@ -113,8 +119,11 @@ public:
 		return _credentials;
 	}
 	
-	WorkQueue *associatedWorkQueue() {
-		return &_associatedWorkQueue;
+	WorkQueue *mainWorkQueue() {
+		return &_mainWorkQueue;
+	}
+	WorkQueue *pagingWorkQueue() {
+		return &_pagingWorkQueue;
 	}
 
 	UserContext &getContext();
@@ -184,7 +193,8 @@ private:
 
 	char _credentials[16];
 
-	AssociatedWorkQueue _associatedWorkQueue;
+	AssociatedWorkQueue _mainWorkQueue;
+	AssociatedWorkQueue _pagingWorkQueue;
 
 	Mutex _mutex;
 

@@ -22,7 +22,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 	auto this_thread = getCurrentThread();
 	while(true) {
 		// Run the WQ outside of the locks.
-		this_thread->_associatedWorkQueue.run();
+		WorkQueue::localQueue()->run();
 
 		StatelessIrqLock irq_lock;
 		auto lock = frigg::guard(&this_thread->_mutex);
@@ -30,7 +30,7 @@ void Thread::blockCurrent(ThreadBlocker *blocker) {
 		// Those are the important tests; they are protected by the thread's mutex.
 		if(blocker->_done)
 			break;
-		if(this_thread->_associatedWorkQueue.check())
+		if(WorkQueue::localQueue()->check())
 			continue;
 		
 		if(logRunStates)
@@ -309,17 +309,18 @@ void Thread::resumeOther(frigg::UnsafePtr<Thread> thread) {
 
 Thread::Thread(frigg::SharedPtr<Universe> universe,
 		frigg::SharedPtr<AddressSpace> address_space, AbiParameters abi)
-: flags(0), _runState(kRunInterrupted), _lastInterrupt{kIntrNull}, _stateSeq{1},
-		_numTicks(0), _activationTick(0),
-		_pendingKill{false}, _pendingSignal(kSigNone), _runCount(1),
+: flags{0}, _mainWorkQueue{this}, _pagingWorkQueue{this},
+		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
+		_numTicks{0}, _activationTick{0},
+		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
-		_universe(frigg::move(universe)), _addressSpace(frigg::move(address_space)) {
+		_universe{frigg::move(universe)}, _addressSpace{frigg::move(address_space)} {
 	// TODO: Generate real UUIDs instead of ascending numbers.
 	uint64_t id = globalThreadId.fetch_add(1, std::memory_order_relaxed) + 1;
 	memset(_credentials, 0, 16);
 	memcpy(_credentials + 8, &id, sizeof(uint64_t));
 
-	_executorContext.associatedWorkQueue = &_associatedWorkQueue;
+	_executorContext.associatedWorkQueue = &_mainWorkQueue;
 
 	auto stream = createStream();
 	_superiorLane = frigg::move(stream.get<0>());
@@ -421,7 +422,7 @@ void Thread::invoke() {
 				<< " is activated" << frigg::endLog;
 
 	// If there is work to do, return to the WorkQueue and not to user space.
-	if(_runState == kRunSuspended && _associatedWorkQueue.check())
+	if(_runState == kRunSuspended && _mainWorkQueue.check())
 		workOnExecutor(&_executor);
 
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
@@ -441,19 +442,18 @@ void Thread::_uninvoke() {
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {
-	auto self = frg::container_of(this, &Thread::_associatedWorkQueue);
 	auto irq_lock = frigg::guard(&irqMutex());
-	auto lock = frigg::guard(&self->_mutex);
+	auto lock = frigg::guard(&_thread->_mutex);
 
-	if(self->_runState != kRunBlocked)
+	if(_thread->_runState != kRunBlocked)
 		return;
 	
 	if(logRunStates)
-		frigg::infoLogger() << "thor: " << (void *)self
+		frigg::infoLogger() << "thor: " << (void *)_thread
 				<< " is deferred (via wq wakeup)" << frigg::endLog;
 
-	self->_runState = kRunDeferred;
-	Scheduler::resume(self);
+	_thread->_runState = kRunDeferred;
+	Scheduler::resume(_thread);
 }
 
 void ThreadBlocker::setup() {

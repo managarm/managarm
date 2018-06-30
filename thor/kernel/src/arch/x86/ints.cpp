@@ -330,7 +330,7 @@ extern "C" void onPlatformWork() {
 	disableUserAccess();
 
 	enableInts();
-	getCurrentThread()->associatedWorkQueue()->run();
+	getCurrentThread()->mainWorkQueue()->run();
 	disableInts();
 }
 

@@ -4,6 +4,19 @@
 
 namespace thor {
 
+WorkScope::WorkScope(WorkQueue *queue)
+: _scopedQueue{queue}, _outerQueue{nullptr} {
+	auto context = localExecutorContext();
+	_outerQueue = context->associatedWorkQueue;
+	context->associatedWorkQueue = _scopedQueue;
+}
+
+WorkScope::~WorkScope() {
+	auto context = localExecutorContext();
+	assert(context->associatedWorkQueue == _scopedQueue);
+	context->associatedWorkQueue = _outerQueue;
+}
+
 WorkQueue *WorkQueue::localQueue() {
 	auto context = localExecutorContext();
 	assert(context);

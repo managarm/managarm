@@ -25,6 +25,22 @@ private:
 	frg::default_list_hook<Worklet> _hook;
 };
 
+struct WorkScope {
+	WorkScope(WorkQueue *queue);
+
+	WorkScope() = delete;
+	
+	WorkScope(const WorkScope &) = delete;
+
+	~WorkScope();
+
+	WorkScope &operator= (const WorkScope &) = delete;
+
+private:
+	WorkQueue *_scopedQueue;
+	WorkQueue *_outerQueue;
+};
+
 struct WorkQueue {
 	static WorkQueue *localQueue();
 
