@@ -17,6 +17,8 @@ struct Worklet {
 		_workQueue = wq;
 	}
 
+	void setup(void (*run)(Worklet *));
+
 private:
 	WorkQueue *_workQueue;
 	void (*_run)(Worklet *);
@@ -61,6 +63,10 @@ private:
 		>
 	> _posted;
 };
+
+inline void Worklet::setup(void (*run)(Worklet *)) {
+	setup(run, WorkQueue::localQueue());
+}
 
 } // namespace thor
 

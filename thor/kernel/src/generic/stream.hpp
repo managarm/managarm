@@ -159,7 +159,7 @@ struct OfferBase : StreamPacket, StreamNode {
 	}
 
 	explicit OfferBase() {
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagOffer, this);
 	}
@@ -184,7 +184,7 @@ struct AcceptBase : StreamPacket, StreamNode {
 
 	explicit AcceptBase(frigg::WeakPtr<Universe> universe)
 	: _universe(frigg::move(universe)) {
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagAccept, this);
 	}
@@ -216,7 +216,7 @@ struct ImbueCredentialsBase : StreamPacket, StreamNode {
 
 	explicit ImbueCredentialsBase(const char * credentials_) {
 		memcpy(_inCredentials.data(), credentials_, 16);
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagImbueCredentials, this);
 	}
@@ -240,7 +240,7 @@ struct ExtractCredentialsBase : StreamPacket, StreamNode {
 	}
 
 	explicit ExtractCredentialsBase() {
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagExtractCredentials, this);
 	}
@@ -266,7 +266,7 @@ struct SendFromBufferBase : StreamPacket, StreamNode {
 
 	explicit SendFromBufferBase(frigg::UniqueMemory<KernelAlloc> buffer) {
 		_inBuffer = frigg::move(buffer);
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagSendFromBuffer, this);
 	}
@@ -290,7 +290,7 @@ struct RecvInlineBase : StreamPacket, StreamNode {
 	}
 
 	explicit RecvInlineBase() {
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagRecvInline, this);
 	}
@@ -319,7 +319,7 @@ struct RecvToBufferBase : StreamPacket, StreamNode {
 
 	explicit RecvToBufferBase(AnyBufferAccessor accessor) {
 		_inAccessor = frigg::move(accessor);
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagRecvToBuffer, this);
 	}
@@ -344,7 +344,7 @@ struct PushDescriptorBase : StreamPacket, StreamNode {
 
 	explicit PushDescriptorBase(AnyDescriptor lane) {
 		_inDescriptor = frigg::move(lane);
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagPushDescriptor, this);
 	}
@@ -369,7 +369,7 @@ struct PullDescriptorBase : StreamPacket, StreamNode {
 
 	explicit PullDescriptorBase(frigg::WeakPtr<Universe> universe)
 	: _universe(frigg::move(universe)) {
-		worklet.setup(&transmitted, WorkQueue::localQueue());
+		worklet.setup(&transmitted);
 		StreamPacket::setup(1, &worklet);
 		StreamNode::setup(kTagPullDescriptor, this);
 	}

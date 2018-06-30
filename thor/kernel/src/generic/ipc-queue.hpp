@@ -59,9 +59,6 @@ struct QueueNode {
 	: _context{0}, _source{nullptr} { }
 
 	// Users of UserQueue::submit() have to set this up first.
-	void setup(WorkQueue *wq) {
-		_wq = wq;
-	}
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
@@ -74,7 +71,6 @@ struct QueueNode {
 private:
 	uintptr_t _context;
 	const QueueSource *_source;
-	WorkQueue *_wq;
 
 	UserQueue *_queue;
 	Worklet _worklet;

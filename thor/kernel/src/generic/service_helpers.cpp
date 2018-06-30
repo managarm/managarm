@@ -68,7 +68,7 @@ void fiberSleep(uint64_t nanos) {
 	} closure;
 
 	closure.blocker.setup();
-	closure.worklet.setup(&Closure::elapsed, WorkQueue::localQueue());
+	closure.worklet.setup(&Closure::elapsed);
 	closure.timer.setup(systemClockSource()->currentNanos() + nanos, &closure.worklet);
 	generalTimerEngine()->installTimer(&closure.timer);
 	KernelFiber::blockCurrent(&closure.blocker);

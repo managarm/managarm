@@ -55,7 +55,7 @@ void UserQueue::submit(QueueNode *node) {
 
 	assert(!node->_queueNode.in_list);
 	node->_queue = this;
-	node->_worklet.setup(&Ops::ready, node->_wq);
+	node->_worklet.setup(&Ops::ready);
 
 	auto was_empty = _nodeQueue.empty();
 	_nodeQueue.push_back(node);
@@ -187,7 +187,7 @@ bool UserQueue::_waitHeadFutex() {
 				_nextIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
 
 		auto fa = reinterpret_cast<Address>(_pointer) + offsetof(QueueStruct, headFutex);
-		_worklet.setup(&Ops::woken, node->_wq);
+		_worklet.setup(&Ops::woken);
 		_futex.setup(&_worklet);
 		_waitInFutex = _space->futexSpace.checkSubmitWait(fa, [&] {
 			return __atomic_load_n(&_queueAccessor.get()->headFutex, __ATOMIC_RELAXED)

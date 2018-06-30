@@ -98,8 +98,8 @@ void Memory::transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
 		FetchNode dest_fetch;
 		FetchNode src_fetch;
 
-		dest_worklet.setup(nullptr, WorkQueue::localQueue());
-		src_worklet.setup(nullptr, WorkQueue::localQueue());
+		dest_worklet.setup(nullptr);
+		src_worklet.setup(nullptr);
 		dest_fetch.setup(&dest_worklet);
 		src_fetch.setup(&src_worklet);
 		if(!dest_memory->fetchRange(dest_offset + progress - dest_misalign, &dest_fetch))
@@ -194,7 +194,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
 
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -210,7 +210,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	while(size - progress >= kPageSize) {
 		assert(!((offset + progress) % kPageSize));
 
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -226,7 +226,7 @@ void copyToBundle(Memory *bundle, ptrdiff_t offset, const void *pointer, size_t 
 	if(size - progress > 0) {
 		assert(!((offset + progress) % kPageSize));
 		
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -248,7 +248,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 	if(misalign > 0) {
 		size_t prefix = frigg::min(kPageSize - misalign, size);
 		
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset - misalign, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -264,7 +264,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 	while(size - progress >= kPageSize) {
 		assert((offset + progress) % kPageSize == 0);
 
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -280,7 +280,7 @@ void copyFromBundle(Memory *bundle, ptrdiff_t offset, void *buffer, size_t size,
 	if(size - progress > 0) {
 		assert((offset + progress) % kPageSize == 0);
 		
-		node->_worklet.setup(nullptr, WorkQueue::localQueue());
+		node->_worklet.setup(nullptr);
 		node->_fetch.setup(&node->_worklet);
 		if(!bundle->fetchRange(offset + progress, &node->_fetch))
 			assert(!"Handle the asynchronous case");
@@ -691,7 +691,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 		closure->fetch = node;
 		closure->bundle = _managed.get();
 
-		closure->worklet.setup(&Ops::initiated, WorkQueue::localQueue());
+		closure->worklet.setup(&Ops::initiated);
 		closure->initiate.setup(offset, kPageSize, &closure->worklet);
 		_managed->initiateLoadQueue.push_back(&closure->initiate);
 		_managed->progressLoads();
@@ -939,7 +939,7 @@ bool NormalMapping::handleFault(FaultNode *node) {
 		WorkQueue::post(node->_handled);
 	};
 
-	node->_worklet.setup(fetched, WorkQueue::localQueue());
+	node->_worklet.setup(fetched);
 	node->_fetch.setup(&node->_worklet);
 	if(bundle_range.get<0>()->fetchRange(node->_bundleOffset, &node->_fetch)) {
 		remap(node);
@@ -1465,7 +1465,7 @@ bool ForeignSpaceAccessor::_processAcquire(AcquireNode *node) {
 		assert(mapping);
 		auto range = mapping->resolveRange(vaddr - mapping->address(),
 				node->_accessor->_length - node->_progress);
-		node->_worklet.setup(&_fetchedAcquire, WorkQueue::localQueue());
+		node->_worklet.setup(&_fetchedAcquire);
 		node->_fetch.setup(&node->_worklet);
 		if(!range.get<0>()->fetchRange(range.get<1>(), &node->_fetch))
 			return false;

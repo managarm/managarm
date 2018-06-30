@@ -80,21 +80,16 @@ public:
 	};
 
 	PostEvent(frigg::SharedPtr<UserQueue> queue, uintptr_t context)
-	: _queue(frigg::move(queue)), _context(context) {
-		_thread = getCurrentThread();
-	}
+	: _queue(frigg::move(queue)), _context(context) { }
 	
 	template<typename... Args>
 	void operator() (Args &&... args) {
 		auto wrapper = frigg::construct<Wrapper>(*kernelAlloc,
 				_context, frigg::forward<Args>(args)...);
-		wrapper->setup(_thread->associatedWorkQueue());
 		_queue->submit(wrapper);
 	}
 
 private:
-	frigg::UnsafePtr<Thread> _thread;
-
 	frigg::SharedPtr<UserQueue> _queue;
 	uintptr_t _context;
 };
@@ -820,10 +815,9 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	};
 
 	closure->ipcQueue = frigg::move(queue);
-	closure->setup(this_thread->associatedWorkQueue());
 	closure->setupContext(context);
 
-	closure->worklet.setup(&Ops::managed, getCurrentThread()->associatedWorkQueue());
+	closure->worklet.setup(&Ops::managed);
 	closure->manage.setup(&closure->worklet);
 	memory->submitManage(&closure->manage);
 
@@ -908,10 +902,9 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 	};
 
 	closure->ipcQueue = frigg::move(queue);
-	closure->setup(this_thread->associatedWorkQueue());
 	closure->setupContext(context);
 
-	closure->worklet.setup(&Ops::initiated, getCurrentThread()->associatedWorkQueue());
+	closure->worklet.setup(&Ops::initiated);
 	closure->initiate.setup(offset, size, &closure->worklet);
 	memory->submitInitiateLoad(&closure->initiate);
 
@@ -1294,12 +1287,10 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		: queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
 				result{translateError(kErrSuccess), 0} {
-			thread = getCurrentThread().get();
-			QueueNode::setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
 			
-			worklet.setup(&Closure::elapsed, thread->associatedWorkQueue());
+			worklet.setup(&Closure::elapsed);
 			PrecisionTimerNode::setup(nanos, &worklet);
 		}
 
@@ -1311,7 +1302,6 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			frigg::destruct(*kernelAlloc, this);
 		}
 
-		Thread *thread;
 		Worklet worklet;
 		frigg::SharedPtr<UserQueue> queue;
 		QueueSource source;
@@ -1522,9 +1512,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	closure->weakUniverse = this_universe.toWeak();
 	closure->ipcQueue = frigg::move(queue);
 	
-	closure->worklet.setup(&Ops::transmitted, WorkQueue::localQueue());
+	closure->worklet.setup(&Ops::transmitted);
 	closure->packet.setup(count, &closure->worklet);
-	closure->setup(WorkQueue::localQueue());
 	closure->setupContext(context);
 	closure->items = frigg::constructN<Item>(*kernelAlloc, count);
 
@@ -1687,7 +1676,7 @@ HelError helFutexWait(int *pointer, int expected) {
 	closure.worklet.setup([] (Worklet *base) {
 		auto closure = frg::container_of(base, &Closure::worklet);
 		Thread::unblockOther(&closure->blocker);
-	}, this_thread->associatedWorkQueue());
+	});
 	closure.futex.setup(&closure.worklet);
 	closure.blocker.setup();
 	space->futexSpace.submitWait(VirtualAddr(pointer), [&] () -> bool {
@@ -1808,11 +1797,9 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		explicit Closure(frigg::SharedPtr<UserQueue> the_queue, uintptr_t context)
 		: _queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
-			thread = getCurrentThread().get();
-			setup(thread->associatedWorkQueue());
 			setupContext(context);
 			setupSource(&source);
-			worklet.setup(&Closure::awaited, thread->associatedWorkQueue());
+			worklet.setup(&Closure::awaited);
 			irqNode.setup(&worklet);
 		}
 
@@ -1821,7 +1808,6 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 	private:
-		Thread *thread;
 		Worklet worklet;
 		AwaitIrqNode irqNode;
 		frigg::SharedPtr<UserQueue> _queue;

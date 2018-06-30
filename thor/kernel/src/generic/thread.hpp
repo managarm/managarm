@@ -48,7 +48,7 @@ private:
 
 		Observe(F functor)
 		: _functor(frigg::move(functor)) {
-			_worklet.setup(&Observe::trigger, WorkQueue::localQueue());
+			_worklet.setup(&Observe::trigger);
 			triggered = &_worklet;
 		}
 
