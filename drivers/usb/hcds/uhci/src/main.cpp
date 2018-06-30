@@ -1023,8 +1023,8 @@ void Controller::_linkInterrupt(QueueEntity *entity, int order, int index) {
 			_linkIntoScheduleTree(order << 1, index + order, entity);
 		}
 	}else{
-		_interruptSchedule[n].back().head->_linkPointer
-				= QueueHead::LinkPointer::from(entity->head.data());
+		auto predecessor = &_interruptSchedule[n].back();
+		predecessor->head->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
 	}
 	_interruptSchedule[n].push_back(*entity);
 	_activeEntities.push_back(entity);
@@ -1048,13 +1048,16 @@ void Controller::_linkIntoScheduleTree(int order, int index, QueueEntity *entity
 	assert(index < order);
 
 	auto n = (order - 1) + index;
-	assert(_interruptSchedule[n].empty());
-
-	if(order == 1024) {
-		_frameList->entries[index].store(FrameListPointer::from(entity->head.data())._bits);
+	if(_interruptSchedule[n].empty()) {
+		if(order == 1024) {
+			_frameList->entries[index].store(FrameListPointer::from(entity->head.data())._bits);
+		}else{
+			_linkIntoScheduleTree(order << 1, index, entity);
+			_linkIntoScheduleTree(order << 1, index + order, entity);
+		}
 	}else{
-		_linkIntoScheduleTree(order << 1, index, entity);
-		_linkIntoScheduleTree(order << 1, index + order, entity);
+		auto predecessor = &_interruptSchedule[n].back();
+		predecessor->head->_linkPointer = QueueHead::LinkPointer::from(entity->head.data());
 	}
 }
 
