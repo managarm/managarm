@@ -167,8 +167,11 @@ COFIBER_ROUTINE(async::result<void>, Enumerator::_observationCycle(Hub *hub, int
 	enumerate_lock = std::unique_lock<async::mutex>{_enumerateMutex, std::adopt_lock};
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
-	if(!(COFIBER_AWAIT hub->issueReset(port)))
+	bool low_speed;
+	if(!(COFIBER_AWAIT hub->issueReset(port, &low_speed)))
 		COFIBER_RETURN();
+	if(low_speed)
+		std::cout << "\e[31musb: Device is low speed!\e[39m" << std::endl;
 	
 	// Wait until the device is enabled.
 	while(true) {
@@ -180,7 +183,7 @@ COFIBER_ROUTINE(async::result<void>, Enumerator::_observationCycle(Hub *hub, int
 	}
 
 //		std::cout << "usb: Enumerating device on port " << port << std::endl;
-	COFIBER_AWAIT _controller->enumerateDevice();
+	COFIBER_AWAIT _controller->enumerateDevice(low_speed);
 	enumerate_lock.unlock();
 	
 	// Wait until the device is disconnected.
@@ -208,6 +211,7 @@ namespace port_bits {
 	static constexpr uint16_t connect = 0x01;
 	static constexpr uint16_t enable = 0x02;
 	static constexpr uint16_t reset = 0x10;
+	static constexpr uint16_t lowSpeed = 0x200;
 }
 
 namespace port_features {
@@ -231,7 +235,7 @@ private:
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
-	async::result<bool> issueReset(int port) override;
+	async::result<bool> issueReset(int port, bool *low_speed) override;
 
 private:
 	Device _device;
@@ -393,7 +397,7 @@ COFIBER_ROUTINE(async::result<PortState>, StandardHub::pollState(int port), ([=]
 	}
 }))
 
-COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port), ([=] {
+COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port, bool *low_speed), ([=] {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> reset_req{_device.setupPool()};
 	reset_req->type = setup_type::targetOther | setup_type::byClass
@@ -405,6 +409,21 @@ COFIBER_ROUTINE(async::result<bool>, StandardHub::issueReset(int port), ([=] {
 
 	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToDevice,
 			reset_req, arch::dma_buffer_view{}});
+	
+	// Issue a GetPortStatus request to determine if the device is low-speed.
+	arch::dma_object<SetupPacket> status_req{_device.setupPool()};
+	status_req->type = setup_type::targetOther | setup_type::byClass
+			| setup_type::toHost;
+	status_req->request = class_requests::getStatus;
+	status_req->value = 0;
+	status_req->index = port + 1;
+	status_req->length = 4;
+
+	arch::dma_array<uint16_t> result{_device.bufferPool(), 2};
+	COFIBER_AWAIT _device.transfer(ControlTransfer{kXferToHost,
+			status_req, result.view_buffer()});
+	*low_speed = (result[0] & port_bits::lowSpeed);
+
 	COFIBER_RETURN(true);
 }))
 
@@ -582,7 +601,8 @@ COFIBER_ROUTINE(async::result<PortState>, Controller::RootHub::pollState(int por
 	}
 }))
 
-COFIBER_ROUTINE(async::result<bool>, Controller::RootHub::issueReset(int port), ([=] {
+COFIBER_ROUTINE(async::result<bool>,
+Controller::RootHub::issueReset(int port, bool *low_speed), ([=] {
 	auto port_space = _controller->_base.subspace(0x10 + (2 * port));
 
 	// Reset the port for 50 ms.
@@ -622,8 +642,7 @@ COFIBER_ROUTINE(async::result<bool>, Controller::RootHub::issueReset(int port), 
 	}
 	
 	auto sc = port_space.load(port_regs::statusCtrl);
-	if(sc & port_status_ctrl::lowSpeed)
-		std::cout << "\e[31muhci: Device is low speed!\e[39m" << std::endl;
+	*low_speed = (sc & port_status_ctrl::lowSpeed);
 
 	// Similar to USB standard hubs we do not reset the enable-change bit.
 	_controller->_portState[port].status |= hub_status::enable;
@@ -633,7 +652,7 @@ COFIBER_ROUTINE(async::result<bool>, Controller::RootHub::issueReset(int port), 
 	COFIBER_RETURN(true);
 }))
 
-COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
+COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(bool low_speed), ([=] {
 	// This queue will become the default control pipe of our new device.
 	auto queue = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
 	_linkAsync(queue);
@@ -652,7 +671,7 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
 	set_address->length = 0;
 
 	COFIBER_AWAIT _directTransfer(0, 0, ControlTransfer{kXferToDevice,
-			set_address, arch::dma_buffer_view{}}, queue, 8);
+			set_address, arch::dma_buffer_view{}}, queue, low_speed, 8);
 
 	// Enquire the maximum packet size of the default control pipe.
 	arch::dma_object<SetupPacket> get_header{&schedulePool};
@@ -665,8 +684,9 @@ COFIBER_ROUTINE(async::result<void>, Controller::enumerateDevice(), ([=] {
 
 	arch::dma_object<DeviceDescriptor> descriptor{&schedulePool};
 	COFIBER_AWAIT _directTransfer(address, 0, ControlTransfer{kXferToHost,
-			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
+			get_header, descriptor.view_buffer().subview(0, 8)}, queue, low_speed, 8);
 
+	_activeDevices[address].lowSpeed = low_speed;
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
 
@@ -836,7 +856,7 @@ async::result<void> Controller::transfer(int address, int pipe, ControlTransfer 
 	auto endpoint = &device->controlStates[pipe];
 	
 	auto transaction = _buildControl(address, pipe, info.flags,
-			info.setup, info.buffer,  endpoint->maxPacketSize);
+			info.setup, info.buffer, device->lowSpeed, endpoint->maxPacketSize);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->voidPromise.async_get();
 }
@@ -855,7 +875,7 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, endpoint->maxPacketSize, info.allowShortPackets);
+			info.buffer, device->lowSpeed, endpoint->maxPacketSize, info.allowShortPackets);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
@@ -876,21 +896,21 @@ async::result<size_t> Controller::transfer(int address, PipeType type, int pipe,
 	}
 
 	auto transaction = _buildInterruptOrBulk(address, pipe, info.flags,
-			info.buffer, endpoint->maxPacketSize, info.allowShortPackets);
+			info.buffer, device->lowSpeed, endpoint->maxPacketSize, info.allowShortPackets);
 	_linkTransaction(endpoint->queueEntity, transaction);
 	return transaction->promise.async_get();
 }
 
 auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
-		size_t max_packet_size) -> Transaction * {
+		bool low_speed, size_t max_packet_size) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 
 	size_t num_data = (buffer.size() + max_packet_size - 1) / max_packet_size;
 	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
 
 	transfers[0].status.store(td_status::active(true) | td_status::detectShort(true)
-			| td_status::lowSpeed(true));
+			| td_status::lowSpeed(low_speed));
 	transfers[0].token.store(td_token::pid(Packet::setup) | td_token::address(address)
 			| td_token::pipe(pipe) | td_token::length(sizeof(SetupPacket) - 1));
 	transfers[0]._bufferPointer = TransferBufferPointer::from(setup.data());
@@ -901,7 +921,7 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 		size_t chunk = std::min(max_packet_size, buffer.size() - progress);
 		assert(chunk);
 		transfers[i + 1].status.store(td_status::active(true) | td_status::detectShort(true)
-				| td_status::lowSpeed(true));
+				| td_status::lowSpeed(low_speed));
 		transfers[i + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
 				| td_token::toggle(i % 2 == 0) | td_token::address(address)
 				| td_token::pipe(pipe) | td_token::length(chunk - 1));
@@ -912,7 +932,7 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 	}
 
 	transfers[num_data + 1].status.store(td_status::active(true) | td_status::completionIrq(true)
-			| td_status::lowSpeed(true));
+			| td_status::lowSpeed(low_speed));
 	transfers[num_data + 1].token.store(td_token::pid(dir == kXferToDevice ? Packet::in : Packet::out)
 			| td_token::toggle(true) | td_token::address(address)
 			| td_token::pipe(pipe) | td_token::length(0x7FF));
@@ -921,7 +941,8 @@ auto Controller::_buildControl(int address, int pipe, XferFlags dir,
 }
 
 auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-		arch::dma_buffer_view buffer, size_t max_packet_size,
+		arch::dma_buffer_view buffer,
+		bool low_speed, size_t max_packet_size,
 		bool allow_short_packet) -> Transaction * {
 	assert((dir == kXferToDevice) || (dir == kXferToHost));
 //	std::cout << "_buildInterruptOrBulk. Address: " << address
@@ -939,7 +960,7 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 		// TODO: Only set detectShort bit if allow_short_packet is true?
 		transfers[i].status.store(td_status::active(true)
 				| td_status::completionIrq(i + 1 == num_data) | td_status::detectShort(true)
-				| td_status::lowSpeed(true));
+				| td_status::lowSpeed(low_speed));
 		transfers[i].token.store(td_token::pid(dir == kXferToDevice ? Packet::out : Packet::in)
 				| td_token::address(address) | td_token::pipe(pipe)
 				| td_token::length(chunk - 1));
@@ -956,9 +977,9 @@ auto Controller::_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
 }
 
 async::result<void> Controller::_directTransfer(int address, int pipe, ControlTransfer info,
-		QueueEntity *queue, size_t max_packet_size) {
+		QueueEntity *queue, bool low_speed, size_t max_packet_size) {
 	auto transaction = _buildControl(address, pipe, info.flags,
-			info.setup, info.buffer, max_packet_size);
+			info.setup, info.buffer, low_speed, max_packet_size);
 	_linkTransaction(queue, transaction);
 	return transaction->voidPromise.async_get();
 }

@@ -16,7 +16,7 @@ struct EndpointState;
 // ----------------------------------------------------------------------------
 
 struct BaseController {
-	virtual async::result<void> enumerateDevice() = 0;
+	virtual async::result<void> enumerateDevice(bool low_speed) = 0;
 };
 
 namespace hub_status {
@@ -33,7 +33,7 @@ struct PortState {
 struct Hub {
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
-	virtual async::result<bool> issueReset(int port) = 0;
+	virtual async::result<bool> issueReset(int port, bool *low_speed) = 0;
 };
 
 struct Enumerator {
@@ -63,7 +63,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 
 		size_t numPorts() override;
 		async::result<PortState> pollState(int port) override;
-		async::result<bool> issueReset(int port) override;
+		async::result<bool> issueReset(int port, bool *low_speed) override;
 
 	private:
 		Controller *_controller;
@@ -75,7 +75,7 @@ struct Controller : std::enable_shared_from_this<Controller>, BaseController {
 	cofiber::no_future _handleIrqs();
 	cofiber::no_future _refreshFrame();
 	
-	async::result<void> enumerateDevice() override;
+	async::result<void> enumerateDevice(bool low_speed) override;
 
 private:
 	protocols::hw::Device _hwDevice;
@@ -146,6 +146,7 @@ private:
 		EndpointSlot controlStates[16];
 		EndpointSlot outStates[16];
 		EndpointSlot inStates[16];
+		bool lowSpeed;
 	};
 
 	Enumerator _enumerator;
@@ -163,9 +164,10 @@ public:
 	
 	static Transaction *_buildControl(int address, int pipe, XferFlags dir,
 			arch::dma_object_view<SetupPacket> setup, arch::dma_buffer_view buffer,
-			size_t max_packet_size);
+			bool low_speed, size_t max_packet_size);
 	static Transaction *_buildInterruptOrBulk(int address, int pipe, XferFlags dir,
-			arch::dma_buffer_view buffer, size_t max_packet_size,
+			arch::dma_buffer_view buffer,
+			bool low_speed, size_t max_packet_size,
 			bool allow_short_packets);
 
 public:
@@ -175,7 +177,7 @@ public:
 
 private:
 	async::result<void> _directTransfer(int address, int pipe, ControlTransfer info,
-			QueueEntity *queue, size_t max_packet_size);
+			QueueEntity *queue, bool low_speed, size_t max_packet_size);
 
 private:
 	// ------------------------------------------------------------------------
