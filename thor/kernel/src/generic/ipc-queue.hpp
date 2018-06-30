@@ -9,7 +9,7 @@
 
 namespace thor {
 
-struct UserQueue;
+struct IpcQueue;
 
 // NOTE: The following structs mirror the Hel{Queue,Element} structs.
 // They must be kept in sync!
@@ -52,13 +52,13 @@ struct QueueSource {
 	const QueueSource *link;
 };
 
-struct QueueNode {
-	friend struct UserQueue;
+struct IpcNode {
+	friend struct IpcQueue;
 
-	QueueNode()
+	IpcNode()
 	: _context{0}, _source{nullptr} { }
 
-	// Users of UserQueue::submit() have to set this up first.
+	// Users of IpcQueue::submit() have to set this up first.
 	void setupContext(uintptr_t context) {
 		_context = context;
 	}
@@ -72,21 +72,21 @@ private:
 	uintptr_t _context;
 	const QueueSource *_source;
 
-	UserQueue *_queue;
+	IpcQueue *_queue;
 	Worklet _worklet;
-	frg::default_list_hook<QueueNode> _queueNode;
+	frg::default_list_hook<IpcNode> _queueNode;
 };
 
-struct UserQueue : CancelRegistry {
+struct IpcQueue : CancelRegistry {
 private:
 	using Address = uintptr_t;
 
 	using NodeList = frg::intrusive_list<
-		QueueNode,
+		IpcNode,
 		frg::locate_member<
-			QueueNode,
-			frg::default_list_hook<QueueNode>,
-			&QueueNode::_queueNode
+			IpcNode,
+			frg::default_list_hook<IpcNode>,
+			&IpcNode::_queueNode
 		>
 	>;
 
@@ -108,15 +108,15 @@ private:
 	};
 
 public:
-	UserQueue(frigg::SharedPtr<AddressSpace> space, void *pointer);
+	IpcQueue(frigg::SharedPtr<AddressSpace> space, void *pointer);
 
-	UserQueue(const UserQueue &) = delete;
+	IpcQueue(const IpcQueue &) = delete;
 
-	UserQueue &operator= (const UserQueue &) = delete;
+	IpcQueue &operator= (const IpcQueue &) = delete;
 
 	void setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer);
 
-	void submit(QueueNode *node);
+	void submit(IpcNode *node);
 
 private:
 	void _progress();
@@ -160,11 +160,11 @@ private:
 	frigg::Vector<Chunk, KernelAlloc> _chunks;
 
 	frg::intrusive_list<
-		QueueNode,
+		IpcNode,
 		frg::locate_member<
-			QueueNode,
-			frg::default_list_hook<QueueNode>,
-			&QueueNode::_queueNode
+			IpcNode,
+			frg::default_list_hook<IpcNode>,
+			&IpcNode::_queueNode
 		>
 	> _nodeQueue;
 };

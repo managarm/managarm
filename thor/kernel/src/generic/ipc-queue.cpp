@@ -9,10 +9,10 @@
 namespace thor {
 
 // ----------------------------------------------------------------------------
-// UserQueue
+// IpcQueue
 // ----------------------------------------------------------------------------
 
-UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
+IpcQueue::IpcQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
 : _space{frigg::move(space)}, _pointer{pointer},
 		_waitInFutex{false},
 		_currentChunk{nullptr}, _currentProgress{0}, _nextIndex{0},
@@ -29,7 +29,7 @@ UserQueue::UserQueue(frigg::SharedPtr<AddressSpace> space, void *pointer)
 	_chunks.resize(1 << _sizeShift);
 }
 
-void UserQueue::setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer) {
+void IpcQueue::setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, void *pointer) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
@@ -38,13 +38,13 @@ void UserQueue::setupChunk(size_t index, frigg::SharedPtr<AddressSpace> space, v
 	_chunks[index] = Chunk{frigg::move(space), pointer};
 }
 
-void UserQueue::submit(QueueNode *node) {
+void IpcQueue::submit(IpcNode *node) {
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_mutex);
 
 	struct Ops {
 		static void ready(Worklet *worklet) {
-			auto node = frg::container_of(worklet, &QueueNode::_worklet);
+			auto node = frg::container_of(worklet, &IpcNode::_worklet);
 			auto self = node->_queue;
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
@@ -63,7 +63,7 @@ void UserQueue::submit(QueueNode *node) {
 		_progress();
 }
 
-void UserQueue::_progress() {
+void IpcQueue::_progress() {
 	while(true) {
 		assert(!_waitInFutex);
 		assert(!_nodeQueue.empty());
@@ -123,7 +123,7 @@ void UserQueue::_progress() {
 	}
 }
 
-void UserQueue::_advanceChunk() {
+void IpcQueue::_advanceChunk() {
 	assert(!_currentChunk);
 
 	if(_waitHeadFutex())
@@ -150,7 +150,7 @@ void UserQueue::_advanceChunk() {
 	_chunkAccessor = DirectSpaceAccessor<ChunkStruct>{_chunkPin, 0};
 }
 
-void UserQueue::_retireChunk() {
+void IpcQueue::_retireChunk() {
 	assert(_currentChunk);
 
 	_wakeProgressFutex(true);
@@ -161,10 +161,10 @@ void UserQueue::_retireChunk() {
 	_currentProgress = 0;
 }
 
-bool UserQueue::_waitHeadFutex() {
+bool IpcQueue::_waitHeadFutex() {
 	struct Ops {
 		static void woken(Worklet *worklet) {
-			auto self = frg::container_of(worklet, &UserQueue::_worklet);
+			auto self = frg::container_of(worklet, &IpcQueue::_worklet);
 			auto irq_lock = frigg::guard(&irqMutex());
 			auto lock = frigg::guard(&self->_mutex);
 
@@ -199,7 +199,7 @@ bool UserQueue::_waitHeadFutex() {
 	}
 }
 
-void UserQueue::_wakeProgressFutex(bool done) {
+void IpcQueue::_wakeProgressFutex(bool done) {
 	auto progress = _currentProgress;
 	if(done)
 		progress |= kProgressDone;

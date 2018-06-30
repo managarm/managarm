@@ -11,14 +11,14 @@ struct IoSpace;
 struct Memory;
 struct Thread;
 struct Universe;
-struct UserQueue;
+struct IpcQueue;
 struct VirtualView;
 
 struct QueueDescriptor {
-	QueueDescriptor(frigg::SharedPtr<UserQueue> queue)
+	QueueDescriptor(frigg::SharedPtr<IpcQueue> queue)
 	: queue(frigg::move(queue)) { }
 
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 };
 
 struct UniverseDescriptor {

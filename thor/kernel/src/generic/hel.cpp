@@ -63,7 +63,7 @@ HelError translateError(Error error) {
 template<typename P>
 struct PostEvent {
 public:
-	struct Wrapper : QueueNode {
+	struct Wrapper : IpcNode {
 		template<typename... Args>
 		Wrapper(uintptr_t context, Args &&... args)
 		: _writer{frigg::forward<Args>(args)...} {
@@ -79,7 +79,7 @@ public:
 		P _writer;
 	};
 
-	PostEvent(frigg::SharedPtr<UserQueue> queue, uintptr_t context)
+	PostEvent(frigg::SharedPtr<IpcQueue> queue, uintptr_t context)
 	: _queue(frigg::move(queue)), _context(context) { }
 	
 	template<typename... Args>
@@ -90,7 +90,7 @@ public:
 	}
 
 private:
-	frigg::SharedPtr<UserQueue> _queue;
+	frigg::SharedPtr<IpcQueue> _queue;
 	uintptr_t _context;
 };
 
@@ -269,7 +269,7 @@ HelError helCreateQueue(HelQueue *head, uint32_t flags, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto queue = frigg::makeShared<UserQueue>(*kernelAlloc,
+	auto queue = frigg::makeShared<IpcQueue>(*kernelAlloc,
 			this_thread->getAddressSpace().toShared(), head);
 	queue->setupSelfPtr(queue);
 	{
@@ -288,7 +288,7 @@ HelError helSetupChunk(HelHandle queue_handle, int index, HelChunk *chunk, uint3
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -310,7 +310,7 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -767,7 +767,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Memory> memory;
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -787,7 +787,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	struct Closure : QueueNode {
+	struct Closure : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelManageResult), nullptr} {
 			setupSource(&ipcSource);
@@ -797,7 +797,7 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 			frigg::destruct(*kernelAlloc, this);
 		}
 
-		frigg::SharedPtr<UserQueue> ipcQueue;
+		frigg::SharedPtr<IpcQueue> ipcQueue;
 		Worklet worklet;
 		ManageBase manage;
 		QueueSource ipcSource;
@@ -855,7 +855,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Memory> memory;
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -875,7 +875,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 		queue = queue_wrapper->get<QueueDescriptor>().queue;
 	}
 
-	struct Closure : QueueNode {
+	struct Closure : IpcNode {
 		Closure()
 		: ipcSource{&helResult, sizeof(HelSimpleResult), nullptr} {
 			setupSource(&ipcSource);
@@ -885,7 +885,7 @@ HelError helSubmitLockMemory(HelHandle handle, uintptr_t offset, size_t size,
 			frigg::destruct(*kernelAlloc, this);
 		}
 
-		frigg::SharedPtr<UserQueue> ipcQueue;
+		frigg::SharedPtr<IpcQueue> ipcQueue;
 		Worklet worklet;
 		InitiateBase initiate;
 		QueueSource ipcSource;
@@ -1047,7 +1047,7 @@ HelError helSubmitObserve(HelHandle handle, uint64_t in_seq,
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<Thread> thread;
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1266,8 +1266,8 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-	struct Closure : CancelNode, PrecisionTimerNode, QueueNode {
-		static void issue(uint64_t nanos, frigg::SharedPtr<UserQueue> queue,
+	struct Closure : CancelNode, PrecisionTimerNode, IpcNode {
+		static void issue(uint64_t nanos, frigg::SharedPtr<IpcQueue> queue,
 				uintptr_t context, uint64_t *async_id) {
 			auto node = frigg::construct<Closure>(*kernelAlloc, nanos,
 					frigg::move(queue), context);
@@ -1282,7 +1282,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 			closure->queue->submit(closure);
 		}
 
-		explicit Closure(uint64_t nanos, frigg::SharedPtr<UserQueue> the_queue,
+		explicit Closure(uint64_t nanos, frigg::SharedPtr<IpcQueue> the_queue,
 				uintptr_t context)
 		: queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelSimpleResult), nullptr},
@@ -1303,7 +1303,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 		}
 
 		Worklet worklet;
-		frigg::SharedPtr<UserQueue> queue;
+		frigg::SharedPtr<IpcQueue> queue;
 		QueueSource source;
 		HelSimpleResult result;
 	};
@@ -1311,7 +1311,7 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1356,7 +1356,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	// TODO: check userspace page access rights
 
 	LaneHandle lane;
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
@@ -1398,7 +1398,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		};
 	};
 
-	struct Closure : QueueNode {
+	struct Closure : IpcNode {
 		void complete() override {
 			// TODO: Turn items into a unique_ptr.
 			frigg::destructN(*kernelAlloc, items, count);
@@ -1407,7 +1407,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		
 		size_t count;
 		frigg::WeakPtr<Universe> weakUniverse;
-		frigg::SharedPtr<UserQueue> ipcQueue;
+		frigg::SharedPtr<IpcQueue> ipcQueue;
 
 		Worklet worklet;
 		StreamPacket packet;
@@ -1778,9 +1778,9 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context) {
-	struct Closure : QueueNode {
+	struct Closure : IpcNode {
 		static void issue(frigg::SharedPtr<IrqObject> irq, uint64_t sequence,
-				frigg::SharedPtr<UserQueue> queue, intptr_t context) {
+				frigg::SharedPtr<IpcQueue> queue, intptr_t context) {
 			auto closure = frigg::construct<Closure>(*kernelAlloc,
 					frigg::move(queue), context);
 			irq->submitAwait(&closure->irqNode, sequence);
@@ -1794,7 +1794,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		}
 
 	public:
-		explicit Closure(frigg::SharedPtr<UserQueue> the_queue, uintptr_t context)
+		explicit Closure(frigg::SharedPtr<IpcQueue> the_queue, uintptr_t context)
 		: _queue{frigg::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
 			setupContext(context);
@@ -1810,7 +1810,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	private:
 		Worklet worklet;
 		AwaitIrqNode irqNode;
-		frigg::SharedPtr<UserQueue> _queue;
+		frigg::SharedPtr<IpcQueue> _queue;
 		QueueSource source;
 		HelEventResult result;
 	};
@@ -1819,7 +1819,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	auto this_universe = this_thread->getUniverse();
 
 	frigg::SharedPtr<IrqObject> irq;
-	frigg::SharedPtr<UserQueue> queue;
+	frigg::SharedPtr<IpcQueue> queue;
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
