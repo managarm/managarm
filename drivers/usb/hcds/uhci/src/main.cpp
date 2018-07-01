@@ -1104,63 +1104,61 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		entity->transactions.pop_front();
 //TODO:		_reclaim(front);
 	};
+	
+	auto decodeLength = [] (size_t n) -> size_t {
+		if(n == 0x7FF)
+			return 0;
+		assert(n <= 0x4FF);
+		return n + 1;
+	};
 
 	while(front->numComplete < front->transfers.size()) {
 		auto &transfer = front->transfers[front->numComplete];
 		auto status = transfer.status.load();
 		if(status & td_status::active) {
-			break;
+			return;
 		}else if(status & td_status::errorBits) {
 			handleError();
 			return;
 		}
-		
-		// TODO: Handle short packets correctly.
-		auto n = status & td_status::actualLength;
-		assert(n == (transfer.token.load() & td_token::length));
+		assert(!(status & td_status::stalled));
 
+		auto n = status & td_status::actualLength;
+		front->numComplete++;
+		front->lengthComplete += decodeLength(n);
+		
 		// We advance the toggleState on each successful transaction for
 		// each pipe type, not only for bulk/interrupt. This does not really hurt.
-		front->numComplete++;
 		entity->toggleState = !entity->toggleState;
-	}
-	
-	if(front->numComplete == front->transfers.size()) {
-		auto decodeLength = [] (size_t n) -> size_t {
-			if(n == 0x7FF)
-				return 0;
-			assert(n <= 0x4FF);
-			return n + 1;
-		};
-
-		// Make sure that all TDs transfer all their data.
-		size_t total_length = 0;
-		for(size_t i = 0; i < front->numComplete; i++) {
-			auto &transfer = front->transfers[i];
-			auto n = transfer.status.load() & td_status::actualLength;
-			if(!front->allowShortPackets || i + 1 < front->numComplete) {
-				if(n != (transfer.token.load() & td_token::length))
-					throw std::runtime_error("uhci: Short packet not allowed");
-			}
-
-			total_length += decodeLength(n);
-		}
-
-		//printf("Transfer complete!\n");
-		front->promise.set_value(total_length);
-		front->voidPromise.set_value();
-
-		// Clean up the Queue.
-		entity->transactions.pop_front();
-		_reclaim(front);
 		
-		// Schedule the next transaction.
-		assert(entity->head->_elementPointer.isTerminate());
-		if(!entity->transactions.empty()) {
-			auto front = &entity->transactions.front();
-			entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
+		// Short packets end the transfer without advancing the queue.
+		if(n != (transfer.token.load() & td_token::length)) {
+			if(!front->allowShortPackets) {
+				std::cout << "uhci: Actual length is " << n
+						<< ", while we expect " << (transfer.token.load() & td_token::length)
+						<< ", auto toggle is " << front->autoToggle
+						<< std::endl;
+				throw std::runtime_error("uhci: Short packet not allowed");
+			}
+			break;
 		}
 	}
+
+	//printf("Transfer complete!\n");
+	front->promise.set_value(front->lengthComplete);
+	front->voidPromise.set_value();
+
+	// Schedule the next transaction.
+	entity->transactions.pop_front();
+	if(entity->transactions.empty()) {
+		entity->head->_elementPointer = QueueHead::LinkPointer{};
+	}else{
+		auto front = &entity->transactions.front();
+		entity->head->_elementPointer = QueueHead::LinkPointer::from(&front->transfers[0]);
+	}
+
+	// Reclaim memory.
+	_reclaim(front);
 }
 
 void Controller::_reclaim(ScheduleItem *item) {

@@ -110,12 +110,14 @@ private:
 	struct Transaction : ScheduleItem {
 		explicit Transaction(arch::dma_array<TransferDescriptor> transfers,
 				bool allow_short_packets = false)
-		: transfers{std::move(transfers)}, autoToggle{false}, numComplete{0},
+		: transfers{std::move(transfers)}, autoToggle{false},
+				numComplete{0}, lengthComplete{0},
 				allowShortPackets{allow_short_packets} { }
 		
 		arch::dma_array<TransferDescriptor> transfers;
 		bool autoToggle;
 		size_t numComplete;
+		size_t lengthComplete;
 		bool allowShortPackets;
 		async::promise<size_t> promise;
 		async::promise<void> voidPromise;
