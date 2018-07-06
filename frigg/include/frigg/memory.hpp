@@ -6,7 +6,6 @@
 #include <frigg/cxx-support.hpp>
 #include <frigg/traits.hpp>
 #include <frigg/atomic.hpp>
-#include <frigg/memory-slab.hpp>
 
 namespace frigg FRIGG_VISIBILITY {
 

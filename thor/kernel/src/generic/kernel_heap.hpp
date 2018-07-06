@@ -3,8 +3,8 @@
 
 #include <frigg/atomic.hpp>
 #include <frigg/initializer.hpp>
-#include <frigg/memory-slab.hpp>
 #include <frigg/physical_buddy.hpp>
+#include <frg/slab.hpp>
 
 namespace thor {
 
@@ -51,7 +51,7 @@ struct KernelAlloc {
 	void free(void *pointer);
 
 private:
-	frigg::SlabAllocator<KernelVirtualAlloc, IrqSpinlock> _allocator;
+	frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock> _allocator;
 };
 
 extern frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;
