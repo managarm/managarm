@@ -171,11 +171,15 @@ enum HelAllocFlags {
 };
 
 enum HelMapFlags {
+	// Basic mapping modes. One of these flags needs to be set.
+	kHelMapShareAtFork = 8,
+	kHelMapCopyOnWrite = 16,
+
+	// Additional flags that may be set.
 	kHelMapProtRead = 256,
 	kHelMapProtWrite = 512,
 	kHelMapProtExecute = 1024,
 	kHelMapDropAtFork = 32,
-	kHelMapShareAtFork = 8,
 	kHelMapCopyOnWriteAtFork = 64,
 	kHelMapDontRequireBacking = 128
 };

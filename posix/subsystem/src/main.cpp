@@ -370,8 +370,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			uint32_t native_flags = 0;
 			if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_PRIVATE) {
-				native_flags |= kHelMapCopyOnWriteAtFork;
-				std::cout << "posix: Private mappings are not really supported" << std::endl;
+				native_flags |= kHelMapCopyOnWrite;
 			}else if((req.flags() & (MAP_PRIVATE | MAP_SHARED)) == MAP_SHARED) {
 				native_flags |= kHelMapShareAtFork;
 			}else{

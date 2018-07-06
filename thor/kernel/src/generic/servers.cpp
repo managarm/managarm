@@ -168,8 +168,11 @@ ImageInfo loadModuleImage(frigg::SharedPtr<AddressSpace> space,
 				virt_length += kPageSize - virt_length % kPageSize;
 			
 			auto memory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, virt_length);
-			Memory::transfer(memory.get(), phdr.p_vaddr - virt_address,
-					image.get(), phdr.p_offset, phdr.p_filesz);
+			TransferNode copy;
+			copy.setup(memory.get(), phdr.p_vaddr - virt_address,
+					image.get(), phdr.p_offset, phdr.p_filesz, nullptr);
+			if(!Memory::transfer(&copy))
+				assert(!"Fix the asynchronous case");
 
 			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
 					frigg::move(memory), 0, virt_length);

@@ -16,6 +16,7 @@ struct Memory;
 struct Mapping;
 struct AddressSpace;
 struct ForeignSpaceAccessor;
+struct FaultNode;
 
 using GrabIntent = uint32_t;
 enum : GrabIntent {
@@ -155,34 +156,72 @@ public:
 	PhysicalAddr blockForRange(uintptr_t offset);
 };
 
-struct VirtualView {
-	virtual size_t length() = 0;
-
-	virtual frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
-	resolveRange(ptrdiff_t offset, size_t size) = 0;
+enum class ViewRestriction {
+	null,
+	writeProtected,
 };
 
-struct CowBundle : MemoryBundle {
-	CowBundle(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size);
+struct ViewRange {
+	MemoryBundle *bundle;
+	uintptr_t displacement;
+	size_t size;
+	ViewRestriction restriction;
+};
 
-	CowBundle(frigg::SharedPtr<CowBundle> chain, ptrdiff_t offset, size_t size);
+struct ViewListener {
+	friend struct VirtualView;
 
-	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	bool fetchRange(uintptr_t offset, FetchNode *node) override;
+	virtual void upgrade(uintptr_t offset, size_t size, ViewRange range) = 0;
 
 private:
-	frigg::TicketLock _mutex;
+	frg::default_list_hook<ViewListener> _listHook;
+};
 
-	frigg::SharedPtr<VirtualView> _superRoot;
-	frigg::SharedPtr<CowBundle> _superChain;
-	ptrdiff_t _superOffset;
-	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
-	frigg::SharedPtr<Memory> _copy;
+struct VirtualView {
+	void attachListener(ViewListener *listener);
+
+	virtual size_t length() = 0;
+
+	virtual ViewRange translateRange(ptrdiff_t offset, size_t size) = 0;
+
+private:
+	frg::intrusive_list<
+		ViewListener,
+		frg::locate_member<
+			ViewListener,
+			frg::default_list_hook<ViewListener>,
+			&ViewListener::_listHook
+		>
+	> _listenerList;
+};
+
+struct TransferNode {
+	void setup(MemoryBundle *dest_memory, uintptr_t dest_offset,
+			MemoryBundle *src_memory, uintptr_t src_offset, size_t length,
+			Worklet *copied) {
+		_destBundle = dest_memory;
+		_srcBundle = src_memory;
+		_destOffset = dest_offset;
+		_srcOffset = src_offset;
+		_size = length;
+		_copied = copied;
+	}
+
+	MemoryBundle *_destBundle;
+	MemoryBundle *_srcBundle;
+	uintptr_t _destOffset;
+	uintptr_t _srcOffset;
+	size_t _size;
+	Worklet *_copied;
+
+	size_t _progress;
+	FetchNode _destFetch;
+	FetchNode _srcFetch;
+	Worklet _worklet;
 };
 
 struct Memory : MemoryBundle {
-	static void transfer(MemoryBundle *dest_memory, uintptr_t dest_offset,
-			MemoryBundle *src_memory, uintptr_t src_offset, size_t length);
+	static bool transfer(TransferNode *node);
 
 	Memory(MemoryTag tag)
 	: _tag(tag) { }
@@ -352,72 +391,12 @@ struct ExteriorBundleView : VirtualView {
 
 	size_t length() override;
 
-	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
-	resolveRange(ptrdiff_t offset, size_t size) override;
+	ViewRange translateRange(ptrdiff_t offset, size_t size) override;
 
 private:
 	frigg::SharedPtr<MemoryBundle> _bundle;
 	ptrdiff_t _viewOffset;
 	size_t _viewSize;
-};
-
-struct FaultNode {
-	friend struct AddressSpace;
-	friend struct NormalMapping;
-	friend struct CowMapping;
-
-	FaultNode()
-	: _resolved{false} { }
-
-	FaultNode(const FaultNode &) = delete;
-
-	FaultNode &operator= (const FaultNode &) = delete;
-
-	void setup(Worklet *handled) {
-		_handled = handled;
-	}
-
-	bool resolved() {
-		return _resolved;
-	}
-
-private:
-	VirtualAddr _address;
-	uint32_t _flags;
-	Worklet *_handled;
-
-	bool _resolved;
-
-	Mapping *_mapping;
-	Worklet _worklet;
-	FetchNode _fetch;
-	uintptr_t _bundleOffset;
-};
-
-struct ForkItem {
-	Mapping *mapping;
-	AllocatedMemory *destBundle;
-};
-
-struct ForkNode {
-	friend struct AddressSpace;
-
-	ForkNode()
-	: _items{*kernelAlloc} { }
-
-	frigg::SharedPtr<AddressSpace> forkedSpace() {
-		return frigg::move(_fork);
-	}
-
-private:
-	void (*_forked)(ForkNode *);
-
-	// TODO: This should be a SharedPtr, too.
-	AddressSpace *_original;
-	frigg::SharedPtr<AddressSpace> _fork;
-	frigg::LinkedList<ForkItem, KernelAlloc> _items;
-	FetchNode _fetch;
-	size_t _progress;
 };
 
 struct Hole {
@@ -459,6 +438,18 @@ enum MappingFlags : uint32_t {
 	dontRequireBacking = 0x100
 };
 
+struct PrepareNode {
+	void setup(uintptr_t offset, size_t size, Worklet *prepared) {
+		_offset = offset;
+		_size = size;
+		_prepared = prepared;
+	}
+
+	uintptr_t _offset;
+	size_t _size;
+	Worklet *_prepared;
+};
+
 struct Mapping {
 	Mapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags);
@@ -481,16 +472,19 @@ struct Mapping {
 		return _flags;
 	}
 
-	virtual frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
-	resolveRange(ptrdiff_t offset, size_t size) = 0;
+protected:
+
+public:
+	virtual frigg::Tuple<PhysicalAddr, CachingMode>
+	resolveRange(ptrdiff_t offset) = 0;
+
+	virtual bool prepareRange(PrepareNode *node) = 0;
 
 	virtual Mapping *shareMapping(AddressSpace *dest_space) = 0;
 	virtual Mapping *copyOnWrite(AddressSpace *dest_space) = 0;
 
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
-	
-	virtual bool handleFault(FaultNode *node) = 0;
 
 	frigg::rbtree_hook treeNode;
 
@@ -505,28 +499,45 @@ struct NormalMapping : Mapping {
 	NormalMapping(AddressSpace *owner, VirtualAddr address, size_t length,
 			MappingFlags flags, frigg::SharedPtr<VirtualView> view, uintptr_t offset);
 
-	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
-	resolveRange(ptrdiff_t offset, size_t size) override;
+	frigg::Tuple<PhysicalAddr, CachingMode>
+	resolveRange(ptrdiff_t offset) override;
+
+	bool prepareRange(PrepareNode *node) override;
 
 	Mapping *shareMapping(AddressSpace *dest_space) override;
 	Mapping *copyOnWrite(AddressSpace *dest_space) override;
 
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
-
-	bool handleFault(FaultNode *node) override;
 
 private:
 	frigg::SharedPtr<VirtualView> _view;
 	size_t _offset;
 };
 
+struct CowChain {
+	CowChain(frigg::SharedPtr<VirtualView> view, ptrdiff_t offset, size_t size);
+
+	CowChain(frigg::SharedPtr<CowChain> chain, ptrdiff_t offset, size_t size);
+
+// TODO: Either this private again or make this class POD-like.
+	frigg::TicketLock _mutex;
+
+	frigg::SharedPtr<VirtualView> _superRoot;
+	frigg::SharedPtr<CowChain> _superChain;
+	ptrdiff_t _superOffset;
+	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
+	frigg::SharedPtr<Memory> _copy;
+};
+
 struct CowMapping : Mapping {
 	CowMapping(AddressSpace *owner, VirtualAddr address, size_t length,
-			MappingFlags flags, frigg::SharedPtr<CowBundle> chain);
+			MappingFlags flags, frigg::SharedPtr<CowChain> chain);
 
-	frigg::Tuple<MemoryBundle *, ptrdiff_t, size_t>
-	resolveRange(ptrdiff_t offset, size_t size) override;
+	frigg::Tuple<PhysicalAddr, CachingMode>
+	resolveRange(ptrdiff_t offset) override;
+
+	bool prepareRange(PrepareNode *node) override;
 
 	Mapping *shareMapping(AddressSpace *dest_space) override;
 	Mapping *copyOnWrite(AddressSpace *dest_space) override;
@@ -534,10 +545,8 @@ struct CowMapping : Mapping {
 	void install(bool overwrite) override;
 	void uninstall(bool clear) override;
 
-	bool handleFault(FaultNode *node) override;
-
 private:
-	frigg::SharedPtr<CowBundle> _cowBundle;
+	frigg::SharedPtr<CowChain> _chain;
 };
 
 struct HoleLess {
@@ -572,6 +581,65 @@ using MappingTree = frigg::rbtree<
 	MappingLess
 >;
 
+struct FaultNode {
+	friend struct AddressSpace;
+	friend struct NormalMapping;
+	friend struct CowMapping;
+
+	FaultNode()
+	: _resolved{false} { }
+
+	FaultNode(const FaultNode &) = delete;
+
+	FaultNode &operator= (const FaultNode &) = delete;
+
+	void setup(Worklet *handled) {
+		_handled = handled;
+	}
+
+	bool resolved() {
+		return _resolved;
+	}
+
+private:
+	VirtualAddr _address;
+	uint32_t _flags;
+	Worklet *_handled;
+
+	bool _resolved;
+
+	Mapping *_mapping;
+	Worklet _worklet;
+	PrepareNode _prepare;
+};
+
+struct ForkItem {
+	Mapping *mapping;
+	AllocatedMemory *destBundle;
+};
+
+struct ForkNode {
+	friend struct AddressSpace;
+
+	ForkNode()
+	: _items{*kernelAlloc} { }
+
+	frigg::SharedPtr<AddressSpace> forkedSpace() {
+		return frigg::move(_fork);
+	}
+
+private:
+	void (*_forked)(ForkNode *);
+
+	// TODO: This should be a SharedPtr, too.
+	AddressSpace *_original;
+	frigg::SharedPtr<AddressSpace> _fork;
+	frigg::LinkedList<ForkItem, KernelAlloc> _items;
+	Worklet _worklet;
+	PrepareNode _prepare;
+	size_t _progress;
+};
+
 struct AddressUnmapNode {
 	friend struct AddressSpace;
 
@@ -591,6 +659,9 @@ public:
 
 	typedef uint32_t MapFlags;
 	enum : MapFlags {
+		kMapShareAtFork = 0x80,
+		kMapCopyOnWrite = 0x800,
+
 		kMapFixed = 0x01,
 		kMapPreferBottom = 0x02,
 		kMapPreferTop = 0x04,
@@ -598,7 +669,6 @@ public:
 		kMapProtWrite = 0x10,
 		kMapProtExecute = 0x20,
 		kMapDropAtFork = 0x40,
-		kMapShareAtFork = 0x80,
 		kMapCopyOnWriteAtFork = 0x100,
 		kMapPopulate = 0x200,
 		kMapDontRequireBacking = 0x400,
@@ -654,7 +724,7 @@ struct AcquireNode {
 	friend struct ForeignSpaceAccessor;
 
 	AcquireNode()
-	: _acquired{nullptr}, _progress{0} { }
+	: _acquired{nullptr} { }
 
 	AcquireNode(const AcquireNode &) = delete;
 
@@ -669,15 +739,10 @@ private:
 
 	ForeignSpaceAccessor *_accessor;
 	Worklet _worklet;
-	FetchNode _fetch;
-	size_t _progress;
+	PrepareNode _prepare;
 };
 
 struct ForeignSpaceAccessor {
-private:
-	static bool _processAcquire(AcquireNode *node);
-	static void _fetchedAcquire(Worklet *base);
-
 public:
 	friend void swap(ForeignSpaceAccessor &a, ForeignSpaceAccessor &b) {
 		frigg::swap(a._space, b._space);
