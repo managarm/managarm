@@ -1,9 +1,9 @@
 #ifndef THOR_GENERIC_USERMEM_HPP
 #define THOR_GENERIC_USERMEM_HPP
 
-#include <frigg/rbtree.hpp>
 #include <frigg/vector.hpp>
 #include <frg/container_of.hpp>
+#include <frg/rbtree.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include "error.hpp"
 #include "types.hpp"
@@ -411,7 +411,7 @@ struct Hole {
 		return _length;
 	}
 
-	frigg::rbtree_hook treeNode;
+	frg::rbtree_hook treeNode;
 
 private:
 	VirtualAddr _address;
@@ -486,7 +486,7 @@ public:
 	virtual void install(bool overwrite) = 0;
 	virtual void uninstall(bool clear) = 0;
 
-	frigg::rbtree_hook treeNode;
+	frg::rbtree_hook treeNode;
 
 private:
 	AddressSpace *_owner;
@@ -557,7 +557,7 @@ struct HoleLess {
 
 struct HoleAggregator;
 
-using HoleTree = frigg::rbtree<
+using HoleTree = frg::rbtree<
 	Hole,
 	&Hole::treeNode,
 	HoleLess,
@@ -575,7 +575,7 @@ struct MappingLess {
 	}
 };
 
-using MappingTree = frigg::rbtree<
+using MappingTree = frg::rbtree<
 	Mapping,
 	&Mapping::treeNode,
 	MappingLess
