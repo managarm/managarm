@@ -5,7 +5,6 @@ include $(TREE_PATH)/rules.makefile
 $(call include_dir,frigg)
 $(call include_dir,eir)
 $(call include_dir,thor/kernel)
-$(call include_dir,ld-init/linker)
 #$(call include_dir,libnet)
 $(call include_dir,drivers/libcompose)
 $(call include_dir,drivers/libterminal)
