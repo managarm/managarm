@@ -3,6 +3,7 @@
 #define FRIGG_PRINTF_HPP
 
 #include <stdarg.h>
+#include <frigg/debug.hpp>
 #include <frigg/macros.hpp>
 #include <frigg/optional.hpp>
 

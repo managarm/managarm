@@ -151,17 +151,17 @@ public:
 		Item *item = p_front;
 		while(item != nullptr) {
 			Item *next = item->next;
-			destruct(p_allocator, next);
+			::frigg::destruct(p_allocator, next);
 			item = next;
 		}
 	}
 
 	void addBack(const T &element) {
-		auto item = construct<Item>(p_allocator, element);
+		auto item = ::frigg::construct<Item>(p_allocator, element);
 		addItemBack(item);
 	}
 	void addBack(T &&element) {
-		auto item = construct<Item>(p_allocator, move(element));
+		auto item = ::frigg::construct<Item>(p_allocator, move(element));
 		addItemBack(item);
 	}
 
@@ -184,7 +184,7 @@ public:
 
 		Item *next = item->next;
 		Item *previous = item->previous;
-		destruct(p_allocator, item);
+		::frigg::destruct(p_allocator, item);
 
 		if(next == nullptr) {
 			p_back = previous;

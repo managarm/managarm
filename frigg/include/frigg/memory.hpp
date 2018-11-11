@@ -125,7 +125,7 @@ void destruct(Allocator &allocator, T *pointer) {
 	if(!pointer)
 		return;
 	pointer->~T();
-	allocator.free(pointer);
+	allocator.deallocate(pointer, sizeof(T));
 }
 
 template<typename T, typename Allocator>
@@ -134,7 +134,7 @@ void destructN(Allocator &allocator, T *pointer, size_t n) {
 		return;
 	for(size_t i = 0; i < n; i++)
 		pointer[i].~T();
-	allocator.free(pointer);
+	allocator.deallocate(pointer, sizeof(T) * n);
 }
 
 } // namespace frigg

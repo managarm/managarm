@@ -119,6 +119,9 @@ void KernelAlloc::free(void *pointer) {
 	_allocator.free(pointer);
 }
 
+void KernelAlloc::deallocate(void *pointer, size_t size) {
+	_allocator.deallocate(pointer, size);
+}
 
 frigg::LazyInitializer<PhysicalChunkAllocator> physicalAllocator;
 frigg::LazyInitializer<KernelVirtualAlloc> kernelVirtualAlloc;

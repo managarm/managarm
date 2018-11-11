@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <mutex>
 #include <utility>
 #include <arch/dma_structs.hpp>
 #include <frg/slab.hpp>

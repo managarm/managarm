@@ -49,6 +49,7 @@ struct KernelAlloc {
 
 	void *allocate(size_t size);
 	void free(void *pointer);
+	void deallocate(void *pointer, size_t size);
 
 private:
 	frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock> _allocator;

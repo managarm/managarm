@@ -1,4 +1,6 @@
 
+#include <stdint.h>
+
 typedef uint64_t Elf64_Addr;
 typedef uint64_t Elf64_Off;
 typedef uint16_t Elf64_Half;

@@ -114,7 +114,7 @@ Hashmap<Key, Value, Hasher, Allocator>::~Hashmap() {
 		Item *item = p_table[i];
 		while(item != nullptr) {
 			Item *chain = item->chain;
-			destruct(p_allocator, item);
+			frigg::destruct(p_allocator, item);
 			item = chain;
 		}
 	}
@@ -129,7 +129,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, const Value 
 	assert(p_capacity > 0);
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = construct<Item>(p_allocator, key, value);
+	auto item = frigg::construct<Item>(p_allocator, key, value);
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -142,7 +142,7 @@ void Hashmap<Key, Value, Hasher, Allocator>::insert(const Key &key, Value &&valu
 	assert(p_capacity > 0);
 	unsigned int bucket = ((unsigned int)p_hasher(key)) % p_capacity;
 	
-	auto item = construct<Item>(p_allocator, key, move(value));
+	auto item = frigg::construct<Item>(p_allocator, key, move(value));
 	item->chain = p_table[bucket];
 	p_table[bucket] = item;
 	p_size++;
@@ -181,7 +181,7 @@ Optional<Value> Hashmap<Key, Value, Hasher, Allocator>::remove(const Key &key) {
 			}else{
 				previous->chain = item->chain;
 			}
-			destruct(p_allocator, item);
+			frigg::destruct(p_allocator, item);
 			p_size--;
 
 			return value;
