@@ -197,7 +197,9 @@ $c_CXX = x86_64-managarm-kernel-g++
 
 $c_INCLUDES := -I$(TREE_PATH)/frigg/include -I$(TREE_PATH)/eir/include \
 	-I$(TREE_PATH)/bragi/include -I$(TREE_PATH)/$c/include \
-	-I$(TREE_PATH)/libarch/include -I$(CXXSHIM)/stage2/include -I$(FRIGG)/include \
+	-I$(TREE_PATH)/libarch/include \
+	-I$(CXXSHIM)/stage2/include \
+	-I$(FRIGG)/include \
 	-I$($c_GENDIR)
 $c_INCLUDES += -I$(TREE_PATH)/thor/kernel/c_headers -I$(ACPICA)/source/include
 $c_INCLUDES += -iquote $($c_SRCDIR)
@@ -212,7 +214,7 @@ $c_CXXFLAGS += -std=c++17 -Wall -O2
 $c_CXXFLAGS += -fno-exceptions -fno-rtti
 $c_CXXFLAGS += -ffreestanding -mno-red-zone -mcmodel=kernel
 $c_CXXFLAGS += -msoft-float -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx
-$c_CXXFLAGS += -DFRIGG_NO_LIBC
+$c_CXXFLAGS += -DCXXSHIM_INTEGRATE_GCC -DFRIGG_NO_LIBC
 
 $c_AS := x86_64-managarm-kernel-as
 $c_ASFLAGS :=
