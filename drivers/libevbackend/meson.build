@@ -13,7 +13,7 @@ hw_pb = gen.process('../../protocols/hw/hw.proto')
 
 libevbackend_driver_inc = include_directories('include/')
 libevbackend_driver = shared_library('evbackend', ['src/libevbackend.cpp', fs_pb, hw_pb],
-	dependencies: [lib_cofiber_dep, libfs_protocol_dep, lib_helix_dep, libmbus_protocol_dep,
+	dependencies: [libarch_dep, lib_cofiber_dep, libfs_protocol_dep, lib_helix_dep, libmbus_protocol_dep,
 		libusb_protocol_dep, proto_lite_dep],
 	include_directories: libevbackend_driver_inc,
 	install: true)
