@@ -268,22 +268,22 @@ gen-$c: $($c_GENDIR)/posix.frigg_pb.hpp \
 	$($c_GENDIR)/svrctl.frigg_pb.hpp
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/bragi/proto $<
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/thor/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/thor $<
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/hw/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/hw $<
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/clock/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/clock $<
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/svrctl/%.proto | $($c_GENDIR)
-	$(PROTOC) --plugin=protoc-gen-frigg=$(BUILD_PATH)/tools/frigg_pb/bin/frigg_pb \
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/svrctl $<
 

@@ -12,7 +12,6 @@ $(call include_dir,drivers/vga_terminal)
 #$(call include_dir,drivers/bochs_vga)
 #$(call include_dir,drivers/ata)
 
-$(call include_dir,tools/frigg_pb)
 $(call include_dir,hel)
 
 .PHONY: all clean gen
