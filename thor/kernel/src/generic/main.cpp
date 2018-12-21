@@ -186,10 +186,28 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 				if(path == "TRAILER!!!")
 					break;
 
+				MfsDirectory *dir = mfsRoot;
+				const char *it = path.data();
+				const char *end = path.data() + path.size();
+				while(true) {
+					auto slash = std::find(it, end, '/');
+					if(slash == end)
+						break;
+
+					auto segment = path.subString(it - path.data(), slash - it);
+					auto child = dir->getTarget(segment);
+					assert(child);
+					assert(child->type == MfsType::directory);
+					it = slash + 1;
+					dir = static_cast<MfsDirectory *>(child);
+				}
+
 				if((mode & type_mask) == directory_type) {
 					frigg::infoLogger() << "thor: initrd directory " << path << frigg::endLog;
 
-					mfsRoot->link(frigg::String<KernelAlloc>{*kernelAlloc, path},
+					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
+							path.subString(it - path.data(), end - it)};
+					dir->link(frigg::String<KernelAlloc>{*kernelAlloc, std::move(name)},
 							frigg::construct<MfsDirectory>(*kernelAlloc));
 				}else{
 					assert((mode & type_mask) == regular_type);
@@ -200,19 +218,9 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					fiberCopyToBundle(memory.get(), 0, data, file_size);
 		
-					const char *begin = path.data();
-					const char *end = path.data() + path.size();
-					auto slash = std::find(begin, end, '/');
-					assert(slash != end);
-					assert(std::find(slash + 1, end, '/') == end);
-
-					auto parent = mfsRoot->getTarget(path.subString(0, slash - begin));
-					assert(parent && parent->type == MfsType::directory);
-					auto directory = static_cast<MfsDirectory *>(parent);
-
 					auto name = frigg::String<KernelAlloc>{*kernelAlloc,
-							path.subString((slash - begin) + 1, end - (slash + 1))};
-					directory->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
+							path.subString(it - path.data(), end - it)};
+					dir->link(std::move(name), frigg::construct<MfsRegular>(*kernelAlloc,
 							std::move(memory)));
 				}
 
