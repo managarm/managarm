@@ -1,6 +1,7 @@
 
 #include <algorithm>
 
+#include <frg/string.hpp>
 #include <frigg/debug.hpp>
 #include <frigg/elf.hpp>
 #include "descriptor.hpp"
@@ -20,7 +21,7 @@ frigg::TicketLock globalMfsMutex;
 extern MfsDirectory *mfsRoot;
 
 // TODO: move this declaration to a header file
-void runService(frigg::SharedPtr<Thread> thread);
+void runService(frg::string<KernelAlloc> desc, frigg::SharedPtr<Thread> thread);
 
 // ------------------------------------------------------------------------
 // File management.
@@ -232,7 +233,8 @@ uintptr_t copyToStack(frigg::String<KernelAlloc> &stack_image, const T &data) {
 	return offset;
 }
 
-void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_lane,
+void executeModule(frigg::StringView name, MfsRegular *module,
+		LaneHandle xpipe_lane, LaneHandle mbus_lane,
 		Scheduler *scheduler) {
 	auto space = frigg::makeShared<AddressSpace>(*kernelAlloc);
 	space->setupDefaultMappings();
@@ -342,7 +344,7 @@ void executeModule(MfsRegular *module, LaneHandle xpipe_lane, LaneHandle mbus_la
 	thread->flags |= Thread::kFlagExclusive | Thread::kFlagTrapsAreFatal;
 	
 	// listen to POSIX calls from the thread.
-	runService(thread);
+	runService(frg::string<KernelAlloc>{*kernelAlloc, name.data(), name.size()}, thread);
 
 	// see helCreateThread for the reasoning here
 	thread.control().increment();
@@ -358,14 +360,14 @@ void runMbus() {
 
 	auto module = resolveModule("sbin/mbus");
 	assert(module && module->type == MfsType::regular);
-	executeModule(static_cast<MfsRegular *>(module),
+	executeModule("sbin/mbus", static_cast<MfsRegular *>(module),
 			stream.get<0>(), LaneHandle{}, localScheduler());
 }
 
 void runServer(frigg::StringView name) {
 	auto module = resolveModule(name);
 	assert(module && module->type == MfsType::regular);
-	executeModule(static_cast<MfsRegular *>(module),
+	executeModule(name, static_cast<MfsRegular *>(module),
 			LaneHandle{}, *mbusClient, localScheduler());
 }
 

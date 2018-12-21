@@ -2,6 +2,7 @@
 #include "kernel.hpp"
 #include "module.hpp"
 
+#include <frg/string.hpp>
 #include <frigg/callback.hpp>
 
 #include <posix.frigg_pb.hpp>
@@ -413,8 +414,8 @@ namespace initrd {
 	// ----------------------------------------------------
 
 	struct Process {
-		Process(frigg::SharedPtr<Thread> thread)
-		: _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
+		Process(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread)
+		: _name{std::move(name)}, _thread(frigg::move(thread)), openFiles(*kernelAlloc) {
 			fileTableMemory = frigg::makeShared<AllocatedMemory>(*kernelAlloc, 0x1000);
 			auto view = frigg::makeShared<ExteriorBundleView>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
@@ -427,6 +428,10 @@ namespace initrd {
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
 					&clientFileTable);
 			assert(!error);
+		}
+
+		frg::string_view name() {
+			return _name;
 		}
 
 		int attachFile(OpenFile *file) {
@@ -457,12 +462,11 @@ namespace initrd {
 			return fd;
 		}
 
+		frg::string<KernelAlloc> _name;
 		frigg::SharedPtr<Thread> _thread;
 
 		frigg::Vector<OpenFile *, KernelAlloc> openFiles;
-
 		frigg::SharedPtr<Memory> fileTableMemory;
-
 		VirtualAddr clientFileTable;
 	};
 
@@ -632,7 +636,8 @@ namespace initrd {
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
-				frigg::infoLogger() << "thor: Panic in server" << frigg::endLog;
+				frigg::infoLogger() << "thor: Panic in server "
+						<< _process->name().data() << frigg::endLog;
 				return;
 			}else if(interrupt == kIntrSuperCall + 1) {
 				_thread->_executor.general()->rdi = kHelErrNone;
@@ -654,7 +659,7 @@ namespace initrd {
 	};
 }
 
-void runService(frigg::SharedPtr<Thread> thread) {
+void runService(frg::string<KernelAlloc> name, frigg::SharedPtr<Thread> thread) {
 	KernelFiber::run([=] {
 		auto stdio_stream = createStream();
 		auto stdio_file = frigg::construct<StdioFile>(*kernelAlloc);
@@ -664,7 +669,7 @@ void runService(frigg::SharedPtr<Thread> thread) {
 				frigg::move(stdio_stream.get<0>()));
 		(*stdio_closure)();
 
-		auto process = frigg::construct<initrd::Process>(*kernelAlloc, thread);
+		auto process = frigg::construct<initrd::Process>(*kernelAlloc, std::move(name), thread);
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
 		process->attachFile(stdio_file);
