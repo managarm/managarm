@@ -24,12 +24,10 @@ int main() {
 		execl("/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
 	}else assert(ehci != -1);
 
-/*
 	auto virtio = fork();
 	if(!virtio) {
 		execl("/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
 	}else assert(virtio != -1);
-*/
 
 /*
 	auto block_ata = fork();
@@ -45,8 +43,8 @@ int main() {
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
 	while(access("/dev/sda0", F_OK)) {
-		std::cout << "Waiting for /dev/sda0" << std::endl;
 		assert(errno == ENOENT);
+		std::cout << "Waiting for /dev/sda0" << std::endl;
 		sleep(1);
 	}
 
