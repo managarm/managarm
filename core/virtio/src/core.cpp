@@ -12,6 +12,7 @@ struct Mapping {
 
 	friend void swap(Mapping &x, Mapping &y) {
 		using std::swap;
+		swap(x._memory, y._memory);
 		swap(x._window, y._window);
 		swap(x._offset, y._offset);
 		swap(x._size, y._size);
@@ -20,9 +21,9 @@ struct Mapping {
 	Mapping()
 	: _window{nullptr}, _offset{0}, _size{0} { }
 
-	Mapping(helix::BorrowedDescriptor slice, ptrdiff_t offset, size_t size)
-	: _offset{offset}, _size{size} {
-		HEL_CHECK(helMapMemory(slice.getHandle(), kHelNullHandle,
+	Mapping(helix::UniqueDescriptor memory, ptrdiff_t offset, size_t size)
+	: _memory{std::move(memory)}, _offset{offset}, _size{size} {
+		HEL_CHECK(helMapMemory(_memory.getHandle(), kHelNullHandle,
 				nullptr, _offset & ~(pageSize - 1),
 				((_offset & (pageSize - 1)) + _size + (pageSize - 1)) & ~(pageSize - 1),
 				kHelMapProtRead | kHelMapProtWrite, &_window));
@@ -45,11 +46,19 @@ struct Mapping {
 		return *this;
 	}
 
+	helix::BorrowedDescriptor memory() {
+		return _memory;
+	}
+	ptrdiff_t offset() {
+		return _offset;
+	}
+
 	void *get() {
 		return reinterpret_cast<char *>(_window) + (_offset & (pageSize - 1));
 	}
 
 private:
+	helix::UniqueDescriptor _memory;
 	void *_window;
 	ptrdiff_t _offset;
 	size_t _size;
@@ -423,6 +432,7 @@ COFIBER_ROUTINE(cofiber::no_future, StandardPciTransport::_processIrqs(), ([=] {
 //		std::cout << "core-virtio: " << getpid() << " Let's ack it" << std::endl;
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 
+
 		if(isr & 2) {
 			std::cout << "core-virtio: Configuration change" << std::endl;
 			auto status = _commonSpace().load(PCI_DEVICE_STATUS);
@@ -480,7 +490,7 @@ discover(protocols::hw::Device hw_device, DiscoverMode mode),
 		
 			assert(info.barInfo[bir].ioType == protocols::hw::IoType::kIoTypeMemory);
 			auto bar = COFIBER_AWAIT hw_device.accessBar(bir);
-			Mapping mapping{bar, info.barInfo[bir].offset + offset, length};
+			Mapping mapping{std::move(bar), info.barInfo[bir].offset + offset, length};
 
 			if(subtype == 1) {
 				common_mapping = std::move(mapping);
