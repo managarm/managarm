@@ -1451,29 +1451,49 @@ bool AddressSpace::fork(ForkNode *node) {
 
 	node->_progress = 0;
 
-	while(!node->_items.empty()) {
-		auto item = &node->_items.front();
-		if(node->_progress == item->mapping->length()) {
-			node->_items.removeFront();
-			node->_progress = 0;
-			continue;
+	struct Ops {
+		static bool process(ForkNode *node) {
+			while(!node->_items.empty()) {
+				auto item = &node->_items.front();
+				if(node->_progress == item->mapping->length()) {
+					node->_items.removeFront();
+					node->_progress = 0;
+					continue;
+				}
+				assert(node->_progress < item->mapping->length());
+				assert(node->_progress + kPageSize <= item->mapping->length());
+
+				node->_worklet.setup(&Ops::prepared);
+				node->_prepare.setup(node->_progress, kPageSize, &node->_worklet);
+				if(!item->mapping->prepareRange(&node->_prepare))
+					return false;
+				doCopy(node);
+			}
+
+			return true;
 		}
-		assert(node->_progress < item->mapping->length());
-		assert(node->_progress + kPageSize <= item->mapping->length());
 
-		node->_prepare.setup(node->_progress, kPageSize, &node->_worklet);
-		if(!item->mapping->prepareRange(&node->_prepare))
-			assert(!"Fix asynchronous fork()");
+		static void prepared(Worklet *base) {
+			auto node = frg::container_of(base, &ForkNode::_worklet);
+			doCopy(node);
+			if(!process(node))
+				return;
 
-		auto range = item->mapping->resolveRange(node->_progress);
-		assert(range.get<0>() != PhysicalAddr(-1));
+			WorkQueue::post(node->_forked);
+		}
 
-		PageAccessor accessor{range.get<0>()};
-		item->destBundle->copyKernelToThisSync(node->_progress, accessor.get(), kPageSize);
-		node->_progress += kPageSize;
-	}
+		static void doCopy(ForkNode *node) {
+			auto item = &node->_items.front();
+			auto range = item->mapping->resolveRange(node->_progress);
+			assert(range.get<0>() != PhysicalAddr(-1));
 
-	return true;
+			PageAccessor accessor{range.get<0>()};
+			item->destBundle->copyKernelToThisSync(node->_progress, accessor.get(), kPageSize);
+			node->_progress += kPageSize;
+		}
+	};
+
+	return Ops::process(node);
 }
 
 void AddressSpace::activate() {

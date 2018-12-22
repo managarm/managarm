@@ -624,12 +624,15 @@ struct ForkNode {
 	ForkNode()
 	: _items{*kernelAlloc} { }
 
+	void setup(Worklet *forked) {
+		_forked = forked;
+	}
 	frigg::SharedPtr<AddressSpace> forkedSpace() {
 		return frigg::move(_fork);
 	}
 
 private:
-	void (*_forked)(ForkNode *);
+	Worklet *_forked;
 
 	// TODO: This should be a SharedPtr, too.
 	AddressSpace *_original;

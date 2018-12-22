@@ -499,17 +499,28 @@ HelError helForkSpace(HelHandle handle, HelHandle *forked_handle) {
 			space = space_wrapper->get<AddressSpaceDescriptor>().space;
 		}
 	}
+	
+	struct Closure {
+		ThreadBlocker blocker;
+		Worklet worklet;
+		ForkNode fork;
+	} closure;
 
-	ForkNode node;
-	auto done = space->fork(&node);
-	assert(done);
+	closure.worklet.setup([] (Worklet *base) {
+		auto closure = frg::container_of(base, &Closure::worklet);
+		Thread::unblockOther(&closure->blocker);
+	});
+	closure.fork.setup(&closure.worklet);
+	closure.blocker.setup();
+	if(!space->fork(&closure.fork))
+		Thread::blockCurrent(&closure.blocker);
 
 	{
 		auto irq_lock = frigg::guard(&irqMutex());
 		Universe::Guard universe_guard(&this_universe->lock);
 
 		*forked_handle = this_universe->attachDescriptor(universe_guard,
-				AddressSpaceDescriptor(node.forkedSpace()));
+				AddressSpaceDescriptor(closure.fork.forkedSpace()));
 	}
 
 	return kHelErrNone;
