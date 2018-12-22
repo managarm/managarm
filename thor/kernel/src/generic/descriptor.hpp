@@ -13,6 +13,8 @@ struct Thread;
 struct Universe;
 struct IpcQueue;
 struct VirtualView;
+struct KernletObject;
+struct BoundKernlet;
 
 struct QueueDescriptor {
 	QueueDescriptor(frigg::SharedPtr<IpcQueue> queue)
@@ -60,7 +62,7 @@ struct AddressSpaceDescriptor {
 struct ThreadDescriptor {
 	ThreadDescriptor(frigg::SharedPtr<Thread> thread)
 	: thread(frigg::move(thread)) { }
-	
+
 	frigg::SharedPtr<Thread> thread;
 };
 
@@ -138,20 +140,34 @@ struct IrqObject;
 struct IrqDescriptor {
 	IrqDescriptor(frigg::SharedPtr<IrqObject> irq)
 	: irq{frigg::move(irq)} { }
-	
+
 	frigg::SharedPtr<IrqObject> irq;
 };
 
 struct IoDescriptor {
 	IoDescriptor(frigg::SharedPtr<IoSpace> io_space)
 	: ioSpace(frigg::move(io_space)) { }
-	
+
 	frigg::SharedPtr<IoSpace> ioSpace;
 };
 
 // --------------------------------------------------------
 // AnyDescriptor
 // --------------------------------------------------------
+
+struct KernletObjectDescriptor {
+	KernletObjectDescriptor(frigg::SharedPtr<KernletObject> kernlet_object)
+	: kernletObject(frigg::move(kernlet_object)) { }
+
+	frigg::SharedPtr<KernletObject> kernletObject;
+};
+
+struct BoundKernletDescriptor {
+	BoundKernletDescriptor(frigg::SharedPtr<BoundKernlet> bound_kernlet)
+	: boundKernlet(frigg::move(bound_kernlet)) { }
+
+	frigg::SharedPtr<BoundKernlet> boundKernlet;
+};
 
 typedef frigg::Variant<
 	UniverseDescriptor,
@@ -162,7 +178,9 @@ typedef frigg::Variant<
 	ThreadDescriptor,
 	LaneDescriptor,
 	IrqDescriptor,
-	IoDescriptor
+	IoDescriptor,
+	KernletObjectDescriptor,
+	BoundKernletDescriptor
 > AnyDescriptor;
 
 } // namespace thor

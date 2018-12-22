@@ -17,6 +17,7 @@
 #include <helix/ipc.hpp>
 #include <helix/await.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
@@ -175,8 +176,11 @@ async::result<size_t> EndpointState::transfer(BulkTransfer info) {
 // Controller.
 // ----------------------------------------------------------------
 
-Controller::Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq)
-: _hwDevice{std::move(hw_device)}, _space{address}, _irq{frigg::move(irq)},
+Controller::Controller(protocols::hw::Device hw_device, helix::Mapping mapping,
+		helix::UniqueDescriptor mmio, helix::UniqueIrq irq)
+: _hwDevice{std::move(hw_device)}, _mapping{std::move(mapping)},
+		_mmio{std::move(mmio)}, _irq{std::move(irq)},
+		_space{_mapping.get()},
 		_enumerator{this} { 
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
@@ -392,6 +396,16 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
+	COFIBER_AWAIT connectKernletCompiler();
+	auto kernlet_object = COFIBER_AWAIT compile();
+
+	HelKernletData data[2];
+	data[0].handle = _mmio.getHandle();
+	data[1].handle = _mapping.offset();
+	HelHandle bound_handle;
+	HEL_CHECK(helBindKernlet(kernlet_object.getHandle(), data, 2, &bound_handle));
+	HEL_CHECK(helAutomateIrq(_irq.getHandle(), 0, bound_handle));
+
 	COFIBER_AWAIT _hwDevice.enableBusIrq();
 
 	// TODO: We should not need this kick anymore.
@@ -1007,12 +1021,9 @@ COFIBER_ROUTINE(cofiber::no_future, bindController(mbus::Entity entity), ([=] {
 	auto bar = COFIBER_AWAIT device.accessBar(0);
 	auto irq = COFIBER_AWAIT device.accessIrq();
 	
-	void *actual_pointer;
-	HEL_CHECK(helMapMemory(bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapProtRead | kHelMapProtWrite | kHelMapShareAtFork, &actual_pointer));
-
 	auto controller = std::make_shared<Controller>(std::move(device),
-			(char *)actual_pointer + info.barInfo[0].offset, std::move(irq));
+			helix::Mapping{bar, info.barInfo[0].offset, info.barInfo[0].length},
+			std::move(bar), std::move(irq));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }))

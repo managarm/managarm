@@ -303,6 +303,12 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(Hel
 			(HelWord)queue, (HelWord)context);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandle handle,
+		uint32_t flags, HelHandle kernlet) {
+	return helSyscall3(kHelCallAutomateIrq, (HelWord)handle, (HelWord)flags,
+			(HelWord)kernlet);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAccessIo(uintptr_t *port_array,
 		size_t num_ports, HelHandle *handle) {
 	HelWord out_handle;
@@ -319,6 +325,16 @@ extern inline __attribute__ (( always_inline )) HelError helEnableIo(HelHandle h
 extern inline __attribute__ (( always_inline )) HelError helEnableFullIo() {
 	return helSyscall0(kHelCallEnableFullIo);
 };
+
+extern inline __attribute__ (( always_inline )) HelError helBindKernlet(HelHandle handle,
+		const HelKernletData *data, size_t num_data, HelHandle *bound_handle) {
+	HelWord handle_word;
+	HelError error = helSyscall3_1(kHelCallBindKernlet, (HelWord)handle,
+			(HelWord)data, (HelWord)num_data, &handle_word);
+	*bound_handle = (HelHandle)handle_word;
+	return error;
+};
+
 
 #endif // HEL_SYSCALLS_H
 

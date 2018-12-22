@@ -293,7 +293,22 @@ void IrqPin::_updateMask() {
 IrqObject::IrqObject(frigg::String<KernelAlloc> name)
 : IrqSink{frigg::move(name)} { }
 
+// TODO: Add a sequence parameter to this function and run the kernlet if the sequence advanced.
+//       This would prevent races between automate() and IRQs.
+void IrqObject::automate(frigg::SharedPtr<BoundKernlet> kernlet) {
+	_automationKernlet = std::move(kernlet);
+}
+
 IrqStatus IrqObject::raise() {
+	// TODO: Run the automation kernlet _after_ waking the wait queue.
+	// That way, waiters would still work in the presence of automation.
+	if(_automationKernlet) {
+		if(!_automationKernlet->invokeIrqAutomation())
+			return IrqStatus::nacked;
+		// TODO: Once we support notification mechanisms from within the kernel, we can ack here.
+//		return IrqStatus::acked;
+	}
+
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
 		node->_error = kErrSuccess;

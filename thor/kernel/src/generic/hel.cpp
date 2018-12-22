@@ -5,6 +5,7 @@
 #include "kernel.hpp"
 #include "ipc-queue.hpp"
 #include "irq.hpp"
+#include "kernlet.hpp"
 #include "../arch/x86/debug.hpp"
 
 using namespace thor;
@@ -1860,6 +1861,38 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	return kHelErrNone;
 }
 
+HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_handle) {
+	assert(!flags);
+
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<IrqObject> irq;
+	frigg::SharedPtr<BoundKernlet> kernlet;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto irq_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!irq_wrapper)
+			return kHelErrNoDescriptor;
+		if(!irq_wrapper->is<IrqDescriptor>())
+			return kHelErrBadDescriptor;
+		irq = irq_wrapper->get<IrqDescriptor>().irq;
+
+		auto kernlet_wrapper = this_universe->getDescriptor(universe_guard, kernlet_handle);
+		if(!kernlet_wrapper)
+			return kHelErrNoDescriptor;
+		if(!kernlet_wrapper->is<BoundKernletDescriptor>())
+			return kHelErrBadDescriptor;
+		kernlet = kernlet_wrapper->get<BoundKernletDescriptor>().boundKernlet;
+	}
+
+	irq->automate(std::move(kernlet));
+
+	return kHelErrNone;
+}
+
 HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle) {
 	auto this_thread = getCurrentThread();
@@ -1908,6 +1941,80 @@ HelError helEnableFullIo() {
 
 	for(uintptr_t port = 0; port < 0x10000; port++)
 		this_thread->getContext().enableIoPort(port);
+
+	return kHelErrNone;
+}
+
+HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num_data,
+		HelHandle *bound_handle) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<KernletObject> kernlet;
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto kernlet_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!kernlet_wrapper)
+			return kHelErrNoDescriptor;
+		if(!kernlet_wrapper->is<KernletObjectDescriptor>())
+			return kHelErrBadDescriptor;
+		kernlet = kernlet_wrapper->get<KernletObjectDescriptor>().kernletObject;
+	}
+
+	auto object = kernlet.get();
+	assert(num_data == object->numberOfBindParameters());
+
+	auto bound = frigg::makeShared<BoundKernlet>(*kernelAlloc,
+			std::move(kernlet));
+	for(size_t i = 0; i < object->numberOfBindParameters(); i++) {
+		const auto &defn = object->defnOfBindParameter(i);
+
+		enableUserAccess();
+		auto x = data[i].handle;
+		disableUserAccess();
+
+		if(defn.type == KernletParameterType::offset) {
+			bound->setupOffsetBinding(i, x);
+		}else{
+			assert(defn.type == KernletParameterType::memoryView);
+
+			frigg::SharedPtr<Memory> memory;
+			{
+				auto irq_lock = frigg::guard(&irqMutex());
+				Universe::Guard universe_guard(&this_universe->lock);
+
+				auto memory_wrapper = this_universe->getDescriptor(universe_guard, x);
+				if(!memory_wrapper)
+					return kHelErrNoDescriptor;
+				if(!memory_wrapper->is<MemoryBundleDescriptor>())
+					return kHelErrBadDescriptor;
+				memory = memory_wrapper->get<MemoryBundleDescriptor>().memory;
+			}
+
+			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
+			assert(memory->getLength() <= 0x10000);
+
+			for(size_t off = 0; off < memory->getLength(); off += kPageSize) {
+			//	frigg::Tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+				auto range = memory->peekRange(off);
+				assert(range.get<0>() != PhysicalAddr(-1));
+				KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(window + off),
+						range.get<0>(), 0, range.get<1>());
+			}
+
+			bound->setupMemoryViewBinding(i, window);
+		}
+	}
+
+	{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		*bound_handle = this_universe->attachDescriptor(universe_guard,
+				BoundKernletDescriptor(frigg::move(bound)));
+	}
 
 	return kHelErrNone;
 }

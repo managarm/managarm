@@ -5,6 +5,7 @@
 #include "module.hpp"
 #include "irq.hpp"
 #include "fiber.hpp"
+#include "kernlet.hpp"
 #include "servers.hpp"
 #include "service_helpers.hpp"
 #include <frigg/elf.hpp>
@@ -239,6 +240,8 @@ extern "C" void thorMain(PhysicalAddr info_paddr) {
 		initializeSvrctl();
 		frigg::infoLogger() << "thor: Launching user space." << frigg::endLog;
 		runMbus();
+		initializeKernletCtl();
+		runServer("sbin/kernletcc");
 		runServer("sbin/clocktracker");
 		runServer("sbin/posix-subsystem");
 	});
@@ -482,7 +485,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
 			frigg::infoLogger() << "thor: User space panic:" << frigg::endLog;
 			helLog((const char *)arg0, (size_t)arg1);
-			
+
 			// TODO: We should kill the thread in this situation.
 			Thread::interruptCurrent(kIntrPanic, image);
 		}else{
@@ -668,7 +671,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallShutdownLane: {
 		*image.error() = helShutdownLane((HelHandle)arg0);
 	} break;
-	
+
 	case kHelCallFutexWait: {
 		*image.error() = helFutexWait((int *)arg0, (int)arg1);
 	} break;
@@ -688,6 +691,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
 				(HelHandle)arg2, (uintptr_t)arg3);
 	} break;
+	case kHelCallAutomateIrq: {
+		HelHandle handle;
+		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);
+	} break;
 
 	case kHelCallAccessIo: {
 		HelHandle handle;
@@ -700,11 +707,18 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallEnableFullIo: {
 		*image.error() = helEnableFullIo();
 	} break;
-	
+
+	case kHelCallBindKernlet: {
+		HelHandle bound_handle;
+		*image.error() = helBindKernlet((HelHandle)arg0, (const HelKernletData *)arg1,
+				(size_t)arg2, &bound_handle);
+		*image.out0() = bound_handle;
+	} break;
+
 	default:
 		*image.error() = kHelErrIllegalSyscall;
 	}
-	
+
 	// Run more worklets that were posted by the syscall.
 	this_thread->mainWorkQueue()->run();
 

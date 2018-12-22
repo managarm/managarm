@@ -15,7 +15,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 93,
+	kHelNumCalls = 95,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -71,11 +71,14 @@ enum {
 	kHelCallAccessIrq = 14,
 	kHelCallAcknowledgeIrq = 81,
 	kHelCallSubmitAwaitEvent = 82,
+	kHelCallAutomateIrq = 94,
 
 	kHelCallAccessIo = 11,
 	kHelCallEnableIo = 12,
 	kHelCallEnableFullIo = 35,
-	
+
+	kHelCallBindKernlet = 93,
+
 	kHelCallSuper = 0x80000000
 };
 
@@ -353,6 +356,10 @@ enum HelAckFlags {
 	kHelAckKick = 1
 };
 
+union HelKernletData {
+	HelHandle handle;
+};
+
 HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
 HEL_C_LINKAGE void helPanic(const char *string, size_t length)
 		__attribute__ (( noreturn ));
@@ -424,11 +431,15 @@ HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
 
 HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 		HelHandle *handle);
 HEL_C_LINKAGE HelError helEnableIo(HelHandle handle);
 HEL_C_LINKAGE HelError helEnableFullIo();
+
+HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
+		const HelKernletData *data, size_t num_data, HelHandle *bound_handle);
 
 extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelError code) {
 	switch(code) {

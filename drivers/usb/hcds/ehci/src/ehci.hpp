@@ -5,6 +5,7 @@
 #include <async/doorbell.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
+#include <helix/memory.hpp>
 
 #include "spec.hpp"
 
@@ -43,7 +44,9 @@ private:
 // ----------------------------------------------------------------
 
 struct Controller : std::enable_shared_from_this<Controller> {
-	Controller(protocols::hw::Device hw_device, void *address, helix::UniqueIrq irq);
+	Controller(protocols::hw::Device hw_device,
+			helix::Mapping mapping,
+			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
 	
 	cofiber::no_future initialize();
 	async::result<void> probeDevice();
@@ -158,8 +161,10 @@ private:
 
 private:
 	protocols::hw::Device _hwDevice;
-	arch::mem_space _space; 
+	helix::Mapping _mapping;
+	helix::UniqueDescriptor _mmio;
 	helix::UniqueIrq _irq;
+	arch::mem_space _space;
 	arch::mem_space _operational;
 
 	int _numPorts;

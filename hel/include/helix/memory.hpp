@@ -52,6 +52,9 @@ struct Mapping {
 		return _window;
 	}
 
+	ptrdiff_t offset() { return _offset; }
+	size_t size() { return _size; }
+
 	void *get() {
 		return reinterpret_cast<char *>(_window) + (_offset & (pageSize - 1));
 	}

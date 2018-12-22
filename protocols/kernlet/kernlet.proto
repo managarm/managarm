@@ -1,0 +1,31 @@
+
+syntax = "proto2";
+package managarm.kernlet;
+option optimize_for = LITE_RUNTIME;
+
+enum Error {
+	SUCCESS = 0;
+	ILLEGAL_REQUEST = 1;
+}
+
+enum ParameterType {
+	OFFSET = 1;
+	MEMORY_VIEW = 2;
+}
+
+enum CntReqType {
+	NONE = 0;
+	UPLOAD = 1;
+
+	COMPILE = 32;
+}
+
+message CntRequest {
+	optional CntReqType req_type = 1;
+	repeated ParameterType bind_types = 2;
+}
+
+message SvrResponse {
+	optional Error error = 1;
+}
+

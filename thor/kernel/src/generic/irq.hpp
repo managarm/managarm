@@ -7,6 +7,7 @@
 #include <frg/list.hpp>
 #include "error.hpp"
 #include "kernel_heap.hpp"
+#include "kernlet.hpp"
 #include "work-queue.hpp"
 
 namespace thor {
@@ -202,11 +203,15 @@ private:
 struct IrqObject : IrqSink {
 	IrqObject(frigg::String<KernelAlloc> name);
 
+	void automate(frigg::SharedPtr<BoundKernlet> kernlet);
+
 	IrqStatus raise() override;
 
 	void submitAwait(AwaitIrqNode *node, uint64_t sequence);
 
 private:
+	frigg::SharedPtr<BoundKernlet> _automationKernlet;
+
 	// Protected by the sinkMutex.
 	frg::intrusive_list<
 		AwaitIrqNode,

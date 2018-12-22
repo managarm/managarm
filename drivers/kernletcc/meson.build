@@ -1,0 +1,18 @@
+
+gen = generator(protoc,
+	output: ['@BASENAME@.pb.h', '@BASENAME@.pb.cc'],
+	arguments: ['--cpp_out=@BUILD_DIR@',
+			'--proto_path=@CURRENT_SOURCE_DIR@/../../protocols/kernlet/',
+			'@INPUT@'])
+
+kernlet_pb = gen.process('../../protocols/kernlet/kernlet.proto')
+
+executable('kernletcc', ['src/main.cpp', kernlet_pb],
+	dependencies: [
+		lib_cofiber_dep,
+		lib_helix_dep,
+		proto_lite_dep,
+		libmbus_protocol_dep
+	],
+	install: true)
+

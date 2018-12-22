@@ -29,7 +29,7 @@ $c_OBJECTS := frigg-debug.o frigg-libc.o \
 	generic/cancel.o generic/core.o generic/fiber.o generic/ipc-queue.o generic/usermem.o \
 	generic/schedule.o generic/futex.o generic/stream.o \
 	generic/timer.o generic/thread.o generic/irq.o generic/io.o \
-	generic/servers.o generic/service_helpers.o \
+	generic/kernlet.o generic/servers.o generic/service_helpers.o \
 	generic/work-queue.o
 $c_OBJECTS += generic/font-8x16.o system/boot-screen.o system/fb.o
 $c_OBJECTS += system/pci/pci_io.o system/pci/pci_discover.o 
@@ -265,7 +265,7 @@ $($c_ACPICA_OBJDIR)/%.o: $($c_ACPICA_SRCDIR)/%.c | $($c_ACPICA_SUBDIR_PATHS)
 gen-$c: $($c_GENDIR)/posix.frigg_pb.hpp \
 	$($c_GENDIR)/fs.frigg_pb.hpp $($c_GENDIR)/mbus.frigg_pb.hpp \
 	$($c_GENDIR)/hw.frigg_pb.hpp $($c_GENDIR)/clock.frigg_pb.hpp \
-	$($c_GENDIR)/svrctl.frigg_pb.hpp
+	$($c_GENDIR)/svrctl.frigg_pb.hpp $($c_GENDIR)/kernlet.frigg_pb.hpp
 
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/bragi/proto/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
@@ -286,4 +286,8 @@ $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/clock/%.proto | $($c_GENDIR)
 $($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/svrctl/%.proto | $($c_GENDIR)
 	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
 			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/svrctl $<
+
+$($c_GENDIR)/%.frigg_pb.hpp: $(TREE_PATH)/protocols/kernlet/%.proto | $($c_GENDIR)
+	$(PROTOC) --plugin=protoc-gen-frigg=`which frigg_pb` \
+			--frigg_out=$($d_GENDIR) --proto_path=$(TREE_PATH)/protocols/kernlet $<
 
