@@ -620,12 +620,11 @@ frigg::Tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offse
 }
 
 bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
-	assert(!(offset % kPageSize));
-	
 	auto irq_lock = frigg::guard(&irqMutex());
 	auto lock = frigg::guard(&_managed->mutex);
 
-	auto index = offset / kPageSize;
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
 	assert(index < _managed->physicalPages.size());
 	if(_managed->loadState[index] != ManagedSpace::kStateLoaded) {
 		// TODO: Do not allocate memory here; use pre-allocated nodes instead.
@@ -646,7 +645,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				auto irq_lock = frigg::guard(&irqMutex());
 				auto lock = frigg::guard(&closure->bundle->mutex);
 
-				auto index = closure->offset / kPageSize;
+				auto index = closure->offset >> kPageShift;
+				auto misalign = closure->offset & (kPageSize - 1);
 				assert(closure->bundle->loadState[index] == ManagedSpace::kStateLoaded);
 				auto physical = closure->bundle->physicalPages[index];
 				assert(physical != PhysicalAddr(-1));
@@ -654,7 +654,8 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 				lock.unlock();
 				irq_lock.unlock();
 
-				completeFetch(closure->fetch, physical, kPageSize, CachingMode::null);
+				completeFetch(closure->fetch, physical + misalign, kPageSize - misalign,
+						CachingMode::null);
 				callbackFetch(closure->fetch);
 				frigg::destruct(*kernelAlloc, closure);
 			}
@@ -686,7 +687,7 @@ bool FrontalMemory::fetchRange(uintptr_t offset, FetchNode *node) {
 
 	auto physical = _managed->physicalPages[index];
 	assert(physical != PhysicalAddr(-1));
-	completeFetch(node, physical, kPageSize, CachingMode::null);
+	completeFetch(node, physical + misalign, kPageSize - misalign, CachingMode::null);
 	return true;
 }
 
