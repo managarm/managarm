@@ -19,6 +19,8 @@ static constexpr bool logEveryIrq = false;
 static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
 
+static constexpr bool noScheduleOnIrq = false;
+
 bool debugToVga = false;
 bool debugToSerial = false;
 bool debugToBochs = false;
@@ -397,7 +399,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 
 	// TODO: Can this function actually be called from non-preemptible domains?
 	assert(image.inPreemptibleDomain());
-	if(localScheduler()->wantSchedule()) {
+	if(!noScheduleOnIrq && localScheduler()->wantSchedule()) {
 		if(image.inThreadDomain()) {
 			if(image.inManipulableDomain()) {
 				Thread::suspendCurrent(image);
