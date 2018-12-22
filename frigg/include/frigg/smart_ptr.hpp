@@ -439,7 +439,7 @@ UnsafePtr<T> staticPtrCast(UnsafePtr<U> pointer) {
 
 template<typename T, typename Allocator, typename... Args>
 SharedPtr<T> makeShared(Allocator &allocator, Args &&... args) {
-	auto block = construct<SharedBlock<T, Allocator>>(allocator,
+	auto block = frigg::construct<SharedBlock<T, Allocator>>(allocator,
 			allocator, forward<Args>(args)...);
 	return SharedPtr<T>(adoptShared, block);
 
