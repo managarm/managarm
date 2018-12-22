@@ -47,10 +47,17 @@ void serviceSend(LaneHandle handle, const void *buffer, size_t length,
 }
 
 struct OpenFile {
+	OpenFile()
+	: isTerminal{false} { };
+
+	bool isTerminal;
 	LaneHandle clientLane;
 };
 
 struct StdioFile : OpenFile {
+	StdioFile() {
+		isTerminal = true;
+	}
 };
 
 namespace stdio {
@@ -546,7 +553,7 @@ namespace initrd {
 
 		frigg::String<KernelAlloc> _buffer;
 	};
-	
+
 	struct CloseClosure {
 		CloseClosure(LaneHandle lane, posix::CntRequest<KernelAlloc> req)
 		: _lane(frigg::move(lane)), _req(frigg::move(req)), _buffer(*kernelAlloc) { }
@@ -566,6 +573,36 @@ namespace initrd {
 			assert(error == kErrSuccess);
 		}
 
+		LaneHandle _lane;
+		posix::CntRequest<KernelAlloc> _req;
+
+		frigg::String<KernelAlloc> _buffer;
+	};
+
+	struct IsTerminalClosure {
+		IsTerminalClosure(Process *process, LaneHandle lane, posix::CntRequest<KernelAlloc> req)
+		: _process{process}, _lane{frigg::move(lane)},
+				_req{frigg::move(req)}, _buffer{*kernelAlloc} { }
+
+		void operator() () {
+			assert((size_t)_req.fd() < _process->openFiles.size());
+			auto file = _process->openFiles[_req.fd()];
+
+			posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_mode(file->isTerminal ? 1 : 0);
+
+			resp.SerializeToString(&_buffer);
+			serviceSend(_lane, _buffer.data(), _buffer.size(),
+					CALLBACK_MEMBER(this, &IsTerminalClosure::onSendResp));
+		}
+
+	private:
+		void onSendResp(Error error) {
+			assert(error == kErrSuccess);
+		}
+
+		Process *_process;
 		LaneHandle _lane;
 		posix::CntRequest<KernelAlloc> _req;
 
@@ -599,6 +636,10 @@ namespace initrd {
 			if(req.request_type() == managarm::posix::CntReqType::OPEN) {
 				auto closure = frigg::construct<OpenClosure>(*kernelAlloc,
 						_process, frigg::move(_requestLane), frigg::move(req));
+				(*closure)();
+			}else if(req.request_type() == managarm::posix::CntReqType::IS_TTY) {
+				auto closure = frigg::construct<IsTerminalClosure>(*kernelAlloc, _process,
+						frigg::move(_requestLane), frigg::move(req));
 				(*closure)();
 			}else if(req.request_type() == managarm::posix::CntReqType::CLOSE) {
 				auto closure = frigg::construct<CloseClosure>(*kernelAlloc,
