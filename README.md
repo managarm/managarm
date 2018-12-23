@@ -1,5 +1,7 @@
 # The managarm Operating System
 
+![Screenshot](../assets/screenshots/echo-hello-managarm.png?raw=true)
+
 ## What is this about?
 
 This is the main repository of managarm, a microkernel-based operating system.
@@ -26,3 +28,9 @@ Currently, Weston (the Wayland reference compositor) and GNU Bash run on managar
 **Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface\
 **Input** USB human interface devices, PS/2 keyboard and mouse\
 **Storage** USB mass storage devices, ATA, virtio block
+
+## Building managarm
+
+While this repository contains managarm's kernel, its drivers and other core functionality,
+it is not enough to build a full managarm distribution. Instead, we refer to the
+[bootstrap-managarm](https://github.com/managarm/bootstrap-managarm) repository for build instructions.
