@@ -325,6 +325,12 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 	return context;
 }
 
+void SignalContext::resetHandlers() {
+	for(int sn = 0; sn < 64; sn++)
+		if(_handlers[sn].disposition == SignalDisposition::handle)
+			_handlers[sn].disposition = SignalDisposition::none;
+}
+
 SignalHandler SignalContext::changeHandler(int sn, SignalHandler handler) {
 	assert(sn < 64);
 	return std::exchange(_handlers[sn], handler);
@@ -583,6 +589,7 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	// "Commit" the exec() operation.
 	process->_path = std::move(path);
 	process->_vmContext = std::move(exec_vm_context);
+	process->_signalContext->resetHandlers();
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
 	process->_clientFileTable = exec_client_table;
 

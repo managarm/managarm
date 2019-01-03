@@ -156,6 +156,8 @@ public:
 
 	SignalContext();
 
+	void resetHandlers();
+
 	SignalHandler changeHandler(int sn, SignalHandler handler);
 
 	void issueSignal(int sn, SignalInfo info);
