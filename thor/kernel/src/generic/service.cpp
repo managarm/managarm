@@ -684,6 +684,10 @@ namespace initrd {
 				_thread->_executor.general()->rdi = kHelErrNone;
 				_thread->_executor.general()->rsi = (Word)_process->clientFileTable;
 				Thread::resumeOther(_thread);
+			}else if(interrupt == kIntrSuperCall + 7) { // sigprocmask.
+				_thread->_executor.general()->rdi = kHelErrNone;
+				_thread->_executor.general()->rsi = 0;
+				Thread::resumeOther(_thread);
 			}else{
 				frigg::panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frigg::endLog;
