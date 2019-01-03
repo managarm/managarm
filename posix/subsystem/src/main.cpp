@@ -1051,10 +1051,17 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			}
 
 			SignalHandler handler;
-			handler.disposition = SignalDisposition::handle;
+			if(req.sig_handler() == uintptr_t(-2)) {
+				handler.disposition = SignalDisposition::none;
+			}else if(req.sig_handler() == uintptr_t(-3)) {
+				handler.disposition = SignalDisposition::ignore;
+			}else{
+				handler.disposition = SignalDisposition::handle;
+				handler.handlerIp = req.sig_handler();
+			}
+
 			handler.flags = 0;
 			handler.mask = req.sig_mask();
-			handler.handlerIp = req.sig_handler();
 			handler.restorerIp = req.sig_restorer();
 
 			if(req.flags() & SA_SIGINFO)
@@ -1082,8 +1089,15 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(saved_flags);
 			resp.set_sig_mask(saved_handler.mask);
-			resp.set_sig_handler(saved_handler.handlerIp);
-			resp.set_sig_restorer(saved_handler.restorerIp);
+			if(saved_handler.disposition == SignalDisposition::handle) {
+				resp.set_sig_handler(saved_handler.handlerIp);
+				resp.set_sig_restorer(saved_handler.restorerIp);
+			}else if(saved_handler.disposition == SignalDisposition::none) {
+				resp.set_sig_handler(-2);
+			}else{
+				assert(saved_handler.disposition == SignalDisposition::ignore);
+				resp.set_sig_handler(-3);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

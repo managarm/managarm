@@ -444,6 +444,7 @@ void SignalContext::raiseContext(SignalItem *item, helix::BorrowedDescriptor thr
 			sizeof(SignalFrame), &sf));
 	
 	std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
+	std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
 
 	// Setup the new register image and resume.
 	// TODO: Linux sets rdx to the ucontext.
