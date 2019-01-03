@@ -374,12 +374,15 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	switch(fault) {
 	case kIntrBreakpoint: name = "breakpoint"; break;
 	case kIntrGeneralFault: name = "general"; break;
+	case kIntrIllegalInstruction: name = "illegal-instruction"; break;
 	default:
 		frigg::panicLogger() << "Unexpected fault code" << frigg::endLog;
 	}
 
 	if(this_thread->flags & Thread::kFlagTrapsAreFatal) {
-		frigg::infoLogger() << "traps-are-fatal thread killed by " << name << " fault.\n" << "Last ip: " << (void *)*image.ip() << frigg::endLog;
+		frigg::infoLogger() << "traps-are-fatal thread killed by "
+				<< name << " fault.\n"
+				<< "Last ip: " << (void *)*image.ip() << frigg::endLog;
 		
 		// TODO: We should kill the thread in this situation.
 		Thread::interruptCurrent(kIntrPanic, image);

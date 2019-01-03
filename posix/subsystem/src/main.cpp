@@ -277,13 +277,18 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
+		}else if(observe.observation() == kHelObservePageFault) {
+			printf("\e[31mPage fault in process %s\n", self->path().c_str());
+			dumpRegisters(thread);
+			printf("\e[39m");
+			fflush(stdout);
 		}else if(observe.observation() == kHelObserveGeneralFault) {
 			printf("\e[31mGeneral fault in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);
-		}else if(observe.observation() == kHelObservePageFault) {
-			printf("\e[31mPage fault in process %s\n", self->path().c_str());
+		}else if(observe.observation() == kHelObserveIllegalInstruction) {
+			printf("\e[31mIllegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(thread);
 			printf("\e[39m");
 			fflush(stdout);

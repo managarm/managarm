@@ -213,6 +213,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	case 3: {
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
+	case 6: {
+		handleOtherFault(image, kIntrIllegalInstruction);
+	} break;
 	case 13: {
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
