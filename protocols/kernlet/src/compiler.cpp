@@ -30,10 +30,11 @@ COFIBER_ROUTINE(async::result<void>, connectKernletCompiler(), ([] {
 	COFIBER_AWAIT foundKernletCompiler.async_wait();
 }))
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(), ([] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size_t size), ([=] {
 	// Compile the kernlet object.
 	helix::Offer offer;
 	helix::SendBuffer send_req;
+	helix::SendBuffer send_code;
 	helix::RecvInline recv_resp;
 	helix::PullDescriptor pull_kernlet;
 
@@ -44,11 +45,13 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(), ([] {
 	auto &&transmit = helix::submitAsync(kernletCompilerLane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
+			helix::action(&send_code, code, size, kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_kernlet));
 	COFIBER_AWAIT transmit.async_wait();
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
+	HEL_CHECK(send_code.error());
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(pull_kernlet.error());
 

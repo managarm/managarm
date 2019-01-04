@@ -8,7 +8,7 @@
 #include <protocols/mbus/client.hpp>
 #include <kernlet.pb.h>
 
-helix::UniqueDescriptor kernletObject;
+std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size);
 
 // ----------------------------------------------------------------------------
 // kernletctl handling.
@@ -37,27 +37,7 @@ COFIBER_ROUTINE(async::result<void>, enumerateCtl(), ([] {
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(async::result<void>, upload(const char *name), ([=] {
-	// First, load the whole file into a buffer.
-	auto fd = open(name, O_RDONLY);
-
-	std::vector<char> buffer;
-	off_t progress = 0;
-	const size_t max_chunk = 0x4000;
-	while(true) {
-		buffer.resize(progress + max_chunk);
-		auto chunk = read(fd, buffer.data() + progress, max_chunk);
-		if(chunk < 0)
-			throw std::runtime_error("Error while reading file");
-		if(!chunk)
-			break;
-		progress += chunk;
-	}
-	buffer.resize(progress);
-
-	close(fd);
-
-	// Now, send the file to the kernel.
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, size_t size), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::SendBuffer send_data;
@@ -73,7 +53,7 @@ COFIBER_ROUTINE(async::result<void>, upload(const char *name), ([=] {
 	auto &&transmit = helix::submitAsync(kernletCtlLane, helix::Dispatcher::global(),
 			helix::action(&offer, kHelItemAncillary),
 			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&send_data, buffer.data(), buffer.size(), kHelItemChain),
+			helix::action(&send_data, elf, size, kHelItemChain),
 			helix::action(&recv_resp, kHelItemChain),
 			helix::action(&pull_kernlet));
 	COFIBER_AWAIT transmit.async_wait();
@@ -85,10 +65,9 @@ COFIBER_ROUTINE(async::result<void>, upload(const char *name), ([=] {
 	managarm::kernlet::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	assert(resp.error() == managarm::kernlet::Error::SUCCESS);
-	kernletObject = std::move(pull_kernlet.descriptor());
 	std::cout << "kernletcc: Upload success" << std::endl;
 
-	COFIBER_RETURN();
+	COFIBER_RETURN(std::move(pull_kernlet.descriptor()));
 }))
 
 // ----------------------------------------------------------------------------
@@ -100,13 +79,16 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 	while(true) {
 		helix::Accept accept;
 		helix::RecvInline recv_req;
+		helix::RecvInline recv_code;
 
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
+				helix::action(&recv_req, kHelItemChain),
+				helix::action(&recv_code));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
+		HEL_CHECK(recv_code.error());
 
 		auto conversation = accept.descriptor();
 
@@ -116,13 +98,17 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_kernlet;
 
+			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recv_code.data()),
+					recv_code.length());
+			auto object = COFIBER_AWAIT upload(elf.data(), elf.size());
+
 			managarm::kernlet::SvrResponse resp;
 			resp.set_error(managarm::kernlet::Error::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
 					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_kernlet, kernletObject));
+					helix::action(&push_kernlet, object));
 			COFIBER_AWAIT transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else{
@@ -160,7 +146,6 @@ COFIBER_ROUTINE(async::result<void>, createCompilerObject(), ([] {
 COFIBER_ROUTINE(cofiber::no_future, asyncMain(const char **args), ([=] {
 	COFIBER_AWAIT enumerateCtl();
 	COFIBER_AWAIT createCompilerObject();
-	COFIBER_AWAIT upload("lib/kernlet/kernlet-ehci.so");
 }))
 
 int main(int argc, const char **argv) {

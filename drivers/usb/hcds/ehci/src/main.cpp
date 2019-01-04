@@ -11,6 +11,7 @@
 #include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <cofiber.hpp>
+#include <fafnir/language.h>
 #include <frigg/atomic.hpp>
 #include <frigg/arch_x86/machine.hpp>
 #include <frigg/memory.hpp>
@@ -397,7 +398,25 @@ COFIBER_ROUTINE(async::result<void>, Controller::probeDevice(), ([=] {
 
 COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	COFIBER_AWAIT connectKernletCompiler();
-	auto kernlet_object = COFIBER_AWAIT compile();
+
+	std::vector<uint8_t> kernlet_program;
+	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(0);
+	kernlet_program.push_back(FNR_OP_BINDING);
+	kernlet_program.push_back(1);
+	kernlet_program.push_back(FNR_OP_CONST);
+	kernlet_program.push_back(4); // Offset of USBSTS.
+	kernlet_program.push_back(FNR_OP_ADD);
+	kernlet_program.push_back(FNR_OP_INTRIN);
+	for(const char *s = "__mmio_read32"; *s; ++s)
+		kernlet_program.push_back(*s);
+	kernlet_program.push_back(0); // Null-terminator.
+	kernlet_program.push_back(FNR_OP_CONST);
+	kernlet_program.push_back(23); // USB transaction, error, port change and host error bits.
+	kernlet_program.push_back(FNR_OP_AND);
+
+	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
+			kernlet_program.size());
 
 	HelKernletData data[2];
 	data[0].handle = _mmio.getHandle();
