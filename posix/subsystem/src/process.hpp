@@ -214,6 +214,10 @@ public:
 		return _path;
 	}
 
+	helix::BorrowedDescriptor threadDescriptor() {
+		return _threadDescriptor;
+	}
+
 	// TODO: The following three function do not need to return shared_ptrs.
 	std::shared_ptr<VmContext> vmContext() {
 		return _vmContext;
@@ -261,12 +265,13 @@ private:
 	std::shared_ptr<FileContext> _fileContext;
 	std::shared_ptr<SignalContext> _signalContext;
 
-	uint64_t _signalMask;
-
 	void *_clientThreadPage;
 	void *_clientClkTrackerPage;
 	void *_clientFileTable;
 
+	helix::UniqueDescriptor _threadDescriptor;
+
+	uint64_t _signalMask;
 	std::vector<std::shared_ptr<Process>> _children;
 
 	// The following intrusive queue stores notifications for wait(). 

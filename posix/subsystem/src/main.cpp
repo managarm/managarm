@@ -54,8 +54,6 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
 	return globalCredentialsMap.at(creds);
 }
 
-cofiber::no_future serve(std::shared_ptr<Process> self, helix::UniqueDescriptor p);
-
 void dumpRegisters(helix::BorrowedDescriptor thread) {
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
@@ -106,15 +104,9 @@ COFIBER_ROUTINE(cofiber::no_future, observe(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
-	
-			HelHandle new_thread;
-			HEL_CHECK(helCreateThread(child->fileContext()->getUniverse().getHandle(),
-					child->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
-					0, 0, kHelThreadStopped, &new_thread));
-
-			serve(child, helix::UniqueDescriptor(new_thread));
 
 			// Copy registers from the current thread to the new one.
+			auto new_thread = child->threadDescriptor().getHandle();
 			uintptr_t pcrs[2], gprs[15], thrs[2];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
@@ -310,7 +302,9 @@ COFIBER_ROUTINE(cofiber::no_future, interruptThread(std::shared_ptr<Process> sel
 }))
 
 COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
-		helix::UniqueDescriptor p), ([self, lane = std::move(p)] {
+		helix::BorrowedDescriptor thread), ([=] {
+	helix::UniqueDescriptor lane = thread.dup();
+
 	observe(self, lane);
 	interruptThread(self, lane);
 

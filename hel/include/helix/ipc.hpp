@@ -54,8 +54,8 @@ struct UniqueDescriptor {
 	void release() {
 		_handle = kHelNullHandle;
 	}
-	
-	UniqueDescriptor dup() {
+
+	UniqueDescriptor dup() const {
 		HelHandle new_handle;
 		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
 		return UniqueDescriptor(new_handle);
@@ -84,6 +84,12 @@ struct BorrowedDescriptor {
 
 	HelHandle getHandle() const {
 		return _handle;
+	}
+
+	UniqueDescriptor dup() const {
+		HelHandle new_handle;
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
+		return UniqueDescriptor(new_handle);
 	}
 
 private:
