@@ -620,6 +620,9 @@ void handleSyscall(SyscallImageAccessor image) {
 				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
 		*image.out0() = handle;
 	} break;
+	case kHelCallQueryThreadStats: {
+		*image.error() = helQueryThreadStats((HelHandle)arg0, (HelThreadStats *)arg1);
+	} break;
 	case kHelCallSetPriority: {
 		*image.error() = helSetPriority((HelHandle)arg0, (int)arg1);
 	} break;

@@ -607,6 +607,14 @@ COFIBER_ROUTINE(async::result<void>, Process::exec(std::shared_ptr<Process> proc
 	COFIBER_RETURN();
 }))
 
+void Process::retire(Process *process) {
+	assert(process->_parent);
+
+	HelThreadStats stats;
+	HEL_CHECK(helQueryThreadStats(process->_threadDescriptor.getHandle(), &stats));
+	process->_parent->_accumulatedUsage.userTime += stats.userTime;
+}
+
 void Process::notify() {
 	auto parent = getParent();
 	assert(parent);
@@ -626,6 +634,8 @@ COFIBER_ROUTINE(async::result<int>, Process::wait(int pid, bool non_blocking), (
 			if(pid > 0 && pid != it->pid())
 				continue;
 			_notifyQueue.erase(it);
+			// TODO: Do we really want to retire here?
+			Process::retire(&(*it));
 			result = it->pid();
 			break;
 		}

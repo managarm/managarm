@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/auxv.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/sysmacros.h>
 #include <sys/timerfd.h>
@@ -353,6 +354,31 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(pid);
 			resp.set_mode(0x200); // 0x200 means exited.
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			COFIBER_AWAIT transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
+			if(logRequests)
+				std::cout << "posix: GET_RESOURCE_USAGE" << std::endl;
+
+			HelThreadStats stats;
+			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
+
+			uint64_t user_time = stats.userTime;
+			if(req.mode() == RUSAGE_CHILDREN) {
+				user_time += self->accumulatedUsage().userTime;
+			}else{
+				assert(req.mode() == RUSAGE_SELF);
+			}
+
+			helix::SendBuffer send_resp;
+
+			managarm::posix::SvrResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_ru_user_time(stats.userTime);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),

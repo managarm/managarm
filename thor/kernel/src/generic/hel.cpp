@@ -1029,6 +1029,34 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	return kHelErrNone;
 }
 
+HelError helQueryThreadStats(HelHandle handle, HelThreadStats *user_stats) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	frigg::SharedPtr<Thread> thread;
+	if(handle == kHelThisThread) {
+		thread = this_thread.toShared();
+	}else{
+		auto irq_lock = frigg::guard(&irqMutex());
+		Universe::Guard universe_guard(&this_universe->lock);
+
+		auto thread_wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!thread_wrapper)
+			return kHelErrNoDescriptor;
+		if(!thread_wrapper->is<ThreadDescriptor>())
+			return kHelErrBadDescriptor;
+		thread = thread_wrapper->get<ThreadDescriptor>().thread;
+	}
+
+	HelThreadStats stats;
+	memset(&stats, 0, sizeof(HelThreadStats));
+	stats.userTime = thread->runTime();
+
+	writeUserObject(user_stats, stats);
+
+	return kHelErrNone;
+}
+
 HelError helSetPriority(HelHandle handle, int priority) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();

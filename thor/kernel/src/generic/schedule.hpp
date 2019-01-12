@@ -32,6 +32,10 @@ struct ScheduleEntity {
 	
 	ScheduleEntity &operator= (const ScheduleEntity &) = delete;
 
+	uint64_t runTime() {
+		return _runTime;
+	}
+
 	[[ noreturn ]] virtual void invoke() = 0;
 
 private:

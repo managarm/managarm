@@ -196,6 +196,11 @@ extern inline __attribute__ (( always_inline )) HelError helCreateThread(HelHand
 	return error;
 };
 
+extern inline __attribute__ (( always_inline )) HelError helQueryThreadStats(HelHandle handle,
+		HelThreadStats *stats) {
+	return helSyscall2(kHelCallQueryThreadStats, (HelWord)handle, (HelWord)stats);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helYield() {
 	return helSyscall0(kHelCallYield);
 };

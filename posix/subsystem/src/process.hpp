@@ -188,6 +188,10 @@ enum class NotifyType {
 	terminated
 };
 
+struct ResourceUsage {
+	uint64_t userTime;
+};
+
 struct Process : std::enable_shared_from_this<Process> {
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
@@ -197,6 +201,8 @@ struct Process : std::enable_shared_from_this<Process> {
 
 	static async::result<void> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
+
+	static void retire(Process *process);
 
 public:
 	Process(Process *parent);
@@ -255,6 +261,10 @@ public:
 
 	async::result<int> wait(int pid, bool non_blocking);
 
+	ResourceUsage accumulatedUsage() {
+		return _accumulatedUsage;
+	}
+
 private:
 	Process *_parent;
 
@@ -289,6 +299,9 @@ private:
 	> _notifyQueue;
 
 	async::doorbell _notifyBell;
+
+	// Resource usage accumulated from children.
+	ResourceUsage _accumulatedUsage = {};
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
