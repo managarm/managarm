@@ -1115,8 +1115,21 @@ void CowMapping::uninstall(bool clear) {
 AddressSpace::AddressSpace() { }
 
 AddressSpace::~AddressSpace() {
-	assert(!"Fix this");
-	// TODO: fix this by iteratively freeing all nodes of *_mappings*.
+	Hole *hole = _holes.get_root();
+	while(hole) {
+		auto next = HoleTree::successor(hole);
+		_holes.remove(hole);
+		frg::destruct(*kernelAlloc, hole);
+		hole = next;
+	}
+
+	Mapping *mapping = _mappings.get_root();
+	while(mapping) {
+		auto next = MappingTree::successor(mapping);
+		_mappings.remove(mapping);
+		frg::destruct(*kernelAlloc, mapping);
+		mapping = next;
+	}
 }
 
 void AddressSpace::setupDefaultMappings() {

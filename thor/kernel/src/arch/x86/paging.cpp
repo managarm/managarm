@@ -402,7 +402,8 @@ ClientPageSpace::ClientPageSpace()
 }
 
 ClientPageSpace::~ClientPageSpace() {
-	assert(!"Implement this");
+	frigg::infoLogger() << "\e[31mthor: ClientPageSpace does not properly"
+			" deallocate page tables\e[39m" << frigg::endLog;
 }
 
 void ClientPageSpace::activate() {
