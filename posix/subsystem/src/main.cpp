@@ -311,12 +311,11 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 	while(true) {
 		helix::Accept accept;
-		helix::RecvBuffer recv_req;
+		helix::RecvInline recv_req;
 
-		char buffer[256];
 		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
 				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req, buffer, 256));
+				helix::action(&recv_req));
 		COFIBER_AWAIT header.async_wait();
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recv_req.error());
@@ -324,7 +323,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 		auto conversation = accept.descriptor();
 
 		managarm::posix::CntRequest req;
-		req.ParseFromArray(buffer, recv_req.actualLength());
+		req.ParseFromArray(recv_req.data(), recv_req.length());
 		if(req.request_type() == managarm::posix::CntReqType::GET_PID) {
 			if(logRequests)
 				std::cout << "posix: GET_PID" << std::endl;
