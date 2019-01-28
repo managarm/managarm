@@ -188,14 +188,16 @@ private:
 	std::vector<std::string> _components;
 };
 
-void PathResolver::setup(ViewPath root, std::string string) {
-	auto path = Path::decompose(std::move(string));
-	if(path.isRelative())
-		std::cout << "posix: Fix relative path resolution" << std::endl;
-	
+void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string) {
 	_rootPath = std::move(root);
+
+	auto path = Path::decompose(std::move(string));
 	_components = std::deque<std::string>(path.begin(), path.end());
-	_currentPath = _rootPath;
+	if(path.isRelative()) {
+		_currentPath = std::move(workdir);
+	}else{
+		_currentPath = _rootPath;
+	}
 }
 
 COFIBER_ROUTINE(async::result<void>, PathResolver::resolve(ResolveFlags flags), ([=] {
@@ -267,17 +269,18 @@ ViewPath rootPath() {
 	return ViewPath{rootView, rootView->getOrigin()};
 }
 
-COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, std::string name,
-		ResolveFlags flags), ([=] {
+COFIBER_ROUTINE(FutureMaybe<ViewPath>, resolve(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags flags), ([=] {
 	PathResolver resolver;
-	resolver.setup(std::move(root), std::move(name));
+	resolver.setup(std::move(root), std::move(workdir), std::move(name));
 	COFIBER_AWAIT resolver.resolve(flags);
 	COFIBER_RETURN(ViewPath(resolver.currentView(), resolver.currentLink()));
 }))
 
-COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, std::string name,
-		ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
-	ViewPath current = COFIBER_AWAIT resolve(root, std::move(name), resolve_flags);
+COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>, open(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags resolve_flags, SemanticFlags semantic_flags), ([=] {
+	ViewPath current = COFIBER_AWAIT resolve(std::move(root), std::move(workdir),
+			std::move(name), resolve_flags);
 	if(!current.second)
 		COFIBER_RETURN(nullptr); // TODO: Return an error code.
 

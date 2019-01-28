@@ -73,7 +73,7 @@ private:
 using ViewPath = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
 
 struct PathResolver {
-	void setup(ViewPath root, std::string string);
+	void setup(ViewPath root, ViewPath workdir, std::string string);
 
 	async::result<void> resolve(ResolveFlags flags = 0);
 
@@ -102,9 +102,10 @@ async::result<void> populateRootView();
 ViewPath rootPath();
 
 // TODO: Switch to PathResolver instead of using this function.
-FutureMaybe<ViewPath> resolve(ViewPath root, std::string name, ResolveFlags flags = 0);
+FutureMaybe<ViewPath> resolve(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags flags = 0);
 
-FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(ViewPath root, std::string name,
-		ResolveFlags resolve_flags = 0, SemanticFlags semantic_flags = 0);
+FutureMaybe<smarter::shared_ptr<File, FileHandle>> open(ViewPath root, ViewPath workdir,
+		std::string name, ResolveFlags resolve_flags = 0, SemanticFlags semantic_flags = 0);
 
 #endif // POSIX_SUBSYSTEM_VFS_HPP

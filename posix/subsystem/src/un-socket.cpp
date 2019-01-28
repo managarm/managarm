@@ -250,7 +250,8 @@ public:
 		std::cout << "posix: Bind to " << path << std::endl;
 
 		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(), std::move(path));
+		resolver.setup(process->fsContext()->getRoot(),
+				process->fsContext()->getWorkingDirectory(), std::move(path));
 		COFIBER_AWAIT resolver.resolve(resolvePrefix);
 		assert(resolver.currentLink());
 
@@ -277,7 +278,8 @@ public:
 		std::cout << "posix: Connect to " << path << std::endl;
 
 		PathResolver resolver;
-		resolver.setup(process->fsContext()->getRoot(), std::move(path));
+		resolver.setup(process->fsContext()->getRoot(),
+				process->fsContext()->getWorkingDirectory(), std::move(path));
 		COFIBER_AWAIT resolver.resolve();
 		assert(resolver.currentLink());
 

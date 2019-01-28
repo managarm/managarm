@@ -135,6 +135,7 @@ std::shared_ptr<FsContext> FsContext::create() {
 	auto context = std::make_shared<FsContext>();
 
 	context->_root = rootPath();
+	context->_workDir = rootPath();
 
 	return context;
 }
@@ -143,6 +144,7 @@ std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original)
 	auto context = std::make_shared<FsContext>();
 
 	context->_root = original->_root;
+	context->_workDir = original->_workDir;
 
 	return context;
 }
@@ -151,8 +153,16 @@ ViewPath FsContext::getRoot() {
 	return _root;
 }
 
+ViewPath FsContext::getWorkingDirectory() {
+	return _workDir;
+}
+
 void FsContext::changeRoot(ViewPath root) {
 	_root = std::move(root);
+}
+
+void FsContext::changeWorkingDirectory(ViewPath workdir) {
+	_workDir = std::move(workdir);
 }
 
 // ----------------------------------------------------------------------------

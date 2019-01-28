@@ -49,11 +49,14 @@ struct FsContext {
 	static std::shared_ptr<FsContext> clone(std::shared_ptr<FsContext> original);
 
 	ViewPath getRoot();
+	ViewPath getWorkingDirectory();
 
 	void changeRoot(ViewPath root);
+	void changeWorkingDirectory(ViewPath root);
 
 private:
 	ViewPath _root;
+	ViewPath _workDir;
 };
 
 struct FileDescriptor {

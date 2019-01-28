@@ -477,7 +477,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.target_path());
+			auto target = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.target_path());
 			assert(target.second);
 			if(req.fs_type() == "sysfs") {
 				target.first->mount(target.second, getSysfs());	
@@ -489,7 +490,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 				target.first->mount(target.second, pts::getFsRoot());	
 			}else{
 				assert(req.fs_type() == "ext2");
-				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+				auto source = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+						self->fsContext()->getWorkingDirectory(), req.path());
 				assert(source.second);
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
@@ -511,9 +513,39 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				self->fsContext()->changeRoot(path);
+
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}else{
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+				auto ser = resp.SerializeAsString();
+				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+						helix::action(&send_resp, ser.data(), ser.size()));
+				COFIBER_AWAIT transmit.async_wait();
+				HEL_CHECK(send_resp.error());
+			}
+		}else if(req.request_type() == managarm::posix::CntReqType::CHDIR) {
+			if(logRequests)
+				std::cout << "posix: CHDIR" << std::endl;
+
+			helix::SendBuffer send_resp;
+
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
+			if(path.second) {
+				self->fsContext()->changeWorkingDirectory(path);
 
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -539,7 +571,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 
 			helix::SendBuffer send_resp;
 
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -567,7 +600,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 
 			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(), req.path());
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			COFIBER_AWAIT resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
@@ -599,7 +633,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(), req.path());
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			COFIBER_AWAIT resolver.resolve(resolvePrefix);
 			assert(resolver.currentLink());
 
@@ -623,7 +658,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 
 			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(), req.path());
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			COFIBER_AWAIT resolver.resolve();
 			if(!resolver.currentLink()) {
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -637,7 +673,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			}
 			
 			PathResolver new_resolver;
-			new_resolver.setup(self->fsContext()->getRoot(), req.target_path());
+			new_resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.target_path());
 			COFIBER_AWAIT new_resolver.resolve(resolvePrefix);
 			assert(new_resolver.currentLink());
 
@@ -662,7 +699,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_resp;
 
 			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(), req.path());
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			if(req.request_type() == managarm::posix::STAT) {
 				COFIBER_AWAIT resolver.resolve();
 			}else{
@@ -730,7 +768,7 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			helix::SendBuffer send_data;
 			
 			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
-					req.path(), resolveDontFollow);
+					self->fsContext()->getWorkingDirectory(), req.path(), resolveDontFollow);
 			if(!path.second) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -789,7 +827,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			smarter::shared_ptr<File, FileHandle> file;
 
 			PathResolver resolver;
-			resolver.setup(self->fsContext()->getRoot(), req.path());
+			resolver.setup(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			if(req.flags() & managarm::posix::OF_CREATE) {
 				COFIBER_AWAIT resolver.resolve(resolvePrefix);
 				if(!resolver.currentLink()) {
@@ -1014,7 +1053,8 @@ COFIBER_ROUTINE(cofiber::no_future, serve(std::shared_ptr<Process> self,
 			
 			helix::SendBuffer send_resp;
 			
-			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(), req.path());
+			auto path = COFIBER_AWAIT resolve(self->fsContext()->getRoot(),
+					self->fsContext()->getWorkingDirectory(), req.path());
 			if(path.second) {
 				auto owner = path.second->getOwner();
 				COFIBER_AWAIT owner->unlink(path.second->getName());
