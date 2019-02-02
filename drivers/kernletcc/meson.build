@@ -15,7 +15,8 @@ executable('kernletcc', ['src/main.cpp', 'src/fafnir.cpp', kernlet_pb],
 		lib_cofiber_dep,
 		lib_helix_dep,
 		proto_lite_dep,
-		libmbus_protocol_dep
+		libmbus_protocol_dep,
+		libkernlet_protocol_dep
 	],
 	install: true)
 

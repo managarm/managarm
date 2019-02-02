@@ -30,7 +30,8 @@ COFIBER_ROUTINE(async::result<void>, connectKernletCompiler(), ([] {
 	COFIBER_AWAIT foundKernletCompiler.async_wait();
 }))
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size_t size), ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size_t size,
+		std::vector<BindType> bind_types), ([=] {
 	// Compile the kernlet object.
 	helix::Offer offer;
 	helix::SendBuffer send_req;
@@ -40,6 +41,17 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, compile(void *code, size
 
 	managarm::kernlet::CntRequest req;
 	req.set_req_type(managarm::kernlet::CntReqType::COMPILE);
+
+	for(auto bt : bind_types) {
+		managarm::kernlet::ParameterType proto;
+		switch(bt) {
+		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
+		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
+		default:
+			assert(!"Unexpected binding type");
+		}
+		req.add_bind_types(proto);
+	}
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(kernletCompilerLane, helix::Dispatcher::global(),

@@ -7,8 +7,7 @@
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
 #include <kernlet.pb.h>
-
-std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size);
+#include "common.hpp"
 
 // ----------------------------------------------------------------------------
 // kernletctl handling.
@@ -37,7 +36,8 @@ COFIBER_ROUTINE(async::result<void>, enumerateCtl(), ([] {
 	COFIBER_RETURN();
 }))
 
-COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, size_t size), ([=] {
+COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, size_t size,
+		std::vector<BindType> bind_types), ([=] {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::SendBuffer send_data;
@@ -46,8 +46,17 @@ COFIBER_ROUTINE(async::result<helix::UniqueDescriptor>, upload(const void *elf, 
 
 	managarm::kernlet::CntRequest req;
 	req.set_req_type(managarm::kernlet::CntReqType::UPLOAD);
-	req.add_bind_types(managarm::kernlet::MEMORY_VIEW);
-	req.add_bind_types(managarm::kernlet::OFFSET);
+
+	for(auto bt : bind_types) {
+		managarm::kernlet::ParameterType proto;
+		switch(bt) {
+		case BindType::offset: proto = managarm::kernlet::OFFSET; break;
+		case BindType::memoryView: proto = managarm::kernlet::MEMORY_VIEW; break;
+		default:
+			assert(!"Unexpected binding type");
+		}
+		req.add_bind_types(proto);
+	}
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(kernletCtlLane, helix::Dispatcher::global(),
@@ -98,9 +107,22 @@ COFIBER_ROUTINE(cofiber::no_future, serveCompiler(helix::UniqueLane lane),
 			helix::SendBuffer send_resp;
 			helix::PushDescriptor push_kernlet;
 
+			std::vector<BindType> bind_types;
+			for(int i = 0; i < req.bind_types_size(); i++) {
+				auto proto = req.bind_types(i);
+				BindType bt;
+				switch(proto) {
+				case managarm::kernlet::OFFSET: bt = BindType::offset; break;
+				case managarm::kernlet::MEMORY_VIEW: bt = BindType::memoryView; break;
+				default:
+					assert(!"Unexpected binding type");
+				}
+				bind_types.push_back(bt);
+			}
+
 			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recv_code.data()),
-					recv_code.length());
-			auto object = COFIBER_AWAIT upload(elf.data(), elf.size());
+					recv_code.length(), bind_types);
+			auto object = COFIBER_AWAIT upload(elf.data(), elf.size(), bind_types);
 
 			managarm::kernlet::SvrResponse resp;
 			resp.set_error(managarm::kernlet::Error::SUCCESS);

@@ -416,7 +416,7 @@ COFIBER_ROUTINE(cofiber::no_future, Controller::handleIrqs(), ([=] {
 	kernlet_program.push_back(FNR_OP_AND);
 
 	auto kernlet_object = COFIBER_AWAIT compile(kernlet_program.data(),
-			kernlet_program.size());
+			kernlet_program.size(), {BindType::memoryView, BindType::offset});
 
 	HelKernletData data[2];
 	data[0].handle = _mmio.getHandle();

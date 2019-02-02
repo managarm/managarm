@@ -8,15 +8,31 @@
 #include <lewis/elf/file-emitter.hpp>
 #include <lewis/target-x86_64/arch-passes.hpp>
 #include <lewis/target-x86_64/mc-emitter.hpp>
+#include "common.hpp"
+
+struct Binding {
+	BindType type;
+	size_t disp;
+};
 
 struct Compilation {
+	std::vector<Binding> bindings;
+
 	lewis::Function fn;
 	lewis::BasicBlock *bb;
 	std::vector<lewis::Value *> opstack;
 };
 
-std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size) {
+std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size,
+		const std::vector<BindType> &bind_types) {
 	Compilation comp;
+
+	size_t sizeof_bindings = 0;
+	for(auto bt : bind_types) {
+		comp.bindings.push_back({bt, sizeof_bindings});
+		sizeof_bindings += 8;
+	}
+
 	comp.fn.name = "automate_irq";
 	comp.bb = comp.fn.addBlock(std::make_unique<lewis::BasicBlock>());
 
@@ -58,19 +74,19 @@ std::vector<uint8_t> compileFafnir(const uint8_t *code, size_t size) {
 		}else if(opcode == FNR_OP_BINDING) {
 			auto index = extractUint();
 
-			if(index == 0) {
+			if(comp.bindings[index].type == BindType::offset) {
 				auto inst = comp.bb->insertNewInstruction<lewis::LoadOffsetInstruction>(
-						argument, 0);
-				auto result = inst->result.setNew<lewis::LocalValue>();
-				result->setType(lewis::globalPointerType());
-				comp.opstack.push_back(result);
-			}else if(index == 1) {
-				auto inst = comp.bb->insertNewInstruction<lewis::LoadOffsetInstruction>(
-						argument, 8);
+						argument, comp.bindings[index].disp);
 				auto result = inst->result.setNew<lewis::LocalValue>();
 				result->setType(lewis::globalInt32Type());
 				comp.opstack.push_back(result);
-			}else assert(!"TODO: Implement generic bindings");
+			}else if(comp.bindings[index].type == BindType::memoryView) {
+				auto inst = comp.bb->insertNewInstruction<lewis::LoadOffsetInstruction>(
+						argument, comp.bindings[index].disp);
+				auto result = inst->result.setNew<lewis::LocalValue>();
+				result->setType(lewis::globalPointerType());
+				comp.opstack.push_back(result);
+			}else assert(!"Unexpected binding type");
 		}else if(opcode == FNR_OP_AND) {
 			auto left = comp.opstack.back();
 			comp.opstack.pop_back();
