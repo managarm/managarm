@@ -97,7 +97,7 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
-		FileStats stats;
+		FileStats stats{};
 		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
 		stats.fileSize = resp.file_size();
 		stats.numLinks = resp.num_links();
@@ -165,9 +165,12 @@ private:
 		return VfsType::symlink;
 	}
 
-	FutureMaybe<FileStats> getStats() override {
-		throw std::runtime_error("extern_fs: Fix SymlinkNode::getStats()");
-	}
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+		FileStats stats{};
+		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
+		std::cout << "\e[31mposix: Fix extern_fs SymlinkNode::getStats()\e[39m" << std::endl;
+		COFIBER_RETURN(stats);
+	}))
 
 	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
 		helix::Offer offer;
@@ -198,10 +201,11 @@ private:
 	}))
 
 public:
-	SymlinkNode(helix::UniqueLane lane)
-	: _lane{std::move(lane)} { }
+	SymlinkNode(int64_t inode, helix::UniqueLane lane)
+	: _inode{inode}, _lane{std::move(lane)} { }
 
 private:
+	int64_t _inode;
 	helix::UniqueLane _lane;
 };
 
@@ -235,8 +239,10 @@ private:
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix externfs DirectoryNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
+		FileStats stats{};
+		stats.inodeNumber = _inode; // TODO: Move this out of FileStats.
+		std::cout << "\e[31mposix: Fix extern_fs DirectoryNode::getStats()\e[39m" << std::endl;
+		COFIBER_RETURN(stats);
 	}))
 
 	COFIBER_ROUTINE(FutureMaybe<std::shared_ptr<FsLink>>,
@@ -292,13 +298,13 @@ private:
 			std::shared_ptr<FsNode> child;
 			switch(resp.file_type()) {
 			case managarm::fs::FileType::DIRECTORY:
-				child = std::make_shared<DirectoryNode>(_context, pull_node.descriptor());
+				child = std::make_shared<DirectoryNode>(_context, resp.id(), pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::REGULAR:
 				child = std::make_shared<RegularNode>(resp.id(), pull_node.descriptor());
 				break;
 			case managarm::fs::FileType::SYMLINK:
-				child = std::make_shared<SymlinkNode>(pull_node.descriptor());
+				child = std::make_shared<SymlinkNode>(resp.id(), pull_node.descriptor());
 				break;
 			default:
 				throw std::runtime_error("extern_fs: Unexpected file type");
@@ -348,11 +354,12 @@ private:
 	}))
 
 public:
-	DirectoryNode(Context *context, helix::UniqueLane lane)
-	: _context{context}, _lane{std::move(lane)} { }
+	DirectoryNode(Context *context, int64_t inode, helix::UniqueLane lane)
+	: _context{context}, _inode{inode}, _lane{std::move(lane)} { }
 
 private:
 	Context *_context;
+	int64_t _inode;
 	helix::UniqueLane _lane;
 };
 
@@ -390,8 +397,8 @@ std::shared_ptr<FsLink> Context::internalizeLink(FsNode *parent, std::string nam
 
 std::shared_ptr<FsLink> createRoot(helix::UniqueLane lane) {
 	auto context = new Context{};
-	auto node = std::make_shared<DirectoryNode>(context, std::move(lane));
 	// FIXME: 2 is the ext2fs root inode.
+	auto node = std::make_shared<DirectoryNode>(context, 2, std::move(lane));
 	auto intern = context->internalizeNode(2, node);
 	auto link = std::make_shared<Entry>(nullptr, intern);
 	return context->internalizeLink(nullptr, std::string{}, link);

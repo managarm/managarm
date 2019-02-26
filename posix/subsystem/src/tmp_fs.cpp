@@ -21,16 +21,25 @@ namespace {
 
 struct Superblock;
 
-struct SymlinkNode : FsNode {
+struct Node : FsNode {
+	Node(Superblock *superblock);
+
+	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
+		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
+		FileStats stats{};
+		stats.inodeNumber = _inodeNumber;
+		COFIBER_RETURN(stats);
+	}))
+
+private:
+	int64_t _inodeNumber;
+};
+
+struct SymlinkNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
-
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs SymlinkNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
 
 	COFIBER_ROUTINE(expected<std::string>, readSymlink(FsLink *) override, ([=] {
 		COFIBER_RETURN(_link);
@@ -43,17 +52,12 @@ private:
 	std::string _link;
 };
 
-struct DeviceNode : FsNode {
+struct DeviceNode : Node {
 private:
 	VfsType getType() override {
 		return _type;
 	}
 	
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs DeviceNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
-
 	DeviceId readDevice() override {
 		return _id;
 	}
@@ -71,17 +75,12 @@ private:
 	DeviceId _id;
 };
 
-struct SocketNode : FsNode {
+struct SocketNode : Node {
 	SocketNode(Superblock *superblock);
 
 	VfsType getType() override {
 		return VfsType::socket;
 	}
-	
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs SocketNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
 };
 
 struct Link : FsLink {
@@ -145,18 +144,13 @@ private:
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
-struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode : Node, std::enable_shared_from_this<DirectoryNode> {
 	friend struct Superblock;
 	friend struct DirectoryFile;
 private:
 	VfsType getType() override {
 		return VfsType::directory;
 	}
-
-	COFIBER_ROUTINE(FutureMaybe<FileStats>, getStats() override, ([=] {
-		std::cout << "\e[31mposix: Fix tmpfs DirectoryNode::getStats()\e[39m" << std::endl;
-		COFIBER_RETURN(FileStats{});
-	}))
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
 	open(std::shared_ptr<FsLink> link, SemanticFlags semantic_flags), ([=] {
@@ -207,14 +201,10 @@ private:
 };
 
 // TODO: Remove this class in favor of MemoryNode.
-struct InheritedNode : FsNode {
+struct InheritedNode : Node {
 private:
 	VfsType getType() override {
 		return VfsType::regular;
-	}
-
-	FutureMaybe<FileStats> getStats() override {
-		throw std::runtime_error("posix: Fix tmpfs::InheritedNode stat");
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -273,17 +263,13 @@ private:
 	uint64_t _offset;
 };
 
-struct MemoryNode : FsNode {
+struct MemoryNode : Node {
 	friend struct MemoryFile;
 
 	MemoryNode(Superblock *superblock);
 
 	VfsType getType() override {
 		return VfsType::regular;
-	}
-
-	FutureMaybe<FileStats> getStats() override {
-		throw std::runtime_error("posix: Fix tmpfs::MemoryNode stat");
 	}
 
 	COFIBER_ROUTINE(FutureMaybe<SharedFilePtr>,
@@ -348,6 +334,13 @@ struct Superblock : FsSuperblock {
 		dest_dir->_entries.insert(new_link);
 		COFIBER_RETURN(new_link);
 	}))
+
+	int64_t allocateInode() {
+		return _inodeCounter++;
+	}
+
+private:
+	int64_t _inodeCounter = 1;
 };
 
 // ----------------------------------------------------------------------------
@@ -355,7 +348,7 @@ struct Superblock : FsSuperblock {
 // ----------------------------------------------------------------------------
 
 MemoryNode::MemoryNode(Superblock *superblock)
-: FsNode{superblock}, _areaSize{0}, _fileSize{0} { }
+: Node{superblock}, _areaSize{0}, _fileSize{0} { }
 
 void MemoryFile::handleClose() {
 	_serve.cancel();
@@ -429,7 +422,7 @@ MemoryFile::accessMemory(off_t offset),
 // ----------------------------------------------------------------------------
 
 InheritedNode::InheritedNode(Superblock *superblock, std::string path)
-: FsNode{superblock}, _path{std::move(path)} { }
+: Node{superblock}, _path{std::move(path)} { }
 
 // ----------------------------------------------------------------------------
 // DirectoryNode and DirectoryFile implementation.
@@ -470,18 +463,27 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 }
 
 // ----------------------------------------------------------------------------
+// Node implementation.
+// ----------------------------------------------------------------------------
+
+Node::Node(Superblock *superblock)
+: FsNode{superblock} {
+	_inodeNumber = superblock->allocateInode();
+}
+
+// ----------------------------------------------------------------------------
 // SymlinkNode implementation.
 // ----------------------------------------------------------------------------
 
 SymlinkNode::SymlinkNode(Superblock *superblock, std::string link)
-: FsNode{superblock}, _link(std::move(link)) { }
+: Node{superblock}, _link(std::move(link)) { }
 
 // ----------------------------------------------------------------------------
 // DeviceNode implementation.
 // ----------------------------------------------------------------------------
 
 DeviceNode::DeviceNode(Superblock *superblock, VfsType type, DeviceId id)
-: FsNode{superblock}, _type(type), _id(id) {
+: Node{superblock}, _type(type), _id(id) {
 	assert(type == VfsType::charDevice || type == VfsType::blockDevice);
 }
 
@@ -490,14 +492,14 @@ DeviceNode::DeviceNode(Superblock *superblock, VfsType type, DeviceId id)
 // ----------------------------------------------------------------------------
 
 SocketNode::SocketNode(Superblock *superblock)
-: FsNode{superblock} { }
+: Node{superblock} { }
 
 // ----------------------------------------------------------------------------
-// Superblock implementation.
+// DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
 DirectoryNode::DirectoryNode(Superblock *superblock)
-: FsNode{superblock} { }
+: Node{superblock} { }
 
 COFIBER_ROUTINE(async::result<std::shared_ptr<FsLink>>,
 DirectoryNode::mkdir(std::string name), ([=] {
@@ -535,7 +537,7 @@ static Superblock globalSuperblock;
 
 // Ironically, this function does not create a MemoryNode.
 std::shared_ptr<FsNode> createMemoryNode(std::string path) {
-	return std::make_shared<InheritedNode>(nullptr, std::move(path));
+	return std::make_shared<InheritedNode>(&globalSuperblock, std::move(path));
 }
 
 std::shared_ptr<FsLink> createRoot() {
